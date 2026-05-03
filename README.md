@@ -15,6 +15,10 @@ Where Pi's built-in `prompt` and `subagent` give you parameterized Markdown (sta
 | Runtime | ⚪ Not started |
 | Pi extension wiring | ⚪ Not started |
 
+## Heritage
+
+pi-loom is informed by **`mech`**, the declarative YAML workflow engine in the sibling [backlot](../backlot) project. mech and pi-loom share a worldview — typed prompt orchestration, JSON Schema, function-as-unit, conversation-aware calls — but make opposite syntactic choices: mech is declarative YAML + CEL, pi-loom is an imperative language with `@`...`` query templates. See [`spec.md`](./spec.md#heritage-and-relationship-to-mech) for the detailed comparison and the list of mech ideas pi-loom adopts vs. rejects.
+
 ## Install (development)
 
 While iterating locally:
