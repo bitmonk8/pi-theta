@@ -10,12 +10,49 @@ Loom's `schema` keyword does **not** target the full JSON Schema standard. It ta
 - **Reuse**: `$defs` + `$ref`, including recursive references. Generated automatically by the lowering pass; authors do not write `$defs` or `$ref` directly.
 - **Nullability**: expressed as a union with `null` (e.g. a `string | null` Loom type lowers to `{"type": ["string", "null"]}` or an `anyOf` with `{"type": "null"}`). The non-standard `nullable: true` modifier is **not** emitted.
 - **Discriminated unions**: `anyOf` of object schemas distinguished by a single-literal discriminator field. The Loom surface syntax (`schema X = A | B | C`, with implicit detection or explicit `by <field>`) is described in [Schema Declarations](./schemas.md).
-- **Depth**: ≤ 5 levels of nesting at runtime (the JSON document depth, not the schema graph). Recursive schema definitions are fine; recursive *data* is bounded by the runtime cap. (OpenAI's stricter cap is treated as the shared ceiling.)
+- **Depth**: ≤ 5 levels of nesting at runtime (the JSON document depth, not the schema graph). Recursive schema definitions are fine; recursive *data* is bounded by the runtime cap. (OpenAI's stricter cap is treated as the shared ceiling.) The counting algorithm and the enforcement boundaries are pinned down in [Depth Enforcement](#depth-enforcement) below.
 - **Draft**: JSON Schema Draft 2020-12 (required by Anthropic; compatible with OpenAI).
 
 Explicitly **not** supported by `schema`, and rejected at parse time: `pattern`, `format`, `minLength`/`maxLength`, `minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum`, `multipleOf`, `minItems`/`maxItems`, `uniqueItems`, `contains`/`minContains`/`maxContains`, `patternProperties`, `propertyNames`, `minProperties`/`maxProperties`, `unevaluatedProperties`, `unevaluatedItems`, `dependentRequired`, `dependentSchemas`, `nullable`.
 
 Constraints the subset cannot express (string patterns, numeric bounds, array length, etc.) are out of scope for `schema` and belong in code-side validation if needed.
+
+## Depth Enforcement
+
+The `Depth ≤ 5` ceiling above is a property of the **runtime JSON value**, not of the schema graph. AJV has no `maxDepth` keyword (the JSON Schema 2020-12 vocabulary omits it), so the cap is policed by the validator service alongside AJV rather than by the lowered schema document itself.
+
+**Counting algorithm.**
+
+- A scalar (`string`, `number`, `integer`, `boolean`, `null`) has depth `1`.
+- An empty object `{}` or empty array `[]` has depth `1`.
+- A non-empty object or array has depth `1 + max(depth(child))` over its members or elements.
+- `anyOf` arms are not levels: depth is measured against the **materialised** value at runtime (one arm exists; the others do not).
+- The cap is `depth ≤ 5`.
+
+Worked examples:
+
+- `42` → depth `1` (accepted).
+- `{"a": 1}` → depth `2` (accepted).
+- `{"a": [{"b": 1}]}` → depth `4` (accepted).
+- `{"a": {"b": {"c": {"d": {"e": 1}}}}}` → depth `6` (rejected).
+
+**Enforcement point.** The depth check lives in the `SchemaValidator` service (the same component that owns the AJV cache; see [Implementation Notes — Runtime](./implementation-notes.md#runtime)). It runs at every site where a Loom-declared schema is validated against runtime JSON:
+
+1. **Typed-query response validation** — after the model's final assistant text is JSON-parsed and before the value is handed back to loom code (see [Query](./query.md)).
+2. **Tool-call argument validation, model-driven** — after the model's `arguments` payload is JSON-decoded, before the tool body runs (see [Tool Calls](./tool-calls.md)).
+3. **Tool-call argument validation, code-driven** — when loom code invokes `<name>(...)`, on the constructed argument value before encoding (see [Tool Calls](./tool-calls.md)).
+4. **`params` validation at loom invocation** — whether bound via the binder or supplied directly by `invoke` (see [Frontmatter](./frontmatter.md)).
+
+The walk runs **before** AJV at each site: it is a cheap fast-fail and avoids feeding pathologically deep payloads into the validator. Implementation is a recursive descent over the parsed JSON value with a depth counter; the first node whose depth would exceed `5` short-circuits and produces the failure.
+
+**Error shape.** A depth violation surfaces as a standard validation failure on the same channel as any other AJV error at that boundary. For typed queries, this is `Err(QueryError { kind: "validation", ... })` carrying a single `ValidationIssue` whose `path` is the JSON Pointer to the first too-deep node, `message` is `"JSON document depth exceeds 5"`, and `schema_keyword` is `"maxDepth"` (the only `schema_keyword` value Loom emits that is not a literal AJV keyword; `query.md`'s `ValidationIssue.schema_keyword` enumeration is open). For tool-call argument validation and `params` validation the violation surfaces as the analogous variant on those boundaries (`ToolCallError` cause / `InvokeFailure`; see [Tool Calls](./tool-calls.md) and [Invocation](./invocation.md)). Because depth violations are `validation` failures, typed-query coercion follow-ups apply per [Query — Schema-validation coercion](./query.md); the depth walk re-runs on each follow-up's response.
+
+**Edge cases.**
+
+- The depth walk runs on the **post-decode** JSON value, not on the raw assistant text. A response that fails to parse as JSON surfaces as the existing JSON-parse validation failure, not a depth failure.
+- Depth applies to the whole validated value, including any nested `array<T>` and any inline-object subtree that the lowering pass hoisted via `__inline_<slug>` indirection. The indirection is purely a schema-side artefact; it does not change the runtime value's structure or its measured depth.
+- For `params` whose declared types are restricted to primitives or `array<T>` over primitives, depth is structurally bounded at `2` and the walk is a no-op. The walk is still installed at the `params` boundary unchanged — a uniform implementation across all four sites means future widening of `params` types inherits the cap automatically.
+- A schema graph cycle (e.g. `schema Tree { children: array<Tree> }`) is permitted at parse time; the cap fires only on data instances whose realised nesting exceeds `5`.
 
 ## Lowering Algorithm
 
