@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_37 findings retained, 1 false positives dropped, 0 persistent failures_
+_36 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -359,83 +359,6 @@ Edge cases the implementer must handle:
 - "Synthesized `ExtensionContext` is incomplete against the full interface" — same-cluster (also about the gap between assumed and actual `ExtensionContext` surface; the prompt-mode fix should not introduce new assumptions about ctx fields the synthesised ctx cannot satisfy)
 - "Extension entry point path is wrong" — same-cluster (companion factual error in the same contract document)
 - "`tools` vs `customTools` in `createAgentSession`" — same-cluster (another API-misnaming bug in the same file; co-edit candidate)
-
----
-
-# Cancellation source `ctx.signal` is `undefined` when a slash-handler starts
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** `ctx.signal` is `undefined` in command-handler contexts
-**Kind:** codebase-grounding-broad, doc-alignment-broad, assumptions
-
-## Finding
-
-`spec_topics/cancellation.md` and `spec_topics/pi-integration-contract.md` both name `ctx.signal` from the Pi slash-command handler as the loom's authoritative `AbortSignal` — every downstream query, tool call, and child invoke is stated to derive from it. Pi's own extension documentation contradicts this: `ctx.signal` is "the current agent abort signal, or `undefined` when no agent turn is active … usually `undefined` in idle or non-turn contexts such as session events, extension commands, and shortcuts fired while pi is idle" (`@mariozechner/pi-coding-agent/docs/extensions.md`, §`ctx.signal`).
-
-A slash command fires from the idle state. At the moment the loom interpreter is constructed and begins executing — before the first `pi.sendUserMessage` opens a turn — `ctx.signal` is therefore `undefined`. An implementer following the spec verbatim will pass `undefined` into the interpreter's pre-loop / pre-query / pre-tool checkpoint code and into every adapter (`createAgentSession`, the synthesised tool-execution `ExtensionContext`, the child-invoke derived signal). All cancellation paths silently degrade to no-ops; pressing Esc during the loom's outer interpreter loop will not stop it.
-
-The fix is structural, not cosmetic: the loom needs a cancellation source it owns for the lifetime of the invocation, plus a forwarding rule for the Pi-managed turn signal whenever a turn is actually live. The current spec gives implementers neither, and the wrong identifier where it does say something.
-
-## Spec Documents
-
-- `spec_topics/cancellation.md` — "Signal sources" bullet list (edited)
-- `spec_topics/pi-integration-contract.md` — "Cancellation source" paragraph (edited)
-- `spec_topics/pi-integration-contract.md` — "Tool execution from loom code" (the synthesised `ExtensionContext.signal` field, edited)
-- `C:/Users/thomasa/AppData/Roaming/npm/node_modules/@mariozechner/pi-coding-agent/docs/extensions.md` — `ctx.signal`, `ctx.abort()`, `ExtensionCommandContext` sections (read-only)
-
-## Plan Impact
-
-**Phases:** MVP, Vertical V12, Vertical V14, Vertical V18
-
-**Leaves (implementation order):**
-
-- M — Minimal end-to-end loom — (modified) — "AbortError surfaces as a system note" test needs the new signal source to be the thing that fires
-- V12a — `mode: subagent` accepted; AgentSession spawn — (modified) — `signal` passed to `createAgentSession` becomes the runtime-owned controller's signal, not `ctx.signal`
-- V14h — `ToolCallError` variant: `cancelled` cause — (modified) — pre-call signal check uses the runtime controller; `signal` forwarded to `execute(...)` is the runtime signal
-- V18a — `AbortSignal` at every loop iteration boundary — (modified) — checkpoint reads runtime controller's signal
-- V18b — `AbortSignal` before every `@` query — (modified) — same; provider-abort path uses runtime signal
-- V18c — `AbortSignal` before every tool call — (modified) — same; signal forwarded into tool `execute` is the runtime signal
-- V18d — `AbortSignal` before every `invoke` — (modified) — child-derived signal chains from the runtime controller, not `ctx.signal`
-- V18e — Cancellation propagates downward only — (modified) — propagation graph rooted at the runtime controller
-
-## Consequence
-
-**Severity:** correctness
-
-Following the spec verbatim produces a loom whose cancellation surfaces compile and pass shape-checks but never fire: passing `undefined` as an `AbortSignal` is silently accepted by every Pi adapter and by `AbortSignal`-aware libraries. Esc during the interpreter's outer loop, during a long binder call, or during a stuck `@`-query then has no effect, and the user has no recourse short of killing the Pi process. Two reasonable implementers will diverge — one passes `undefined` through; the other invents an ad-hoc controller — and neither matches what the spec claims.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the "loom's signal *is* `ctx.signal`" framing with an owned-controller-plus-forwarding model:
-
-1. **Owned controller per invocation.** When the slash-command handler fires (or when a tool-exposed loom's `execute(toolCallId, params, signal, ...)` is called, or when `invoke(...)` spawns a child), the runtime constructs a fresh `AbortController` (`loomAbort`) whose lifetime is the invocation. *This* signal — `loomAbort.signal` — is what every downstream component sees: the interpreter's loop/query/tool/invoke checkpoints, the `signal` argument to `tool.execute(...)` for code-side calls, the synthesised `ExtensionContext.signal` for the same, the `signal` passed into `createAgentSession(...)` in subagent mode, and the derived signal handed to child invokes.
-
-2. **Forwarding rules** (each is one of the three named entry points):
-   - **Slash-command entry.** The handler subscribes to Pi's turn lifecycle for the duration of the loom run. Whenever a turn is active and `ctx.signal` is defined inside one of the loom's own event handlers (`tool_call`, `tool_result`, `message_update`, `turn_end`, `agent_end` per Pi docs), if that signal aborts, the handler calls `loomAbort.abort()`. Equivalently, when an `agent_end` event reports a user-cancelled turn, the runtime aborts `loomAbort`. This is the path that makes Esc-during-`@`-query work end-to-end.
-   - **Tool-exposed entry.** The `signal` parameter to `execute(toolCallId, params, signal, onUpdate, ctx)` is wired so that `signal.aborted` triggers `loomAbort.abort()` (one-shot listener registered at entry). The runtime also calls `loomAbort.abort()` itself on any internal failure that should cascade.
-   - **`invoke` entry.** The parent passes `loomAbort.signal` into the child's constructor; the child's own `loomAbort` is a derived controller that aborts when the parent's signal aborts but not vice versa (matching V18e's downward-only propagation).
-
-3. **Idle-context tolerance.** The contract explicitly notes that `ctx.signal` may be `undefined` at slash-command entry and that the runtime must not depend on its truthiness; the runtime-owned controller is the single source of truth for in-loom cancellation.
-
-Edge cases the implementer must watch:
-
-- **Listener leakage.** Each forwarding `signal.aborted` listener (Pi-side or invoke-parent-side) must be removed when the loom returns or panics, or invocation lifetimes will leak `AbortController`s.
-- **Already-aborted parent.** If the parent invoke's signal is already aborted at child-spawn time, the child must surface `Err({kind:"cancelled"})` synchronously without spawning a session.
-- **Subagent mode.** `createAgentSession` is given `loomAbort.signal`; aborting `loomAbort` must propagate through the spawned `AgentSession` to in-flight provider calls. Verify the Pi `AgentSession` API actually consumes the signal end-to-end (this is a separate contract item the Pi-integration finding touches).
-- **Binder uncancellability.** Today's spec lists no checkpoint inside the binder call; that gap is real (see related finding) but resolving it is independent — even with binder uncancellable, the controller model above is the right substrate.
-- **Tool-call `signal` semantics.** Tools call `signal?.aborted` defensively; passing `loomAbort.signal` (always defined) means the `?.` optional-chain is no longer load-bearing. Document that the runtime guarantees a defined signal to all tool adapters.
-
-## Related Findings
-
-- "`ctx.sendUserMessage()` does not exist on command-handler context" — same-cluster (both stem from the same misreading of the slash-handler `ExtensionCommandContext` surface)
-- "`agent_end` fires globally, not per-session" — decision-dependency (the forwarding rule for slash-command entry needs `agent_end` to be observable per loom turn; if it isn't, the forwarding hook needs a different anchor)
-- "Synthesized `ExtensionContext` is incomplete against the full interface" — co-resolve (the synthesised ctx for tool execution holds the same `signal` field, and both findings edit the same paragraph in `pi-integration-contract.md`)
-- "Cancellation checkpoints miss binder, AJV validation, and schema-lowering" — same-cluster (extends the checkpoint set; does not depend on the source-of-signal fix)
-- "Cancellation race conditions unspecified" — same-cluster (race semantics layer on top of whichever controller the runtime owns)
 
 ---
 

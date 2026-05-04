@@ -2,11 +2,15 @@
 
 Every loom invocation runs under an `AbortSignal` provided by Pi. V1 cancellation rules:
 
-**Signal sources:**
+**Signal source.** Each loom invocation owns a fresh `AbortController` (`loomAbort`) that the runtime constructs at invocation start. Its `loomAbort.signal` — never `ctx.signal` directly — is the single source of truth that every downstream component sees: the interpreter's loop, `@`-query, tool-call, and `invoke` checkpoints; the `signal` argument forwarded to `tool.execute(...)` for code-side tool calls; the synthesised `ExtensionContext.signal` for the same; the `signal` passed into `createAgentSession(...)` in subagent mode; and the parent signal handed to a child invoke. `loomAbort.signal` is always defined; tool adapters and Pi APIs that accept an `AbortSignal` receive it directly without optional-chaining.
 
-- Slash-command invocation: the loom receives `ctx.signal` from the Pi command handler. In interactive mode this signal aborts when the user presses Esc or Ctrl-C.
-- Tool-driven (a loom registered into another loom's `tools:`): the signal is the `signal` argument passed to the tool's `execute(toolCallId, params, signal, ...)`.
-- `invoke(...)` call: the child loom inherits a derived signal from its caller — the child aborts whenever the caller does.
+**Forwarding into `loomAbort`** depends on the entry point:
+
+- *Slash-command entry.* The handler subscribes for the duration of the loom run. Whenever a Pi turn is active and the per-handler `ctx.signal` is observed inside one of the runtime's own event handlers (`tool_call`, `tool_result`, `message_update`, `turn_end`, `agent_end`), an aborted `ctx.signal` triggers `loomAbort.abort()`; equivalently, an `agent_end` event reporting a user-cancelled turn aborts `loomAbort`. This is the path that makes Esc-during-`@`-query work end-to-end. The runtime MUST tolerate `ctx.signal` being `undefined` at slash-command entry — Pi documents `ctx.signal` as `undefined` in idle, non-turn contexts (which is exactly when the slash-command handler fires) — and MUST NOT depend on its truthiness for any pre-turn checkpoint.
+- *Tool-exposed entry (a loom registered into another loom's `tools:`).* The `signal` parameter passed to `execute(toolCallId, params, signal, onUpdate, ctx)` is wired so that `signal.aborted` triggers `loomAbort.abort()` via a one-shot listener registered at entry. The runtime may also call `loomAbort.abort()` itself on any internal failure that should cascade.
+- *`invoke(...)` entry.* The parent passes its own `loomAbort.signal` into the child's constructor; the child constructs its own `loomAbort` as a derived controller that aborts when the parent's signal aborts but not vice versa, matching the downward-only **Propagation** rule below. If the parent's signal is already aborted at child-spawn time, the child surfaces `Err(QueryError { kind: "cancelled", ... })` synchronously without spawning a session.
+
+All forwarding listeners (Pi-side or invoke-parent-side) are removed when the loom returns or panics, in the same `finally` block that disposes any subagent `AgentSession` (see [Pi Integration Contract](./pi-integration-contract.md)); listener cleanup is mandatory to prevent `AbortController` leakage across long-running Pi sessions.
 
 **Propagation.** Cancellation propagates *down* (parent → child invokes, parent → in-flight queries, parent → in-flight tool calls). It does *not* propagate *up*: a child loom cancelling internally surfaces as `Err(QueryError { kind: "cancelled" })` (or the appropriate sub-variant) to the parent, which may handle it (`match`) or propagate it (`?`).
 
