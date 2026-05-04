@@ -41,7 +41,7 @@ Rules:
 - A redundant rename whose wire name equals the loom name (`field_name as "field_name": T`) is `loom/parse/redundant-wire-name` (warning, not error).
 - For discriminated unions, detection runs on the *wire* name (it inspects the lowered schema). The explicit form `by <field>` accepts the loom-side name — the only name visible in code — and the lowering resolves it to each variant's wire name.
 
-The same `as` keyword is used by imports (`import { X as Y }`) and enum variant explicit values (`Low = "low"`); the surface stays consistent.
+The same `as` keyword is used by imports (`import { X as Y }`) and field wire-name renames; both read as "this thing, known outside as that name."
 
 **Type-alias / union schema** — `schema X = ...`:
 

@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_72 findings retained, 1 false positives dropped, 0 persistent failures_
+_71 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5695,61 +5695,6 @@ Edge cases the implementer must watch:
 - "`ToolCallError` / `ToolFailureError` names do not signal their contexts" — same-cluster (parallel naming concern within the same union; both findings argue the names should make the contextual distinction explicit)
 - "`ValidationFailure` / `ValidationError` — \"failure\" and \"error\" at wrong nesting levels" — same-cluster (same `Failure` vs `Error` axis, but at the inner-element level rather than the union-variant level; resolutions can be coordinated for vocabulary consistency)
 - "Per-`kind` system-note table covers only 5 of 8 `QueryError` variants" — same-cluster (the table will need to use the new schema name when it grows to cover the missing variants)
-
----
-
-## spec_topics/schemas.md
-
----
-
-# `as` keyword reuse claim is contradicted by its own example
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** `as` keyword claim contradicted by example
-**Kind:** consistency
-
-## Finding
-
-`spec_topics/schemas.md` ends the wire-name renaming section with the sentence:
-
-> "The same `as` keyword is used by imports (`import { X as Y }`) and enum variant explicit values (`Low = "low"`); the surface stays consistent."
-
-The parenthetical example uses `=`, not `as`, and every enum declaration shown elsewhere in the same file (and across the spec) consistently uses `=` for explicit variant values. The claim that `as` is reused for enum variants is false: `as` appears in two places — `import { X as Y }` and field-level wire-name renaming (`first_name as "FirstName": T`) — and enum-variant explicit values use `=` like a type alias would. The sentence both undermines its own paragraph and gives an implementer a wrong mental model of which surface marker means what.
-
-## Spec Documents
-
-- `spec_topics/schemas.md` — wire-name renaming closing sentence (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(The claim is purely prose; no leaf depends on the alleged uniformity. V4b/V10a–c/V13a already specify the correct surface — `=` for enum variant values, `as` for wire renames — independently of this sentence.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader who takes the sentence at face value will write `Low as "low"` and get a parse error, then have to re-read the surrounding examples to recover. No implementation diverges; no behaviour is wrong. The damage is reader confidence and a few seconds of grammar churn.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Drop the enum-variant clause entirely. Replace the sentence with one that names the two real `as` sites and stops there:
-
-> "The same `as` keyword is used by imports (`import { X as Y }`) and field wire-name renames; both read as 'this thing, known outside as that name.'"
-
-Do not try to salvage the "surface stays consistent" framing by stretching it to cover `=` — `=` is the type-alias / value-binding marker (`schema X = ...`, `Low = "low"`), and conflating the two markers obscures rather than clarifies. The honest summary is that loom uses `as` for renaming across a name-space boundary and `=` for binding a name to a value or type; these are two different jobs and the surface does not need to pretend otherwise.
-
-## Related Findings
-
-- "Missing edge cases in schema declarations" — same-cluster (touches the same schemas.md surface; resolves independently)
-- "\"When to use which\" advisory in schema spec" — same-cluster (another prose-quality issue in the same file's enum section; resolves independently)
 
 ---
 
