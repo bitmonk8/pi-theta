@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_70 findings retained, 1 false positives dropped, 0 persistent failures_
+_69 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5171,62 +5171,6 @@ Edge cases the implementer must watch:
 - "`tools` vs `customTools` in `createAgentSession`" — same-cluster (both inform what concretely lands in the load-time table)
 - "Tool-call loop is unbounded" — same-cluster (parallel-tool-mode behaviour intersects with loop-termination behaviour inside `@`...`` queries)
 - "Hot-reload via `ctx.reload()` causes full extension teardown" — decision-dependency (the recommendation defers hot-reload of held tool references to that finding's resolution)
-
----
-
-# `tool-calls.md` "Relationship with `invoke`" section mixes normative claims with authoring advice
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** "Relationship with `invoke`" section is authoring advice
-**Kind:** cruft
-
-## Finding
-
-The "Relationship with `invoke`" block in `spec_topics/tool-calls.md` (lines 45–50) bundles three things together:
-
-1. Normative equivalence claims — "operationally equivalent for subagent-mode callees — both spawn a fresh isolated conversation, both validate the return value … both surface failures through the same `QueryError` variants" and "share a single error model and a single schema-lowering pipeline." These are implementer-relevant contracts and are stated nowhere else.
-2. A normative restriction — "prompt-mode callees cannot appear in `tools:`." This is duplicative; `frontmatter.md:47` already establishes the load-time error in the load-bearing place.
-3. Two recommendation bullets ("Register in `tools:` when…", "Use `invoke(...)` for…") that are pure prose advice to the human author about declaration style. They prescribe nothing the runtime, parser, or type checker observes.
-
-Item 3 is the cruft. The original framing — that the *entire* section is authoring advice — is too broad: items 1 and 2 carry real content. But the recommendation bullets and the trailing "the choice is purely about declaration site" sentence are taste guidance that belongs in user-facing docs, not in the normative spec.
-
-## Spec Documents
-
-- `spec_topics/tool-calls.md` — "Relationship with `invoke`" subsection (edited)
-- `spec_topics/frontmatter.md` — `tools:` paragraph (read-only; already states the prompt-mode-in-`tools:` ban)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — this is a prose trim. V14a–V14j and V15e–V15g implement the underlying behaviour and are unaffected by where the equivalence statement lives or whether the recommendation bullets remain.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A normative spec carrying authoring-style "prefer X when Y" advice invites readers to treat other recommendations as similarly soft, and slightly inflates the surface a future spec edit must keep consistent. No implementation diverges; no observer is affected.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite the section so it carries only the equivalence contract, then drop the recommendation bullets:
-
-- Keep (and lightly tighten) the opening sentence: `invoke(path, ...)` and a registered loom call (subagent-mode callee listed in `tools:`) are operationally equivalent — same fresh-session semantics, same return-value validation, same `QueryError` surfacing.
-- Keep the closing sentence about a single error model and schema-lowering pipeline; this is the only place that says it.
-- Delete the two `**Register in tools:** when…` / `**Use invoke(...)** for…` bullets in their entirety.
-- Fold the prompt-mode-only-via-`invoke` constraint into the equivalence paragraph as a one-line carve-out (e.g. "prompt-mode callees can only be reached via `invoke(...)`; see `frontmatter.md` for why `tools:` rejects them"). Do not restate the load-time-error rationale — `frontmatter.md` owns it.
-
-The retained text should read as a flat statement of the equivalence and its one carve-out. No "the recommendation is" framing, no decision-helping bullets.
-
-## Related Findings
-
-None
 
 ---
 
