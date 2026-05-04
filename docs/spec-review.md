@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_50 findings retained, 1 false positives dropped, 0 persistent failures_
+_49 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -2357,75 +2357,6 @@ Edge cases the implementer must watch:
 - "Session-context token counting API unspecified" — decision-dependency (Option B is only viable if Pi gains a per-turn token-count API; choosing Option A side-steps the dependency)
 - "Coercion follow-up failure modes unspecified" — same-cluster (overflow during coercion needs the same post-hoc detection rule and must not consume an `attempts` slot)
 - "Interpolation of non-string values unspecified" — same-cluster (both touch what `${expr}` renders to; an `${x}` where `x` is `null` or an empty array is the most likely real-world source of an empty rendered template)
-
----
-
-# Streaming visibility of query responses is unspecified
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Streaming partial responses to user unspecified
-**Kind:** completeness
-
-## Finding
-
-The spec is silent on *when* the assistant text from a query becomes visible to the human operator. Two distinct UX questions are conflated and neither is answered:
-
-1. **Prompt mode, untyped query.** The driver issues `ctx.sendUserMessage(text)` and waits on `agent_end` (`pi-integration-contract.md`). Pi's TUI naturally streams assistant tokens as they arrive, so the user sees partial text mid-query — but the spec never says so. An implementer reading only the loom spec could equally suppress the stream until the loom unblocks (e.g. by intercepting `before_provider_request` / `after_provider_response`) and still claim conformance to "every turn is user-visible" (`overview.md:46`), since "user-visible" there refers to the turn appearing in the transcript at all, not to real-time token rendering.
-
-2. **Prompt mode, typed query.** The synthesised one-shot tool forces tool-use for that turn. The contract claims the result is "a transparent assistant turn the user can see," but does not say whether the model's free-form preamble (if any) and the JSON tool arguments stream into the transcript as plain text, render as a tool-call card, or do not appear at all until the loom resumes.
-
-3. **Subagent mode.** `overview.md:47` says the transcript is "private to the loom" and discarded; that already answers the streaming question for subagent queries (nothing surfaces to the user). But the spec never explicitly contrasts this with prompt mode, so a reader carrying the prompt-mode ambiguity into subagent mode may reach the wrong conclusion.
-
-The gap is entirely a UX-prescription gap, not a runtime-correctness gap: the underlying Pi mechanism is fixed, but the spec fails to lock down which of its observable behaviours are normative.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — *Conversation drive — prompt mode* (edited)
-- `spec_topics/pi-integration-contract.md` — *Conversation drive — subagent mode* (edited)
-- `spec_topics/query.md` — *Untyped return type (V1)* / *Failure modes* (edited)
-- `spec_topics/overview.md` — modes table (read-only; reference for "user-visible")
-
-## Plan Impact
-
-**Phases:** MVP, Vertical V5, Vertical V6, Vertical V12
-
-**Leaves (implementation order):**
-
-- M — Minimal end-to-end loom — (modified)
-- V5e — Prompt-mode conversation driver — (modified)
-- V6i — AJV validation of typed query results — (modified)
-- V12a — `mode: subagent` accepted; AgentSession spawn — (modified)
-- V12d — Subagent transcript discard — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-Implementers can ship what `sendUserMessage` plus Pi's default TUI does and that will likely match author intent. The risk is twofold: (a) two implementers (or a future Pi UI revision) may diverge on whether to buffer, dim, or otherwise re-style loom-driven assistant turns, and (b) the typed-query path's user-visible appearance is genuinely under-determined, so authors writing typed queries cannot predict what their users will see during the wait.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `pi-integration-contract.md`, add a paragraph titled **User-visible streaming** under each conversation-drive section:
-
-- **Prompt mode.** "Assistant tokens for both untyped and typed queries stream into the user's transcript in real time as Pi's TUI receives them; `pi-loom` does not buffer, suppress, or re-style the stream. The loom interpreter resumes execution only after `agent_end`, but the stream's appearance in the transcript is independent of the loom's resumption — the user sees the response unfold while the loom is still mid-query. For typed queries, the synthesised one-shot tool's invocation appears as a normal Pi tool-call card; the lowered tool arguments are the structured value the loom receives, and Pi's standard tool-call rendering applies (no special loom-side formatting)."
-- **Subagent mode.** "No assistant tokens, tool-call cards, or system notes from a subagent's queries surface to any ancestor transcript. The subagent's `AgentSession` uses an in-memory `SessionManager`; nothing it produces flows to Pi's user-facing UI."
-
-Edge cases the implementer must handle:
-
-- A `?`-propagated `Err` arriving after the user has already seen the partial-then-aborted assistant text: the streamed prefix stays in the transcript (Pi's behaviour) and the `loom-system-note` describing the failure is appended after, not interleaved.
-- Cancellation mid-stream: whatever partial text Pi has already rendered remains visible; the system note from V18i describes the cancellation. The spec should explicitly say partial output is not rolled back.
-- A typed query whose underlying turn includes tool-use loops before the synthesised one-shot tool fires: each intermediate tool call renders normally in the prompt-mode transcript; only the final synthesised-tool call is the structured-value sink.
-
-## Related Findings
-
-- "Tool result non-text blocks silently lost" — same-cluster (both concern what assistant-side artefacts surface to users / loom code; resolve independently)
-- "Multi-block content concatenation separator unspecified" — same-cluster (both pin down what the user / loom sees from a query response; the separator question concerns the loom-side `Ok` value, not the user-side stream)
-- "Typed query mechanism contradicts `query.md` tool-loop semantics" — decision-dependency (any clarification of what the typed-query turn looks like to the user should be consistent with the tool-loop semantics fix)
-- "`agent_end` fires globally, not per-session" — same-cluster (the listener architecture chosen there constrains how cleanly partial-stream visibility can be reasoned about per-query)
 
 ---
 
