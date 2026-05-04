@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_79 findings retained, 1 false positives dropped, 0 persistent failures_
+_78 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -6169,79 +6169,6 @@ Edge cases the implementer must watch:
 - "Cancellation surfacing: `InvokeFailure` vs `InvokeCalleeError` — irreconcilable" — same-cluster (different cancellation surface — child invoke vs binder — but the same `cancellation.md` Surfacing list is being edited)
 - "Binder failure retry counts inconsistent" — decision-dependency (the cancelled-during-retry edge case above interacts with whatever the resolved retry-count answer is)
 - "Binder model resolution unspecified when no model is configured" — same-cluster (touches binder.md but resolves independently)
-
----
-
-# Cancellation granularity contradicts its own checkpoint list
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Cancellation "smallest unit" definition is ambiguous
-**Kind:** prescription
-
-## Finding
-
-`spec_topics/cancellation.md` describes cancellation granularity in two sentences that contradict each other:
-
-> The interpreter checks the signal at every loop iteration boundary, before every `@`...`` query, and before every tool / `invoke` call. There is no mid-expression cancellation — the smallest cancellation unit is one statement or one query.
-
-The first sentence enumerates checkpoints that *do* fire mid-expression (a tool or `invoke` call is an expression, and `let x = f() + g()` contains two of them inside a single statement). The second sentence claims the opposite — that no checkpoint fires inside an expression and that a statement is atomic with respect to cancellation. Both cannot be true, and the spec gives the implementer no way to choose.
-
-The downstream consequence is concrete. For `let x = f() + g()` where `f` and `g` are both tool calls, two reasonable implementers will produce divergent behaviour: one reads the checkpoint list as authoritative and aborts after `f()` has run (with its side effects committed) but before `g()` is dispatched; the other reads "smallest unit is one statement" as authoritative and lets `g()` run to completion before observing the abort. The V18 plan leaves silently assume the first reading — V18c's test "pre-flight abort: tool never invoked" is only meaningful if the pre-call checkpoint can fire between two tool calls in the same statement — but the spec text actively supports the second reading.
-
-The phrase "mid-expression cancellation" is also undefined. It probably means "cancellation in the middle of a primitive operation (arithmetic, comparison, field access, AJV validation pass)" — a useful guarantee — but as written it is impossible to distinguish from "cancellation between sub-evaluations of a compound expression," which is exactly what the checkpoint list permits.
-
-## Spec Documents
-
-- `spec_topics/cancellation.md` — Granularity paragraph (edited)
-- `spec_topics/errors-and-results.md` — read-only (referenced for the "side effects of completed sub-expressions are not unwound" interaction)
-
-## Plan Impact
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18a — `AbortSignal` at every loop iteration boundary — (modified)
-- V18b — `AbortSignal` before every `@` query — (modified)
-- V18c — `AbortSignal` before every tool call — (modified)
-- V18d — `AbortSignal` before every `invoke` — (modified)
-
-(Spec basis sharpens; existing tests already presuppose the corrected reading, so test text need not change — but each leaf's `Spec.` reference will resolve to clearer language.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two implementers reading the current text will produce observably different cancellation behaviour for any statement containing more than one checkpointed sub-expression (`let x = f() + g()`, `if cond { @query`...` } else { ... }`, function-argument lists with multiple tool calls). Authors writing time-sensitive logic — e.g. a tool call followed by a query that depends on its result — cannot reason about how much of a partially-cancelled statement actually ran.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the Granularity paragraph with text that makes the checkpoint list authoritative and removes the "one statement" framing:
-
-> **Granularity.** The interpreter checks the cancellation signal at exactly these points and no others:
->
-> - immediately before each iteration of a `for` or `while` body,
-> - immediately before dispatching each `@`...`` query,
-> - immediately before each tool call,
-> - immediately before each `invoke` call.
->
-> No checkpoint fires inside a primitive operation (arithmetic, comparison, field/index access, AJV validation, schema lowering, binder execution). A compound expression that contains multiple checkpointed sub-expressions can therefore be cancelled between them: in `let x = f() + g()` where `f` and `g` are tool calls, an abort observed between `f()`'s return and `g()`'s pre-call checkpoint aborts the statement after `f`'s side effects have committed but before `g` is dispatched, and `x` is never bound. Partially evaluated expressions are discarded; cancellation does not unwind side effects of sub-expressions that have already completed (see [Errors and Results](./errors-and-results.md)).
-
-Edge cases the implementer must watch:
-
-- A query or tool call's pre-call checkpoint fires *before* the call is dispatched. An abort observed *during* an in-flight query/tool call surfaces through the underlying provider's abort path as the corresponding `Err` variant, not through the pre-call checkpoint.
-- The binder, AJV validation, and schema lowering are explicitly *not* checkpoints in V1 (this is a separate finding — "Cancellation checkpoints miss binder, AJV validation, and schema-lowering" — but the rewritten paragraph should call them out as non-checkpoints so the contradiction does not return through a side door).
-- The `let`/expression-statement boundary itself is *not* a checkpoint. Cancellation between two adjacent statements is observed only if the next statement contains a checkpointed operation, or via the loop-iteration checkpoint when the statements live inside a loop body.
-
-## Related Findings
-
-- "Cancellation checkpoints miss binder, AJV validation, and schema-lowering" — co-resolve (the rewritten Granularity paragraph must enumerate non-checkpoints alongside checkpoints; resolving both findings in one edit avoids re-introducing the contradiction)
-- "Cancellation race conditions unspecified" — same-cluster (clarifies the post-completion-pre-checkpoint window; the rewritten paragraph implies but does not state the resolution)
-- "No rollback semantics — not explicitly stated" — same-cluster (the `f()` side-effect-committed clause in the recommendation depends on the no-rollback rule being stated elsewhere)
 
 ---
 
