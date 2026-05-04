@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_74 findings retained, 1 false positives dropped, 0 persistent failures_
+_73 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5820,62 +5820,6 @@ Edge cases for the implementer:
 - "\"When to use which\" advisory in schema spec" — same-cluster (touches the same file; deletion-only, no interaction)
 - "Depth ≤5: counting algorithm and enforcement point unspecified" — same-cluster (schema-subset edge case, parallel in spirit; schema-graph cycles vs data-depth cap are distinct concerns)
 - "Missing completeness cases in invocation" — same-cluster (parallel "missing edge cases" finding for the invocation surface; the alias-cycle phrasing here should match whatever cycle-diagnostic style that finding settles on)
-
----
-
-# "When to use which" advisory in schema spec
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** "When to use which" advisory in schema spec
-**Kind:** cruft
-
-## Finding
-
-`spec_topics/schemas.md` contains a paragraph titled **"When to use which."** advising authors when to reach for `enum X { ... }` versus a literal-union (`"low" | "medium" | "high"`). The paragraph itself acknowledges that "Both lower to `{"enum": [...]}` — the choice is purely about the surface ergonomics," i.e. the two forms are already fully and identically specified for implementers; the guidance is purely about authoring style.
-
-The spec's job is to define behaviour an implementer must produce. Authoring style guidance directed at end-users of the loom language sits at a different level: it neither constrains the parser, the lowering pass, nor the validator. Leaving it inline mixes audiences and dilutes the document.
-
-This is the schema-spec instance of a recurring pattern in the spec corpus (the `retry` methodology block, the binder "Relationship with invoke" block, etc.). Resolving them is mechanical and individually low-stakes, but each one removed sharpens the spec's contract-versus-tutorial boundary.
-
-## Spec Documents
-
-- `spec_topics/schemas.md` — "When to use which." paragraph following the enum / literal-union sections (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-Removing author-facing prose does not change any leaf's acceptance criteria. V10a–V10c (enums) and V4b–V4c (object/union schemas) ship the two forms unchanged.
-
-## Consequence
-
-**Severity:** cosmetic
-
-If left in place, the spec continues to function correctly; implementers ignore it and authors get a small piece of style guidance in the wrong place. The cost is a marginal degradation in the spec's signal-to-noise and a precedent for further authoring prose to accrete in normative documents.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete the **"When to use which."** paragraph from `spec_topics/schemas.md`. No replacement text is needed in the spec. If/when a user-facing language guide exists, the content can be relocated there verbatim — but creating that guide is out of scope for this fix and the deletion should not be blocked on it.
-
-Edge cases for the implementer of the fix:
-
-- Verify nothing earlier or later in `schemas.md` cross-references this paragraph by name (`grep -n 'When to use which' spec_topics/`); the parallel finding for `frontmatter.md`'s `retry` methodology shares the phrase, so scope the search to `schemas.md`.
-- The enum and literal-union sections are otherwise complete on their own; no stitching sentence is required after removal.
-
-## Related Findings
-
-- "`retry` methodology \"when to use which\" is authoring advice in a spec" — same-cluster (identical cruft pattern in `frontmatter.md`; same fix shape, independent edits)
-- "Non-normative content mixed into binder spec" — same-cluster (same pattern in `binder.md`)
-- "Relationship with invoke section is authoring advice" — same-cluster (same pattern, `binder.md`)
-- "Missing edge cases in schema declarations" — same-cluster (same file, but adds normative content rather than removing advisory; resolves independently)
 
 ---
 

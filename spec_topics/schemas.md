@@ -80,8 +80,6 @@ Variants are comma-separated; trailing comma optional. `enum` is **top-level onl
 
 **Variant access.** A specific variant is referenced as `Enum.Variant` (e.g., `Severity.High`). The expression evaluates to the variant's underlying string value (the explicit RHS, or the variant name verbatim when no RHS is given) but is statically typed as `Enum`. `Enum.Variant` is the recommended form whenever the value is named in code — type-aware and refactor-safe — over comparing against the bare string literal. Unknown-variant references (`Severity.Critical` when no such variant exists) are `loom/parse/unknown-variant`.
 
-**When to use which.** Reach for `enum X { ... }` when the values are a closed conceptual set referenced by name from multiple places **and** you want descriptions per variant. Reach for literal-union (`"low" | "medium" | "high"`) when the values are inline, ad hoc, or you don't want a separate top-level declaration. Both lower to `{"enum": [...]}` — the choice is purely about the surface ergonomics.
-
 **Discriminated unions.** A `schema X = A | B | C` whose variants are all object schemas is a discriminated union; the discriminator field is normally **detected implicitly**. The detected field must:
 
 1. Be present in every variant.
