@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_53 findings retained, 1 false positives dropped, 0 persistent failures_
+_52 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -2750,66 +2750,6 @@ Edge cases the implementer must watch:
 - "Per-`kind` system-note table covers only 5 of 8 `QueryError` variants" — same-cluster (also a system-note rendering gap, but on the loom-result side rather than the binder side; resolve independently)
 - "`needs_info` / `ambiguous` distinction is V1 scope creep" — decision-dependency (if the two arms collapse to a single `failure { message }` arm, this finding's rules apply to one arm instead of two; the rules themselves do not change)
 - "Binder failure retry counts inconsistent" — same-cluster (same failure-modes table; touch independently)
-
----
-
-# Session-context truncation: boundary turn inclusion is unspecified
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Session-context truncation boundary condition unspecified
-**Kind:** testability, completeness
-
-## Finding
-
-`spec_topics/binder.md` §"Session-context truncation" (line 65) describes the algorithm as: walk turns newest-to-oldest, "accumulating until *either* 20 turns *or* 8000 tokens (whichever is smaller) has been included. … Truncation is whole-turn; partial messages are not split."
-
-The 20-turn cap is unambiguous — a turn is countable atomically and "until 20 turns has been included" stops the moment the 20th turn is added. The 8000-token cap is not. When the next-oldest turn is, say, 2000 tokens and the running total is 7500, two readings are both consistent with the prose:
-
-1. **Inclusive at the boundary.** Add the turn (total → 9500), then stop because the budget is now exceeded. "Whole-turn truncation" is honoured because the boundary turn is taken whole.
-2. **Exclusive at the boundary.** Stop before adding the turn (total stays at 7500). "Whole-turn truncation" is honoured because the rejected turn is rejected whole.
-
-Implementers will diverge, and the divergence is observable: the binder receives a different system prompt for the same caller session, which can produce different `args` outputs. V16g's acceptance criterion already names "Exact 8000-token boundary" as a test case, so the ambiguity hits the test layer directly and forces the test author to invent a behaviour the spec does not commit to.
-
-## Spec Documents
-
-- `spec_topics/binder.md` — Session-context truncation paragraph (edited)
-
-## Plan Impact
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16g — `bind_context: session` truncation — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will pick opposite sides of the boundary; the binder prompt and therefore the bound `args` will diverge for identical caller sessions. The V16g acceptance test ("Exact 8000-token boundary") cannot be written without a normative answer.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Amend the truncation paragraph in `spec_topics/binder.md` to make the boundary exclusive and provide a worked example. Replacement text:
-
-> The runtime walks turns from newest to oldest, maintaining a running token total. A turn is included only if doing so keeps the total at or below 8000 tokens; otherwise the walk stops and that turn (and all older turns) is excluded. The walk also stops once 20 turns have been included. Truncation is whole-turn; partial messages are not split.
->
-> *Example.* With per-turn token counts (newest first) `[1200, 900, 1500, 2000, 2800, …]`, the walk includes the first four turns (running total 5600), then evaluates the fifth: 5600 + 2800 = 8400 > 8000, so the fifth turn and everything older is dropped. Final included count: 4 turns, 5600 tokens.
-
-Edge cases the implementer must handle:
-
-- **Single oversized turn at the front.** If the newest turn alone exceeds 8000 tokens, the walk includes nothing and the binder runs with no session-context block. (This is the consistent extension of the rule; call it out so the implementer doesn't special-case it.)
-- **Token-count source.** The exclusive rule presumes the runtime can ask "what would the total be *if* I added this turn?" before committing. That is compatible with any per-turn token-count source, but interacts with the separate finding about which Pi API exposes per-turn counts — resolve that first.
-
-## Related Findings
-
-- "Session-context token counting API unspecified" — decision-dependency (the truncation rule is well-defined only once a per-turn token-count source is named; both edits land in the same paragraph)
-- "`needs_info` / `ambiguous` distinction is V1 scope creep" — same-cluster (same spec file, independent fix)
-- "Binder failure retry counts inconsistent" — same-cluster (same spec file, independent fix)
 
 ---
 
