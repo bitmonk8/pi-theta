@@ -289,6 +289,28 @@ Explicitly **not** supported by `schema`, and rejected at parse time: `pattern`,
 
 Rationale: every loom-declared `schema` is the response type of some typed query site (or is transitively reachable from one via `$ref`) and is therefore handed to the provider as a strict structured-output / tool-input schema. The type system cannot promise more than what both major providers can grammar-enforce, hence the intersection. Constraints the subset cannot express (string patterns, numeric bounds, array length, etc.) are out of scope for `schema` and belong in code-side validation if needed.
 
+#### Lowering Algorithm
+
+Each loom file is lowered to a JSON Schema document at parse time. The lowering pass:
+
+1. **Collects every named schema** declared at the top level of the file (and transitively imported from `.warp` files used by the file). Each becomes one `$defs/<Name>` entry.
+2. **Hoists anonymous inline object schemas** (`{ field: T }` appearing in any type position) into `$defs` under a synthesised name `__inline_<hash>`, where `hash` is a stable structural hash of the schema's loom-side AST (sorted keys, normalised types). Two structurally identical inline schemas in the same file resolve to one `$defs` entry.
+3. **Emits per type form:**
+   - Primitive: `{ "type": "<primitive>" }`.
+   - Named or inline schema reference: `{ "$ref": "#/$defs/<Name>" }`.
+   - `array<T>`: `{ "type": "array", "items": <T-lowered> }`.
+   - Object: `{ "type": "object", "properties": { ...wire names... }, "required": [...every wire name...], "additionalProperties": false }`.
+   - Literal `"foo"` / `42` / `true` / `null`: `{ "const": <value> }`.
+   - Enum (or string-literal union): `{ "type": "string", "enum": [...wire values...] }`.
+   - Union of primitives only: `{ "type": ["a", "b", "null"] }` form preferred for readability; falls back to `anyOf` if any arm is non-primitive.
+   - Discriminated object union (`schema X = A | B`): `{ "anyOf": [<A-lowered>, <B-lowered>] }`. The `discriminator` keyword from JSON Schema 2020-12 is *not* emitted (outside the strict subset); each variant carries its own `const`-typed discriminator field, and the runtime relies on `additionalProperties: false` plus the per-variant `const` to drive grammar-constrained decoding.
+   - Mixed `anyOf` (e.g., `string | Author`): `{ "anyOf": [...] }`.
+4. **Per-query schema document** is built lazily: when a typed query fires, the runtime extracts the query's response schema as the document root and copies in only the `$defs` entries transitively reachable from it. Unused `$defs` are pruned to keep request payloads small.
+5. **Wire-name translation** is captured in a sidecar map per schema (`{ loom: "first_name", wire: "FirstName" }`) used by both the validation pass (post-decode) and the construction pass (pre-encode). The lowered JSON Schema only ever sees wire names.
+6. **Discriminator detection** runs on the lowered `anyOf` form, examining each variant's `properties` for a single `const`-typed field that is unique across variants. Detection is a parse-time sanity check; the lowered schema has no extra discriminator marker.
+
+Lowering is purely a function of the parsed source (no runtime values), and is performed once per loom-file load. Schema validators (AJV) are compiled once per lowered schema and reused across queries; the file watcher invalidates the cache on change.
+
 ### Parameters and Frontmatter
 
 Like Pi prompts and subagents, loom files declare metadata in YAML frontmatter:
@@ -407,6 +429,21 @@ Return type: `Result<Schema, QueryError>`, where `Schema` is the inferred respon
 4. Explicit ascription via the explicit form (below).
 
 If none apply, the query is untyped (returns `string`).
+
+**Schema inference algorithm.** A query expression searches *outward* through its enclosing AST for a "type sink" — a position whose declared type can supply the schema. The walk is *shallow*: it crosses through context-preserving constructs but stops at any expression that consumes its operand without preserving its type. Concretely:
+
+- **Crossed (transparent):** parenthesisation `(...)`; the RHS of `let x: T = ...`; function / tool / `invoke` arguments matched to a typed parameter; the tail expression of an enclosing function or loom whose return type is declared; the operand of `return`; the branches of a ternary `cond ? a : b` *if and only if* the ternary itself has a sink; the elements of an array literal `[a, b]` *if and only if* the literal has a sink (binding annotation, parameter type, etc.).
+- **Stopped (opaque):** binary and unary operators (`+`, `==`, `!`, etc.); member access (`a.b`); indexed access (`a[i]`); the scrutinee of `match`; the condition of `if` / `while`; comparison and logical operators on either side. Inside these positions, only an explicit `@<Schema>`...`` ascription supplies a schema.
+
+If the walk reaches a sink, that schema is the query's response type. If the walk reaches a stop without finding a sink, the query is untyped and returns `Result<string, QueryError>`. An explicit `@<Schema>` ascription wins regardless of where it appears.
+
+*Worked examples:*
+
+- `let x: ReviewScore = @\`...\`?` — sink at the binding annotation. ✅
+- `f(g(@\`...\`?))` — `g`'s parameter type is the sink; `f`'s parameter type is not visible past `g`'s call boundary. ✅
+- `let x = @\`...\`? + 1` — the `+` operator is opaque; the query has no sink and is untyped (returns `string`), then `+ 1` is a type error against `string`. Add `@<integer>` or annotate the binding to fix.
+- `match @\`...\` { ... }` — `match` scrutinee is opaque; the query is untyped unless an explicit `@<Schema>` ascription is added. The grammar requires the explicit form here.
+- `let xs: array<Score> = [@\`...\`?, @\`...\`?]` — the array literal has a sink (`array<Score>`), so each element inherits `Score` as its sink. ✅
 
 **Explicit form** — `@<Schema>`...`` overrides inference. Required in any expression position with no usable type context, such as the scrutinee of `match`:
 
@@ -585,13 +622,68 @@ No match is an `"unknown identifier"` parse error. Collisions across (2)–(4) a
 
 **Truthiness.** Only `true` and `false` are accepted in boolean position (`if`, `while`, `&&`, `||`, ternary condition). Using a non-boolean (`if (x)` where `x: string`) is a parse error; write `if (x != "")`, `if (xs.length > 0)`, etc. This avoids the JS empty-string / zero / `null` ambiguity.
 
-**Built-in methods.** A small stdlib is exposed on the primitive composite types. No user-defined methods; no `this`. V1 set:
+**Built-in methods and properties.** A small stdlib is exposed on the primitive composite types. No user-defined methods; no `this`. V1 set:
 
-- `string`: `length` (property), `toLowerCase()`, `toUpperCase()`, `trim()`, `startsWith(s)`, `endsWith(s)`, `includes(s)`, `split(sep)`, `replace(from, to)`
-- `array`: `length` (property), `join(sep)`, `includes(x)`, `indexOf(x)`, `slice(start, end?)`, `concat(other)`
-- `object`: `keys()`, `values()`, `has(k)`
+*`string`*
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `length` | `: integer` | Number of UTF-16 code units (matches JS `.length`; loom does not perform grapheme segmentation in V1) |
+| `toLowerCase()` | `(): string` | Locale-independent (`String.prototype.toLowerCase`) |
+| `toUpperCase()` | `(): string` | Locale-independent |
+| `trim()` | `(): string` | Strips Unicode whitespace from both ends |
+| `startsWith(s)` | `(s: string): boolean` | JS semantics |
+| `endsWith(s)` | `(s: string): boolean` | JS semantics |
+| `includes(s)` | `(s: string): boolean` | JS semantics |
+| `split(sep)` | `(sep: string): array<string>` | Literal-only (no regex). Empty separator splits into individual code-unit strings |
+| `replace(from, to)` | `(from: string, to: string): string` | **Replaces all occurrences** — loom diverges from JS's first-only default; matches Rust `str::replace`. Literal-only (no regex) |
+
+*`array<T>`*
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `length` | `: integer` | Element count |
+| `join(sep)` | `(sep: string): string` | Concatenates elements with `sep`. Element type must be `string`; non-string element types are a parse error (no implicit coercion in V1) |
+| `includes(x)` | `(x: T): boolean` | Membership test using loom structural equality |
+| `indexOf(x)` | `(x: T): integer` | First index by structural equality, or `-1` if absent |
+| `slice(start, end?)` | `(start: integer, end?: integer): array<T>` | JS semantics: negative indices count from the end; `end` exclusive; omitted `end` slices to length |
+| `concat(other)` | `(other: array<T>): array<T>` | Returns a new array with `other`'s elements appended; element type must match |
+
+*`object` (any object value, schema-typed or anonymous)*
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `keys()` | `(): array<string>` | Loom-side field names, in schema declaration order for named schemas; insertion order otherwise |
+| `values()` | `(): array<T>` (heterogeneous; element type is the union of field types) | Field values in the same order as `keys()` |
+| `has(k)` | `(k: string): boolean` | Whether a loom-side field name is present. Returns `false` for unknown keys (no panic) — this is the explicit safe-check |
 
 Additional methods may be added non-breakingly later. Anything not on this list is a parse-time "unknown method" error rather than a runtime failure.
+
+#### Operator precedence
+
+From highest to lowest. Within the same level, associativity is as noted.
+
+| Level | Operators | Associativity |
+|---|---|---|
+| 1 | `.` (member), `[]` (index), `()` (call) | left |
+| 2 | unary `!`, unary `-` | right |
+| 3 | `*`, `/`, `%` | left |
+| 4 | `+`, `-` | left |
+| 5 | `<`, `<=`, `>`, `>=` | non-associative |
+| 6 | `==`, `!=` | non-associative |
+| 7 | `&&` | left |
+| 8 | `\|\|` | left |
+| 9 | `?:` (ternary) | right |
+
+Comparison and equality are non-associative: `a < b < c` is a parse error ("comparison operators do not chain; use `&&`"). The type-position `|` (in type expressions) is the lowest-precedence type operator; it does not appear in value-expression grammar and so does not enter this table.
+
+#### Grammar disambiguation
+
+Two ambiguities deserve explicit rules:
+
+- **Struct-expression in scrutinee position.** Inside the condition of `if` / `while`, the scrutinee of `match`, and the iterated expression of `for`, a bare `Schema { ... }` constructor would be ambiguous with the body brace. These positions therefore require parentheses around any constructor: `if (Author { name: "x", role: "r", experience_years: 0 } == author) { ... }`. Outside scrutinee positions (RHS of `let`, function arguments, `${...}` interpolations, etc.), no parens are needed.
+- **Newline continuation.** A binary or ternary operator at the *end* of a line continues the statement to the next line (`x +\n  y`); a binary or ternary operator at the *start* of a line continues from the previous line (`x\n  + y`). Both forms are legal and equivalent. Open-bracket forms (`(`, `[`, `{`) and trailing commas continue per the existing rule. A line break inside a `@`...`` query template's text is *not* a statement boundary — the template is one expression regardless of internal newlines.
+- **`match`-arm body.** An arm body is a single expression. To execute multiple statements in an arm, wrap them in a block expression `{ ... }` whose value is the block's tail expression.
 
 #### Object construction, array construction, and operator rules
 
@@ -600,6 +692,12 @@ Additional methods may be added non-breakingly later. Anything not on this list 
 For a discriminated union `schema Animal = Cat | Dog | Lizard`, construct via the variant schema name (`Cat { ... }`), not the union name. The constructed value is statically typed as the variant; assignment to an `Animal`-typed slot widens it.
 
 **Array construction.** `[]` is the empty array; its element type is inferred from context (binding annotation, parameter type, or surrounding constructor field). `[a, b, c]` is non-empty; its element type is the common type of its elements, narrowed by context if applicable. An array whose elements have no common type and no context to narrow against is a parse error.
+
+*Common-type rules for array literals (and ternary branches):*
+
+1. If a type sink is in scope (binding annotation, parameter type, etc.), every element type-checks against the sink's element type; a mismatch is a parse error naming the offending element.
+2. Otherwise, the parser computes the *least upper bound* of the element types: identical types collapse; `integer` widens to `number` when mixed with `number`; otherwise the element types are unioned (`["a", null]` → `array<string | null>`; `[1, "a"]` → `array<number | string>`).
+3. Object schemas do not unify implicitly — an array containing two different named schemas yields `array<A | B>` only if some sink in scope expects a union; otherwise it is a parse error ("array elements have no common type; annotate the binding with `array<A | B>` or use a single schema").
 
 **`+` operator.** On two `number` (or `integer`) operands, addition; the result widens to `number` if either operand is `number`. On two `string` operands, concatenation. Mixed-type operands are a parse error — write an explicit conversion or interpolate inside a string. `+` on `array<T>` is not supported; use `arr.concat(other)`.
 
@@ -967,11 +1065,20 @@ Loom files are discovered from the same locations as Pi prompt templates, just w
 - Global: `~/.pi/agent/looms/*.loom`
 - Project: `.pi/looms/*.loom`
 - Packages: `looms/` directories or `pi.looms` entries in `package.json`
-- Settings: `looms` array with files or directories
+- Settings: `looms` array (in `~/.pi/agent/settings.json` or `.pi/settings.json`) with files or directories
+- CLI: `--loom <path>` (repeatable, optional)
 
-Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-template behaviour. `.warp` library files are never discovered as slash commands regardless of where they live; they are reached only via `import`.
+Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-template behaviour. `.warp` library files are never discovered as slash commands regardless of where they live; they are reached only via `import` (with paths resolved relative to the importing file).
 
-**Slash-name collisions.** A loom and a Pi prompt template that resolve to the same slash command (e.g., `code-review.loom` and `code-review.md` discovered from the same or comparable locations) are a load-time error reported through Pi's diagnostics; neither is registered. Authors must rename one. Cross-format slash-name shadowing is not supported in V1; the rule is symmetric across `.loom`, `.md` prompts, and `.md` subagents.
+**Source priority (high to low).** When the same slash name resolves from multiple sources, the higher-priority source wins and a load-time *warning* is emitted naming both paths.
+
+1. CLI flag (`--loom <path>`) — explicit, single-invocation override.
+2. Settings (`looms` array, project `settings.json` overriding global).
+3. Project (`.pi/looms/`).
+4. Packages (`looms/` directories or `pi.looms` entries).
+5. Global (`~/.pi/agent/looms/`).
+
+**Slash-name collisions across formats.** A loom and a Pi prompt template (`.md`) or subagent that resolve to the same slash command (e.g., `code-review.loom` and `code-review.md`) are a load-time *error* reported through Pi's diagnostics; neither is registered. Authors must rename one. Cross-format shadowing is not supported in V1; the rule is symmetric across `.loom`, `.md` prompts, and `.md` subagents.
 
 ```
 project/
@@ -1019,6 +1126,76 @@ Declaring `bind_context: session` on a subagent-mode loom is a parse warning, no
 - `{ kind: "ambiguous", message: string, candidates: array<string> | null }` — multiple plausible bindings exist and the binder cannot pick one. The `message` is shown to the user as a system note; the loom does not run.
 
 The envelope is runtime-internal; it is never a Loom-visible type and never appears in loom code. Authors only see the *consequences* of binding (loom runs, or system note appears).
+
+**Binder envelope schema (constructed dynamically from `params:`).** The runtime emits one envelope schema per loom at load time and reuses it for every binder call:
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind"],
+  "properties": {
+    "kind": { "enum": ["ok", "needs_info", "ambiguous"] }
+  },
+  "anyOf": [
+    {
+      "properties": {
+        "kind": { "const": "ok" },
+        "args": <params-schema-with-defaulted-fields-relaxed>
+      },
+      "required": ["kind", "args"]
+    },
+    {
+      "properties": {
+        "kind": { "const": "needs_info" },
+        "message": { "type": "string" }
+      },
+      "required": ["kind", "message"]
+    },
+    {
+      "properties": {
+        "kind": { "const": "ambiguous" },
+        "message": { "type": "string" },
+        "candidates": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }] }
+      },
+      "required": ["kind", "message", "candidates"]
+    }
+  ]
+}
+```
+
+`<params-schema-with-defaulted-fields-relaxed>` is a copy of the loom's lowered `params` schema with one transformation: each field that declared a default is removed from `required` (its type is unchanged). Required-without-default fields are unchanged. The binder may therefore omit any defaulted field; the runtime fills the actual default value after binding succeeds and before AJV validates the merged result.
+
+**Session-context truncation (`bind_context: session`).** The runtime walks turns from newest to oldest, accumulating until *either* 20 turns *or* 8000 tokens (whichever is smaller) has been included. Token counts come from Pi's `ctx.getContextUsage()` (model-aware). Truncation is whole-turn; partial messages are not split. The included context is rendered as a compact transcript and embedded in the binder's system prompt below the parameter table.
+
+**Binder system prompt template** (literal text, not user-configurable in V1):
+
+```
+You bind free-form slash-command arguments to typed loom parameters.
+
+Loom: /<name>
+Description: <description from frontmatter>
+Argument hint: <argument-hint from frontmatter>
+
+Parameters:
+<for each param:
+  "  <name> (<type>) <required|default=<value>> — <description if any>">
+
+User arguments: <raw slash text after the command name>
+
+[Recent session context (when bind_context: session):
+<truncated transcript>
+]
+
+Return one of three envelopes:
+- { "kind": "ok", "args": { ... } } when every required parameter can be confidently extracted.
+- { "kind": "needs_info", "message": "<one sentence>" } when a required parameter cannot be determined.
+- { "kind": "ambiguous", "message": "<one sentence>", "candidates": [...] | null } when multiple bindings are plausible.
+
+Do not invent values for defaulted parameters that the user did not specify; omit them.
+```
+
+A future revision may make this prompt user-overridable; V1 keeps it fixed for predictability.
 
 **Defaulting.** Defaults declared on `params:` fields are filled by the runtime *after* the binder returns, not by the binder. The binder is told (in its system prompt) which fields are required and which have defaults; for default-having fields, the binder may omit them from `args` when the user did not specify them, and the runtime fills the defaults before AJV validation. The binder is never asked to invent default values — only to extract what the user actually said.
 
@@ -1076,7 +1253,59 @@ Once a loom is invoked:
 
 The session is not aborted; the user can type a follow-up turn. When the leaf failure originated inside an `invoke`d child loom that cascaded out via `?`, the note identifies the leaf and prints the call chain (`"... from child.loom invoked at parent.loom:42"`).
 
-This behaviour depends on Pi's session API exposing "append a system note to the current session." Confirming the exact API shape is an implementation task, not a spec blocker.
+The note is emitted as a custom-typed Pi message (`pi.sendMessage({ customType: "loom-system-note", content, display: true, ... }, { triggerTurn: false })`) so it persists in the session transcript and survives `/tree` navigation; a registered message renderer formats it as a one-line dim entry. See [Pi Integration Contract](#pi-integration-contract) for the full mechanism.
+
+### Cancellation
+
+Every loom invocation runs under an `AbortSignal` provided by Pi. V1 cancellation rules:
+
+**Signal sources:**
+
+- Slash-command invocation: the loom receives `ctx.signal` from the Pi command handler. In interactive mode this signal aborts when the user presses Esc or Ctrl-C.
+- Tool-driven (a loom registered into another loom's `tools:`): the signal is the `signal` argument passed to the tool's `execute(toolCallId, params, signal, ...)`.
+- `invoke(...)` call: the child loom inherits a derived signal from its caller — the child aborts whenever the caller does.
+
+**Propagation.** Cancellation propagates *down* (parent → child invokes, parent → in-flight queries, parent → in-flight tool calls). It does *not* propagate *up*: a child loom cancelling internally surfaces as `Err(QueryError { kind: "cancelled" })` (or the appropriate sub-variant) to the parent, which may handle it (`match`) or propagate it (`?`).
+
+**Granularity.** The interpreter checks the signal at every loop iteration boundary, before every `@`...`` query, and before every tool / `invoke` call. There is no mid-expression cancellation — the smallest cancellation unit is one statement or one query.
+
+**Surfacing.**
+
+- An in-flight query whose signal aborts returns `Err(QueryError { kind: "cancelled", message: "..." })`.
+- A tool call whose signal aborts returns `Err(QueryError { kind: "tool_call", cause: "cancelled", ... })`.
+- A child invoke whose signal aborts surfaces to the parent as `Err(QueryError { kind: "invoke_callee_error", inner: { kind: "cancelled", ... } })` when the abort originated inside the child, or directly as `kind: "cancelled"` when the parent's own signal fired first.
+- The loom's *top-level* cancellation surfaces to Pi as the `cancelled` row in the per-`kind` system-note table above.
+
+Per-call timeouts (a separate cancellation source independent of the user) are deferred to a later release; see [Future Considerations](#future-considerations).
+
+### Diagnostics
+
+Loom emits structured diagnostics that are then serialised to Pi's flat `{ path, error }` shape used by `LoadExtensionsResult.errors` and the standard slash-command error channel.
+
+Internal diagnostic shape:
+
+```
+{
+  severity: "error" | "warning",
+  code:     string,                          // e.g., "loom/parse/binding-case-mismatch"
+  file:     string,                          // absolute path
+  range:    { start: { line, column }, end: { line, column } },  // 1-indexed; end exclusive
+  message:  string,                          // single-line summary
+  hint?:    string,                          // optional suggested fix
+  related?: array<{ file, range, message }>, // related sites (e.g., the colliding declaration)
+}
+```
+
+**Code namespaces:**
+
+- `loom/parse/*` — lexer / parser errors (unknown token, case mismatch, missing brace, etc.).
+- `loom/type/*` — type-system errors (unknown identifier, type mismatch, schema constraint violation).
+- `loom/load/*` — file-load and registration errors (unreadable file, name collision, invalid frontmatter, unresolvable `tools:` entry).
+- `loom/runtime/*` — runtime errors surfaced as panics (`MatchError`, index out of bounds, etc.) reported back to Pi as system notes.
+
+**Serialisation to Pi's flat shape:** `"<file>:<line>:<col>: <code>: <message>"`, optionally followed by `"\n  hint: <hint>"` when a hint is present. Related sites are appended as additional indented lines.
+
+**Multi-error reporting.** Every parse / type pass collects all errors from the full file (and from transitive `.warp` imports) before failing. The loom is rejected with the complete list in one diagnostics call rather than fast-failing on the first error — authors get every problem at once.
 
 ---
 
@@ -1113,7 +1342,77 @@ This behaviour depends on Pi's session API exposing "append a system note to the
 - For subagent-mode looms, the spawned conversation's system prompt is taken from frontmatter `system:` (with `${param}` interpolation resolved at conversation-creation time) and applied to every query against that conversation
 - Parameter schemas (frontmatter `params`) are likewise validated with AJV at invocation time
 - For slash-command invocation, the runtime first runs the binder (per [Slash-Command Argument Binding](#slash-command-argument-binding)) unless the bypass condition holds. The binder is a one-shot ephemeral call to `binder_model` (resolved from frontmatter, falling back to Pi setting `looms.binderModel`) with `temperature: 0` and a fixed seed where supported. The runtime constructs the binder's response schema dynamically from the loom's `params:` schema (the three-arm envelope `ok | needs_info | ambiguous`), passes it as a strict structured-output contract, and validates the returned `args` (on `kind: "ok"`) with AJV before merging in defaults and starting the loom. Binder failures and non-`ok` envelopes are surfaced as one-line system notes in the user's session; the loom is not started
+- **AJV configuration.** AJV v8 with `strict: false` and `allErrors: true`; `ajv-formats` registered so any `format` keyword appearing in model output (loom-emitted schemas don't use them) validates or is silently ignored without raising. `$ref` resolution is in-document only — lowered schemas never produce external refs. Schemas are compiled once per loom load and cached across invocations; the file watcher invalidates the cache on change. Coercion and default-filling are disabled — model output is taken as-is, and loom does no implicit type conversion beyond AJV's pass
+- **Single-threaded execution.** The loom interpreter runs as plain async TypeScript on Pi's event loop. There are no worker threads, no shared mutable state across loom invocations, and no concurrency primitive in V1. Every `await` (query, tool call, invoke) yields the event loop, so the TUI continues to render and accept input during long operations. Two slash-command invocations of the same loom run sequentially against the user's session in prompt mode, and each gets its own private `AgentSession` in subagent mode — there is no reentrancy and no mutable state shared between them
 - The loom's overall return value is the value of the last expression of its top-level block
+
+### Runtime Value Model
+
+Loom values are represented in the interpreter as native JavaScript values, tagged where needed for type recovery:
+
+| Loom type | JS representation |
+|---|---|
+| `string` | JS `string` |
+| `number`, `integer` | JS `number` (the static type system enforces the distinction; at runtime they are the same value). Division produces IEEE-754 `Infinity` / `NaN` per JS semantics |
+| `boolean` | JS `boolean` |
+| `null` | JS `null` |
+| `array<T>` | JS `Array`, elements following these rules recursively |
+| Object schema (named or anonymous) | JS plain object keyed by **loom-side identifiers**, regardless of any wire-name renames declared on the schema. Wire-name translation happens only at the validation boundary |
+| Enum variant | JS `string` carrying the variant's wire value, with a non-enumerable brand property `__loomEnum: "<EnumName>"` for cross-enum equality correctness |
+| `Result<T, E>` | A tagged JS object: `{ ok: true, value: T }` for `Ok(v)`, `{ ok: false, error: E }` for `Err(e)`. `ok` is the discriminator |
+
+**Equality (`==`).** Structural deep equality:
+
+- Primitives compare via `Object.is` semantics (so `NaN == NaN` is `true` and `+0 != -0` is `false`). Loom diverges from JS's `===` here because `==` is a value-level predicate, not a floating-point bit-equality test — reflexivity matters more than IEEE conformance.
+- Arrays compare element-wise at the same indices; same length required.
+- Objects compare key set (loom-side identifiers) and per-key value equality; key declaration order is irrelevant.
+- Enum variants compare brand and value: `Severity.High == OtherEnum.High` is `false` even when wire values match.
+- `Result` compares the `ok` flag and recurses on the payload.
+
+**Wire-name translation** happens in exactly two places:
+
+- *Inbound* (model output → loom value): after AJV validation against the lowered schema, the runtime walks the validated JSON and rebuilds the value with loom-side identifiers using each schema's translation map.
+- *Outbound* (loom value → JSON): when constructing tool input, query response payloads, or `invoke` arguments, the runtime walks the loom-side value and produces wire-named JSON before AJV validation.
+
+Loom code never sees wire names; tools, the model, and external JSON Schema consumers never see loom-side names.
+
+### Pi Integration Contract
+
+The runtime depends on a small, named surface from `@mariozechner/pi-coding-agent`. Each item below is the V1 contract; behaviour outside this surface is non-load-bearing and may be revised without spec changes.
+
+**Extension entry point.** A single Pi extension module (`pi-loom/index.ts`) exporting the standard `default function (pi: ExtensionAPI)` factory. The factory:
+
+1. Subscribes to `resources_discover` to collect `.loom` and `.warp` paths from every Pi discovery source ([Directory Convention](#directory-convention)).
+2. Parses and registers each `.loom` file via `pi.registerCommand(name, { description, getArgumentCompletions, handler })` — one slash command per loom.
+3. Optionally registers a file watcher (chokidar) over the discovered roots; on change, calls `ctx.reload()` from a `_loom-reload` command to re-discover and re-register.
+
+**Per-loom registration.** For each `.loom` file:
+
+- The slash-command `handler` runs the binder (when applicable) and then the loom interpreter against the appropriate conversation.
+- If the loom is referenced by another loom's `tools:` (i.e., it is exposed as a tool to a model), the runtime *also* registers it via `pi.registerTool({ name, description, parameters: <params-schema-as-typebox>, execute })`. The `execute` adapter spawns the loom as a subagent invocation (equivalent to `invoke<T>(path, ...)`) and returns its result envelope.
+
+**Conversation drive — prompt mode.** The loom interpreter drives the user's session by:
+
+- Issuing untyped queries via `ctx.sendUserMessage(text)` (or `{ deliverAs: "steer" }` if the agent is mid-stream) and awaiting completion by subscribing to `agent_end`. The accumulated assistant text from the final turn is the `Ok(string)` value.
+- Issuing typed queries via a synthesised one-shot tool (`__loom_respond_<schema-hash>`) registered just before the query and unregistered immediately after. The tool's `parameters` is the lowered query schema; the tool's `execute` records the validated args and resolves the query's promise. The runtime forces tool-use for that single turn (provider-specific: `tool_choice: { type: "tool", name }` for Anthropic, `tool_choice: { type: "function", function: { name } }` for OpenAI) via the `before_provider_request` hook. The forced-tool-use approach is universal across providers and produces a transparent assistant turn the user can see — matching prompt-mode's "every turn is user-visible" philosophy.
+
+**Conversation drive — subagent mode.** The loom interpreter spawns a fresh in-process `AgentSession` via `createAgentSession({ tools, model, sessionManager: SessionManager.inMemory(), resourceLoader, ... })`. The session inherits the loom's `system:` prompt (from frontmatter, with `${param}` interpolation resolved at conversation-creation time), the loom's `tools:` set (lowered to Pi tool definitions; registered loom callees are themselves wrapped via `defineTool`), and the loom's `model`. Queries against the spawned session use the same `prompt(text)` + `agent_end` listener pattern as prompt mode, including the synthesised one-shot tool for typed queries. The session is in-memory only — the spec mandates the transcript stays private to the loom and is discarded when the loom returns.
+
+**System notes.** Echoes (binder result), `Err`-in-prompt-mode notes, and binder failure messages are emitted via `pi.sendMessage({ customType: "loom-system-note", content, display: true, details: { ... } }, { triggerTurn: false })`. A `pi.registerMessageRenderer("loom-system-note", ...)` formats them as one-line, dim-styled notes in the transcript. The custom-type approach (rather than `ctx.ui.notify(...)`) is chosen because notes need to persist in the session transcript for replay and `/tree` navigation, not just appear transiently.
+
+**Tool execution from loom code.** Code-side `<name>(args)` calls invoke the Pi tool's `execute(toolCallId, params, signal, onUpdate, ctx)` directly:
+
+- `toolCallId` is a synthesised UUID prefixed `loom-direct:`.
+- `params` is the loom value lowered to JSON (wire names applied).
+- `signal` is the loom's current `AbortSignal`.
+- `onUpdate` is a no-op (V1 does not surface streaming partial results to loom code).
+- `ctx` is a synthesised `ExtensionContext` with `cwd`, `signal`, `sessionManager` (the loom's current session — Pi's user session in prompt mode, the spawned subagent session in subagent mode), and a no-op `ui`.
+
+The tool's returned `{ content, isError }` becomes the V1 string return value: the concatenated text content blocks, returned as `Ok(string)` if `!isError` and `Err(QueryError { kind: "tool_call", cause: "execution", ... })` otherwise.
+
+**Cancellation source.** As described in [Cancellation](#cancellation), the loom's `AbortSignal` is `ctx.signal` from the slash-command handler (or the `signal` parameter to a tool-exposed loom's `execute`). All downstream queries, tool calls, and child invokes derive from this signal.
+
+**Discovery API.** The loom extension uses Pi's standard `resources_discover` event to enumerate sources, mirroring the prompt-template discovery pattern. The complete list of sources and priorities is in [Directory Convention](#directory-convention).
 
 ### Future Considerations
 
@@ -1124,7 +1423,7 @@ This behaviour depends on Pi's session API exposing "append a system note to the
 - User-defined error types beyond `QueryError`
 - Richer expression sublanguage inside frontmatter `system:` (full `${expr}` interpolation rather than just `${param}` paths)
 - Named-argument / key=value invocation syntax
-- Cancellation propagation between parent looms and in-flight subagent looms
+- Per-call timeouts on queries, tool calls, and invokes (V1 has only AbortSignal-driven cancellation; cf. [Cancellation](#cancellation))
 - Loom-level concurrency primitives (e.g. `parallel { ... }` blocks or a parallel-`for` form) building on Pi tools' Promise-returning shape — V1 keeps every tool call sequential and synchronous-looking
 - Streaming partial tool results from Pi's `onUpdate` callback into loom code (e.g. an iterator-style consumption form) — V1 returns only the final result
 - Structured tool output schemas, when Pi (or upstream providers) introduce a strict output-schema contract for tools — V1 returns `string` from every Pi tool call
