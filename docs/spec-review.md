@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_39 findings retained, 1 false positives dropped, 0 persistent failures_
+_38 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -689,75 +689,6 @@ Option B. `argument-hint`'s binder role is the load-bearing one in V1 — it mat
 - "`mode:` default and required-vs-optional fields unspecified" — same-cluster (frontmatter-field semantics; that finding's table-of-fields fix should record `argument-hint`'s required/optional status and its V1 surface alongside the rule chosen here)
 - "`pi.looms` package.json key is not Pi-recognized" — same-cluster (another instance of the spec naming a Pi extension-API affordance that does not exist; both findings expose the same grounding gap pattern)
 - "Cross-format collision: \"neither is registered\" is unimplementable for `.md` prompts" — decision-dependency (both touch the `.loom` vs Pi-prompt-template parity claim; the wording chosen here for "mirrors Pi's prompt-template frontmatter" must be consistent with the wording chosen there)
-
----
-
-# Cross-format slash collision rule cannot achieve "neither is registered"
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Cross-format collision: "neither is registered" is unimplementable for `.md` prompts
-**Kind:** codebase-grounding-broad, assumptions
-
-## Finding
-
-`spec_topics/discovery.md` says that when a loom and a same-named `.md` prompt template (or `.md` subagent) resolve to the same slash command, the collision is a load-time error and **neither is registered**. The loom extension cannot deliver that semantics. Pi loads `.md` prompt templates through `loadPromptTemplates()` (`@mariozechner/pi-coding-agent/dist/core/prompt-templates.js`) into an internal array exposed as `AgentSession.promptTemplates`; there is no public API to remove or veto an entry. The extension surface (`ExtensionAPI` in `dist/core/extensions/types.d.ts`) lets an extension register its own commands and tools but not unregister Pi-owned prompt templates or subagents. A loom extension can decline to call `pi.registerCommand` for the colliding loom, but it has no mechanism to suppress the `.md` template that has already been (or will be) loaded by Pi.
-
-Compounding this: `pi.getCommands()` — the only way to enumerate prompt templates from inside an extension — is `notInitialized` during the extension's factory call (`dist/core/extensions/loader.js`, `createExtensionRuntime`). It only becomes callable after `Runner.bindCore()`, which fires alongside `session_start`. Collision detection therefore cannot happen synchronously during extension load; it must run on `session_start`, after both extensions and prompt templates are already loaded.
-
-The implementable behaviour is asymmetric: the loom loses, the `.md` survives, and the user sees a diagnostic. The spec must say that.
-
-## Spec Documents
-
-- `spec_topics/discovery.md` — "Slash-name collisions across formats" paragraph (edited)
-- `spec_topics/pi-integration-contract.md` — "Extension entry point" step 2 and "Discovery API" paragraph; needs a sentence on when `pi.registerCommand` is called (deferred to `session_start`) and how `pi.getCommands()` is consulted (edited)
-- `spec_topics/diagnostics.md` — `loom/load/*` namespace; the existing `name collision` entry needs a concrete code (e.g. `loom/load/cross-format-collision`) (edited)
-
-## Plan Impact
-
-**Phases:** Vertical V14
-
-**Leaves (implementation order):**
-
-- V14q — Cross-format slash collision — modified
-
-(V14k–V14p remain unaffected; they govern same-format discovery and priority. V14q is the only leaf whose acceptance criteria — "neither registers" — must be rewritten.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will diverge: one will silently let the `.md` win (the actual Pi behaviour, since prompt templates load independently), another will attempt — and fail — to "unregister" the `.md` template and either crash, no-op, or invent a private patching hack. The user-visible outcome of `code-review.loom` + `code-review.md` is undefined under the current spec.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite the cross-format collision rule in `spec_topics/discovery.md` to describe what the loom extension can actually do:
-
-> **Slash-name collisions across formats.** When the loom extension's `session_start` handler discovers that a loom file resolves to the same slash name as an already-registered Pi prompt template or subagent (detected via `pi.getCommands()`, filtering entries whose `source` is `"prompt"` or `"subagent"`), the loom extension refuses to register the colliding loom and emits a `loom/load/cross-format-collision` diagnostic naming both files. The Pi-owned `.md` template remains registered and continues to function. Authors must rename one file to surface the loom. The rule applies symmetrically across `.md` prompts and `.md` subagents; loom-vs-loom collisions follow the source-priority rule above.
-
-Then update `spec_topics/pi-integration-contract.md` to spell out the registration timeline:
-
-- The extension factory call subscribes handlers and walks discovery sources to build a *pending registration list*; it does **not** call `pi.registerCommand` synchronously.
-- The `session_start` handler consults `pi.getCommands()`, drops any pending loom whose name collides with an existing `prompt` / `subagent` / `extension` entry, registers the survivors via `pi.registerCommand`, and emits diagnostics for each drop.
-- On `ctx.reload()`, the same flow re-runs.
-
-Add the diagnostic code `loom/load/cross-format-collision` to the `loom/load/*` enumeration in `spec_topics/diagnostics.md`. Diagnostics are delivered via `pi.sendMessage({ customType: "loom-system-note", ... })` (per the related finding on `LoadExtensionsResult.errors`), not the load-result errors channel.
-
-Edge cases the implementer must handle:
-
-- An `.md` prompt template that appears *after* the loom is registered (e.g. via a settings reload or `ctx.reload()` re-running prompt-template discovery): on the next `session_start` / `resources_discover` cycle, re-evaluate and de-register the previously-registered loom if a colliding `.md` now exists.
-- Loom-vs-loom same-name collisions across discovery sources are governed by the existing five-level priority rule and remain unchanged.
-- A subagent-mode loom whose name collides with an `.md` subagent: same rule — loom loses.
-
-## Related Findings
-
-- "`LoadExtensionsResult.errors` is not a runtime-callable diagnostics channel" — co-resolve (the diagnostics channel chosen here must match the channel chosen there)
-- "Same-priority `.loom` filename collisions undefined" — same-cluster (sibling collision case; resolved independently but should be reworded in the same edit pass to discovery.md)
-- "`resources_discover` misused as inbound discovery source" — decision-dependency (the registration-timing rewrite in pi-integration-contract.md must agree with the rewrite of how `resources_discover` is used)
-- "`pi.looms` package.json key is not Pi-recognized" — same-cluster (same paragraph cluster on discovery sources, resolved independently)
 
 ---
 
