@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_102 findings retained, 1 false positives dropped, 0 persistent failures_
+_101 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -8508,52 +8508,4 @@ Edge cases the implementer must handle:
 
 ---
 
-# README "Heritage" link points to a non-existent `spec.md` anchor
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** README broken anchor
-**Kind:** doc-alignment-broad
-
-## Finding
-
-`README.md` (line 20, in the "Heritage" section) links to `./spec.md#heritage-and-relationship-to-mech`. No heading by that name — and no mention of `mech` at all — exists in `spec.md`; the file's only second-level headings are `Orientation`, `Language`, `Extension Architecture`, `Implementation Notes`, and `Appendix`. The fragment therefore resolves to the top of the file in any Markdown renderer that honours anchors, and the reader following the README's promise of "the detailed comparison and the list of mech ideas pi-loom adopts vs. rejects" lands on prose that does not deliver on it.
-
-The comparison the README is gesturing at lives in `spec_topics/related-work.md` (heading "Direct influences", which contains the substantive mech paragraph). `spec_topics/influences.md` mentions Rust and TypeScript as language influences but does not discuss mech specifically and is not the right target.
-
-## Spec Documents
-
-- `README.md` — Heritage section, line 20 (edited)
-- `spec.md` — read to confirm no matching heading exists (read-only)
-- `spec_topics/related-work.md` — link target candidate; "Direct influences" heading (read-only)
-- `spec_topics/influences.md` — read to rule out as alternative target (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-(`README.md` is touched continuously by `plan_topics/conventions.md` §"Doc updates" but no leaf has the README-heritage-link as acceptance criterion.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader following the link from the project's front-page README arrives at the wrong location and cannot find the mech comparison the README advertises. No implementation behaviour is affected.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Change the README link target from `./spec.md#heritage-and-relationship-to-mech` to `./spec_topics/related-work.md#direct-influences`. The "Direct influences" subsection of `related-work.md` contains the mech paragraph the README's surrounding prose summarises. Verify the anchor renders as `direct-influences` under the project's chosen Markdown renderer (GitHub-flavoured Markdown lowercases and hyphenates, which yields exactly that slug).
-
-## Related Findings
-
-None
-
----
 
