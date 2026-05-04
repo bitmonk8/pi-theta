@@ -2,6 +2,8 @@
 
 `pi-loom` is a [Pi Coding Agent](https://pi.dev) extension that introduces a purpose-built scripting language for authoring parameterized, programmatic templates targeting the code/model boundary. Loom code (variables, loops, conditionals, functions) is interleaved with model-side text emissions; the side effects of a `.loom` file are conversational injections, not file writes.
 
+Loom code lives in two file extensions that share a single grammar and type system: `.loom` files are invocable as slash commands; `.warp` files are library modules — restricted to top-level `import`, `export`, `schema`, and `fn` declarations — that `.loom` files import via `import { … } from "./x.warp"`. `.warp` files are never directly invoked. See [Imports](./spec_topics/imports.md) for the full rules.
+
 The full specification is split into focused topic pages under [`spec_topics/`](./spec_topics/). Each topic page is authored to be self-contained: any rule it depends on from another topic must be either stated locally or explicitly cross-linked. An implementer MAY therefore restrict their reading to the topics listed under their plan leaf's **Spec** field. The implementation plan lives in [`plan.md`](./plan.md).
 
 ---
@@ -18,7 +20,7 @@ Read these first to understand the design:
 
 ## Language
 
-Surface and semantics of the `.loom` / `.warp` languages.
+Surface and semantics of the Loom language (shared by `.loom` and `.warp` files).
 
 - [Lexical Structure](./spec_topics/lexical.md) — identifiers, keywords, comments, strings, numbers.
 - [Type System](./spec_topics/type-system.md) — primitive, named, generic, union, literal, inline-object types.

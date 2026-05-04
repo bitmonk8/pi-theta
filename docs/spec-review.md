@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_33 findings retained, 1 false positives dropped, 0 persistent failures_
+_32 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -108,63 +108,6 @@ Edge cases for the implementer:
 
 - "Preamble — `.loom` and `.warp` relationship unclear" — co-resolve (same paragraph; one preamble rewrite can fix both)
 - "Preamble — reading-guidance modal vague" — same-cluster (different paragraph in the same preamble; can be resolved in the same edit pass but the wording change is independent)
-
----
-
-# Preamble does not establish the `.loom` / `.warp` relationship
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Preamble — `.loom` and `.warp` relationship unclear
-**Kind:** clarity
-
-## Finding
-
-`spec.md` introduces the project entirely in terms of `.loom` files: the preamble names only `.loom`, and the orientation bullets describe loom semantics without mentioning `.warp`. Several lines later the **Language** section header reads "Surface and semantics of the `.loom` / `.warp` languages" — a plural that strongly implies two distinct languages share this section. The next time `.warp` appears is on the **Imports** bullet, well below the fold, with no orienting sentence.
-
-A reader of the index page therefore has no way to tell whether `.warp` is (a) a sibling language with its own grammar, (b) a dialect/profile of `.loom`, or (c) the same language under a different file extension. The actual answer — established only inside `spec_topics/imports.md` — is the third: `.warp` files share Loom's grammar and type system but are restricted to top-level `import`/`export`/`schema`/`fn` declarations and are never slash-discovered. That single fact is load-bearing for understanding why the spec keeps cross-referencing both extensions, and it belongs on the index, not buried three clicks deep.
-
-## Spec Documents
-
-- `spec.md` — Preamble and Language section header (edited)
-- `spec_topics/imports.md` — `.warp` file rules (read-only, source of truth being summarised)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader of the index forms either no model or a wrong model of `.warp` until they reach `imports.md`. No implementer is blocked and no behaviour diverges, but the index fails its stated job of orienting a fresh reader before they pick a topic.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add one sentence to the preamble immediately after the existing first paragraph, and tighten the Language section header.
-
-Preamble addition (new second paragraph, before the "split into focused topic pages" sentence):
-
-> Loom code lives in two file extensions that share a single grammar and type system: `.loom` files are invocable as slash commands; `.warp` files are library modules — restricted to top-level `import`, `export`, `schema`, and `fn` declarations — that `.loom` files import via `import { … } from "./x.warp"`. `.warp` files are never directly invoked. See [Imports](./spec_topics/imports.md) for the full rules.
-
-Language section header change:
-
-> ## Language
->
-> Surface and semantics of the Loom language (shared by `.loom` and `.warp` files).
-
-This removes the misleading plural "languages" without losing the signal that both extensions are covered by the section. Edge case for the implementer: keep the wording aligned with `imports.md` — do not introduce a third synonym ("module", "package") that is not already used there.
-
-## Related Findings
-
-- "Preamble — undefined and ambiguous jargon" — same-cluster (same paragraph, independent fix)
-- "Preamble — reading-guidance modal vague" — same-cluster (same preamble block, independent fix)
-- "'Woven artifact' — undefined term, used once and abandoned" — same-cluster (another index-level vocabulary gap, independent fix)
 
 ---
 
