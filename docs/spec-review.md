@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_76 findings retained, 1 false positives dropped, 0 persistent failures_
+_75 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5964,63 +5964,6 @@ The walk runs **before** AJV (cheap fast-fail; avoids feeding pathologically dee
 - "Per-query AJV cache key is inconsistent with schema-subset lowering" — same-cluster (both refine the validator-service contract in `schema-subset.md` / `implementation-notes.md`; the depth walk is independent of cache keying but co-located in the same service)
 - "Missing edge cases in schema declarations" — same-cluster (both fill completeness gaps in the schema-subset surface; resolved independently)
 - "Coercion follow-up failure modes unspecified" — decision-dependency (the recommended error shape declares depth violations as `kind: "validation"` and thus subject to coercion; once that finding pins down coercion semantics for validation failures, depth violations inherit them)
-
----
-
-# `schema-subset.md` rationale paragraph carries no normative weight
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Rationale paragraph adds no implementation constraint
-**Kind:** cruft
-
-## Finding
-
-`spec_topics/schema-subset.md` ends with a "Rationale" paragraph that explains *why* the subset is the intersection of OpenAI Structured Outputs and Anthropic strict tool-input schemas. The paragraph is purely justificatory: the bullet list immediately above already enumerates the supported keywords, the rejected keywords, and the depth/draft caps, and the "Lowering Algorithm" section below specifies exactly how every loom type form is emitted. Nothing in the rationale paragraph adds a constraint an implementer must satisfy or a behaviour a test could pin down.
-
-The paragraph also smuggles in one quasi-normative claim — "every loom-declared `schema` is the response type of some typed query site (or is transitively reachable from one via `$ref`)" — which is not stated as a requirement anywhere else and is not enforced by any leaf. If that reachability claim matters, it belongs in the schemas or query sections as a real rule; if it does not, it should not loiter in a rationale paragraph where readers may mistake it for a requirement.
-
-The closing sentence ("Constraints the subset cannot express … belong in code-side validation if needed") is mild author-facing guidance and could stay as a one-line pointer, but it is not a spec constraint.
-
-## Spec Documents
-
-- `spec_topics/schema-subset.md` — "Rationale" paragraph between the rejected-keyword list and the "Lowering Algorithm" heading (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The plan leaves that cite `schema-subset.md` (V4b–V4i, V11i, V4g) anchor on the bullet list, the rejected-keyword list, and the "Lowering Algorithm" subsection. None reference the rationale paragraph, so deleting or relocating it does not change any leaf's acceptance criteria.
-
-## Consequence
-
-**Severity:** cosmetic
-
-The spec ships with a redundant paragraph that mildly bloats the schema-subset page and includes one stray reachability claim that could mislead a careful reader into treating it as a requirement. No implementer would build the wrong system because of it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete the "Rationale" paragraph from `spec_topics/schema-subset.md`. If the design rationale is worth preserving, move it to an ADR or to `future-considerations.md` under a non-normative heading; do not retain it in the spec body.
-
-Two narrow follow-ups while editing:
-
-- The reachability claim ("every loom-declared `schema` is the response type of some typed query site …") is either a real rule or it is not. If real, lift it into `spec_topics/schemas.md` as an explicit constraint with a defined diagnostic for unreachable named schemas; if not, drop it with the rest of the paragraph.
-- The "constraints the subset cannot express … belong in code-side validation if needed" pointer can be retained as a single sentence appended to the rejected-keyword bullet, or moved to a "Notes for authors" subsection — but it is not required.
-
-Co-resolve with the cluster finding "Design-notes blocks and rationale clauses mixed into requirement sections", which already lists this paragraph among the targets for removal.
-
-## Related Findings
-
-- "Design-notes blocks and rationale clauses mixed into requirement sections" — superseded-by (the cluster finding explicitly enumerates this paragraph alongside other rationale blocks; resolving the cluster resolves this one)
-- "\"When to use which\" advisory in schema spec" — same-cluster (sibling cruft paragraph in adjacent topic file `schemas.md`; identical fix shape)
-- "`string.replace()` rationale clause is cruft" — same-cluster (another pure-rationale clause in `expressions.md`; identical fix shape)
-- "Three non-normative blocs in binder requirements" — same-cluster (rationale/advisory cruft in `binder.md`; same lens, independent edits)
-- "Implementation choices over-prescribed: Chevrotain, AJV options" — same-cluster (cruft + over-prescription in `implementation-notes.md`; independent edits)
 
 ---
 
