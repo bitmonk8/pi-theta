@@ -4,7 +4,7 @@ The runtime depends on a small, named surface from `@mariozechner/pi-coding-agen
 
 **Extension entry point.** A single Pi extension module (`pi-loom/index.ts`) exporting the standard `default function (pi: ExtensionAPI)` factory. The factory:
 
-1. Subscribes to `resources_discover` to collect `.loom` and `.warp` paths from every Pi discovery source ([Directory Convention](./discovery.md)).
+1. Walks the five discovery sources defined in [Directory Convention](./discovery.md) directly: the global directory `~/.pi/agent/looms/`, the project directory `.pi/looms/`, every installed package's `pi.looms` entry or conventional `looms/` directory (per [Package discovery](./discovery.md#package-discovery)), the `looms` settings array (per [Settings file reads](./discovery.md#settings-file-reads)), and the `--loom` CLI flag. Pi's `resources_discover` event is **not** used — it has no `loomPaths` slot — and the `pi` manifest namespace does not enumerate `pi.looms`; the loom extension owns the walk for all five sources.
 2. Parses and registers each `.loom` file via `pi.registerCommand(name, { description, getArgumentCompletions, handler })` — one slash command per loom.
 3. Optionally registers a file watcher (chokidar) over the discovered roots; on change, calls `ctx.reload()` from a `_loom-reload` command to re-discover and re-register.
 
@@ -34,4 +34,4 @@ The tool's returned `{ content, isError }` becomes the V1 string return value: t
 
 **Cancellation source.** As described in [Cancellation](./cancellation.md), the loom's `AbortSignal` is `ctx.signal` from the slash-command handler (or the `signal` parameter to a tool-exposed loom's `execute`). All downstream queries, tool calls, and child invokes derive from this signal.
 
-**Discovery API.** The loom extension uses Pi's standard `resources_discover` event to enumerate sources, mirroring the prompt-template discovery pattern. The complete list of sources and priorities is in [Directory Convention](./discovery.md).
+**Discovery API.** The loom extension does its own discovery walk; it does not use Pi's `resources_discover` event (which has no `loomPaths` slot) and does not rely on Pi to enumerate `pi.looms` (which is not a Pi-recognised manifest key). The five sources, their priority order, the package-root walk, and the failure-mode table are all in [Directory Convention](./discovery.md).

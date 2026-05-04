@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_62 findings retained, 1 false positives dropped, 0 persistent failures_
+_61 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -3913,75 +3913,6 @@ Edge cases for the implementer:
 ---
 
 ## spec_topics/discovery.md
-
----
-
-# `pi.looms` is an extension-owned convention, not a Pi-recognised manifest key
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** `pi.looms` package.json key is not Pi-recognized
-**Kind:** codebase-grounding-broad, assumptions, prescription
-
-## Finding
-
-`spec_topics/discovery.md` lists "Packages: `looms/` directories or `pi.looms` entries in `package.json`" alongside the global, project, settings, and CLI sources, and frames the whole list as "the same locations as Pi prompt templates". Pi itself does not recognise `pi.looms`. Per `packages.md`, the `pi` manifest object only has first-class meaning for `extensions`, `skills`, `prompts`, `themes` (plus the gallery-only `video` / `image`). Anything else is opaque to Pi: it is neither enumerated nor handed to extensions through any documented surface. The `resources_discover` event — Pi's only inbound channel for an extension to contribute paths — accepts exactly `skillPaths`, `promptPaths`, `themePaths`; there is no `loomPaths`. So Pi will neither read `pi.looms` for the loom extension, nor will it discover the conventional `looms/` directory inside an installed package.
-
-The practical consequence is that the loom extension itself must walk every installed package, parse each `package.json`, and resolve `pi.looms` (and the `looms/` convention) against the package root. The spec phrases this as if it were a Pi-supplied capability; it is not. In addition, the *value shape* of `pi.looms` is undefined: `string[]` of relative paths? globs (as used by `pi.extensions` etc.)? files only, or directories too? No reader can implement V14m without an answer.
-
-A separate concern is **where** the extension finds installed packages. Pi installs npm packages globally via `npm install -g` and project-locally under `.pi/npm/`; git packages go under `~/.pi/agent/git/...` or `.pi/git/...`. Plain `node_modules/*/package.json` (as written in V14m) only covers the project-local npm case. The discovery spec needs to either enumerate these roots or punt the enumeration policy to the implementation notes.
-
-## Spec Documents
-
-- `spec_topics/discovery.md` — Directory Convention, source priority list (edited)
-- `spec_topics/pi-integration.md` — package-discovery contract; needs a note that `pi.looms` and `looms/` are extension conventions Pi does not enumerate (edited)
-- `spec_topics/pi-integration-contract.md` — same contract surface (edited)
-- `spec_topics/implementation-notes.md` — where to enumerate package roots from (`~/.pi/agent/git`, `~/.pi/agent/npm` global root, `.pi/npm`, `.pi/git`, plus `node_modules/`) (option-dependent)
-- Pi docs `packages.md`, `extensions.md` (sections on `resources_discover` and `pi` manifest keys) (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V14
-
-**Leaves (implementation order):**
-
-- V14m — Discovery: package `looms/` and `pi.looms` — (both)
-
-V14m's "Adds" line currently says "Walk `node_modules/*/package.json`". That is incomplete (misses pi-installed git/npm package roots) and also assumes `pi.looms` has a defined shape. Both come from the spec gap and must be fixed in V14m once the spec resolves.
-
-## Consequence
-
-**Severity:** correctness
-
-Two implementers reading the current spec will diverge: one will assume Pi enumerates `pi.looms` and write extension code that never runs because Pi never calls it; the other will hand-roll a package walker but pick a different value shape (paths vs. globs, files vs. dirs) and a different set of roots to scan. Authors who publish `pi-package`-tagged loom packages will then see them load on one implementer's setup and not the other's. The framing is also misleading enough that it will recur in code review and documentation.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec_topics/discovery.md`, replace the "Packages" bullet and the "same locations as Pi prompt templates" framing with a normative paragraph that:
-
-1. States explicitly that `pi.looms` and the `looms/` convention are defined by **this extension**, not by Pi. Pi does not enumerate them; the loom extension walks installed package roots itself. `resources_discover` is not used for looms because it has no `loomPaths` slot.
-2. Defines the `pi.looms` value shape by mirroring `pi.prompts` / `pi.skills` exactly: a `string[]` of paths relative to the package root, supporting glob patterns and `!exclusion` entries (per `packages.md`'s "Paths are relative to the package root. Arrays support glob patterns and `!exclusions`."). A path may resolve to a `.loom` file or to a directory; directories are scanned non-recursively for `*.loom`, matching the global/project rule.
-3. Names the package roots to scan, in this order: project `.pi/npm/`, project `.pi/git/`, project `node_modules/`, global `~/.pi/agent/npm/` (or whatever the resolved global root is), global `~/.pi/agent/git/`. The extension reads each `package.json`, takes `pi.looms` if present, otherwise falls back to the conventional `looms/` directory at the package root. The "Packages" tier in the source-priority list keeps its current rank.
-4. Cross-references `pi-integration.md` so the integration contract carries the same statement (the extension owns the convention; Pi is not asked to honour it).
-
-Edge cases the implementer must handle:
-
-- A package that ships **both** a `pi.looms` manifest entry **and** a `looms/` directory: manifest wins; do not merge. (Same rule Pi uses for skills/prompts.)
-- A `pi.looms` entry pointing outside the package root: reject with a load-time warning.
-- A package present in both global and project roots: project wins, matching Pi's package dedup rule (`packages.md` "Scope and Deduplication").
-- Glob patterns that resolve to zero files: silent, not an error.
-- The `pi.looms` value being a non-array (string, object): load-time error naming the package.
-
-## Related Findings
-
-- "`--loom` CLI flag is not a Pi built-in; repeatable string flag type undocumented" — same-cluster (parallel issue: extension-owned discovery channel that the spec frames as Pi-supplied)
-- "`settings.json` `looms` array shape unspecified" — co-resolve (define the entry-shape grammar in the same edit pass; both are extension-owned discovery sources whose value type is undefined)
-- "Discovery directory tree example contradicts documented path" — same-cluster (touches the same `discovery.md` section)
-- "Discovery source failure modes partly unspecified" — same-cluster (this finding's edge-case list overlaps with what failure-mode work needs to enumerate)
-- "`looms.binderModel` described as a 'Pi-level setting' when it is extension-owned" — same-cluster (same underlying confusion: settings/manifest keys owned by the extension are described as if Pi enumerated them)
 
 ---
 

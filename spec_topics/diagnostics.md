@@ -134,6 +134,8 @@ The table enumerates every diagnostic the V1 spec defines. *Severity* is `error`
 | `loom/load/settings-invalid-json` | W | load | A settings file is present but not valid UTF-8 JSON. | [Discovery — Settings file reads](./discovery.md) | — |
 | `loom/load/settings-invalid-entry` | E | load | A `looms` array entry is not a string (object-form entries are not accepted in V1). | [Discovery — `looms` entry schema](./discovery.md) | Use a string path; object-form entries are reserved. |
 | `loom/load/invalid-extension` | E | load | A settings `looms` file entry (or a glob match) resolves to a file whose name does not end in `.loom`. | [Discovery — `looms` entry schema](./discovery.md) | Point the entry at a `.loom` file or narrow the glob. |
+| `loom/load/manifest-invalid` | E | load | A package's `pi.looms` field is not a `string[]` (a string, object, `null`, or an array containing non-string entries). The package contributes no looms; other packages still process. | [Discovery — Package discovery](./discovery.md#package-discovery) | Set `pi.looms` to an array of path strings, mirroring `pi.skills` / `pi.prompts`. |
+| `loom/load/manifest-escapes-package` | W | load | A `pi.looms` entry's resolved path lies outside the package root (via `..` segments or an absolute path). The entry is skipped; other entries in the same array still process. | [Discovery — Package discovery](./discovery.md#package-discovery) | Use a path relative to the package root. |
 
 ### `loom/runtime/*` — runtime panics
 

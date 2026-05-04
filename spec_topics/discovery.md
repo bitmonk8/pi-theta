@@ -1,10 +1,10 @@
 # Directory Convention
 
-Loom files are discovered from the same locations as Pi prompt templates, just with a different leaf directory:
+Loom files are discovered from five sources. The global, project, and package-conventional roots mirror the leaf-directory layout Pi uses for its own prompt templates, but the loom extension owns the discovery walk end-to-end: Pi has no `loomPaths` slot in `resources_discover` (the event carries `skillPaths`, `promptPaths`, `themePaths` only — see `@mariozechner/pi-coding-agent/docs/extensions.md` §`resources_discover`), and the `pi` manifest namespace recognises only `extensions`, `skills`, `prompts`, `themes`, `video`, and `image` (see `packages.md` §"Creating a Pi Package"). The package-manifest entry (`pi.looms`), the settings array (`looms`), and the CLI flag (`--loom`) are therefore conventions defined by **this extension**; Pi does not enumerate them and does not pass them to the extension. The loom extension reads them itself — settings via the injected `FileSystem` seam (see [Settings file reads](#settings-file-reads)), `pi.looms` and the conventional `looms/` directory by walking installed package roots (see [Package discovery](#package-discovery)), and `--loom` via a flag the extension registers itself in its factory (see [Pi Integration Contract](./pi-integration-contract.md)). The five sources are:
 
 - Global: `~/.pi/agent/looms/*.loom`
 - Project: `.pi/looms/*.loom`
-- Packages: `looms/` directories or `pi.looms` entries in `package.json`
+- Packages: each installed pi-package's `pi.looms` manifest entry (preferred) or its conventional `looms/` directory (fallback) — see [Package discovery](#package-discovery).
 - Settings: `looms` array (in `~/.pi/agent/settings.json` or `.pi/settings.json`) — `string[]` of file or directory paths; per-entry schema under [Settings file reads](#settings-file-reads).
 - CLI: `--loom <path>` (repeatable, optional)
 
@@ -65,6 +65,36 @@ my-package/                       # package-source layout
     └── shared/
         └── schemas.warp         # library — importable, never a slash command
 ```
+
+## Package discovery
+
+`pi.looms` and the `looms/` directory convention are owned by **this extension**, not by Pi (see the framing paragraph at the top of this file). The extension walks installed package roots itself; it does not delegate to Pi.
+
+**Roots scanned (in priority order, project before global).** The extension enumerates each of the following directories and inspects each immediate child as an installed package; a root that does not exist is silently skipped (the project may have no `pi install`-managed packages, or the user may have no global packages):
+
+1. `.pi/npm/` — project-scope npm packages installed via `pi install` (see `packages.md` §npm).
+2. `.pi/git/<host>/<path>/` — project-scope git packages cloned via `pi install` (see `packages.md` §git).
+3. `node_modules/` — project-local npm dependencies brought in via the project's own `package.json` rather than `pi install`.
+4. `~/.pi/agent/npm/` — global npm packages installed via `pi install -g`. If `npmCommand` is configured (per `packages.md` §npm), the extension uses the resolved global root reported by that command instead of the literal path.
+5. `~/.pi/agent/git/<host>/<path>/` — global git packages cloned via `pi install`.
+
+Within each root, every immediate child whose `package.json` parses successfully is treated as a candidate package. The `pi-package` keyword in `package.json` is informational (used by the gallery, per `packages.md` §"Gallery Metadata") and is **not** required for loom discovery — packages installed before the convention existed, and packages that ship looms incidentally, are still scanned.
+
+**Per-package resolution.** For each candidate package:
+
+- If `package.json` has a `pi.looms` field, it MUST be a `string[]` of paths relative to the package root. The value shape mirrors `pi.extensions` / `pi.skills` / `pi.prompts` / `pi.themes` exactly (see `packages.md` §"Creating a Pi Package"): glob patterns are supported, leading `!` excludes matching paths, leading `+` force-includes an exact path, leading `-` force-excludes one. Each glob is resolved against the package root; the resulting matches contribute as follows — a match that is a `.loom` file registers that file directly; a match that is a directory is scanned non-recursively for `*.loom` children (matching the global non-recursion rule at the top of this file); a match that is any other file type is filtered out silently per match.
+- If `package.json` has no `pi.looms` field, fall back to the conventional `looms/` directory at the package root and scan it non-recursively for `*.loom`.
+- If `package.json` has both, the manifest entry wins; the `looms/` directory is **not** merged in. This matches the rule Pi uses for its own resources when a manifest is present (per `packages.md` §"Convention Directories": conventional directories apply only when no `pi` manifest is present).
+
+**Edge cases.**
+
+- A `pi.looms` value that is not a `string[]` (string, object, `null`, or an array containing non-string entries) is rejected with `loom/load/manifest-invalid` (severity `error`); no looms are loaded from that package and the source descriptor names the package (e.g. `` "package `foo` (pi.looms)" ``).
+- A `pi.looms` entry whose resolved absolute path lies outside the package root (via `..` segments or an absolute path) is rejected per-entry with `loom/load/manifest-escapes-package` (severity `warning`); other entries continue to process.
+- A glob pattern that resolves to zero files is silent (not an error), matching Pi's behaviour for `pi.extensions` etc.
+- A package present in both a project root and a global root is deduplicated by package identity (per `packages.md` §"Scope and Deduplication": npm package name, git repository URL without ref, or resolved absolute path for local). The project copy wins and the global copy contributes nothing; this is package-level dedup, not a `loom/load/cross-source-shadow` event (which is reserved for slash-name shadowing across the five sources of the priority list above).
+- Within the `looms/` fallback directory, subdirectories are ignored, matching the global non-recursion rule applied to `.pi/looms/` and `~/.pi/agent/looms/`.
+
+The two `Package pi.looms entry` and `Package looms/ directory` rows of the failure-modes table at the top of this file continue to apply: a `pi.looms` entry naming a path that does not exist is an error (the manifest authored it intentionally); a missing `looms/` fallback directory is silent (the package may simply ship none).
 
 ## Settings file reads
 
