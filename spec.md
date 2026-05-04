@@ -297,11 +297,13 @@ Like Pi prompts and subagents, loom files declare metadata in YAML frontmatter:
 ---
 description: Programmatic, parameterised code review
 argument-hint: "<language> <focus_areas...>"
-mode: subagent            # prompt | subagent
-args: typed               # typed | prompt (default: typed)
-model: claude-sonnet-4-5  # model used for every query in this loom
-tools: read, grep, bash   # tools available to the model during query-time tool loops
-system: |                 # system prompt for the conversation (subagent-only)
+mode: subagent              # prompt | subagent
+model: claude-sonnet-4-5    # model used for every query in this loom
+binder_model: claude-haiku  # model used to bind slash-command args to params (default: Pi setting)
+bind_context: none          # none | session — see Slash-Command Argument Binding
+bind_echo: true             # echo bound args before execution (default: true)
+tools: read, grep, bash     # tools available to the model during query-time tool loops
+system: |                   # system prompt for the conversation (subagent-only)
   You are an expert ${language} reviewer.
   Reviewer context: ${author.name} (${author.role}, ${author.experience_years}y).
 retry:
@@ -316,8 +318,8 @@ params:
 
 Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-hint`) plus loom-specific fields. **No `name` field** — the filename is canonical, exactly as for Pi prompts (`code-review.loom` is invoked as `/code-review`).
 
-- `args` selects how slash-command arguments are surfaced inside the loom body. Two styles are supported (see [Argument Styles](#argument-styles) below).
-- `params` are validated with AJV at invocation time and exposed as typed variables in the loom body. Only meaningful with `args: typed` — declaring `params:` together with `args: prompt` is a parse error.
+- `params` are validated with AJV at invocation time and exposed as typed variables in the loom body. When invoked from a slash command, the runtime binds free-form slash arguments to `params` via an LLM call (see [Slash-Command Argument Binding](#slash-command-argument-binding)); when invoked from `invoke(...)` or as a registered tool, arguments arrive already typed and are validated directly.
+- `binder_model`, `bind_context`, and `bind_echo` configure slash-command argument binding. All three are optional with sensible defaults; see [Slash-Command Argument Binding](#slash-command-argument-binding).
   - **Defaults.** A param may declare a default with `field: type = literal`. The RHS must be a parse-time literal (string, number, boolean, `null`, or a JSON-shaped object/array literal); no expressions, no `${param}` interpolation. When a slash-command invocation omits the corresponding positional argument, the default is filled in before AJV validation. Defaults are the only place where literal-valued defaulting exists in V1; schema field declarations do not support defaults (JSON Schema's `default:` is advisory metadata, not provider-enforced, and would mislead authors about what the model emits).
 
     ```yaml
@@ -361,7 +363,6 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
   - Per-query overrides and a project → loom → query cascade are deferred (see [Future Considerations](#future-considerations)).
 - `system` declares the conversation's system prompt. **Subagent-mode only** — `system:` in a `mode: prompt` loom is a parse error, since prompt-mode looms attach to the user's existing Pi session whose system prompt belongs to Pi, not to the loom. In subagent mode, the field is fixed once when the spawned conversation is created and applies to every query the loom issues against it. If omitted, the spawned conversation has no system prompt (the model behaves under its training defaults).
   - **Interpolation.** The `system:` field supports `${param}` and `${param.field}` interpolation against the loom's typed `params`. The full Loom expression sublanguage is **not** available in this slot — only bare identifier paths — because the system prompt is evaluated once at conversation-creation time, before any loom code runs, and the simpler rule is unambiguous and easy to debug. For richer logic, omit `system:` and accept the reduced control-flow surface, or wait for per-query system overrides (deferred).
-  - **`args: prompt`**: when used with `args: prompt`, `${1}`, `${@}`, `${ARGUMENTS}` (and only these forms) are interpolated against the slash-command arguments. The `${@:N}` / `${@:N:L}` slicing forms are **not** available in `system:` — they are template-body sugar only.
 - `retry` controls how typed queries recover from schema-validation failures (see the [Query](#query) section). `attempts` bounds the number of follow-up coercion turns; `methodology` selects the phrasing strategy. Recognised methodologies (V1):
   - `validator_error` (default) — the follow-up turn includes the AJV validation error from the previous attempt.
   - `schema_repeat` — the follow-up turn re-states the expected schema without quoting a specific error.
@@ -374,78 +375,9 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
 
   Use `none` on hot paths where any single failure should fast-fail and the loom handles recovery itself with `match`.
 
-#### Argument Styles
+#### Template Interpolation
 
-A loom picks one of two argument styles in frontmatter. The choice is per-loom; the styles cannot be mixed.
-
-**`args: typed`** (default) — schema-first. Slash-command arguments bind positionally to the entries of `params:` in declaration order, each coerced through AJV against its declared schema. This is the style the rest of the spec illustrates (`Author`, `IssueList`, `ReviewScore`, etc.).
-
-```yaml
----
-args: typed
-params:
-  language: string
-  focus_areas: array<string>
-  author: Author
----
-```
-
-```loom
-@`You are reviewing ${language} code by ${author.name}.`?
-```
-
-**`args: prompt`** — Pi-prompt style, no schema. Slash-command arguments arrive as raw strings using the same substitution surface Pi prompt templates use:
-
-- `$1`, `$2`, ... — positional arguments, type `string`
-- `$@` and `$ARGUMENTS` — all arguments joined into one `string`
-- `${@:N}` — arguments from position N onward (template-only sugar)
-- `${@:N:L}` — `L` arguments starting at N (template-only sugar)
-
-The `$N` / `$@` / `$ARGUMENTS` forms are bound as `string`-typed locals in the loom scope and may appear in any expression position. The bash-style slicing forms `${@:N}` and `${@:N:L}` are sugar inside `@`...`` query templates only.
-
-```yaml
----
-args: prompt
-argument-hint: "<topic> [extra context...]"
----
-```
-
-```loom
-let plan: Plan = @`Draft a review plan for: $1. Extra context: ${@:2}`?
-```
-
-`args: prompt` is the right choice when the loom is essentially a Pi prompt template with control flow bolted on — the argument shape is text-shaped and AJV coercion would just get in the way. `args: typed` is the right choice when arguments have structure worth validating (objects, enums, arrays of typed elements).
-
-The `args` style and the response-schema surface are **orthogonal**. `args: prompt` does not preclude typed queries inside the body; the slash-arg surface (untyped strings) and the response-validation surface (AJV-validated JSON) are independent dials. A loom whose input is free-form text but whose output should be structured is a natural combination:
-
-```yaml
----
-args: prompt
-argument-hint: "<topic>"
----
-```
-
-```loom
-let plan: Plan = @`Draft a structured review plan for: $@`?
-```
-
-#### Template Interpolation Disambiguation
-
-The `@` character appears in two distinct lexical positions and is disambiguated by **position**, not by lookahead:
-
-- **Top-level `@` followed by a backtick** — introduces a query template. Example: `@`...``. Lexer state: top-level expression mode.
-- **`@` immediately after `${`** — the bash-style argument-slice sugar (`${@:N}` / `${@:N:L}`), valid only under `args: prompt` and only inside a `@`...`` query template. Lexer state: template-interpolation mode.
-
-These never collide: the first occurs only in expression position outside any `${...}`, the second occurs only inside `${...}` inside a query template.
-
-Inside a `${...}` interpolation, the lexer disambiguates further by peeking one character after the opening `${`:
-
-- If the next character is `@`, parse the bash-style argument-slice form. Grammar: `'${' '@' ':' INT (':' INT)? '}'`. Anything else after `${@` is a parse error ("expected `:` after `@` in argument-slice").
-- Otherwise, parse a Loom expression (the sublanguage from [Expression Sublanguage](#expression-sublanguage)) up to the matching `}`.
-
-The braced bare form `${@}` is **not** legal; use the unbraced `$@` for "all args joined." The slicing forms `${@:N}` / `${@:N:L}` and the unbraced positional forms `$1`, `$@`, `$ARGUMENTS` are template-only sugar; outside `@`...`` query templates, the same effect is reached through normal expression code.
-
-Under `args: typed`, none of the `$N` / `$@` / `$ARGUMENTS` / `${@:N}` / `${@:N:L}` forms are bound. Referencing any of them is an "unknown identifier" parse error, since `args: typed` exposes named `params` instead.
+A `${...}` interpolation inside a `@`...`` query template contains a Loom expression from the [Expression Sublanguage](#expression-sublanguage), evaluated up to the matching `}`. The `@` character has only one lexical role — introducing a query template at top level — and never appears inside `${...}`. There is no bash-style argument-slice sugar (`${@:N}`, `$1`, `$@`, `$ARGUMENTS`); slash-command arguments are bound to typed `params` via the [Slash-Command Argument Binding](#slash-command-argument-binding) machinery and referenced by their declared parameter names like any other identifier.
 
 ### Query
 
@@ -887,7 +819,7 @@ let label    = triage(summary)?
 
 **No conversation turn.** A tool call is a direct call against Pi's tool runtime (or, for a registered loom, a fresh subagent invocation; see below). It does **not** add a turn to the loom's conversation, does **not** consume model tokens, and does **not** appear in the conversation transcript. This is the deliberate distinction from `@`...`` queries: queries cross code → model in the current conversation; tool calls cross code → side-effect (or code → child conversation, for a registered loom) without disturbing the current one.
 
-**Argument shape.** Pi tools take a single object argument matching the tool's input schema (TypeBox / JSON Schema, exposed by Pi at registration). Registered loom callees take their callee `params:` per the callee's `args:` style — the same argument-binding rules `invoke(...)` uses. Type mismatches surface as parse errors when the callee's schema is statically resolvable; otherwise the runtime AJV check is the safety net.
+**Argument shape.** Pi tools take a single object argument matching the tool's input schema (TypeBox / JSON Schema, exposed by Pi at registration). Registered loom callees take their callee `params:` as already-typed values, positionally in declaration order — the same argument-binding rules `invoke(...)` uses. Type mismatches surface as parse errors when the callee's schema is statically resolvable; otherwise the runtime AJV check is the safety net. Slash-command argument binding (LLM-driven; see [Slash-Command Argument Binding](#slash-command-argument-binding)) does not apply here — code-side callers pass typed values directly.
 
 **Return type.** The result type depends on the callee kind:
 
@@ -938,7 +870,7 @@ let _ = invoke("./logger.loom", note)?
 
 **Typed return.** `invoke<Schema>(...)` annotates the expected return type; the runtime AJV-validates the child's return value against the schema. Untyped `invoke(...)` returns `Result<null, QueryError>` — the runtime discards the child's return value entirely. Use `invoke<Schema>` whenever the caller needs the value back; the untyped form exists only for fire-and-forget orchestration (loggers, side-effect-only children).
 
-**Argument binding.** Arguments bind to the callee's `params:` according to the callee's `args:` style (`typed` or `prompt`), exactly as if the loom had been invoked from a slash command. Type mismatches surface as parse errors when the callee's frontmatter is statically resolvable; the parser type-checks across the invocation boundary.
+**Argument binding.** Arguments bind positionally to the callee's `params:` in declaration order, with each argument type-checked against the param's declared schema. Type mismatches surface as parse errors when the callee's frontmatter is statically resolvable; otherwise the runtime AJV check is the safety net. The LLM-driven binder used at the slash-command boundary (see [Slash-Command Argument Binding](#slash-command-argument-binding)) does not run here — `invoke(...)` callers pass already-typed values.
 
 **Cross-mode semantics.** The callee's mode controls whether it gets a fresh conversation or attaches to its caller's current conversation. The caller's mode is irrelevant to that decision — a subagent's "current conversation" is already its own private one, so a prompt-mode child writing into it stays inside that private context.
 
@@ -1056,34 +988,76 @@ project/
 A loom is invoked as a slash command using its filename, exactly like a Pi prompt template:
 
 ```
-/code-review TypeScript "error handling,types" Ada
+/code-review TypeScript focusing on error handling and async, by Ada Lovelace, senior engineer 12y
 ```
 
-Argument binding depends on the loom's `args` frontmatter setting (see [Argument Styles](#argument-styles)):
+The runtime extracts typed `params:` values from the user's free-form slash arguments via an LLM-driven binder. The full mechanism is described in [Slash-Command Argument Binding](#slash-command-argument-binding); the short version is that a cheap tier-2 model is given the loom's `params:` schema and the raw slash text and asked to return a structured envelope (`ok`, `needs_info`, or `ambiguous`). Successful binding feeds AJV-validated params into the loom; unsuccessful binding surfaces a one-line system note in the user's session and the loom does not run.
 
-- **`args: typed`** — Positional binding by `params:` declaration order. The first slash-command argument binds to the first declared param, and so on. Each argument is coerced through AJV against the corresponding param's schema. Bare `/code-review` with no arguments is valid only if every param has a default or is nullable; otherwise the runtime surfaces a Pi-compatible diagnostic listing the missing params.
+The `argument-hint` frontmatter field drives the slash-command autocomplete dropdown shown to the user, and is also passed to the binder as additional grounding for argument extraction. Key=value or named-argument syntax (e.g. `/code-review language=TypeScript`) is *not* part of the V1 surface; users type free-form text and the binder does the work.
 
-  **Coercion rules** for slash-arg → typed value:
+### Slash-Command Argument Binding
 
-  | Target type | Coercion |
-  |---|---|
-  | `string` | as-is |
-  | `number` / `integer` | `parseFloat` / `parseInt`; reject `NaN` |
-  | `boolean` | `"true"` / `"false"`, case-insensitive; anything else rejects |
-  | `null` | the literal `"null"` |
-  | `array<string>` | comma-split, **no escaping**; whitespace trimmed per item; empty items between commas are rejected (`"a,,b"`) |
-  | `array<number>` / `array<integer>` / `array<boolean>` / `array<null>` | comma-split, then per-element coerced as above; failure on any element fails the whole argument with an AJV error pointing at the index |
-  | `array<Schema>` (object element) | require a single JSON-literal argument (`'[{...},{...}]'`) |
-  | `array<array<...>>` (nested) | require a single JSON-literal argument |
-  | `Schema` (object) | a single JSON-literal argument (`'{"name":"Ada",...}'`) |
+When a loom is invoked from a slash command, the runtime translates the user's free-form argument string into the loom's typed `params:` via an LLM call — the **binder**. The binder runs once per slash invocation, before any of the loom's own queries. It does not apply to `invoke(...)` calls or to looms invoked as registered tools (both of those pass already-typed values).
 
-  **Sharp edge.** The `array<string>` comma-split layer does not support escaping; embedded commas are not recoverable. If items may contain commas, use `args: prompt` and parse `$@` (or `$ARGUMENTS`) yourself. Object and nested-array params at the slash prompt are also hostile to type — a JSON literal at the command line is fine for tooling-driven invocation but unpleasant for humans. Looms that take richly-shaped params should consider `args: prompt` plus a setup-turn pattern, or wait for named-argument syntax (deferred; see [Future Considerations](#future-considerations)).
+The binder is positioned as runtime infrastructure, not as part of the loom's conversation: it never adds turns to the user's session (in prompt mode) or to the loom's spawned conversation (in subagent mode), and the loom code never sees the binder's intermediate envelope. Authors interact with the *result* of binding (their `params` are populated, or the loom doesn't run) the same way they would with any typed `invoke(...)` call.
 
-  **Setup-turn pattern (recommended for human-invoked looms with structured params).** When a typed loom takes structured params and the primary caller is a human (rather than another loom via `invoke` or a programmatic harness), keep `params:` minimal — typically just an unstructured `topic: string` — and gather structure inside the loom body via a setup query (often a typed query bound to a `let x: Author = @`...`?` that asks the user to confirm or fill in fields conversationally). AJV-typed object params remain the right choice for `invoke` callers and for tooling-driven entry points where JSON literals are natural; the setup-turn pattern is purely for the human-at-a-prompt case.
-- **`args: prompt`** — Arguments are passed through as raw strings and exposed as `$1`, `$2`, `$@`, `$ARGUMENTS` (and template-only `${@:N}` / `${@:N:L}` sugar) inside the loom body. No coercion or validation is performed; the loom author is responsible for any parsing.
-- **`argument-hint`** in frontmatter drives the autocomplete dropdown shown to the user, regardless of style.
+**Binder model.** Configured via the `binder_model:` frontmatter field, which falls back to the Pi-level `looms.binderModel` setting (default: a cheap tier-2 model such as Claude Haiku, GPT-4o-mini, or Gemini Flash). Binder calls are structurally function-calling tasks — schema in, JSON out — and tier-2 models are more than capable. Authors with unusually subtle schemas (overlapping discriminated-union fields, semantically close enum variants) can override per-loom by setting `binder_model:` to a stronger model.
 
-Key=value or named-argument syntax (e.g. `/code-review language=TypeScript`) is *not* part of the V1 surface for either style. If positional binding proves too brittle for richly-shaped params, named arguments may be added later.
+**Binder context.** Configured via `bind_context:` (`none` | `session`; default `none`).
+
+- `none` — the binder sees only the slash text and the loom's frontmatter. Predictable, cheap, deterministic. The right choice when arguments are self-contained (`/code-review TypeScript focusing on error handling, by Ada Lovelace, senior engineer 12y`).
+- `session` — prompt-mode-only; the binder additionally receives the last ~20 turns or ~8000 tokens (whichever is smaller) of the caller's session as grounding context. The right choice when the loom relies on conversational anaphora (`/review the spec` resolves "the spec" against what the user was just discussing).
+
+Declaring `bind_context: session` on a subagent-mode loom is a parse warning, not an error — subagent-mode looms invoked from a slash command have no caller-session context to attach.
+
+**Binder bypass.** When `params:` declares exactly one field, that field's type is `string`, and the field has no default, the runtime sets the param's value to the entire slash-argument string (with leading and trailing whitespace trimmed) and skips the binder call entirely. AJV validation still runs as a safety net (a string passes by definition; this is just the standard validation path). All other shapes — multiple fields, non-string types, defaults present, optional or nullable types — go through the binder. The bypass decision is made at loom-load time from the static schema; there is no per-invocation branching.
+
+**Binder envelope.** The binder is asked to return one of three structured outputs (the schema is constructed dynamically by the runtime from the loom's `params:`):
+
+- `{ kind: "ok", args: <typed params object> }` — successful extraction. The runtime AJV-validates `args` against the params schema (safety net for hallucinated field shapes), fills any defaulted fields not present in `args`, and starts the loom.
+- `{ kind: "needs_info", message: string }` — the binder could not extract one or more required fields. The `message` is shown to the user as a system note; the loom does not run.
+- `{ kind: "ambiguous", message: string, candidates: array<string> | null }` — multiple plausible bindings exist and the binder cannot pick one. The `message` is shown to the user as a system note; the loom does not run.
+
+The envelope is runtime-internal; it is never a Loom-visible type and never appears in loom code. Authors only see the *consequences* of binding (loom runs, or system note appears).
+
+**Defaulting.** Defaults declared on `params:` fields are filled by the runtime *after* the binder returns, not by the binder. The binder is told (in its system prompt) which fields are required and which have defaults; for default-having fields, the binder may omit them from `args` when the user did not specify them, and the runtime fills the defaults before AJV validation. The binder is never asked to invent default values — only to extract what the user actually said.
+
+**Echo policy.** Configured via `bind_echo:` (`true` | `false`; default `true`). When echo is on (and the bypass did not apply), the runtime appends a one-line system note to the user's session immediately before the loom starts:
+
+> Running `/code-review`: language=TypeScript, focus_areas=[error handling, async], author={Ada Lovelace, …}
+
+Format rules:
+
+- Top-level `params:` fields shown in declaration order, comma-separated.
+- String values quoted only when they contain whitespace or special characters.
+- Array values shown as `[a, b, c]`, truncated to `[a, b, c, …+N more]` past three elements.
+- Object values shown as `{first-field-value, …}` — just the first field's value as a hint.
+- Defaulted fields tagged `(default)`: `focus_areas=[] (default)`.
+- Total line capped at ~120 characters; overflow truncated with `…`.
+
+Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is a parse warning.
+
+The echo channel is also used for the binder's `needs_info` and `ambiguous` outputs, which *replace* execution rather than precede it:
+
+> loom `/code-review`: missing required field `language`. Specify the language being reviewed.
+
+> loom `/code-review`: ambiguous arguments — "focusing on Ada" could mean focus_areas or author. Be more explicit.
+
+**Determinism.** Binder calls use `temperature: 0` and, where the provider supports it, a fixed seed. The binder is therefore *near-deterministic* but not guaranteed reproducible — different model versions, provider-side updates, or context injection (`bind_context: session`) can produce different bindings for the same slash text. Authors who require fully deterministic argument handling should either (a) write looms whose schema triggers the bypass (single no-default `string` param), (b) invoke the loom programmatically via `invoke(...)`, or (c) accept the small nondeterminism budget of a temp-0 tier-2 model on a structured-output task.
+
+**Failure modes.** Binder failures are runtime-handled and surface as system notes in the user's session, never as `Result` values to loom code. V1 has no `BinderError` variant in the `QueryError` union (it would have nowhere to flow — a failed binder means the loom never starts). The five user-facing shapes:
+
+| Cause | System note |
+|---|---|
+| `needs_info` | `loom /<name>: <model's message>` |
+| `ambiguous` | `loom /<name>: ambiguous arguments — <model's message>` |
+| Binder model transport failure (after one retry) | `loom /<name>: argument binder unavailable (<provider>: <message>)` |
+| Binder returned malformed envelope after retries | `loom /<name>: argument binding failed — could not parse arguments` |
+| AJV validation of the binder's `args` failed | `loom /<name>: argument binding produced invalid args — <ajv-summary>` |
+
+Transport failures get exactly one retry; coercion-style follow-ups (the mechanism typed queries use for response-schema repair) do not apply, because if the binder model is unreachable, more attempts will not help.
+
+**Cost and latency.** A typical binder call on a tier-2 model is sub-second and on the order of $10⁻⁴ per invocation. Authors can drive this to zero by structuring `params:` as a single `string` (triggering the bypass) and parsing inside the loom body if they want to avoid the binder entirely.
 
 Once a loom is invoked:
 
@@ -1138,6 +1112,7 @@ This behaviour depends on Pi's session API exposing "append a system note to the
 - Tool calls from loom code (`<name>(args)`) resolve the post-rename name against the loom's `tools:` table built at load time; for Pi tools the runtime invokes the tool's `execute(toolCallId, params, signal, onUpdate, ctx)` directly with a synthesized `toolCallId` and a no-op `onUpdate`, and awaits the resulting Promise before returning to loom code (non-blocking at the runtime level, sequential at the language level); for registered loom paths the runtime spawns a subagent invocation equivalent to `invoke<T>(path, ...)`. Pi tools registered in `tools:` are also wired into every `@`...`` query as model-callable tools; registered loom paths are lowered to a tool spec (params → input schema, inferred return → output schema, frontmatter `description` → tool description) and exposed alongside Pi tools to the model
 - For subagent-mode looms, the spawned conversation's system prompt is taken from frontmatter `system:` (with `${param}` interpolation resolved at conversation-creation time) and applied to every query against that conversation
 - Parameter schemas (frontmatter `params`) are likewise validated with AJV at invocation time
+- For slash-command invocation, the runtime first runs the binder (per [Slash-Command Argument Binding](#slash-command-argument-binding)) unless the bypass condition holds. The binder is a one-shot ephemeral call to `binder_model` (resolved from frontmatter, falling back to Pi setting `looms.binderModel`) with `temperature: 0` and a fixed seed where supported. The runtime constructs the binder's response schema dynamically from the loom's `params:` schema (the three-arm envelope `ok | needs_info | ambiguous`), passes it as a strict structured-output contract, and validates the returned `args` (on `kind: "ok"`) with AJV before merging in defaults and starting the loom. Binder failures and non-`ok` envelopes are surfaced as one-line system notes in the user's session; the loom is not started
 - The loom's overall return value is the value of the last expression of its top-level block
 
 ### Future Considerations
@@ -1153,6 +1128,10 @@ This behaviour depends on Pi's session API exposing "append a system note to the
 - Loom-level concurrency primitives (e.g. `parallel { ... }` blocks or a parallel-`for` form) building on Pi tools' Promise-returning shape — V1 keeps every tool call sequential and synchronous-looking
 - Streaming partial tool results from Pi's `onUpdate` callback into loom code (e.g. an iterator-style consumption form) — V1 returns only the final result
 - Structured tool output schemas, when Pi (or upstream providers) introduce a strict output-schema contract for tools — V1 returns `string` from every Pi tool call
+- Binder refinement loop: multi-turn `needs_info` negotiation (binder asks the user a clarifying question, gets a reply, retries) instead of V1's single-shot "system note then stop" behaviour
+- Automatic context escalation: when binding fails without context, automatically retry with `bind_context: session` attached — trades a second binder call for a smoother success rate on context-sensitive looms that forgot to opt in
+- `BinderError` as a Loom-visible `QueryError` variant, once looms become first-class values invocable from non-loom programmatic harnesses that need to observe binder failures structurally
+- Per-loom `binder_temperature` knob, if real usage shows authors need to tune the binder's nondeterminism budget
 
 ---
 
