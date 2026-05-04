@@ -20,7 +20,7 @@ Internal diagnostic shape:
 
 - `loom/parse/*` — lexer / parser errors (unknown token, case mismatch, missing brace, etc.).
 - `loom/type/*` — type-system errors (unknown identifier, type mismatch, schema constraint violation).
-- `loom/load/*` — file-load and registration errors (unreadable file, name collision, invalid frontmatter, unresolvable `tools:` entry).
+- `loom/load/*` — file-load and registration errors (unreadable file, missing or wrong-type discovery source, name collision, invalid frontmatter, unresolvable `tools:` entry).
 - `loom/runtime/*` — runtime errors surfaced as panics (`MatchError`, index out of bounds, etc.) reported back to Pi as system notes.
 
 **Serialisation to Pi's flat shape:** `"<file>:<line>:<col>: <code>: <message>"`, optionally followed by `"\n  hint: <hint>"` when a hint is present. Related sites are appended as additional indented lines.
@@ -39,7 +39,7 @@ Naming convention for codes is `<namespace>/<kebab-case-rule-name>`. The rule-na
 
 ## Code registry
 
-The table enumerates every diagnostic the V1 spec defines. *Severity* is `error` (`E`) or `warning` (`W`). *Phase* identifies which pipeline stage emits the diagnostic: `lex` (lexing / encoding), `parse` (parsing / static checks performed by the parser), `type` (type-system checks), `load` (file-load, registration, discovery), or `runtime` (panic during execution). *Trigger* is the canonical condition; *Spec rule* points to the topic page where the rule is stated; *Hint* gives the normative author-facing hint when the spec mandates one.
+The table enumerates every diagnostic the V1 spec defines. *Severity* is `error` (`E`) or `warning` (`W`); a few discovery-source codes carry severity `E/W`, meaning the severity is decided per-source by the table in [Discovery — Failure modes](./discovery.md) rather than fixed at the code level. *Phase* identifies which pipeline stage emits the diagnostic: `lex` (lexing / encoding), `parse` (parsing / static checks performed by the parser), `type` (type-system checks), `load` (file-load, registration, discovery), or `runtime` (panic during execution). *Trigger* is the canonical condition; *Spec rule* points to the topic page where the rule is stated; *Hint* gives the normative author-facing hint when the spec mandates one.
 
 ### `loom/lex/*` and `loom/parse/*` — lexical and parse errors
 
@@ -126,6 +126,10 @@ The table enumerates every diagnostic the V1 spec defines. *Severity* is `error`
 | `loom/load/cross-source-shadow` | W | load | The same slash name resolves from multiple discovery sources at different priorities. | [Discovery — Source priority](./discovery.md) | Remove the lower-priority entry. |
 | `loom/load/cross-format-collision` | E | load | A `.loom` and a Pi prompt template (`.md`) or subagent share the same slash name. | [Discovery — Slash-name collisions](./discovery.md) | Rename one. |
 | `loom/load/invalid-slash-name` | E | load | `*.loom` filename stem does not match `^[a-z0-9][a-z0-9_-]*$`. | [Discovery — Filename validity](./discovery.md) | Slash names must be lowercase kebab/snake; rename the file (e.g. `code-review.loom`). |
+| `loom/load/missing-source` | E/W | load | A discovery source's path does not exist. Severity is per the failure-modes table in [Discovery — Failure modes](./discovery.md): error for explicit references (`pi.looms` entries, settings `looms` entries, `--loom` flags), warning never — conventional locations (global, project, package `looms/`) emit no diagnostic when missing. | [Discovery — Failure modes](./discovery.md) | Check the source descriptor in the message and either create the path or remove the configuration entry. |
+| `loom/load/unreadable-source` | E/W | load | A discovery source's path exists but cannot be read (permission denied, ACL, symlink loop at the root, transient I/O error). Severity is per the failure-modes table: error only for `--loom` flags, warning for every other source. | [Discovery — Failure modes](./discovery.md) | — |
+| `loom/load/wrong-type-source` | E/W | load | A discovery source's path exists but is neither a `.loom` file nor a directory containing them. Severity is per the failure-modes table: error for `pi.looms` entries, settings `looms` entries, and `--loom` flags; warning for the conventional-location roots when the root path resolves to something other than a directory. | [Discovery — Failure modes](./discovery.md) | Point the entry at a `.loom` file or a directory of them. |
+| `loom/load/unreadable` | W | load | A `*.loom` file discovered under any source is itself unreadable (broken symlink, EACCES on the file, transient I/O error). The loom is not registered; the rest of the scan continues. | [Discovery — Failure modes](./discovery.md) | — |
 | `loom/load/settings-unreadable` | W | load | `~/.pi/agent/settings.json` or `.pi/settings.json` exists but is unreadable. | [Discovery — Settings file reads](./discovery.md) | — |
 | `loom/load/settings-invalid-json` | W | load | A settings file is present but not valid UTF-8 JSON. | [Discovery — Settings file reads](./discovery.md) | — |
 

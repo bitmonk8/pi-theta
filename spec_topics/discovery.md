@@ -18,6 +18,29 @@ Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-te
 4. Packages (`looms/` directories or `pi.looms` entries).
 5. Global (`~/.pi/agent/looms/`).
 
+**Failure modes.** Each discovery source has a defined behaviour for a missing, unreadable, or wrong-type path. The asymmetry is deliberate: *conventional locations* (global directory, project directory, package `looms/` directories) silently tolerate absence — that is the normal case on a fresh install or in a project that ships no looms — while *explicit references* (`pi.looms` entries, settings entries, `--loom` flags) surface a missing path as an error, because the author named it and expects it to resolve.
+
+| Source | Missing path | Unreadable path | Path is wrong type (file vs dir) |
+|---|---|---|---|
+| Global `~/.pi/agent/looms/` | silent | warning | warning |
+| Project `.pi/looms/` | silent | warning | warning |
+| Package `looms/` directory | silent (package may ship none) | warning | warning |
+| Package `pi.looms` entry | error (manifest names a missing path) | warning | error |
+| Settings `looms` entry | error (config names a missing path) | warning | error |
+| CLI `--loom <path>` | error (explicit user intent) | error | error |
+
+Three rules apply on top of the table:
+
+1. **Discoverable `.loom` files that are themselves unreadable** (broken symlink, transient I/O error, EACCES on the file itself) are reported as `loom/load/unreadable` *warnings* regardless of source, and the loom is not registered. The scan continues; one bad file does not poison the rest.
+2. **All warnings and errors above are emitted via the standard diagnostics channel** ([Diagnostics](./diagnostics.md)) using codes `loom/load/missing-source`, `loom/load/unreadable-source`, `loom/load/wrong-type-source`, and `loom/load/unreadable`. Each diagnostic carries the source descriptor in its `message` so the author can locate the offending configuration — e.g. `"settings entry index 2"`, `"--loom flag #1"`, `` "package `foo` (pi.looms[0])" ``, `` "package `foo` looms/ directory" ``, `"global looms directory"`, `"project .pi/looms/"`.
+3. **Errors are fatal for the offending entry only**, not for the whole discovery pass: a bad `--loom` flag prevents *that* loom from registering and surfaces a `loom/load/missing-source` error, but other `--loom` flags and the other four sources still process to completion.
+
+Implementation notes:
+
+- On Windows, "missing" and "permission denied" can both surface as `ENOENT` from `fs.readdir` depending on parent ACLs; treat any outcome that is neither a clean leaf-`ENOENT` nor a successful read as the unreadable-source case (warning), not as silent absence.
+- A symlink loop or other traversal failure *inside* a discovery root that does exist is an unreadable-source warning, not silence — the silent-on-missing rule applies to the *root* itself not existing, not to failures encountered while walking a root that does.
+- A `--loom` flag (or settings entry) pointing at a directory is allowed and treated like a per-source root; the wrong-type rule fires only when the path exists but is neither a `.loom` file nor a directory containing them.
+
 **Case-insensitive filesystem collisions.** Within a single discovery source, two `*.loom` files whose paths differ only in case (e.g., `Plan.loom` and `plan.loom` in the same `looms/` directory) collide on case-insensitive filesystems (Windows, macOS default) but coexist on case-sensitive ones (most Linux). To make behaviour identical across both, the loader compares discovered paths case-insensitively *per source* and emits a load-time *warning* `loom/load/case-collision` naming both paths; the lexicographically-first path under case-sensitive byte comparison wins. Cross-source priority (the table above) still applies on top — the rule is intra-source only. Path comparison uses the normalised forward-slash form described under "Path literals" in [Lexical Structure](./lexical.md).
 
 **Filename validity.** The slash name is the loom's filename stem taken verbatim — no case-folding, no whitespace trimming, no character substitution. The accepted stem matches the regex `^[a-z0-9][a-z0-9_-]*$`: lowercase ASCII letters and digits, optionally separated by `-` or `_`, starting with a letter or digit. Stems that do not match (e.g. `foo bar.loom`, `Foo.loom`, `foo!.loom`, `--help.loom`, `.foo.loom`, `café.loom`) are rejected at load time with `loom/load/invalid-slash-name` (severity `error`); the file does not register and does not participate in collision detection. Hint: ``slash names must be lowercase kebab/snake; rename the file (e.g. `code-review.loom`)``. The validator runs *before* parse, so an invalid name short-circuits frontmatter and body parsing — the file produces exactly one diagnostic. Because the accepted character class is lower-case-only, the case-sensitivity question (`Foo.loom` vs `foo.loom`) reduces to "both stems are rejected"; the cross-format collision check below is therefore well-defined regardless of whether the host filesystem is case-sensitive.
