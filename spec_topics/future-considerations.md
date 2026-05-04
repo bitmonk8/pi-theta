@@ -11,6 +11,7 @@
 - Loom-level concurrency primitives (e.g. `parallel { ... }` blocks or a parallel-`for` form) building on Pi tools' Promise-returning shape — V1 keeps every tool call sequential and synchronous-looking
 - Streaming partial tool results from Pi's `onUpdate` callback into loom code (e.g. an iterator-style consumption form) — V1 returns only the final result
 - Structured tool output schemas, when Pi (or upstream providers) introduce a strict output-schema contract for tools — V1 returns `string` from every Pi tool call
+- Richer untyped-query return shape (e.g. `Result<string | AssistantMessage, QueryError>` exposing tool-use traces, multiple content blocks, citations) — expected to be backward compatible with V1's plain-`string` `Ok` payload, since existing call sites would keep working under the union form
 - Binder refinement loop: multi-turn `needs_info` negotiation (binder asks the user a clarifying question, gets a reply, retries) instead of V1's single-shot "system note then stop" behaviour
 - Automatic context escalation: when binding fails without context, automatically retry with `bind_context: session` attached — trades a second binder call for a smoother success rate on context-sensitive looms that forgot to opt in
 - `BinderError` as a Loom-visible `QueryError` variant, once looms become first-class values invocable from non-loom programmatic harnesses that need to observe binder failures structurally

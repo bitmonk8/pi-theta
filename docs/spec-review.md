@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_104 findings retained, 1 false positives dropped, 0 persistent failures_
+_103 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -8633,79 +8633,3 @@ Edge cases for the implementer:
 - "Typed query implementation technique should be in `implementation-notes.md`, not the V1 contract" — same-cluster (same shape: relocate non-normative or option-locking content out of requirement pages into the appropriate dedicated page)
 
 ---
-
-# Rationale prose embedded in normative spec sections
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Design-notes blocks and rationale clauses mixed into requirement sections
-**Kind:** cruft
-
-## Finding
-
-Five spec passages mix non-normative justification into normative text:
-
-- `spec_topics/query.md` line 158: a labelled `Design notes:` block of four bullets following the `QueryError` declaration, explaining why the union has its shape.
-- `spec_topics/query.md` line 97: an "Untyped return type (V1)" paragraph whose final sentence speculates about future widening (`Result<string | AssistantMessage, QueryError>`, tool-use traces, citations) and asserts it will be backward-compatible.
-- `spec_topics/schema-subset.md` line 18: a `Rationale:` paragraph following the list of rejected JSON-Schema keywords, justifying the intersection on grounds of provider grammar-enforcement.
-- `spec_topics/runtime-value-model.md` line 18: the equality bullet whose tail clause (`Loom diverges from JS's === here because == is a value-level predicate, not a floating-point bit-equality test — reflexivity matters more than IEEE conformance`) reads as historical justification.
-- `spec_topics/expressions.md` line 66: the `replace(from, to)` table cell mixes the normative behaviour ("Replaces all occurrences") with a divergence rationale ("loom diverges from JS's first-only default; matches Rust `str::replace`").
-
-The rationale prose dilutes the normative content and trains readers to skim. It also obscures the fact that some "design notes" actually carry implementer-relevant constraints (e.g. the `query.md` bullet stating `validation_errors` is `array<ValidationFailure>` rather than raw AJV objects — a real shape contract, not an editorial aside).
-
-## Spec Documents
-
-- `spec_topics/query.md` — `QueryError` block and "Untyped return type (V1)" paragraph (edited)
-- `spec_topics/schema-subset.md` — keyword-rejection rationale paragraph (edited)
-- `spec_topics/runtime-value-model.md` — equality bullet (edited)
-- `spec_topics/expressions.md` — `string.replace` table row (edited)
-- `spec_topics/future-considerations.md` — destination for the V1-widening speculation (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(Pure spec-prose hygiene. No leaf's tests or "Ships when" criteria change. The `validation_errors`-shape constraint surfaced by the rewrite is already implied by the `QueryError` schema declaration above the design-notes block, so V6 typed-query tests are unchanged.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-The spec ships verbose and slightly harder to scan, but no implementer is misled. Risk is mainly that a reader skimming the QueryError block treats the "no AJV objects" bullet as commentary and emits AJV objects — a small contract drift, not a divergence.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Apply these edits, one per cited site:
-
-1. **`spec_topics/query.md`, `Design notes:` block (line 158).** Delete the `Design notes:` label. Promote the implementer-relevant content to normative prose woven into the paragraphs around the `QueryError` declaration:
-   - Bullet 1 (no null-padded sentinel fields; per-variant `match` brings only the relevant fields into scope) — keep as a short normative sentence after the union declaration; this is a real pattern-matching contract.
-   - Bullet 2 (`validation_errors` is `array<ValidationFailure>`, not raw AJV) — keep as a normative sentence; this is a shape constraint that affects the runtime/AJV boundary.
-   - Bullet 3 (the `union` form lowers to `anyOf` over `kind`-tagged variants) — delete here; the same statement already lives in `schema-subset.md` and `errors-and-results.md`. Replace with a one-line cross-reference if needed.
-   - Bullet 4 (`raw_response` presence rules per variant) — keep as a normative sentence; this is a per-variant invariant.
-
-2. **`spec_topics/query.md`, "Untyped return type (V1)" paragraph (line 97).** Delete the trailing sentence beginning "Future widening (e.g. to a `Result<string | AssistantMessage, QueryError>` shape …) is expected to be backward compatible". Add a corresponding entry to `future-considerations.md` ("Richer untyped-query return shape: tool-use traces, multiple content blocks, citations").
-
-3. **`spec_topics/schema-subset.md`, `Rationale:` paragraph (line 18).** Delete in full. The list of rejected keywords above it is normative and self-sufficient. Optionally retain the final sentence ("Constraints the subset cannot express … belong in code-side validation if needed") as a one-line normative pointer, since it tells the implementer where to route those constraints.
-
-4. **`spec_topics/runtime-value-model.md`, equality bullet (line 18).** Truncate the rationale tail. Keep: "Primitives compare via `Object.is` semantics (so `NaN == NaN` is `true` and `+0 != -0` is `false`)." Drop everything after the closing parenthesis.
-
-5. **`spec_topics/expressions.md`, `replace(from, to)` row (line 66).** Replace the Semantics cell with: "Replaces all occurrences. Literal-only (no regex)." Drop the JS/Rust comparison.
-
-Edge cases for the implementer:
-
-- The `QueryError` rewrite must preserve the `validation_errors`-shape and `raw_response`-presence statements as normative requirements. Don't lose them in the deletion pass.
-- The `future-considerations.md` entry for untyped-query widening should match the wording style of existing entries there (check the file before adding).
-- The runtime-value-model edit must not touch the `Object.is` semantics — only the post-parenthesis rationale clause goes.
-
-## Related Findings
-
-- "Scattered inline \"can be added non-breakingly later\" notes should move to `future-considerations.md`" — same-cluster (same shape: non-normative prose in requirement sections; the `query.md` future-widening sentence is a co-resolve with that finding's `future-considerations.md` move).
-- "Typed query implementation technique should be in `implementation-notes.md`, not the V1 contract" — same-cluster (also separates normative contract from non-normative discussion, but addresses prescription-of-mechanism rather than rationale framing; resolves independently).
-
----
-

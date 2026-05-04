@@ -63,7 +63,7 @@ No match is an `"unknown identifier"` parse error. Collisions across (2)–(4) a
 | `endsWith(s)` | `(s: string): boolean` | JS semantics |
 | `includes(s)` | `(s: string): boolean` | JS semantics |
 | `split(sep)` | `(sep: string): array<string>` | Literal-only (no regex). Empty separator splits into individual code-unit strings |
-| `replace(from, to)` | `(from: string, to: string): string` | **Replaces all occurrences** — loom diverges from JS's first-only default; matches Rust `str::replace`. Literal-only (no regex) |
+| `replace(from, to)` | `(from: string, to: string): string` | Replaces all occurrences. Literal-only (no regex) |
 
 *`array<T>`*
 

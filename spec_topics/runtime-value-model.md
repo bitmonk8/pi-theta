@@ -15,7 +15,7 @@ Loom values are represented in the interpreter as native JavaScript values, tagg
 
 **Equality (`==`).** Structural deep equality:
 
-- Primitives compare via `Object.is` semantics (so `NaN == NaN` is `true` and `+0 != -0` is `false`). Loom diverges from JS's `===` here because `==` is a value-level predicate, not a floating-point bit-equality test — reflexivity matters more than IEEE conformance.
+- Primitives compare via `Object.is` semantics (so `NaN == NaN` is `true` and `+0 != -0` is `false`).
 - Arrays compare element-wise at the same indices; same length required.
 - Objects compare key set (loom-side identifiers) and per-key value equality; key declaration order is irrelevant.
 - Enum variants compare brand and value: `Severity.High == OtherEnum.High` is `false` even when wire values match.

@@ -94,7 +94,7 @@ The diagnostic on a bare `@`...`` expression-statement reads: *"discarded query 
 
 **Tool calls during a query.** If the model responds with tool-use, the runtime executes the requested tool against the loom's frontmatter `tools` set, feeds the result back to the model, and loops until the model produces a final (non-tool-call) response. That final response is what the query returns. A response schema, if given, is enforced against the final response only — not against intermediate tool-call payloads.
 
-**Untyped return type (V1).** The `Ok` payload of an untyped query is a plain `string` containing the assistant's final text. V1 deliberately keeps it as `string` to minimise surface area; freezing a richer structure before real provider integration would lock in details that real-world use is likely to revise. Future widening (e.g. to a `Result<string | AssistantMessage, QueryError>` shape exposing tool-use traces, multiple content blocks, citations) is expected to be backward compatible — existing `string`-typed call sites will keep working under the union form.
+**Untyped return type (V1).** The `Ok` payload of an untyped query is a plain `string` containing the assistant's final text. V1 deliberately keeps it as `string` to minimise surface area; freezing a richer structure before real provider integration would lock in details that real-world use is likely to revise.
 
 **Failure modes.** A query never throws. Both forms return a `Result` (see [Errors and Results](./errors-and-results.md)) carrying a `QueryError` on failure. `QueryError` is a discriminated union (`anyOf` over `kind`-tagged variants), exactly the shape the [Schema Subset](./schema-subset.md) blesses for user-defined unions — the canonical example of the pattern, applied to Loom's own runtime type. The variants:
 
@@ -153,14 +153,13 @@ schema QueryError = ValidationError
 
 (`ToolCallError` is defined in [Tool Calls](./tool-calls.md); `InvokeFailure` and `InvokeCalleeError` are defined in [Invocation](./invocation.md). They are listed here only to complete the union.)
 
-`ToolFailureError` and `ToolCallError` are deliberately *separate* variants for *separate* situations: `ToolFailureError` covers a tool that the **model** invoked during a query's tool-call loop (and so carries `tool_call_id` and a `raw_response` for any text the model emitted before the loop crashed); `ToolCallError` covers a tool that **loom code** invoked directly via `<name>(...)` (no model, no `raw_response`, but a structured `cause` enum). The shapes diverge because the contexts diverge — see the design-notes bullet about avoiding null-padded sentinel fields.
+`ToolFailureError` and `ToolCallError` are deliberately *separate* variants for *separate* situations: `ToolFailureError` covers a tool that the **model** invoked during a query's tool-call loop (and so carries `tool_call_id` and a `raw_response` for any text the model emitted before the loop crashed); `ToolCallError` covers a tool that **loom code** invoked directly via `<name>(...)` (no model, no `raw_response`, but a structured `cause` enum). The shapes diverge because the contexts diverge.
 
-Design notes:
+Each variant carries only its meaningful fields; there are no null-padded sentinel fields shared across variants. Authors `match` on `QueryError { kind: "...", ... }` (pattern grammar from [Errors and Results](./errors-and-results.md)) and only the relevant variant's fields are in scope.
 
-- Each variant carries only its meaningful fields; there are no null-padded sentinel fields shared across variants. Authors `match` on `QueryError { kind: "...", ... }` (pattern grammar from [Errors and Results](./errors-and-results.md)) and only the relevant variant's fields are in scope.
-- `validation_errors` is an `array<ValidationFailure>`, a Loom schema rather than raw AJV objects. This isolates Loom's surface from the AJV API: a future validator swap is not a breaking change.
-- The `union` form `schema X = A | B | C` shown above is the surface syntax for a discriminated union; it lowers to `anyOf` of the variant schemas, with the runtime relying on the `kind` `const` field as the discriminator. Surface syntax is the same the user would use to declare their own discriminated unions in any other context.
-- `raw_response` only appears on variants where the model produced (or attempted to produce) a final text response. `cancelled` and `context_overflow` rarely have one; `transport` failures by definition have no assistant response.
+`validation_errors` is an `array<ValidationFailure>`, a Loom schema rather than raw AJV objects. This isolates Loom's surface from the AJV API: a future validator swap is not a breaking change.
+
+`raw_response` only appears on variants where the model produced (or attempted to produce) a final text response. `cancelled` and `context_overflow` rarely have one; `transport` failures by definition have no assistant response.
 
 **Schema-validation coercion.** When a typed query's final response fails AJV validation, the runtime attempts **coercion via follow-up turns**, not by re-issuing the original query. This distinction matters: a query may have produced tool-call side effects (file writes, API calls, network requests) on the way to its malformed final response. Re-issuing the original user turn would risk firing those side effects a second time. Coercion instead appends a *new* user turn to the same conversation — phrased per the loom's `retry.methodology` — and awaits a corrected response. The conversation history, including the malformed response and any tool calls that preceded it, stays intact.
 

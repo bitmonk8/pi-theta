@@ -15,7 +15,7 @@ Loom's `schema` keyword does **not** target the full JSON Schema standard. It ta
 
 Explicitly **not** supported by `schema`, and rejected at parse time: `pattern`, `format`, `minLength`/`maxLength`, `minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum`, `multipleOf`, `minItems`/`maxItems`, `uniqueItems`, `contains`/`minContains`/`maxContains`, `patternProperties`, `propertyNames`, `minProperties`/`maxProperties`, `unevaluatedProperties`, `unevaluatedItems`, `dependentRequired`, `dependentSchemas`, `nullable`.
 
-Rationale: every loom-declared `schema` is the response type of some typed query site (or is transitively reachable from one via `$ref`) and is therefore handed to the provider as a strict structured-output / tool-input schema. The type system cannot promise more than what both major providers can grammar-enforce, hence the intersection. Constraints the subset cannot express (string patterns, numeric bounds, array length, etc.) are out of scope for `schema` and belong in code-side validation if needed.
+Constraints the subset cannot express (string patterns, numeric bounds, array length, etc.) are out of scope for `schema` and belong in code-side validation if needed.
 
 ## Lowering Algorithm
 
