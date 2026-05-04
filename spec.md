@@ -58,7 +58,7 @@ Loom borrows from two languages and adds a small number of constructs of its own
 
 - **Rust** for **semantics**: immutable-by-default `let` with opt-in `let mut`, `fn` declarations, `match` expressions with pattern arms, `Result<T, E>` with `Ok` / `Err` constructors, the `?` early-return operator, `///` doc comments (lowered to JSON Schema `description:` rather than rustdoc), block-as-expression with last-expression return, and the deliberate omission of `++` / `--`.
 - **TypeScript** for **surface**: template strings with `${...}` interpolation (extended to `@`-prefixed query templates), `name: T` type annotations, angle-bracket generics (`array<T>`, `Result<T, E>`), `T | U` union types, inline anonymous object types `{ field: T }`, JSON-native primitive type names (`string`, `number`, `boolean`, `null`), and the structural-equality `==` operator.
-- **Original to loom**: `schema` and `enum` declarations targeting the [Schema Subset](#schema-subset), the `@`...`` query template as the only construct that crosses code → model, frontmatter-declared execution mode, and the `.loom` / `.warp` split.
+- **Original to loom**: `schema` and `enum` declarations targeting the [Schema Subset](#schema-subset), the `@`...`` query template as the primitive that crosses code → model in the *current* conversation, frontmatter-declared execution mode, the `.loom` / `.warp` split, and the unified callable surface where Pi tools and registered subagent looms share one declaration list (`tools:`) and one call syntax (`<name>(...)`).
 
 What's *not* borrowed: Rust's lifetimes, traits, ownership, and macros; TypeScript's classes, decorators, arrow functions, higher-order array methods, and structural-type gymnastics. Loom is much smaller than either parent — see [Expression Sublanguage](#expression-sublanguage) for the explicit "not supported" list.
 
@@ -328,7 +328,36 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
     ```
 - `model` and `tools` follow the same shape as Pi subagent frontmatter and apply to **every** query in the loom — a single loom file shares one model and one tool set across all of its turns.
   - **`model`**: if frontmatter omits `model`, the loom inherits Pi's session default at invocation time. Once chosen, the model is fixed for the loom's lifetime; it does not re-resolve per query.
-  - **`tools`**: if frontmatter omits `tools`, the loom runs with an **empty tool set** (the model cannot make tool calls). The Pi session's ambient tools are deliberately *not* inherited — tools have side effects, and silent inheritance produces "why did my loom touch the filesystem?" surprises. To opt into a tool, list it explicitly. `tools: []` and an absent `tools:` field are equivalent. Tool names listed in `tools:` resolve against Pi's tool registry at loom-load time, exactly as for Pi subagents; unknown names surface as a Pi-compatible diagnostic that prevents the loom from being registered.
+  - **`tools`**: declares the loom's **callable set** — a unified list of Pi tools and `.loom` paths, callable from both the model (during a query's tool-call loop) and from loom code (via the bare `<name>(...)` call form; see [Tool Calls](#tool-calls)). If frontmatter omits `tools`, the loom runs with an **empty callable set** (the model cannot make tool calls and loom code has no `<name>(...)` callables to resolve). The Pi session's ambient tools are deliberately *not* inherited — tools have side effects, and silent inheritance produces "why did my loom touch the filesystem?" surprises. To opt in, list each callable explicitly. `tools: []` and an absent `tools:` field are equivalent.
+
+    Two kinds of entry are accepted:
+
+    - **Pi tool names** (`read`, `bash`, `grep`, ...) resolve against Pi's tool registry at loom-load time, exactly as for Pi subagents.
+    - **`.loom` paths** (`./summarise.loom`, `../shared/classify.loom`) resolve relative to the calling loom's directory, must end in `.loom`, and must point at **subagent-mode** loom files (a prompt-mode callee in `tools:` is a load-time error — interleaving the child's user turns inside a parent's tool-call loop is a semantic mess that V1 rejects outright).
+
+    Each entry is exposed under a single name in the loom's top-level scope (and to the model as a tool of the same name). Naming rules:
+
+    - For a Pi tool, the entry's name is the Pi tool name verbatim.
+    - For a `.loom` path, the default name is the file's basename without the `.loom` extension, with **hyphens replaced by underscores** (`./code-review.loom` → `code_review`). The remap exists because loom-file naming convention favours hyphens while loom identifiers must be lowercase-first identifier-shaped.
+    - The `as <name>` clause overrides the default for either kind: `read as file_read`, `./summarise.loom as my_summariser`. The override target must obey loom's lowercase-first identifier rule (`./summarise.loom as MyTool` is rejected).
+    - Two entries resolving to the same final name are a load-time error; use `as` to disambiguate. A name that collides with a top-level `fn` declaration or an imported symbol in the same file is also a load-time error.
+
+    YAML-shape: `tools:` accepts the comma-separated short form for plain-name entries and the YAML list form for entries that need an `as` rename:
+
+    ```yaml
+    tools: read, grep, bash
+    ```
+
+    ```yaml
+    tools:
+      - read
+      - bash
+      - ./summarise.loom              # callable as `summarise`
+      - ./code-review.loom            # callable as `code_review`
+      - ./classify.loom as triage     # callable as `triage`
+    ```
+
+    Unknown Pi tool names, unresolvable `.loom` paths, prompt-mode loom paths, name collisions, and invalid `as` targets all surface as Pi-compatible diagnostics that prevent the loom from being registered.
   - Per-query overrides and a project → loom → query cascade are deferred (see [Future Considerations](#future-considerations)).
 - `system` declares the conversation's system prompt. **Subagent-mode only** — `system:` in a `mode: prompt` loom is a parse error, since prompt-mode looms attach to the user's existing Pi session whose system prompt belongs to Pi, not to the loom. In subagent mode, the field is fixed once when the spawned conversation is created and applies to every query the loom issues against it. If omitted, the spawned conversation has no system prompt (the model behaves under its training defaults).
   - **Interpolation.** The `system:` field supports `${param}` and `${param.field}` interpolation against the loom's typed `params`. The full Loom expression sublanguage is **not** available in this slot — only bare identifier paths — because the system prompt is evaluated once at conversation-creation time, before any loom code runs, and the simpler rule is unambiguous and easy to debug. For richer logic, omit `system:` and accept the reduced control-flow surface, or wait for per-query system overrides (deferred).
@@ -549,13 +578,16 @@ schema CancelledError {
 schema QueryError = ValidationError
                   | TransportError
                   | ToolFailureError
+                  | ToolCallError
                   | ContextOverflowError
                   | CancelledError
                   | InvokeFailure
                   | InvokeCalleeError
 ```
 
-(`InvokeFailure` and `InvokeCalleeError` are defined in [Invocation](#invocation); they are listed here only to complete the union.)
+(`ToolCallError` is defined in [Tool Calls](#tool-calls); `InvokeFailure` and `InvokeCalleeError` are defined in [Invocation](#invocation). They are listed here only to complete the union.)
+
+`ToolFailureError` and `ToolCallError` are deliberately *separate* variants for *separate* situations: `ToolFailureError` covers a tool that the **model** invoked during a query's tool-call loop (and so carries `tool_call_id` and a `raw_response` for any text the model emitted before the loop crashed); `ToolCallError` covers a tool that **loom code** invoked directly via `<name>(...)` (no model, no `raw_response`, but a structured `cause` enum). The shapes diverge because the contexts diverge — see the design-notes bullet about avoiding null-padded sentinel fields.
 
 Design notes:
 
@@ -580,7 +612,7 @@ Loom expressions are a bounded subset of TypeScript. The same grammar applies wh
 - Identifiers (variables, parameters, function names, schema constructors)
 - Member access: `a.b`
 - Indexed access: `a["b"]`, `a[0]`, `a[i]`
-- Function and method calls: `f(x)`, `obj.method(x, y)`
+- Function, method, and tool calls: `f(x)`, `obj.method(x, y)`, `<name>(args)` where `<name>` resolves to a Pi tool or registered loom from the loom's `tools:` frontmatter (see [Tool Calls](#tool-calls))
 - Unary: `!`, `-`
 - Binary arithmetic: `+`, `-`, `*`, `/`, `%`
 - Comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`
@@ -607,6 +639,15 @@ Loom expressions are a bounded subset of TypeScript. The same grammar applies wh
 - Comma operator
 - Nested template strings inside a `${...}` interpolation
 - Query templates (`@`...``) and `match` inside `${...}` — both are allowed at statement / `let`-RHS level only, so template evaluation is guaranteed to be code-only and never silently fires a model turn
+
+**Identifier resolution.** A bare identifier in call position (`name(args)`) resolves in this order, first match wins:
+
+1. A local `let` binding or function parameter currently in scope.
+2. A top-level `fn` declaration in the same `.loom` or `.warp` file.
+3. A symbol imported from a `.warp` file (see [Imports](#imports)).
+4. A name registered in the loom's frontmatter `tools:` set (Pi tool or `.loom` path; see [Tool Calls](#tool-calls)).
+
+No match is an `"unknown identifier"` parse error. Collisions across (2)–(4) are rejected at load time — a `tools:` entry whose post-rename name shadows a top-level `fn` or import in the same file fails to register; resolve with the `as` clause. Local bindings (1) shadow everything else lexically, the same as in Rust or TypeScript.
 
 **Equality.** `==` is structural: deep value equality for objects and arrays, value equality for primitives. There is no `===`.
 
@@ -833,9 +874,60 @@ A function call participates in the loom's *current* conversation; it does not o
 
 **Loom return type.** A `.loom` file's overall return type is inferred from its body using the same rule as a function: the type of its tail expression, wrapped in `Result<T, QueryError>` if any `?` appears in the body. There is no frontmatter `returns:` field. Cross-loom static type checking at `invoke<Schema>` sites uses the callee's inferred return type when the callee's source is statically resolvable; otherwise the runtime AJV check is the safety net.
 
+### Tool Calls
+
+Loom code calls a Pi tool or a registered subagent loom directly via the bare-identifier form `<name>(args)`, where `<name>` is an entry in the loom's frontmatter `tools:` set (after any `as` rename and the default hyphen→underscore loom-basename rewrite; see [Parameters and Frontmatter](#parameters-and-frontmatter)). The same set is what the model sees as available tools during a `@`...`` query — the declaration is shared between the model-driven and code-driven call paths.
+
+```loom
+let contents = read({ path: "src/main.ts" })?
+let matches  = grep({ pattern: "TODO", path: "src" })?
+let summary  = summarise(contents)?
+let label    = triage(summary)?
+```
+
+**No conversation turn.** A tool call is a direct call against Pi's tool runtime (or, for a registered loom, a fresh subagent invocation; see below). It does **not** add a turn to the loom's conversation, does **not** consume model tokens, and does **not** appear in the conversation transcript. This is the deliberate distinction from `@`...`` queries: queries cross code → model in the current conversation; tool calls cross code → side-effect (or code → child conversation, for a registered loom) without disturbing the current one.
+
+**Argument shape.** Pi tools take a single object argument matching the tool's input schema (TypeBox / JSON Schema, exposed by Pi at registration). Registered loom callees take their callee `params:` per the callee's `args:` style — the same argument-binding rules `invoke(...)` uses. Type mismatches surface as parse errors when the callee's schema is statically resolvable; otherwise the runtime AJV check is the safety net.
+
+**Return type.** The result type depends on the callee kind:
+
+| Callee kind | Return type | Notes |
+|---|---|---|
+| Pi tool | `Result<string, QueryError>` | V1 returns the tool's final output as a single `string` (mirroring untyped queries). Pi tool definitions ship an input schema but no output schema; provider tool-use conventions treat outputs as freeform text the model interprets. Future widening to a structured shape would be additive. |
+| Registered loom (subagent-mode) | `Result<T, QueryError>` where `T` is the callee's inferred return type | Same inference rule as `invoke<T>(...)`: when the callee `.loom` is statically resolvable, its tail-expression type flows into the call site. Otherwise the runtime AJV check enforces it. |
+
+As with queries and `invoke`, the call returns a `Result`; use `?` to propagate failure or `match` to handle.
+
+**Failures.** Tool-call failures surface as a new `QueryError` variant:
+
+```loom
+schema ToolCallError {
+  kind: "tool_call",
+  message: string,
+  tool_name: string,                  // post-rename name as seen in `tools:`
+  cause: "validation"                 // arguments failed input-schema validation
+       | "execution"                  // tool's `execute()` threw or returned `isError: true`
+       | "cancelled"                  // AbortSignal fired (e.g., user cancelled the loom)
+       | "unknown_tool"               // callable was unregistered between parse and runtime; should not occur after a clean parse
+}
+```
+
+`ToolCallError` is distinct from `ToolFailureError` (which covers tool failures *inside* the model's tool-call loop during a `@`...`` query). The variants carry different fields because the contexts differ — a code-side tool call has no `tool_call_id` issued by Pi's tool-loop machinery and no `raw_response` from the model; a model-loop failure has both. Authors who want to handle every tool failure uniformly write two `match` arms or a final `_ => ...` catch-all.
+
+For a registered loom callee, failures the callee returned cascade through the standard `InvokeCalleeError` variant (the call is, semantically, an `invoke`); failures from the loom infrastructure itself (callee unloadable, validation mismatch on the return value) cascade through `InvokeFailure`. The only situation where `ToolCallError` arises for a loom callee is V1's `"unknown_tool"` safety net.
+
+**Concurrency.** V1 tool calls are sequential and synchronous-looking from loom code: the runtime awaits each call's underlying Promise before evaluating the next expression, so the loom interpreter yields to Pi's event loop during the wait (the TUI render loop, keypress handlers, signals, and other Pi machinery continue to run — the call is non-blocking at the runtime level even though it appears synchronous to the author). Streaming partial results (Pi's `onUpdate` callback) are not surfaced to loom code. Concurrent tool execution exists in Pi's model-driven "parallel tool mode" inside `@`...`` queries — when the model issues multiple tool calls in one assistant message, Pi runs them concurrently — but no loom-level concurrency primitive (e.g. a `parallel { ... }` block) is exposed in V1; see [Future Considerations](#future-considerations).
+
+**Relationship with `invoke`.** `invoke("./path.loom", ...)` and a registered-loom call (`my_summariser(...)` after listing `./summariser.loom` in `tools:`) are operationally equivalent for subagent-mode callees — both spawn a fresh isolated conversation, both validate the return value against the callee's inferred or annotated schema, both surface failures through the same `QueryError` variants. The recommendation is:
+
+- **Register in `tools:`** when the callee is referenced repeatedly, when the model should also be able to call it, or when a stable name in code is preferred over a path literal.
+- **Use `invoke(...)`** for ad-hoc, one-off calls and for callees whose path is computed from configuration that the author wants to keep out of frontmatter. `invoke(...)` is also the only way to call a **prompt-mode** loom from loom code, since prompt-mode callees cannot appear in `tools:`.
+
+The two surfaces share a single error model and a single schema-lowering pipeline; the choice is purely about declaration site.
+
 ### Invocation
 
-A loom may invoke another loom via the built-in `invoke` expression. This is the only way for a `.loom` to spawn or attach to another `.loom`'s execution; `import` is reserved for `.warp` library code.
+A loom may invoke another loom via the built-in `invoke` expression. This is the only way for a `.loom` to spawn or attach to another `.loom`'s execution by an inline path literal; for repeated or model-exposed callees, register the path in frontmatter `tools:` and call by name (see [Tool Calls](#tool-calls)). `import` is reserved for `.warp` library code.
 
 ```loom
 let plan: Plan = invoke<Plan>("./plan.loom", topic, depth)?
@@ -1024,7 +1116,8 @@ This behaviour depends on Pi's session API exposing "append a system note to the
 | Type system | Untyped strings | Untyped strings | JSON / JSON Schema |
 | Conversation context | Current | New (isolated) | Either (mode-controlled); loom drives N turns inside it |
 | Output | Injected text | Injected text | Multi-turn conversation drive; loom return value (Rust-style last-expression) |
-| File format | Markdown `.md` | Markdown `.md` | Loom `.loom` |
+| Callable surface | Tools (model only) | Tools (model only) | Unified `tools:` set callable from both model (in queries) and code (`<name>(...)`); accepts Pi tools and registered subagent looms |
+| File format | Markdown `.md` | Markdown `.md` | Loom `.loom` (+ `.warp` library files) |
 
 ---
 
@@ -1042,6 +1135,7 @@ This behaviour depends on Pi's session API exposing "append a system note to the
 - Holds a reference to the target conversation (the caller's session for prompt mode; a freshly spawned isolated session for subagent mode) and drives it turn-by-turn
 - Each `@`...`` query issues a user turn against that conversation, services any tool-call loop the model returns, and resolves to the final assistant response
 - Typed queries (schema inferred from binding type, function parameter, return type, or explicit `@<Schema>`...``) lower the schema to the provider's structured-output / strict tool-input contract; the returned response is validated with **AJV** before being handed back to loom code
+- Tool calls from loom code (`<name>(args)`) resolve the post-rename name against the loom's `tools:` table built at load time; for Pi tools the runtime invokes the tool's `execute(toolCallId, params, signal, onUpdate, ctx)` directly with a synthesized `toolCallId` and a no-op `onUpdate`, and awaits the resulting Promise before returning to loom code (non-blocking at the runtime level, sequential at the language level); for registered loom paths the runtime spawns a subagent invocation equivalent to `invoke<T>(path, ...)`. Pi tools registered in `tools:` are also wired into every `@`...`` query as model-callable tools; registered loom paths are lowered to a tool spec (params → input schema, inferred return → output schema, frontmatter `description` → tool description) and exposed alongside Pi tools to the model
 - For subagent-mode looms, the spawned conversation's system prompt is taken from frontmatter `system:` (with `${param}` interpolation resolved at conversation-creation time) and applied to every query against that conversation
 - Parameter schemas (frontmatter `params`) are likewise validated with AJV at invocation time
 - The loom's overall return value is the value of the last expression of its top-level block
@@ -1050,12 +1144,15 @@ This behaviour depends on Pi's session API exposing "append a system note to the
 
 - LSP support for `.loom` and `.warp` files (syntax highlighting, type checking, autocomplete)
 - A `loom test` command for dry-run execution that runs a loom against a recorded transcript or a stub model without hitting a live provider
-- First-class loom values (`Loom<T>` type, passing looms as arguments, higher-order composition) — V1 only supports literal-path `invoke`
+- First-class loom values (`Loom<T>` type, passing looms as arguments, higher-order composition) — V1 only supports literal-path `invoke` and frontmatter-registered callables
 - Per-query overrides for `model`, `tools`, and `system` (project → loom → query cascade)
 - User-defined error types beyond `QueryError`
 - Richer expression sublanguage inside frontmatter `system:` (full `${expr}` interpolation rather than just `${param}` paths)
 - Named-argument / key=value invocation syntax
 - Cancellation propagation between parent looms and in-flight subagent looms
+- Loom-level concurrency primitives (e.g. `parallel { ... }` blocks or a parallel-`for` form) building on Pi tools' Promise-returning shape — V1 keeps every tool call sequential and synchronous-looking
+- Streaming partial tool results from Pi's `onUpdate` callback into loom code (e.g. an iterator-style consumption form) — V1 returns only the final result
+- Structured tool output schemas, when Pi (or upstream providers) introduce a strict output-schema contract for tools — V1 returns `string` from every Pi tool call
 
 ---
 
