@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_92 findings retained, 1 false positives dropped, 0 persistent failures_
+_91 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7222,56 +7222,6 @@ Use *loom* / *`.loom` file* as the only names for the unit, matching every other
 
 - "Spelling inconsistency: "artefact" vs "artifact"" — co-resolve (same paragraph cluster in `overview.md`; one editing pass settles both)
 - "No central glossary" — same-cluster (the alternative fix of "add to a glossary" is moot because no glossary exists; resolving glossary policy informs whether any future term should be defined inline or centrally)
-
----
-
-# Spelling inconsistency: "artefact" vs "artifact" in `overview.md`
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Spelling inconsistency: "artefact" vs "artifact"
-**Kind:** naming
-
-## Finding
-
-`spec_topics/overview.md` mixes the British and American spellings of the same word within a single file:
-
-- Line 7 — "It is a **woven artifact**" (American).
-- Line 15 — "three kinds of artefact" (British).
-- Line 46 — "as a distinct artefact" (British).
-
-The rest of the spec follows British conventions consistently (e.g. `cancelled` appears 14 times, `behaviour` 8 times; the American counterparts do not appear). The lone American spelling on line 7 is the outlier and reads as a copy-edit miss rather than a deliberate choice.
-
-## Spec Documents
-
-- `spec_topics/overview.md` — line 7 (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader notices the inconsistency and momentarily wonders whether the two spellings denote different concepts. No implementation behaviour is affected.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Change `**woven artifact**` to `**woven artefact**` on `spec_topics/overview.md:7`. This aligns with the spec-wide British-English convention already established by `cancelled`, `behaviour`, etc., and matches the two other occurrences within the same file.
-
-If the related finding ("Woven artifact" — undefined term…) is resolved by deleting the bolded phrase entirely, the spelling fix becomes moot and no separate edit is needed.
-
-## Related Findings
-
-- "\"Woven artifact\" — undefined term, used once and abandoned" — co-resolve (both target the same `**woven artifact**` token on `overview.md:7`; deleting or rewording it for the term-definition issue also eliminates the spelling mismatch)
 
 ---
 
