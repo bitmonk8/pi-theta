@@ -110,6 +110,28 @@ Newline-trim strips a newline only when it sits **immediately** after the openin
 
 No other escapes are recognised; a backslash followed by any other character is `loom/parse/illegal-template-escape`. EOF inside an unterminated template body surfaces as `loom/parse/unterminated-template`. Curly braces `{` and `}` need no escape — they are ordinary text content. Only the sequence `${` (and the `}` that closes a corresponding `${...}`) has special meaning.
 
+**Stringification of interpolated values.** A `${expr}` interpolation evaluates `expr` per the [Expression Sublanguage](./expressions.md) and renders the result into the prompt text by the **Loom static type** of the expression — *not* by JavaScript's default `String(...)`, whose `[object Object]` and comma-joined-array defaults would silently corrupt prompts without any diagnostic for the author. The same rule applies to the bare-path `${param}` / `${param.field}` form in the frontmatter `system:` field (see [Parameters and Frontmatter — `system` Interpolation](./frontmatter.md)); the `system:` slot's grammar restricts only the *expression* shape (to bare identifier paths), not the *stringification* of the resolved value.
+
+| Loom static type | Rendered as |
+|---|---|
+| `string` | the value itself, no quoting, no escaping |
+| `integer` | shortest decimal (`42`, `-7`); never scientific notation |
+| `number` | shortest round-trip decimal (`3.14`, `-0.5`); `NaN` → `NaN`; `Infinity` → `Infinity`; `-Infinity` → `-Infinity` |
+| `boolean` | `true` / `false` |
+| `null` | the literal text `null` |
+| Enum variant | the variant's **wire** value, unquoted (the enum brand from [Runtime Value Model](./runtime-value-model.md) is dropped — the model only ever sees wire forms) |
+| `array<T>` | `JSON.stringify` of the value, **compact** (no pretty-printing), with [wire-name translation](./runtime-value-model.md) applied recursively |
+| Schema-typed object | `JSON.stringify` of the value, **compact** (no pretty-printing), with [wire-name translation](./runtime-value-model.md) applied recursively |
+| `Result<T, E>` | parse error `loom/parse/interpolated-result` — *"`Result` value cannot be interpolated; unwrap with `?` or `match` first"* |
+
+Notes:
+
+- The `Result` rejection is **static**, resolved from the expression's type, and fires even when the `Result`-valued expression sits behind a function call whose return type the parser can resolve. When the type is unresolvable (e.g. an inferred binding that widens past the parser's view), the runtime renderer falls back to a panic carrying the same `loom/parse/interpolated-result` diagnostic code — the same "static where possible, runtime where not" posture used elsewhere for tool-call argument typing.
+- Wire-name translation for objects and arrays uses the **outbound** translation pass defined in [Runtime Value Model — Wire-name translation](./runtime-value-model.md). There is no second translation map for interpolation: the loom-side identifiers an author writes never appear in the rendered prompt.
+- Stringification runs **after** expression evaluation but **before** newline-trim and dedent, so the multi-line text that an object or array interpolation introduces participates in the dedent computation like any other content. Authors who need a particular layout interpolate a pre-formatted `string`.
+- Whitespace-only and empty renderings get no special treatment at the per-slot level here; the question of whether a *fully-rendered* template is degenerate is decided separately (see the discussion of empty rendered templates in this file's overall handling).
+- Interpolation is the spec's blessed escape hatch for value-to-text conversion: the `+`-operator advice in [Expressions](./expressions.md) ("interpolate inside a string" in place of mixed-type `+`) relies on this rule existing.
+
 **Discarded query results are a parse error (`loom/parse/discarded-query-result`).** The author must pick one of:
 
 ```loom

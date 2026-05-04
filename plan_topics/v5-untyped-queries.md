@@ -10,9 +10,9 @@
 
 ## V5b — `${expr}` interpolation
 
-- **Spec.** [Template Interpolation](../spec_topics/frontmatter.md#template-interpolation).
-- **Adds.** `${...}` containing any V2-grammar expression. Nested template `@`...`` and `match` inside `${...}` rejected.
-- **Tests.** `${param}` resolves; `${a + b}` evaluates; `${@\`nested\`}` rejected; `${match ...}` rejected; `${` inside regular string is plain text (already in V1b).
+- **Spec.** [Query — Stringification of interpolated values](../spec_topics/query.md), [Template Interpolation](../spec_topics/frontmatter.md#template-interpolation).
+- **Adds.** `${...}` containing any V2-grammar expression. Nested template `@`...`` and `match` inside `${...}` rejected. Per-Loom-static-type stringification per the canonical table; `${expr}` whose `expr` has type `Result<T, E>` rejected with `loom/parse/interpolated-result`.
+- **Tests.** `${param}` resolves; `${a + b}` evaluates; `${@\`nested\`}` rejected; `${match ...}` rejected; `${` inside regular string is plain text (already in V1b). Per-type stringification: `string` (verbatim), `integer` (`42`), `number` (`3.14`, `NaN`, `Infinity`), `boolean` (`true` / `false`), `null` (literal `null`), enum variant (bare wire value), `array<T>` and schema-typed object (compact `JSON.stringify` with wire-name translation). `Result<T, E>` interpoland rejected at parse time with `loom/parse/interpolated-result`; the same code surfaces as a runtime panic when the type is statically unresolvable.
 - **Deps.** V5a, V2c.
 - **Ships when.** Templates can reference local values.
 

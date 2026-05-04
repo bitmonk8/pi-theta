@@ -18,9 +18,9 @@
 
 ## V12c — `${param}` and `${param.field}` in `system:`
 
-- **Spec.** [Parameters and Frontmatter](../spec_topics/frontmatter.md) (`system:` interpolation).
-- **Adds.** Bare-identifier-path interpolation in `system:` field. Full expression sublanguage rejected.
-- **Tests.** `${param}` resolves; `${a.b.c}` resolves; `${a + b}` rejected; `${a.b()}` rejected (call rejected); rejection message references the deferred future-consideration.
+- **Spec.** [Parameters and Frontmatter](../spec_topics/frontmatter.md) (`system:` interpolation), [Query — Stringification of interpolated values](../spec_topics/query.md) (canonical stringification table).
+- **Adds.** Bare-identifier-path interpolation in `system:` field. Full expression sublanguage rejected. Resolved value rendered via the same canonical stringification table the `@`...`` interpolation slot uses.
+- **Tests.** `${param}` resolves; `${a.b.c}` resolves; `${a + b}` rejected; `${a.b()}` rejected (call rejected); rejection message references the deferred future-consideration. Per-type stringification matches the V5b table for `string`, `integer`, `number`, `boolean`, `null`, enum variant, `array<T>`, and schema-typed object.
 - **Deps.** V12b.
 - **Ships when.** System prompts can use params.
 

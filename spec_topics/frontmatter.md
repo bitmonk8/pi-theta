@@ -111,18 +111,7 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
 
     Indexed access (`${arr[0]}`), call syntax (`${f()}`), optional chaining (`${a?.b}`), arithmetic, and any other expression form are not part of the grammar and produce a parse error (see below). For richer logic, omit `system:` (see [Future Considerations](./future-considerations.md), "Richer expression sublanguage inside frontmatter `system:`").
 
-    *Stringification.* Resolve the path against the validated params object, then render by static type:
-
-    | Resolved type | Rendered text |
-    |---|---|
-    | `string` | the value verbatim, no quoting |
-    | `number` / `integer` | decimal `String(value)` (`NaN` and `±Infinity` cannot occur — AJV rejects them at validation) |
-    | `boolean` | `true` / `false` |
-    | `null` | the literal text `null` |
-    | Enum variant | the variant's wire string (the brand from [Runtime Value Model — Enum variant](./runtime-value-model.md) is stripped) |
-    | Object / array / discriminated-union value | `JSON.stringify(value, null, 2)` (pretty-printed, two-space indent), with enum-branded strings rendered as their bare wire value |
-
-    The pretty-printed form is chosen because `system:` content is typically multi-line and inspected by humans during prompt iteration; compact JSON would defeat the YAML block scalar's readability. Resolution happens once, at conversation-creation time; a param whose resolved value is `null` renders as the literal text `null` (not the empty string), per the table.
+    *Stringification.* Resolve the path against the validated params object, then render the resolved value by its static type. The rule is the canonical interpolation-stringification table defined once in [Query — Stringification of interpolated values](./query.md): `@`...`` query templates and `system:` paths use the same table so that the model sees the same rendering of a given value regardless of which surface introduced it. Resolution happens once, at conversation-creation time; a param whose resolved value is `null` renders as the literal text `null` (per the canonical table), not the empty string. The `Result<T, E>` row of that table cannot fire here — `params:` types do not include `Result` — and `NaN` / `±Infinity` cannot occur because AJV rejects them at param validation, so the `number` row's edge cases are unreachable from this slot.
 
     *Escapes.* A literal `${` is written `\${` inside the YAML block scalar — the same escape used in `@`-template bodies (see [Template Interpolation](#template-interpolation)). The backslash survives YAML processing and suppresses interpolation only when the next character is `{`; in any other position `\` is passed through verbatim.
 
@@ -140,3 +129,5 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
 ## Template Interpolation
 
 A `${...}` interpolation inside a `@`...`` query template contains a Loom expression from the [Expression Sublanguage](./expressions.md), evaluated up to the matching `}`. The `@` character has only one lexical role — introducing a query template at top level — and never appears inside `${...}`. There is no bash-style argument-slice sugar (`${@:N}`, `$1`, `$@`, `$ARGUMENTS`); slash-command arguments are bound to typed `params` via the [Slash-Command Argument Binding](./binder.md) machinery and referenced by their declared parameter names like any other identifier.
+
+The interpolated value's rendering into the prompt text — by the expression's Loom static type, with parse-time rejection of `Result<T, E>` interpolands — is specified once in [Query — Stringification of interpolated values](./query.md). The same canonical table covers the bare-path `${param}` / `${param.field}` form in the `system:` field above.

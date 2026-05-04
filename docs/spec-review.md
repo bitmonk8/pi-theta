@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_46 findings retained, 1 false positives dropped, 0 persistent failures_
+_45 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -2034,79 +2034,6 @@ Option A. The discard form is a contract between the author and the runtime ("I 
 - "Logging, metrics, and cost/token accounting missing entirely" — same-cluster (both demand a runtime observability story; this finding is the narrowest concrete instance)
 - "`pi.sendMessage` failure has no fallback" — decision-dependency (if Option B is chosen, the discard-note inherits that finding's fallback question)
 - "Panic message content per source unspecified" — same-cluster (the `let _ =`-does-not-elide-panics clarification names the same panic sources)
-
----
-
-# Stringification rule for `${expr}` interpolations is unspecified
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Interpolation of non-string values unspecified
-**Kind:** completeness
-
-## Finding
-
-A `${...}` interpolation inside a `@`...`` query template can hold any expression from the [Expression Sublanguage](../../spec_topics/expressions.md) (see `spec_topics/frontmatter.md` §"Template Interpolation"), yet the spec never says how the resulting Loom value is rendered into the prompt text. Every worked example interpolates a `string` (or a value that happens to round-trip through JS `String(...)` acceptably), so the question never surfaces. The spec is silent on numbers, `boolean`, `null`, enum variants, `array<T>`, schema-typed objects, and `Result<T, E>`.
-
-The runtime model in `spec_topics/runtime-value-model.md` makes the underlying JS representation explicit (objects are loom-side-keyed JS objects; arrays are JS arrays; enums are branded JS strings; `Result` is `{ ok, value | error }`), which means the JS defaults — `String([1,2,3])` → `"1,2"`, `String({a:1})` → `"[object Object]"`, `String(null)` → `"null"`, `String({ok:true,value:42})` → `"[object Object]"` — would actively *mislead* the model if the runtime applied them. The same gap exists for the bare-identifier-path interpolation supported in frontmatter `system:` (resolved at conversation-creation time) — that slot accepts `${param}` and `${param.field}` of any declared param type, including objects and arrays.
-
-The interpolation rule also interacts with the `+` operator's design: `expressions.md` tells authors that mixed-type `+` is a parse error and to "interpolate inside a string" instead. Interpolation is therefore the spec's blessed escape hatch for value-to-text conversion, and it has no defined semantics for anything but `string`.
-
-## Spec Documents
-
-- `spec_topics/query.md` — Template Interpolation cross-reference + a new Stringification subsection (edited)
-- `spec_topics/frontmatter.md` — Template Interpolation section (edited; this is currently the only place the topic is named)
-- `spec_topics/frontmatter.md` — `system:` field, "Interpolation" bullet (edited; must point at the same rule)
-- `spec_topics/runtime-value-model.md` — read-only (defines the JS-side value shapes the rule operates on)
-- `spec_topics/expressions.md` — `+` operator paragraph (read-only; its "interpolate inside a string" advice depends on the rule existing)
-
-## Plan Impact
-
-**Phases:** Vertical V5, Vertical V12
-
-**Leaves (implementation order):**
-
-- V5b — `${expr}` interpolation — modified (acceptance criteria must add per-type stringification tests and a parse-time rejection of `Result`-typed interpolands)
-- V12c — `${param}` and `${param.field}` in `system:` — modified (same stringification rule applies to the bare-path form resolved at conversation-creation time)
-
-## Consequence
-
-**Severity:** correctness
-
-Two implementers — or the same implementer between V5b and V12c — will diverge on rendered prompt text for any non-string interpolation. The most likely default (JS `String(x)`) silently injects `"[object Object]"` and comma-joined arrays into prompts, degrading model output without raising any error and with no diagnostic surface for authors to debug against. Authors writing `${result}` (a `Result<T, E>`) will get a meaningless rendering instead of a parse error pointing them at `?` or `match`.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Specify the stringification rule once in `spec_topics/query.md` (under a new "Stringification of interpolated values" subsection at the end of "Template Interpolation"), and have `frontmatter.md`'s Template Interpolation section and the `system:` interpolation bullet cross-reference it. The rule, by Loom static type of the interpolated expression:
-
-| Loom type | Rendered as |
-|---|---|
-| `string` | the value itself, no quoting, no escaping |
-| `integer` | shortest decimal (`42`, `-7`); never scientific notation |
-| `number` | shortest round-trip decimal (`3.14`, `-0.5`); `NaN` → `"NaN"`; `Infinity` → `"Infinity"`; `-Infinity` → `"-Infinity"` |
-| `boolean` | `"true"` / `"false"` |
-| `null` | `"null"` |
-| Enum variant | the variant's **wire** value, unquoted (the brand is dropped — the model only ever sees wire forms) |
-| `array<T>` | `JSON.stringify` of the value with wire-name translation applied recursively, no pretty-printing |
-| Schema-typed object | `JSON.stringify` of the value with wire-name translation applied recursively, no pretty-printing |
-| `Result<T, E>` | **parse error** `loom/parse/interpolated-result` with the diagnostic *"`Result` value cannot be interpolated; unwrap with `?` or `match` first"* |
-
-Notes for the implementer:
-
-- The check that rejects `Result` is **static** (resolved from the expression's type), not runtime — it must fire even when the `Result`-valued expression sits behind a function call whose return type the parser can resolve. When the type is unresolvable (e.g. an untyped binding whose inferred type widens), the runtime renderer falls back to a runtime panic with the same diagnostic code; this is the same "static where possible, runtime where not" posture the spec already takes for tool-call argument typing.
-- Wire-name translation for objects/arrays uses the existing outbound translation pass from `runtime-value-model.md` — there is no second translation map.
-- The rule applies uniformly to `@`...`` query templates **and** to the `${param}` / `${param.field}` form in frontmatter `system:`. The `system:` slot's grammar already restricts the *expression* to bare identifier paths; the *stringification* of the resolved value follows the same table.
-- The rule applies after expression evaluation but before dedent and newline-trim — i.e. multi-line JSON output of an object interpolation participates in the dedent computation like any other content.
-- Empty-string and whitespace-only renderings are not special-cased here; that question belongs to the sibling finding on empty/oversized rendered templates.
-
-## Related Findings
-
-- "`system:` interpolation grammar and edge cases unspecified" — co-resolve (the same stringification table covers both `@`...`` templates and the `system:` bare-path form; that finding additionally needs the path grammar pinned down, which is independent)
-- "Empty / very large rendered templates unspecified" — same-cluster (both concern post-rendering text shape; resolves independently — that finding governs the *whole* rendered template, this one governs each interpolation slot)
-- "`params:` default expression grammar boundary cases" — same-cluster (touches a related question — how literals are spelled in defaults — but is a parser issue, not a renderer issue)
 
 ---
 
