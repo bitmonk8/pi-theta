@@ -106,6 +106,50 @@ Edge cases:
 
 **System notes.** Echoes (binder result), `Err`-in-prompt-mode notes, and binder failure messages are emitted via `pi.sendMessage({ customType: "loom-system-note", content, display: true, details: { ... } }, { triggerTurn: false })`. A `pi.registerMessageRenderer("loom-system-note", ...)` formats them as one-line, dim-styled notes in the transcript. The custom-type approach (rather than `ctx.ui.notify(...)`) is chosen because notes need to persist in the session transcript for replay and `/tree` navigation, not just appear transiently.
 
+The `details` field carries one of two normative payload shapes, distinguished by which key is present:
+
+- `details: { diagnostics: Diagnostic[] }` — a parse / load / type / runtime-panic diagnostic batch, exactly the shape defined in [Diagnostics](./diagnostics.md). The companion `content` is the serialised `<file>:<line>:<col>: <code>: <message>` line(s).
+- `details: { event: RuntimeEvent }` — a runtime failure event from one of the always-log kinds (see **Runtime event channel** below). The companion `content` is the normative user-facing template from [Invocation from Pi — Top-level `Err` in prompt mode](./slash-invocation.md) when `display: true`, or omitted (empty string) when `display: false`.
+
+The two shapes are disjoint by key; renderers MUST NOT assume both are present. Future payload shapes added to this channel are additive and disjoint by the same convention.
+
+**Runtime event channel.** A subset of `QueryError` failures — the **always-log set** — emit a structured runtime event through the `loom-system-note` channel exactly once per occurrence, regardless of whether the author matched the `Err`, propagated it via `?`, or discarded it via `let _ =`. The set is:
+
+- `transport`
+- `tool_failure`
+- `tool_call_error`
+- `tool_loop_exhausted`
+- `invoke_failure`
+- Binder failures (every row of [Binder — Failure modes](./binder.md), including `needs_info`, `ambiguous`, malformed envelope, AJV validation, transport, cancellation)
+- Runtime panics (every row of [Diagnostics — `loom/runtime/*`](./diagnostics.md); these flow through the `details: { diagnostics: [...] }` shape rather than `details: { event: ... }`)
+
+`validation`, `context_overflow`, `cancelled`, and `invoke_callee_error` are deliberately **not** in the always-log set: `validation` is a query-internal repair signal whose final outcome is what matters (the `attempts` field on the eventual terminal event captures the count); `context_overflow` and `cancelled` are user/operator-initiated and self-explanatory in context; `invoke_callee_error` wraps an inner `Err` whose origin already emitted its own runtime event at the originating site.
+
+The `RuntimeEvent` payload shape is normative and additive-only:
+
+```ts
+type RuntimeEvent = {
+  kind: string;                       // QueryError.kind, the binder failure cause, or the loom/runtime/* code for panics
+  code?: string;                      // diagnostic code when one applies (loom/runtime/*, loom/load/*, etc.)
+  loom: string;                       // slash name of the loom that owned the failure ("/code-review")
+  query_site?: { file: string; line: number; column: number }; // source location of the @-template, tool call, invoke, or discarding `let _ =`; absent for binder failures (the binder runs before any loom code)
+  message: string;                    // the same message string surfaced through the user-facing template (or the panic message template, for panics that take the diagnostic shape)
+  attempts?: number;                  // populated for `validation` events on coercion exhaustion; absent otherwise
+  tokens_used?: number;               // populated for `context_overflow` events when the provider supplies the count; absent otherwise
+};
+```
+
+The channel is operator-facing: events emit with `display: false` when the author handled the `Err` (matched, discarded with `let _ =`, or propagated via `?` to a non-top-level frame that itself handled it), and with `display: true` when the failure cascades out of the slash-command boundary as a top-level `Err` in prompt mode (in which case the `content` carries the normative user-facing template per [Invocation from Pi](./slash-invocation.md)). Subagent-mode top-level `Err` cascades likewise emit with `display: false` (the subagent transcript is private; see **User-visible streaming — subagent mode** above).
+
+Deduplication and lifetime rules:
+
+- A `?`-propagation chain emits exactly once at the originating site, not at each rethrow. A failure that is created at site A, propagated through frames B and C via `?`, and finally cascades out as a top-level `Err` at frame D produces one runtime event (origin: A) plus the user-facing top-level note at D when `display: true` applies; both share the same `RuntimeEvent` payload (the user-facing emission MAY repeat the event for symmetry, but consumers MUST deduplicate on `(kind, query_site, message, occurrence-timestamp)`).
+- Coercion attempts on a typed query (see [Query — Schema-validation coercion](./query.md)) do not emit per-failed-attempt events. Only the terminal outcome of the query is observable as a runtime event — either a `validation` event with `attempts` set to the exhausted count (when coercion runs out), or a non-validation event from the always-log set (when a coercion follow-up itself fails for a transport / tool / cancellation / overflow reason and propagates per [Query — Non-validation failures during a coercion follow-up](./query.md)).
+- Panics emit through the existing `details: { diagnostics: [...] }` shape (one diagnostic per panic, code `loom/runtime/*`, message per the registered template in [Diagnostics](./diagnostics.md)) **before** the panic system note (`"loom /<name> aborted: <message>"`) is rendered. A failure to render the system note still leaves the operator record intact.
+- Tool-host emission ownership: when a Pi tool that the loom invoked (either code-side via `<name>(args)` or model-side inside a query's tool-call loop) emits its own diagnostics, those are independent of the loom-runtime event. The loom runtime owns `tool_call_error` and `tool_failure` events; the tool host owns whatever it emits internally. Renderers MUST NOT cross-correlate the two.
+
+Aggregation, latency histograms, per-loom token reports, retention policies, and a consumer-facing read API for the event stream are deferred to [Future Considerations](./future-considerations.md). V1 ships the always-log set and the payload shape only; the channel is intentionally write-only at the spec level, with downstream consumers free to read from Pi's session transcript via existing surfaces.
+
 The `pi.sendMessage` call for `loom-system-note` is treated as best-effort. If it throws or rejects, the runtime falls back in this order:
 
 1. `ctx.ui.notify(content, "error")` — a transient surface so the user still sees the message in the current session, even if it does not persist in the transcript.
@@ -121,7 +165,7 @@ The fallback path is taken on any thrown or rejected value from `sendMessage`; i
 - `onUpdate` is a no-op (V1 does not surface streaming partial results to loom code).
 - `ctx` is the live `ExtensionContext` the runtime already holds, with two per-mode overrides — `signal` is replaced with `loomAbort.signal` (always defined; see **Cancellation source** below), and `sessionManager` is replaced with the loom's current session (Pi's user session in prompt mode, the spawned subagent session in subagent mode). All other `ExtensionContext` members (`cwd`, `ui`, `hasUI`, `modelRegistry`, `model`, `isIdle`, `abort`, `hasPendingMessages`, `shutdown`, `getContextUsage`, `compact`, `getSystemPrompt`) forward to the live host. *Prompt mode:* the live host is the `ExtensionCommandContext` passed to the slash-command handler, retained for the loom's lifetime. *Subagent mode:* the spawned `AgentSession` does not carry an `ExtensionCommandContext`; the runtime forwards the parent slash-command handler's `ExtensionCommandContext` for the non-session members (so `model`, `getContextUsage`, etc. reflect the parent's view), with `sessionManager` swapped to the spawned session as above. The `abort()` member is wrapped to call `loomAbort.abort()` rather than the parent's, so a tool that calls `ctx.abort()` tears down the loom's invocation, not the user's whole turn.
 
-The tool's returned `{ content, isError }` becomes the V1 string return value: the concatenated text content blocks, returned as `Ok(string)` if `!isError` and `Err(QueryError { kind: "tool_call_error", cause: "execution", ... })` otherwise.
+The tool's returned `{ content, isError }` is lowered to the V1 string return value as follows. The runtime filters `content` to entries with `type === "text"`, joins their `.text` values with `"\n"` (single line-feed; no separator before the first or after the last block), and returns the joined string. Non-text content blocks (images, resource references) are discarded silently in V1; widening to a richer return shape is reserved for [Future Considerations](./future-considerations.md). An empty result string — either `content: []` or a content array with no surviving text blocks — is a legal `Ok("")` value when `!isError`. When `isError`, the runtime returns `Err(QueryError { kind: "tool_call_error", cause: "execution", message: <m>, tool_name, ... })` where `<m>` is the same filtered/joined text truncated to 4096 bytes (UTF-8) at a code-point boundary (no split surrogates / multi-byte sequences); when no text survives the filter, `<m>` is the fixed string `"tool reported an error with no text content"`. When `cause: "execution"` originates from an `execute()` throw rather than `isError: true`, `<m>` is the thrown error's `.message` truncated under the same rule. Both forms share the `"execution"` cause; `execute()`-throw vs `isError: true` are distinguished by the `message` source, not by a new `cause` (a future revision MAY widen `cause` additively if the distinction needs to surface).
 
 **Cancellation source.** As described in [Cancellation](./cancellation.md), the loom's `AbortSignal` is `loomAbort.signal` from a runtime-owned `AbortController` constructed fresh per invocation — **not** `ctx.signal` directly. Pi documents `ctx.signal` as `undefined` in idle / non-turn contexts (`@mariozechner/pi-coding-agent`'s extension docs, `ctx.signal` section), and a slash-command handler fires from idle, so the runtime MUST NOT use `ctx.signal` as the loom's authoritative signal: doing so would silently pass `undefined` into every adapter (`createAgentSession({ signal })`, the synthesised tool-execution `ExtensionContext.signal`, the child-invoke derived signal) and degrade every cancellation path to a no-op. Instead, the runtime forwards Pi's turn-side `ctx.signal` (when defined and observed inside one of the runtime's `tool_call` / `tool_result` / `message_update` / `turn_end` / `agent_end` handlers) into `loomAbort.abort()`, and likewise forwards the `signal` parameter of a tool-exposed loom's `execute(...)` into `loomAbort.abort()` via a one-shot listener registered at entry. All downstream queries, tool calls, and child invokes derive from `loomAbort.signal`. Because `loomAbort.signal` is always defined, the optional-chaining defence (`signal?.aborted`) used by tool adapters is no longer load-bearing inside the runtime; the runtime guarantees a defined signal to every adapter it calls. Subagent mode passes `loomAbort.signal` as `createAgentSession({ signal })`, so aborting `loomAbort` propagates through the spawned `AgentSession` to in-flight provider calls. Forwarding listeners are torn down in the same `finally` block that disposes the subagent session (see **Subagent session lifecycle** above).
 

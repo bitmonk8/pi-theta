@@ -113,7 +113,7 @@ Do not invent values for defaulted parameters that the user did not specify; omi
 4. **Empty model-supplied content.** A `message` that is empty after rule 1's stripping — the binder returned only whitespace — is treated as a malformed envelope, not as an empty note: surface via the malformed-envelope row in the failure-modes table. The same applies to a `candidates` array whose every entry is empty after stripping.
 5. **`ambiguous.candidates` rendering.** When a non-null `candidates` array is present and non-empty after stripping, the rendered failure note appends ` candidates: [a, b, c, …+N more]` after the sanitised `message`, mirroring the echo formatter's array rule (truncated past three entries). Each candidate is stripped per rule 1 and individually capped at 32 code points (overflow replaced with `…`) before the array is assembled; the assembled note is then subject to rule 2, and the line-level cap wins over the array's own `…+N more` marker. A null or empty `candidates` array produces no candidates suffix.
 
-**Echo policy.** Configured via `bind_echo:` (`true` | `false`; default `true`). When echo is on (and the bypass did not apply), the runtime appends a one-line system note to the user's session immediately before the loom starts:
+**Echo policy.** Configured via `bind_echo:` (`true` | `false`; default `true`). When echo is on (and the bypass did not apply), the runtime appends a one-line system note to the user's session immediately before the loom starts. The example below is illustrative — the format rules that follow are normative; no single example string can be (the formatter is data-driven and the rendered text depends on the loom's `params:` and the bound values):
 
 > Running `/code-review`: language=TypeScript, focus_areas=[error handling, async], author={Ada Lovelace, …}
 
@@ -138,7 +138,11 @@ The echo channel is also used for the binder's `needs_info` and `ambiguous` outp
 
 **Cancellation.** The binder participates in cancellation per [Cancellation](./cancellation.md). The runtime checks `ctx.signal` immediately before issuing the binder call and forwards the signal to the binder model's provider invocation; both the initial attempt and the single transport-failure retry honour the signal. A cancelled binder produces the cancelled-binder system note in the failure-modes table below and the loom does not run. The bypass path (single no-default `string` param, no LLM call) is naturally cancellable at the next regular checkpoint inside the loom body; the cancelled-binder system note does not apply to bypass-eligible looms.
 
-**Failure modes.** Binder failures are runtime-handled and surface as system notes in the user's session, never as `Result` values to loom code. V1 has no `BinderError` variant in the `QueryError` union (it would have nowhere to flow — a failed binder means the loom never starts). Every shape below is rendered through the shared discipline in [System-note rendering](#system-note-rendering); the table gives the pre-discipline templates. The six user-facing shapes:
+**Failure modes.** Binder failures are runtime-handled and surface as system notes in the user's session, never as `Result` values to loom code. V1 has no `BinderError` variant in the `QueryError` union (it would have nowhere to flow — a failed binder means the loom never starts). Every shape below is rendered through the shared discipline in [System-note rendering](#system-note-rendering); the table gives the pre-discipline templates.
+
+**The templates below are normative.** Renderers MUST emit the surrounding template text verbatim; only the `<…>` placeholders are interpolated. The `<message>` and `<candidates>` placeholders carry model-supplied content and are non-deterministic, but the surrounding template (the `loom /<name>:` prefix, the `—` separator, the trailing parenthetical or `candidates:` clause) is fixed. Wording changes are spec-versioned breaking changes. `<ajv-summary>` is rendered by the AJV helper `errorsText(errors, { separator: '; ' })` with the data-path prefix retained, so the summary content is itself stable across runs against the same envelope; the surrounding template is normative regardless of how AJV evolves its internal formatting.
+
+The six user-facing shapes:
 
 | Cause | System note |
 |---|---|

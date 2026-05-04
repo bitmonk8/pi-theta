@@ -13,7 +13,7 @@ fn rate_strictness(p: Author): Result<ReviewScore, QueryError> {
 let strictness = rate_strictness(author)?
 ```
 
-A function whose body uses `?` must declare a `Result<_, QueryError>` return type, since `?` early-returns `Err`. A function whose purpose is purely to drive turns without producing a value can declare a `void` return type and discard its last expression's value (with the same silent-drop caveat as expression-statement queries).
+A function whose body uses `?` must declare a `Result<_, QueryError>` return type, since `?` early-returns `Err`. A function whose purpose is purely to drive turns without producing a value can declare a `void` return type and discard its last expression's value; when that tail expression is a query, the discard observes the same user-facing-vs-operator-facing contract as the expression-statement form (see [Query — Discarded query results](./query.md)).
 
 A function call participates in the loom's *current* conversation; it does not open a new one. To open a new isolated conversation, invoke another loom in subagent mode (see [Invocation](./invocation.md)).
 

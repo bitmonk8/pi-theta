@@ -17,7 +17,11 @@ Once a loom is invoked:
 - In **prompt mode**, the loom drives the *current* conversation — every query is a turn the user sees in their session. The loom's final `Ok` return value is **not** surfaced to the user; the conversation is the user-facing surface, and any value the author wants the user to see should be issued as a final query whose text contains it. The return value exists only for programmatic consumers (an `invoke` caller, a future loom harness).
 - In **subagent mode**, a fresh isolated conversation is spawned for the loom — with the system prompt set from frontmatter `system:` if present. Every query is a turn in that private conversation. When the loom finishes, only its return value reaches the caller; the intermediate transcript stays inside the subagent.
 
-**Top-level `Err` in prompt mode.** When a prompt-mode loom returns `Err(QueryError)` to its caller (the user's session), Pi appends a one-line system note to the session formatted from the error. The note never dumps the full `QueryError` JSON — it summarises the failure category and the most-relevant detail. Per-`kind` formatting:
+**Top-level `Err` in prompt mode.** When a prompt-mode loom returns `Err(QueryError)` to its caller (the user's session), Pi appends a one-line system note to the session formatted from the error. The note never dumps the full `QueryError` JSON — it summarises the failure category and the most-relevant detail.
+
+**The shapes below are normative templates.** Renderers MUST emit the surrounding template text verbatim; only the `<…>` placeholders are interpolated. Wording changes are spec-versioned breaking changes. Conformance tests MAY assert on the exact rendered string. Where a placeholder carries free-form content sourced from a model (e.g. `<message>` on rows whose underlying error message originated outside the runtime), only the surrounding template is normative — the interpolated content itself is non-deterministic.
+
+Per-`kind` formatting:
 
 | `QueryError.kind` | System note shape |
 |---|---|
@@ -27,11 +31,13 @@ Once a loom is invoked:
 | `context_overflow` | "loom `/<name>` returned `Err`: context window exceeded" |
 | `cancelled` | "loom `/<name>` cancelled" |
 | `tool_call_error` | "loom `/<name>` returned `Err`: tool `<tool_name>` call failed (`<cause>`) — `<message>`" |
+| `tool_loop_exhausted` | "loom `/<name>` returned `Err`: tool-call loop exhausted after `<iterations>` iterations (last tool: `<last_tool_name>`)" |
 | `invoke_failure` | "loom `/<name>` returned `Err`: invoke of `<callee_path>` failed (`<reason>`)" |
 | `invoke_callee_error` | "loom `/<name>` returned `Err`: invoked `<callee_path>` returned `Err` — `<inner.kind>`" |
+| _any unlisted `kind`_ (catch-all) | "loom `/<name>` returned `Err`: `<kind>` — `<message>`" |
 
-Every `QueryError.kind` has a defined system-note shape; the formatter must enumerate all eight rows above. For `invoke_callee_error` the chain-attribution suffix described in the next paragraph handles the deeper `inner` recursion — the row above only formats the immediate failure, and the chain text is appended once per cascade level.
+The table is exhaustive over the V1 `QueryError` union (nine variants, listed in [Query — Failure modes](./query.md)); the catch-all row makes the renderer's contract total against any future variant added to the union, so a renderer never has "no defined output" for a well-formed `QueryError`. New variants SHOULD ship with a dedicated row in the same edit; the catch-all is a normative fallback, not an excuse to skip the per-kind row. For `tool_loop_exhausted`, `<last_tool_name>` is rendered as the literal string `respond` when `last_tool_name` is `null` (the exhaustion fired on the forced respond turn of a typed query). For `invoke_callee_error` the chain-attribution suffix described in the next paragraph handles the deeper `inner` recursion — the row above only formats the immediate failure, and the chain suffix recurses into `inner` so the leaf `kind` (not the wrapper) drives the descriptive text. The chain suffix applies to every row, including the catch-all, whenever the failure cascaded from an invoked child.
 
 The session is not aborted; the user can type a follow-up turn. When the leaf failure originated inside an `invoke`d child loom that cascaded out via `?`, the note identifies the leaf and prints the call chain (`"... from child.loom invoked at parent.loom:42"`).
 
-The note is emitted as a custom-typed Pi message (`pi.sendMessage({ customType: "loom-system-note", content, display: true, ... }, { triggerTurn: false })`) so it persists in the session transcript and survives `/tree` navigation; a registered message renderer formats it as a one-line dim entry. See [Pi Integration Contract](./pi-integration-contract.md) for the full mechanism.
+The note is emitted as a custom-typed Pi message (`pi.sendMessage({ customType: "loom-system-note", content, display: true, details: { event: { ... } } }, { triggerTurn: false })`) so it persists in the session transcript and survives `/tree` navigation; a registered message renderer formats it as a one-line dim entry. The `details.event` payload is the operator-facing runtime-event record described in [Pi Integration Contract — Runtime event channel](./pi-integration-contract.md), and is populated for every row above; renderers consume `content` for display and ignore `details`, while log scrapers and replay tools consume `details.event` for structured access. See [Pi Integration Contract](./pi-integration-contract.md) for the full mechanism.

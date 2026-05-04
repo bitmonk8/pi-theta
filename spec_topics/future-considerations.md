@@ -16,6 +16,7 @@ Items occasionally carry a `Depends on:` annotation where they presuppose anothe
 
 - **LSP support** for `.loom` and `.warp` files (syntax highlighting, type checking, autocomplete).
 - **`loom test` command** for dry-run execution that runs a loom against a recorded transcript or a stub model without hitting a live provider.
+- **Richer runtime-event telemetry** — per-loom token aggregation, latency histograms, cost reporting, retention policies, and a consumer-facing read API for the `details: { event }` stream defined in [Pi Integration Contract — Runtime event channel](./pi-integration-contract.md). V1 ships only the per-occurrence emission and the `RuntimeEvent` payload shape; downstream consumers in V1 read from Pi's session transcript via existing surfaces.
 
 ---
 
