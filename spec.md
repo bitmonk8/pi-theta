@@ -56,7 +56,7 @@ How loom integrates with the Pi runtime.
 
 Implementer-facing notes about the runtime and Pi SDK contract.
 
-- [Implementation Notes](./spec_topics/implementation-notes.md) — parser toolkit, runtime behaviour, AJV configuration, single-threaded execution.
+- [Implementation Notes](./spec_topics/implementation-notes.md) — parser contract, runtime behaviour, schema-validation contract, single-threaded execution.
 - [Runtime Value Model](./spec_topics/runtime-value-model.md) — JS representation of loom values, equality, wire-name translation.
 - [Pi Integration Contract](./spec_topics/pi-integration-contract.md) — the named `@mariozechner/pi-coding-agent` surface the runtime depends on.
 - [Future Considerations](./spec_topics/future-considerations.md) — out-of-scope features.

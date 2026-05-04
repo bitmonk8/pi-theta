@@ -50,7 +50,7 @@
 
 ## V18g — AJV cache invalidation on file change
 
-- **Spec.** [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) (AJV configuration).
+- **Spec.** [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) (schema-validation contract; cache invalidation as a property of the validator service).
 - **Adds.** File-watcher event invalidates compiled-schema cache for the changed file and any transitive importer.
 - **Tests.** Schema edit invalidates cache key; next query recompiles; non-changed files retain cache hit.
 - **Deps.** V18f, V4a.

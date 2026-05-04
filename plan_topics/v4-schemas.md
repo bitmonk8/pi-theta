@@ -2,8 +2,8 @@
 
 ## V4a — AJV pipeline scaffold
 
-- **Spec.** [Schema Subset — Lowering Algorithm](../spec_topics/schema-subset.md#lowering-algorithm), [Pi Integration Contract](../spec_topics/pi-integration-contract.md) (AJV configuration in [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime)).
-- **Adds.** AJV v8 wired with `strict: false`, `allErrors: true`, `ajv-formats` registered, in-document `$ref` only. Compiled-schema cache keyed by lowered-schema content hash.
+- **Spec.** [Schema Subset — Lowering Algorithm](../spec_topics/schema-subset.md#lowering-algorithm), [Pi Integration Contract](../spec_topics/pi-integration-contract.md) (schema-validation contract in [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime)).
+- **Adds.** `SchemaValidator` service that satisfies the validator behavioural contract: one-pass multi-error reporting, no coercion, no default-filling, in-document `$ref` only, and silent acceptance of any `format` keyword. Reference implementation uses AJV v8 (non-normative) with `strict: false`, `allErrors: true`, and `ajv-formats` registered. Compiled-schema cache keyed by lowered-schema content hash.
 - **Tests.** Cache hit on identical schema; cache miss on changed schema; AJV instance not shared across loom loads (no global state); validation produces expected error shapes.
 - **Deps.** H2.
 - **Ships when.** Validator service can compile and validate against arbitrary JSON Schema documents.

@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_86 findings retained, 1 false positives dropped, 0 persistent failures_
+_85 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -6822,86 +6822,6 @@ Edge cases the implementer must watch:
 - "Enum brand reattachment on inbound values not stated" — same-cluster (both touch the enum brand surface; that finding adds a missing rule about reattachment, this one demotes the brand's encoding — fixes compose)
 - "Implementation toolkit over-prescribed" — same-cluster (both apply the prescription lens to non-observable interpreter internals; resolve independently in different files)
 - "AJV schema cache risks singleton pattern prohibited by CLAUDE.md" — same-cluster (another implementation-detail-as-spec issue under the same `runtime-value-model.md` / `implementation-notes.md` neighbourhood)
-
----
-
-## spec_topics/implementation-notes.md
-
----
-
-# Implementation toolkit prescribed in place of behavioural contract
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Implementation toolkit over-prescribed
-**Kind:** prescription, cruft
-
-## Finding
-
-`spec_topics/implementation-notes.md` names the parser library, the parser's grammar lineage, the validator library, and the validator's option flags as if they were contractual:
-
-- "Toolkit: **Chevrotain** (TypeScript-native, no separate lexer generator required)"
-- "Grammar basis: **TinyC** Chevrotain example"
-- "**AJV configuration.** AJV v8 with `strict: false` and `allErrors: true`; `ajv-formats` registered"
-
-None of these have any observable effect on a loom author. The grammar's TinyC ancestry is purely historical — it constrains nothing about the surface language and would not be relevant to a fresh implementation. The AJV option flags are a recipe; what callers can actually observe is the *behaviour* those flags happen to produce on this particular validator.
-
-The spec already declares — in `spec_topics/query.md` — that "`validation_errors` is an `array<ValidationFailure>`, a Loom schema rather than raw AJV objects. This isolates Loom's surface from the AJV API: a future validator swap is not a breaking change." The implementation-notes paragraph contradicts that intent by pinning the implementation to a specific major version with specific flags, leaving an implementer no way to tell which of those choices are load-bearing (no coercion, no default-filling, multi-error reporting, in-document `$ref` only) and which are incidental (the literal `strict: false` keyword, the choice of `ajv-formats` over a hand-rolled format ignorer, AJV v8 specifically).
-
-## Spec Documents
-
-- `spec_topics/implementation-notes.md` — Parser; AJV configuration (edited)
-- `spec_topics/query.md` — `validation_errors` rationale that already declares validator-swap intent (read-only)
-- `spec_topics/schema-subset.md` — repeats the "compiled once per lowered schema" cache claim (read-only)
-- `spec_topics/diagnostics.md` — multi-error reporting is the behavioural contract that "allErrors: true" is meant to satisfy (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V4, Vertical V18
-
-**Leaves (implementation order):**
-
-- V4a — AJV pipeline scaffold — (modified)
-- V18g — AJV cache invalidation on file change — (modified)
-
-V4a's `Adds` field currently restates the prescription verbatim ("AJV v8 wired with `strict: false`, `allErrors: true`, `ajv-formats` registered, in-document `$ref` only"); after the spec rewrite it should restate the behavioural contract instead, and may keep AJV v8 as a non-normative choice. V18g's spec link points at the "AJV configuration" subsection that gets restructured; the leaf itself stays valid but its anchor target moves.
-
-## Consequence
-
-**Severity:** advisory
-
-A future maintainer cannot tell which validator-configuration claims are part of the contract and which are incidental to the chosen library. That blocks the "validator swap is not a breaking change" promise the spec already makes, and forces every downstream reader (reviewers, plan authors, contract test writers) to read AJV's documentation to recover the actual requirements. No implementation will get *wrong* behaviour from the current text, but the spec fails its own factoring principle — the implementer has to reverse-engineer the contract from a recipe.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Restructure the affected portions of `spec_topics/implementation-notes.md` so each prescription is one of two clearly labelled kinds: a normative behavioural contract that any conforming implementation must satisfy, or a non-normative implementation hint naming the libraries this codebase happens to use.
-
-Concretely, replace the **Parser** bullets with a single normative statement and a hint:
-
-- *Contract:* the parser MUST emit diagnostics matching `diagnostics.md`, including multi-error reporting across the whole file and its transitively imported `.warp` modules before failing.
-- *Implementation hint (non-normative):* the reference implementation uses Chevrotain.
-
-Replace the **AJV configuration** paragraph with the four behaviours that are actually observable, then a hint:
-
-- *Contract:* schema validation MUST report every validation error in one pass (no fast-fail), MUST NOT coerce values, MUST NOT fill defaults, MUST resolve `$ref` only within the lowered per-query document (no external refs), and MUST silently accept any JSON-Schema `format` keyword that may appear in model output (loom-emitted schemas never use `format`, but model output can).
-- *Implementation hint (non-normative):* the reference implementation uses AJV v8 with `strict: false`, `allErrors: true`, and `ajv-formats` registered; these flag values are how AJV happens to satisfy the contract above.
-
-Edge cases the implementer must watch:
-
-- The "format keyword silently accepted" rule is a real contract — if a future implementer drops `ajv-formats` and lets AJV raise on unknown formats, model output containing `"format": "date-time"` will start failing validation. Keep this in the contract, not just the hint.
-- "Compiled once per loom load and cached across invocations" should be moved into the implementation hint; the contract is just "validation results are deterministic for a given (schema, value) pair." Caching is an optimisation, and per the sibling finding on per-query `$defs` pruning the caching strategy is already under-specified.
-- "The file watcher invalidates the cache on change" should likewise move out of the normative section. It belongs to the `V18g` mechanism, not to the validator contract.
-- Leave existing references to "AJV" elsewhere in the spec (`binder.md`, `query.md`, `frontmatter.md`, `runtime-value-model.md`, `schema-subset.md`, `slash-invocation.md`, `invocation.md`, `tool-calls.md`) alone for now — those are colloquial shorthands for "the validator service" and rewriting them is out of scope for this finding.
-
-## Related Findings
-
-- "AJV schema cache risks singleton pattern prohibited by CLAUDE.md" — same-cluster (touches the same paragraph but resolves independently; the singleton-vs-DI question is orthogonal to the prescription-vs-contract split)
-- "Per-query AJV cache key is inconsistent with schema-subset lowering" — co-resolve (the same restructuring demotes the file-watcher-invalidation prescription this sibling also flags)
-- "JS representation details are over-prescribed" — same-cluster (parallel issue in `runtime-value-model.md` under the same lens; resolves with the same edit pattern but in a different file)
-- "Typed query implementation technique should be in `implementation-notes.md`, not the V1 contract" — same-cluster (agrees that `implementation-notes.md` is the right home for non-normative implementation detail; sharper section labelling here makes that move easier)
 
 ---
 
