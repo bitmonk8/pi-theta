@@ -18,6 +18,8 @@ Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-te
 4. Packages (`looms/` directories or `pi.looms` entries).
 5. Global (`~/.pi/agent/looms/`).
 
+**Case-insensitive filesystem collisions.** Within a single discovery source, two `*.loom` files whose paths differ only in case (e.g., `Plan.loom` and `plan.loom` in the same `looms/` directory) collide on case-insensitive filesystems (Windows, macOS default) but coexist on case-sensitive ones (most Linux). To make behaviour identical across both, the loader compares discovered paths case-insensitively *per source* and emits a load-time *warning* `loom/load/case-collision` naming both paths; the lexicographically-first path under case-sensitive byte comparison wins. Cross-source priority (the table above) still applies on top — the rule is intra-source only. Path comparison uses the normalised forward-slash form described under "Path literals" in [Lexical Structure](./lexical.md).
+
 **Slash-name collisions across formats.** A loom and a Pi prompt template (`.md`) or subagent that resolve to the same slash command (e.g., `code-review.loom` and `code-review.md`) are a load-time *error* reported through Pi's diagnostics; neither is registered. Authors must rename one. Cross-format shadowing is not supported in V1; the rule is symmetric across `.loom`, `.md` prompts, and `.md` subagents.
 
 ```

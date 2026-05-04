@@ -7,7 +7,7 @@ let plan: Plan = invoke<Plan>("./plan.loom", topic, depth)?
 let _ = invoke("./logger.loom", note)?
 ```
 
-**Resolution.** `path` is a string literal, resolved at parse time relative to the calling loom's directory. It must end in `.loom`. Dynamic dispatch (a runtime-computed path) is not supported in V1.
+**Resolution.** `path` is a string literal, resolved at parse time relative to the calling loom's directory. It must end in `.loom`, and uses forward-slash separators only — a backslash inside the path literal is a parse error per the "Path literals" rule in [Lexical Structure](./lexical.md). Dynamic dispatch (a runtime-computed path) is not supported in V1.
 
 **Typed return.** `invoke<Schema>(...)` annotates the expected return type; the runtime AJV-validates the child's return value against the schema. Untyped `invoke(...)` returns `Result<null, QueryError>` — the runtime discards the child's return value entirely. Use `invoke<Schema>` whenever the caller needs the value back; the untyped form exists only for fire-and-forget orchestration (loggers, side-effect-only children).
 
