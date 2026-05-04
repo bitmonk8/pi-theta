@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_36 findings retained, 1 false positives dropped, 0 persistent failures_
+_35 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -298,67 +298,6 @@ Implementer edge cases to flag:
 - "Hot-reload via `ctx.reload()` causes full extension teardown" — decision-dependency (the rediscovery-on-reload story in this finding constrains how the watcher's reload path is described)
 - "Discovery directory tree example contradicts documented path" — same-cluster (separate discovery-surface error, resolves independently)
 - "`pi.looms` package.json key is not Pi-recognized" — same-cluster (also a discovery-surface grounding issue, resolves independently)
-
----
-
-# Prompt-mode driver calls a non-existent `ctx.sendUserMessage`
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** `ctx.sendUserMessage()` does not exist on command-handler context
-**Kind:** codebase-grounding-broad, doc-alignment-broad, assumptions
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` (Conversation drive — prompt mode) tells the implementer to issue untyped queries via `ctx.sendUserMessage(text)`. In the Pi SDK that method does not exist on `ExtensionCommandContext` (the `ctx` a `pi.registerCommand` handler receives). It lives on `ExtensionAPI` — the `pi` object passed to the extension factory — and on `ReplacedSessionContext`, which is only reachable inside a `withSession` callback after a session-replacement call. A literal implementation of the spec line would crash at runtime with `ctx.sendUserMessage is not a function`.
-
-The mid-stream variant (`{ deliverAs: "steer" }`) is also mis-framed in the same sentence: `deliverAs` is an *option* on `pi.sendUserMessage(content, options)`, not an alternative call. The Pi `examples/extensions/send-user-message.ts` example shows the canonical usage from a command handler — the factory's closed-over `pi` is what gets called, while `ctx` is only consulted for `ctx.isIdle()` to decide whether to pass `deliverAs`.
-
-The same wording has already been copied into `plan_topics/v5-untyped-queries.md` (V5e Adds), so the error will propagate from spec to plan to implementation if not corrected at the spec level.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — "Conversation drive — prompt mode" bullet (edited)
-- `spec_topics/pi-integration-contract.md` — "Conversation drive — subagent mode" paragraph, which says spawned-session queries "use the same `prompt(text)` + `agent_end` listener pattern" — the wording must stay consistent with whatever name the prompt-mode bullet settles on (edited)
-
-## Plan Impact
-
-**Phases:** MVP, Vertical V5
-
-**Leaves (implementation order):**
-
-- M — Minimal end-to-end loom — modified (its `ConversationDriver.send` stub must call `pi.sendUserMessage`, not `ctx.sendUserMessage`; the Adds prose inherits the spec wording)
-- V5e — Prompt-mode conversation driver — modified (the Adds bullet currently quotes `ctx.sendUserMessage(text)` verbatim and must be re-stated as `pi.sendUserMessage(text, options?)`)
-
-## Consequence
-
-**Severity:** correctness
-
-A by-the-book implementer wires the prompt-mode driver against `ctx`, gets a `TypeError` on the very first untyped query, and has to reverse-engineer the right call site from the Pi SDK before any loom can run end-to-end. The bug also encourages a subtler mistake — capturing `ctx` and assuming it carries the same session-control surface as `pi` — which would mask itself under different failure modes (e.g. stale context after a session replacement).
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec_topics/pi-integration-contract.md`, rewrite the prompt-mode "Issuing untyped queries" bullet to call the API on `pi`, the `ExtensionAPI` captured by the extension factory and held by the runtime for the lifetime of a loom invocation:
-
-> Issuing untyped queries via `pi.sendUserMessage(text)` when the agent is idle, or `pi.sendUserMessage(text, { deliverAs: "steer" })` when the agent is mid-stream, and awaiting completion by subscribing to `agent_end`. The runtime checks `ctx.isIdle()` (from the originating command handler's context) to decide which form to use.
-
-Edge cases the implementer must handle:
-
-- **Idleness check.** Per `examples/extensions/send-user-message.ts`, calling `pi.sendUserMessage(text)` without `deliverAs` while the agent is streaming throws. The driver must consult `ctx.isIdle()` (or the equivalent agent-state check) before each send and select `deliverAs: "steer"` when not idle. Document this on the same bullet so it does not get lost in implementation notes.
-- **`pi` lifetime across session replacement.** Pi invalidates the captured `pi` reference after `ctx.newSession()`, `ctx.fork()`, or `ctx.switchSession()` (see Pi CHANGELOG #2860). The loom runtime does not call those today, but the spec should note that the prompt-mode driver assumes the user session is *not* replaced mid-loom; if a future feature triggers replacement it must re-acquire `pi` via `withSession`.
-- **`followUp` vs `steer` choice.** The spec only mentions `steer`. `pi.sendUserMessage` also accepts `deliverAs: "followUp"` to queue rather than interrupt. State explicitly that V1 prompt-mode loom drives use `steer` (the loom is the active driver and wants its message delivered to *this* turn), and defer `followUp` to future considerations.
-- **Subagent-mode parallel.** The subagent paragraph currently says spawned-session queries "use the same `prompt(text)` + `agent_end` listener pattern" — but spawned `AgentSession` instances expose `session.sendUserMessage(...)` directly, not via a `pi` global. Update that paragraph in the same edit so prompt-mode and subagent-mode use parallel, accurate phrasing.
-
-## Related Findings
-
-- "`ctx.signal` is `undefined` in command-handler contexts" — same-cluster (both findings stem from over-trusting `ExtensionCommandContext` as a self-sufficient driver surface; resolutions are independent but should be cross-checked so the spec ends up with one coherent story about which fields come from `ctx` and which from `pi`)
-- "`resources_discover` misused as inbound discovery source" — same-cluster (same Pi-integration-contract section, same root cause: the spec was authored against an imagined Pi API rather than the actual one)
-- "Synthesized `ExtensionContext` is incomplete against the full interface" — same-cluster (also about the gap between assumed and actual `ExtensionContext` surface; the prompt-mode fix should not introduce new assumptions about ctx fields the synthesised ctx cannot satisfy)
-- "Extension entry point path is wrong" — same-cluster (companion factual error in the same contract document)
-- "`tools` vs `customTools` in `createAgentSession`" — same-cluster (another API-misnaming bug in the same file; co-edit candidate)
 
 ---
 
