@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_81 findings retained, 1 false positives dropped, 0 persistent failures_
+_80 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -6320,68 +6320,6 @@ Edge cases the implementer must respect:
 
 - "Cancellation 'smallest unit' definition is ambiguous" — co-resolve (the Race semantics paragraph and a precise checkpoint list belong in the same edit pass on `cancellation.md`)
 - "Cancellation checkpoints miss binder, AJV validation, and schema-lowering" — same-cluster (also edits `cancellation.md` Granularity, but addresses *which* operations are checkpoints rather than the race window between them)
-
----
-
-## spec_topics/errors-and-results.md
-
----
-
-# `?` and panics do not unwind prior side effects — semantics not stated
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** No rollback semantics — not explicitly stated
-**Kind:** error-model
-
-## Finding
-
-`spec_topics/errors-and-results.md` defines `?` as desugaring to `match expr { Ok(v) => v, Err(e) => return Err(e) }` and defines panics as aborting the loom immediately. Neither definition mentions side effects. A loom that performs a tool call (writing a file, hitting an API), then `?`s a subsequent failing query, has already committed the first tool call's effect — `return Err(e)` unwinds the call stack, not the conversation or the world. The spec is silent on this.
-
-Authors arriving from languages with exception-as-control-flow conventions (Python `try/finally`, Java exceptions, even Rust `Drop`) may reasonably read `?` as "abort cleanly" and assume some form of compensating action. The spec offers no statement that contradicts that assumption. The same gap applies to panics: V18m says the user session "is not torn down," but says nothing about whether prior side effects within that loom invocation are visible to the user / persisted / reverted.
-
-The fix is purely declarative — one short note acknowledging that loom has no transactional layer and that authors who need rollback must compose it explicitly via `match`-driven undo. No runtime machinery changes; the note documents an existing reality.
-
-## Spec Documents
-
-- `spec_topics/errors-and-results.md` — `?` operator section, runtime-panics section (edited)
-- `spec_topics/tool-calls.md` — read-only (already states tool-call side effects are real and observed by Pi's tool runtime)
-- `spec_topics/query.md` — read-only (Schema-validation coercion paragraph already invokes the side-effect concept in a related context)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The rollback note documents the runtime's existing behaviour (no undo machinery exists or is planned for V1). No leaf's `Adds` / `Tests` / `Ships when` changes — V6b's `?` desugaring, V18k–V18n's panic routing, and V14's tool-call leaves all already assume no rollback. The change is spec prose only.
-
-## Consequence
-
-**Severity:** advisory
-
-Implementers will not diverge — there is nothing to implement, and "no rollback" is the only behaviour the desugaring rule produces. The cost is borne by loom authors, who may write code with implicit transactional assumptions and discover at runtime that a half-completed side-effect chain is observable to the model and the user. A one-paragraph spec note prevents that class of authoring bug.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Append a short normative note to `spec_topics/errors-and-results.md`, placed at the end of the `?` operator section (immediately before "**`Result` as a user-visible type.**"), as its own paragraph titled **No rollback.** Suggested wording:
-
-> **No rollback.** Neither `?` nor a panic unwinds prior side effects. Tool calls that have already returned, queries already appended to the conversation, and `invoke` children that have already run remain final on early return or abort. Loom has no implicit transactional layer; authors who need compensating actions must `match` on the failing `Result` and execute the undo logic explicitly before re-`Err`-ing or returning. Panics cannot be intercepted at all — code that needs cleanup on a panicking path must avoid the panic source (bounds-check before indexing, exhaustive `match` arms).
-
-Edge cases the implementer must reflect when transcribing the note:
-
-- The note must apply uniformly to (a) `?` early-return inside a function, (b) `?` early-return at the top of a loom block, (c) panic in a slash-command loom (V18m route), and (d) panic in an `invoke` child (V18n route — the parent observes `kind: "invoke_failure", reason: "panic"`, but the child's already-committed tool calls remain committed).
-- Do not invent a new error variant or runtime hook for "rollback" — the note is purely a non-promise.
-- The wording must not contradict the existing coercion paragraph in `query.md`, which is the one place where the runtime *does* take care to avoid re-firing side effects (by appending a follow-up turn rather than re-issuing the original query). The two notes are complementary: coercion explains what the runtime won't do *to* you; the rollback note explains what the runtime won't do *for* you.
-
-## Related Findings
-
-- "Coercion follow-up may re-trigger tool side effects" — same-cluster (both clarify side-effect semantics on the failure path; resolved by independent edits in different files)
-- "Subagent session resource teardown on failure unspecified" — same-cluster (adjacent gap about cleanup on failure paths; resolves independently in `invocation.md` rather than `errors-and-results.md`)
-- "Discarded `Result` is a silent observability black hole" — same-cluster (both concern under-specified consequences of unhandled failure; orthogonal fixes)
 
 ---
 
