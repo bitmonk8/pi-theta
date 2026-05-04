@@ -23,44 +23,49 @@ Declaring `bind_context: session` on a subagent-mode loom is `loom/parse/bind-co
 
 The envelope is runtime-internal; it is never a Loom-visible type and never appears in loom code. Authors only see the *consequences* of binding (loom runs, or system note appears).
 
-**Binder envelope schema (constructed dynamically from `params:`).** The runtime emits one envelope schema per loom at load time and reuses it for every binder call:
+**Binder envelope schema (constructed dynamically from `params:`).** The runtime emits one envelope schema per loom at load time and reuses it for every binder call. The envelope is a discriminated union over `kind` and conforms to the [Schema Subset](./schema-subset.md); the runtime constructs it directly rather than via the lowering pass, but the shape is exactly what the lowering pass would produce for `schema BinderEnvelope = Ok | NeedsInfo | Ambiguous`.
 
 ```json
 {
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["kind"],
-  "properties": {
-    "kind": { "enum": ["ok", "needs_info", "ambiguous"] }
-  },
   "anyOf": [
     {
+      "type": "object",
       "properties": {
-        "kind": { "const": "ok" },
+        "kind": { "type": "string", "const": "ok" },
         "args": <params-schema-with-defaulted-fields-relaxed>
       },
-      "required": ["kind", "args"]
+      "required": ["kind", "args"],
+      "additionalProperties": false
     },
     {
+      "type": "object",
       "properties": {
-        "kind": { "const": "needs_info" },
+        "kind": { "type": "string", "const": "needs_info" },
         "message": { "type": "string" }
       },
-      "required": ["kind", "message"]
+      "required": ["kind", "message"],
+      "additionalProperties": false
     },
     {
+      "type": "object",
       "properties": {
-        "kind": { "const": "ambiguous" },
+        "kind": { "type": "string", "const": "ambiguous" },
         "message": { "type": "string" },
-        "candidates": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }] }
+        "candidates": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        }
       },
-      "required": ["kind", "message", "candidates"]
+      "required": ["kind", "message", "candidates"],
+      "additionalProperties": false
     }
   ]
 }
 ```
 
-`<params-schema-with-defaulted-fields-relaxed>` is a copy of the loom's lowered `params` schema with one transformation: each field that declared a default is removed from `required` (its type is unchanged). Required-without-default fields are unchanged. The binder may therefore omit any defaulted field; the runtime fills the actual default value after binding succeeds and before AJV validates the merged result.
+`<params-schema-with-defaulted-fields-relaxed>` is a copy of the loom's lowered `params` schema with one transformation: each field that declared a default is removed from `required` (its type is unchanged). Required-without-default fields are unchanged. The binder may therefore omit any defaulted field; the runtime fills the actual default value after binding succeeds and before AJV validates the merged result. The relaxed copy must itself satisfy the subset, including `additionalProperties: false`; if every params field has a default, the copy's `required` is `[]`.
+
+The `args` arm embeds a schema fragment that may carry `$ref`s into the loom file's `$defs`. The envelope schema document handed to the provider (and to AJV) carries the transitive `$defs` closure of the params schema, computed by the same per-query pruning rule as [Schema Subset step 4](./schema-subset.md#lowering-algorithm).
 
 **Session-context truncation (`bind_context: session`).** The runtime walks turns from newest to oldest, accumulating until *either* 20 turns *or* 8000 tokens (whichever is smaller) has been included. Token counts come from Pi's `ctx.getContextUsage()` (model-aware). Truncation is whole-turn; partial messages are not split. The included context is rendered as a compact transcript and embedded in the binder's system prompt below the parameter table.
 
