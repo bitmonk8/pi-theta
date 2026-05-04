@@ -73,7 +73,7 @@ A loom therefore alternates between PI logic (parsing the previous response, bra
 Each `.loom` file defines a **loom** — a named, invocable unit. A loom can be invoked:
 
 - As a **prompt-mode loom**: each query runs as a turn in the *current* conversation. The user's session sees every turn — nothing is hidden. The loom's final `Ok` return value is *not* surfaced to the user as a distinct artefact — the conversation is the user-facing surface, and authors who want the user to see a final value should issue a final query whose text contains it. The return value exists for programmatic consumers (an `invoke` caller, a future loom harness).
-- As a **subagent-mode loom**: a *new, isolated* conversation is spawned; each query runs as a turn in it. When the loom finishes, only its return value is propagated back to the caller — the intermediate transcript is private to the loom.
+- As a **subagent-mode loom**: a *new, isolated* conversation is spawned; each query runs as a turn in it. When the loom finishes, only its return value is propagated back to the caller — the intermediate transcript is private to the loom and is not retained by the runtime after the loom returns. Surfacing it for testing, replay, or observability is a future consideration (see `loom test` in [Future Considerations](#future-considerations)).
 
 In both modes the loom drives the conversation across however many query turns it needs. The mode selects *which* conversation those turns happen against, not whether the loom is allowed to round-trip with the model.
 
@@ -84,6 +84,25 @@ In both modes the loom drives the conversation across however many query turns i
 ### Design Basis
 
 The Loom grammar is based on **TinyC**, adapted for the JSON type system and the conversational emission model. The parser is implemented using **Chevrotain**, for which TinyC examples already exist and serve as a starting point.
+
+### Lexical Structure
+
+**Identifiers.** `[A-Za-z_][A-Za-z0-9_]*`, case-sensitive. The **first letter's case is enforced** by the parser — it is what makes case-based pattern disambiguation in `match` work without additional grammar:
+
+- **PascalCase** (uppercase first letter) is required for: `schema` names, `enum` names, `enum` variant names, and any user identifier introduced as a type-like binding. The built-in `Ok`, `Err`, and `Result` follow the same rule.
+- **lowercase-first** (a lowercase letter, or `_`) is required for: `let` and `let mut` bindings, function parameters, function names, and schema field names. Both `snake_case` (`experience_years`) and `lowerCamelCase` (`experienceYears`) are accepted; the parser only cares about the first letter.
+
+Violating either rule is a parse error ("schema name must start with an uppercase letter"; "binding name must start with a lowercase letter or `_`"). Inside `match` patterns the same first-letter rule then disambiguates without ambiguity: a lowercase identifier introduces a fresh binding, an uppercase identifier refers to an existing schema, enum, or constructor in scope (see [Errors and Results](#errors-and-results)). The casing rule is the *only* enforced naming constraint; identifier length, internal casing, and underscore use are otherwise free.
+
+**Reserved keywords.** Cannot be used as identifiers: `let`, `mut`, `fn`, `if`, `else`, `for`, `in`, `while`, `break`, `continue`, `return`, `match`, `schema`, `enum`, `import`, `export`, `from`, `as`, `by`, `invoke`, `true`, `false`, `null`, `Ok`, `Err`, `Result`, `string`, `number`, `integer`, `boolean`, `array`, `void`. The discard binding `_` is also reserved (it is not a regular identifier and cannot be referenced after binding).
+
+**Statement terminators.** Statements are separated by newlines; semicolons are not part of the grammar. A statement implicitly continues across newlines only when the parser cannot otherwise close it — open `(` / `{` / `[`, a trailing binary or unary operator, or a trailing comma. The same rule means single-line `if (x) stmt` does not exist; bodies of `if` / `for` / `while` / `fn` are always braced blocks.
+
+**Comments.** Line comments only. `//` is a regular comment; `///` is a doc comment that lowers to a JSON Schema `description:` (see [Descriptions](#descriptions)). Block comments (`/* ... */`) are not supported. Comments inside the *text* of a `@`...`` query template are not comments — they are part of the rendered prompt. Comments inside a `${...}` interpolation behave exactly as in any other expression position.
+
+**String literals.** Single- (`'...'`) and double-quoted (`"..."`) forms are equivalent. Escape sequences: `\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\u{XXXX}` (Unicode code-point, 1–6 hex digits). A backslash followed by any other character is a parse error. **Single-line only** — a literal newline inside a regular string is a parse error. **No interpolation** — the sequence `${` inside a regular string is plain text. Multi-line text and interpolation belong inside `@`...`` query templates; for non-query multi-line text, build via `+` concatenation with `\n` escapes, or factor the text into a query.
+
+**Number literals.** Decimal only: `42`, `3.14`, `1e10`, `1.5e-3`, `0`, `0.5`. The literal carries no sign — negation is the unary `-` operator applied at parse time. No hex / octal / binary forms and no underscore separators in V1. A literal with no fractional or exponent part has type `integer`; otherwise `number`. `integer` widens implicitly to `number` in arithmetic and assignment positions; the reverse is a parse error.
 
 ### Type System
 
@@ -151,6 +170,8 @@ enum ErrorCode {
 ```
 
 Variants are comma-separated; trailing comma optional. `enum` is **top-level only** — there is no inline `enum["a", "b"]` form. For inline enumerations use literal-union: `severity: "low" | "medium" | "high"`. V1 enums carry **string values only** (no numeric or boolean variant values, no payload-carrying variants); for richer variants use the `schema X = A | B` form with object schemas.
+
+**Variant access.** A specific variant is referenced as `Enum.Variant` (e.g., `Severity.High`). The expression evaluates to the variant's underlying string value (the explicit RHS, or the variant name verbatim when no RHS is given) but is statically typed as `Enum`. `Enum.Variant` is the recommended form whenever the value is named in code — type-aware and refactor-safe — over comparing against the bare string literal. Unknown-variant references (`Severity.Critical` when no such variant exists) are a parse error.
 
 **When to use which.** Reach for `enum X { ... }` when the values are a closed conceptual set referenced by name from multiple places **and** you want descriptions per variant. Reach for literal-union (`"low" | "medium" | "high"`) when the values are inline, ad hoc, or you don't want a separate top-level declaration. Both lower to `{"enum": [...]}` — the choice is purely about the surface ergonomics.
 
@@ -227,6 +248,8 @@ schema QueryError = ValidationError
                   | ToolFailureError
                   | ContextOverflowError
                   | CancelledError
+                  | InvokeFailure
+                  | InvokeCalleeError
 ```
 
 Rules:
@@ -301,7 +324,7 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
     ```
 - `model` and `tools` follow the same shape as Pi subagent frontmatter and apply to **every** query in the loom — a single loom file shares one model and one tool set across all of its turns.
   - **`model`**: if frontmatter omits `model`, the loom inherits Pi's session default at invocation time. Once chosen, the model is fixed for the loom's lifetime; it does not re-resolve per query.
-  - **`tools`**: if frontmatter omits `tools`, the loom runs with an **empty tool set** (the model cannot make tool calls). The Pi session's ambient tools are deliberately *not* inherited — tools have side effects, and silent inheritance produces "why did my loom touch the filesystem?" surprises. To opt into a tool, list it explicitly. `tools: []` and an absent `tools:` field are equivalent.
+  - **`tools`**: if frontmatter omits `tools`, the loom runs with an **empty tool set** (the model cannot make tool calls). The Pi session's ambient tools are deliberately *not* inherited — tools have side effects, and silent inheritance produces "why did my loom touch the filesystem?" surprises. To opt into a tool, list it explicitly. `tools: []` and an absent `tools:` field are equivalent. Tool names listed in `tools:` resolve against Pi's tool registry at loom-load time, exactly as for Pi subagents; unknown names surface as a Pi-compatible diagnostic that prevents the loom from being registered.
   - Per-query overrides and a project → loom → query cascade are deferred (see [Future Considerations](#future-considerations)).
 - `system` declares the conversation's system prompt. **Subagent-mode only** — `system:` in a `mode: prompt` loom is a parse error, since prompt-mode looms attach to the user's existing Pi session whose system prompt belongs to Pi, not to the loom. In subagent mode, the field is fixed once when the spawned conversation is created and applies to every query the loom issues against it. If omitted, the spawned conversation has no system prompt (the model behaves under its training defaults).
   - **Interpolation.** The `system:` field supports `${param}` and `${param.field}` interpolation against the loom's typed `params`. The full Loom expression sublanguage is **not** available in this slot — only bare identifier paths — because the system prompt is evaluated once at conversation-creation time, before any loom code runs, and the simpler rule is unambiguous and easy to debug. For richer logic, omit `system:` and accept the reduced control-flow surface, or wait for per-query system overrides (deferred).
@@ -524,7 +547,11 @@ schema QueryError = ValidationError
                   | ToolFailureError
                   | ContextOverflowError
                   | CancelledError
+                  | InvokeFailure
+                  | InvokeCalleeError
 ```
+
+(`InvokeFailure` and `InvokeCalleeError` are defined in [Invocation](#invocation); they are listed here only to complete the union.)
 
 Design notes:
 
@@ -557,6 +584,10 @@ Loom expressions are a bounded subset of TypeScript. The same grammar applies wh
 - Ternary: `cond ? a : b`
 - Parenthesised: `(expr)`
 - Query templates (back-tick prefixed by `@`): the literal form of the [Query](#query) expression; `${...}` inside them takes any expression listed above
+- Array literals: `[]`, `[a, b, c]`
+- Schema constructors: `Schema { field: expr, ... }` (see [Object construction](#object-construction-array-construction-and-operator-rules) below)
+- Enum variant access: `Enum.Variant`
+- `Result` constructors: `Ok(expr)`, `Err(expr)`
 
 **Not supported (parse error):**
 
@@ -584,6 +615,18 @@ Loom expressions are a bounded subset of TypeScript. The same grammar applies wh
 - `object`: `keys()`, `values()`, `has(k)`
 
 Additional methods may be added non-breakingly later. Anything not on this list is a parse-time "unknown method" error rather than a runtime failure.
+
+#### Object construction, array construction, and operator rules
+
+**Object construction.** Schema-typed values are constructed with `Schema { field: expr, ... }`. Every declared field of the schema must be present; extra fields are a parse error; field order is irrelevant. Bare object literals (`{ field: expr }` with no leading schema name) are not legal in expression position — every constructed object must name its schema, so the type is unambiguous from the syntax alone. The frontmatter `params:` defaults are the one exception: there the param's declared type supplies the schema name, so the literal is bare (and is parsed as JSON-shaped, not as a Loom expression).
+
+For a discriminated union `schema Animal = Cat | Dog | Lizard`, construct via the variant schema name (`Cat { ... }`), not the union name. The constructed value is statically typed as the variant; assignment to an `Animal`-typed slot widens it.
+
+**Array construction.** `[]` is the empty array; its element type is inferred from context (binding annotation, parameter type, or surrounding constructor field). `[a, b, c]` is non-empty; its element type is the common type of its elements, narrowed by context if applicable. An array whose elements have no common type and no context to narrow against is a parse error.
+
+**`+` operator.** On two `number` (or `integer`) operands, addition; the result widens to `number` if either operand is `number`. On two `string` operands, concatenation. Mixed-type operands are a parse error — write an explicit conversion or interpolate inside a string. `+` on `array<T>` is not supported; use `arr.concat(other)`.
+
+**Other arithmetic.** `-`, `*`, `/`, `%` accept only numeric operands. `/` always produces `number` (no integer-division operator in V1). `%` requires same-typed operands and preserves the type. Division by zero produces IEEE-754 `Infinity` / `-Infinity` / `NaN` per JS semantics; it does not panic.
 
 ### Bindings and Mutability
 
@@ -632,7 +675,7 @@ if author.experience_years < 2 {
 }
 ```
 
-**`for` ... `in`** — iterates an array, binding the iteration variable as a fresh immutable local per iteration:
+**`for` ... `in`** — iterates an array, binding the iteration variable as a fresh immutable local per iteration. The expression after `in` must have type `array<T>` for some `T`; iterating strings, objects, or numbers is a parse error (use `obj.keys()` for objects, `s.split(...)` for strings).
 
 ```loom
 for area in focus_areas {
@@ -705,7 +748,7 @@ Guards (`Ok(x) if x.value > 3 => ...`) and rest patterns (`[first, ...rest]`, `{
 
 **Exhaustiveness.** Not statically checked in V1. The analyser cannot enumerate the runtime values of `QueryError.kind` from the type system, so static exhaustiveness would be unsound. A `match` whose arms collectively fail to cover the scrutinee at runtime raises a `MatchError`. Authors who want a catch-all should add a final `_ => ...` arm.
 
-**Arm syntax.** `pattern => expression`, comma-separated. The trailing comma after the last arm is optional.
+**Arm syntax.** `pattern => expression`, comma-separated. The trailing comma after the last arm is optional. All arms must produce values of the same type (or assignable to a common type, by the same rules as `let` initialisation); a mismatched-arm `match` is a parse error.
 
 **`?` operator** — unwraps `Ok` to the inner value; on `Err`, *early-returns* the `Err` from the enclosing function (or top-level loom block). The enclosing scope's return type must therefore be `Result<_, QueryError>` (or convertible). Concretely:
 
@@ -725,6 +768,19 @@ let critique = match @`Critique this code:\n${code}` {
 A function or loom that uses `?` thus implicitly returns `Result<T, QueryError>` where `T` is the type of its last expression. A function that uses neither `?` nor an explicit `Result` return type is required to handle every query failure with `match` (or to discard with the silent-drop semantics described in [Query](#query)).
 
 **`Result` as a user-visible type.** `Result<T, E>` is a built-in two-variant type with constructors `Ok(value)` and `Err(error)`. Looms may declare functions returning `Result<T, QueryError>` explicitly, and may construct `Ok` / `Err` directly to bridge to PI-side error handling. User-defined error types beyond `QueryError` are out of scope for V1.
+
+**Runtime panics.** Some failures cannot be expressed as a `Result` and are surfaced as **panics** that abort the loom immediately, bypassing `?` and `match`. V1 panic sources:
+
+- Non-exhaustive `match` (no arm matched the scrutinee at runtime; the implementation refers to this as `MatchError`).
+- Array index out of bounds (`arr[i]` with `i < 0` or `i >= arr.length`).
+- Indexed access on `null` or on a missing object key.
+
+Panics surface to the loom's caller as:
+
+- **Slash-command / prompt-mode invocation** — a Pi system note formatted as "loom `/<name>` aborted: `<message>`". The user's session is not torn down; the user can type a follow-up turn.
+- **`invoke` parent** — `Err(QueryError { kind: "invoke_failure", reason: "panic", ... })` (see [Invocation](#invocation)), observable to the parent's `match` / `?` handling.
+
+Panics are not values — they do not flow through `?` and cannot be caught by `match`. Authors who need recoverable behaviour must write code that cannot panic (bounds-check before indexing, add a final `_ => ...` arm to `match`).
 
 ### Return Statement
 
@@ -769,6 +825,10 @@ A function whose body uses `?` must declare a `Result<_, QueryError>` return typ
 
 A function call participates in the loom's *current* conversation; it does not open a new one. To open a new isolated conversation, invoke another loom in subagent mode (see [Invocation](#invocation)).
 
+**Placement.** `fn` declarations are top-level only — both in `.loom` files and in `.warp` library files. Nested function definitions, closures, and first-class function values are not part of V1; function names appear only in call position, never as values bound to `let` or passed as arguments. Mutual recursion between two top-level `fn`s is allowed (declarations are hoisted within the file); recursion through `invoke` is bounded by the parse-time cycle check from [Invocation](#invocation).
+
+**Loom return type.** A `.loom` file's overall return type is inferred from its body using the same rule as a function: the type of its tail expression, wrapped in `Result<T, QueryError>` if any `?` appears in the body. There is no frontmatter `returns:` field. Cross-loom static type checking at `invoke<Schema>` sites uses the callee's inferred return type when the callee's source is statically resolvable; otherwise the runtime AJV check is the safety net.
+
 ### Invocation
 
 A loom may invoke another loom via the built-in `invoke` expression. This is the only way for a `.loom` to spawn or attach to another `.loom`'s execution; `import` is reserved for `.warp` library code.
@@ -780,7 +840,7 @@ let _ = invoke("./logger.loom", note)?
 
 **Resolution.** `path` is a string literal, resolved at parse time relative to the calling loom's directory. It must end in `.loom`. Dynamic dispatch (a runtime-computed path) is not supported in V1.
 
-**Typed return.** `invoke<Schema>(...)` annotates the expected return type; the runtime AJV-validates the child's return value against the schema. Untyped `invoke(...)` returns `Result<unknown, InvokeError>` and the value must be discarded (`let _ = ...`) or matched.
+**Typed return.** `invoke<Schema>(...)` annotates the expected return type; the runtime AJV-validates the child's return value against the schema. Untyped `invoke(...)` returns `Result<null, QueryError>` — the runtime discards the child's return value entirely. Use `invoke<Schema>` whenever the caller needs the value back; the untyped form exists only for fire-and-forget orchestration (loggers, side-effect-only children).
 
 **Argument binding.** Arguments bind to the callee's `params:` according to the callee's `args:` style (`typed` or `prompt`), exactly as if the loom had been invoked from a slash command. Type mismatches surface as parse errors when the callee's frontmatter is statically resolvable; the parser type-checks across the invocation boundary.
 
@@ -795,14 +855,29 @@ let _ = invoke("./logger.loom", note)?
 
 **Tools and model.** The child uses *its own* frontmatter `model`, `tools`, and `system`. The caller's settings are not inherited. Same justification as for queries: tool/model/system inheritance produces surprise.
 
-**Failures.** `invoke` returns `Result<T, InvokeError>` where `InvokeError` discriminates by `kind`:
+**Failures.** `invoke` returns `Result<T, QueryError>`. Invoke-specific failures surface via two new `QueryError` variants in addition to the query-time variants from [Query](#query):
 
-- `load_failure` — the callee file could not be read.
-- `parse_failure` — the callee file failed to parse.
-- `callee_error` — the callee returned `Err(_)`. The original error is wrapped in an `inner` field.
-- `validation` — typed `invoke<Schema>` only; the child's return value failed AJV validation.
-- `timeout` — the callee exceeded its time budget (TBD how this is configured).
-- `cancelled` — the callee (or caller) was cancelled mid-invoke.
+```loom
+schema InvokeFailure {
+  kind: "invoke_failure",
+  message: string,
+  callee_path: string,
+  reason: "load_failure"     // callee file unreadable
+        | "parse_failure"    // callee file failed to parse
+        | "validation"       // typed invoke: child's return value failed AJV validation
+        | "cancelled"        // callee (or caller) cancelled mid-invoke
+        | "panic"            // callee aborted via runtime panic (see Errors and Results)
+}
+
+schema InvokeCalleeError {
+  kind: "invoke_callee_error",
+  message: string,
+  callee_path: string,
+  inner: QueryError                          // the original Err the callee returned
+}
+```
+
+Folding invoke errors into `QueryError` keeps the loom's error type uniform: a function or loom that mixes `?` on queries and `?` on invokes still has a single `Result<_, QueryError>` return type and a single `match` shape to handle. `InvokeCalleeError.inner` is recursive — `QueryError` referencing itself via `$ref` is exactly the discriminated-union pattern from [Schema Declarations](#schema-declarations), applied to Loom's own runtime type. V1 has no configurable per-invoke timeout; cancellation is the only externally driven termination.
 
 **Cycle detection.** Invocation cycles are detected at parse time by walking statically resolvable `invoke` paths. If `A.loom` invokes `B.loom` invokes `A.loom`, the second discovery is a parse error ("invocation cycle: A → B → A"). Recursion through subagent-mode looms is allowed where each invocation spawns a fresh sibling conversation; recursion through prompt-mode looms is allowed but must terminate via control flow, just like ordinary function recursion.
 
@@ -819,6 +894,7 @@ import { Author, persona_block } from "./shared/personas.warp"
 - Top-level may contain only `import`, `export`, `schema`, and `fn` declarations. No top-level statements, `let` bindings, or queries (parse error).
 - Inside `fn` bodies, the full Loom language is available, including `@`...`` queries. A query inside an imported function executes against the *calling* `.loom`'s conversation when the function is invoked.
 - Never slash-command-discovered. A `.warp` file is invisible to the `/<name>` autocomplete; it is only ever reached via `import`.
+- May call `invoke(...)`. The path resolves relative to the `.warp` file's location; the invocation executes against the *calling* `.loom`'s conversation (or spawns a fresh isolated one if the callee is subagent-mode), exactly like a `@`...`` query inside a warp function. Cycle detection from [Invocation](#invocation) walks invoke paths originating from warp functions too.
 
 **Path resolution.** V1 supports relative paths only: `"./shared/personas.warp"`, `"../lib/schemas.warp"`. Paths must end in `.warp` and resolve relative to the importing file's directory. Project-rooted (`/looms/...`) and package-style (`@scope/pkg`) imports are out of scope for V1; they may be added later when looms-as-packages becomes a real use case.
 
@@ -866,6 +942,8 @@ Loom files are discovered from the same locations as Pi prompt templates, just w
 - Settings: `looms` array with files or directories
 
 Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-template behaviour. `.warp` library files are never discovered as slash commands regardless of where they live; they are reached only via `import`.
+
+**Slash-name collisions.** A loom and a Pi prompt template that resolve to the same slash command (e.g., `code-review.loom` and `code-review.md` discovered from the same or comparable locations) are a load-time error reported through Pi's diagnostics; neither is registered. Authors must rename one. Cross-format slash-name shadowing is not supported in V1; the rule is symmetric across `.loom`, `.md` prompts, and `.md` subagents.
 
 ```
 project/
