@@ -109,7 +109,7 @@ Format rules:
 - Array values shown as `[a, b, c]`, truncated to `[a, b, c, …+N more]` past three elements.
 - Object values shown as `{first-field-value, …}` — just the first field's value as a hint.
 - Defaulted fields tagged `(default)`: `focus_areas=[] (default)`.
-- Total line capped at ~120 characters; overflow truncated with `…`.
+- Total line capped at 120 UTF-16 code units (matching JavaScript `String.prototype.length`), measured over the whole line including the `Running \`/<name>\`: ` prefix; overflow truncated with `…`. The line-level cap wins over the array rule's own `…+N more` marker — if truncation falls inside an array, the inner `…+N more` may be cut.
 
 Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is `loom/parse/bind-echo-on-bypass` (warning).
 

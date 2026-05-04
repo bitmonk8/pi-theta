@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_57 findings retained, 1 false positives dropped, 0 persistent failures_
+_56 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -3193,55 +3193,6 @@ Edge cases for the implementer:
 - "Binder echo formatting micro-rules over-prescribed and misplaced" — same-cluster (also placement / non-normative-vs-normative confusion in `binder.md`; resolve in the same editing pass)
 - "Binder envelope schema violates schema-subset rules without declaring an exception" — same-cluster (different defect in `binder.md` but touched by the same editorial pass; independent fix)
 - "Binder model resolution unspecified when no model is configured" — same-cluster (another binder-spec gap; independent fix)
-
----
-
-# Binder echo line: untestable threshold and over-specified rendering details
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Binder echo formatting micro-rules over-prescribed and misplaced
-**Kind:** placement, prescription, testability
-
-## Finding
-
-`spec_topics/binder.md` § "Echo policy" lists six format rules for the one-line system note emitted before a slash-invoked loom starts (declaration order, quoting policy, array truncation past three elements, object first-field hint, `(default)` tag, total line cap). The last rule — "Total line capped at ~120 characters; overflow truncated with `…`" — uses a tilde, which makes the bound non-normative as written: an implementation that caps at 100 or 140 characters is neither conforming nor non-conforming. The corresponding plan leaf (V16i) commits to "Each formatting rule against spec's exact examples", so the test contract presumes exactness the spec text refuses to grant.
-
-The rules also sit inside the binder's behavioral contract (alongside envelope shapes, defaulting, determinism, failure modes), even though they describe a presentation-layer detail of one optional channel. They render fine where they are, but they raise the surface area of "things a binder implementer must conform to byte-for-byte" without separating the protocol-level rules (envelope, defaulting) from the cosmetic-output rules (echo line shape).
-
-## Spec Documents
-
-- `spec_topics/binder.md` — § Echo policy / Format rules (edited)
-
-## Plan Impact
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16i — `bind_echo` formatter — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-Two implementers reading "capped at ~120 characters" can ship 100-char and 140-char caps and both claim conformance; the V16i test "Each formatting rule against spec's exact examples" cannot be written without first picking a number. No data corruption, no protocol divergence — just an inconsistent UX across implementations and a plan leaf that cannot be discharged from the spec alone.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace `~120` with `120` in the cap rule. Leave the rest of the format rules in place, in their current section. The rules are short, the implementation effort is bounded, and the V16i acceptance test ("each formatting rule against spec's exact examples") already depends on them being exact; loosening them to a high-level contract ("bounded length, all top-level params, defaulted marker") would defer the same numeric decisions into implementation notes without removing them.
-
-Edge cases for the V16i implementer:
-- "120 characters" should be specified as a count of UTF-16 code units (matches JavaScript `.length`), or the spec should say grapheme clusters / code points — pick one and add a half-sentence. The current text is silent.
-- The cap applies to the rendered line *after* the prefix `Running \`/<name>\`: `, or to the whole line including prefix? Worth a one-line clarification while editing this paragraph.
-- Truncation with `…` interacts with the array rule's own `…+N more`: if the line is already truncated mid-array, the inner `…+N more` may be cut. Acceptable, but state explicitly that the line-level cap wins.
-
-## Related Findings
-
-- "Non-normative content mixed into binder spec" — same-cluster (both touch placement/normativity in `binder.md`; resolve independently)
 
 ---
 
