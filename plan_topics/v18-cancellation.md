@@ -26,9 +26,9 @@
 
 ## V18d — `AbortSignal` before every `invoke`
 
-- **Spec.** [Cancellation](../spec_topics/cancellation.md).
+- **Spec.** [Cancellation](../spec_topics/cancellation.md), [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md).
 - **Adds.** Pre-invoke check; child inherits derived signal from caller.
-- **Tests.** Pre-flight abort: child never spawned; mid-flight abort: `Err({kind:"cancelled"})` or `InvokeCalleeError{inner:cancelled}` per origin.
+- **Tests.** Pre-flight abort: child never spawned; mid-flight abort: `Err({kind:"cancelled"})` or `InvokeCalleeError{inner:cancelled}` per origin; for subagent-mode children, cancellation observed before the first turn still triggers `AgentSession.dispose()` via the `finally` block (cross-checked with V12a's disposal-on-spawn-then-immediate-cancel test).
 - **Deps.** V15a.
 - **Ships when.** Invokes cancellable.
 
@@ -106,10 +106,10 @@
 
 ## V18n — Panic routing: `invoke` parent surface
 
-- **Spec.** [Errors and Results](../spec_topics/errors-and-results.md) (panic routing), [Invocation](../spec_topics/invocation.md).
-- **Adds.** Panic in invoked child surfaces to parent as `Err({kind:"invoke_failure", reason:"panic", ...})`.
-- **Tests.** Each panic source in child becomes parent-side `Err` with `reason:"panic"`.
-- **Deps.** V15l, V18k, V18l, V7i.
+- **Spec.** [Errors and Results](../spec_topics/errors-and-results.md) (panic routing), [Invocation](../spec_topics/invocation.md), [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md).
+- **Adds.** Panic in invoked child surfaces to parent as `Err({kind:"invoke_failure", reason:"panic", ...})`. For subagent-mode children, the panic still triggers `AgentSession.dispose()` via the `finally` block, and the parent observes the `Err` only after disposal has run.
+- **Tests.** Each panic source in child becomes parent-side `Err` with `reason:"panic"`; for subagent-mode children, `AgentSession.dispose()` is invoked exactly once before the parent observes the `Err` (cross-checked with V12a's disposal-on-panic test).
+- **Deps.** V15l, V18k, V18l, V7i, V12a.
 - **Ships when.** `invoke` panic semantics complete.
 
 ## V18o — Per-call timeout marker

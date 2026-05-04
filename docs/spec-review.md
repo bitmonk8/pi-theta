@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_45 findings retained, 1 false positives dropped, 0 persistent failures_
+_44 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1497,88 +1497,6 @@ Take **Option A**. The subagent half is what the SDK's `customTools` field exist
 - "`tools` vs `customTools` in `createAgentSession`" — decision-dependency (Option A's subagent leg requires the corrected `customTools` shape that finding mandates; resolving that finding is a prerequisite)
 - "Tool registry change mid-loom; concurrent model-driven tool execution" — same-cluster (touches snapshot-at-load-vs-per-call semantics for the Pi tool registry; same surface, independent fix)
 - "`tools: []` ≡ absent `tools:`" is enforced by leaf V14j, which the chosen design must not regress — same-cluster (tracked via the Plan Impact list above, not a separate finding)
-
----
-
-# Subagent `AgentSession` disposal on failure paths is unspecified
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Subagent session resource teardown on failure unspecified
-**Kind:** error-model, completeness
-
-## Finding
-
-The Pi Integration Contract's "Conversation drive — subagent mode" paragraph specifies that the runtime spawns a fresh in-process `AgentSession` via `createAgentSession({ ... sessionManager: SessionManager.inMemory(), ... })` for every subagent-mode invocation, and that "the session is in-memory only — the spec mandates the transcript stays private to the loom and is discarded when the loom returns." This describes only the happy-path lifecycle: a successful return.
-
-Pi's `AgentSession` exposes a `dispose(): void` method whose contract is "Remove all listeners and disconnect from agent. Call this when completely done with the session." A spawned session holds live references the runtime cares about — agent event subscribers (including the `agent_end` listener the contract relies on for query completion), retained provider connections, the in-memory `SessionManager`, scheduled retry/compaction timers, and any tool-call infrastructure. None of these are released until `dispose()` is called.
-
-The spec is silent on every non-return exit path:
-
-- A query inside the subagent throws a transport error or context-overflow.
-- The subagent's own code panics (`MatchError`, index out of bounds, null access — see [errors-and-results.md](../../spec_topics/errors-and-results.md)), which surfaces to the parent as `Err(QueryError { kind: "invoke_failure", reason: "panic", ... })` per [invocation.md](../../spec_topics/invocation.md).
-- The parent's `AbortSignal` fires while the subagent is mid-turn ([cancellation.md](../../spec_topics/cancellation.md)), or the subagent's own derived signal fires.
-- A registered tool inside the subagent throws an exception the runtime did not anticipate.
-- The interpreter itself throws (a runtime bug — schema lowering produces an unhandled shape, AJV crashes, etc.).
-
-Because nothing in the contract names a teardown owner, two reasonable implementers will write divergent code: one wraps every subagent invocation in `try { ... } finally { session.dispose() }`, the other places `dispose()` only on the success path and leaks listeners on every cancelled or failed loom. The latter accumulates dangling `agent_end` listeners on Pi's global event bus across the user's session — exactly the cross-session interference symptom the sibling finding "`agent_end` fires globally, not per-session" warns about, but now compounded across every failed run.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — "Conversation drive — subagent mode" paragraph (edited)
-- `spec_topics/cancellation.md` — propagation rules (read-only; cancellation is one of the failure paths that must trigger disposal)
-- `spec_topics/invocation.md` — `InvokeFailure` / `InvokeCalleeError` variants (read-only; defines the failure surface that must coincide with disposal)
-- `spec_topics/errors-and-results.md` — panic surfaces (read-only; panic in subagent must still dispose)
-
-## Plan Impact
-
-**Phases:** Vertical V12, Vertical V18
-
-**Leaves (implementation order):**
-
-- V12a — `mode: subagent` accepted; AgentSession spawn — (modified)
-- V18d — `AbortSignal` before every `invoke` — (modified)
-- V18n — Panic routing: `invoke` parent surface — (modified)
-
-V12a's current Tests/Ships line covers only "session disposed on return"; it must extend to disposal on every exit path (panic, query failure, cancellation, runtime exception). V18d and V18n are the cancellation-and-panic invoke failure paths, and their acceptance must observe the disposal contract too.
-
-## Consequence
-
-**Severity:** correctness
-
-A leaky implementation accumulates `agent_end` listeners on Pi's shared event bus for every failed subagent invocation, plus retained provider connections and in-memory `SessionManager`s that the GC cannot collect while listeners hold them. In a long-running interactive Pi session that exercises subagent looms, this manifests as growing memory usage and — worse — stale listeners that fire on later, unrelated sessions and corrupt query completion state. Because the failure mode is silent and load-dependent, two implementers will ship code that disagrees on whether disposal happens, and the divergence will only surface in production telemetry.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Append a "Subagent session lifecycle" paragraph to the "Conversation drive — subagent mode" section of [pi-integration-contract.md](../../spec_topics/pi-integration-contract.md) stating:
-
-> The runtime owns the spawned `AgentSession` for exactly the duration of one subagent-mode loom invocation. Disposal is mandatory and runs in a `finally` block that wraps the entire interpreter execution against that session, so it fires on:
->
-> - normal return (the loom's tail expression resolves);
-> - any `Err` returned to the parent (query failure, tool failure, child invoke failure, validation failure, cancellation);
-> - any panic raised inside the subagent (`MatchError`, index out of bounds, null access);
-> - any unexpected exception thrown by the interpreter or the Pi SDK.
->
-> Disposal calls `AgentSession.dispose()`, which removes all event listeners (including the `agent_end` listener the runtime attached for query completion) and disconnects from the underlying agent. `dispose()` is invoked at most once per session and treated as idempotent at the call site: a second call (e.g. defensive cleanup in an outer scope) is a no-op. If `dispose()` itself throws, the runtime logs the disposal error via the `loom/runtime/subagent-dispose-failure` diagnostic but does not mask the original error that triggered teardown — the parent still observes the original `Err` or panic.
->
-> The same lifetime rule applies to any tool registration the runtime installed for this invocation (including the typed-query one-shot `__loom_respond_<hash>` tool and any per-call loom-callee tools); their unregister calls run in the same `finally` block, before `dispose()`.
-
-Edge cases for the implementer:
-
-- The `finally` block must run even when the parent's `AbortSignal` fires before the subagent's first turn — i.e. spawn-then-immediate-cancel still requires disposal.
-- For nested subagent invocations (a subagent that itself invokes a subagent-mode child), each level owns its own session and runs its own `finally`. Disposal order is deepest-first, naturally produced by the call stack's `finally` unwinding.
-- Disposal must precede the parent observing the result — the parent's `match`/`?` arm runs after the child's session is gone, so the child's listeners cannot leak into work the parent does next.
-
-## Related Findings
-
-- "`agent_end` fires globally, not per-session" — same-cluster (per-session listener attachment is the cleanup target that disposal must release; both findings touch listener lifecycle but resolve independently)
-- "`tools:` registration scope: global vs per-loom" — decision-dependency (whichever scope is chosen for `pi.registerTool` calls, the same `finally` block must unregister them; the disposal contract must name them)
-- "No `pi.unregisterTool()` API — one-shot tools accumulate" — co-resolve (the one-shot `__loom_respond_<hash>` tool is part of the same lifecycle; if no unregister API exists, disposal cannot be complete and the contract must say so)
-- "Cancellation checkpoints miss binder, AJV validation, and schema-lowering" — same-cluster (both touch cancellation correctness; the disposal `finally` runs regardless of where the abort was observed, so this finding doesn't depend on the checkpoint set being expanded)
-- "`pi.sendMessage` failure has no fallback" — same-cluster (both improve failure-path robustness in the Pi integration; resolve independently)
 
 ---
 

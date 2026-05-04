@@ -25,6 +25,23 @@ The runtime depends on a small, named surface from `@mariozechner/pi-coding-agen
 
 **Conversation drive — subagent mode.** The loom interpreter spawns a fresh in-process `AgentSession` via `createAgentSession({ tools, model, sessionManager: SessionManager.inMemory(), resourceLoader, ... })`. The session inherits the loom's `system:` prompt (from frontmatter, with `${param}` interpolation resolved at conversation-creation time), the loom's `tools:` set (lowered to Pi tool definitions; registered loom callees are themselves wrapped via `defineTool`), and the loom's `model`. Queries against the spawned session use the same `prompt(text)` + `agent_end` listener pattern as prompt mode; typed queries against the spawned session honour the same behavioural contract as prompt-mode typed queries above and use the same mechanism described in [Implementation Notes — Runtime](./implementation-notes.md#runtime). The session is in-memory only — the spec mandates the transcript stays private to the loom and is discarded when the loom returns. Each subagent-mode invocation gets its own `AgentSession`, its own captured `tools:` table (the load-time resolution snapshot from [Parameters and Frontmatter](./frontmatter.md)), and its own derived `AbortSignal`; sibling invocations triggered by parallel tool calls do not share mutable session state.
 
+**Subagent session lifecycle.** The runtime owns the spawned `AgentSession` for exactly the duration of one subagent-mode loom invocation. Disposal is mandatory and runs in a `finally` block that wraps the entire interpreter execution against that session, so it fires on:
+
+- normal return (the loom's tail expression resolves);
+- any `Err` returned to the parent (query failure, tool failure, child invoke failure, validation failure, cancellation);
+- any panic raised inside the subagent (`MatchError`, index out of bounds, null access — see [Errors and Results](./errors-and-results.md));
+- any unexpected exception thrown by the interpreter or the Pi SDK.
+
+Disposal calls `AgentSession.dispose()`, which removes all event listeners (including the `agent_end` listener the runtime attached for query completion) and disconnects from the underlying agent. `dispose()` is invoked at most once per session and treated as idempotent at the call site: a second call (e.g. defensive cleanup in an outer scope) is a no-op. If `dispose()` itself throws, the runtime logs the disposal error via the `loom/runtime/subagent-dispose-failure` diagnostic (see [Diagnostics](./diagnostics.md)) but does not mask the original error that triggered teardown — the parent still observes the original `Err` or panic.
+
+The same lifetime rule applies to any tool registration the runtime installed for this invocation (including the typed-query one-shot `__loom_respond_<hash>` tool and any per-call loom-callee tools); their unregister calls run in the same `finally` block, before `dispose()`.
+
+Edge cases:
+
+- The `finally` block must run even when the parent's `AbortSignal` (see [Cancellation](./cancellation.md)) fires before the subagent's first turn — i.e. spawn-then-immediate-cancel still requires disposal.
+- For nested subagent invocations (a subagent that itself invokes a subagent-mode child), each level owns its own session and runs its own `finally`. Disposal order is deepest-first, naturally produced by the call stack's `finally` unwinding.
+- Disposal must precede the parent observing the result — the parent's `match`/`?` arm runs after the child's session is gone, so the child's listeners cannot leak into work the parent does next.
+
 **User-visible streaming — subagent mode.** No assistant tokens, tool-call cards, or system notes from a subagent's queries surface to any ancestor transcript. The subagent's `AgentSession` uses an in-memory `SessionManager`; nothing it produces flows to Pi's user-facing UI. This is the deliberate counterpart to prompt-mode streaming: subagent queries are unobservable to the human operator by construction, and the only artefact that crosses back into the parent context is the loom's return value (or an `InvokeCalleeError` / `InvokeFailure`, per [Invocation](./invocation.md)).
 
 **System notes.** Echoes (binder result), `Err`-in-prompt-mode notes, and binder failure messages are emitted via `pi.sendMessage({ customType: "loom-system-note", content, display: true, details: { ... } }, { triggerTurn: false })`. A `pi.registerMessageRenderer("loom-system-note", ...)` formats them as one-line, dim-styled notes in the transcript. The custom-type approach (rather than `ctx.ui.notify(...)`) is chosen because notes need to persist in the session transcript for replay and `/tree` navigation, not just appear transiently.
