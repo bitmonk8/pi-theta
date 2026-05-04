@@ -51,7 +51,7 @@ let score = match @<ReviewScore>`Rate the critique 1-5: ${critique}` {
 }
 ```
 
-The explicit form also wins over inference: if both a binding annotation and an explicit `<Schema>` are present, the explicit one is used (with a parse warning if they disagree).
+The explicit form also wins over inference: if both a binding annotation and an explicit `<Schema>` are present, the explicit one is used (with `loom/parse/explicit-schema-mismatch` warning if they disagree).
 
 **Multi-line templates.** Backtick templates span as many lines as needed; there is no separate heredoc form. Loom applies two normalisations to the rendered text:
 
@@ -78,9 +78,9 @@ Dedent and newline-trim apply uniformly to every `@`...`` template regardless of
 - `\\`    — literal backslash
 - `\n`, `\t`, `\r` — standard string escapes (rarely needed; literal newlines in the template body work directly)
 
-No other escapes are recognised; a backslash followed by any other character is a parse error. Curly braces `{` and `}` need no escape — they are ordinary text content. Only the sequence `${` (and the `}` that closes a corresponding `${...}`) has special meaning.
+No other escapes are recognised; a backslash followed by any other character is `loom/parse/illegal-template-escape`. EOF inside an unterminated template body surfaces as `loom/parse/unterminated-template`. Curly braces `{` and `}` need no escape — they are ordinary text content. Only the sequence `${` (and the `}` that closes a corresponding `${...}`) has special meaning.
 
-**Discarded query results are a parse error.** The author must pick one of:
+**Discarded query results are a parse error (`loom/parse/discarded-query-result`).** The author must pick one of:
 
 ```loom
 @`Summarise the discussion above.`?      // propagate failure via early-return

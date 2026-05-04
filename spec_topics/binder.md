@@ -11,7 +11,7 @@ The binder is positioned as runtime infrastructure, not as part of the loom's co
 - `none` — the binder sees only the slash text and the loom's frontmatter. Predictable, cheap, deterministic. The right choice when arguments are self-contained (`/code-review TypeScript focusing on error handling, by Ada Lovelace, senior engineer 12y`).
 - `session` — prompt-mode-only; the binder additionally receives the last ~20 turns or ~8000 tokens (whichever is smaller) of the caller's session as grounding context. The right choice when the loom relies on conversational anaphora (`/review the spec` resolves "the spec" against what the user was just discussing).
 
-Declaring `bind_context: session` on a subagent-mode loom is a parse warning, not an error — subagent-mode looms invoked from a slash command have no caller-session context to attach.
+Declaring `bind_context: session` on a subagent-mode loom is `loom/parse/bind-context-session-on-subagent` (warning, not error) — subagent-mode looms invoked from a slash command have no caller-session context to attach.
 
 **Binder bypass.** When `params:` declares exactly one field, that field's type is `string`, and the field has no default, the runtime sets the param's value to the entire slash-argument string (with leading and trailing whitespace trimmed) and skips the binder call entirely. AJV validation still runs as a safety net (a string passes by definition; this is just the standard validation path). All other shapes — multiple fields, non-string types, defaults present, optional or nullable types — go through the binder. The bypass decision is made at loom-load time from the static schema; there is no per-invocation branching.
 
@@ -106,7 +106,7 @@ Format rules:
 - Defaulted fields tagged `(default)`: `focus_areas=[] (default)`.
 - Total line capped at ~120 characters; overflow truncated with `…`.
 
-Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is a parse warning.
+Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is `loom/parse/bind-echo-on-bypass` (warning).
 
 The echo channel is also used for the binder's `needs_info` and `ambiguous` outputs, which *replace* execution rather than precede it:
 

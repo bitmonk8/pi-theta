@@ -10,7 +10,7 @@ if author.experience_years < 2 {
 }
 ```
 
-**`for` ... `in`** — iterates an array, binding the iteration variable as a fresh immutable local per iteration. The expression after `in` must have type `array<T>` for some `T`; iterating strings, objects, or numbers is a parse error (use `obj.keys()` for objects, `s.split(...)` for strings).
+**`for` ... `in`** — iterates an array, binding the iteration variable as a fresh immutable local per iteration. The expression after `in` must have type `array<T>` for some `T`; iterating strings, objects, or numbers is `loom/parse/non-array-iterand` (use `obj.keys()` for objects, `s.split(...)` for strings).
 
 ```loom
 for area in focus_areas {
@@ -38,7 +38,7 @@ while !satisfied && round < 5 {
 }
 ```
 
-**`break` / `continue`** — bare statements; legal only inside `for` / `while` bodies. `break` exits the innermost enclosing loop; `continue` skips to the next iteration. Neither carries a value in V1. See [Future Considerations](./future-considerations.md).
+**`break` / `continue`** — bare statements; legal only inside `for` / `while` bodies. `break` outside a loop is `loom/parse/break-outside-loop`; `continue` outside a loop is `loom/parse/continue-outside-loop`. `break` exits the innermost enclosing loop; `continue` skips to the next iteration. Neither carries a value in V1: `break expr` is `loom/parse/break-with-value`. See [Future Considerations](./future-considerations.md) and [Diagnostics](./diagnostics.md).
 
 ```loom
 for area in focus_areas {

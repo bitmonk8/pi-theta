@@ -10,7 +10,7 @@ Loom files are discovered from the same locations as Pi prompt templates, just w
 
 Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-template behaviour. `.warp` library files are never discovered as slash commands regardless of where they live; they are reached only via `import` (with paths resolved relative to the importing file).
 
-**Source priority (high to low).** When the same slash name resolves from multiple sources, the higher-priority source wins and a load-time *warning* is emitted naming both paths.
+**Source priority (high to low).** When the same slash name resolves from multiple sources, the higher-priority source wins and `loom/load/cross-source-shadow` is emitted naming both paths.
 
 1. CLI flag (`--loom <path>`) — explicit, single-invocation override.
 2. Settings (`looms` array, project `settings.json` overriding global).
@@ -20,7 +20,7 @@ Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-te
 
 **Case-insensitive filesystem collisions.** Within a single discovery source, two `*.loom` files whose paths differ only in case (e.g., `Plan.loom` and `plan.loom` in the same `looms/` directory) collide on case-insensitive filesystems (Windows, macOS default) but coexist on case-sensitive ones (most Linux). To make behaviour identical across both, the loader compares discovered paths case-insensitively *per source* and emits a load-time *warning* `loom/load/case-collision` naming both paths; the lexicographically-first path under case-sensitive byte comparison wins. Cross-source priority (the table above) still applies on top — the rule is intra-source only. Path comparison uses the normalised forward-slash form described under "Path literals" in [Lexical Structure](./lexical.md).
 
-**Slash-name collisions across formats.** A loom and a Pi prompt template (`.md`) or subagent that resolve to the same slash command (e.g., `code-review.loom` and `code-review.md`) are a load-time *error* reported through Pi's diagnostics; neither is registered. Authors must rename one. Cross-format shadowing is not supported in V1; the rule is symmetric across `.loom`, `.md` prompts, and `.md` subagents.
+**Slash-name collisions across formats.** A loom and a Pi prompt template (`.md`) or subagent that resolve to the same slash command (e.g., `code-review.loom` and `code-review.md`) are `loom/load/cross-format-collision` reported through Pi's diagnostics; neither is registered. Authors must rename one. Cross-format shadowing is not supported in V1; the rule is symmetric across `.loom`, `.md` prompts, and `.md` subagents.
 
 ```
 project/
@@ -45,8 +45,8 @@ The extension reads both files directly through the injected `FileSystem` seam (
 
 **Failure modes.** Treated as `{}` (with the loaded value of the other file unaffected) and logged as a single load-time diagnostic per file:
 
-- File missing or unreadable.
-- File present but not valid UTF-8 JSON (parse error).
+- File missing or unreadable — `loom/load/settings-unreadable`.
+- File present but not valid UTF-8 JSON — `loom/load/settings-invalid-json`.
 
 None of these are fatal: the extension proceeds with whatever settings it could read, falling through to built-in defaults for keys neither file supplies.
 

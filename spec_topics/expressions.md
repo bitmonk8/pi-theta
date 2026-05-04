@@ -21,7 +21,7 @@ Loom expressions are a bounded subset of TypeScript. The same grammar applies wh
 - Enum variant access: `Enum.Variant`
 - `Result` constructors: `Ok(expr)`, `Err(expr)`
 
-**Not supported (parse error):**
+**Not supported (parse error — `loom/parse/unsupported-feature` unless a more specific code below applies):**
 
 - Assignment in expression position (`=`, `+=`, etc.) — assignment is a statement, see [Bindings and Mutability](./bindings.md)
 - Field- or index-level mutation (`obj.field = ...`, `arr[i] = ...`) — only whole-binding rebinding is supported in V1; see [Bindings and Mutability](./bindings.md)
@@ -43,11 +43,11 @@ Loom expressions are a bounded subset of TypeScript. The same grammar applies wh
 3. A symbol imported from a `.warp` file (see [Imports](./imports.md)).
 4. A name registered in the loom's frontmatter `tools:` set (Pi tool or `.loom` path; see [Tool Calls](./tool-calls.md)).
 
-No match is an `"unknown identifier"` parse error. Collisions across (2)–(4) are rejected at load time — a `tools:` entry whose post-rename name shadows a top-level `fn` or import in the same file fails to register; resolve with the `as` clause. Local bindings (1) shadow everything else lexically, the same as in Rust or TypeScript.
+No match is `loom/parse/unknown-identifier`. Collisions across (2)–(4) are rejected at load time — a `tools:` entry whose post-rename name shadows a top-level `fn` or import in the same file fails to register; resolve with the `as` clause. Local bindings (1) shadow everything else lexically, the same as in Rust or TypeScript.
 
 **Equality.** `==` is structural: deep value equality for objects and arrays, value equality for primitives. There is no `===`.
 
-**Truthiness.** Only `true` and `false` are accepted in boolean position (`if`, `while`, `&&`, `||`, ternary condition). Using a non-boolean (`if (x)` where `x: string`) is a parse error; write `if (x != "")`, `if (xs.length > 0)`, etc. This avoids the JS empty-string / zero / `null` ambiguity.
+**Truthiness.** Only `true` and `false` are accepted in boolean position (`if`, `while`, `&&`, `||`, ternary condition). Using a non-boolean (`if (x)` where `x: string`) is `loom/parse/non-boolean-condition`; write `if (x != "")`, `if (xs.length > 0)`, etc. This avoids the JS empty-string / zero / `null` ambiguity.
 
 **Built-in methods and properties.** A small stdlib is exposed on the primitive composite types. No user-defined methods; no `this`. V1 set:
 
@@ -70,7 +70,7 @@ No match is an `"unknown identifier"` parse error. Collisions across (2)–(4) a
 | Member | Signature | Semantics |
 |---|---|---|
 | `length` | `: integer` | Element count |
-| `join(sep)` | `(sep: string): string` | Concatenates elements with `sep`. Element type must be `string`; non-string element types are a parse error (no implicit coercion in V1) |
+| `join(sep)` | `(sep: string): string` | Concatenates elements with `sep`. Element type must be `string`; non-string element types are `loom/parse/non-string-array-join` (no implicit coercion in V1) |
 | `includes(x)` | `(x: T): boolean` | Membership test using loom structural equality |
 | `indexOf(x)` | `(x: T): integer` | First index by structural equality, or `-1` if absent |
 | `slice(start, end?)` | `(start: integer, end?: integer): array<T>` | JS semantics: negative indices count from the end; `end` exclusive; omitted `end` slices to length |
@@ -84,7 +84,7 @@ No match is an `"unknown identifier"` parse error. Collisions across (2)–(4) a
 | `values()` | `(): array<T>` (heterogeneous; element type is the union of field types) | Field values in the same order as `keys()` |
 | `has(k)` | `(k: string): boolean` | Whether a loom-side field name is present. Returns `false` for unknown keys (no panic) — this is the explicit safe-check |
 
-Additional methods may be added non-breakingly later (see [Future Considerations](./future-considerations.md)). Anything not on this list is a parse-time "unknown method" error rather than a runtime failure.
+Additional methods may be added non-breakingly later (see [Future Considerations](./future-considerations.md)). Anything not on this list is `loom/parse/unknown-method` rather than a runtime failure.
 
 ## Operator precedence
 
@@ -102,7 +102,7 @@ From highest to lowest. Within the same level, associativity is as noted.
 | 8 | `\|\|` | left |
 | 9 | `?:` (ternary) | right |
 
-Comparison and equality are non-associative: `a < b < c` is a parse error ("comparison operators do not chain; use `&&`"). The type-position `|` (in type expressions) is the lowest-precedence type operator; it does not appear in value-expression grammar and so does not enter this table.
+Comparison and equality are non-associative: `a < b < c` is `loom/parse/comparison-chaining` ("comparison operators do not chain; use `&&`"). The type-position `|` (in type expressions) is the lowest-precedence type operator; it does not appear in value-expression grammar and so does not enter this table.
 
 ## Grammar disambiguation
 
@@ -114,18 +114,18 @@ Two ambiguities deserve explicit rules:
 
 ## Object construction, array construction, and operator rules
 
-**Object construction.** Schema-typed values are constructed with `Schema { field: expr, ... }`. Every declared field of the schema must be present; extra fields are a parse error; field order is irrelevant. Bare object literals (`{ field: expr }` with no leading schema name) are not legal in expression position — every constructed object must name its schema, so the type is unambiguous from the syntax alone. The frontmatter `params:` defaults are the one exception: there the param's declared type supplies the schema name, so the literal is bare (and is parsed as JSON-shaped, not as a Loom expression).
+**Object construction.** Schema-typed values are constructed with `Schema { field: expr, ... }`. Every declared field of the schema must be present (omissions are `loom/parse/missing-object-field`); extra fields are `loom/parse/extra-object-field`; field order is irrelevant. Bare object literals (`{ field: expr }` with no leading schema name) surface as `loom/parse/bare-object-literal` — every constructed object must name its schema, so the type is unambiguous from the syntax alone. The frontmatter `params:` defaults are the one exception: there the param's declared type supplies the schema name, so the literal is bare (and is parsed as JSON-shaped, not as a Loom expression).
 
 For a discriminated union `schema Animal = Cat | Dog | Lizard`, construct via the variant schema name (`Cat { ... }`), not the union name. The constructed value is statically typed as the variant; assignment to an `Animal`-typed slot widens it.
 
-**Array construction.** `[]` is the empty array; its element type is inferred from context (binding annotation, parameter type, or surrounding constructor field). `[a, b, c]` is non-empty; its element type is the common type of its elements, narrowed by context if applicable. An array whose elements have no common type and no context to narrow against is a parse error.
+**Array construction.** `[]` is the empty array; its element type is inferred from context (binding annotation, parameter type, or surrounding constructor field). `[a, b, c]` is non-empty; its element type is the common type of its elements, narrowed by context if applicable. An array whose elements have no common type and no context to narrow against is `loom/parse/array-no-common-type`.
 
 *Common-type rules for array literals (and ternary branches):*
 
-1. If a type sink is in scope (binding annotation, parameter type, etc.), every element type-checks against the sink's element type; a mismatch is a parse error naming the offending element.
+1. If a type sink is in scope (binding annotation, parameter type, etc.), every element type-checks against the sink's element type; a mismatch is `loom/parse/array-element-type-mismatch` naming the offending element.
 2. Otherwise, the parser computes the *least upper bound* of the element types: identical types collapse; `integer` widens to `number` when mixed with `number`; otherwise the element types are unioned (`["a", null]` → `array<string | null>`; `[1, "a"]` → `array<number | string>`).
-3. Object schemas do not unify implicitly — an array containing two different named schemas yields `array<A | B>` only if some sink in scope expects a union; otherwise it is a parse error ("array elements have no common type; annotate the binding with `array<A | B>` or use a single schema").
+3. Object schemas do not unify implicitly — an array containing two different named schemas yields `array<A | B>` only if some sink in scope expects a union; otherwise it is `loom/parse/array-no-common-type` ("array elements have no common type; annotate the binding with `array<A | B>` or use a single schema").
 
-**`+` operator.** On two `number` (or `integer`) operands, addition; the result widens to `number` if either operand is `number`. On two `string` operands, concatenation. Mixed-type operands are a parse error — write an explicit conversion or interpolate inside a string. `+` on `array<T>` is not supported; use `arr.concat(other)`.
+**`+` operator.** On two `number` (or `integer`) operands, addition; the result widens to `number` if either operand is `number`. On two `string` operands, concatenation. Mixed-type operands are `loom/parse/mixed-plus-operands` — write an explicit conversion or interpolate inside a string. `+` on `array<T>` is not supported; use `arr.concat(other)`. See [Diagnostics](./diagnostics.md) for the full code registry.
 
 **Other arithmetic.** `-`, `*`, `/`, `%` accept only numeric operands. `/` always produces `number` (no integer-division operator in V1; see [Future Considerations](./future-considerations.md)). `%` requires same-typed operands and preserves the type. Division by zero produces IEEE-754 `Infinity` / `-Infinity` / `NaN` per JS semantics; it does not panic.

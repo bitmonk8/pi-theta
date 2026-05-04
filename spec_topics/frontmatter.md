@@ -25,7 +25,7 @@ params:
 ---
 ```
 
-Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-hint`) plus loom-specific fields. **No `name` field** — the filename is canonical, exactly as for Pi prompts (`code-review.loom` is invoked as `/code-review`).
+Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-hint`) plus loom-specific fields. **No `name` field** — the filename is canonical, exactly as for Pi prompts (`code-review.loom` is invoked as `/code-review`). Frontmatter fields outside the V1 vocabulary surface as `loom/load/unknown-frontmatter-field` (warning); fields reserved for deferred V1 features surface as `loom/load/deferred-frontmatter-field` (warning). Both keep loading the loom; see [Diagnostics](./diagnostics.md).
 
 - `params` are validated with AJV at invocation time and exposed as typed variables in the loom body. When invoked from a slash command, the runtime binds free-form slash arguments to `params` via an LLM call (see [Slash-Command Argument Binding](./binder.md)); when invoked from `invoke(...)` or as a registered tool, arguments arrive already typed and are validated directly.
 - `binder_model`, `bind_context`, and `bind_echo` configure slash-command argument binding. All three are optional with sensible defaults; see [Slash-Command Argument Binding](./binder.md).
@@ -44,14 +44,14 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
     Two kinds of entry are accepted:
 
     - **Pi tool names** (`read`, `bash`, `grep`, ...) resolve against Pi's tool registry at loom-load time, exactly as for Pi subagents.
-    - **`.loom` paths** (`./summarise.loom`, `../shared/classify.loom`) resolve relative to the calling loom's directory, use forward-slash separators only (a backslash is a parse error per the "Path literals" rule in [Lexical Structure](./lexical.md)), must end in `.loom`, and must point at **subagent-mode** loom files (a prompt-mode callee in `tools:` is a load-time error — interleaving the child's user turns inside a parent's tool-call loop is a semantic mess that V1 rejects outright).
+    - **`.loom` paths** (`./summarise.loom`, `../shared/classify.loom`) resolve relative to the calling loom's directory, use forward-slash separators only (a backslash is a parse error per the "Path literals" rule in [Lexical Structure](./lexical.md)), must end in `.loom` (otherwise `loom/load/unresolvable-loom-path`), and must point at **subagent-mode** loom files — a prompt-mode callee in `tools:` is `loom/load/prompt-mode-callable` (interleaving the child's user turns inside a parent's tool-call loop is a semantic mess that V1 rejects outright).
 
     Each entry is exposed under a single name in the loom's top-level scope (and to the model as a tool of the same name). Naming rules:
 
     - For a Pi tool, the entry's name is the Pi tool name verbatim.
     - For a `.loom` path, the default name is the file's basename without the `.loom` extension, with **hyphens replaced by underscores** (`./code-review.loom` → `code_review`). The remap exists because loom-file naming convention favours hyphens while loom identifiers must be lowercase-first identifier-shaped.
-    - The `as <name>` clause overrides the default for either kind: `read as file_read`, `./summarise.loom as my_summariser`. The override target must obey loom's lowercase-first identifier rule (`./summarise.loom as MyTool` is rejected).
-    - Two entries resolving to the same final name are a load-time error; use `as` to disambiguate. A name that collides with a top-level `fn` declaration or an imported symbol in the same file is also a load-time error.
+    - The `as <name>` clause overrides the default for either kind: `read as file_read`, `./summarise.loom as my_summariser`. The override target must obey loom's lowercase-first identifier rule (`./summarise.loom as MyTool` is `loom/load/invalid-tool-rename`).
+    - Two entries resolving to the same final name are `loom/load/tool-name-collision`; use `as` to disambiguate. A name that collides with a top-level `fn` declaration or an imported symbol in the same file is also `loom/load/tool-name-collision`.
 
     YAML-shape: `tools:` accepts the comma-separated short form for plain-name entries and the YAML list form for entries that need an `as` rename:
 
@@ -68,9 +68,9 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
       - ./classify.loom as triage     # callable as `triage`
     ```
 
-    Unknown Pi tool names, unresolvable `.loom` paths, prompt-mode loom paths, name collisions, and invalid `as` targets all surface as Pi-compatible diagnostics that prevent the loom from being registered.
+    Unknown Pi tool names (`loom/load/unknown-tool`), unresolvable `.loom` paths (`loom/load/unresolvable-loom-path`), prompt-mode loom paths (`loom/load/prompt-mode-callable`), name collisions (`loom/load/tool-name-collision`), and invalid `as` targets (`loom/load/invalid-tool-rename`) all surface as Pi-compatible diagnostics that prevent the loom from being registered. See [Diagnostics](./diagnostics.md) for the full code registry.
   - Per-query overrides and a project → loom → query cascade are deferred (see [Future Considerations](./future-considerations.md)).
-- `system` declares the conversation's system prompt. **Subagent-mode only** — `system:` in a `mode: prompt` loom is a parse error, since prompt-mode looms attach to the user's existing Pi session whose system prompt belongs to Pi, not to the loom. In subagent mode, the field is fixed once when the spawned conversation is created and applies to every query the loom issues against it. If omitted, the spawned conversation has no system prompt (the model behaves under its training defaults).
+- `system` declares the conversation's system prompt. **Subagent-mode only** — `system:` in a `mode: prompt` loom is `loom/parse/system-on-prompt-mode`, since prompt-mode looms attach to the user's existing Pi session whose system prompt belongs to Pi, not to the loom. In subagent mode, the field is fixed once when the spawned conversation is created and applies to every query the loom issues against it. If omitted, the spawned conversation has no system prompt (the model behaves under its training defaults).
   - **Interpolation.** The `system:` field supports `${param}` and `${param.field}` interpolation against the loom's typed `params`. The full Loom expression sublanguage is **not** available in this slot — only bare identifier paths — because the system prompt is evaluated once at conversation-creation time, before any loom code runs, and the simpler rule is unambiguous and easy to debug. For richer logic, omit `system:` and accept the reduced control-flow surface.
 - `retry` controls how typed queries recover from schema-validation failures (see the [Query](./query.md) section). `attempts` bounds the number of follow-up coercion turns; `methodology` selects the phrasing strategy. Recognised methodologies (V1):
   - `validator_error` (default) — the follow-up turn includes the AJV validation error from the previous attempt.
