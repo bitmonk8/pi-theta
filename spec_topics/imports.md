@@ -13,7 +13,7 @@ import { Author, persona_block } from "./shared/personas.warp"
 - Never slash-command-discovered. A `.warp` file is invisible to the `/<name>` autocomplete; it is only ever reached via `import`.
 - May call `invoke(...)`. The path resolves relative to the `.warp` file's location; the invocation executes against the *calling* `.loom`'s conversation (or spawns a fresh isolated one if the callee is subagent-mode), exactly like a `@`...`` query inside a warp function. Cycle detection from [Invocation](./invocation.md) walks invoke paths originating from warp functions too.
 
-**Path resolution.** V1 supports relative paths only: `"./shared/personas.warp"`, `"../lib/schemas.warp"`. Paths must end in `.warp` and resolve relative to the importing file's directory. Project-rooted (`/looms/...`) and package-style (`@scope/pkg`) imports are out of scope for V1; they may be added later when looms-as-packages becomes a real use case.
+**Path resolution.** V1 supports relative paths only: `"./shared/personas.warp"`, `"../lib/schemas.warp"`. Paths must end in `.warp` and resolve relative to the importing file's directory. Project-rooted (`/looms/...`) and package-style (`@scope/pkg`) imports are out of scope for V1.
 
 **Visibility.** Every top-level `schema` and `fn` in a `.warp` file is implicitly exported. There is no `export` keyword on declarations and no privacy modifier; `.warp` files have no internal-only symbols in V1.
 

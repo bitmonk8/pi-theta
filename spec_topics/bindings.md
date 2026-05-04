@@ -29,6 +29,6 @@ Because assignment is statement-only, `if (x = 1) { ... }` is a parse error. Use
 - `match` pattern bindings
 - The discard form `let _ = ...` (also: `let mut _ = ...` is a parse error — `_` cannot be reassigned)
 
-Function parameters being immutable is a deliberate V1 simplification; per-parameter `mut` (Rust's `fn f(mut x: T)`) can be added non-breakingly later if it earns its keep.
+Function parameters being immutable is a deliberate V1 simplification. See [Future Considerations](./future-considerations.md) for the deferred-feature inventory.
 
 **Increment / decrement.** `++` and `--` remain parse errors. Use `count += 1` / `count -= 1`. Same Rust rationale: one obvious way, no prefix-vs-postfix confusion.

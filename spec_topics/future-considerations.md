@@ -16,3 +16,8 @@
 - Automatic context escalation: when binding fails without context, automatically retry with `bind_context: session` attached — trades a second binder call for a smoother success rate on context-sensitive looms that forgot to opt in
 - `BinderError` as a Loom-visible `QueryError` variant, once looms become first-class values invocable from non-loom programmatic harnesses that need to observe binder failures structurally
 - Per-loom `binder_temperature` knob, if real usage shows authors need to tune the binder's nondeterminism budget
+- Per-parameter `mut` on function parameters (Rust-style `fn f(mut x: T)`) — V1 keeps all function parameters immutable
+- Value-carrying `break expr` inside `for` / `while` loops — V1's `break` and `continue` carry no value
+- `match` guards (`Ok(x) if x.value > 3 => ...`) and rest patterns (`[first, ...rest]`, `{ kind, ...other }`) — neither is in V1
+- Package-style (`@scope/pkg`) and project-rooted (`/looms/...`) `import` paths — V1 supports relative paths only
+- User-overridable binder system prompt — V1 fixes the binder prompt for predictability

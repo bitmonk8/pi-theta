@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_103 findings retained, 1 false positives dropped, 0 persistent failures_
+_102 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -8557,79 +8557,3 @@ None
 
 ---
 
-# Inline V1-deferral notes should consolidate into `future-considerations.md`
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Scattered inline "can be added non-breakingly later" notes should move to `future-considerations.md`
-**Kind:** cruft, scope
-
-## Finding
-
-Seven topic pages embed forward-looking, non-normative remarks about features that V1 deliberately omits but a future revision may add. Each is grafted onto the same paragraph that states the current V1 rule, which has two costs: it dilutes the normative line implementers must obey, and it duplicates (or, worse, fails to duplicate) the central deferred-feature inventory in `future-considerations.md`.
-
-The seven inline notes, verified verbatim:
-
-- `spec_topics/bindings.md:32` — "per-parameter `mut` (Rust's `fn f(mut x: T)`) can be added non-breakingly later if it earns its keep."
-- `spec_topics/control-flow.md:41` — "if value-carrying `break expr` is needed it can be added non-breakingly later (Rust adds it only inside `loop { }`, not `while`)."
-- `spec_topics/errors-and-results.md:27` — "Guards (`Ok(x) if x.value > 3 => ...`) and rest patterns (`[first, ...rest]`, `{ kind, ...other }`) are not in V1; both can be added non-breakingly later."
-- `spec_topics/tool-calls.md:20` — "Future widening to a structured shape would be additive."
-- `spec_topics/imports.md:16` — "they may be added later when looms-as-packages becomes a real use case."
-- `spec_topics/frontmatter.md:74` — "or wait for per-query system o[verrides]…" (in addition to the legitimate cross-reference at line 72).
-- `spec_topics/binder.md:94` — "A future revision may make this prompt user-overridable; V1 keeps it fixed for predictability."
-
-The V1 prohibition in each section is already carried by the surrounding "not supported / parse error / V1 only" language, so the forward-looking sentence adds no normative content. Of the seven, only `structured tool output` and `per-query system overrides` already appear as bullets in `future-considerations.md`; the other five are currently spec-wide orphans — readers who scan the deferred list will not learn about them.
-
-## Spec Documents
-
-- `spec_topics/bindings.md` — paragraph at L32 (edited)
-- `spec_topics/control-flow.md` — paragraph at L41 (edited)
-- `spec_topics/errors-and-results.md` — paragraph at L27 (edited)
-- `spec_topics/tool-calls.md` — Pi-tool row at L20 (edited)
-- `spec_topics/imports.md` — path-resolution paragraph at L16 (edited)
-- `spec_topics/frontmatter.md` — `system:` interpolation paragraph at L74 (edited)
-- `spec_topics/binder.md` — paragraph at L94 (edited)
-- `spec_topics/future-considerations.md` — deferred-features list (edited)
-- `plan_topics/v7-match.md` — V7j references "the spec's deferred-feature note"; verify the cross-reference still resolves after the move (read-only)
-- `plan_topics/v8-control-flow.md` — V8 references the deferred `break expr` note; verify the cross-reference still resolves (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The relocation is purely editorial. Leaves V7j and V8 (the `break` paragraph) cite the spec's deferred-feature note generically; their acceptance criteria do not depend on which page that note lives on, provided it remains discoverable.
-
-## Consequence
-
-**Severity:** cosmetic
-
-Implementers receive correct V1 guidance today; the noise only slows scan-reading and risks the deferred-feature inventory drifting out of sync with the topic pages. No behaviour changes, no leaf is blocked.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete the seven inline forward-looking sentences listed above, leaving the V1-normative sentences in place. Add bullets to `spec_topics/future-considerations.md` for the five items not yet captured there:
-
-- per-parameter `mut` on function parameters
-- value-carrying `break expr`
-- `match` guards (`Ok(x) if … =>`) and rest patterns (`[first, ...rest]`, `{kind, ...other}`)
-- package-style and project-rooted imports (`@scope/pkg`, `/looms/...`)
-- user-overridable binder system prompt
-
-Edge cases for the implementer:
-
-- `frontmatter.md:72` already contains a clean cross-reference to `future-considerations.md` for the `system:` cascade — keep it; only the trailing fragment in `frontmatter.md:74` is the inline-note instance to remove.
-- The `tool-calls.md:20` "Future widening would be additive" sentence is inside a table cell; remove the trailing sentence only, leaving the V1-behaviour sentences ("V1 returns the tool's final output as a single `string`…") intact.
-- After the move, plan leaves V7j and V8 (which currently say "messages reference the spec's deferred-feature note" / "value-carrying `break expr` is a deferred-feature parse error") still resolve — their pointer is to the concept, not to a specific paragraph. No plan edit needed.
-- Preserve the parenthetical Rust-comparison flavour from `bindings.md:32` and `control-flow.md:41` only if it adds rationale to the future-considerations entry; otherwise drop it. Rust trivia is not a V1-normative concern.
-
-## Related Findings
-
-- "Design-notes blocks and rationale clauses mixed into requirement sections" — same-cluster (both prune non-normative material from requirement sections; can be co-resolved in one editorial pass but resolve independently)
-- "Typed query implementation technique should be in `implementation-notes.md`, not the V1 contract" — same-cluster (same shape: relocate non-normative or option-locking content out of requirement pages into the appropriate dedicated page)
-
----

@@ -91,8 +91,6 @@ Return one of three envelopes:
 Do not invent values for defaulted parameters that the user did not specify; omit them.
 ```
 
-A future revision may make this prompt user-overridable; V1 keeps it fixed for predictability.
-
 **Defaulting.** Defaults declared on `params:` fields are filled by the runtime *after* the binder returns, not by the binder. The binder is told (in its system prompt) which fields are required and which have defaults; for default-having fields, the binder may omit them from `args` when the user did not specify them, and the runtime fills the defaults before AJV validation. The binder is never asked to invent default values — only to extract what the user actually said.
 
 **Echo policy.** Configured via `bind_echo:` (`true` | `false`; default `true`). When echo is on (and the bypass did not apply), the runtime appends a one-line system note to the user's session immediately before the loom starts:

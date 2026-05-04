@@ -38,7 +38,7 @@ while !satisfied && round < 5 {
 }
 ```
 
-**`break` / `continue`** — bare statements; legal only inside `for` / `while` bodies. `break` exits the innermost enclosing loop; `continue` skips to the next iteration. Neither carries a value in V1; if value-carrying `break expr` is needed it can be added non-breakingly later (Rust adds it only inside `loop { }`, not `while`).
+**`break` / `continue`** — bare statements; legal only inside `for` / `while` bodies. `break` exits the innermost enclosing loop; `continue` skips to the next iteration. Neither carries a value in V1.
 
 ```loom
 for area in focus_areas {
