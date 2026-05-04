@@ -78,7 +78,40 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
     - Hot-reloading a Pi extension whose tools are held by a running loom (`ctx.reload()` on the source extension) is out of V1 scope: the captured `execute` closure may reference disposed module state. Authors who need clean swap-out of tool implementations should rely on the full re-discovery semantics of `_loom-reload` (see [Pi Integration Contract](./pi-integration-contract.md)) rather than reloading individual extensions mid-loom.
   - Per-query overrides and a project → loom → query cascade are deferred (see [Future Considerations](./future-considerations.md)).
 - `system` declares the conversation's system prompt. **Subagent-mode only** — `system:` in a `mode: prompt` loom is `loom/parse/system-on-prompt-mode`, since prompt-mode looms attach to the user's existing Pi session whose system prompt belongs to Pi, not to the loom. In subagent mode, the field is fixed once when the spawned conversation is created and applies to every query the loom issues against it. If omitted, the spawned conversation has no system prompt (the model behaves under its training defaults).
-  - **Interpolation.** The `system:` field supports `${param}` and `${param.field}` interpolation against the loom's typed `params`. The full Loom expression sublanguage is **not** available in this slot — only bare identifier paths — because the system prompt is evaluated once at conversation-creation time, before any loom code runs, and the simpler rule is unambiguous and easy to debug. For richer logic, omit `system:` and accept the reduced control-flow surface.
+  - **Interpolation.** The `system:` field supports `${param}` and `${param.field}` interpolation against the loom's typed `params`. The full Loom expression sublanguage is **not** available in this slot — only bare identifier paths — because the system prompt is evaluated once at conversation-creation time, before any loom code runs, and the simpler rule is unambiguous and easy to debug. For richer logic, omit `system:` and accept the reduced control-flow surface. The three surfaces of the slot — what parses, what string the model sees, and which diagnostics fire — are pinned down below.
+
+    *Path grammar.*
+
+    ```
+    SystemInterp := '${' Path '}'
+    Path         := Ident ('.' Ident)*
+    ```
+
+    `Ident` is the lexical identifier from [Lexical Structure — Identifiers](./lexical.md) (case-sensitive, exact byte match against the declared `params` field name). There is no depth bound — arbitrary chains of `.Ident` are accepted. The head `Ident` must name a declared `params` entry; each subsequent `.Ident` must name a reachable field of an *object* schema in the lowered params schema. Arrays, discriminated unions, and primitive scalars terminate the path: `${param}` (no further `.`) is always allowed and is rendered by the stringification rule below; `${param.field}` is only allowed when the resolved type one step in is an object. A path that descends into an arm of a discriminated union without a discriminator narrowing is rejected at parse time — V1 has no narrowing in this slot.
+
+    Indexed access (`${arr[0]}`), call syntax (`${f()}`), optional chaining (`${a?.b}`), arithmetic, and any other expression form are not part of the grammar and produce a parse error (see below). For richer logic, omit `system:` (see [Future Considerations](./future-considerations.md), "Richer expression sublanguage inside frontmatter `system:`").
+
+    *Stringification.* Resolve the path against the validated params object, then render by static type:
+
+    | Resolved type | Rendered text |
+    |---|---|
+    | `string` | the value verbatim, no quoting |
+    | `number` / `integer` | decimal `String(value)` (`NaN` and `±Infinity` cannot occur — AJV rejects them at validation) |
+    | `boolean` | `true` / `false` |
+    | `null` | the literal text `null` |
+    | Enum variant | the variant's wire string (the brand from [Runtime Value Model — Enum variant](./runtime-value-model.md) is stripped) |
+    | Object / array / discriminated-union value | `JSON.stringify(value, null, 2)` (pretty-printed, two-space indent), with enum-branded strings rendered as their bare wire value |
+
+    The pretty-printed form is chosen because `system:` content is typically multi-line and inspected by humans during prompt iteration; compact JSON would defeat the YAML block scalar's readability. Resolution happens once, at conversation-creation time; a param whose resolved value is `null` renders as the literal text `null` (not the empty string), per the table.
+
+    *Escapes.* A literal `${` is written `\${` inside the YAML block scalar — the same escape used in `@`-template bodies (see [Template Interpolation](#template-interpolation)). The backslash survives YAML processing and suppresses interpolation only when the next character is `{`; in any other position `\` is passed through verbatim.
+
+    *Parse errors.* All four codes fire at frontmatter-parse time, before AJV validates the params payload, and are listed in [Diagnostics](./diagnostics.md):
+
+    - `loom/parse/system-interp-not-path` — the body of `${...}` is not a `Path` (e.g. `${arr[0]}`, `${a + b}`, `${f(x)}`, `${a?.b}`, `${"x"}`).
+    - `loom/parse/system-interp-unknown-param` — the head `Ident` is not a declared `params` field.
+    - `loom/parse/system-interp-bad-field` — a `.Ident` step does not name a reachable object field on the resolved schema (or attempts to descend into an array or un-narrowed discriminated union).
+    - `loom/parse/system-interp-unterminated` — `${` is not closed by a matching `}` before the YAML scalar ends.
 - `retry` controls how typed queries recover from schema-validation failures (see the [Query](./query.md) section). `attempts` bounds the number of follow-up coercion turns; `methodology` selects the phrasing strategy. Recognised methodologies (V1):
   - `validator_error` (default) — the follow-up turn includes the AJV validation error from the previous attempt.
   - `schema_repeat` — the follow-up turn re-states the expected schema without quoting a specific error.
