@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_35 findings retained, 1 false positives dropped, 0 persistent failures_
+_34 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -226,78 +226,6 @@ Edge cases for the implementer of this fix:
 ---
 
 ## spec_topics/pi-integration-contract.md
-
----
-
-# `resources_discover` is a contribution event, not an inbound path feed
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** `resources_discover` misused as inbound discovery source
-**Kind:** codebase-grounding-broad, doc-alignment-broad, assumptions
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` step 1 says the extension "subscribes to `resources_discover` to collect `.loom` and `.warp` paths from every Pi discovery source," and the later "Discovery API" paragraph repeats that the extension "uses Pi's standard `resources_discover` event to enumerate sources, mirroring the prompt-template discovery pattern." Both readings invert how the event actually works.
-
-In `@mariozechner/pi-coding-agent`, `resources_discover` is a **contribution** event. The handler receives `ResourcesDiscoverEvent = { type: "resources_discover", cwd, reason }` and returns `ResourcesDiscoverResult` whose only fields are `skillPaths?`, `promptPaths?`, `themePaths?` — paths the extension hands **to** Pi. Pi never pushes a list of conventional roots back to the extension through this event. There is no `loomPaths` field, so even the contribution direction is closed for looms specifically: Pi cannot load `.loom` files for the extension regardless of which side initiates.
-
-The consequence for the spec's discovery story is concrete. The five sources in `discovery.md` (CLI flag, settings array, project `.pi/looms/`, packages, global `~/.pi/agent/looms/`) must all be walked by the extension itself: there is no Pi-supplied enumeration to consume. The `resources_discover` event remains useful, but only as a **re-discovery trigger**: Pi fires it at startup with `reason: "startup"` and after `/reload` with `reason: "reload"`, and the handler uses `event.cwd` to scope the project-local source. The contract section needs to describe that flow rather than the imaginary one it currently describes.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — "Extension entry point" step 1 and "Discovery API" paragraph (edited)
-- `spec_topics/discovery.md` — read-only; its source list is correct and unaffected (read-only)
-- `spec_topics/pi-integration.md` — read-only; high-level summary stays accurate (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal, MVP, Vertical V14, Vertical V18
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — (modified)
-- M — Minimal end-to-end loom — (modified)
-- V14k — Discovery: global `~/.pi/agent/looms/` — (modified)
-- V14l — Discovery: project `.pi/looms/` — (modified)
-- V14m — Discovery: package `looms/` and `pi.looms` — (modified)
-- V14n — Discovery: settings `looms` array — (modified)
-- V14o — Discovery: `--loom` CLI flag — (modified)
-- V14p — Source priority and shadowing warning — (modified)
-- V14q — Cross-format slash collision — (modified)
-- V18f — File watcher (chokidar) over discovery roots — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer following the spec literally would wire a `pi.on("resources_discover", …)` handler expecting a list of paths in the event payload, find none, and either (a) ship a broken extension that registers zero looms, or (b) reverse-engineer the actual mechanism and produce an ad-hoc enumerator that diverges from a sibling implementation doing the same. The discovery rules in `discovery.md` are correct but unreachable until the contract describes the right plumbing.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite the two affected passages in `pi-integration-contract.md` so the extension owns enumeration and the event is only a re-trigger. Concretely:
-
-1. Replace step 1 of "Extension entry point" with: "Walks the conventional loom sources (CLI flag, settings, project `.pi/looms/`, packages, global `~/.pi/agent/looms/`) on startup and on every `resources_discover` event. The event payload (`{ cwd, reason }`) supplies the project root for the project-local source and distinguishes initial scan (`reason: "startup"`) from reload (`reason: "reload"`); the event delivers no paths from Pi."
-
-2. Replace the "Discovery API" paragraph with a one-sentence statement that the extension subscribes to `resources_discover` solely as a re-discovery trigger, returning the empty result `{}` (since `ResourcesDiscoverResult` has no `loomPaths` field — looms are exposed through `pi.registerCommand`, not as a Pi-managed resource type).
-
-3. Cross-link `discovery.md` for the source list and priority rules; do not duplicate them in the contract.
-
-Implementer edge cases to flag:
-- The event's `cwd` should be preferred over a captured-at-startup `cwd` so that a future per-session cwd change is honoured on reload.
-- `reason: "reload"` is also fired after `ctx.reload()` from the `_loom-reload` watcher command (V18f), so the same handler covers both Pi-initiated and watcher-initiated rediscovery; do not register a second listener.
-- The handler must still return a result object (even if empty) to satisfy the typed return; returning `undefined` is allowed but `{}` is clearer.
-
-## Related Findings
-
-- "Discovery source failure modes partly unspecified" — co-resolve (the rewritten enumeration step is the natural place to specify per-source failure handling)
-- "Extension entry point path is wrong" — same-cluster (another factual error in the same `pi-integration-contract.md` factory description)
-- "Hot-reload via `ctx.reload()` causes full extension teardown" — decision-dependency (the rediscovery-on-reload story in this finding constrains how the watcher's reload path is described)
-- "Discovery directory tree example contradicts documented path" — same-cluster (separate discovery-surface error, resolves independently)
-- "`pi.looms` package.json key is not Pi-recognized" — same-cluster (also a discovery-surface grounding issue, resolves independently)
 
 ---
 
