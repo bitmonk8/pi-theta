@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_101 findings retained, 1 false positives dropped, 0 persistent failures_
+_100 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -8439,73 +8439,4 @@ Edge cases the implementer must watch:
 - "Implementation toolkit over-prescribed" — decision-dependency (if the toolkit list is loosened to allow swapping AJV, the version pin recommended here must move with it)
 
 ---
-
-# `__inline_<hash>` hash function is not pinned
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** `__inline_<hash>` hash algorithm unspecified
-**Kind:** implementability, assumptions
-
-## Finding
-
-`schema-subset.md` step 2 of the lowering algorithm hoists every anonymous inline object schema (`{ field: T }` in any type position) into `$defs` under a synthesised name `__inline_<hash>`, where `hash` is described only as "a stable structural hash of the schema's loom-side AST (sorted keys, normalised types)." The hash function, the digest length, the byte-encoding, and — most importantly — the canonical form of the AST that is fed into the hash are all unspecified.
-
-This is enough variability that two correct implementations of the lowering algorithm will produce different `$defs` keys for the same `.loom` file. The user-visible consequences propagate everywhere a lowered-schema document is observed: snapshot tests of lowered schemas (V4f explicitly tests this), AJV compiled-validator caches keyed by lowered-schema content (V4a), provider request payloads, debug dumps in diagnostics, and any future `loom test` golden files. A reference implementation and a third-party reimplementation cannot share fixtures or replay traces without re-running the lowering pass end-to-end.
-
-The same gap recurs for the `__loom_respond_<schema-hash>` synthesised tool name in `pi-integration-contract.md`: it leans on the same notion of a "schema hash" with no recipe, so any answer adopted here should generalise to that site too.
-
-## Spec Documents
-
-- `spec_topics/schema-subset.md` — Lowering Algorithm, step 2 (edited)
-- `spec_topics/pi-integration-contract.md` — typed-query mechanism (`__loom_respond_<schema-hash>`) (option-dependent)
-- `spec_topics/implementation-notes.md` — Runtime / AJV cache discussion (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V4
-
-**Leaves (implementation order):**
-
-- V4a — AJV pipeline scaffold — modified (the "lowered-schema content hash" cache key needs the same canonical-form recipe so different runs of the same loom hit cache)
-- V4f — Inline anonymous object hoisting — modified (acceptance criteria reference structural hash; tests for "differing key order produces same hash" and "differing types produces different hashes" need a fixture-grade hash spec to be meaningful)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will choose different hashes (FNV-1a vs SHA-256, full vs truncated, hex vs base32, AST-stringified vs canonical-JSON), produce different `$defs` keys for byte-identical `.loom` input, and silently break any artefact that crosses implementation boundaries — fixture snapshots, replayable provider payloads, cross-runtime caches, and the planned `loom test` golden files. The spec ships unable to define what "the same lowered schema" means.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Pin the hash recipe in `schema-subset.md` and reference it from any other site that mentions a "schema hash":
-
-1. **Canonical form.** Serialise the lowered schema fragment (the `$defs` entry that would be emitted, *not* the loom-side AST) to a deterministic JSON byte sequence:
-   - object keys sorted by code-point (lexical) order;
-   - no insignificant whitespace;
-   - numeric literals in their JSON Schema integer/number form (no trailing zeros, no exponent unless necessary);
-   - strings escaped per RFC 8259 minimal-escape rules;
-   - UTF-8 encoded.
-2. **Digest.** SHA-256 of the canonical-form bytes.
-3. **Slug.** First 16 hex characters of the digest, lowercased. Sixteen hex chars (64 bits) gives <1-in-10^9 collision probability for thousands of inline schemas per file and keeps the synthesised name short enough to read in error messages.
-4. **Output name.** `__inline_<slug>`, e.g. `__inline_3f9a1c2b8d4e5076`.
-
-Edge cases the implementer must handle:
-
-- Hash the **lowered** form, not the loom AST. Two source-level inline schemas with cosmetically different AST shapes that lower to the same JSON Schema fragment must dedup to one `$defs` entry — that is the property V4f's "differing key order" test is checking, and only the lowered form makes it true mechanically.
-- Field property order in the lowered object is itself spec'd as "declaration order" elsewhere; canonical-form sorting for hashing is independent of emission order. The hash sorts; the emitted `$defs` entry retains declaration order. Document both explicitly so the implementer doesn't conflate them.
-- The same recipe applies to `__loom_respond_<schema-hash>` in `pi-integration-contract.md`. Either inline the recipe in one place and `$ref` it from the other, or factor it into a short "Canonical schema hash" subsection of `schema-subset.md` that both sites link to.
-- The recipe is part of the on-disk / on-wire contract. Changing it later is a breaking change for any cached artefact, so commit one version now rather than leaving it to implementer discretion.
-
-## Related Findings
-
-- "Per-query AJV cache key is inconsistent with schema-subset lowering" — same-cluster (the AJV cache key needs a content hash with the same canonical-form properties; co-publishing the recipe here lets that finding cite it instead of re-inventing one)
-- "Typed query implementation technique should be in `implementation-notes.md`, not the V1 contract" — same-cluster (touches `__loom_respond_<schema-hash>` from a different angle; whichever way that finding resolves, the hash recipe still needs to exist somewhere normative)
-- "No `pi.unregisterTool()` API — one-shot tools accumulate" — same-cluster (also references `__loom_respond_<schema-hash>` but the lifecycle question is independent of how the hash is computed)
-
----
-
 

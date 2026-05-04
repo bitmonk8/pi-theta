@@ -22,7 +22,7 @@ Constraints the subset cannot express (string patterns, numeric bounds, array le
 Each loom file is lowered to a JSON Schema document at parse time. The lowering pass:
 
 1. **Collects every named schema** declared at the top level of the file (and transitively imported from `.warp` files used by the file). Each becomes one `$defs/<Name>` entry.
-2. **Hoists anonymous inline object schemas** (`{ field: T }` appearing in any type position) into `$defs` under a synthesised name `__inline_<hash>`, where `hash` is a stable structural hash of the schema's loom-side AST (sorted keys, normalised types). Two structurally identical inline schemas in the same file resolve to one `$defs` entry.
+2. **Hoists anonymous inline object schemas** (`{ field: T }` appearing in any type position) into `$defs` under a synthesised name `__inline_<slug>`, where `<slug>` is the canonical schema hash of the *lowered* schema fragment computed per [Canonical schema hash](#canonical-schema-hash) below. Two inline schemas that lower to byte-identical JSON Schema fragments resolve to one `$defs` entry, regardless of source-level cosmetic differences.
 3. **Emits per type form:**
    - Primitive: `{ "type": "<primitive>" }`.
    - Named or inline schema reference: `{ "$ref": "#/$defs/<Name>" }`.
@@ -38,3 +38,19 @@ Each loom file is lowered to a JSON Schema document at parse time. The lowering 
 6. **Discriminator detection** runs on the lowered `anyOf` form, examining each variant's `properties` for a single `const`-typed field that is unique across variants. Detection is a parse-time sanity check; the lowered schema has no extra discriminator marker.
 
 Lowering is purely a function of the parsed source (no runtime values), and is performed once per loom-file load. Schema validators (AJV) are compiled once per lowered schema and reused across queries; the file watcher invalidates the cache on change.
+
+## Canonical schema hash
+
+Several runtime sites need a stable, content-addressed identifier for a lowered schema fragment: the `__inline_<slug>` synthesised `$defs` keys produced by step 2 above, the `__loom_respond_<slug>` synthesised tool name used by the typed-query mechanism in [Pi Integration Contract](./pi-integration-contract.md) and [Implementation Notes — Runtime](./implementation-notes.md#runtime), and the per-query AJV compiled-validator cache key. All such sites use the **canonical schema hash** defined here. The recipe is part of the on-disk and on-wire contract — changing it is a breaking change for any cached artefact, fixture snapshot, or replayable provider payload — so the V1 spec pins it exactly.
+
+1. **Input.** The hash is computed over the **lowered** JSON Schema fragment that would be emitted (i.e. the body of the `$defs` entry, or the lowered query response schema), *not* the loom-side AST. Hashing the lowered form is what makes the dedup property in step 2 above mechanical: two source-level inline schemas that lower to the same JSON Schema fragment produce the same slug.
+2. **Canonical form.** Serialise the fragment to a deterministic UTF-8 JSON byte sequence:
+   - object keys sorted by Unicode code-point (lexical) order;
+   - no insignificant whitespace (no spaces, no newlines between tokens);
+   - numeric literals in their JSON Schema integer/number form (no trailing zeros, no exponent unless necessary to represent the value);
+   - strings escaped per RFC 8259 minimal-escape rules (only the characters JSON requires escaping; no gratuitous `\u` escapes for printable ASCII).
+3. **Digest.** SHA-256 of the canonical-form bytes.
+4. **Slug.** First 16 hex characters of the digest, lowercased — i.e. 64 bits of the digest. This gives a <1-in-10⁹ collision probability for thousands of distinct lowered schemas per loom file and keeps synthesised names short enough to read in error messages and `/tools` listings.
+5. **Synthesised names.** `__inline_<slug>` for hoisted inline object schemas (e.g. `__inline_3f9a1c2b8d4e5076`); `__loom_respond_<slug>` for typed-query one-shot tools.
+
+Note that the canonical-form key sorting used for hashing is independent of the property order in the emitted `$defs` entry. The hash sorts keys to make the digest reproducible; the emitted lowered schema retains the loom-source declaration order of fields (per the Object emission rule in step 3 above). Both invariants must hold simultaneously: changing source-level field order changes the emitted schema's property order but does *not* change the canonical hash, because the canonical form sorts keys before hashing.
