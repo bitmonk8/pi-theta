@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_93 findings retained, 1 false positives dropped, 0 persistent failures_
+_92 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7272,81 +7272,6 @@ If the related finding ("Woven artifact" — undefined term…) is resolved by d
 ## Related Findings
 
 - "\"Woven artifact\" — undefined term, used once and abandoned" — co-resolve (both target the same `**woven artifact**` token on `overview.md:7`; deleting or rewording it for the term-definition issue also eliminates the spelling mismatch)
-
----
-
-## spec_topics/future-considerations.md
-
----
-
-# Deferred-features list lacks scope buckets and forward-compatibility annotations
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Deferred items unordered and unprioritised
-**Kind:** scope
-
-## Finding
-
-`spec_topics/future-considerations.md` is a flat 14-item bullet list with no internal structure. The items span three very different categories that an implementer must distinguish: (a) tooling deferred to a later release that has zero V1 architectural impact (LSP support, `loom test`); (b) features whose eventual addition would extend an existing V1 surface in a localised way (per-call timeouts, `binder_temperature`, automatic context escalation, `BinderError` as a `QueryError` variant, named-argument invocation); and (c) features that would change the runtime value model or evaluation model itself (first-class loom values, loom-level concurrency primitives, streaming partial tool results, structured tool output schemas, per-query `model`/`tools`/`system` overrides).
-
-Category (c) is the implementer-facing concern. A V1 author building the runtime value model, the query options struct, or the tool-result type cannot tell from the current list whether to leave a discriminator slot, an open struct, or a sealed enum. The list also omits dependency relationships — for example, "Binder refinement loop", "Automatic context escalation", and "`BinderError` as a Loom-visible `QueryError` variant" are three independently listed items but the third presupposes neither of the first two; conversely "First-class loom values" is a prerequisite for any non-loom harness needing structured `BinderError` observation.
-
-The result is that future-considerations.md cannot answer the two questions it ought to answer: "which seams must V1 leave open?" and "what is the rough sequencing of post-V1 work?".
-
-## Spec Documents
-
-- `spec_topics/future-considerations.md` — entire file (edited)
-- `spec_topics/runtime-value-model.md` — read to confirm which items would touch the value model (read-only)
-- `spec_topics/query.md` — read to confirm shape of `QueryError` and per-query options (read-only)
-- `spec_topics/binder.md` — read to confirm which binder items extend existing surfaces vs. introduce new ones (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(The coverage matrix already marks `future-considerations.md` as "– (out of scope)". Plan leaves that emit "deferred-feature" diagnostics — V2c, V7j, V8b, V12a — reference the spec's deferred-feature notes by concept, not by list position; bucketing the list does not change their acceptance criteria.)
-
-## Consequence
-
-**Severity:** advisory
-
-A V1 implementer reading the list cannot tell which items demand forward-compatible seams in the runtime value model, query options, or tool-call result type. The likely outcome is over-engineering (every future hint gets a hook) or under-engineering (a value-model decision shipped in V1 has to be unwound in V2). Neither breaks V1 correctness, but both raise the cost of post-V1 work.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Restructure `future-considerations.md` into three explicit sections, each item annotated with the V1 surface it would touch (or `none` for pure tooling) and any prerequisite items.
-
-Section layout:
-
-1. **Tooling deferrals (no V1 impact)** — items that ship as new tools or commands and require no V1 runtime decision. Current items that belong here: LSP support, `loom test`.
-2. **Surface extensions (V1 leaves a seam)** — items that extend a V1 type, struct, or call shape in a backward-compatible way. The spec must call out the V1 seam each one needs. Current items that belong here, with the seam to leave:
-   - Per-call timeouts on queries / tool calls / invokes — query-options struct must be open to additional fields, not a closed positional record.
-   - User-defined error types beyond `QueryError` — `QueryError` discriminator must be a string, not a closed enum at the type level (the V1 set is still exhaustively matched).
-   - `BinderError` as a `QueryError` variant — same seam as above.
-   - Per-loom `binder_temperature` — frontmatter schema must tolerate forward-compatible unknown keys under a documented policy (today the spec does not state one).
-   - Automatic context escalation — binder-invocation path must not assume `bind_context` is set exactly once per loom.
-   - Named-argument / key=value invocation syntax — invocation AST node must carry a positional-vs-named flag even if V1 only emits positional.
-   - Per-query overrides for `model` / `tools` / `system` — query-options struct (same seam as timeouts).
-   - Richer expression sublanguage in frontmatter `system:` — `${...}` interpolation must go through a parser entry point that can later accept full expressions, not a hand-rolled `${param}` regex.
-3. **Model-level changes (no V1 seam expected; will require migration)** — items that change the runtime value model, evaluation model, or tool-result contract enough that V1 is not expected to anticipate them. Current items: first-class loom values, loom-level concurrency primitives, streaming partial tool results, structured tool output schemas, binder refinement loop.
-
-For each item add a one-line `Depends on:` annotation where it presupposes another listed item (e.g. structured `BinderError` observation depends on first-class loom values for non-loom harnesses; automatic context escalation depends on the binder refinement loop only if escalation surfaces user-visible turns).
-
-Edge cases the editor must watch:
-
-- Do not promote bucket (3) items into bucket (2) on a hunch — overstating the seam set is the failure mode this finding most wants to avoid.
-- The bucket (2) seams listed above are claims about V1 architecture; cross-check each against `runtime-value-model.md`, `query.md`, and `binder.md` and drop any seam the spec already commits to in a way that locks the future option out.
-- The five inline out-of-scope notes flagged by the related finding ("Out-of-scope items not reflected in `future-considerations.md`") should be folded into the new structure during the same edit pass — most belong in bucket (3) (value-carrying `break expr`, match guards / rest patterns, widening untyped return, per-parameter `mut`); project-rooted imports belongs in bucket (2) with a note about the module-resolution seam.
-
-## Related Findings
-
-- "Out-of-scope items not reflected in `future-considerations.md`" — co-resolve (single edit pass to the same file should both add the missing items and bucket them)
 
 ---
 
