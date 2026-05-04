@@ -268,7 +268,7 @@ Rules:
 
 ### Schema Subset
 
-Loom's `schema` keyword does **not** target the full JSON Schema standard. It targets the **lowest common denominator of OpenAI Structured Outputs (strict mode) and Anthropic tool-use `input_schema` (strict mode)** — the intersection of what both providers' grammar-constrained decoders can enforce. The per-provider reasoning is recorded in `model-schema.md`; the normative subset is:
+Loom's `schema` keyword does **not** target the full JSON Schema standard. It targets the **lowest common denominator of OpenAI Structured Outputs (strict mode) and Anthropic tool-use `input_schema` (strict mode)** — the intersection of what both providers' grammar-constrained decoders can enforce. The normative subset is:
 
 - **Types**: `string`, `number`, `integer`, `boolean`, `object`, `array`, `null`.
 - **Composition**: `anyOf` only. `oneOf`, `allOf`, `not`, `if`/`then`/`else` are rejected at parse time.
