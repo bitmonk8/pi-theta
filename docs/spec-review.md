@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_95 findings retained, 1 false positives dropped, 0 persistent failures_
+_94 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7613,84 +7613,6 @@ Edge cases the implementer must watch:
 - "Per-`kind` system-note table covers only 5 of 8 `QueryError` variants" — same-cluster (a consolidated variant list makes the table's incompleteness obvious and easy to fix; same root cause but resolves independently).
 - "`ToolCallError` / `ToolFailureError` names do not signal their contexts" — same-cluster (renaming the variants is independent of where they live, but easier to do once they share a page).
 - "`ValidationFailure` / `ValidationError` — \"failure\" and \"error\" at wrong nesting levels" — same-cluster (same surface, independent rename decision).
-
----
-
-# Terminology drift: the set declared by `tools:` has five names
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Terminology drift: "callable set" / "tool set" / "tools" for the same concept
-**Kind:** naming, consistency, cross-spec-consistency-broad
-
-## Finding
-
-The single concept "the set of named callables a loom may invoke — Pi tools and registered `.loom` paths combined — declared in frontmatter under `tools:`" appears in the spec under five different labels:
-
-- **callable set** — `frontmatter.md:42` ("declares the loom's **callable set**", "**empty callable set**")
-- **tool set** — `frontmatter.md:40` ("a single loom file shares one model and one tool set")
-- **`tools` set** — `query.md:95` ("the loom's frontmatter `tools` set")
-- **unified `tools:` set** — `comparison.md:11` ("Unified `tools:` set callable from both model … and code")
-- **callable surface** — `comparison.md:11` (column header), `influences.md:7` ("the unified callable surface")
-
-The drift is not just cosmetic synonyms — it conflates two distinct vocabularies. "Tool" elsewhere in the spec means a Pi tool specifically (e.g. `tool-calls.md`'s `"unknown_tool"` failure kind, the model's "tool-call loop"), while "callable" means the broader category that includes registered loom callees. Calling the unified set a "tool set" inside `frontmatter.md:40`, then defining "**callable set**" two lines later as the same thing, then switching back to "`tools` set" in `query.md`, forces the reader to repeatedly verify that nothing narrower was meant. `implementation-notes.md:20` compounds the confusion by speaking of "the loom's `tools:` table", introducing a sixth surface form.
-
-There is one canonical *concept* with one canonical *YAML key* (`tools:`) and one canonical *call form* (`<name>(...)`); it deserves one canonical *prose name*.
-
-## Spec Documents
-
-- `spec_topics/frontmatter.md` — line 40 ("one tool set") and surrounding `tools:` definition (edited)
-- `spec_topics/query.md` — "Tool calls during a query" paragraph, "frontmatter `tools` set" (edited)
-- `spec_topics/comparison.md` — "Callable surface" row of the comparison table, "Unified `tools:` set" cell (edited)
-- `spec_topics/influences.md` — "the unified callable surface" sentence in the "Original to loom" bullet (edited)
-- `spec_topics/implementation-notes.md` — "the loom's `tools:` table built at load time" (edited)
-- `spec_topics/tool-calls.md` — "callable was unregistered" comment in the failure-kinds table (read-only; already uses `callable` in the broad sense, consistent with the canonical term)
-
-## Plan Impact
-
-**Phases:** Vertical V14, Vertical V15
-
-**Leaves (implementation order):**
-
-- V14a — Frontmatter `tools:` parsing — (modified)
-- V14e — Pi tool wired into `@` queries as model-callable — (modified)
-- V14j — `tools: []` ≡ absent `tools:` — (modified)
-- V15e — Loom path registration — (modified)
-
-The leaf bodies use "`tools:` set", "callable set", and "callable" interchangeably; once the canonical term is fixed, these acceptance descriptions need a one-pass sweep. No ship gates change.
-
-## Consequence
-
-**Severity:** cosmetic
-
-Implementers can still build a correct system: every variant phrasing transparently refers to whatever `tools:` resolves to. The cost is reader-side — every cross-page navigation costs a small recheck ("is this the same set as the one I just read about?"), and any future contributor will face an unforced choice every time they need to refer to the concept, perpetuating the drift.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Adopt **callable set** as the canonical prose term throughout the spec.
-
-- Define it once, at the point it is introduced, in `spec_topics/frontmatter.md` under the `tools:` bullet (the existing definition on line 42 already does this — keep it as the anchor).
-- Replace every other surface form with "callable set":
-  - `frontmatter.md:40` "one tool set" → "one callable set"
-  - `query.md:95` "the loom's frontmatter `tools` set" → "the loom's callable set"
-  - `comparison.md:11` column header "Callable surface" → "Callable set"; cell "Unified `tools:` set callable from both model …" → "Unified callable set, addressable from both the model … and code …"
-  - `influences.md:7` "the unified callable surface where Pi tools and registered subagent looms share one declaration list" → "the unified callable set where Pi tools and registered subagent looms share one declaration list"
-  - `implementation-notes.md:20` "the loom's `tools:` table built at load time" → "the loom's callable set, materialised at load time"
-- Reserve the bare word **tool** for Pi tools specifically (matching `tool-calls.md`'s existing usage of `"unknown_tool"`, "tool-call loop", and the model's "tool use"). Reserve **callable** (the noun) for an individual member of the callable set, regardless of whether it is a Pi tool or a registered loom — this matches the existing usage in `tool-calls.md:35` ("callable was unregistered") and in the example comments in `frontmatter.md:66–68` ("callable as `summarise`").
-- The YAML key `tools:` keeps its name — that is a stable on-disk identifier and renaming it is out of scope.
-
-Edge cases for the implementer doing the sweep:
-- Do not rename `frontmatter.md:42`'s phrase "an **empty callable set**" — it is already canonical.
-- The comparison table's column header changes the comparison axis name itself; ensure the column still reads naturally for the Pi-subagent and Pi-tool columns ("Tools (model only)" stays as-is — those rows describe what those systems expose, which is narrower than a callable set, so the column header "Callable set" still fits as a generalisation).
-- Do not chase usages inside `spec_topics/tool-calls.md` discussing the *act* of a tool call — those legitimately reference Pi tools and the model's tool-use protocol.
-
-## Related Findings
-
-- "No central glossary" — co-resolve (the glossary entry for "callable set" is one of the entries that finding calls for; fixing terminology drift first gives the glossary a single canonical definition to cite)
-- "`ToolCallError` / `ToolFailureError` names do not signal their contexts" — same-cluster (also concerns the `tool` / `callable` vocabulary boundary; resolving canonical terminology first clarifies whether renamed errors should use `Tool…` or `Callable…` prefixes)
 
 ---
 

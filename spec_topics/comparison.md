@@ -8,5 +8,5 @@
 | Type system | Untyped strings | Untyped strings | JSON / JSON Schema |
 | Conversation context | Current | New (isolated) | Either (mode-controlled); loom drives N turns inside it |
 | Output | Injected text | Injected text | Multi-turn conversation drive; loom return value (Rust-style last-expression) |
-| Callable surface | Tools (model only) | Tools (model only) | Unified `tools:` set callable from both model (in queries) and code (`<name>(...)`); accepts Pi tools and registered subagent looms |
+| Callable set | Tools (model only) | Tools (model only) | Unified callable set, addressable from both the model (in queries) and code (`<name>(...)`); accepts Pi tools and registered subagent looms |
 | File format | Markdown `.md` | Markdown `.md` | Loom `.loom` (+ `.warp` library files) |

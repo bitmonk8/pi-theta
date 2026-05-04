@@ -92,7 +92,7 @@ The diagnostic on a bare `@`...`` expression-statement reads: *"discarded query 
 
 `let _ = expr` is a real binding form for any expression — not just queries — making the same escape hatch available to any future `#[must_use]`-style type. A `void`-returning function whose **tail expression** is `@`...`` is not a discard: the `Result` is the function's return value and the caller is responsible for it. Only true expression-statement position triggers the error.
 
-**Tool calls during a query.** If the model responds with tool-use, the runtime executes the requested tool against the loom's frontmatter `tools` set, feeds the result back to the model, and loops until the model produces a final (non-tool-call) response. That final response is what the query returns. A response schema, if given, is enforced against the final response only — not against intermediate tool-call payloads.
+**Tool calls during a query.** If the model responds with tool-use, the runtime executes the requested tool against the loom's callable set, feeds the result back to the model, and loops until the model produces a final (non-tool-call) response. That final response is what the query returns. A response schema, if given, is enforced against the final response only — not against intermediate tool-call payloads.
 
 **Untyped return type (V1).** The `Ok` payload of an untyped query is a plain `string` containing the assistant's final text. V1 deliberately keeps it as `string` to minimise surface area; freezing a richer structure before real provider integration would lock in details that real-world use is likely to revise.
 

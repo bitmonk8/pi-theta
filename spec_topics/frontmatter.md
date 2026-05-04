@@ -37,7 +37,7 @@ Frontmatter mirrors Pi's prompt-template frontmatter (`description`, `argument-h
       focus_areas: array<string> = []
       author: Author = { name: "anon", role: "developer", experience_years: 0 }
     ```
-- `model` and `tools` follow the same shape as Pi subagent frontmatter and apply to **every** query in the loom — a single loom file shares one model and one tool set across all of its turns.
+- `model` and `tools` follow the same shape as Pi subagent frontmatter and apply to **every** query in the loom — a single loom file shares one model and one callable set across all of its turns.
   - **`model`**: if frontmatter omits `model`, the loom inherits Pi's session default at invocation time. Once chosen, the model is fixed for the loom's lifetime; it does not re-resolve per query.
   - **`tools`**: declares the loom's **callable set** — a unified list of Pi tools and `.loom` paths, callable from both the model (during a query's tool-call loop) and from loom code (via the bare `<name>(...)` call form; see [Tool Calls](./tool-calls.md)). If frontmatter omits `tools`, the loom runs with an **empty callable set** (the model cannot make tool calls and loom code has no `<name>(...)` callables to resolve). The Pi session's ambient tools are deliberately *not* inherited — tools have side effects, and silent inheritance produces "why did my loom touch the filesystem?" surprises. To opt in, list each callable explicitly. `tools: []` and an absent `tools:` field are equivalent.
 
