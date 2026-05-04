@@ -38,7 +38,7 @@ while !satisfied && round < 5 {
 }
 ```
 
-**`break` / `continue`** — bare statements; legal only inside `for` / `while` bodies. `break` exits the innermost enclosing loop; `continue` skips to the next iteration. Neither carries a value in V1.
+**`break` / `continue`** — bare statements; legal only inside `for` / `while` bodies. `break` exits the innermost enclosing loop; `continue` skips to the next iteration. Neither carries a value in V1. See [Future Considerations](./future-considerations.md).
 
 ```loom
 for area in focus_areas {

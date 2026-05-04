@@ -84,7 +84,7 @@ No match is an `"unknown identifier"` parse error. Collisions across (2)–(4) a
 | `values()` | `(): array<T>` (heterogeneous; element type is the union of field types) | Field values in the same order as `keys()` |
 | `has(k)` | `(k: string): boolean` | Whether a loom-side field name is present. Returns `false` for unknown keys (no panic) — this is the explicit safe-check |
 
-Additional methods may be added non-breakingly later. Anything not on this list is a parse-time "unknown method" error rather than a runtime failure.
+Additional methods may be added non-breakingly later (see [Future Considerations](./future-considerations.md)). Anything not on this list is a parse-time "unknown method" error rather than a runtime failure.
 
 ## Operator precedence
 
@@ -128,4 +128,4 @@ For a discriminated union `schema Animal = Cat | Dog | Lizard`, construct via th
 
 **`+` operator.** On two `number` (or `integer`) operands, addition; the result widens to `number` if either operand is `number`. On two `string` operands, concatenation. Mixed-type operands are a parse error — write an explicit conversion or interpolate inside a string. `+` on `array<T>` is not supported; use `arr.concat(other)`.
 
-**Other arithmetic.** `-`, `*`, `/`, `%` accept only numeric operands. `/` always produces `number` (no integer-division operator in V1). `%` requires same-typed operands and preserves the type. Division by zero produces IEEE-754 `Infinity` / `-Infinity` / `NaN` per JS semantics; it does not panic.
+**Other arithmetic.** `-`, `*`, `/`, `%` accept only numeric operands. `/` always produces `number` (no integer-division operator in V1; see [Future Considerations](./future-considerations.md)). `%` requires same-typed operands and preserves the type. Division by zero produces IEEE-754 `Infinity` / `-Infinity` / `NaN` per JS semantics; it does not panic.

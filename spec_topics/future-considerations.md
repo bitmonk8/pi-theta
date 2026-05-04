@@ -57,3 +57,6 @@ Items occasionally carry a `Depends on:` annotation where they presuppose anothe
 - **Per-parameter `mut` on function parameters** (Rust-style `fn f(mut x: T)`) — V1 keeps all function parameters immutable.
 - **Value-carrying `break expr`** inside `for` / `while` loops — V1's `break` and `continue` carry no value.
 - **`match` guards** (`Ok(x) if x.value > 3 => ...`) and **rest patterns** (`[first, ...rest]`, `{ kind, ...other }`) — neither is in V1.
+- **Non-decimal number literals** (hex `0x...`, octal `0o...`, binary `0b...`) **and underscore digit separators** (`1_000_000`) — V1 accepts decimal literals only with no separators.
+- **Integer-division operator** — V1's `/` always produces `number`; there is no dedicated truncating-division operator.
+- **Additional string and array stdlib methods** beyond the V1 set — the V1 method surface is deliberately small; extending it is non-breaking by design (anything not on the list is a parse-time "unknown method" error, leaving the namespace open).

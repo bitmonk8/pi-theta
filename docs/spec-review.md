@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_89 findings retained, 1 false positives dropped, 0 persistent failures_
+_88 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7027,83 +7027,6 @@ Edge cases the implementer must watch:
 
 - "AJV schema cache risks singleton pattern prohibited by CLAUDE.md" — co-resolve (same paragraph in `implementation-notes.md`; one rewrite addresses both keying and ownership)
 - "Implementation toolkit over-prescribed" — same-cluster (also rewrites the AJV configuration bullet, but for prescription-level reasons rather than correctness)
-
----
-
-## spec_topics/imports.md
-
----
-
-# Inline V1 deferrals not surfaced in `future-considerations.md`
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** Out-of-scope items not reflected in `future-considerations.md`
-**Kind:** scope, cruft
-
-## Finding
-
-`future-considerations.md` is the spec's index of features explicitly punted out of V1, but several topic files declare their own "not in V1 / can be added later" notes inline without a corresponding entry in that index. A reader scanning `future-considerations.md` to understand the V1 / post-V1 boundary therefore gets a partial picture, and a reader on a topic page has no signal that the deferral is (or is not) tracked centrally.
-
-The genuinely missing inline deferrals are:
-
-- `spec_topics/imports.md:16` — project-rooted (`/looms/...`) and package-style (`@scope/pkg`) imports.
-- `spec_topics/bindings.md:32` — per-parameter `mut` (`fn f(mut x: T)`).
-- `spec_topics/control-flow.md:41` — value-carrying `break expr`.
-- `spec_topics/errors-and-results.md:27` — match guards and rest patterns.
-- `spec_topics/query.md:97` — widening the untyped query return shape beyond `string`.
-- `spec_topics/binder.md:94` — user-overridable binder system prompt.
-- `spec_topics/lexical.md:18` — non-decimal number-literal forms and underscore separators.
-- `spec_topics/expressions.md:131` — integer-division operator.
-- `spec_topics/expressions.md:87` — additional string/array methods.
-
-For comparison, several other inline deferrals already have matching entries and need no action: `frontmatter.md:74` ↔ "Per-query overrides for `model`, `tools`, and `system`"; `errors-and-results.md:50` ↔ "User-defined error types beyond `QueryError`"; `tool-calls.md:20` and `pi-integration-contract.md:30` ↔ streaming / structured tool output entries; `invocation.md:49` ↔ per-call timeouts; `implementation-notes.md:25` ↔ concurrency primitives; `binder.md:121` ↔ `BinderError` as a `QueryError` variant.
-
-This is a documentation-organisation issue with no behavioural impact. It is adjacent to "Deferred items unordered and unprioritised" (same file, structural rather than coverage gap).
-
-## Spec Documents
-
-- `spec_topics/future-considerations.md` — full file (edited)
-- `spec_topics/imports.md` — Path resolution paragraph (edited)
-- `spec_topics/bindings.md` — Function-parameter mutability paragraph (edited)
-- `spec_topics/control-flow.md` — `break` / `continue` paragraph (edited)
-- `spec_topics/errors-and-results.md` — Pattern grammar paragraph (edited)
-- `spec_topics/query.md` — Untyped return type paragraph (edited)
-- `spec_topics/binder.md` — Binder system prompt template paragraph (edited)
-- `spec_topics/lexical.md` — Number literals paragraph (edited)
-- `spec_topics/expressions.md` — Numeric operators and stdlib-method tables (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(This is a spec-document-hygiene change. No leaf's acceptance criteria or blocking status changes.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader who treats `future-considerations.md` as the authoritative deferral index will undercount the post-V1 surface and may be surprised when a topic page reveals an additional deferral. No implementer is misled about V1 behaviour, and no leaf changes scope. The cost of leaving it is documentation drift that compounds as more topics are revised.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-For each of the nine inline deferrals listed in the Finding, add a corresponding bullet to `spec_topics/future-considerations.md` and rewrite the inline paragraph so the deferral fact remains where it is contextually relevant but the rationale / "added later" framing is moved to the index. Use the existing `future-considerations.md` bullet style ("X — Y rationale; V1 only supports Z").
-
-Concretely:
-
-- Add bullets such as: "Project-rooted (`/looms/...`) and package-style (`@scope/pkg`) import paths — V1 supports relative paths only", "Per-parameter `mut` on function arguments", "Value-carrying `break expr` inside `loop` blocks", "Match guards (`Pattern if cond => ...`) and rest patterns (`[first, ...rest]`, `{ kind, ...other }`)", "Richer untyped-query return shape exposing tool-use traces, multiple content blocks, and citations (current V1 shape: `Result<string, QueryError>`)", "User-overridable binder system prompt", "Non-decimal number literal forms (hex, octal, binary) and underscore digit separators", "Integer-division operator", "Additional string and array methods beyond the V1 stdlib set".
-- In the topic files, keep the V1 statement of fact (e.g. "V1 supports relative paths only", "Function parameters are immutable in V1") and append a single cross-reference of the form *"See [Future Considerations](./future-considerations.md)."* in place of the inline "may be added later when…" rationale clause.
-- Do **not** add bullets for deferrals already covered (frontmatter `system:` overrides, user-defined error types, streaming, structured tool output, per-call timeouts, concurrency, `BinderError` variant, dynamic invoke dispatch already implied by "first-class loom values").
-- Edge case: `expressions.md:87`'s "additional methods may be added non-breakingly later" is method-set growth, not a discrete feature. One bullet covering both string and array tables is sufficient; the inline note can stay as-is with a cross-reference.
-
-## Related Findings
-
-- "Deferred items unordered and unprioritised" — same-cluster (both target `future-considerations.md`; that finding restructures the existing bullets, this one adds missing ones; resolving them in one pass is natural)
 
 ---
 

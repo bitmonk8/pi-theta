@@ -64,7 +64,7 @@ The envelope is runtime-internal; it is never a Loom-visible type and never appe
 
 **Session-context truncation (`bind_context: session`).** The runtime walks turns from newest to oldest, accumulating until *either* 20 turns *or* 8000 tokens (whichever is smaller) has been included. Token counts come from Pi's `ctx.getContextUsage()` (model-aware). Truncation is whole-turn; partial messages are not split. The included context is rendered as a compact transcript and embedded in the binder's system prompt below the parameter table.
 
-**Binder system prompt template** (literal text, not user-configurable in V1):
+**Binder system prompt template** (literal text, not user-configurable in V1; see [Future Considerations](./future-considerations.md)):
 
 ```
 You bind free-form slash-command arguments to typed loom parameters.
