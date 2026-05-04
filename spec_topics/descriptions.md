@@ -25,11 +25,18 @@ enum Severity {
   High,
 }
 
-/// Top-level error returned by every query (full definition in query.md)
-schema QueryError = ValidationError | TransportError | …
+/// Top-level error returned by every query
+schema QueryError = ValidationError
+                  | TransportError
+                  | ToolFailureError
+                  | ToolCallError
+                  | ContextOverflowError
+                  | CancelledError
+                  | InvokeFailure
+                  | InvokeCalleeError
 ```
 
-The last block is **truncated for illustration**; the authoritative `QueryError` union lives in [Query](./query.md).
+The authoritative `QueryError` union lives in [Query](./query.md); the variant order above mirrors that file so the two blocks diff cleanly.
 
 Rules:
 

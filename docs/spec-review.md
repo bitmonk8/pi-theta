@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-04T14:08:47Z_
 _Source: docs/reviews/spec-review/spec-20260504-144255.md_
-_68 findings retained, 1 false positives dropped, 0 persistent failures_
+_67 findings retained, 1 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -4737,85 +4737,6 @@ Take Option A. The spec author has already written canonical strings, the plan a
 - "`bind_echo` / binder-bypass echo suppression not cross-referenced" — same-cluster (touches the same surface; resolves independently with a one-sentence cross-reference)
 - "Binder echo formatting micro-rules over-prescribed and misplaced" — decision-dependency (Option A here keeps the format rules normative and demotes the example; Option B aligns with that finding's preferred direction)
 - "Non-normative content mixed into binder spec" — same-cluster (both findings ask the spec to mark normative vs advisory content explicitly; same editorial pass)
-
----
-
-## spec_topics/descriptions.md
-
----
-
-# `QueryError` example in `descriptions.md` omits `ToolCallError`
-
-**Source:** docs/reviews/spec-review/spec-20260504-144255.md
-**Original heading:** `QueryError` example missing `ToolCallError`
-**Kind:** consistency, cross-spec-consistency-broad, implementability
-
-## Finding
-
-The illustrative `QueryError` declaration in `spec_topics/descriptions.md` (used to demonstrate `///` placement on a union schema) lists seven variants:
-
-```
-schema QueryError = ValidationError
-                  | TransportError
-                  | ToolFailureError
-                  | ContextOverflowError
-                  | CancelledError
-                  | InvokeFailure
-                  | InvokeCalleeError
-```
-
-The canonical definition in `spec_topics/query.md` lists eight — the same seven plus `ToolCallError`. A reader using `descriptions.md` as a reference (it is the only page that shows the full union with `///` annotations) will believe that code-side tool-call failures are not part of `QueryError`. Since `descriptions.md` is upstream of any implementation work that wires `///` to JSON Schema and is reachable independently of `query.md`, the omission is not just visual drift — it actively misinforms.
-
-## Spec Documents
-
-- `spec_topics/descriptions.md` — `QueryError` example block (edited)
-- `spec_topics/query.md` — failure-modes section, canonical union (read-only)
-- `spec_topics/tool-calls.md` — `ToolCallError` definition (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The fix is a documentation-only correction in an illustrative example. V13e (`///` doc comments on schema declarations and fields) implements the `///` mechanism using the same example structurally but does not depend on the variant list. `QueryError` variants themselves are implemented under V5g, V14f–V14i, V15b, V15l/m and consult `query.md` as the canonical source.
-
-## Consequence
-
-**Severity:** advisory
-
-A reader who lands on `descriptions.md` first (e.g. while implementing `///` lowering) will encode the wrong union and discover the discrepancy only when cross-checking `query.md`. No implementation will diverge silently — the canonical definition lives in `query.md` and is what V5g consumes — but the spec contradicts itself in print.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add `| ToolCallError` to the example, between `ToolFailureError` and `ContextOverflowError`, matching the order in `query.md`:
-
-```
-schema QueryError = ValidationError
-                  | TransportError
-                  | ToolFailureError
-                  | ToolCallError
-                  | ContextOverflowError
-                  | CancelledError
-                  | InvokeFailure
-                  | InvokeCalleeError
-```
-
-Edge cases for the implementer:
-
-- Keep variant order identical to `query.md` so future readers can diff the two blocks visually.
-- Do not annotate the example as "abridged" — the related finding "`QueryError` union has three conflicting authoritative definitions" calls for consolidating variant schemas in one place; an "abridged" disclaimer here would entrench the duplication that finding wants removed.
-- If the consolidation finding is resolved first by moving the canonical union into `errors-and-results.md` (or similar), update the cross-reference in `descriptions.md`'s surrounding prose at the same time so the example stays anchored to a single source of truth.
-
-## Related Findings
-
-- "`QueryError` union has three conflicting authoritative definitions" — co-resolve (the same edit fixes the `descriptions.md` half of that finding's three-way mismatch)
-- "`QueryError` variants split across three files with no consolidated reference" — same-cluster (consolidating the union would obviate ad-hoc fixes like this one, but resolves independently)
-- "Per-`kind` system-note table covers only 5 of 8 `QueryError` variants" — same-cluster (the third inconsistent definition cited by the consolidation finding; resolves independently in `slash-invocation.md`)
 
 ---
 
