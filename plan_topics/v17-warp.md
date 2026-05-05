@@ -5,7 +5,7 @@
 - **Spec.** [Imports](../spec_topics/imports.md) (`.warp` file rules).
 - **Adds.** Same lexer as `.loom`; AST builder dispatches on file extension; top-level in `.warp` restricted to `import`, `export`, `schema`, `enum`, `fn` (top-level statements, `let` bindings, and queries are parse errors).
 - **Tests.** Token-equivalence between identical content in `.warp` and `.loom` for permitted forms; each forbidden top-level form (statement, `let`, query) rejected with `loom/parse/warp-top-level-statement`; each permitted form accepted.
-- **Deps.** V1.
+- **Deps.** V1a–V1e.
 - **Ships when.** `.warp` files parse and reject forbidden top-level forms.
 
 ## V17c — `import { X } from "./y.warp"`

@@ -5,7 +5,7 @@
 - **Spec.** [Control Flow](../spec_topics/control-flow.md) (`if`/`else`).
 - **Adds.** Statement-form `if cond { ... } else { ... }`. Mandatory braced bodies. Single-line `if (x) stmt` is a parse error.
 - **Tests.** `else if` chains; missing braces rejected; truthiness rule from V2f enforced.
-- **Deps.** V2.
+- **Deps.** V2a–V2f.
 - **Ships when.** Branching works.
 
 ## V8b — `for` ... `in` over arrays

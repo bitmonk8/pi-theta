@@ -21,7 +21,7 @@
 - **Spec.** [Query](../spec_topics/query.md) (typed form, inference rule 1).
 - **Adds.** `let x: T = @\`...\`?` infers `T` as the response schema for the query.
 - **Tests.** Spec's first worked example (`let x: ReviewScore = @\`...\`?` — sink at the binding annotation); nested annotation flows through parens; missing annotation falls through to next rule (later leaves).
-- **Deps.** V4, V6b.
+- **Deps.** V4a–V4d, V6b.
 - **Ships when.** The most common typed-query pattern works.
 
 ## V6d — Schema inference: enclosing return-type sink
@@ -29,7 +29,7 @@
 - **Spec.** [Query](../spec_topics/query.md) (inference rule 2).
 - **Adds.** When a query is in tail-expression position of a function/loom whose return type is declared, that type supplies the schema.
 - **Tests.** Function with declared `Result<T, QueryError>` return; query in tail position infers `T`; `return @\`...\`?` infers from declared return type.
-- **Deps.** V6c, V9a, V9b, V9c, V9d, V9e.
+- **Deps.** V6c, V9a–V9e.
 - **Ships when.** Functions can be written without redundant annotations.
 
 ## V6e — Schema inference: enclosing call-site parameter-type sink
@@ -37,7 +37,7 @@
 - **Spec.** [Query](../spec_topics/query.md) (inference rule 3).
 - **Adds.** `f(@\`...\`?)` where `f`'s parameter is typed `T` infers `T`. Crosses a single call boundary; outer call's parameter is opaque past inner call's argument.
 - **Tests.** Spec's `f(g(@\`...\`?))` example: `g`'s param is the sink, `f`'s isn't; tool-call argument as sink works the same way.
-- **Deps.** V6c, V9.
+- **Deps.** V6c, V9a–V9e.
 - **Ships when.** Pipeline-style code reads cleanly.
 
 ## V6f — Schema inference: array-literal sink propagation
@@ -69,7 +69,7 @@
 - **Spec.** [Query — Typed queries are tool-loop-shaped](../spec_topics/query.md), [Errors and Results](../spec_topics/errors-and-results.md), [Pi Integration Contract — Tool-registration lifetime and visibility](../spec_topics/pi-integration-contract.md), [Schema Subset — Lowering Algorithm](../spec_topics/schema-subset.md#lowering-algorithm), [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime).
 - **Adds.** The inferred / explicit response schema is lowered (via V4) into a `Type.Unsafe<unknown>` wrapper that becomes the `parameters` of a `__loom_respond_<sha12>` `ToolDefinition` with `label: "Loom typed-query response"`. The `execute` AJV-validates `params` against the original lowered JSON Schema and returns the parsed value or `Err(QueryError {kind:"validation", attempts: 0, validation_errors: [...], raw_response: null})`, reusing the V4a validator-cache key so the validator is not recompiled per call. Per-mode wiring uses H4's plumbing: subagent mode appends the `ToolDefinition` to `customTools` on `createAgentSession`; prompt mode passes through H4's `Map<schema-hash, registeredToolName>` cache (one `pi.registerTool` per unique lowered-schema hash, content-addressed name, cache hits reuse). No loop machinery yet — the respond tool is exercised directly in tests.
 - **Tests.** Lowered schema appears verbatim in `parameters` (`Type.Unsafe<unknown>(loweredJsonSchema)`, with `Type.Unsafe` imported from the `typebox` peer dependency); `label` is the literal string `"Loom typed-query response"`, identical across all looms; valid payload unwraps; invalid payload yields `validation` error with `attempts: 0`, populated `validation_errors`, `raw_response: null` (asserted by direct `__loom_respond_<slug>.execute(badParams, ctx)` invocation bypassing Pi's lowering — the validation site is `execute`, not a post-Pi structural-type check); AJV path is JSON-Pointer-shaped; two construction calls with the same lowered schema produce one cached `pi.registerTool` call total in prompt mode, zero in subagent mode; subagent path passes the tool through `customTools`; `__loom_respond_<slug>` derives `<slug>` via the V4f canonical-hash fixture path (asserted by the same fixture-snapshot test against a representative typed-query response schema); a depth-6 response payload surfaces `Err(QueryError { kind: "validation", attempts: 0, validation_errors: [{ schema_keyword: "maxDepth", path: <JSON Pointer to first too-deep node>, message: "JSON document depth exceeds 5" }], raw_response: null })` (depth walk fires before AJV at the typed-query response boundary; see V11i).
-- **Deps.** V6c, V4, H4, V11i.
+- **Deps.** V6c, V4a–V4i, H4, V11i.
 - **Ships when.** The respond tool exists, validates payloads, and is wired into the right surface for each mode.
 
 ## V6l — Two-phase tool-loop driver for typed queries

@@ -6,7 +6,7 @@
 - **Adds.** `let x = expr` with optional `: T` annotation; an initialiser is required. `let x: T` (annotation, no initialiser) is `loom/parse/let-without-initialiser`. Reassignment of an immutable binding is a parse error. When the annotation is present, the initialiser's static type must be compatible with the annotation under the spec's `T₁ ⊑ T₂` relation; the parser recognises every structural case in the anchor table without falling back to AJV.
 - **Tests.** Immutable binding declared and read; reassignment rejected; `let _ = expr` accepted (discard); `let mut _ = ...` rejected; `let x: T` (no initialiser) emits `loom/parse/let-without-initialiser` and the diagnostic message references the spec rule; `let x: T = <expr>` accepted.
 - **Tests (compatibility).** `let x: number = 1` (integer literal) accepted; `let x: integer = 1.5` rejected with `loom/parse/integer-narrowing`; `let x: Animal = Cat { ... }` accepted (variant→union widening); `let xs: array<Animal> = [Cat { ... }, Dog { ... }]` accepted (element-wise widening). The compatibility relation matches the spec's anchor table for primitives, variant→union, and array element-wise widening; cases outside the table fall through to the AJV safety net only when an operand is past the parser's static view.
-- **Deps.** V1.
+- **Deps.** V1a–V1e.
 - **Ships when.** Loom bodies can name values.
 
 ## V2b — `let mut` and reassignment statements

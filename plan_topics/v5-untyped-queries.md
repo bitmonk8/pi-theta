@@ -5,7 +5,7 @@
 - **Spec.** [Query](../spec_topics/query.md) (untyped).
 - **Adds.** `` @`text` `` template parser (no `${}`, no escapes beyond `\``). Returns `Result<string, QueryError>` semantically; bound-to-name only for now.
 - **Tests.** Template parses; closing-backtick missing → `unterminated-template`; bare expression-statement deferred to V5f.
-- **Deps.** Ma, V2.
+- **Deps.** Ma, V2a.
 - **Ships when.** A loom can issue a non-trivial bound query.
 
 ## V5b — `${expr}` interpolation

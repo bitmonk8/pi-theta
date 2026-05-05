@@ -5,7 +5,7 @@
 - **Spec.** [Schema Declarations](../spec_topics/schemas.md) (enum subsection).
 - **Adds.** `enum X { Variant, Variant, ... }`; PascalCase variant rule; trailing comma optional. Default wire value = variant name verbatim.
 - **Tests.** Variant case rule enforced; lowering produces `{type:string, enum:[...]}`; payload-carrying variants rejected (use `schema X = A | B`); `enum X { }` emits `loom/parse/empty-enum-body` with message `"'X' has no variants; an empty enum cannot be validated."`.
-- **Deps.** V4.
+- **Deps.** V4a–V4j.
 - **Ships when.** Enums declarable and usable as types.
 
 ## V10b — Explicit variant values

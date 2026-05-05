@@ -37,7 +37,7 @@
 - **Spec.** [Overview — Scope of a Loom File](../spec_topics/overview.md#scope-of-a-loom-file), [Function Definitions — Loom return type](../spec_topics/functions.md).
 - **Adds.** Loom's tail expression is the return value reaching parent; parent sees `Result<T, QueryError>` shape.
 - **Tests.** Tail-expression value reaches parent; `Err` from subagent surfaces to parent.
-- **Deps.** V12a, V6.
+- **Deps.** V12a, V6a–V6i.
 - **Ships when.** Subagent invocation is value-passing.
 
 ## V12f — `bind_context: session` on subagent → parse warning
