@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_24 findings retained, 3 false positives dropped, 0 persistent failures_
+_23 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1763,64 +1763,6 @@ The spec heading at `spec_topics/diagnostics.md:66` (``### `loom/lex/*` and `loo
 
 - "Closed diagnostic registry — many codes have no asserting plan leaf" — same-cluster (also concerns the registry-to-leaf mapping completeness; the namespace clarification here makes that audit cleaner)
 - "UTF-8 encoding, BOM consumption, and `loom/load/invalid-encoding` — no plan leaf" — same-cluster (the missing leaf emits a lex-phase code under the `loom/load/*` namespace; both findings hinge on phase ≠ namespace)
-
----
-
-# H3 "Severity round-trips" test bullet does not name the boundary
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** "Severity round-trips" underspecified
-**Kind:** clarity
-
-## Finding
-
-H3's Tests block lists `Severity round-trips.` as its final bullet, with no indication of which serialiser, payload, or transport the round-trip is asserted across. The spec defines two distinct serialised surfaces for diagnostics in `spec_topics/diagnostics.md`: a one-line string `"<file>:<line>:<col>: <code>: <message>"` carried as `content`, and a structured `Diagnostic[]` carried in `details.diagnostics` on a `loom-system-note` `pi.sendMessage` call. The line format demonstrably omits the `severity` field; the structured payload is the only surface where severity is observable. A test bullet that only says "round-trips" is therefore either trivially false (against the line format) or unstated (against the structured payload), and a separate implementer would not reliably pick the latter.
-
-The bullet also has no anchor on what "round-trip" means operationally: emit a `Diagnostic` of each defined severity through the accumulator's serialiser and decode the resulting `details.diagnostics[*].severity` back to the input value, for both `"error"` and `"warning"` (the two values enumerated in the spec's diagnostic shape). Without that anchor the bullet does not pin behaviour the V18o coverage gate can rely on.
-
-## Plan Documents
-
-- `plan_topics/h3-diagnostics.md` — Tests block (edited)
-- `spec_topics/diagnostics.md` — Internal diagnostic shape, Serialised content format, Persistent diagnostics (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H3 — Diagnostics primitive and multi-error accumulator — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A separate implementer reading `Severity round-trips` will either write a vacuous test (encode/decode an in-memory `Diagnostic` struct without crossing any boundary, which proves nothing about the serialiser) or test against the line format, where `severity` is not present and the assertion cannot be written without inventing a non-spec line shape. Both outcomes leave H3's Ships-when claim — that all later phases emit through `DiagnosticsSink` — without a closing test that the structured payload preserves the severity field on which downstream consumers (renderers, LSP integrations, V18j multi-error rollup) depend.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/h3-diagnostics.md`, replace the Tests bullet
-
-> - Severity round-trips.
-
-with
-
-> - For each defined severity (`"error"`, `"warning"`), a `Diagnostic` value passed through the `DiagnosticsAccumulator` serialiser appears as `details.diagnostics[i].severity` on the resulting `loom-system-note` `pi.sendMessage` payload with the same string value (the line-format `content` string carries no severity field and is not asserted here).
-
-Edge cases for the implementer: the assertion is on the structured `details.diagnostics` array, not on the `content` line string; both severity values listed in the spec shape must be exercised individually (a single-value test does not establish that the serialiser is not hard-coded); and the test fixture must construct `Diagnostic` values, not raw strings, so the round-trip crosses the actual serialiser surface rather than re-validating an in-memory struct.
-
-## Related Findings
-
-- "H3 plans a serialiser to a Pi shape the spec says is unused" — decision-dependency (the spec-correct serialiser surface — `loom-system-note` with `details.diagnostics` — is the boundary this bullet must name; both findings edit H3's Adds/Tests in the same pass)
-- "lint rule forbids `throw new Error` has no asserting test" — same-cluster (also a Tests-bullet observability gap in H3, resolves independently)
 
 ---
 

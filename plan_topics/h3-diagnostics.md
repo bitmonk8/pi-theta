@@ -10,7 +10,7 @@
 - Hint appended as `"\n  hint: <hint>"`.
 - Related sites appended as indented lines.
 - Multi-error sort is stable on equal positions.
-- Severity round-trips.
+- For each defined severity (`"error"`, `"warning"`), a `Diagnostic` value passed through the `DiagnosticsAccumulator` serialiser appears as `details.diagnostics[i].severity` on the resulting `loom-system-note` `pi.sendMessage` payload with the same string value (the line-format `content` string carries no severity field and is not asserted here).
 
 **Deps.** H2.
 
