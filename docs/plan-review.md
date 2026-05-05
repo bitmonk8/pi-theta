@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_71 findings retained, 3 false positives dropped, 0 persistent failures_
+_70 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5053,66 +5053,3 @@ Implementer must (1) pick the final leaf ID following the V14 sequence conventio
 - "M's `~/.pi/agent/looms/` path expansion unspecified for Windows" — same-cluster (discovery-contract gap; resolves independently).
 
 ---
-
-## plan_topics/v7-match.md
-
----
-
-# V7a "common-type values" undefined locally
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V7a "common-type values" undefined locally
-**Kind:** clarity
-
-## Finding
-
-V7a's **Adds** bullet says "arms must produce common-type values" without naming the relation that decides what counts as "common type". The leaf's **Spec** field cites `errors-and-results.md` (arm syntax), which does pin the rule transitively — "All arms must produce values of the same type (or assignable to a common type, *by the same rules as `let` initialisation*)" — but the actual common-type rules live in a different spec file (`expressions.md` § Array construction, "*Common-type rules for array literals (and ternary branches)*"), and V7a never points there. An implementer reading V7a in isolation has to chase one indirection through the spec to find the LUB / sink-narrowing rules, the `integer→number` widening, and the named-schema non-unification carve-out.
-
-Two consequences follow. First, the diagnostic that V7a's **Tests** bullet refers to as "arm-type mismatch parse error" is actually `loom/parse/match-arm-type-mismatch` (registered in `diagnostics.md`), and the leaf neither names the code nor pins the trigger condition to the same common-type rules. Second, "produce common-type values" reads at the value level when the spec rule is type-level — the relation is computed statically over arm-body types, not over the dynamic values an arm happens to produce.
-
-## Plan Documents
-
-- `plan_topics/v7-match.md` — V7a (edited)
-
-## Spec Documents
-
-- `spec_topics/errors-and-results.md` — Arm syntax (read-only)
-- `spec_topics/expressions.md` — Array construction / Common-type rules (read-only)
-- `spec_topics/diagnostics.md` — `loom/parse/match-arm-type-mismatch` row (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V7
-
-**Leaves (implementation order):**
-
-- V7a — `match` expression structure — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-Implementers can recover the rule by following the spec's "by the same rules as `let` initialisation" pointer, but the wording drift ("produce common-type values" vs. the spec's static-type LUB relation) and the missing diagnostic-code anchor in **Tests** invite divergence on edge cases — particularly the `integer→number` widening and the non-unification of distinct named schemas. Two reasonable implementers would still produce conformant arm-type checking, but their tests would not assert the same diagnostic surface.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit `plan_topics/v7-match.md`, V7a:
-
-- **Spec.** Append `, [Expressions — Array construction](../spec_topics/expressions.md#array-construction) (common-type rules shared with array literals and ternary branches), [Diagnostics](../spec_topics/diagnostics.md) (`loom/parse/match-arm-type-mismatch`)` to the existing list.
-- **Adds.** Replace the clause `arms must produce common-type values` with `the static type of the match expression is the common type of all arm-body types, computed by the same rules as `let` initialisation and array-literal element typing (see [Expressions — Array construction](../spec_topics/expressions.md#array-construction)); arms whose bodies do not satisfy that relation emit `loom/parse/match-arm-type-mismatch``.
-- **Tests.** Replace `arm-type mismatch parse error` with `mixed-type arms (`["a", 1]` shape — incompatible primitives, no surrounding sink) emit `loom/parse/match-arm-type-mismatch`; `integer`/`number` arms unify to `number`; two distinct named schemas without a union sink emit `loom/parse/match-arm-type-mismatch` quoting both schema names`.
-
-Edge cases the implementer must keep visible: (1) the empty-arm-body case is impossible because every arm body is an expression; (2) `match` arms inherit any surrounding type sink the same way array literals do, so a `let x: Foo | Bar = match ...` should accept arms typed `Foo` and `Bar` without the leaf needing a separate sink rule; (3) the spec anchor for the rules is `#array-construction`, **not** `#object-construction` — the latter covers schema-literal construction and is unrelated.
-
-## Related Findings
-
-- "V9d \"conflicting declaration\" undefined" — same-cluster (same shape: a V-leaf bullet uses an undefined relational term that the spec actually pins; resolved by the same kind of edit but in a different leaf)
-- "V15c \"compatibility relation\" undefined" — same-cluster (same shape; cite the spec's defining section explicitly in the leaf)
-- "V2c \"ternary type-checks both arms\" — missing assertion" — decision-dependency (V2c's ternary common-type rule is the same `#array-construction` relation V7a needs; phrasing should be aligned across both leaves)
-
----
-
