@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_19 findings retained, 3 false positives dropped, 0 persistent failures_
+_18 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1427,75 +1427,4 @@ If the `Clock` / `RandomSource` finding is accepted (drop both seams) and the `A
 - "V5e: `ctx.sendUserMessage()` — method does not exist on `ExtensionCommandContext`" — same-cluster (fixing the `ConversationDriver.send` signature here exposes the V5e mis-citation)
 
 ---
-
-# `AgentSession` seam missing from H2 and H4
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** `AgentSession` seam missing from H2 and H4
-**Kind:** spec-implementability
-
-## Finding
-
-V12a's `Adds` declares that the runtime "spawns in-process `AgentSession` (against `FakeAgentSession` in tests) with in-memory session manager", and its `Tests` enumerate eleven distinct assertions about `AgentSession.dispose()` lifecycle (single-call, error path, panic path, cancellation path, nested deepest-first, etc.). V18d and V18n add cross-checked assertions against the same `AgentSession.dispose()` finally-block contract. The spec backs this surface in `spec_topics/pi-integration-contract.md` ("Conversation drive — subagent mode" and "Subagent session lifecycle"), where the runtime is required to call `createAgentSession({ customTools, tools, ... })` and own the returned `AgentSession` for the duration of one subagent invocation.
-
-H2's seam list — `Clock`, `RandomSource`, `FileSystem`, `DiagnosticsSink`, `ModelClient`, `ConversationDriver`, `ToolHost`, `SchemaValidator`, `LoomLoader`, `ExtensionAPI` — has no entry that wraps `createAgentSession`, and H4's adapter list — `PiModelClient`, `PiToolHost`, `PiFileSystem`, `PiExtensionAPI` — has no production shim for it either. H2 commits to "Pure-interface seams for every collaborator the runtime will need" and "every interface has a fake", so V12a is the first leaf that needs the seam yet no upstream leaf produces it. There is no scheduled leaf anywhere in `plan_topics/` that introduces an `AgentSession` seam, a `FakeAgentSession`, or a `Pi*` adapter that calls `createAgentSession`.
-
-The result is that V12a cannot be picked up against fakes (its `Tests` rely on `FakeAgentSession`), the H2 ban on fakes leaking into `src/` cannot be enforced for this surface, and the H4 ships-when ("`pi -e` loads the extension") leaves the `createAgentSession` adapter unbuilt — V12a would have to invent both the interface and the adapter while implementing subagent semantics.
-
-## Plan Documents
-
-- `plan_topics/h2-di-skeleton.md` — Adds list, Tests bullets, Ships-when (edited)
-- `plan_topics/h4-extension-shell.md` — Adds list, Tests bullets (edited)
-- `plan_topics/v12-subagent.md` — V12a `Adds`/`Tests`/`Deps` (read-only — already cites the seam)
-- `plan_topics/v18-cancellation.md` — V18d, V18n `Tests` (read-only — already cite `AgentSession.dispose()`)
-- `plan_topics/coverage-matrix.md` — `pi-integration-contract.md` rows for "Conversation drive — subagent mode" and "Subagent session lifecycle" (option-dependent — only if the closing-leaf attribution shifts)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal, Vertical V12, Vertical V18
-
-**Leaves (implementation order):**
-
-- H2 — Dependency-injection skeleton with fakes — (modified)
-- H4 — Pi extension shell — (modified)
-- V12a — `mode: subagent` accepted; AgentSession spawn — (blocked)
-- V18d — `AbortSignal` before every `invoke` — (blocked)
-- V18n — Panic routing: `invoke` parent surface — (blocked)
-
-## Consequence
-
-**Severity:** blocking
-
-V12a, V18d, and V18n cite `AgentSession` and `FakeAgentSession` by name in their `Tests` bullets, but no upstream leaf produces either the production interface or the in-memory fake. An implementer reaching V12a must either invent an undocumented seam (diverging from the H2 charter that "every interface has a fake" and from H2's import-graph rule that fakes never leak into `src/`) or stop and back-fill H2/H4 ad hoc. The V18o coverage gate cannot detect this because the seam itself is not REQ-ID'd.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/h2-di-skeleton.md`, extend the `**Adds.**` interface list to include a subagent-spawning seam — concretely, add `SubagentSpawner` (a factory returning a `SubagentSession` handle that wraps Pi's `createAgentSession` result) to the enumeration. Add a corresponding fake `FakeSubagentSpawner` returning a `FakeAgentSession` (or `FakeSubagentSession`) handle in `test/fakes/`. Add at least two `**Tests.**` bullets:
-
-- `FakeSubagentSpawner.spawn(...)` returns a handle whose `dispose()` is observable (call-count probe) and idempotent (second `dispose()` is a no-op, per `pi-integration-contract.md` "Subagent session lifecycle").
-- `FakeSubagentSpawner` rejects with a typed error when no scripted spawn response is queued (matches H2's existing "no silent default" rule for `FakeModelClient`).
-
-In `plan_topics/h4-extension-shell.md`, extend the `**Adds.**` adapter list to include `PiSubagentSpawner`, a no-logic shim that delegates `spawn(opts)` to `createAgentSession({ customTools, tools, model, systemPrompt, signal, ... })` and returns a handle whose `dispose()` calls `AgentSession.dispose()`. Add one `**Tests.**` bullet: "`PiSubagentSpawner` has a delegation contract test against `FakeExtensionAPI` asserting `spawn(opts)` calls the captured `createAgentSession` exactly once with the lowered `customTools` / `tools` allowlist pair (per `pi-integration-contract.md` "Conversation drive — subagent mode")."
-
-In `plan_topics/v12-subagent.md`, update V12a's `**Deps.**` line to read `**Deps.** V3a, V5e, H2, H4` so the seam dependency is explicit.
-
-The implementer is free to pick a different seam name (`AgentSessionFactory`, `SubagentRunner`, etc.); the rule is one factory seam and one returned handle, both fakeable, so V12a's eleven `dispose()` assertions and V18d/V18n's cross-checks have a real surface to assert against.
-
-## Related Findings
-
-- "H2 names ten DI seams but specifies zero method signatures" — co-resolve (the same H2 edit pass should declare the new `SubagentSpawner` interface signature in full alongside fixing the existing ten)
-- "H4 \"no-logic shims\" claim contradicts registration cache and `withActiveTools`" — same-cluster (both touch H4's adapter list and the "no-logic" framing; neither blocks the other)
-- "`AgentSession.dispose()` failure path unbounded" — decision-dependency (depends on the seam this finding introduces; the failure-bound rule must be wired through `SubagentSpawner` once it exists)
-- "V12a missing from V14e Deps" — same-cluster (touches the same V12a leaf but resolves independently)
-
----
-
 
