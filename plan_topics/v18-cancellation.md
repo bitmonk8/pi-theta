@@ -2,50 +2,50 @@
 
 ## V18a — `AbortSignal` at every loop iteration boundary
 
-- **Spec.** [Cancellation](../spec_topics/cancellation.md).
-- **Adds.** Interpreter checks signal before each `for`/`while` iteration's body.
-- **Tests.** Signal fired mid-loop: next iteration body not executed; `Err({kind:"cancelled"})` returned (or panic-routed for top-level).
-- **Deps.** V8b, V8c.
-- **Ships when.** Loops cancellable.
+- **Spec.** [Cancellation](../spec_topics/cancellation.md), [Pi Integration Contract — `Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam).
+- **Adds.** Interpreter `await`s `checkpoint.before("loop-iter", site)` immediately before reading `loomAbort.signal.aborted` at each `for`/`while` iteration's body.
+- **Tests.** Signal fired mid-loop: next iteration body not executed; `Err({kind:"cancelled"})` returned (or panic-routed for top-level). No-retroactive-rewrite test (using `FakeCheckpoint`): an iteration whose body produces `Ok(v)` and then the test fires `loomAbort.abort()` from the *next* iteration's `before("loop-iter", ...)` hook — the previously-bound `v` is preserved and the cancellation surfaces only at the next iteration's signal-check, never as a retroactive rewrite of the prior `Ok`.
+- **Deps.** V8b, V8c, H2.
+- **Ships when.** Loops cancellable and the no-retroactive-rewrite rule is verified through the `Checkpoint` seam.
 
 ## V18b — `AbortSignal` before every `@` query
 
-- **Spec.** [Cancellation](../spec_topics/cancellation.md).
-- **Adds.** Pre-query signal check; in-flight query aborted via the underlying provider's abort path.
-- **Tests.** Pre-flight abort: query never sent; mid-flight abort: `Err({kind:"cancelled"})`.
-- **Deps.** V5e.
-- **Ships when.** Queries cancellable.
+- **Spec.** [Cancellation](../spec_topics/cancellation.md), [Pi Integration Contract — `Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam).
+- **Adds.** Interpreter `await`s `checkpoint.before("query", site)` immediately before the pre-query signal check; in-flight query aborted via the underlying provider's abort path.
+- **Tests.** Pre-flight abort: query never sent; mid-flight abort: `Err({kind:"cancelled"})`. No-retroactive-rewrite test (using `FakeCheckpoint`): a query whose underlying provider returns `Ok(v)` and then the test fires `loomAbort.abort()` from the *next* checkpoint's `before(...)` hook — the previously-bound `v` is preserved and the abort surfaces only at that next checkpoint.
+- **Deps.** V5e, H2.
+- **Ships when.** Queries cancellable and the no-retroactive-rewrite rule is verified through the `Checkpoint` seam.
 
 ## V18c — `AbortSignal` before every tool call
 
-- **Spec.** [Cancellation](../spec_topics/cancellation.md).
-- **Adds.** Pre-call check; signal forwarded to tool's `execute(toolCallId, params, signal, ...)`.
-- **Tests.** Pre-flight abort: tool never invoked; mid-flight abort: `CodeToolError{cause:"cancelled"}` (wire `kind: "code_tool"`).
-- **Deps.** V14c-a.
-- **Ships when.** Tool calls cancellable.
+- **Spec.** [Cancellation](../spec_topics/cancellation.md), [Pi Integration Contract — `Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam).
+- **Adds.** Interpreter `await`s `checkpoint.before("tool-call", site)` immediately before the pre-call signal check; signal forwarded to tool's `execute(toolCallId, params, signal, ...)`.
+- **Tests.** Pre-flight abort: tool never invoked; mid-flight abort: `CodeToolError{cause:"cancelled"}` (wire `kind: "code_tool"`). No-retroactive-rewrite test (using `FakeCheckpoint`): a tool that returns `Ok(v)` followed by `loomAbort.abort()` fired from the *next* checkpoint's `before(...)` hook leaves the bound `v` intact; the cancellation surfaces at the next checkpoint, never as a rewrite of the tool's prior `Ok`.
+- **Deps.** V14c-a, H2.
+- **Ships when.** Tool calls cancellable and the no-retroactive-rewrite rule is verified through the `Checkpoint` seam.
 
 ## V18d — `AbortSignal` before every `invoke`
 
-- **Spec.** [Cancellation](../spec_topics/cancellation.md), [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md).
-- **Adds.** Pre-invoke check; child inherits derived signal from caller.
-- **Tests.** Pre-flight abort: child never spawned; mid-flight abort: `Err({kind:"cancelled"})` or `InvokeCalleeError{inner:cancelled}` per origin; for subagent-mode children, cancellation observed before the first turn still triggers `AgentSession.dispose()` via the `finally` block (cross-checked with V12a's disposal-on-spawn-then-immediate-cancel test).
-- **Deps.** V15a.
-- **Ships when.** Invokes cancellable.
+- **Spec.** [Cancellation](../spec_topics/cancellation.md), [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md), [Pi Integration Contract — `Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam).
+- **Adds.** Interpreter `await`s `checkpoint.before("invoke", site)` immediately before the pre-invoke signal check; child inherits derived signal from caller. Parent and child each construct their own `Checkpoint` instance from the same factory, mirroring the per-invocation `loomAbort` rule.
+- **Tests.** Pre-flight abort: child never spawned; mid-flight abort: `Err({kind:"cancelled"})` or `InvokeCalleeError{inner:cancelled}` per origin; for subagent-mode children, cancellation observed before the first turn still triggers `AgentSession.dispose()` via the `finally` block (cross-checked with V12a's disposal-on-spawn-then-immediate-cancel test). No-retroactive-rewrite test (using `FakeCheckpoint`): an `invoke` that returns `Ok(v)` followed by `loomAbort.abort()` fired from the *next* checkpoint's `before(...)` hook in the parent leaves the bound `v` intact; the parent's `Checkpoint` and the child's `Checkpoint` are observed to be distinct instances (a `before(...)` call inside the child is not seen by the parent's fake and vice versa).
+- **Deps.** V15a, H2.
+- **Ships when.** Invokes cancellable, parent/child checkpoint isolation verified, and the no-retroactive-rewrite rule is verified through the `Checkpoint` seam.
 
 ## V18e — Cancellation propagates downward only
 
-- **Spec.** [Cancellation](../spec_topics/cancellation.md) (propagation).
+- **Spec.** [Cancellation](../spec_topics/cancellation.md) (propagation), [Pi Integration Contract — `Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam).
 - **Adds.** Parent cancellation fires child's signal; child cancellation does not fire parent's signal — surfaces as `Err`.
-- **Tests.** Parent abort cancels child mid-execution; child internal cancel surfaces as `InvokeCalleeError{inner:cancelled}` to parent without aborting parent.
+- **Tests.** Parent abort cancels child mid-execution; child internal cancel surfaces as `InvokeCalleeError{inner:cancelled}` to parent without aborting parent. Tail-completion test (using `FakeCheckpoint`): a parent loom whose final statement after the child's `Ok(v)` return is pure arithmetic completes `Ok` even when the child's last `before(...)` hook fires `loomAbort.abort()` *after* the child returned but *before* the parent's notional next checkpoint — the runtime does not synthesize a top-level `cancelled` per the no-tail-synthesis rule.
 - **Deps.** V18b, V18c, V18d.
-- **Ships when.** Direction rule enforced.
+- **Ships when.** Direction rule enforced and the tail-completion rule is verified through the `Checkpoint` seam.
 
 ## V18p — `AbortSignal` before and during the binder LLM call
 
-- **Spec.** [Cancellation](../spec_topics/cancellation.md) (Granularity, Surfacing — cancelled binder), [Slash-Command Argument Binding — Cancellation, Failure modes](../spec_topics/binder.md).
+- **Spec.** [Cancellation](../spec_topics/cancellation.md) (Granularity, Surfacing — cancelled binder), [Slash-Command Argument Binding — Cancellation, Failure modes](../spec_topics/binder.md), [Pi Integration Contract — `Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam).
 - **Adds.** Pre-call signal check immediately before the binder LLM call; signal forwarded to the binder model's provider invocation so an abort observed mid-call surfaces; the single transport-failure retry honours the signal (an abort observed during the retry suppresses it). A cancelled binder produces the system note `loom /<name>: argument binding cancelled` per the failure-modes table and the loom does not run. Bypass-eligible looms (no-params, single-string) do **not** emit the cancelled-binder note — they have no binder call to cancel and remain cancellable at the next regular checkpoint inside the loom body.
-- **Tests.** Pre-call abort: binder request never issued (asserted via injected provider probe); cancelled-binder system note text matches the failure-modes table verbatim; the loom never starts. Mid-call abort: in-flight binder request observes the forwarded signal and the same system note surfaces. Abort observed during the transport-failure retry suppresses the retry (provider sees one request, not two) and surfaces the cancelled-binder note rather than the transport-unavailable note. Bypass-eligible looms (no-params; single-string) under abort emit no cancelled-binder note; the loom either runs to its first in-loom checkpoint and surfaces `Err({kind:"cancelled"})` there or completes (per the no-retroactive-`Ok`-to-`Err` rule). An abort observed *after* `ok` envelope return but *before* AJV validation lets validation complete (AJV is uncancellable per `cancellation.md`) and surfaces at the next in-loom checkpoint.
-- **Deps.** V16e, V16n, H4.
+- **Tests.** Pre-call abort: binder request never issued (asserted via injected provider probe); cancelled-binder system note text matches the failure-modes table verbatim; the loom never starts. Mid-call abort: in-flight binder request observes the forwarded signal and the same system note surfaces. Abort observed during the transport-failure retry suppresses the retry (provider sees one request, not two) and surfaces the cancelled-binder note rather than the transport-unavailable note. Bypass-eligible looms (no-params; single-string) under abort emit no cancelled-binder note; the loom either runs to its first in-loom checkpoint and surfaces `Err({kind:"cancelled"})` there or completes (per the no-retroactive-`Ok`-to-`Err` rule). The bypass-eligible tail-completion path is verified deterministically using `FakeCheckpoint`: a no-params loom whose body is a pure-arithmetic tail completes `Ok` when `loomAbort.abort()` fires from a hook awaited inside the final checkpoint's `before(...)`, and surfaces `Err({kind:"cancelled"})` when fired from a hook awaited inside the first in-loom checkpoint's `before(...)`. An abort observed *after* `ok` envelope return but *before* AJV validation lets validation complete (AJV is uncancellable per `cancellation.md`) and surfaces at the next in-loom checkpoint. The binder checkpoint is observed through `checkpoint.before("binder-call", site)` per [Pi Integration Contract — `Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam); a test that fires `loomAbort.abort()` from inside that hook exercises the pre-call abort path deterministically.
+- **Deps.** V16e, V16n, H4, H2.
 - **Ships when.** Binder calls are cancellable at the same granularity as queries, tools, and invokes, and the cancelled-binder failure-mode row is observable.
 
 ## V18f — File watcher (chokidar) over discovery roots

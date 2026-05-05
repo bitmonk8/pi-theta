@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 36 commit-ready findings (8 merge clusters, 29 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 35 commit-ready findings (8 merge clusters, 28 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -2518,73 +2518,4 @@ Edge cases the implementer must watch:
 - `InvokeInfraError` / `kind: "invoke_failure"` asymmetry not in glossary — same-cluster (third missing-glossary-entry finding; co-resolve in the same edit if the fixer is already in `glossary.md`)
 - "top-level loom block" vs. "top level of a loom" — minor terminology inconsistency — same-cluster (also a candidate for a glossary entry once the canonical phrasing is picked in `return.md`)
 - `argument-hint` uses a hyphen; all loom-native multi-word fields use underscores — same-cluster (sibling naming-convention finding in the same review; resolves independently)
-
----
-
-## spec_topics/cancellation.md
-
----
-
-# Race semantics: no injectable seam to land an abort between an `Ok` return and the next checkpoint
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** Race semantics: no test seam for checkpoint timing
-**Kind:** testability
-
-## Finding
-
-`spec_topics/cancellation.md` (Race semantics paragraph) commits the runtime to a precise no-retroactive-rewrite rule: "An operation that has already returned `Ok(v)` retains that value even if the signal fires before the next checkpoint executes; the interpreter must not retroactively rewrite a completed `Ok` into `Err({kind:'cancelled'})`." The same paragraph also commits the runtime to the symmetric tail rule: if no further checkpoint executes before the loom returns, the abort is *not* synthesised into a top-level `cancelled` — the loom completes `Ok`. Both rules constrain interpreter behaviour in the sub-microtask window between an operation's resolution and the next checkpoint's signal-check.
-
-No test seam exists today to land an abort deterministically inside that window. The existing collaborator seams (`H2 — Dependency-injection skeleton`) cover `FileSystem`, `DiagnosticsSink`, `SchemaValidator`, `ModelClient`, `ConversationDriver`, `ToolHost`, `LoomLoader`, `SubagentSpawner` — none of them give a test direct control over the boundary "operation just returned, checkpoint not yet observed". A test that fires `loomAbort.abort()` immediately after a fake tool's `execute()` resolves cannot guarantee the abort lands before the interpreter's next-statement microtask drains; the result is timing-dependent and either smoke-tests the in-flight cancellation path (already covered by V18b/c/d) or accidentally exercises the tail-completion path. The `V18a–V18e` leaves' `Tests.` bullets quietly assume this rule but supply no mechanism to verify it; the failure-mode (a regression where the interpreter checks `signal.aborted` *after* having already chosen the `Err` branch and rewrites the bound value) would slip through.
-
-The same gap blocks deterministic verification of the tail rule: a fake whose final statement is pure arithmetic cannot reliably observe "abort fired during the tail" without a hook that fires synchronously between the final operation's return and the loom's top-level resolution.
-
-## Spec Documents
-
-- `spec_topics/cancellation.md` — Race semantics paragraph and Edge cases bullets (option-dependent)
-- `spec_topics/pi-integration-contract.md` — `FakeFileSystem` / `FileSystem` interface section (the canonical "seam declaration" surface) (option-dependent)
-- `spec_topics/implementation-notes.md` — Runtime section (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- H2 — Dependency-injection skeleton with fakes — (modified) — adds the new seam interface and its in-memory fake
-- V18a — `AbortSignal` at every loop iteration boundary — (modified) — gains a no-retroactive-rewrite test using the seam
-- V18b — `AbortSignal` before every `@` query — (modified) — same
-- V18c — `AbortSignal` before every tool call — (modified) — same
-- V18d — `AbortSignal` before every `invoke` — (modified) — same
-- V18e — Cancellation propagates downward only — (modified) — uses the seam to verify the parent's tail-completion rule when the child cancels last
-- V18p — `AbortSignal` before and during the binder LLM call — (modified) — tail-completion rule for bypass-eligible looms ("either runs to its first in-loom checkpoint and surfaces `Err({kind:"cancelled"})` there or completes") is presently asserted without a deterministic injection point
-
-## Consequence
-
-**Severity:** advisory
-
-The rule is unambiguous in prose, but two reasonable implementers can write the interpreter loop differently — one checks `signal.aborted` *before* binding the result, the other *after* — and only the second satisfies the spec. Without a test seam the regression is invisible until production users observe sporadic value loss after pressing Esc. The cancellation slice still ships and behaves correctly in the common cases; what is lost is the ability to defend the rule under refactoring.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-**Option A.** Add a `Checkpoint` seam to H2 with `before(kind, site)`, no-op in production, observable in tests. This is the only option that gives deterministic tests of *both* race rules (no-retroactive-rewrite *and* tail-completion) without depending on JS microtask scheduling.
-
-Edge cases the implementer must watch:
-- The seam fires *before* the signal-check, not after, so a test that calls `abort()` from inside `before(...)` exercises the "abort observed at this checkpoint" path; a test that calls `abort()` from inside the *previous* checkpoint's `before(...)` exercises the "abort landed between checkpoints" path. Document both patterns.
-- The hook must be `await`ed even when production wiring is a no-op, otherwise tests cannot inject async work between operation resolution and signal-check. The cost is one already-resolved promise per checkpoint.
-- For `invoke`, parent and child each own their own `Checkpoint` seam (consistent with the per-invocation `loomAbort` rule); the H2 wiring constructs the child's seam from the same factory.
-- The seam does **not** observe non-checkpoint synchronous work (AJV validation, schema lowering, default-merging) — the Granularity rule already excludes those, and the seam mirrors that exclusion exactly.
-- The `binder-call` site is a checkpoint per V18p but lives outside the loom body; the seam fires there too so the cancelled-binder failure-mode test in V18p can also land aborts deterministically.
-
-## Related Findings
-
-- "Watcher debounce (250 ms) is a wall-clock constraint with no injectable clock seam" — same-cluster (both are wall-clock / timing constraints lacking a test seam; resolve independently with seam-shaped fixes)
-- "`scanPackagesTimeoutMs` is a wall-clock constraint with no injectable clock seam" — same-cluster (same shape; a single `Clock` seam could co-resolve both watcher and timeout findings, but is independent of `Checkpoint`)
-- "Discarded query event: \"exactly once\" — no observable marker to verify count" — same-cluster (testability gap on a normative rule; resolves with a different observation surface)
-- "Non-text content \"silently\" discarded: no observable signal for tests" — same-cluster (testability gap; independent fix)
-- "Re-scan deduplication: no observable emission counter" — same-cluster (same family of "no observable counter" findings)
 

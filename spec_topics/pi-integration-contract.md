@@ -176,6 +176,40 @@ The tool's returned `{ content, isError }` is lowered to the V1 string return va
 
 **Cancellation source.** As described in [Cancellation](./cancellation.md), the loom's `AbortSignal` is `loomAbort.signal` from a runtime-owned `AbortController` constructed fresh per invocation — **not** `ctx.signal` directly. Pi documents `ctx.signal` as `undefined` in idle / non-turn contexts (`@mariozechner/pi-coding-agent`'s extension docs, `ctx.signal` section), and a slash-command handler fires from idle, so the runtime MUST NOT use `ctx.signal` as the loom's authoritative signal: doing so would silently pass `undefined` into every adapter (`createAgentSession({ signal })`, the synthesised tool-execution `ExtensionContext.signal`, the child-invoke derived signal) and degrade every cancellation path to a no-op. Instead, the runtime forwards Pi's turn-side `ctx.signal` (when defined and observed inside one of the runtime's `tool_call` / `tool_result` / `message_update` / `turn_end` / `agent_end` handlers) into `loomAbort.abort()`, and likewise forwards the `signal` parameter of a tool-exposed loom's `execute(...)` into `loomAbort.abort()` via a one-shot listener registered at entry. All downstream queries, tool calls, and child invokes derive from `loomAbort.signal`. Because `loomAbort.signal` is always defined, the optional-chaining defence (`signal?.aborted`) used by tool adapters is no longer load-bearing inside the runtime; the runtime guarantees a defined signal to every adapter it calls. Subagent mode passes `loomAbort.signal` as `createAgentSession({ signal })`, so aborting `loomAbort` propagates through the spawned `AgentSession` to in-flight provider calls. Forwarding listeners are torn down in the same `finally` block that disposes the subagent session (see **Subagent session lifecycle** above).
 
+<a id="checkpoint-seam"></a>
+
+**`Checkpoint` seam.** The runtime exposes a single internal hook the interpreter `await`s immediately before each cancellation checkpoint defined by the **Granularity** rule in [Cancellation](./cancellation.md). The hook exists so that the two race rules in [Cancellation — Race semantics](./cancellation.md) — no retroactive `Ok(v)` → `Err({kind:"cancelled"})` rewrite, and no top-level synthesis when no further checkpoint executes after the abort — are deterministically testable without depending on JS microtask scheduling. Production wiring is a no-op (an already-resolved promise); the seam has no observable production effect beyond the cost of one already-resolved promise per checkpoint.
+
+The interface shape is:
+
+```ts
+type CheckpointKind =
+  | "loop-iter"
+  | "query"
+  | "tool-call"
+  | "invoke"
+  | "binder-call";
+
+interface CheckpointSite {
+  file: string;
+  line: number;
+  column: number;
+}
+
+interface Checkpoint {
+  before(kind: CheckpointKind, site: CheckpointSite): Promise<void>;
+}
+```
+
+Rules:
+
+- The interpreter `await`s `checkpoint.before(kind, site)` immediately *before* reading `loomAbort.signal.aborted` at every checkpoint enumerated in [Cancellation — Granularity](./cancellation.md): each `for`/`while` iteration boundary, each `@`-query, each tool call, each `invoke`, and the binder LLM call (the binder checkpoint fires even though the binder runs outside the loom body, so the cancelled-binder failure-mode in [Slash-Command Argument Binding](./binder.md) is observable through the same seam). The await happens unconditionally; production no-op resolves on the next microtask, and the always-`await` shape is what lets a test inject async work between an operation's resolution and the signal-check.
+- The hook does **not** observe non-checkpoint synchronous work (AJV validation, schema lowering, default-merging) — the **Granularity** rule already excludes those, and the seam mirrors that exclusion exactly. Implementations MUST NOT add `before(...)` calls at any site not enumerated above.
+- Production wiring constructs one no-op `Checkpoint` per `loomAbort` (i.e., per loom invocation). For `invoke`, parent and child each own their own `Checkpoint` instance constructed from the same factory, mirroring the per-invocation `loomAbort` rule from [Cancellation](./cancellation.md); a parent's `before(...)` is not observed by the child and vice versa.
+- Test wiring is the only consumer that observes calls. A test that fires `loomAbort.abort()` from inside `before(...)` exercises the *abort observed at this checkpoint* path; a test that fires `loomAbort.abort()` from inside the *previous* checkpoint's `before(...)` (or from any code awaited inside that previous `before(...)`) exercises the *abort landed between checkpoints* path — i.e., the no-retroactive-rewrite rule. A test that fires `loomAbort.abort()` after the loom's final checkpoint and before its top-level resolution exercises the no-tail-synthesis rule. These three patterns are the canonical use of the seam.
+- Test fakes MUST treat the seam as call-once-per-checkpoint and MUST NOT skip the await (the no-skip rule is what gives the test deterministic control over the post-resolution / pre-signal-check window).
+- The seam is internal: it is not exposed through `ExtensionAPI` and not visible to loom authors, Pi extensions, or tools. The H2 leaf wires it through the same constructor-injection skeleton that owns `FileSystem`, `DiagnosticsSink`, `SchemaValidator`, etc. (see [`plan_topics/h2-di-skeleton.md`](../plan_topics/h2-di-skeleton.md)).
+
 <a id="fakefilesystem--filesystem-interface"></a>
 
 **`FakeFileSystem` / `FileSystem` interface.** The runtime reads the filesystem exclusively through a `FileSystem` seam injected at construction time; production wiring uses a `PiFileSystem` adapter that delegates to Node, and tests use an in-memory `FakeFileSystem` whose constructor takes the values it should report. The interface members called out as load-bearing by other spec sections are:
