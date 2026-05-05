@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_96 findings retained, 3 false positives dropped, 0 persistent failures_
+_95 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -6768,61 +6768,3 @@ No other leaves require edits. V17j's own Deps (`V17a, V15a`) do not reference V
 
 ---
 
-# V15n invocation-cycle message format not pinned to spec template
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V15n invocation-cycle message format not pinned to spec template
-**Kind:** consistency
-
-## Finding
-
-`spec_topics/invocation.md` (Cycle detection) fixes the wire text of the cycle diagnostic verbatim: `loom/load/invocation-cycle` carries the message `"invocation cycle: A → B → A"`. V15n's Tests bullet enumerates only the path shapes (`Self-cycle (A → A); two-step (A → B → A); three-step; ...`) and never asserts the leading literal `"invocation cycle: "` or the `:` separator. An implementer who emits `"cycle detected: A → B → A"`, `"invoke cycle: A -> B -> A"`, or `"loom/load/invocation-cycle: A → B → A"` passes V15n while violating the spec.
-
-The parallel leaf V17k (import-cycle detection) does pin the full template — its Tests bullet reads *"error message matches spec format `\"import cycle: a.warp → b.warp → a.warp\"`"*. The two cycle diagnostics share a deliberately uniform format in the spec (see also `schemas.md`, which references both as templates for `"type-alias cycle: …"`), and the asymmetric test guarantees in V15n vs V17k let the invocation-cycle text drift while the import-cycle text is locked.
-
-## Plan Documents
-
-- `plan_topics/v15-invoke.md` — V15n Tests bullet (edited)
-- `plan_topics/v17-warp.md` — V17k Tests bullet (read-only, used as the format template to mirror)
-
-## Spec Documents
-
-- `spec_topics/invocation.md` — Cycle detection (read-only; source of the literal message template)
-- `spec_topics/diagnostics.md` — `loom/load/invocation-cycle` row (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V15
-
-**Leaves (implementation order):**
-
-- V15n — Parse-time cycle detection — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will diverge on the diagnostic's user-visible text and both pass V15n. Once shipped, the message becomes a de-facto contract that downstream tooling (test snapshots, doc examples in `invocation.md`, support scripts that grep diagnostic output) will key off, so the drift surfaces as a breaking change later when the spec text is enforced.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v15-invoke.md`, edit V15n's **Tests.** bullet so the message format is asserted literally, mirroring V17k. Replace the existing leading clauses
-
-> Self-cycle (`A → A`); two-step (`A → B → A`); three-step; cycle through warp `fn` invokes too (deps on V17j);
-
-with
-
-> Self-cycle, two-step, and three-step cycles each surface `loom/load/invocation-cycle` whose message matches the spec template `"invocation cycle: A → B → A"` (path joined by ` → `, leading literal `invocation cycle: `, trailing node repeats the head); cycle through warp `fn` invokes too;
-
-Leave the remaining clauses (unparseable-callee leaf rule, watcher re-walk) untouched. The literal-text assertion must cover both the leading token sequence (`invocation cycle:`, single space) and the path separator (` → ` with U+2192, single spaces either side, head node repeated at the tail).
-
-## Related Findings
-
-- "V15n Deps missing V17j; meta-level dep note in Tests is cruft" — co-resolve (both findings rewrite V15n's Tests bullet; the cruft-removal edit and the message-format edit land in the same line)
-- "Static-resolution cache named three different ways" — same-cluster (also touches V15n wording, but in the Adds field rather than Tests; resolves independently)
-
----
