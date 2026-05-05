@@ -42,11 +42,11 @@
 
 ## V16f — `bind_context: none`
 
-- **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (binder context).
-- **Adds.** Default mode; binder sees only slash text + frontmatter.
-- **Tests.** No session context attached; deterministic output for identical inputs (modulo provider non-determinism).
+- **Spec.** [Slash-Command Argument Binding — Binder context, Binder system prompt](../spec_topics/binder.md).
+- **Adds.** Default mode; binder sees only slash text + frontmatter. The frontmatter `argument-hint:` value (when present) flows into the binder's system prompt under `Argument hint:` as the binder-grounding payload (no other surface consumes it in V1; the autocomplete dropdown does not show it — see V3a).
+- **Tests.** No session context attached; deterministic output for identical inputs (modulo provider non-determinism); when `argument-hint:` is set, the binder's system prompt contains `Argument hint: <value>` exactly once; when absent, the line is omitted.
 - **Deps.** V16c, V16e.
-- **Ships when.** Default binder path works end-to-end.
+- **Ships when.** Default binder path works end-to-end and `argument-hint` reaches the binder grounding payload.
 
 ## V16g — `bind_context: session` truncation
 

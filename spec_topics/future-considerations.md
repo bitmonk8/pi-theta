@@ -48,6 +48,8 @@ Items occasionally carry a `Depends on:` annotation where they presuppose anothe
   *Seam:* `${...}` interpolation must go through a parser entry point that can later accept full expressions, not a hand-rolled `${param}` regex.
 - **Package-style (`@scope/pkg`) and project-rooted (`/looms/...`) `import` paths** — V1 supports relative paths only.
   *Seam:* the module-resolution path must be a pluggable resolver, not a hard-coded relative-path resolution.
+- **Pi extension API: `argumentHint` field on `RegisteredCommand`** — Pi's built-in `.md` prompt templates carry an `argumentHint` that drives a distinct slot in the slash-command autocomplete dropdown, but extension-registered commands have no such slot. Loom's `argument-hint` frontmatter field is therefore consumed by the binder only in V1 (see [Slash-Command Argument Binding](./binder.md)). A future contributor either upstreams `argumentHint` to Pi's `RegisteredCommand` or revisits the V1 decision once Pi exposes the field.
+  *Seam:* the slash-command registration call site is single-pass; the `argument-hint` value is preserved on the loom's parsed AST and would only need to be threaded into the registration options.
 
 ---
 
