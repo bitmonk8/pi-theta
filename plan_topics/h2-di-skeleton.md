@@ -1,6 +1,6 @@
 # H2 — Dependency-injection skeleton with fakes
 
-**Spec.** [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) (Schema validation bullet — pins the `SchemaValidator` behavioural contract); [Pi Integration Contract](../spec_topics/pi-integration-contract.md) (pins `ExtensionAPI`, `ConversationDriver`, `SubagentSpawner` / `SubagentSession`, the `FakeFileSystem` / `FileSystem` surface, and the [`Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam) the interpreter awaits before each cancellation checkpoint). Other seams are loom-internal and have no normative spec page.
+**Spec.** [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) (Schema validation bullet — pins the `SchemaValidator` behavioural contract; Clock bullet — pins the `Clock` behavioural contract); [Pi Integration Contract](../spec_topics/pi-integration-contract.md) (pins `ExtensionAPI`, `ConversationDriver`, `SubagentSpawner` / `SubagentSession`, the `FakeFileSystem` / `FileSystem` surface, the [`Clock` / `FakeClock` interface](../spec_topics/pi-integration-contract.md#clock--fakeclock-interface), and the [`Checkpoint` seam](../spec_topics/pi-integration-contract.md#checkpoint-seam) the interpreter awaits before each cancellation checkpoint). Other seams are loom-internal and have no normative spec page.
 
 **Adds.** Pure-interface seams for every collaborator the runtime needs, declared as TypeScript signatures in the code block below. A constructor-injection factory `makeRuntime({ ... })` that wires them. In-memory fakes for every interface in `test/fakes/` — production code never imports a fake. `SubagentSpawner` is a factory seam wrapping Pi's `createAgentSession` (per [Pi Integration Contract — Conversation drive — subagent mode](../spec_topics/pi-integration-contract.md) and [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md)): `spawn(opts)` returns a `SubagentSession` handle whose `dispose()` delegates to the underlying `AgentSession.dispose()` and is the sole surface V12a, V18d, and V18n test against. `ToolHost.getCommandContext()` returns `undefined` when no slash-handler is currently retained (before the first invocation and after `session_shutdown`); production callers pass a defined `ctx` to `setCommandContext` on slash-handler entry, and `setCommandContext(undefined)` clears the retained reference. `FileSystem.homedir()` exists so production code never reads `process.env` directly (per [Pi Integration Contract — `FakeFileSystem` / `FileSystem` interface](../spec_topics/pi-integration-contract.md#fakefilesystem--filesystem-interface) and [Directory Convention — Home-directory expansion](../spec_topics/discovery.md#home-directory-expansion)).
 
@@ -60,6 +60,20 @@ interface LoomLoader {
   load(path: string): Promise<ParsedLoom>;
 }
 
+// Clock — wall-clock + timer seam used by RuntimeEvent.occurred_at stamping,
+// the chokidar watcher's 250 ms debounce, the settings-watcher debounce, and
+// the looms.scanPackagesTimeoutMs cap on package discovery. Production wiring
+// uses a WallClock adapter (performance.now / global setTimeout / clearTimeout);
+// tests use a FakeClock whose advance(ms) synchronously fires due timers in
+// deadline order, equal-deadline timers in registration order. One instance per
+// runtime; parallel runtimes get independent clocks.
+type TimerHandle = { readonly id: number };
+interface Clock {
+  now(): number;                                    // monotonic milliseconds
+  setTimeout(fn: () => void, ms: number): TimerHandle;
+  clearTimeout(handle: TimerHandle): void;
+}
+
 // Checkpoint — runtime-internal seam awaited immediately before each cancellation
 // checkpoint (loop iteration, @-query, tool call, invoke, binder LLM call) so tests can
 // land aborts deterministically into the post-resolution / pre-signal-check window
@@ -95,6 +109,8 @@ Forward references (`Diagnostic`, `LoweredSchema`, `ValidationError`, `ModelRequ
 - `FakeFileSystem.readText` for unknown path rejects with a typed error.
 - `FakeDiagnosticsSink` preserves report order on drain.
 - `FakeFileSystem.homedir()` returns the constructor-injected value; production `PiFileSystem.homedir()` delegates to `os.homedir()`.
+- `FakeClock.advance(ms)` synchronously fires every timer whose deadline has elapsed in deadline order; equal-deadline timers fire in registration order; `clearTimeout` is a no-op for already-fired handles; `now()` returns the fake's accumulated time and is *not* implicitly advanced by `advance`. Production `WallClock.now()` delegates to `performance.now()` and `WallClock.setTimeout` / `clearTimeout` delegate to the global timer functions.
+- A grep-test asserts that `Date.now`, `performance.now`, `Date.prototype.getTime`, and the global `setTimeout` / `clearTimeout` do not appear anywhere under `src/` outside the `WallClock` adapter (parallel to the existing `process.env.HOME` ban for `homedir()`).
 - `FakeToolHost.getCommandContext()` returns `undefined` until `setCommandContext(ctx)` is called, then returns the most recently set `ctx`; `setCommandContext(undefined)` resets it to `undefined`.
 - `FakeSubagentSpawner.spawn(...)` returns a handle whose `dispose()` is observable (call-count probe) and idempotent (a second `dispose()` is a no-op, per [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md)).
 - `FakeSubagentSpawner.spawn(...)` rejects with a typed error when no scripted spawn response is queued (matches the existing "no silent default" rule for `FakeModelClient`).

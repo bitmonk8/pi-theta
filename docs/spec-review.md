@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 12 commit-ready findings (8 merge clusters, 23 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 11 commit-ready findings (8 merge clusters, 23 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -904,100 +904,4 @@ Edge cases the implementer must watch:
 - "Two-arm binder schema is a V1 deliverable buried in the non-goals section" — same-cluster (mirror-image scope-hygiene issue: V1 content in a future-section rather than future content in a V1 section; same underlying spec-organisation rule)
 
 ---
-
-# H2 Clock seam — watcher debounce, scanPackagesTimeoutMs, RuntimeEvent occurred_at
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Merged from:** 3 findings:
-- Watcher debounce (250 ms) is a wall-clock constraint with no injectable clock seam
-- RuntimeEvent deduplication key references a non-existent field
-- `scanPackagesTimeoutMs` is a wall-clock constraint with no injectable clock seam
-
-**Kind:** seams, error-model, completeness, implementability
-
-## Finding
-
-Three findings all reduce to the same architectural gap: the spec specifies wall-clock-bounded behaviour with no injectable clock seam, and one of them (`RuntimeEvent` dedup key) requires a stamped timestamp that the seam would provide.
-
-1. The watcher debounce window (250 ms) is unobservable in tests without a fake clock.
-2. `scanPackagesTimeoutMs` cannot be exercised in CI without a fake clock.
-3. `RuntimeEvent`'s dedup key references `event.timestamp`, but `RuntimeEvent` declares no such field. Consumers cannot dedup correctly.
-
-All three are resolved by adding a single `Clock` seam to the H2 DI skeleton and using it consistently. The findings MUST merge because they all extend the same H2 interface block.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — H2 DI seams paragraph (edited; new `Clock` interface alongside `FileSystem`); Watcher Step 4 (edited; Clock-seam reference); `RuntimeEvent` declaration (edited; new `occurred_at: number` field) (edited)
-- `spec_topics/implementation-notes.md` — Runtime section (edited; `Clock` bullet alongside `SchemaValidator`)
-- `spec_topics/discovery.md` — Package-discovery edge-cases bullet (edited; Clock-seam reference)
-- `plan_topics/h2-di-skeleton.md` — Adds (edited; `Clock` interface in code block, `FakeClock` in test fakes, ordering rules in Tests bullets)
-- `plan_topics/v18-cancellation.md` — V18f, V18r, V18q tests (edited; use `FakeClock` to drive deterministic coalescing / dedup)
-- `plan_topics/v14-discovery.md` — V14m (edited; replace real-time test with `FakeClock` advance)
-
-## Plan Impact
-
-**Phases:** Horizontal, Vertical V14, V18
-
-**Leaves (implementation order):**
-
-- H2 — DI skeleton — (modified; adds `Clock` interface and `FakeClock` test fake)
-- V14m — discovery walk timeout-cap path — (modified; uses `FakeClock`)
-- V18f — watcher debounce coalescing — (modified; uses `FakeClock`)
-- V18q — RuntimeEvent dedup — (modified; tests dedup key includes `occurred_at`)
-- V18r — settings-watcher debounce — (modified; uses `FakeClock`)
-
-## Consequence
-
-**Severity:** correctness
-
-Without the seam, three CI surfaces (V14m, V18f, V18r) either rely on real wall-clock time (slow + flaky) or cannot be tested at all. Without `occurred_at`, the dedup key in V18q is unspecified — two consumers will deduplicate inconsistently. The settings-watcher debounce (V18r) inherits the same gap.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a `Clock` seam to H2's DI skeleton, modelled on the existing `FileSystem` seam:
-
-```ts
-interface Clock {
-  now(): number;                                         // monotonic milliseconds
-  setTimeout(fn: () => void, ms: number): TimerHandle;
-  clearTimeout(handle: TimerHandle): void;
-}
-```
-
-- Production wiring: `WallClock` adapter delegates to `performance.now()` and the global `setTimeout` / `clearTimeout`.
-- Test fake: `FakeClock` exposes `advance(ms: number)`. `advance` synchronously fires every timer whose deadline has elapsed, in deadline order; equal-deadline timers fire in registration order. `clearTimeout` is a no-op for already-fired handles. `now()` returns the fake's accumulated time and is *not* implicitly advanced.
-- Lint rule: `Date.now`, `performance.now`, `Date.prototype.getTime`, and the global `setTimeout` / `clearTimeout` MUST NOT appear under `src/` outside the `WallClock` adapter (parallel to the existing `process.env.HOME` ban for `homedir()`). H2 ships a grep-test that enforces this.
-
-Wire the seam at three sites:
-
-1. **Watcher debounce (`pi-integration-contract.md`, Watcher Step 4).** Append: "the 250 ms window is measured against the runtime's injected `Clock` seam (per H2's DI skeleton); the seam exists to make burst-coalescing assertions deterministic and is not a tunable runtime knob."
-2. **Discovery timeout cap (`discovery.md`, Package-discovery edge-cases bullet).** Append: "elapsed time is read through the runtime's `Clock.now()` seam (see [Pi Integration Contract](./pi-integration-contract.md)). The cap-check site is *before each new candidate-package read attempt*; a single very slow read is not aborted mid-flight (deferred hardening)."
-3. **`RuntimeEvent.occurred_at`.** Extend the `RuntimeEvent` declaration with a required field:
-   ```ts
-   occurred_at: number; // Unix epoch ms, stamped at the originating emission site via Clock.now()
-   ```
-   Replace the dedup-key tuple text with: "Consumers MUST deduplicate on `(kind, query_site, message, occurred_at)`. Re-emissions for symmetry MUST copy the originating `RuntimeEvent` instance verbatim — including `occurred_at` — rather than re-stamping. Two emissions from the same `query_site` with the same `kind` and `message` but distinct `occurred_at` values represent two distinct occurrences."
-
-Companion edits:
-
-- **`spec_topics/implementation-notes.md`** — Add a `Clock` bullet to the Runtime section parallel to the existing `SchemaValidator` bullet, pinning one-instance-per-runtime.
-- **`plan_topics/h2-di-skeleton.md`** — Adds: the `Clock` interface, the `WallClock` and `FakeClock` implementations, the grep-test, the ordering rules. Tests: `FakeClock.advance` fires due timers in deadline + registration order; `clearTimeout` is no-op for already-fired handles; concurrent timers with equal deadlines fire in registration order.
-- **V14m, V18f, V18r, V18q tests** — Replace any wall-clock-dependent assertion with `FakeClock` injection. V18q must advance the clock between iterations of dedup-loop test cases so two consecutive emissions from the same site get distinct `occurred_at` values.
-
-Edge cases:
-
-- `Clock.now()` is monotonic (forbids `Date.now()`-style NTP drift).
-- `Clock` is one-instance-per-runtime; parallel runtimes get independent clocks.
-- The watcher's debouncer holds the most recent timer handle and clears it on each new event.
-- The cap-check site for `scanPackagesTimeoutMs` is *between* `package.json` reads, not inside them.
-- The `occurred_at` rethrow rule (copy-verbatim, never re-stamp) must be enforced through `?`-propagation and the user-facing top-level handler.
-- Tests that mock the clock to a constant value will collide on `occurred_at`; V18q's test harness MUST advance the mock between iterations.
-
-## Related Findings
-
-- None outside this merge.
 
