@@ -51,8 +51,8 @@
 ## V16g — `bind_context: session` truncation
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (session-context truncation).
-- **Adds.** Walk caller-session turns newest-to-oldest; accumulate until 20 turns or 8000 tokens (whichever smaller); whole-turn boundary.
-- **Tests.** Exact 20-turn boundary; exact 8000-token boundary (token count via `estimateTokens` from `@mariozechner/pi-coding-agent`), including a turn whose inclusion would push the running sum over 8000 is excluded entirely; partial messages not split. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
+- **Adds.** Walk caller-session turns newest-to-oldest, summing per-turn token counts via `estimateTokens` from `@mariozechner/pi-coding-agent`. Include a candidate turn only if doing so keeps both the running turn count ≤ 20 and the running token total ≤ 8000; the first turn that would exceed either cap is excluded entirely and the walk stops there. Whole-turn boundary (no message-level splitting). Algorithm and worked examples per [Session-context truncation](../spec_topics/binder.md#session-context-truncation-bind_context-session).
+- **Tests.** 20-turn cap: 20-turn session fully included; 21-turn session includes the 20 newest turns and excludes the 21st even if the running token total stays under 8000. 8000-token cap: a turn whose inclusion would push the running sum over 8000 is excluded entirely, the walk stops at that turn, and any older turns that would individually fit are not reconsidered (matches the spec's worked example with newest-first per-turn counts `[1200, 900, 1500, 2000, 2800, …]` → 4 turns / 5600 tokens included). Single oversized newest turn: when the newest turn alone exceeds 8000 tokens the walk includes nothing and the binder runs with no session-context block (no special diagnostic). Whole-turn boundary: messages within a turn are never split. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V16f.
 - **Ships when.** Session-context binder path works.
 

@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_100 findings retained, 3 false positives dropped, 0 persistent failures_
+_99 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7028,75 +7028,6 @@ Edge cases the implementer must watch: the unknown-code emission is once per loo
 - "V16e ordering: forward Dep on V16o with misleading file order" — same-cluster (same leaf; resolves independently).
 - "V16e bad `looms.binderModel` setting silently unregisters all affected looms" — same-cluster (same leaf and same load-time pass; resolves independently).
 - "V16h \"seed included for providers that support it\" — supported-provider list not pinned" — same-cluster (parallel "Pi SDK detail not pinned" defect on a sibling V16 leaf; same fix shape but different surface).
-
----
-
-# V16g `Adds` bullet paraphrases the spec sloppily; "whichever smaller" literally compares turns to tokens
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V16g "whichever smaller" ambiguous
-**Kind:** clarity
-
-## Finding
-
-V16g's `Adds` bullet reads: *"Walk caller-session turns newest-to-oldest; accumulate until 20 turns or 8000 tokens (whichever smaller); whole-turn boundary."* The phrase "whichever smaller" is borrowed from the spec's loose intro at `spec_topics/binder.md` line 20 ("the last ~20 turns or ~8000 tokens (whichever is smaller)") and is fine as flavour text there. As a normative summary inside the leaf it is broken: "smaller" is a comparison between two scalar values, but turns and tokens are different units, so the literal reading is nonsensical. The intended reading — "stop as soon as either bound would be exceeded" — is also not what "whichever smaller" says in any standard English usage.
-
-The normative truncation algorithm lives at `spec_topics/binder.md` § "Session-context truncation" (lines 93–99) and is precise: walk newest-to-oldest, sum per-turn `estimateTokens`, include a candidate turn only if doing so keeps the running token total within 8000, and stop at the first excluded turn (worked example covers the over-budget case and the single-oversized-newest-turn case). The 20-turn cap acts in parallel.
-
-V16g's `Tests` bullet partially saves the leaf — it explicitly tests the "turn whose inclusion would push the running sum over 8000 is excluded entirely" rule — but says only "exact 20-turn boundary" for the turn cap, leaving the same shape of ambiguity (does the 20th turn count, or the 21st? does the cap interact with the token cap?). An implementer working from the leaf without re-reading the spec section can guess the wrong algorithm; an implementer who follows the leaf's `Spec.` link gets the right one but the leaf wording silently disagrees with what they will read.
-
-## Plan Documents
-
-- `plan_topics/v16-binder.md` — V16g `Adds` and `Tests` bullets (edited)
-
-## Spec Documents
-
-- `spec_topics/binder.md` — § "Session-context truncation (`bind_context: session`)" (read-only; already normative and correct)
-
-## Affected Leaves
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16g — `bind_context: session` truncation — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A implementer who reads V16g's `Adds` bullet without following the `Spec.` link can mis-implement the truncation as a `min(turns, tokens)` style early-stop, or get the inclusion-vs-exclusion edge of the 20-turn boundary wrong. The `Tests` bullet catches the token-boundary case but not the turn-boundary case, so a wrong-on-turns implementation can ship green.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v16-binder.md`, V16g:
-
-Replace the `Adds.` bullet:
-
-> **Adds.** Walk caller-session turns newest-to-oldest; accumulate until 20 turns or 8000 tokens (whichever smaller); whole-turn boundary.
-
-with:
-
-> **Adds.** Walk caller-session turns newest-to-oldest, summing per-turn token counts via `estimateTokens` from `@mariozechner/pi-coding-agent`. Include a candidate turn only if doing so keeps both the running turn count ≤ 20 and the running token total ≤ 8000; the first turn that would exceed either cap is excluded entirely and the walk stops there. Whole-turn boundary (no message-level splitting). Algorithm and worked examples per [Session-context truncation](../spec_topics/binder.md#session-context-truncation-bind_context-session).
-
-Replace the `Tests.` bullet:
-
-> **Tests.** Exact 20-turn boundary; exact 8000-token boundary (token count via `estimateTokens` from `@mariozechner/pi-coding-agent`), including a turn whose inclusion would push the running sum over 8000 is excluded entirely; partial messages not split.
-
-with:
-
-> **Tests.** 20-turn cap: 20-turn session fully included; 21-turn session includes the 20 newest turns and excludes the 21st even if the running token total stays under 8000. 8000-token cap: a turn whose inclusion would push the running sum over 8000 is excluded entirely, the walk stops at that turn, and any older turns that would individually fit are not reconsidered (matches the spec's worked example with newest-first per-turn counts `[1200, 900, 1500, 2000, 2800, …]` → 4 turns / 5600 tokens included). Single oversized newest turn: when the newest turn alone exceeds 8000 tokens the walk includes nothing and the binder runs with no session-context block (no special diagnostic). Whole-turn boundary: messages within a turn are never split.
-
-The `Deps.` and `Ships when.` fields are unchanged.
-
-## Related Findings
-
-- "V16h binder seed value not specified" — same-cluster (sibling V16 leaf with parallel "spec is precise, leaf paraphrase is sloppy" shape; resolves independently)
-- "V16h \"seed included for providers that support it\" — supported-provider list not pinned" — same-cluster (sibling V16 leaf, resolves independently)
 
 ---
 
