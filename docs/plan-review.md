@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_70 findings retained, 3 false positives dropped, 0 persistent failures_
+_69 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -4978,78 +4978,3 @@ The V14e Deps citation in V6i-b is the one edge case to watch — if the fixer d
 
 ---
 
-# `resources_discover` subscription contract has no plan leaf
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** `` `resources_discover` subscription and `{}` return — no plan leaf ``
-**Kind:** spec-coverage
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` step 1 spells out a four-part contract for the loom extension's `resources_discover` integration: (a) the factory subscribes to `resources_discover` (after registering `--loom`); (b) the handler walks the five discovery sources on every event and re-runs at factory time; (c) the handler reads the project root from `event.cwd` rather than a factory-captured `cwd`, so a per-session cwd change is honoured on reload; (d) the handler distinguishes `reason: "startup"` (initial scan) from `reason: "reload"` (re-scan) and returns the typed empty result `{}` because `ResourcesDiscoverResult` has no `loomPaths` slot.
-
-No leaf claims any of these four obligations. H4 (`plan_topics/h4-extension-shell.md`) builds the factory shell but only registers `/loom-status` — it never subscribes to `resources_discover`. M (`plan_topics/m-mvp.md`) does the first discovery walk but its Adds and Tests are silent on whether the walk runs from a `resources_discover` handler, what the handler returns, which `cwd` it uses, or how `reason` is interpreted. V14k–V14q (`plan_topics/v14-tool-calls.md`) harden each individual source's walk rules but say nothing about the event subscription that drives them; V14o merely mentions the registration-ordering constraint ("registered **before** subscribing to `resources_discover`") without claiming the subscription itself. V18f covers chokidar-driven content-edit reloads, a separate mechanism. The coverage-matrix row for `[Pi Integration Contract]` lists `M, V12a, V14a–V14j, V18f, V18g, V18h`, which gives the V18o REQ-ID gate nothing to bind these four obligations to.
-
-## Plan Documents
-
-- `plan_topics/h4-extension-shell.md` — Adds, Tests (option-dependent)
-- `plan_topics/m-mvp.md` — Adds, Tests (option-dependent)
-- `plan_topics/v14-tool-calls.md` — V14k Adds, V14k Tests (option-dependent)
-- `plan_topics/coverage-matrix.md` — `Pi Extension Integration` and `Pi Integration Contract` rows (edited)
-- `plan_topics/conventions.md` — read-only
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — Extension entry point, step 1 (read-only)
-- `spec_topics/discovery.md` — opening paragraph on the no-`loomPaths` slot (read-only)
-
-## Affected Leaves
-
-**Phases:** Horizontal, MVP, Vertical V14
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — (modified)
-- M — Minimal end-to-end loom — (modified)
-- V14k — Discovery: global `~/.pi/agent/looms/` — (modified)
-
-(Or, under Option B, a single `<new>` V14 leaf added between V14j and V14k.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers would diverge: one might omit the `resources_discover` subscription entirely (since M's "discovery happens" is satisfied by the factory-time walk alone), one might subscribe but return `undefined` and break Pi's typed-return expectation, and a third might capture `cwd` once at factory time and silently use a stale project root after a Pi session reload. The V18o REQ-ID gate cannot catch any of these because no leaf has registered the obligations against the matrix. The extension would still load and `/hello` would work in a fresh session, masking the defect until a reload or cwd change.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Insert a single `<new>` leaf in `plan_topics/v14-tool-calls.md` (logically between V14j and V14k) that owns the entire `resources_discover` lifecycle: subscription, return value, `event.cwd` source-of-truth, `reason` semantics, and re-trigger. Mb (per D5) and V14k–V14q then layer the actual source walks on top. The four obligations are tightly coupled (a single Pi-side hook with one return shape, one cwd source, one reason field) and folding any of them into H4 worsens H4's already-growing scope (D6 system-note channel + D7 cache + helper).
-
-**Plan edits.**
-- New leaf `<new>` in `plan_topics/v14-tool-calls.md` (positioned between V14j and V14k; implementer picks the final ID following the V14 sequence convention):
-  - `Spec.` — `[Pi Integration Contract — Extension entry point](../spec_topics/pi-integration-contract.md)`, `[Directory Convention](../spec_topics/discovery.md)`.
-  - `Adds.` — Factory subscribes once to `resources_discover` after `pi.registerFlag('loom', …)`. Handler reads project root from `event.cwd` (never the factory-captured cwd), runs the five-source walk, and returns the typed empty result `{}` (no `loomPaths` slot exists). `reason: "startup"` runs the initial scan; `reason: "reload"` re-runs the walk. The handler is the single entry point for both factory-time and post-startup discovery.
-  - `Tests.` — subscription registered exactly once and after `pi.registerFlag`; handler returns `{}`; `event.cwd` overrides factory-captured cwd when they differ; `reason: "reload"` re-walks all five sources; `reason: "startup"` runs the initial walk; the handler's typed return matches `ResourcesDiscoverResult`.
-  - `Deps.` — H4, V14o.
-  - `Ships when.` — every discovery walk in V14k–V14q is reachable through this handler.
-- Mb `Adds.` — point at the new leaf for the subscription/cwd contract; keep Mb's local two-root rule.
-- V14k–V14q `Deps.` — add the new leaf where they currently say `Deps. M` (now `Mb` per D5) or `Deps. V14k`.
-- `coverage-matrix.md` — add the new leaf ID to the `Pi Extension Integration` and `Pi Integration Contract` rows.
-
-**Spec edits.** None.
-
-Implementer must (1) pick the final leaf ID following the V14 sequence convention, and (2) thread the new ID into every existing V14k–V14q `Deps` field plus the `coverage-matrix.md` rows for `Pi Extension Integration` and `Pi Integration Contract`.
-
-## Related Findings
-
-- "M assumes registration/collision plumbing not yet scheduled" — same-cluster (also flags an unowned slice of the M/H4 factory-time pipeline; resolves independently).
-- "M too large — five distinct concerns in one leaf" — decision-dependency (if M is split into Ma/Mb, the new leaf's `Deps` should reference Mb rather than M).
-- "H4 missing mandatory Spec field" — co-resolve (Option A would force H4 to grow a `pi-integration-contract.md` `Spec.` reference; Option B leaves H4 untouched).
-- "`loomAbort` controller construction not assigned to any leaf" — same-cluster (another factory-shell obligation with no claiming leaf; resolves independently).
-- "M's `~/.pi/agent/looms/` path expansion unspecified for Windows" — same-cluster (discovery-contract gap; resolves independently).
-
----

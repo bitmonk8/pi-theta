@@ -88,12 +88,20 @@
 - **Deps.** V14a.
 - **Ships when.** Tool-inheritance footgun closed.
 
+## V14t — `resources_discover` subscription, return shape, `event.cwd`, and `reason` semantics
+
+- **Spec.** [Pi Integration Contract — Extension entry point](../spec_topics/pi-integration-contract.md), [Directory Convention](../spec_topics/discovery.md).
+- **Adds.** Factory subscribes exactly once to `resources_discover` after `pi.registerFlag('loom', …)` (V14o); the registered handler is the single entry point for both factory-time and post-startup discovery. The handler reads the project root from `event.cwd` on every invocation (never a factory-captured `cwd`, so a per-session cwd change is honoured on reload), runs the five-source walk owned by V14k–V14q, and returns the typed empty result `{}` (the `ResourcesDiscoverResult` shape has no `loomPaths` slot — discovery side-effects are the registration of slash commands, not entries in the return value). `reason: "startup"` runs the initial scan; `reason: "reload"` re-runs the walk against the (possibly new) `event.cwd`. The factory's startup path drives the first walk through the same handler — there is no separate factory-time walk function.
+- **Tests.** `pi.subscribe('resources_discover', …)` is called exactly once across the factory's lifetime and strictly after `pi.registerFlag('loom', …)` (assert by recording call order on the `FakeExtensionAPI`); the handler's resolved value strict-equals `{}` and type-checks against `ResourcesDiscoverResult` (no `loomPaths` key); when `event.cwd` differs from the cwd captured at factory time, the walk's project-root input is `event.cwd` (verified by a probe on the project-source walker); `reason: "reload"` triggers a fresh five-source walk (all five source walkers — global, project, package, settings, CLI — observe one invocation per reload); `reason: "startup"` triggers the initial walk on the first event; two back-to-back `reason: "reload"` events both re-walk (no caching short-circuit at this layer); the factory's startup path goes through the handler (no separate factory-time walk function bypasses the subscription).
+- **Deps.** H4, V14o.
+- **Ships when.** Every discovery walk in V14k–V14q is reachable through this single `resources_discover` handler, with `event.cwd` as the source of truth and `{}` as the typed return.
+
 ## V14k — Discovery: global `~/.pi/agent/looms/`
 
 - **Spec.** [Directory Convention](../spec_topics/discovery.md).
 - **Adds.** Already in M; this leaf hardens with manifest of every spec rule (non-recursive, `*.loom` only, `.warp` excluded).
 - **Tests.** Recursive subdirs not discovered; non-`.loom` ignored; `.warp` not registered as command.
-- **Deps.** M.
+- **Deps.** M, V14t.
 - **Ships when.** Global discovery rule-complete.
 
 ## V14l — Discovery: project `.pi/looms/`
@@ -101,7 +109,7 @@
 - **Spec.** [Directory Convention](../spec_topics/discovery.md).
 - **Adds.** Already in M; harden as V14k.
 - **Tests.** As V14k for project root.
-- **Deps.** M.
+- **Deps.** M, V14t.
 - **Ships when.** Project discovery rule-complete.
 
 ## V14m — Discovery: package `looms/` and `pi.looms`
@@ -109,7 +117,7 @@
 - **Spec.** [Directory Convention](../spec_topics/discovery.md), [Discovery — Slash-name collisions at the same priority](../spec_topics/discovery.md).
 - **Adds.** Walk every root listed in `discovery.md` §"Package discovery" → "Roots scanned". For each root, treat every non-`@`-prefixed immediate child as a candidate package and treat every `@`-prefixed immediate child as a scope directory whose own immediate children are candidate packages. Read each candidate's `package.json` for `pi.looms`; fall back to the conventional `looms/` directory per spec. The walk is bounded by `looms.scanPackagesMaxFiles` (default 2000), `looms.scanPackagesTimeoutMs` (default 2000), and the `looms.scanPackages` opt-out. Two packages whose `pi.looms` (or conventional `looms/` directory) derive the same final slash name are caught by V14q.
 - **Tests.** `pi.looms` array honoured; `looms/` directory honoured (in absence of `pi.looms`); when `package.json` has both `pi.looms` and a conventional `looms/` directory, only `pi.looms` contributes (the `looms/` directory is **not** merged in — verified by a package whose `looms/` holds a `.loom` file not referenced by `pi.looms`, which must NOT register); two packages each shipping `lint.loom` → `loom/load/cross-format-collision` listing all colliding paths and neither registers; three packages each shipping the same name produces a single error listing all three paths; scoped package `@acme/tools` shipping `pi.looms: ["lint.loom"]` registers as `/lint`; scope directory `@acme` containing two packages each shipping a loom registers both; a `node_modules/@acme/foo/` package missing `package.json` is silently skipped (per failure-modes table); a synthetic `node_modules/` containing 2001 packages emits `loom/load/discovery-slow` exactly once and registers looms only from the first 2000 inspected; a walk that exceeds `looms.scanPackagesTimeoutMs` (forced via injected slow `FileSystem`) emits `loom/load/discovery-slow` and aborts further package inspection; `looms.scanPackages: false` skips all five package-discovery roots and emits no `loom/load/discovery-slow`; Global / Project / Settings / CLI sources still process.
-- **Deps.** V14k, V14q, H2.
+- **Deps.** V14k, V14q, H2, V14t.
 - **Ships when.** Package-shipped looms discoverable and same-name package collisions are caught.
 
 ## V14n — Discovery: settings file reads (`looms` array, plus the read mechanism reused by V16e for binder model)
@@ -117,7 +125,7 @@
 - **Spec.** [Directory Convention](../spec_topics/discovery.md) (Settings file reads).
 - **Adds.** Settings reader for `~/.pi/agent/settings.json` and `.pi/settings.json` via the injected `FileSystem` seam (Pi exposes no settings accessor for extensions). Project-over-global precedence with deep-merge for nested objects, replace for arrays and scalars. `looms` array (`string[]` of file or directory paths, with glob patterns and `!`/`+`/`-` prefixes per Pi's resource-array convention; entries resolved relative to the settings file's base directory, `~` expanded, absolute paths supported) is the V1 consumer; the same reader is reused by V16e for `looms.binderModel`. Settings reads are cached for the extension lifetime; cache invalidation on file change is the responsibility of V18r (V14n exposes an `invalidate()` seam that V18r calls after a debounced settings-file change).
 - **Tests.** File entry registers one loom; directory entry registers all `*.loom` in the directory non-recursively (subdirectories not walked, `.warp` files ignored); glob entry matches multiple files; `!pattern` excludes; `+path`/`-path` force-include/exclude an exact path; `~` expands; relative paths resolve against the settings file's base directory; non-`.loom` file entry (or non-`.loom` glob match) emits `loom/load/invalid-extension` and does not register; non-string entry emits `loom/load/settings-invalid-entry` and other entries still process; entries that resolve to the same absolute path are deduplicated silently (not flagged as collision); two settings entries that resolve to **different** absolute paths whose stems derive the same slash name → `loom/load/cross-format-collision` and neither registers (per V14q); project `looms` array fully replaces global `looms` array (replace, not concat); project values deep-merge over global values for nested objects; missing or unreadable file treated as `{}` and emits one warning-severity `loom/load/settings-unreadable`; malformed JSON file treated as `{}` and emits one warning-severity `loom/load/settings-invalid-json`, and the other file is still consulted.
-- **Deps.** V14k, V14q, H2.
+- **Deps.** V14k, V14q, H2, V14t.
 - **Ships when.** Settings-driven discovery works.
 
 ## V14o — Discovery: `--loom` CLI flag
@@ -133,7 +141,7 @@
 - **Spec.** [Directory Convention — Source priority](../spec_topics/discovery.md).
 - **Adds.** Source-priority resolution implementing the ordered list from [Directory Convention — Source priority](../spec_topics/discovery.md), high to low: (1) CLI flag (`--loom <path>`), (2) settings (`looms` array, project `settings.json` overriding global), (3) project (`.pi/looms/`), (4) packages (`looms/` directories or `pi.looms` entries), (5) global (`~/.pi/agent/looms/`). Cross-priority name collision (higher priority wins) emits `loom/load/cross-source-shadow` warning and registers the higher-priority entry. Same-priority collisions are governed by V14q (uniform load-time error; neither registers).
 - **Tests.** Each adjacent priority pair tested for the cross-priority shadow case; warning text matches spec.
-- **Deps.** V14k–V14o.
+- **Deps.** V14k–V14o, V14t.
 - **Ships when.** Priority rule is uniform.
 
 ## V14q — Slash collision at the same priority (uniform across formats and sources)
@@ -141,7 +149,7 @@
 - **Spec.** [Directory Convention — Slash-name collisions at the same priority](../spec_topics/discovery.md).
 - **Adds.** Two or more candidates at the same priority that derive the same slash name — whether two `.loom` files (same source or same priority across sources), or a `.loom` and a Pi-owned `.md` prompt / `.md` subagent / another extension's command — produce a single `loom/load/cross-format-collision` error listing **every** colliding path; **none** of the loom candidates register. For the cross-format slice, the Pi-owned entry survives. Detection runs on the final derived name (after `pi.looms` mapping, `as` rename, basename hyphen-normalisation). Settings entries resolving to the same absolute path are deduplicated before detection (silent, not a collision). The `session_start` handler is also re-entrant: on a re-evaluation triggered by a settings reload or another extension's activation, any previously-registered loom whose slash name now collides with a higher-priority `.md` prompt, `.md` subagent, or extension command is de-registered and `loom/load/cross-format-collision` is emitted naming the surviving Pi-owned entry.
 - **Tests.** Same-format: two packages each shipping `lint.loom` → single error listing both, neither registers; three packages → single error listing all three. Cross-format: `code-review.loom` + `code-review.md` (Pi prompt) → single error, the `.md` survives, the loom does not register; same for `.md` subagent and another extension's command. Hyphen-normalisation collisions: `code-review.loom` and `code_review.loom` from two `--loom` components → single error. Settings entries pointing at the same absolute path → silently deduped, no diagnostic. Re-evaluation: a loom registers cleanly on the first `session_start`; a second `session_start` fires after a fake `.md` prompt is added with the same slash name; the loom is de-registered and a single `loom/load/cross-format-collision` diagnostic is emitted naming the surviving `.md` entry. (Implementer note: this exercise depends on the de-registration mechanism Pi exposes on `session_start` re-entry; if Pi has no such mechanism, escalate to a spec amendment rather than silently dropping the test.)
-- **Deps.** V14k.
+- **Deps.** V14k, V14t.
 - **Ships when.** Same-priority same-name collisions surface uniformly across all source and format combinations.
 
 ## V14s — `tools:` resolution-snapshot invariants
