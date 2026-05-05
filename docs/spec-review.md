@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 19 commit-ready findings (8 merge clusters, 24 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 18 commit-ready findings (8 merge clusters, 24 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -1408,72 +1408,6 @@ Edge cases for the implementer: the mask to 32-bit unsigned applies only to the 
 ## Related Findings
 
 - "Provider seed-field mapping (Determinism section) placed in binder page" — same-cluster (both touch the Determinism section of `binder.md`; the seed-field-mapping move is a placement concern that does not interact with the encoding fix, but a single editing pass through Determinism is natural)
-
----
-
-# System-note 120-codepoint cap: truncation unit ambiguous between code points and grapheme clusters
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** System-note 120-codepoint cap: "code points or grapheme clusters" is ambiguous
-**Kind:** testability
-
-## Finding
-
-`spec_topics/binder.md` § *System-note rendering* rule 2 states the cap as "120 Unicode code points" and then describes the truncation unit as "whole code points (or grapheme clusters)". The parenthetical is not a clarification — the two units are observably different. A family emoji such as 👨‍👩‍👧 occupies a single grapheme cluster but five Unicode scalar values (joined by ZWJ); a regional-indicator pair (🇩🇪) is one cluster and two scalars. Two conformant implementations — one that truncates at scalar boundaries, one that truncates at cluster boundaries — will disagree on (a) the rendered length of inputs near the 120-code-point boundary and (b) whether a cluster straddling the boundary is preserved or split.
-
-The cap unit is already pinned: "120 Unicode code points." The contradiction is purely in the truncation-unit clause that follows. The same ambiguity also taints rule 6 of the *Echo policy* format rules, which references this section by link, and every binder failure-arm note that flows through *System-note rendering*.
-
-A normative reading also has to settle whether `…` (U+2026) is appended to the trimmed prefix and counted toward the cap (the spec says it is), and what happens when the input is exactly 120 scalars long with no overflow (no `…` appended).
-
-## Spec Documents
-
-- `spec_topics/binder.md` — § System-note rendering, rule 2 (edited)
-- `spec_topics/binder.md` — § Echo policy, format rules item 6 (read-only — references the rule above by link; no edit needed if the link target is fixed)
-
-## Plan Impact
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16i — `bind_echo` formatter — modified
-- V16l — `needs_info` envelope handling — modified
-- V16m — `ambiguous` envelope handling — modified
-- V16n — Binder transport failure single retry — modified
-- V16o — Binder malformed envelope handling — modified
-
-(V16i is the principal site — its tests for *Echo policy → Format rules* item 6 already over-specify "code points not UTF-16 units" and need a third assertion pinning the truncation-unit choice. The `needs_info` / `ambiguous` / transport / malformed-envelope leaves inherit the rule via *System-note rendering* and need a single-cluster-spanning-boundary fixture each, but no leaf reordering or additional dependencies.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will produce visibly different system notes for any input that contains a multi-scalar grapheme cluster near the 120-code-point boundary. Tests written against one interpretation will fail against the other; downstream renderers (Pi's TUI, log scrapers, screenshot-based docs) will diverge in observable output for the same loom invocation.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace rule 2 with a single normative formulation that fixes the truncation unit at Unicode scalar value (code point):
-
-> **Length cap.** The fully-rendered note (loom-controlled prefix + interpolated content) is capped at 120 Unicode code points. Truncation operates at code-point (Unicode scalar) boundaries — never at UTF-16 code unit boundaries, which would split surrogate pairs. When the rendered note exceeds 120 code points, the runtime MUST replace the overflow with a trailing `…` (U+2026) and the resulting note MUST be exactly 120 code points (the `…` counts toward the cap). When the rendered note is ≤120 code points, no `…` is appended. Implementations MAY additionally back the truncation point off to the nearest preceding extended grapheme cluster boundary as a rendering courtesy, provided the resulting note is still ≤120 code points; this back-off is non-normative and tests MUST NOT assert cluster-aware behaviour.
-
-Implementer-relevant edge cases:
-
-- Use `Array.from(str)` or a `for…of` iterator to count scalars — `string.length` returns UTF-16 code units and will over-count BMP-supplementary characters (every astral codepoint counts as 2).
-- The `…` (U+2026) is a single BMP code point and counts as exactly 1 toward the cap.
-- Rule 1 (whitespace collapse / trim) runs before rule 2; the 120-scalar measurement is taken after rule 1 has produced its result.
-- The "MAY back off to grapheme cluster boundary" allowance is what frees implementers from depending on `Intl.Segmenter` for normative correctness — Node 16+ has it but the rule's compliance does not require it.
-- A loom name that, after prefix interpolation, by itself consumes ≥119 code points leaves room only for `…`; the suffix is fully replaced. This is consistent with the spec's "do not pre-truncate the suffix to a fixed sub-budget" clause and needs no special carve-out.
-
-V16i's existing test list (rule 6 in `plan_topics/v16-binder.md`) gains one fixture: a string whose 120th and 121st code points form a single grapheme cluster (e.g. base + combining mark, or a ZWJ sequence) — the assertion is that the output is exactly 120 code points ending in `…`, regardless of where the cluster fell.
-
-## Related Findings
-
-- "Echo policy: "past three elements" array truncation boundary ambiguous" — same-cluster (both are testability gaps in the same `binder.md` echo-policy / system-note rendering surface; resolved independently but a single editing pass over rules 1–7 should cover both).
-- "Tool execution content truncation: boundary and multi-byte edge case underspecified" — same-cluster (parallel ambiguity for tool-output truncation in a different topic file; same fix shape — pin the unit, defer cluster-awareness to a non-normative MAY — but distinct spec text).
 
 ---
 
