@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_110 findings retained, 3 false positives dropped, 0 persistent failures_
+_109 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7782,78 +7782,4 @@ Implementer must keep the V18g eviction step inside the V18f staging-then-instal
 - "Tool-registration cache unbounded growth" — same-cluster (V18f/V18g neighbourhood, independent risk)
 - "V14n malformed settings JSON degrades silently; no fallback to last-known-good" — same-cluster (parallel partial-failure-with-no-rollback shape elsewhere in the plan)
 - "`loom-system-note` delivery fallback chain unasserted" — decision-dependency (the new `registry-swap-failed` diagnostic rides the `loom-system-note` channel, so its delivery is governed by the same fallback chain)
-
----
-
-# V18f structural-change note text unspecified
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V18f structural-change note text unspecified
-**Kind:** clarity
-
-## Finding
-
-V18f's **Adds** says structural changes (added or removed `.loom` files, settings-array changes that add or remove sources) "emit a one-line `loom-system-note` informational message prompting the user to run `/reload`", and the spec section that V18f cites — `pi-integration-contract.md` "Structural changes" — uses the same phrase. Neither pins the verbatim `content` string, the `display:` value, the `details` payload shape, or the coalescing rule for multiple structural events inside the 250 ms debounce window.
-
-Every other `loom-system-note` in the plan and spec has its text fixed: M tests `/hello extra text` against `loom /<name>: ignoring extra arguments — this loom takes no parameters` "verbatim" (`m-mvp.md` Tests bullet, drawing on `slash-invocation.md` "No-params overflow"); V18i tests "each `kind` row produces the spec's exact text" (`v18-cancellation.md` line 71); diagnostic notes inherit text from the `diagnostics.md` registry. The structural-change note is the only `loom-system-note` site in V1 with no normative string, so V18f's existing test "Adding a brand-new `.loom` file emits the structural-change `loom-system-note`" can pass against any wording (`"reload"`, `"new loom found"`, an empty string) and the renderer cannot distinguish it from a future fourth payload shape.
-
-The `details` payload is also ambiguous. `pi-integration-contract.md` "System notes" defines exactly two disjoint shapes — `{ diagnostics: Diagnostic[] }` and `{ event: RuntimeEvent }` — and explicitly tells renderers to switch on which key is present. A structural-change note fits neither shape (it is informational, not a diagnostic batch and not an always-log runtime event), so V18f silently requires either (a) a third disjoint shape added to that registry, or (b) an explicit "no `details`" carve-out. The same paragraph notes "no `loom/load/*` code is registered for it", which forecloses the diagnostic-batch route.
-
-## Plan Documents
-
-- `plan_topics/v18-cancellation.md` — V18f Adds / Tests / Ships when (edited)
-- `plan_topics/v18-cancellation.md` — V18h Adds (read-only)
-- `plan_topics/m-mvp.md` — Tests bullet (read-only; precedent for "matches spec verbatim")
-- `plan_topics/conventions.md` — message-text discipline (read-only)
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — "Structural changes" paragraph (edited)
-- `spec_topics/pi-integration-contract.md` — "System notes" `details` payload-shape registry (edited)
-- `spec_topics/slash-invocation.md` — "No-params overflow" (read-only; format precedent)
-- `spec_topics/diagnostics.md` — `loom-system-note` channel and `details` discriminator (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18f — File watcher (chokidar) over discovery roots — (modified)
-- V18h — Custom Pi message type `loom-system-note` and renderer — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will produce two different transcripts: one will write `"<N> loom file(s) added or removed; run /reload to refresh the slash command list"`, another will write `"loom watcher: structural change detected — /reload"`, and a third will fire one note per FS event (5 added files → 5 notes) instead of one per debounce window. The V18f acceptance test as currently worded passes against all three, and any test added downstream that pins one wording will diverge from peer implementations. The renderer in V18h must also branch on `details` keys; without a normative payload shape for this note the renderer's switch has no defined default arm.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit `spec_topics/pi-integration-contract.md` "Structural changes" paragraph to fix three things normatively:
-
-1. **Verbatim `content` string.** Replace "it emits a one-line `loom-system-note` informational message prompting the user to run `/reload`" with: *"it emits a single `loom-system-note` with `content` formatted as `loom watcher: <N> file(s) added or removed; run /reload to refresh the slash command list` (where `<N>` is the count of distinct paths in the debounce-window batch), `display: true`, and the `details` payload defined under System notes."*
-2. **Coalescing rule.** Append: *"Multiple structural events observed within a single 250 ms debounce window coalesce into one note; events in distinct windows fire separately."*
-3. **`details` payload shape.** Add a third bullet to the `details` payload-shape list under "System notes": *`details: { structural: { added: string[]; removed: string[] } }` — informational note for watcher-observed structural changes; `added` and `removed` carry absolute file paths from the debounce-window batch. The shape is disjoint from the `diagnostics` and `event` shapes by key, per the additive-only convention above.* No `loom/load/*` code is added (the spec's "no diagnostic" rule for this note is preserved).
-
-Edit `plan_topics/v18-cancellation.md` V18f:
-
-- **Tests.** Replace "Adding a brand-new `.loom` file emits the structural-change `loom-system-note` and does **not** auto-register" with: *"Adding a brand-new `.loom` file emits exactly one `loom-system-note` whose `content` matches the spec's `loom watcher: <N> file(s) added or removed; run /reload …` template verbatim with `<N>=1`, whose `details.structural.added` lists the new path, and whose `details.structural.removed` is empty; the file does **not** auto-register and `/reload` then registers it."* Append a sibling test: *"Five `.loom` files added in a 250 ms burst produce exactly one note with `<N>=5` and `details.structural.added.length === 5`; five files added across two distinct debounce windows produce two notes."*
-- **Ships when.** Append: *"the structural-change note's `content` and `details.structural` shape match the spec verbatim, and a multi-file burst inside one debounce window produces exactly one note."*
-
-Edge case for the implementer: settings-array edits that add or remove sources (mentioned in V18f Adds and `pi-integration-contract.md` "Structural changes") must surface through `details.structural` as the resolved file paths the source change brought in or removed, not as the settings-file path itself — otherwise the note conflates a single settings edit with N file changes and the count becomes meaningless.
-
-## Related Findings
-
-- "V18f watcher swap has no rollback or kill switch" — same-cluster (same leaf, separate failure-mode concern)
-- "Settings-file watching silently assumed but excluded from V18f scope" — decision-dependency (the structural-change note must cover settings-array edits; both findings agree the boundary needs pinning)
-- "V18g not independently verifiable — merge into V18f" — same-cluster (touches same leaf)
-- "V18f `/reload` re-run-of-factory not asserted" — same-cluster (same leaf, neighbouring under-specification)
-- "M requires `loom-system-note` channel that V18h introduces" — same-cluster (same channel, different note instance)
-- "Plan tests cite \"spec's exact wording\" / \"verbatim\" without verifying spec owns each message string" — decision-dependency (this finding is one concrete instance of that pattern; resolving the structural-change text upstream in spec also discharges that pattern's instance here)
-- "V18i per-kind formatter: catch-all row, `last_tool_name=null`, chain recursion unasserted" — same-cluster (sibling system-note formatter under-specification)
 
