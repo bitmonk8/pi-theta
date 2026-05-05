@@ -20,7 +20,7 @@
 
 - **Spec.** [Query](../spec_topics/query.md) (typed form, inference rule 1).
 - **Adds.** `let x: T = @\`...\`?` infers `T` as the response schema for the query.
-- **Tests.** Spec's worked example; nested annotation flows through parens; missing annotation falls through to next rule (later leaves).
+- **Tests.** Spec's first worked example (`let x: ReviewScore = @\`...\`?` — sink at the binding annotation); nested annotation flows through parens; missing annotation falls through to next rule (later leaves).
 - **Deps.** V4, V6b.
 - **Ships when.** The most common typed-query pattern works.
 

@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_66 findings retained, 3 false positives dropped, 0 persistent failures_
+_65 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -4691,63 +4691,3 @@ The replacement names: (1) the driver call under test (`sendUserMessage` per `pi
 ## Related Findings
 
 - "V5e Ships-when: \"a real Pi session\" is unverifiable from the leaf gate" — same-cluster (same leaf, different bullet — Tests vs Ships-when; resolutions are independent)
-
----
-
-## plan_topics/v6-typed-queries.md
-
----
-
-# V6c Tests cite "Spec's worked example" without naming which one
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V6c "Spec's worked example" — which one?
-**Kind:** clarity
-
-## Finding
-
-V6c's first Tests bullet reads "Spec's worked example; nested annotation flows through parens; missing annotation falls through to next rule (later leaves)." The phrase "Spec's worked example" is singular, but `spec_topics/query.md` § "Schema inference algorithm" lists **five** worked examples (binding annotation, `f(g(@`...`?))`, `+ 1` opaque-operator, `match` scrutinee, array literal). Only the first — `let x: ReviewScore = @`...`?` — exercises rule 1 (binding-annotation sink), which is what V6c actually adds; the other four belong to V6e, V6g, and V6f respectively. A reasonable implementer reading V6c in isolation could pick the array-literal example (it does involve a binding annotation) and write a test that doesn't actually exercise V6c's rule.
-
-The disambiguation is trivial — the spec already labels each example by its lead expression — so the cost of the fix is one line. Sister leaves V6e ("Spec's `f(g(@`...`?))` example") and V6f (whose Spec field already says "(worked example: array literal)") show the pattern of citing the example by its lead form; V6c is the outlier.
-
-## Plan Documents
-
-- `plan_topics/v6-typed-queries.md` — V6c Tests bullet (edited)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical V6
-
-**Leaves (implementation order):**
-
-- V6c — Schema inference: binding-annotation sink — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A careful implementer cross-referencing V6c's Adds field (`let x: T = @`...`?`) will pick the right example, but the bare phrase "Spec's worked example" invites mis-selection — picking the array-literal example produces a test that exercises V6f's rule, not V6c's, and the leaf still appears to ship green. Self-contained leaf gates are the plan's whole conformance story; this one is non-self-contained.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v6-typed-queries.md`, replace V6c's Tests bullet:
-
-> **Tests.** Spec's worked example; nested annotation flows through parens; missing annotation falls through to next rule (later leaves).
-
-with:
-
-> **Tests.** Spec's first worked example (`let x: ReviewScore = @`...`?` — sink at the binding annotation); nested annotation flows through parens; missing annotation falls through to next rule (later leaves).
-
-The lead-expression form matches the disambiguation style already used in V6e and V6f, so the convention is consistent across the V6 leaves and no new citation grammar is introduced.
-
-## Related Findings
-
-None
