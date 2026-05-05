@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 10 commit-ready findings (8 merge clusters, 23 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 9 commit-ready findings (8 merge clusters, 23 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -780,59 +780,4 @@ Edge cases for the implementer:
 
 ---
 
-# Provider compatibility local-backend note belongs in `future-considerations.md`
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** Provider compatibility local-backend note belongs in `future-considerations.md`
-**Kind:** scope, placement
-
-## Finding
-
-The closing sentence of the "Provider compatibility for typed queries" paragraph in `spec_topics/pi-integration-contract.md` reads:
-
-> Note that for OpenAI-compatible local backends whose provider type is in the supported set but whose specific model ignores `tool_choice`, the most likely symptom is a `validation` error with `attempts` exhausted; the runtime cannot separately diagnose model-level non-compliance in V1.
-
-This sentence is not a normative obligation. It is an acknowledgement of a V1 diagnostic gap — the runtime cannot distinguish a provider-level support failure (which V1 does detect at load time and at runtime via `loom/load/typed-query-unsupported-provider` and a synthetic `transport` error) from a model-level non-compliance failure (which V1 surfaces only indirectly as `validation` exhaustion). Embedding it inside the otherwise normative paragraph mixes two registers: the rule that defines the supported provider set and the contractual error mapping for unsupported providers, versus an implementer caveat about a known blind spot.
-
-This is distinct from the existing future-consideration "Typed-query support for providers without named-tool forcing", which is about *widening* the supported provider set with a JSON-mode fallback. The note in question is about *diagnostics* on providers already in the set, and currently has no home in `future-considerations.md`.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — Provider compatibility for typed queries (edited)
-- `spec_topics/future-considerations.md` — destination for the relocated note (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. V6m ("Typed-query provider compatibility check") cites the same anchor and continues to do so unchanged; its Adds/Tests describe load-time warning emission and runtime `transport` error synthesis, neither of which is touched by relocating a non-normative caveat. The relocation is purely editorial.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A non-normative limitation embedded mid-paragraph in a normative section is easy to misread as a contract requirement and hard to find when later auditing what V1 deliberately defers. No implementer behaviour changes either way.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Strip the trailing sentence from the "Provider compatibility for typed queries" paragraph in `spec_topics/pi-integration-contract.md` so the paragraph ends after the cross-link to `future-considerations.md`. Add a new bullet to `spec_topics/future-considerations.md` under a fresh top-level section **"Known V1 limitations (no seam expected)"** placed after "Model-level changes (no V1 seam expected)":
-
-- **Diagnostic limitation: model-level non-compliance with `tool_choice` on supported providers.** When a typed query routes through a provider in the V1 supported set (`anthropic-messages`, `openai-completions`, `mistral`, `amazon-bedrock`) — most commonly an OpenAI-compatible local backend — but the specific model ignores forced-tool selection, the runtime cannot distinguish this from any other case where the model fails to call the respond tool. The visible symptom is a `validation` error with `coercion.attempts` exhausted. Separating provider-level from model-level non-compliance is out of scope for V1.
-  *Cross-ref:* [Pi Integration Contract — Provider compatibility for typed queries](./pi-integration-contract.md).
-
-The new bucket is justified because the existing three buckets are all forward-looking ("deferrals", "extensions", "model-level changes"); a known *limitation that V1 ships with* is a fourth category. If the editor prefers not to introduce a fourth top-level section, the bullet may instead be added under "Model-level changes (no V1 seam expected)" with the title amended in the lede paragraph to cover both forward changes and known gaps. Edge case for the implementer: the V6m leaf's spec citations remain valid as anchors; no test wording changes.
-
-## Related Findings
-
-- "Prompt-mode streaming edge cases placed in wrong file" — same-cluster (both relocate non-fitting content out of `pi-integration-contract.md`, but the destinations differ — `slash-invocation.md` vs. `future-considerations.md`)
-- "\"A future feature MUST re-acquire `pi`\" uses normative MUST for out-of-scope feature" — co-resolve (the same `future-considerations.md` edit pass that adds the local-backend bullet should also relocate the future-feature MUST sentence; both demote out-of-scope material out of normative paragraphs in `pi-integration-contract.md`)
-- "V1 seam constraints mixed with out-of-scope deferrals across 14 bullets" — decision-dependency (a structural reorganisation of `future-considerations.md` would change the destination bucket layout; if that finding is resolved first, the new bucket recommended here may already exist)
-
----
 

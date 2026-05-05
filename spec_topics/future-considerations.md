@@ -7,6 +7,7 @@ The categories are:
 1. **Tooling deferrals (no V1 impact).** Items that ship as new tools or commands and require no V1 runtime decision.
 2. **Surface extensions (V1 leaves a seam).** Items that extend a V1 type, struct, or call shape in a backward-compatible way. Each item names the V1 seam it needs.
 3. **Model-level changes (no V1 seam expected).** Items that change the runtime value model, evaluation model, or tool-result contract enough that V1 is not expected to anticipate them; adding them post-V1 will require a migration.
+4. **Known V1 limitations (no seam expected).** Diagnostic or behavioural gaps that V1 ships with deliberately. They are not forward-looking deferrals — closing them is out of V1 scope and does not require a V1 seam — but they are recorded here so implementers and reviewers can find them in one place.
 
 Items occasionally carry a `Depends on:` annotation where they presuppose another item in the list.
 
@@ -77,3 +78,10 @@ Each bullet below describes a deferred V1 extension and points at the normative 
 - **Non-decimal number literals** (hex `0x...`, octal `0o...`, binary `0b...`) **and underscore digit separators** (`1_000_000`) — V1 accepts decimal literals only with no separators.
 - **Integer-division operator** — V1's `/` always produces `number`; there is no dedicated truncating-division operator.
 - **Additional string and array stdlib methods** beyond the V1 set — the V1 method surface is deliberately small; extending it is non-breaking by design (anything not on the list is a parse-time "unknown method" error, leaving the namespace open).
+
+---
+
+## Known V1 limitations (no seam expected)
+
+- **Diagnostic limitation: model-level non-compliance with `tool_choice` on supported providers.** When a typed query routes through a provider in the V1 supported set (`anthropic-messages`, `openai-completions`, `mistral`, `amazon-bedrock`) — most commonly an OpenAI-compatible local backend — but the specific model ignores forced-tool selection, the runtime cannot distinguish this from any other case where the model fails to call the respond tool. The visible symptom is a `validation` error with `coercion.attempts` exhausted. Separating provider-level from model-level non-compliance is out of scope for V1.
+  *Cross-ref:* [Pi Integration Contract — Provider compatibility for typed queries](./pi-integration-contract.md).
