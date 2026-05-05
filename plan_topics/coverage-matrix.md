@@ -8,7 +8,8 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Overview — Code and Model](../spec_topics/overview.md#code-and-model) | M, V5a, V6a |
 | [Overview — Query-and-Await](../spec_topics/overview.md#query-and-await) | V5e, V6b |
 | [Overview — Scope of a Loom File](../spec_topics/overview.md#scope-of-a-loom-file) | M, V12a |
-| [Lexical Structure](../spec_topics/lexical.md) | V1a–V1e |
+| [Lexical Structure](../spec_topics/lexical.md) | V1f, V1a–V1e |
+| [Lexical Structure — Newline normalisation](../spec_topics/lexical.md) | V1f, V5c |
 | [Type System](../spec_topics/type-system.md) | V2c, V4d, V10a, V10d, V11a |
 | [Schema Declarations — object form](../spec_topics/schemas.md) | V4b |
 | [Schema Declarations — type alias / union](../spec_topics/schemas.md) | V4c, V4j |
@@ -61,7 +62,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Cancellation](../spec_topics/cancellation.md) | V18a–V18e, V18p, V18o |
 | [Diagnostics](../spec_topics/diagnostics.md) | H3, V18j |
 | [Comparison with Existing Pi Features](../spec_topics/comparison.md) | – |
-| [Implementation Notes — Parser](../spec_topics/implementation-notes.md#parser) | V1a–V1e, refined per slice |
+| [Implementation Notes — Parser](../spec_topics/implementation-notes.md#parser) | V1f, V1a–V1e, refined per slice |
 | [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) | M, V5e, V12a, V14c-a, V15a, V18a–V18n |
 | [Runtime Value Model](../spec_topics/runtime-value-model.md) | V2 (primitives/arrays/objects), V6a (Result), V10e (enum brand), V13b–V13d (wire-name) |
 | [Pi Integration Contract](../spec_topics/pi-integration-contract.md) | M, V5h (provider error mapping), V6i (synthesised respond-tool shape), V12a, V14a–V14j (V14e: loom-callee `defineTool` shape), V14t (`resources_discover` subscription / `event.cwd` / `reason` / `{}` return), V18f, V18h, V18q |

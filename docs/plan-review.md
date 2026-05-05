@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_42 findings retained, 3 false positives dropped, 0 persistent failures_
+_41 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -3042,92 +3042,6 @@ The implementer should fold the sibling rule on `lexical.md` line 6 (newline nor
 
 - "Newline normalisation (`\r\n`, bare `\r` → `\n`) — no plan leaf" — co-resolve (same pre-lex pass; the new leaf above should also carry the CRLF/bare-CR normalisation rule and its CRLF-tokenises-byte-identically-to-LF tests, per the suggested fix in that finding)
 - "Path literals forward-slash rule and `loom/parse/invalid-path-separator` — no leaf" — same-cluster (also a `lexical.md` rule with no closing leaf, but resolves inside V1b on the path-literal token, not in the pre-lex decoder pass)
-
----
-
-# Newline normalisation has no plan leaf
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** Newline normalisation (`\r\n`, bare `\r` → `\n`) — no plan leaf
-**Kind:** spec-coverage
-
-## Finding
-
-`spec_topics/lexical.md` mandates that every `.loom` / `.warp` source has its line endings normalised before lexing — `\r\n` → `\n` and bare `\r` → `\n` — and elevates this to **observable behaviour**: "A `.loom` checked in with CRLF line endings therefore tokenises and dedents byte-identically to the same file with LF endings; this is observable behaviour, not an implementation detail." The spec ties the rule to four downstream behaviours by name: statement separation, the literal-newline-in-regular-string parse error, `` @`...` `` newline-trim and dedent, and `///` doc-comment joining. It also pins span-recording to *after* normalisation, so a CRLF source line counts as one newline when computing diagnostic line/column.
-
-No plan leaf claims any of this. `plan_topics/v1-lexer.md` starts at numerics (V1a) and assumes a decoded, normalised stream; V1b's "literal newline in regular string is a parse error" silently presupposes the normaliser exists; V1e's continuation rules are described in terms of `\n` only; V5c's dedent vectors are LF-only. `plan_topics/coverage-matrix.md` maps `Lexical Structure` to V1a–V1e wholesale, so the V18o REQ-ID gate will pass vacuously the moment those leaves ship.
-
-The defect is twin to the sibling finding on UTF-8 / BOM / `loom/load/invalid-encoding` — the spec wraps both rules in the same paragraph ("decoded and normalised before lexing") and the natural fix is one pre-lex pipeline leaf that owns both passes.
-
-## Plan Documents
-
-- `plan_topics/v1-lexer.md` — new pre-V1a leaf (edited)
-- `plan_topics/v5-untyped-queries.md` — V5c Tests bullet (edited)
-- `plan_topics/coverage-matrix.md` — `Lexical Structure` row (edited)
-- `plan_topics/conventions.md` — cross-cutting rules (read-only)
-- `plan.md` — leaf-order section header for V1 (read-only)
-
-## Spec Documents
-
-- `spec_topics/lexical.md` — Source files / Newline normalisation / Diagnostic spans (read-only)
-- `spec_topics/query.md` — multi-line template normative vectors (read-only)
-- `spec_topics/descriptions.md` — `///` doc-comment joining (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V1, Vertical V5
-
-**Leaves (implementation order):**
-
-- `<new>` — pre-lex source-pipeline leaf (decode + normalise) — (added)
-- V1a — Numeric literals — (read-only; depends on `<new>`)
-- V1b — String literals and escapes — (modified; "literal newline in regular string" must reference the normalised stream)
-- V1c — Line comments (`//` and `///`) — (modified; `///` joining occurs on normalised stream)
-- V1e — Statement separators and newline continuation — (modified; rule operates on normalised `\n`)
-- V5c — Multi-line templates: newline-trim and dedent — (modified; Tests must add CRLF/LF byte-identical assertions)
-
-## Consequence
-
-**Severity:** correctness
-
-A `.loom` checked in with CRLF endings (the Windows default, and the GitHub web-editor default) will hit `loom/parse/literal-newline-in-string` on every multi-line-looking string, mis-dedent every `` @`...` `` template, and emit diagnostic spans whose line numbers double-count CRLF — none of which is caught by any planned test. Two implementers working from the current plan will diverge: one will inline the normaliser in V1's tokeniser, one will skip it entirely because no leaf names it. The V18o coverage gate will not catch the omission because the `Lexical Structure` row already maps to V1a–V1e.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Bundle the fix into the pre-V1a source-pipeline leaf proposed by the sibling encoding finding (`UTF-8 encoding, BOM consumption, and loom/load/invalid-encoding`); do not create a second leaf. The two rules share a single spec paragraph ("decoded and normalised before lexing"), the same pipeline stage (pre-lex), and the same span-recording invariant (column 1 of line 1 starts after BOM consumption *and* after CRLF→LF), so splitting them produces two leaves with one Deps edge and one shared invariant.
-
-Concrete edits (replace `<new>` with the implementer's chosen ID, e.g. `V1-pre`):
-
-1. **`plan_topics/v1-lexer.md`** — in the new `<new>` leaf added by the encoding finding, extend the bullets:
-
-   - **Adds.** *(append to the encoding leaf's Adds bullet)* "Newline normalisation: `\r\n` → `\n` and bare `\r` → `\n`, applied after BOM consumption and before any span recording. Every downstream rule that mentions 'newline' (statement separation in V1e, `loom/parse/literal-newline-in-string` in V1b, `` @`...` `` newline-trim and dedent in V5c, `///` doc-comment joining in V1c/V13) operates on the normalised stream."
-   - **Tests.** *(append)* "CRLF source tokenises byte-identically to the LF version of the same source across the V5c dedent vectors, V1c `///` joining, and V1b `loom/parse/literal-newline-in-string`; bare-CR-only source tokenises identically to LF; mixed CRLF + bare-CR + LF in one file normalises uniformly; diagnostic line/column on a CRLF source matches the LF source byte-for-byte (CRLF counts as one newline)."
-   - **Ships when.** *(extend)* "...and every downstream lexer test passes against the CRLF transform of its own input fixture."
-
-2. **`plan_topics/v5-untyped-queries.md`** — append to V5c Tests, before the trailing-whitespace clause:
-   "Plus: each of the seven normative vectors above is asserted twice — once with LF inputs, once with the CRLF transform of the same input — and the rendered output is byte-identical across the pair."
-
-3. **`plan_topics/coverage-matrix.md`** — change the `[Lexical Structure](../spec_topics/lexical.md)` row's closing leaves from `V1a–V1e` to `<new>, V1a–V1e`, and add a per-rule row:
-   `| [Lexical Structure — Newline normalisation](../spec_topics/lexical.md) | <new>, V5c |`
-
-4. **`plan_topics/v1-lexer.md` V1b / V1c / V1e** — add a one-line reference under Spec: "Operates on the post-normalisation stream produced by `<new>`."
-
-Edge cases the implementer must watch:
-- Normalisation runs **after** BOM consumption, not before — a UTF-8 BOM followed by `\r\n` is `BOM + LF` after both passes, not `\r\n` (the BOM is bytes, not a code point with a line-ending interpretation).
-- A bare `\r` at end-of-file becomes `\n` and the file has one logical newline; do not also append an implicit terminator.
-- The CRLF→LF transform must happen on the byte (or pre-decode) stream, not on the token stream — `\r` inside a string-literal escape (`"\r"`) is the *escape* and must survive normalisation untouched. Concretely: normalise the source before the lexer ever sees it; the escape table in V1b processes `\r` from the literal two-character sequence `\` + `r`, which is unaffected.
-- V5c's "tab-only indentation is stripped" vector must be re-run with CRLF; the trailing-whitespace-before-closing-backtick rule must also be re-run with `\r\n` before the closing backtick (which normalises to `\n` and is then handled by the existing rule).
-
-## Related Findings
-
-- "UTF-8 encoding, BOM consumption, and `loom/load/invalid-encoding` — no plan leaf" — co-resolve (same `<new>` pre-V1a pipeline leaf owns both passes; they share the spec paragraph and the span-recording invariant)
-- "Path literals forward-slash rule and `loom/parse/invalid-path-separator` — no leaf" — same-cluster (another V1 lexer spec-coverage gap, but resolves independently against V1b)
-- "Closed diagnostic registry — many codes have no asserting plan leaf" — same-cluster (umbrella finding; this leaf would close `loom/load/invalid-encoding` for the sibling and is asymptotic on the registry gate)
-- "`Lexical Structure` row in coverage matrix" — n/a; the matrix row edit listed above is part of this fix, not a separate finding
 
 ---
 
