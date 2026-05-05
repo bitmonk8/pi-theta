@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_26 findings retained, 3 false positives dropped, 0 persistent failures_
+_25 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1900,66 +1900,6 @@ Implementer note: the `Tool-registration lifetime and visibility` paragraph also
 - "`AgentSession` seam missing from H2 and H4" — co-resolve (the H4 edit that adds the `Spec.` field is a natural place to also reckon with the missing `AgentSession` seam, since both are `pi-integration-contract.md` obligations)
 - "H4 \"no-logic shims\" claim contradicts registration cache and `withActiveTools`" — decision-dependency (resolving the `Spec.` citation forces an honest reading of the cache + `withActiveTools` obligations, which is what makes the "no-logic shims" claim untenable)
 - "Tool-registration dedup assumes no schema-hash collision" — same-cluster (touches the same registration-cache rule cited by H4's new `Spec.` field)
-
----
-
-# H4 Ships-when invocation `pi -e C:\UnitySrc\pi-loom` does not resolve to a loadable entry
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** H4 Ships-when uses undocumented `pi -e <dir>` invocation
-**Kind:** codebase-grounding-broad
-
-## Finding
-
-H4's Ships-when reads `pi -e C:\UnitySrc\pi-loom` (the project root). Pi's loader does accept directories on `-e` — `dist/core/extensions/loader.js` (`resolveExtensionEntries`) inspects the target dir for either a `package.json` whose `pi.extensions` field lists entry paths, or a top-level `index.ts`/`index.js`. Examples in the Pi tree exercise both forms (e.g. `examples/extensions/doom-overlay/` is loaded as a directory because it contains `index.ts` at its root). So the bare claim "pi -e on a directory is undocumented" is wrong.
-
-What is broken is this specific invocation against pi-loom's actual layout. `package.json` declares `"pi": { "extensions": ["./extensions"] }`, and `./extensions` resolves to a *directory* (the parent of the file H4 adds, `extensions/index.ts`). `resolveExtensionEntries` pushes that directory verbatim into the load list without further recursion; `loadExtension` then hands it to `jiti.import(<dir>)`, which under Node-style ESM resolution does not auto-resolve to `index.ts`. The Ships-when criterion therefore depends on a fragile/likely-failing path that the implementer cannot reproduce by following the plan literally.
-
-The fix is to align the Ships-when invocation with one of Pi's two supported, file-resolved forms — either point `-e` directly at the entry file, or point `-e` at the `extensions/` subdirectory (which `resolveExtensionEntries` will resolve to its `index.ts`), and adjust `package.json`'s manifest entry to match so `/reload` and package-style discovery agree.
-
-## Plan Documents
-
-- `plan_topics/h4-extension-shell.md` — `**Ships when.**` line (edited)
-- `plan_topics/h4-extension-shell.md` — `**Adds.**` line (read-only — names `extensions/index.ts`, the entry file the invocation must land on)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The implementer follows the literal Ships-when, runs `pi -e C:\UnitySrc\pi-loom`, and observes either an "extension does not export a valid factory" error (jiti returning nothing for a directory import) or, at best, undefined behaviour that varies with the jiti version pinned by Pi. Either they invent their own invocation off-script (defeating the purpose of a written acceptance criterion) or they declare H4 shipped against a never-actually-executed smoke. Both outcomes corrupt the H4 closure signal.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/h4-extension-shell.md`, replace the `**Ships when.**` line with:
-
-> **Ships when.** `pi -e C:\UnitySrc\pi-loom\extensions` loads the extension (Pi's loader resolves the directory to `extensions/index.ts`) and `/loom-status` runs in a real Pi session.
-
-(Also drop the `manual-smoke recorded in docs/manual-smoke.md` clause — that is the subject of a separate finding and should not be coupled to this fix.)
-
-In the `**Adds.**` line, additionally specify that `package.json`'s `pi.extensions` manifest entry must be `"./extensions/index.ts"` (file path), not `"./extensions"` (directory). This keeps the directory `-e` path, the `package.json`-driven discovery path, and `/reload` auto-discovery from `.pi/extensions/` all converging on the same entry file rather than relying on jiti directory resolution.
-
-The implementer must verify, as part of the smoke, that the `/loom-status` command appears in `/help` output of the real Pi session — that confirms the factory ran, not just that the file was located.
-
-## Related Findings
-
-- "`docs/manual-smoke.md` does not exist and its creation violates CLAUDE.md" — same-cluster (both edit the H4 Ships-when line; resolve independently — this finding rewrites the invocation, the other rewrites the evidence-recording clause)
-- "H4 missing mandatory Spec field" — same-cluster (same leaf, different field — `Spec.` vs `Ships when.`)
 
 ---
 
