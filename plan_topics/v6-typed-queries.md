@@ -4,7 +4,7 @@
 
 - **Spec.** [Errors and Results](../spec_topics/errors-and-results.md) (`Result` as user-visible type), [Runtime Value Model](../spec_topics/runtime-value-model.md) (`Result` representation).
 - **Adds.** `Ok(value)` and `Err(error)` as expressions; `Result<T, E>` as a type expression; runtime representation distinguishes `Ok` and `Err` and carries the payload (concrete shape is an interpreter-internal detail, not a language surface).
-- **Tests.** Construction and equality (`Ok(1) == Ok(1)`, `Ok(1) != Err(1)`, `Ok(1) != Ok(2)`); type checker rejects `Ok` as a value passed where a non-Result type is expected. Tests do not assert on specific discriminator or payload field names.
+- **Tests.** Construction and equality (`Ok(1) == Ok(1)`, `Ok(1) != Err(1)`, `Ok(1) != Ok(2)`); type checker rejects `Ok` as a value passed where a non-Result type is expected. Tests do not assert on specific discriminator or payload field names. Cross-linked from V18q — `?`-propagation of an always-log-set `Err` emits exactly one event at the originating site, not at each rethrow.
 - **Deps.** V5g.
 - **Ships when.** Loom code can construct and compare Result values.
 
@@ -12,7 +12,7 @@
 
 - **Spec.** [Errors and Results](../spec_topics/errors-and-results.md) (`?` operator).
 - **Adds.** `expr?` desugars to `match expr { Ok(v) => v, Err(e) => return Err(e) }`. Enclosing function/loom must therefore return `Result<_, QueryError>` (or have it inferred).
-- **Tests.** `?` on `Ok` unwraps; `?` on `Err` early-returns at the matching enclosing scope; `?` in a non-Result function is a parse error with the spec's hint.
+- **Tests.** `?` on `Ok` unwraps; `?` on `Err` early-returns at the matching enclosing scope; `?` in a non-Result function is a parse error with the spec's hint. Cross-linked from V18q — `?`-propagation of an always-log-set `Err` through this operator emits exactly one event at the originating site, not at each rethrow.
 - **Deps.** V6a.
 - **Ships when.** Looms can use `?` to propagate failures.
 

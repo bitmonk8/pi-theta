@@ -44,7 +44,7 @@
 
 - **Spec.** [Query](../spec_topics/query.md) (discarded results).
 - **Adds.** A bare `@`...`` at statement position is parse error with the documented diagnostic. Author must write `?`, `let _ =`, or `let x =`.
-- **Tests.** Bare `@` rejected; `let _ = @` accepted; tail-expression `@` in a `void` function NOT rejected (the discard is on the function, not the statement).
+- **Tests.** Bare `@` rejected; `let _ = @` accepted; tail-expression `@` in a `void` function NOT rejected (the discard is on the function, not the statement). Cross-linked from V18q — `let _ = @`...`` of an always-log-set `Err` emits exactly one `display: false` runtime event at the discarding `let _` site.
 - **Deps.** V5a.
 - **Ships when.** Discarded queries can't sneak into code silently.
 

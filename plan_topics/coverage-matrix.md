@@ -63,6 +63,7 @@ Every executable spec section maps to a closing leaf. The V18o gate (per [V18 �
 | [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) | M, V5e, V12a, V14c, V15a, V18a–V18n |
 | [Runtime Value Model](../spec_topics/runtime-value-model.md) | V2 (primitives/arrays/objects), V6a (Result), V10e (enum brand), V13b–V13d (wire-name) |
 | [Pi Integration Contract](../spec_topics/pi-integration-contract.md) | M, V6i (synthesised respond-tool shape), V12a, V14a–V14j (V14e: loom-callee `defineTool` shape), V18f, V18g, V18h |
+| [Pi Integration Contract — Runtime event channel](../spec_topics/pi-integration-contract.md) | V18q |
 | [Grammar Appendix — Loom literal sublanguage](../spec_topics/grammar.md#loom-literal-sublanguage) | V16a, V14c |
 | [Grammar Appendix — `let` form](../spec_topics/grammar.md#let-form) | V2a |
 | [Grammar Appendix — type grammar](../spec_topics/grammar.md#type-grammar) | V2a, V3b, V4b–V4f |

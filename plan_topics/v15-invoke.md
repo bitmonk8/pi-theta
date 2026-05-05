@@ -92,7 +92,7 @@
 
 - **Spec.** [Invocation](../spec_topics/invocation.md) (failures), [Invocation — Static resolution](../spec_topics/invocation.md#static-resolution).
 - **Adds.** Schema name `InvokeInfraError`; wire `kind:"invoke_failure"` (unchanged) with `reason` enum: `load_failure`, `parse_failure`, `validation`, `cancelled`, `panic`. Carries `callee_path`. The runtime variant fires when a code-issued `invoke(...)` reaches a callee that fails at the moment of invocation — distinct from the parent-load-time `loom/load/callee-has-errors` warning, which is a parent diagnostic emitted when the static-resolution walk first observed the callee in a broken state. Both surfaces can fire for the same broken callee: the load-time warning at parent registration plus the runtime `InvokeInfraError { reason: "parse_failure" | "load_failure" }` when the call actually executes.
-- **Tests.** Each reason synthesised and surfaces correctly. Callee broken at parent load → parent diagnostics drain contains `loom/load/callee-has-errors`; subsequent runtime invoke against the same callee → `Err(InvokeInfraError { reason: "parse_failure", callee_path, ... })`. Callee that parses cleanly at parent load but is deleted before invocation → no load-time warning; runtime `Err(InvokeInfraError { reason: "load_failure", ... })`.
+- **Tests.** Each reason synthesised and surfaces correctly. Callee broken at parent load → parent diagnostics drain contains `loom/load/callee-has-errors`; subsequent runtime invoke against the same callee → `Err(InvokeInfraError { reason: "parse_failure", callee_path, ... })`. Callee that parses cleanly at parent load but is deleted before invocation → no load-time warning; runtime `Err(InvokeInfraError { reason: "load_failure", ... })`. Cross-linked from V18q — an `invoke_failure` `Err` (regardless of `reason`) emits exactly one runtime event at the originating site (`display: false` when handled / discarded / `?`-propagated; `display: true` when it cascades to the slash boundary).
 - **Deps.** V15a, V5g.
 - **Ships when.** Invoke-infra failures uniformly typed.
 
@@ -100,7 +100,7 @@
 
 - **Spec.** [Invocation](../spec_topics/invocation.md) (failures).
 - **Adds.** `kind:"invoke_callee_error"` with recursive `inner: QueryError`.
-- **Tests.** Cascade of two-level invoke surfaces inner-of-inner correctly; AJV accepts recursive schema definition.
+- **Tests.** Cascade of two-level invoke surfaces inner-of-inner correctly; AJV accepts recursive schema definition. Cross-linked from V18q — `invoke_callee_error` is excluded from the always-log set; this leaf asserts zero `RuntimeEvent` emissions for the wrapper itself (the wrapped `inner` `Err` already emitted at its originating site).
 - **Deps.** V15l, V11g.
 - **Ships when.** Callee errors propagate without information loss.
 

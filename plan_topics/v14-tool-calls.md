@@ -52,7 +52,7 @@
 
 - **Spec.** [Tool Calls](../spec_topics/tool-calls.md) (failures).
 - **Adds.** Code-side call with bad arguments → `Err(CodeToolError{cause:"validation"})` (wire `kind: "code_tool"`).
-- **Tests.** Bad args rejected before tool runs; `validation_errors` populated.
+- **Tests.** Bad args rejected before tool runs; `validation_errors` populated. Cross-linked from V18q — a `code_tool` `Err` (regardless of `cause`) emits exactly one runtime event at the originating site (`display: false` when handled / discarded / `?`-propagated; `display: true` when it cascades to the slash boundary).
 - **Deps.** V14c.
 - **Ships when.** Bad-args case has clean error.
 
@@ -60,7 +60,7 @@
 
 - **Spec.** [Tool Calls](../spec_topics/tool-calls.md) (failures).
 - **Adds.** Tool's `execute()` throws or returns `isError:true` → `Err(CodeToolError{cause:"execution"})` (wire `kind: "code_tool"`).
-- **Tests.** Both shapes; message preserved.
+- **Tests.** Both shapes; message preserved. Cross-linked from V18q — a `code_tool` `Err` (regardless of `cause`) emits exactly one runtime event at the originating site.
 - **Deps.** V14c.
 - **Ships when.** Tool-execution failures surface uniformly.
 
@@ -68,7 +68,7 @@
 
 - **Spec.** [Tool Calls](../spec_topics/tool-calls.md) (failures), [Cancellation](../spec_topics/cancellation.md).
 - **Adds.** AbortSignal mid-call → `Err(CodeToolError{cause:"cancelled"})` (wire `kind: "code_tool"`).
-- **Tests.** Pre-flight abort and mid-flight abort both surface.
+- **Tests.** Pre-flight abort and mid-flight abort both surface. Cross-linked from V18q — a `code_tool` `Err` (with `cause: "cancelled"`) emits exactly one runtime event at the originating site (the kind is `code_tool`, which is in the always-log set; this is distinct from the excluded `cancelled` kind).
 - **Deps.** V14c.
 - **Ships when.** Cancellation through tool calls works.
 
@@ -76,7 +76,7 @@
 
 - **Spec.** [Tool Calls](../spec_topics/tool-calls.md) (failures).
 - **Adds.** Safety net for tools unregistered between parse and runtime (should not occur after a clean parse; production rarely hits this).
-- **Tests.** Synthetic unregister between parse and runtime triggers the variant.
+- **Tests.** Synthetic unregister between parse and runtime triggers the variant. Cross-linked from V18q — a `code_tool` `Err` (regardless of `cause`) emits exactly one runtime event at the originating site.
 - **Deps.** V14c.
 - **Ships when.** Safety net verified.
 

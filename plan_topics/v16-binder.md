@@ -36,7 +36,7 @@
 
 - **Spec.** [Slash-Command Argument Binding — Binder model](../spec_topics/binder.md), [Diagnostics](../spec_topics/diagnostics.md).
 - **Adds.** Two-step resolution: frontmatter `bind_model:` → `settings.json` `looms.binderModel` (read via the V14n mechanism). **No further fallback.** When neither resolves and the loom is not bypass-eligible (no-params or single-string bypass per V3c), load fails with `loom/load/binder-model-unresolved`; the loom is reported via the diagnostics channel and its slash command is not registered. The resolved model is checked at the same load-time pass against Pi's model registry for strict structured-output / strict tool-input capability; failure is `loom/load/binder-model-not-strict-capable`. Bypass-eligible looms skip both checks. If Pi's registry does not surface a strict-capable flag, the load-time check degrades to best-effort (advisory diagnostic noted; no load failure) and runtime envelope-malformed failures are caught by V16o (`loom/runtime/binder-malformed-envelope`). Hot-reload of `looms.binderModel` re-resolves on the *next* loom load only — it does not retroactively re-attempt loads that already failed.
-- **Tests.** Frontmatter-only resolution succeeds; settings-only resolution succeeds; both absent on a non-bypass loom → `loom/load/binder-model-unresolved` and the slash command is not registered (Pi's registered-command list does not contain it); both absent on a bypass-eligible loom (no-params; single-string) → no error and the loom registers; resolved model lacking strict capability → `loom/load/binder-model-not-strict-capable` and not registered; Pi registry without a strict flag → advisory diagnostic, loom registers, runtime envelope-malformed failure surfaces as `loom/runtime/binder-malformed-envelope` per V16o; settings change after a failed load → only the next load picks up the new value (already-failed loom stays unregistered until reload).
+- **Tests.** Frontmatter-only resolution succeeds; settings-only resolution succeeds; both absent on a non-bypass loom → `loom/load/binder-model-unresolved` and the slash command is not registered (Pi's registered-command list does not contain it); both absent on a bypass-eligible loom (no-params; single-string) → no error and the loom registers; resolved model lacking strict capability → `loom/load/binder-model-not-strict-capable` and not registered; Pi registry without a strict flag → advisory diagnostic, loom registers, runtime envelope-malformed failure surfaces as `loom/runtime/binder-malformed-envelope` per V16o; settings change after a failed load → only the next load picks up the new value (already-failed loom stays unregistered until reload). Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V3a, V3c, V14n, V16o.
 - **Ships when.** Both load-time errors fire correctly and bypass looms skip both checks.
 
@@ -44,7 +44,7 @@
 
 - **Spec.** [Slash-Command Argument Binding — Binder context, Binder system prompt](../spec_topics/binder.md).
 - **Adds.** Default mode; binder sees only slash text + frontmatter. The frontmatter `argument-hint:` value (when present) flows into the binder's system prompt under `Argument hint:` as the binder-grounding payload (no other surface consumes it in V1; the autocomplete dropdown does not show it — see V3a).
-- **Tests.** No session context attached; deterministic output for identical inputs (modulo provider non-determinism); when `argument-hint:` is set, the binder's system prompt contains `Argument hint: <value>` exactly once; when absent, the line is omitted.
+- **Tests.** No session context attached; deterministic output for identical inputs (modulo provider non-determinism); when `argument-hint:` is set, the binder's system prompt contains `Argument hint: <value>` exactly once; when absent, the line is omitted. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V16c, V16e.
 - **Ships when.** Default binder path works end-to-end and `argument-hint` reaches the binder grounding payload.
 
@@ -52,7 +52,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (session-context truncation).
 - **Adds.** Walk caller-session turns newest-to-oldest; accumulate until 20 turns or 8000 tokens (whichever smaller); whole-turn boundary.
-- **Tests.** Exact 20-turn boundary; exact 8000-token boundary (token count via `estimateTokens` from `@mariozechner/pi-coding-agent`), including a turn whose inclusion would push the running sum over 8000 is excluded entirely; partial messages not split.
+- **Tests.** Exact 20-turn boundary; exact 8000-token boundary (token count via `estimateTokens` from `@mariozechner/pi-coding-agent`), including a turn whose inclusion would push the running sum over 8000 is excluded entirely; partial messages not split. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V16f.
 - **Ships when.** Session-context binder path works.
 
@@ -60,7 +60,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (determinism).
 - **Adds.** `temperature: 0` and fixed seed (where provider supports). Acknowledged near-deterministic, not guaranteed reproducible.
-- **Tests.** Request payload includes `temperature: 0`; seed included for providers that support it.
+- **Tests.** Request payload includes `temperature: 0`; seed included for providers that support it. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V16e.
 - **Ships when.** Determinism budget minimised.
 
@@ -68,7 +68,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (echo policy).
 - **Adds.** One-line system note: fields in declaration order, comma-separated; quote strings only with whitespace/special chars; arrays truncated `[a, b, c, …+N more]` past 3; objects shown as `{first-field-value, …}`; defaulted tagged `(default)`; 120-char cap with `…`.
-- **Tests.** Each formatting rule against spec's exact examples.
+- **Tests.** Each formatting rule against spec's exact examples. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V3b.
 - **Ships when.** Echoes match spec format.
 
@@ -76,7 +76,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (echo policy).
 - **Adds.** Frontmatter flag suppresses echo.
-- **Tests.** Set false → no echo emitted; set true (default) → echo emitted.
+- **Tests.** Set false → no echo emitted; set true (default) → echo emitted. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V16i.
 - **Ships when.** Echo opt-out works.
 
@@ -84,7 +84,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (echo policy + bypass).
 - **Adds.** Both bypass cases (no-params and single-string) auto-suppress echo regardless of `bind_echo:`. `bind_echo: true` on a single-string-bypass loom is `loom/parse/bind-echo-on-bypass` (parse warning); `bind_echo: true` on a no-params loom is `loom/load/bind-echo-without-params` (load warning). The two warnings are distinct because the underlying state differs (the parser sees a typed single-string `params:` field for one, the load pass sees no `params:` at all for the other) but the runtime behaviour is identical: no echo.
-- **Tests.** Single-string bypass + `bind_echo: true` → `loom/parse/bind-echo-on-bypass` warning + no echo; no-params + `bind_echo: true` → `loom/load/bind-echo-without-params` warning + no echo; either bypass + `bind_echo: false` → no warning, no echo; either bypass + `bind_echo` absent → no warning, no echo.
+- **Tests.** Single-string bypass + `bind_echo: true` → `loom/parse/bind-echo-on-bypass` warning + no echo; no-params + `bind_echo: true` → `loom/load/bind-echo-without-params` warning + no echo; either bypass + `bind_echo: false` → no warning, no echo; either bypass + `bind_echo` absent → no warning, no echo. Cross-linked from V18q — every binder-failure cause owned by this leaf emits exactly one runtime event at the originating site.
 - **Deps.** V16i, V3c.
 - **Ships when.** Both bypass cases have no spurious echoes and emit the correct distinguishing diagnostic when authors set `bind_echo: true`.
 
@@ -92,7 +92,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (failure modes).
 - **Adds.** `kind: "needs_info"` envelope produces system note `loom /<name>: <message>` and loom does not run.
-- **Tests.** Message reaches user; loom never starts; runtime returns from invocation cleanly.
+- **Tests.** Message reaches user; loom never starts; runtime returns from invocation cleanly. Cross-linked from V18q — a `needs_info` envelope emits exactly one runtime event at the originating binder site.
 - **Deps.** V16c.
 - **Ships when.** Insufficient-info case handled.
 
@@ -100,7 +100,7 @@
 
 - **Spec.** [Slash-Command Argument Binding — Failure modes](../spec_topics/binder.md).
 - **Adds.** `kind: "ambiguous"` envelope produces system note matching the failure-modes table (`loom /<name>: ambiguous arguments — <model's message>`); loom does not run. The `candidates` field stays in the schema (binder may emit it; AJV accepts `null`), but the runtime does **not** surface it in V1 — the rendered note contains only the model's `<message>`.
-- **Tests.** Message reaches user; rendered system-note text contains no candidate values even when the binder emits a non-null `candidates` array; loom never starts.
+- **Tests.** Message reaches user; rendered system-note text contains no candidate values even when the binder emits a non-null `candidates` array; loom never starts. Cross-linked from V18q — an `ambiguous` envelope emits exactly one runtime event at the originating binder site.
 - **Deps.** V16c.
 - **Ships when.** Ambiguity case handled per the failure-modes table (no candidates rendering).
 
@@ -108,7 +108,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (failure modes).
 - **Adds.** Transport failure on binder gets exactly one retry; second failure surfaces as system note.
-- **Tests.** Retry happens; second failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder model transport failure (after 1 retry)*. An abort observed during the retry is asserted by V18p; this leaf does not duplicate that assertion.
+- **Tests.** Retry happens; second failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder model transport failure (after 1 retry)*. An abort observed during the retry is asserted by V18p; this leaf does not duplicate that assertion. Cross-linked from V18q — a binder transport failure (after the single retry) emits exactly one runtime event at the originating binder site.
 - **Deps.** V16e.
 - **Ships when.** Transient failures don't fail-closed unnecessarily.
 
@@ -116,7 +116,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (failure modes).
 - **Adds.** Malformed-envelope returns (JSON-parse failure or envelope-`anyOf` discriminator failure) get exactly one retry against the same envelope schema; the second failure surfaces as system note `loom /<name>: argument binding failed — could not parse arguments`.
-- **Tests.** Malformed envelope retried once on JSON-parse or envelope-`anyOf` failure; final failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder returned malformed envelope (after 1 retry)*.
+- **Tests.** Malformed envelope retried once on JSON-parse or envelope-`anyOf` failure; final failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder returned malformed envelope (after 1 retry)*. Cross-linked from V18q — a malformed-envelope failure (after the single retry) emits exactly one runtime event at the originating binder site.
 - **Deps.** V16c.
 - **Ships when.** Malformed-envelope case handled.
 
@@ -124,6 +124,6 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (failure modes).
 - **Adds.** AJV validates merged `args` (binder output + filled defaults) against full params schema; failure surfaces as system note `argument binding produced invalid args — <ajv-summary>`. No retry on AJV failure of merged `args`.
-- **Tests.** Hallucinated field shape caught; AJV summary readable; no re-prompt issued on AJV failure.
+- **Tests.** Hallucinated field shape caught; AJV summary readable; no re-prompt issued on AJV failure. Cross-linked from V18q — an AJV-validation failure of merged `args` emits exactly one runtime event at the originating binder site.
 - **Deps.** V16b.
 - **Ships when.** Hallucinations caught at boundary.
