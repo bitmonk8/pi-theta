@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_22 findings retained, 3 false positives dropped, 0 persistent failures_
+_21 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1627,73 +1627,6 @@ Edge cases the implementer must handle:
 - "Exception-handling convention weaker than CLAUDE.md" — same-cluster (both concern H1's ESLint preset and what catch/throw discipline it enforces; resolve independently)
 - "`no-static-state.test.ts` allow-list undefined" — same-cluster (both add a custom lint-style check whose allow-list is unspecified; same shape of fix)
 - "Closed diagnostic registry — many codes have no asserting plan leaf" — decision-dependency (a complete diagnostic-code coverage gate would subsume the positive half of this rule's matcher; if the registry-coverage gate lands first, this rule's tests can reuse its fixture set)
-
----
-
-# H3 plans a serialiser to a Pi shape the spec says is unused
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** H3 plans a serialiser to a Pi shape the spec says is unused
-**Kind:** spec-fidelity, codebase-grounding-broad
-
-## Finding
-
-`plan_topics/h3-diagnostics.md` lists, in `Adds`, "serialiser to Pi's flat `{ path, error }` shape." That shape is Pi's `LoadExtensionsResult.errors` element type, populated only while Pi is `import()`-ing an extension's entry point. `spec_topics/diagnostics.md` is explicit that this surface is **not** a loom diagnostics channel: "Pi's own `LoadExtensionsResult.errors` field is **not** used … A failure there is a bootstrap failure … orthogonal to the diagnostics defined here, which all fire after the extension is already live."
-
-The two channels the spec actually defines are:
-
-1. A serialised `content` string of the form `"<file>:<line>:<col>: <code>: <message>"` (with optional `"\n  hint: <hint>"` and indented related-site lines), used as the `content` of a `pi.sendMessage` call.
-2. A structured `details: { diagnostics: Diagnostic[] }` payload on the same `pi.sendMessage({ customType: "loom-system-note", … }, { triggerTurn: false })` call, consumed by the renderer V18h registers and by typed downstream consumers.
-
-H3 owns the diagnostics primitive that V18h (renderer) and V18j (multi-error rollup) build on. Building the wrong-shape serialiser at H3 either ships dead code (if the V18h author notices the mismatch and writes a second serialiser) or contaminates V18h/V18j with the wrong shape and pushes the divergence past the V18o coverage gate, which only checks that `diagnostics.md` is referenced — not that the bytes on the wire match.
-
-## Plan Documents
-
-- `plan_topics/h3-diagnostics.md` — Adds (edited)
-- `plan_topics/h3-diagnostics.md` — Tests (edited — the "Severity round-trips" bullet inherits the wrong boundary)
-- `plan_topics/v18-cancellation.md` — V18h, V18j (read-only — confirm downstream consumers expect the corrected shape)
-- `plan_topics/coverage-matrix.md` — Diagnostics row (read-only — H3 already listed)
-
-## Spec Documents
-
-None.
-
-## Affected Leaves
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- H3 — Diagnostics primitive and multi-error accumulator — (modified)
-- V18h — Custom Pi message type `loom-system-note` and renderer — (blocked)
-- V18j — Multi-error rollup across file + transitive `.warp` imports + transitive `.loom` callees — (blocked)
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer following H3 literally builds a serialiser to a Pi-loader shape no later leaf consumes; V18h then needs a second serialiser the spec actually mandates, and the H3 work is dead. An implementer who notices the spec mismatch silently corrects the plan, and two parallel implementers diverge on which shape `DiagnosticsAccumulator` emits. The H3 Ships-when criterion ("All later phases emit through `DiagnosticsSink` exclusively") cannot be observed against either shape unambiguously.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/h3-diagnostics.md`, edit the `Adds.` bullet by striking the substring
-
-> `serialiser to Pi's flat `{ path, error }` shape`
-
-and inserting in its place
-
-> `serialiser producing both the spec's line-format `content` string (`"<file>:<line>:<col>: <code>: <message>"`, with `"\n  hint: <hint>"` appended when a hint is present and indented lines appended for each related site; multi-error batches separate per-`Diagnostic` blocks with one blank line) and the structured `details: { diagnostics: Diagnostic[] }` payload, both shaped for the single `pi.sendMessage({ customType: "loom-system-note", content, display: true, details }, { triggerTurn: false })` call defined in `spec_topics/diagnostics.md` and registered by V18h`
-
-Keep the rest of the `Adds.` bullet unchanged. In the `Tests.` block, tighten the existing "Severity round-trips" line so its boundary names the corrected serialiser (see the related "Severity round-trips" finding); the line-shape, hint-appending, related-site, and multi-error-sort bullets already align with the spec line format and need no change.
-
-## Related Findings
-
-- "\"Severity round-trips\" underspecified" — co-resolve (the boundary it asks H3 to name is the same `DiagnosticsAccumulator → pi.sendMessage(...)` serialiser this finding redefines)
-- "H3 omits the `loom/lex/*` namespace" — same-cluster (independent edit to the same H3 `Adds.` bullet's namespace-constants list)
 
 ---
 

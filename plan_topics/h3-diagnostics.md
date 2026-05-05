@@ -2,7 +2,7 @@
 
 **Spec.** [Diagnostics](../spec_topics/diagnostics.md).
 
-**Adds.** `Diagnostic` shape from the spec; `DiagnosticsAccumulator`; serialiser to Pi's flat `{ path, error }` shape; typed code-namespace constants (`loom/parse/*`, `loom/type/*`, `loom/load/*`, `loom/runtime/*`) — these are the four namespaces in the V1 closed registry. There is no `loom/lex/*` namespace: every `lex`-phase code in `spec_topics/diagnostics.md` routes through `loom/parse/*` (or `loom/load/invalid-encoding` for the UTF-8 / BOM case); `MultiErrorReporter` ordering by `(file, line, column)`.
+**Adds.** `Diagnostic` shape from the spec; `DiagnosticsAccumulator`; serialiser producing both the spec's line-format `content` string (`"<file>:<line>:<col>: <code>: <message>"`, with `"\n  hint: <hint>"` appended when a hint is present and indented lines appended for each related site; multi-error batches separate per-`Diagnostic` blocks with one blank line) and the structured `details: { diagnostics: Diagnostic[] }` payload, both shaped for the single `pi.sendMessage({ customType: "loom-system-note", content, display: true, details }, { triggerTurn: false })` call defined in `spec_topics/diagnostics.md` and registered by V18h; typed code-namespace constants (`loom/parse/*`, `loom/type/*`, `loom/load/*`, `loom/runtime/*`) — these are the four namespaces in the V1 closed registry. There is no `loom/lex/*` namespace: every `lex`-phase code in `spec_topics/diagnostics.md` routes through `loom/parse/*` (or `loom/load/invalid-encoding` for the UTF-8 / BOM case); `MultiErrorReporter` ordering by `(file, line, column)`.
 
 **Tests.**
 - Range is 1-indexed, end-exclusive.
