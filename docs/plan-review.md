@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_16 findings retained, 3 false positives dropped, 0 persistent failures_
+_15 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1158,66 +1158,3 @@ The implementer is free to tighten rule 2 (regex) further or drop it entirely if
 - "GitHub Actions workflow added but never validated" — same-cluster (same H1 leaf, independent fix)
 - "H1 missing mandatory Spec field" — same-cluster (same H1 leaf, independent fix)
 - "\"lint rule forbids `throw new Error`\" has no asserting test" — same-cluster (sibling pattern: convention named in H1/H2 but the asserting test is underspecified)
-
----
-
-# H1 missing mandatory `Spec.` field
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** H1 missing mandatory Spec field
-**Kind:** traceability
-
-## Finding
-
-`plan_topics/conventions.md` declares the leaf format as a fixed sequence of fields beginning with `**Spec.** Page(s) under ../spec_topics/ the leaf implements`. The field is mandatory — the convention does not provide for omission, and the V18o coverage gate scans plan files for `Spec.` citations to back-fill REQ-ID-to-leaf mappings.
-
-`plan_topics/h1-scaffold.md` opens directly with `**Adds.**` and never carries a `Spec.` field. The omission is not flagged anywhere in the leaf, so a reader cannot tell whether the field is genuinely absent (infrastructure leaf, no normative spec page) or whether it was forgotten and the leaf silently implements one. The same omission appears in H2 and H4 (each tracked as a separate finding), making the irregularity systemic across the Horizontal phase rather than a one-off slip.
-
-H1 is in fact infrastructure-only — it adds a TypeScript/Vitest/ESLint scaffold and three meta-tests (`__present`, sentinel, `no-static-state`). None of those obligations are normative spec rules; they are conventions enforced by `plan_topics/conventions.md` itself. The fix is therefore to make the absence explicit and searchable, not to invent a spec citation.
-
-## Plan Documents
-
-- `plan_topics/h1-scaffold.md` — leaf body, before `**Adds.**` (edited)
-- `plan_topics/conventions.md` — "Leaf format" section (read-only — defines the mandatory field order)
-- `plan_topics/coverage-matrix.md` — full table (read-only — confirmed H1 has no spec-rule coverage to claim)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H1 — Repository scaffold and test framework — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A reader cannot distinguish "infrastructure leaf with no spec page" from "spec citation forgotten." The V18o coverage gate scans `Spec.` lines to confirm every REQ-ID has a closing leaf; a missing field provides no signal either way and weakens the gate's auditability. No implementer is blocked, but the leaf format invariant is silently violated.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/h1-scaffold.md`, insert a new line immediately after the `# H1 — Repository scaffold and test framework` heading (before `**Adds.**`) reading exactly:
-
-```
-**Spec.** None — infrastructure leaf; no normative spec page. (Cross-cutting rules enforced here — no globals/statics/singletons, no broad catch — are defined in [`conventions.md`](./conventions.md), not in `spec_topics/`.)
-```
-
-Edge cases:
-- The phrasing must remain greppable for `**Spec.**` so the V18o gate's plan-scan logic (and future coverage tooling) can distinguish "explicitly none" from "forgotten." The literal token `None` after `**Spec.**` should be the project's convention for this case; apply the same phrasing when fixing the sibling H2 and H4 findings so the three Horizontal leaves match.
-- Do not add any row to `coverage-matrix.md` — H1 implements no spec page and the matrix is for spec-page-to-leaf mappings only.
-
-## Related Findings
-
-- "H2 missing mandatory Spec field" — co-resolve (same omission in H2; same `**Spec.** None — infrastructure leaf` phrasing applies, though H2 may also need a real spec citation if `Clock`/`RandomSource`/etc. survive the separate spec-fidelity finding)
-- "H4 missing mandatory Spec field" — co-resolve (same omission in H4, but H4 actually implements `pi-integration-contract.md` obligations, so its Spec line must cite that page rather than say "None")
-- "H4 \"no logic\" shims contradict load-bearing semantics in same leaf" — decision-dependency (resolution affects what H4's `Spec.` field cites, which constrains the wording chosen here for parallelism)
-
