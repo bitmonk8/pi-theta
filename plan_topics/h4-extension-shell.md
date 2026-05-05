@@ -5,6 +5,7 @@
 **Tests.**
 - Factory invoked with `FakeExtensionAPI` registers exactly one command.
 - Each shim has one delegation contract test against its fake.
+- `PiFileSystem.homedir()` delegates to `os.homedir()` (single-call test against a spy).
 - Registration cache is content-addressed: two `defineTool(...)` calls with the same lowered `parameters` hash dedupe to one `pi.registerTool` call.
 - `withActiveTools(set, fn)` restores the prior active set when `fn` resolves, when `fn` rejects, and when `fn` throws synchronously.
 - `PiToolHost` exposes the retained `ExtensionCommandContext` to V14c-a via a typed accessor; the accessor returns the most recent `ctx` even after a session reload (no stale closure).

@@ -22,6 +22,10 @@ Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-te
 
 The term is referenced normatively by the path-restriction rule on `invoke` and `.loom` `tools:` entries (see [Invocation — Resolution](./invocation.md)): a resolved callee path must lie within at least one active root. Roots are computed once per discovery pass and cached for the lifetime of the resolved registry; hot-reload (per [Implementation Notes](./implementation-notes.md)) re-runs the computation.
 
+<a id="home-directory-expansion"></a>
+
+**Home-directory expansion.** Wherever the loom extension reads, interprets, or emits a path beginning with `~/`, the leading `~` MUST be expanded via the `homedir()` member of the injected `FileSystem` seam (see [Pi Integration Contract — `FakeFileSystem` / `FileSystem` interface](./pi-integration-contract.md)), whose production implementation calls Node's `os.homedir()` (resolving to `$HOME` on POSIX and `%USERPROFILE%` on Windows). This rule applies uniformly to: the global discovery root `~/.pi/agent/looms/`; the global package roots `~/.pi/agent/npm/` and `~/.pi/agent/git/<host>/<path>/`; the global settings file `~/.pi/agent/settings.json`; every `~`-prefixed entry in the settings `looms` array; and every `~`-prefixed component of the `--loom` CLI flag (after splitting on `path.delimiter`). The `~user` form (tilde followed by a username) is **not** honoured — only the bare `~` followed by `/` (or end-of-string). Implementations MUST NOT read `process.env.HOME` or `process.env.USERPROFILE` directly, and MUST NOT use any platform-conditional branch — the seam is the single source of truth so that test fakes can override it.
+
 **Source priority (high to low).** When the same slash name resolves from multiple sources, the higher-priority source wins and `loom/load/cross-source-shadow` is emitted naming both paths.
 
 1. CLI flag (`--loom <path>`) — explicit, single-invocation override.
@@ -121,7 +125,7 @@ The loom extension owns its own keys in `settings.json` — Pi does not recognis
 **Files (in precedence order, project over global).** Both files are optional.
 
 1. **Project:** `.pi/settings.json` (resolved relative to the working directory).
-2. **Global:** `~/.pi/agent/settings.json` (the leading `~` is expanded against the same home directory Pi uses — `$HOME` on POSIX, `%USERPROFILE%` on Windows).
+2. **Global:** `~/.pi/agent/settings.json` (the leading `~` is expanded per [Home-directory expansion](#home-directory-expansion)).
 
 The extension reads both files directly through the injected `FileSystem` seam (the same seam used for `.loom` discovery; see [`FakeFileSystem` / `FileSystem` interface](./pi-integration-contract.md)). Pi itself is not consulted for these values.
 
@@ -153,7 +157,7 @@ No other `looms.*` keys are recognised in V1; unknown keys under the `looms` nam
 The `looms` array follows the same conventions Pi uses for its sibling resource arrays (`extensions`, `skills`, `prompts`, `themes`) — see the *Resources* section of `@mariozechner/pi-coding-agent/docs/settings.md`. Specifically:
 
 - **Type.** `string[]`. Each entry is a file path or a directory path. Object-form entries are not accepted in V1; a non-string entry is rejected with `loom/load/settings-invalid-entry` (severity `error`) and the offending entry does not contribute looms — other entries in the array still process.
-- **Resolution.** Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent/`; paths in `.pi/settings.json` resolve relative to `.pi/`. `~` expands against the same home directory used elsewhere in this file (`$HOME` on POSIX, `%USERPROFILE%` on Windows). Absolute paths are accepted as-is.
+- **Resolution.** Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent/`; paths in `.pi/settings.json` resolve relative to `.pi/`. `~` expands per [Home-directory expansion](#home-directory-expansion). Absolute paths are accepted as-is.
 - **Glob patterns and exclusions.** Glob patterns are supported. A leading `!` excludes paths matching the pattern; a leading `+` force-includes an exact path; a leading `-` force-excludes an exact path. Glob and prefix semantics mirror Pi's `extensions`/`skills`/`prompts`/`themes` arrays exactly — the `looms` array is not a special snowflake.
 - **Directory entries.** A directory entry expands to its non-recursive `*.loom` children, matching the global non-recursion rule stated at the top of this file. Subdirectories are not walked. `.warp` files inside a directory entry are ignored, consistent with the global rule that `.warp` is never discovered as a slash command.
 - **File entries.** A file entry must have the `.loom` extension. A file entry whose path does not end in `.loom` is rejected with `loom/load/invalid-extension` (severity `error`); the file does not register and does not participate in collision detection. The same diagnostic fires for a glob entry that resolves to a non-`.loom` file (e.g. `foo*` matching `foo.md`); non-`.loom` matches are filtered out and reported per match.

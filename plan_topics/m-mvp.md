@@ -14,7 +14,7 @@
 - The `description` argument to `pi.registerCommand` equals `frontmatter.description` exactly (no `argument-hint` concatenation).
 - The `pi.registerCommand` call for `/hello` carries a `getArgumentCompletions` callback. V1 returns `[]` (the binder is the only consumer of `argument-hint`; the autocomplete dropdown has no surface for it per `spec_topics/slash-invocation.md`).
 - AbortError surfaces as a system note.
-- `~/.pi/agent/looms/hello.loom` registers `/hello`.
+- `~/.pi/agent/looms/hello.loom` registers `/hello` (`FakeFileSystem.homedir()` controls the resolution; the test asserts the registered loom's discovered path is exactly `<homedir>/.pi/agent/looms/hello.loom`).
 - Two files producing the same slash name across the two roots (`.pi/looms/` vs `~/.pi/agent/looms/`): only the project one registers; the other emits `loom/load/cross-source-shadow` (severity `warning`), naming both absolute paths, with the warning text matching `spec_topics/discovery.md` verbatim.
 
 **Deps.** H1–H4.
