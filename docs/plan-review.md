@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_36 findings retained, 3 false positives dropped, 0 persistent failures_
+_35 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -2590,66 +2590,4 @@ Edge cases for the H4 implementer:
 - "M assumes registration/collision plumbing not yet scheduled" — same-cluster (separate plumbing gap in M's `Adds.`, but the same H4-vs-M ownership question)
 - "`loomAbort` controller construction not assigned to any leaf" — decision-dependency (if H4 absorbs system-note plumbing per Option A, the same edit is the natural place to hoist `loomAbort` construction; resolve A first)
 - "V18n missing from `Invocation` coverage row" — same-cluster (coverage-matrix edits land in the same file and should be batched)
-
----
-
-# M's cancellation test bullet uses an off-spec name (`AbortError`)
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** M's "AbortError" system-note path not defined in spec
-**Kind:** codebase-grounding-broad, clarity, consistency
-
-## Finding
-
-`plan_topics/m-mvp.md` lists the test "AbortError surfaces as a system note." The string `AbortError` is not a spec-defined term anywhere under `spec_topics/`. The cancellation surface in `spec_topics/cancellation.md` uses `Err(QueryError { kind: "cancelled", ... })`, and the user-visible top-level surface is the `cancelled` row in the per-`kind` system-note table in `spec_topics/slash-invocation.md` (verbatim text: `loom /<name> cancelled`). The per-`kind` formatter that emits that exact string lands in V18i ("Per-`kind` formatting for prompt-mode top-level `Err`"), not at M.
-
-The bullet therefore conflates three things that the spec keeps separate: (1) the JS-platform `AbortError` name, which the spec never adopts; (2) the in-language `Result` surface (`kind: "cancelled"`); and (3) the Pi-side rendered system note (`loom /<name> cancelled`). An M-implementer reading the bullet has no way to know which of these they are supposed to assert, and is likely to invent wording that V18i's formatter will later contradict.
-
-The defect is in the M test bullet's wording, not in M's intended scope. M genuinely needs *some* observable cancellation behaviour through the slash boundary in order to ship a working end-to-end loom; the question is what it asserts and against what spec-anchored text.
-
-## Plan Documents
-
-- `plan_topics/m-mvp.md` — Tests bullet "AbortError surfaces as a system note." (edited)
-- `plan_topics/v18-cancellation.md` — V18i ("Per-`kind` formatting") and V18h ("`loom-system-note` channel and renderer") (read-only; cited as forward references)
-
-## Spec Documents
-
-- `spec_topics/cancellation.md` — Surfacing rules; `Err(QueryError { kind: "cancelled", ... })` (read-only)
-- `spec_topics/slash-invocation.md` — Per-`kind` system-note table; `cancelled` row (read-only)
-
-## Affected Leaves
-
-**Phases:** MVP
-
-**Leaves (implementation order):**
-
-- M — Minimal end-to-end loom — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable M-implementers will diverge on what to assert and what literal text to expect: one will write `expect(err.name).toBe("AbortError")` against the runtime's `Result`, another will assert the Pi-side `loom-system-note` content equals `loom /hello cancelled`, and a third will just assert that *some* `customType: "loom-system-note"` was emitted. Whichever wording is chosen at M will need to be revisited (and possibly rewritten) when V18i lands, defeating the point of writing the assertion now.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/m-mvp.md`, replace the Tests bullet
-
-> - AbortError surfaces as a system note.
-
-with
-
-> - Triggering cancellation during the loom's `send` (Pi `ctx.signal` aborted, or `agent_end` reports a user-cancelled turn — see [Cancellation — slash-command entry](../spec_topics/cancellation.md)) causes the runtime to emit exactly one `pi.sendMessage` call with `customType: "loom-system-note"` and `triggerTurn: false`. M asserts only the *presence* of that note plus that the loom run terminates without throwing into Pi; the per-`kind` body text (`loom /<name> cancelled`) is pinned later by V18i and is out of scope here.
-
-This keeps M's gate observable end-to-end, anchors every term it uses in an existing spec page (`cancellation.md` for the trigger, `pi-integration-contract.md` for the `customType`/`triggerTurn` shape, `slash-invocation.md` for the table V18i will tighten), and explicitly defers the literal-text assertion to V18i so the M assertion does not have to be rewritten when V18i lands. Edge case for the implementer: do not assert on `err.name`, `err.message`, or any `AbortError`-shaped JS value — the spec's surface at this layer is `kind: "cancelled"` on a `Result`, not a thrown JS error.
-
-## Related Findings
-
-- "M requires `loom-system-note` channel that V18h introduces" — co-resolve (both touch the same M test bullet; the wording change here removes the literal-text dependency on V18i, while the sibling finding addresses the missing V18h channel/renderer dependency)
-- "`loomAbort` controller construction not assigned to any leaf" — same-cluster (cites the same M test bullet as evidence that controller plumbing is required at M; resolved independently by introducing/assigning the controller construction to a leaf)
-- "`InvokeInfraError.reason: \"cancelled\"` absent from spec schema" — same-cluster (also a cancellation-vocabulary mismatch between plan and spec, but on the `invoke` surface rather than the slash surface)
 
