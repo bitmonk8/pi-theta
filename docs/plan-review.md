@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_95 findings retained, 3 false positives dropped, 0 persistent failures_
+_94 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -6703,68 +6703,6 @@ V15l Tests bullet ("Each reason synthesised and surfaces correctly. …") needs 
 ## Related Findings
 
 None
-
----
-
-# V15n Deps missing V17j; meta-level dep note in Tests is cruft
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V15n Deps missing V17j; meta-level dep note in Tests is cruft
-**Kind:** traceability, cruft
-
-## Finding
-
-V15n's Tests bullet enumerates `cycle through warp `fn` invokes too (deps on V17j)`. The parenthetical `(deps on V17j)` is a planning-process annotation embedded inside a test description: it tells the reader "this test cannot run until V17j ships," which is information that belongs in the **Deps** field, not in a Tests bullet. Per `plan_topics/conventions.md` the Tests field is a per-REQ-ID bullet list, and the Deps field is "Other leaf IDs that must be complete first."
-
-The annotation also flags a real omission: V15n's actual **Deps** field reads `V15a` only. V17j (`invoke from .warp resolves relative to .warp file`) wires `.warp`-resident `fn` callees into the static-resolution graph that V15a builds and V15n walks. Without V17j shipped, the warp-`fn` cycle test in V15n cannot exist, so V17j is a genuine prerequisite — not just for the test, but for V15n's claim of full cycle coverage across all callee kinds. The Tests bullet correctly identifies the dependency; the Deps field omits it.
-
-V17j itself is real (`plan_topics/v17-warp.md` lines 75–80) with `Deps: V17a, V15a`, so adding V15n → V17j does not close a cycle in the leaf DAG (V17j depends on V15a, V15n depends on V15a and V17j; V17j does not depend on V15n).
-
-## Plan Documents
-
-- `plan_topics/v15-invoke.md` — V15n leaf (edited)
-- `plan_topics/v17-warp.md` — V17j leaf (read-only — to confirm V17j exists and does not depend on V15n)
-- `plan_topics/conventions.md` — Tests / Deps field definitions (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical V15
-
-**Leaves (implementation order):**
-
-- V15n — Parse-time cycle detection — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A scheduler that respects the leaf DAG would currently allow V15n to be picked up as soon as V15a ships, before V17j. The implementer would then either skip the warp-`fn` cycle test (because the `.warp` `fn` invoke path does not yet contribute to the static-resolution graph) and ship V15n with stealth-incomplete coverage, or block on V17j without the plan having warned them. Either way V15n's "Ships when: static cycles caught" gate fires against an incomplete callee surface. The misplaced parenthetical in Tests is the symptom that the missing Dep is the disease.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v15-invoke.md` under `## V15n — Parse-time cycle detection`:
-
-1. In the **Tests.** bullet, strike the parenthetical ` (deps on V17j)` from the substring `cycle through warp \`fn\` invokes too (deps on V17j)`, leaving `cycle through warp \`fn\` invokes too`.
-2. In the **Deps.** bullet, change `V15a.` to `V15a, V17j.`
-
-No other leaves require edits. V17j's own Deps (`V17a, V15a`) do not reference V15n, so no cycle is introduced.
-
-## Related Findings
-
-- "V15n invocation-cycle message format not pinned to spec template" — same-cluster (same leaf, independent textual fix to the same Tests bullet — coordinate the edit)
-- "V14n / V14o missing V14q from Deps despite citing its collision rule in Tests" — same-cluster (identical pattern: Tests cites a leaf the Deps field omits)
-- "V14e missing V12a from Deps (duplicate of V12 ordering finding)" — same-cluster (same pattern, different leaves)
-- "V14o missing V14n from Deps" — same-cluster (same pattern, different leaves)
-- "V11g and V6d Deps fields contain rationale-only asides (cruft)" — same-cluster (Deps-field cruft pattern across the plan)
-- "Ambiguous group-level leaf IDs in Deps fields" — same-cluster (Deps-field hygiene at the conventions level)
 
 ---
 

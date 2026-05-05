@@ -109,5 +109,5 @@
 - **Spec.** [Invocation — Cycle detection](../spec_topics/invocation.md), [Invocation — Static resolution](../spec_topics/invocation.md#static-resolution).
 - **Adds.** Walk the per-load-pass static-resolution graph V15a builds; detect cycles; report `loom/load/invocation-cycle` with full path. Unresolvable callees (those that produced `loom/load/callee-has-errors`) are walk leaves — the walker does not descend through them, and a cycle routed through such a node is not detected at this load. After a watcher-driven re-walk that lifts the unresolvability, the cycle (if any) is caught on the next pass.
 - **Tests.** Self-cycle, two-step, and three-step cycles each surface `loom/load/invocation-cycle` whose message matches the spec template `"invocation cycle: A → B → A"` (path joined by ` → `, leading literal `invocation cycle: `, trailing node repeats the head); cycle through warp `fn` invokes too; cycle routed through an unparseable callee → no cycle diagnostic at first load (only `callee-has-errors`); after the callee is fixed and the watcher re-walks, the cycle surfaces as `loom/load/invocation-cycle`.
-- **Deps.** V15a.
+- **Deps.** V15a, V17j.
 - **Ships when.** Static cycles caught with the load-pass leaf rule for unresolvable nodes.
