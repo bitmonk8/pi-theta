@@ -10,6 +10,18 @@ Loom files are discovered from five sources. The global, project, and package-co
 
 Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-template behaviour. `.warp` library files are never discovered as slash commands regardless of where they live; they are reached only via `import` (with paths resolved relative to the importing file).
 
+<a id="discovery-roots"></a>
+
+**Discovery roots.** A *discovery root* is the directory each source contributes to the discovery walk. The set of active roots for a Pi session is the union of:
+
+- The global root `~/.pi/agent/looms/` (when present).
+- The project root `.pi/looms/` (when present).
+- Each scanned package's contributing directory (the package's `looms/` directory, or each directory reached through a `pi.looms` glob).
+- Each settings `looms` entry, resolved as follows: a directory entry contributes its own path; a file entry contributes its parent directory.
+- Each `--loom` CLI entry, resolved by the same file-vs-directory rule as settings entries.
+
+The term is referenced normatively by the path-restriction rule on `invoke` and `.loom` `tools:` entries (see [Invocation — Resolution](./invocation.md)): a resolved callee path must lie within at least one active root. Roots are computed once per discovery pass and cached for the lifetime of the resolved registry; hot-reload (per [Implementation Notes](./implementation-notes.md)) re-runs the computation.
+
 **Source priority (high to low).** When the same slash name resolves from multiple sources, the higher-priority source wins and `loom/load/cross-source-shadow` is emitted naming both paths.
 
 1. CLI flag (`--loom <path>`) — explicit, single-invocation override.

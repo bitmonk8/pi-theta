@@ -58,10 +58,11 @@ A function or loom that uses `?` thus implicitly returns `Result<T, QueryError>`
 - `.field` access on `null` — `loom/runtime/null-member-access`.
 - `[i]` access on `null` — `loom/runtime/null-index-access`.
 - Indexed access on a missing object key — `loom/runtime/missing-object-key`.
+- `invoke` chain depth exceeded — `loom/runtime/invoke-depth` (per the depth bound stated in [Invocation — Invocation depth bound](./invocation.md)).
 
 This list is closed; division by zero, integer overflow, and explicit author-driven panics are deliberately excluded (see [Diagnostics](./diagnostics.md)).
 
-**Panic message string (normative).** Every panic carries a single human-readable message string formatted at the panic site according to the *Message template* registered for its `loom/runtime/*` code in the [Diagnostics code registry](./diagnostics.md#loomruntime--runtime-panics). The templates are normative: a conformant runtime MUST emit the registered string (with template placeholders filled from the offending value) for every panic of that source, and conformance tests MAY assert on the exact string. The five V1 templates and their placeholders are summarised below — the registry is authoritative if the two ever drift:
+**Panic message string (normative).** Every panic carries a single human-readable message string formatted at the panic site according to the *Message template* registered for its `loom/runtime/*` code in the [Diagnostics code registry](./diagnostics.md#loomruntime--runtime-panics). The templates are normative: a conformant runtime MUST emit the registered string (with template placeholders filled from the offending value) for every panic of that source, and conformance tests MAY assert on the exact string. The six V1 templates and their placeholders are summarised below — the registry is authoritative if the two ever drift:
 
 | Code | Message template |
 |---|---|
@@ -70,6 +71,7 @@ This list is closed; division by zero, integer overflow, and explicit author-dri
 | `loom/runtime/null-member-access` | `null member access: .<field>` |
 | `loom/runtime/null-index-access` | `null index access: [<i>]` |
 | `loom/runtime/missing-object-key` | `missing object key: <key>` |
+| `loom/runtime/invoke-depth` | `invoke chain depth exceeded: <depth> > 32` |
 
 There is exactly one message string per panic. The same string flows unchanged to every routing surface listed below — it is *not* re-formatted per surface, and surface-specific framing (the `"loom /<name> aborted: "` prefix, the `InvokeInfraError` envelope) wraps the message rather than replacing it. The panic site itself is reported separately through the diagnostic's `file` / `range` (per [Diagnostics](./diagnostics.md)) and is not embedded in the message string. For panics inside a `.warp`-imported frame, the panic site is the leaf source location, not the importer.
 

@@ -106,11 +106,11 @@
 
 ## V18n — Panic routing: `invoke` parent surface
 
-- **Spec.** [Errors and Results](../spec_topics/errors-and-results.md) (panic routing), [Invocation](../spec_topics/invocation.md), [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md).
-- **Adds.** Panic in invoked child surfaces to parent as `Err({kind:"invoke_failure", reason:"panic", ...})`. For subagent-mode children, the panic still triggers `AgentSession.dispose()` via the `finally` block, and the parent observes the `Err` only after disposal has run.
-- **Tests.** Each panic source in child becomes parent-side `Err` with `reason:"panic"`; for subagent-mode children, `AgentSession.dispose()` is invoked exactly once before the parent observes the `Err` (cross-checked with V12a's disposal-on-panic test).
+- **Spec.** [Errors and Results — Runtime panics](../spec_topics/errors-and-results.md), [Invocation — Invocation depth bound, Failures](../spec_topics/invocation.md), [Pi Integration Contract — Subagent session lifecycle](../spec_topics/pi-integration-contract.md).
+- **Adds.** Panic in invoked child surfaces to parent as `Err(InvokeInfraError { kind:"invoke_failure", reason:"panic", ... })`. The depth-cap source `loom/runtime/invoke-depth` (per-chain count of 32 across direct `invoke`, registered-loom calls, and `.warp` `fn` invokes) is one of the tested panic sources at this surface. For subagent-mode children, the panic still triggers `AgentSession.dispose()` via the `finally` block, and the parent observes the `Err` only after disposal has run.
+- **Tests.** Each panic source in child becomes parent-side `Err` with `reason:"panic"`, including a synthesized 33-deep `invoke` chain that fires `loom/runtime/invoke-depth` and surfaces as `InvokeInfraError { reason: "panic" }` to the parent and as a top-level system note when the chain originates at the slash boundary; sibling invokes do not share the depth budget (two depth-30 sibling chains both succeed); for subagent-mode children, `AgentSession.dispose()` is invoked exactly once before the parent observes the `Err` (cross-checked with V12a's disposal-on-panic test).
 - **Deps.** V15l, V18k, V18l, V7i, V12a.
-- **Ships when.** `invoke` panic semantics complete.
+- **Ships when.** `invoke` panic semantics complete and the depth cap is observable on both the top-level and `invoke`-parent surfaces.
 
 ## V18o — Per-call timeout marker
 
