@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_38 findings retained, 3 false positives dropped, 0 persistent failures_
+_37 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -2722,79 +2722,4 @@ Edge cases the implementer must watch:
 - "`loomAbort` controller construction not assigned to any leaf" — same-cluster (sibling plumbing-ownership gap in M; both rest on the same "M does not declare its prerequisites" theme but resolve through independent edits).
 - "M's `AbortError` system-note path not defined in spec" — same-cluster (another M test that depends on later-leaf infrastructure; resolves independently via the spec's `kind: "cancelled"` contract).
 - "M's Ships-when is manual-only for an entire integration slice" — same-cluster (M's verification surface; the new `session_start` test bullet recommended above is one fakes-side mitigation but does not replace the end-to-end harness that finding asks for).
-
----
-
-# `loomAbort` controller construction not assigned to any leaf
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** `loomAbort` controller construction not assigned to any leaf
-**Kind:** implementability, assumptions, spec-coverage
-
-## Finding
-
-`spec_topics/cancellation.md` is unambiguous: every loom invocation owns a fresh `AbortController` (`loomAbort`) constructed at invocation start, and `loomAbort.signal` — never `ctx.signal` — is the single source of truth threaded through every downstream checkpoint, the synthesised `ExtensionContext.signal`, the `signal` argument to `tool.execute`, the parent signal handed to a child invoke, and the `signal` passed to `createAgentSession`. The same page mandates that the slash-command entry-point handler subscribes to Pi's `tool_call` / `tool_result` / `message_update` / `turn_end` / `agent_end` events to forward an aborted `ctx.signal` into `loomAbort.abort()`, that the runtime tolerates `ctx.signal === undefined` (Pi documents it as `undefined` in idle / non-turn contexts, which is exactly when the slash handler fires), and that all forwarding listeners are removed in a `finally` block.
-
-No leaf in the plan introduces this controller or its forwarders. M's `Adds` bullet describes the runtime (walks the body, calls `ConversationDriver.send` once, awaits `agent_end`) but does not name `loomAbort`, the forwarder subscriptions, or the `ctx.signal === undefined` tolerance. H4's `Adds` covers adapter shims, the tool-registration cache, and `withActiveTools` but does not own per-invocation state. V14c's `Adds` already *references* `loomAbort.signal` (it overrides `ctx.signal` to `loomAbort.signal` in the synthesised `ExtensionContext`), implying the controller exists by then — but V14c is itself a consumer, not the constructor. The first leaf where the controller's existence is demanded is M, whose Tests bullet "AbortError surfaces as a system note" cannot pass without it.
-
-The construction is per-invocation, not per-extension-instance, so it cannot live in the H4 factory. It belongs in M's runtime — the leaf that first turns a slash command into an executing loom — and M is the leaf that needs to declare ownership.
-
-## Plan Documents
-
-- `plan_topics/m-mvp.md` — `Adds`, `Tests`, `Spec.` (edited)
-- `plan_topics/h4-extension-shell.md` — `Adds` (read-only — confirm shell is per-extension, not per-invocation)
-- `plan_topics/v14-tool-calls.md` — V14c `Adds` (read-only — already names `loomAbort.signal` as override source)
-- `plan_topics/v18-cancellation.md` — V18a–V18e (read-only — checkpoints assume `loomAbort.signal` exists)
-
-## Spec Documents
-
-None. `spec_topics/cancellation.md` and `spec_topics/pi-integration-contract.md` already specify the construction site, the forwarder set, the `ctx.signal === undefined` tolerance, and the `finally`-block listener cleanup. The fix is purely internal to the plan.
-
-## Affected Leaves
-
-**Phases:** MVP
-
-**Leaves (implementation order):**
-
-- M — Minimal end-to-end loom — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two implementers picking up M will diverge on where `loomAbort` is constructed, which Pi events the runtime subscribes to in order to forward `ctx.signal`, and whether the slash handler tolerates `ctx.signal === undefined` at entry. One plausible misreading is to treat `ctx.signal` as the loom's signal directly, which silently breaks Esc-during-`@`-query for every downstream V18 checkpoint and produces a non-deterministic pass on M's "AbortError surfaces as a system note" test. V14c's `ctx.signal` override (`ctx.signal === loomAbort.signal`, never `undefined`) becomes untestable in a tree where the controller doesn't actually exist.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend `plan_topics/m-mvp.md` to claim ownership of the per-invocation controller and its slash-entry forwarders. Concretely:
-
-1. **`Spec.` field — add** a citation for the cancellation contract: append `, [Cancellation — Signal source and Forwarding into loomAbort](../spec_topics/cancellation.md)` to the existing Spec list.
-
-2. **`Adds.` field — append** a sentence (after the existing Discovery sentence, before the period that ends the bullet):
-
-   > Per-invocation cancellation plumbing: the slash-command handler tolerates `ctx.signal === undefined` at entry, constructs a fresh `AbortController` (`loomAbort`) per invocation per [Cancellation — Signal source](../spec_topics/cancellation.md), subscribes to Pi's `tool_call`, `tool_result`, `message_update`, `turn_end`, and `agent_end` events for the duration of the run so that an aborted `ctx.signal` (or an `agent_end` reporting a user-cancelled turn) triggers `loomAbort.abort()`, and removes every subscribed listener in a `finally` block on loom return or panic. `loomAbort.signal` is the signal threaded into the prompt-mode driver's `agent_end` wait.
-
-3. **`Tests.` field — replace** the existing single bullet `AbortError surfaces as a system note.` with four bullets covering construction, forwarder, tolerance, and cleanup:
-
-   - `Slash handler invoked with ctx.signal === undefined runs without throwing (idle-entry tolerance).`
-   - `Each invocation constructs a distinct AbortController; loomAbort.signal is always defined.`
-   - `Aborting ctx.signal during the agent_end wait calls loomAbort.abort() exactly once via the forwarder; the in-flight send surfaces as the cancelled system note (exact text per V18i / V18m, asserted as "presence of customType: 'loom-system-note'" until V18i tightens — cross-reference the sibling finding on M's AbortError wording).`
-   - `On loom return and on loom panic, every listener subscribed to ctx (tool_call, tool_result, message_update, turn_end, agent_end) is removed (asserted by a counting probe on the FakeExtensionAPI event bus).`
-
-   Implementer edge case: the `agent_end` forwarder must distinguish a *user-cancelled* `agent_end` (which aborts `loomAbort`) from a *normal* `agent_end` (which simply resolves the prompt-mode wait); both paths share the same event but only the former triggers `loomAbort.abort()`.
-
-4. **`Deps.` field — no change.** H4's `Deps. H2` already covers the adapter shims; the controller is constructed inside the M-owned slash handler and needs nothing earlier.
-
-The alternative of moving construction into H4 is wrong: H4 is invoked once per extension load, `loomAbort` is per-invocation, and H4 has no slash-handler scope in which to subscribe forwarders.
-
-## Related Findings
-
-- "M's `AbortError` system-note path not defined in spec" — co-resolve (the AbortError test bullet edited here is the same one that finding rewrites for spec-fidelity wording; both edits target the same M Tests line)
-- "Binder cancellation checkpoint — no plan leaf" — same-cluster (also covers a missing cancellation forwarder, but at the binder LLM call rather than the slash entry; resolves independently in V18b.1)
-- "M too large — five distinct concerns in one leaf" — decision-dependency (if M splits into Ma/Mb, the per-invocation cancellation plumbing belongs in Mb alongside the runtime + slash registration, not in Ma)
-- "M requires `loom-system-note` channel that V18h introduces" — same-cluster (the AbortError Tests bullet also depends on the system-note channel being available at M-time)
 
