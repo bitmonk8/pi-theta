@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_33 findings retained, 3 false positives dropped, 0 persistent failures_
+_32 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -2386,71 +2386,3 @@ Implementer-relevant edge cases:
 - "M's collision warning lacks code/severity" — same-cluster (cross-root precedence bullet lands in Mb/Mc with the discovery work)
 - "V5e: `agent_end` global listener instead of `ctx.waitForIdle()`" — co-resolve (the runtime-completion mechanism is described in M's `Adds.`; rewriting it under Mb is the natural moment to switch from `agent_end` to `await ctx.waitForIdle()`)
 
----
-
-# V5e and M drive prompt-mode completion via `agent_end` instead of the spec-mandated `ctx.waitForIdle()`
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V5e: `agent_end` global listener instead of `ctx.waitForIdle()`
-**Kind:** spec-coverage, assumptions, doc-alignment-broad, clarity
-
-## Finding
-
-`plan_topics/v5-untyped-queries.md` V5e Adds says the `PromptModeConversationDriver` "awaits via `agent_end` listener," and V5e Tests asserts "`agent_end` listener cleaned up after each query (no leak)." `plan_topics/m-mvp.md` M Adds says the MVP runtime "calls `ConversationDriver.send` once, awaits `agent_end`." Both leaves codify the wrong completion signal.
-
-`spec_topics/pi-integration-contract.md` (Conversation drive — prompt mode) is unambiguous: completion is awaited by `await ctx.waitForIdle()` on the `ExtensionCommandContext`, which is session-scoped and "the prompt-mode driver's authoritative completion signal." The spec then names the alternative as a hazard the runtime MUST avoid: "The runtime MUST NOT subscribe to the global `pi.on(\"agent_end\", …)` event for query completion: that event fires for every `AgentSession` in the process … with no per-session origin marker, so a global handler cross-fires across concurrent looms or sibling subagents and resolves the wait on the wrong turn." The spec also pins the side-channel for choosing between idle and steer delivery to `ctx.isIdle()`, and reads "the accumulated assistant text from the final turn — read from the command context after `waitForIdle()` resolves — is the `Ok(string)` value."
-
-The plan as written would have an implementer build precisely the cross-firing global listener the spec forbids, and would have V5e ship a "no leak" test for a subscription that should never have existed. Subagent-mode completion is a separate path and *does* use `session.subscribe(event => event.type === "agent_end")` scoped to that `AgentSession`; the plan has fused the two surfaces.
-
-## Plan Documents
-
-- `plan_topics/v5-untyped-queries.md` — V5e Adds and Tests (edited)
-- `plan_topics/m-mvp.md` — Adds and Tests (edited)
-- `plan_topics/h2-di-skeleton.md` — `ConversationDriver` seam (read-only; informs whether the seam's contract needs a `waitForIdle` hook on the prompt-mode implementation)
-- `plan_topics/conventions.md` — read-only (architectural-test conventions)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** MVP, Vertical V5
-
-**Leaves (implementation order):**
-
-- M — Minimal end-to-end loom — (modified)
-- V5e — Prompt-mode conversation driver — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-If shipped unfixed, the prompt-mode driver subscribes to a global event that fires for every `AgentSession` in the process; the first concurrent subagent or sibling loom turn that emits `agent_end` resolves the wait on the wrong turn, the user-session's accumulated assistant text is read prematurely, and `Ok(string)` returns truncated or empty. The defect is silent under single-loom smoke tests and surfaces only once V12 (subagent) lands or two prompt-mode looms overlap. V5e's "no leak" test would also lock in the wrong API shape, making later correction a contract change rather than a bugfix.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit `plan_topics/v5-untyped-queries.md` V5e:
-
-- Replace the Adds bullet with: `PromptModeConversationDriver` issues `pi.sendUserMessage(text)` when `ctx.isIdle()` is true and `pi.sendUserMessage(text, { deliverAs: "steer" })` otherwise (the captured factory `pi: ExtensionAPI`, not `ctx`); awaits completion via `await ctx.waitForIdle()`; reads the accumulated assistant text from the command context once `waitForIdle()` resolves and returns it as `Ok(string)`. Replaces M's hard-coded driver.
-- Replace the Tests bullet with: Single turn round-trips with text equal to the assistant transcript captured between `sendUserMessage` and `waitForIdle()` resolution; mid-stream send uses `deliverAs: "steer"` (selected by `ctx.isIdle() === false`); `waitForIdle()` is the only completion primitive consulted (no `pi.on`, no `session.subscribe` against the user session); transport failure → `Err({kind:"transport"})`.
-
-Edit `plan_topics/m-mvp.md`:
-
-- In Adds, strike "calls `ConversationDriver.send` once, awaits `agent_end`" and replace with: "calls `ConversationDriver.send` once and awaits `ctx.waitForIdle()`; the driver internally uses `pi.sendUserMessage` (via the factory-captured `pi`) and reads the assistant text from `ctx` after `waitForIdle()` resolves."
-
-Add an architectural test under V5e Tests (and reference it from `plan_topics/conventions.md` if a generic "forbidden Pi APIs" allow-list is added there): a static scan asserts that no source file under the runtime tree contains the substring `pi.on("agent_end"` or the regex equivalent `pi\.on\(\s*["']agent_end["']`. Subagent-mode `session.subscribe(...)` against the spawned `AgentSession` remains permitted; the architectural test must scope its prohibition to `pi.on` (the global emitter), not to `subscribe` on a session handle.
-
-If a future cancellation path needs to forward an external `agent_end` (e.g. user typed `/abort` mid-loom), V5e/M MUST state that scope explicitly and route it through the existing `loomAbort` controller rather than through query-completion semantics.
-
-## Related Findings
-
-- "V5e: `ctx.sendUserMessage()` — method does not exist on `ExtensionCommandContext`" — co-resolve (the same V5e Adds rewrite fixes both: `pi.sendUserMessage` for transmission, `ctx.waitForIdle()` for completion, `ctx.isIdle()` as the only `ctx`-side query)
-- "M too large — five distinct concerns in one leaf" — same-cluster (the runtime concern in M carries the same `agent_end` defect; if M is split into Ma/Mb, the corrected wording lands in Mb)
-- "V5e Ships-when: \"a real Pi session\" is unverifiable from the leaf gate" — same-cluster (touches V5e Ships-when, independent fix)
-- "V5e \"Single turn round-trips\" meaningless" — co-resolve (the Tests rewrite above replaces that bullet with a concrete `waitForIdle`-based assertion)
-- "M's \"AbortError\" system-note path not defined in spec" — same-cluster (also in M Adds/Tests; resolved independently but edits the same file)
