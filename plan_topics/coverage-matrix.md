@@ -56,7 +56,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Imports](../spec_topics/imports.md) | V17a–V17m |
 | [Pi Extension Integration](../spec_topics/pi-integration.md) | H4, H5, Mb, V14k–V14q, V14t, V18f |
 | [Directory Convention](../spec_topics/discovery.md) | V14k–V14q, V18r |
-| [Invocation from Pi](../spec_topics/slash-invocation.md) | V16a–V16p, V18i |
+| [Invocation from Pi](../spec_topics/slash-invocation.md) | M (no-params overflow, partial), V3c (no-params overflow), V16a–V16p, V18i |
 | [Slash-Command Argument Binding — bypass](../spec_topics/binder.md) | V3c |
 | [Slash-Command Argument Binding — full](../spec_topics/binder.md) | V16a–V16p |
 | [Cancellation](../spec_topics/cancellation.md) | V18a–V18e, V18p, V18o |

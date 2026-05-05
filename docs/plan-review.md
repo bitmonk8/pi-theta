@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_9 findings retained, 3 false positives dropped, 0 persistent failures_
+_8 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -613,73 +613,3 @@ Leave the first sentence ("Every executable spec section maps to a closing leaf.
 ## Related Findings
 
 - "REQ-ID system referenced everywhere but no leaf creates it" — co-resolve (the offending sentence promises work that has no owning leaf; the companion finding adds the leaf, this finding deletes the orphaned forward reference; both edits land in one commit but neither blocks the other)
-
----
-
-# V3c missing from `Invocation from Pi` coverage row
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V3c missing from `Invocation from Pi` coverage row
-**Kind:** consistency
-
-## Finding
-
-The coverage matrix maps `[Invocation from Pi](../spec_topics/slash-invocation.md)` to `V16a–V16p, V18i`. That spec page contains a normative **No-params overflow** rule (`spec_topics/slash-invocation.md` §"No-params overflow"): when the loom takes no parameters and the user typed extra text after the command name, the runtime emits the system note `loom /<name>: ignoring extra arguments — this loom takes no parameters`.
-
-The leaf that closes this rule is `V3c — Bypass binder (no-params and single-string forms)` (`plan_topics/v3-frontmatter.md`). V3c's `Spec.` field cites both `binder.md` and `slash-invocation.md` (no-params overflow) explicitly, and its `Adds.` bullet pins the exact system-note wording. `M` (`plan_topics/m-mvp.md`) ships a partial version of the same rule for the no-params MVP loom. Neither leaf is listed in the `Invocation from Pi` row — only the binder-bypass row mentions V3c.
-
-The closing-leaf-per-spec-rule contract therefore fails for the no-params overflow rule on the `Invocation from Pi` page: a section-row matrix lookup for that page returns no leaf that asserts the overflow message.
-
-## Plan Documents
-
-- `plan_topics/coverage-matrix.md` — `[Invocation from Pi]` row (edited)
-- `plan_topics/v3-frontmatter.md` — V3c (read-only)
-- `plan_topics/m-mvp.md` — M (read-only)
-
-## Spec Documents
-
-- `spec_topics/slash-invocation.md` — "No-params overflow" paragraph (read-only)
-- `spec_topics/binder.md` — Binder bypass section (read-only)
-
-## Affected Leaves
-
-**Phases:** MVP, Vertical V3
-
-**Leaves (implementation order):**
-
-- M — Minimal end-to-end loom — (modified)
-- V3c — Bypass binder (no-params and single-string forms) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-V18o's coverage gate diffs spec REQ-IDs against matrix mappings; today the `Invocation from Pi` row claims its closing leaves are `V16a–V16p, V18i`, none of which assert the no-params overflow system note. Once REQ-IDs land on `slash-invocation.md`, the REQ-ID for the overflow rule will either appear unmapped (gate failure with a misleading "no leaf owns this rule" message — the rule is owned, just filed under the wrong row) or be silently mapped to a V16 leaf that has no business asserting it, producing a vacuous gate pass.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/coverage-matrix.md`, change the `Invocation from Pi` row from
-
-```
-| [Invocation from Pi](../spec_topics/slash-invocation.md) | V16a–V16p, V18i |
-```
-
-to
-
-```
-| [Invocation from Pi](../spec_topics/slash-invocation.md) | M (no-params overflow, partial), V3c (no-params overflow), V16a–V16p, V18i |
-```
-
-Leave the `[Slash-Command Argument Binding — bypass]` row mapping to `V3c` unchanged: V3c legitimately closes both the binder-bypass mechanism (owned by `binder.md`) and the no-params overflow message (owned by `slash-invocation.md`), and the matrix correctly cross-lists leaves that close rules on multiple spec pages elsewhere (e.g. V12a appears in both `Overview — Scope of a Loom File` and `Pi Integration Contract`). The parenthetical role tags ("no-params overflow", "no-params overflow, partial") match the existing convention used by neighbouring rows (e.g. `V13e (general), V10f (enums)`).
-
-Edge case for the implementer: do not split this into a sub-row `[Invocation from Pi — No-params overflow]`. The `Invocation from Pi` page has no other sub-divisions in the matrix, and a one-off sub-row would obscure the fact that the same row's V16 leaves also touch `slash-invocation.md`.
-
-## Related Findings
-
-- "V18n missing from `Invocation` coverage row" — same-cluster (sibling row-completeness gap; edited independently in the same matrix)
-- ""Phase 12b" stale reference and embedded decision-log note" — same-cluster (also edits `coverage-matrix.md`; can be co-edited but resolves independently)
-- "REQ-ID system referenced everywhere but no leaf creates it" — decision-dependency (the per-REQ-ID re-pivot will eventually replace section rows with REQ-ID rows; this row-fix is still needed in the interim because the re-pivot is not scheduled)
