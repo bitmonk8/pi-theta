@@ -10,6 +10,16 @@ Loom files are discovered from five sources. The global, project, and package-co
 
 Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-template behaviour. `.warp` library files are never discovered as slash commands regardless of where they live; they are reached only via `import` (with paths resolved relative to the importing file).
 
+<a id="file-extension-namespace"></a>
+
+### File-extension namespace
+
+The `.loom` and `.warp` file extensions are coined by this extension. At the time of writing, no Pi-shipped surface and no other `@mariozechner/pi-coding-agent` extension claims either extension; the framing paragraph above documents the parallel manifest-namespace check (`pi.extensions`, `pi.skills`, `pi.prompts`, `pi.themes`, `pi.video`, `pi.image` are the only Pi-recognised manifest keys, and `pi.looms` is therefore safe to coin).
+
+Pi has no central file-extension registry: ownership is established de facto by each extension's discovery walker. Cross-extension collisions on `.loom` or `.warp` files — a hypothetical future extension that also walks `*.loom` — manifest through the existing slash-name collision rule below (see [Slash-name collisions at the same priority](#slash-name-collisions-at-the-same-priority)), not through a separate file-extension rule; there is no `loom/load/extension-claimed-by-other-extension` code in V1.
+
+This check is a point-in-time observation, not a guarantee. If a future Pi-ecosystem package adopts the same extensions, this section is the place to document the resolution. The check has no REQ-ID, no per-leaf test obligation, and emits no diagnostic; it exists to record the namespace-clearance decision alongside the parallel `pi` manifest-namespace decision in the framing paragraph.
+
 <a id="discovery-roots"></a>
 
 **Discovery roots.** A *discovery root* is the directory each source contributes to the discovery walk. The set of active roots for a Pi session is the union of:

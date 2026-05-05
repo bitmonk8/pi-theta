@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 2 commit-ready findings (8 merge clusters, 22 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 1 commit-ready finding (8 merge clusters, 22 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -87,90 +87,5 @@ Edge cases:
 
 - "Pi runtime prerequisites and SDK version pin not surfaced" — co-resolve with MERGE-D (Orientation prerequisites); both edits land in the same Orientation block.
 - "`.warp` top-level form list" — same-cluster (paragraph 2; resolved in MERGE-B).
-
----
-
----
-
-## spec.md — Paragraph 2: .loom / .warp file contract
-
----
-
-# spec.md paragraph 2 — `.loom` / `.warp` file contract rewrite
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Merged from:** 3 findings:
-- `.warp` top-level form list restated in `spec.md` without an anchor; drift risk against `imports.md`
-- Extension-mismatch enforcement for `.warp` and `.loom` paths leaves diagnostic codes unregistered
-- `.loom` / `.warp` file-extension namespace not verified
-
-**Kind:** cross-spec-consistency, completeness, error-model, prescription
-
-## Finding
-
-`spec.md` paragraph 2 carries three defects that all rewrite or extend the same paragraph:
-
-1. The paragraph restates the `.warp` top-level permitted-form list inline (`import`, `export`, `schema`, `enum`, `fn`); `imports.md` owns the canonical list. Two copies = drift surface.
-2. Extension-mismatch enforcement for `.warp` (in `import` paths) and `.loom` (in `invoke` and `tools:` paths) is mentioned in prose but no diagnostic codes are registered. Two new codes are needed: `loom/parse/invoke-non-loom-extension` and `loom/parse/import-non-warp-extension`.
-3. The paragraph silently assumes the `.loom` and `.warp` extensions are not claimed by any other Pi-ecosystem extension. No verification note exists.
-
-All three edits modify the same paragraph and MUST land together.
-
-## Spec Documents
-
-- `spec.md` — paragraph 2 (edited)
-- `spec_topics/imports.md` — Path resolution paragraph + `.warp file rules` first bullet (edited)
-- `spec_topics/invocation.md` — Resolution paragraph (edited)
-- `spec_topics/diagnostics.md` — `loom/parse/*` table (edited; two new rows)
-- `spec_topics/discovery.md` — new "File-extension namespace" note at top of file (edited)
-
-## Plan Impact
-
-**Phases:** Vertical V3, V14, V15, V17
-
-**Leaves (implementation order):**
-
-- V3a — frontmatter / load diagnostics — (read-only confirmation; no new behaviour)
-- V14m — discovery walk — (read-only confirmation)
-- V15a, V17c — path-literal lexing precedence — (modified; the new extension diagnostics fire *after* `loom/parse/invalid-path-separator`)
-
-## Consequence
-
-**Severity:** correctness
-
-Without the diagnostic codes, two implementers will diverge on what fires when `invoke("./x.warp")` or `import { ... } from "./x.loom"` is encountered. The drift risk on the top-level form list compounds when `imports.md` evolves. The unverified namespace assumption is implementation-defining without spec backing.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite `spec.md` paragraph 2 to:
-
-> A loom is stored in one of two file extensions that share a single grammar and type system. `.loom` files are invocable as slash commands (see [Invocation from Pi](./spec_topics/slash-invocation.md)); `.warp` files are library modules whose top level is restricted to a small set of declaration forms — see [Imports](./spec_topics/imports.md) for the normative list (including `enum` per [Schema Declarations](./spec_topics/schemas.md) and the `export … from` re-export form). `.warp` files are never directly invoked: slash invocation is prevented by construction (discovery scans `*.loom` only — see [Discovery](./spec_topics/discovery.md)); `invoke(...)` and `tools:` paths ending in `.warp` raise `loom/parse/invoke-non-loom-extension`; `import` paths ending in `.loom` raise `loom/parse/import-non-warp-extension`. See [Discovery — File-extension namespace](./spec_topics/discovery.md#file-extension-namespace) for the namespace-clearance note.
->
-> <!-- DO NOT inline the permitted-form list here; see imports.md. -->
-
-Companion edits:
-
-- **`spec_topics/imports.md`** — Path resolution paragraph: replace "Paths must end in `.warp`" with "Paths must end in `.warp`; a non-`.warp` extension is `loom/parse/import-non-warp-extension`."
-- **`spec_topics/invocation.md`** — Resolution paragraph: replace "It must end in `.loom`" with "It must end in `.loom`; a non-`.loom` extension is `loom/parse/invoke-non-loom-extension`. The same code applies to `tools:` `.loom` entries whose path string does not end in `.loom`."
-- **`spec_topics/diagnostics.md`** — Register two new rows in the `loom/parse/*` table next to `loom/parse/invalid-path-separator`:
-  - `loom/parse/invoke-non-loom-extension` (E, parse) — owner `invocation.md`. Hint: "invoke and `tools:` paths must end in `.loom`; use `import` for `.warp` library code."
-  - `loom/parse/import-non-warp-extension` (E, parse) — owner `imports.md`. Hint: "import paths must end in `.warp`; `.loom` files are not importable — use `invoke(...)` instead."
-  Order both diagnostics so that `loom/parse/invalid-path-separator` fires *before* the extension check.
-- **`spec_topics/discovery.md`** — Add a `### File-extension namespace` paragraph at the top, co-located with the existing `pi` manifest-namespace verification, stating: (1) `.loom` and `.warp` are coined by this extension; no Pi-shipped surface or other `@mariozechner/pi-coding-agent` extension claims them at the time of writing; (2) Pi has no central file-extension registry — ownership is established de facto by each extension's discovery walker; cross-extension collisions on `.loom`/`.warp` files manifest via the existing slash-name collision rule, not a separate file-extension rule; (3) the check is a point-in-time observation, not a guarantee; if a future Pi-ecosystem package adopts the same extensions, this section is the place to document the resolution.
-
-Edge cases:
-
-- The extension check applies to the path literal as written, not the realpath-normalised result. Symlinks whose target ends in a different extension are irrelevant.
-- The check is byte-exact lowercase (matching `lexical.md`'s path-literal grammar). `./x.LOOM` is rejected with the new code.
-- The `tools:` surface emits the new code at parse time (consistent with `loom/parse/invalid-path-separator`).
-- The discovery namespace note is descriptive — assign no REQ-ID, no per-leaf test obligation, no new diagnostic.
-
-## Related Findings
-
-- None outside this merge.
 
 ---
