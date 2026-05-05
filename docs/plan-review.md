@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_112 findings retained, 3 false positives dropped, 0 persistent failures_
+_111 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7936,70 +7936,4 @@ Edge cases the implementer must watch:
 - "V16e bad `looms.binderModel` setting silently unregisters all affected looms" — same-cluster (both touch V16e's settings semantics; resolve independently)
 - "V16e ordering: forward Dep on V16o with misleading file order" — same-cluster (touches V16e but unrelated mechanism)
 - "V18f `/reload` re-run-of-factory not asserted" — same-cluster (the structural-note path the settings-array delta routes through is the same path V18f's `/reload` test must exercise)
-
----
-
-# V18g has no independent work product — fold into V18f
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V18g not independently verifiable — merge into V18f
-**Kind:** step-atomicity, ordering
-
-## Finding
-
-V18g's own `Adds` field states that AJV cache invalidation "**collapses into the V18f `LoomRegistry` swap** … is part of the swap, not a separate watcher-driven path." The leaf therefore introduces no new code path: the validator-cache eviction it describes happens inside the swap that V18f builds, and its `Tests` bullet asserts properties of that same swap (probe on the validator service, cache hit/miss across the swap, registration-cache survival across content edits).
-
-This violates step atomicity. V18f could ship and pass its `Ships when` gate while leaving the eviction half un-exercised, because eviction-on-swap is not in V18f's tests. Conversely V18g has a `Ships when` gate ("Cache stays consistent under live edits and the registration cache lifetime matches the extension-instance lifetime") that an implementer cannot satisfy without modifying the V18f code that V18g claims to depend on, blurring which leaf owns the swap implementation. The only piece of V18g that is genuinely separable from V18f is the editorial clarification that the per-extension tool-registration cache lives for the extension-instance lifetime — a documentation point, not a code change.
-
-## Plan Documents
-
-- `plan_topics/v18-cancellation.md` — V18f section (edited)
-- `plan_topics/v18-cancellation.md` — V18g section (edited / removed)
-- `plan_topics/coverage-matrix.md` — Pi Integration Contract row currently lists `V18g` alongside `V18f` (edited)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18f — File watcher (chokidar) over discovery roots — (modified)
-- V18g — AJV cache invalidation on file change — (removed)
-
-## Consequence
-
-**Severity:** advisory
-
-V18f can ship green while the eviction half remains un-asserted, because the validator-cache probe lives in V18g's `Tests` bullet rather than V18f's. The split also forces two implementers (or one implementer in two sittings) to touch the same swap code under two different leaf gates, with no boundary explaining what V18g may modify that V18f did not already touch. Nothing in the spec is left unimplemented either way, but the per-leaf gates do not cleanly partition the work.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit `plan_topics/v18-cancellation.md`:
-
-1. Delete the `## V18g — AJV cache invalidation on file change` section in its entirety.
-2. In the `## V18f` section, append to the `Adds.` bullet (after the existing tool-registration-cache sentence): "The atomic swap also drops the changed file's compiled-validator cache entry and the entries for every transitive `.warp` importer; the validator-cache key remains the lowered-schema hash, so a re-parse producing an identical lowered schema reuses cached validators across the swap. The per-extension tool-registration cache (`Map<schema-hash, registeredToolName>`) is **not** cleared on content edits — it lives for the extension-instance lifetime and only `/reload` recreates it empty."
-3. In the `## V18f` section, append to the `Tests.` bullet: "A schema edit drops the matching validator-cache entry as part of the swap (asserted via a probe on the validator service) and the next query recompiles; non-changed files retain their cache hit; a re-parse producing an identical lowered schema reuses the cached validator (no recompile observed); the tool-registration cache survives a content-edit swap and is empty only after a real `/reload`."
-4. In the `## V18f` section, append to the `Ships when.` bullet: "; validator-cache stays consistent under live edits; registration-cache lifetime matches the extension-instance lifetime."
-5. Leave V18f's `Spec.` line alone but add `[Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime)` to it so the merged leaf still cites every spec source V18g cited.
-
-Edit `plan_topics/coverage-matrix.md`:
-
-6. In the `Pi Integration Contract` row, strike `V18g` from the leaf list (it becomes `M, V12a, V14a–V14j, V18f, V18h`).
-
-Renumbering of V18h–V18o is not required; leaving the gap at V18g is acceptable and avoids invalidating every downstream `Deps.` reference. Any current cross-reference to `V18g` outside `coverage-matrix.md` should be retargeted to `V18f` (none found beyond the matrix at the time of writing).
-
-## Related Findings
-
-- "V18f watcher swap has no rollback or kill switch" — same-cluster (modifies the same V18f swap; resolves independently but lands in the same edit batch)
-- "V18f structural-change note text unspecified" — same-cluster (V18f Adds bullet)
-- "Settings-file watching silently assumed but excluded from V18f scope" — same-cluster (V18f scope)
-- "Tool-registration cache unbounded growth" — decision-dependency (the concern currently lives in V18g; once V18g is folded in, the bounded-growth invariant attaches to V18f instead)
 
