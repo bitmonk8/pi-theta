@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_108 findings retained, 3 false positives dropped, 0 persistent failures_
+_107 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7631,76 +7631,3 @@ Do **not** roll the timeout-rejection tests into V3a or V13f. Those leaves cover
 - "H4 missing mandatory Spec field" — same-cluster (relies on the gate to surface omissions; benefits from V18p existing as a separate, observable closing leaf)
 
 ---
-
-# V18o coverage-gate example would vacuously pass as written
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V18o CI command assumes sorted input and literal `PREFIX-` prefix
-**Kind:** clarity
-
-## Finding
-
-V18o's second acceptance criterion (the coverage-matrix closing gate) sketches the CI check as:
-
-```
-comm -23 <(grep -roh 'PREFIX-[0-9]\+' spec_topics/) <(grep -roh 'PREFIX-[0-9]\+' plan_topics/coverage-matrix.md)
-```
-
-Two defects in the snippet make a literal copy-paste implementation unsound:
-
-1. **Literal `PREFIX-`.** The spec's appendix (`spec.md` "REQ-ID prefix table") uses `PREFIX-` only as a placeholder to explain the numbering scheme; actual REQ-IDs use the per-page prefixes from the table (`LEX-1`, `TYPE-3`, `BIND-7`, `BNDG-2`, `SCHM-…`, `DIAG-…`, etc., across roughly two dozen prefixes). The literal regex `PREFIX-[0-9]+` matches zero real REQ-IDs, so both `comm` inputs are empty and the diff is empty — the gate passes vacuously regardless of coverage state.
-2. **Unsorted input to `comm -23`.** `comm` requires sorted input and produces undefined / noisy output otherwise. `grep -roh` emits matches in file-walk order with duplicates (the same REQ-ID is cited by both its definition site and its Tests-bullet citations), so even after the prefix is fixed the diff would contain spurious entries and miss real gaps.
-
-The `e.g.` qualifier signals that the snippet is illustrative, but it is the only operational description of how the gate works — the prose around it does not name the prefix-union source, the sort/uniq invariant, or what counts as "the REQ-IDs grepped from `coverage-matrix.md`" (raw text vs. structured cell parse). The Tests bullet's negative-case requirement ("a synthetic spec edit that introduces an un-mapped REQ-ID flips the check to non-zero") would catch the literal-`PREFIX-` mistake the first time it runs, but a careful implementer should not have to discover the leaf's only example is non-functional. Tighten the text so the leaf describes the gate's contract rather than a broken sketch of one.
-
-## Plan Documents
-
-- `plan_topics/v18-cancellation.md` — V18o `Adds.` second bullet (edited)
-- `plan_topics/coverage-matrix.md` — preamble (read-only; confirms gate consumes this file)
-- `plan_topics/conventions.md` — REQ-ID discipline (read-only)
-- `plan.md` — V18 phase index (read-only)
-
-## Spec Documents
-
-- `spec.md` — Appendix "REQ-ID prefix table" (read-only; defines the prefix union the gate must enumerate)
-
-## Affected Leaves
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18o — Per-call timeout marker / coverage-matrix closing gate — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A diligent implementer will notice the script as written matches nothing and will derive the correct prefix-union from the appendix; the synthetic-unmapped-REQ-ID test in the same leaf forces the issue to surface before merge. A careless implementer could ship a vacuously-passing gate that silently lets unmapped REQ-IDs through until someone exercises the negative test. The risk is low because the negative test is mandated; the cost of fixing the prose is also low.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v18-cancellation.md`, replace the parenthetical `e.g.` snippet inside the second sub-bullet of V18o's `Adds.` field with a contract-shaped description:
-
-> *Coverage-matrix closing gate.* Every REQ-ID emitted by any spec page (per the Appendix prefix table in [`../spec.md`](../spec.md)) maps to at least one closing leaf in [`coverage-matrix.md`](coverage-matrix.md). The gate is implemented as a CI check that:
-> (a) reads the prefix union `{LEX, TYPE, SCHM, …}` directly from the Appendix prefix table (pure-narrative pages contribute no prefix);
-> (b) extracts every `<PREFIX>-<N>` token from `spec_topics/*.md` using that union, sorts and uniques the result;
-> (c) extracts every `<PREFIX>-<N>` token from `plan_topics/coverage-matrix.md` using the same union, sorts and uniques the result;
-> (d) asserts the set difference (spec − matrix) is empty.
-> The exact script form (`comm -23`, `diff`, a Node script, etc.) is non-normative; the contract is the set-difference assertion. Pure-narrative pages contribute no REQ-IDs and therefore no rows.
-
-Edge cases the implementer must handle:
-
-- The Appendix table includes the `BIND` / `BNDG` split (binder.md → `BIND`, bindings.md → `BNDG`); the prefix union must contain both, not collapse on stem.
-- `spec.md` itself contains the literal placeholder `PREFIX-1`, `PREFIX-2` in the Appendix prose; restricting the scan to `spec_topics/` (as the existing example does) is sufficient to exclude it. Do not widen the scan to `spec.md`.
-- The matrix today carries section-level rows (`V4b`, `V11a–V11f`, etc.) rather than per-REQ-ID rows; the gate as specified will report every assigned REQ-ID as unmapped until the per-REQ-ID re-pivot in `coverage-matrix.md` lands. Either gate the CI check behind a flag until the re-pivot is complete, or land the re-pivot in the same edit as V18o.
-
-## Related Findings
-
-- "V18o bundles per-call timeout marker with coverage-matrix CI gate" — decision-dependency (if V18o is split into V18o + V18p, this rephrase belongs on the new coverage-gate leaf)
-- "V18o wrong diagnostic code for `timeout:` field rejection" — same-cluster (different sub-criterion of the same leaf; resolves independently)
-- "REQ-ID system referenced everywhere but no leaf creates it" — same-cluster (the gate consumes the REQ-ID system this finding says is unowned; both touch the REQ-ID lifecycle)
