@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_84 findings retained, 3 false positives dropped, 0 persistent failures_
+_83 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5931,77 +5931,3 @@ In `plan_topics/v14-tool-calls.md`, edit the V14e `Deps.` bullet from `V14a, V5e
 - "V12a missing from V14e Deps" — superseded-by (same defect, same fix; the present heading is explicitly a back-reference and resolves with the same one-token edit)
 - "`AgentSession` seam missing from H2 and H4" — decision-dependency (if the `AgentSession` seam is rescheduled into a new pre-V12a leaf, V14e's Dep should target that leaf instead of, or in addition to, V12a)
 
----
-
-# Tool-execution result lowering rules (text filter, join, empty fallback, 4096-byte truncation) have no asserting leaf
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** Tool execution `content` filtering and 4096-byte truncation — no test leaf
-**Kind:** spec-coverage
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` (**Tool execution from loom code**) mandates a precise lowering of the Pi tool's returned `{ content, isError }` to the V1 `Result<string, QueryError>` value. The rules are:
-
-1. Filter `content` to entries with `type === "text"`; join their `.text` values with a single `"\n"` (no leading/trailing separator); discard image and resource blocks silently.
-2. An empty result string — `content: []` or no surviving text blocks — is a legal `Ok("")` when `!isError`.
-3. When `isError`, return `Err(QueryError { kind: "code_tool", cause: "execution", message: <m>, ... })` where `<m>` is the same filtered/joined text truncated to 4096 bytes (UTF-8) at a code-point boundary (no split surrogates / multi-byte sequences).
-4. When `isError` and no text survives the filter, `<m>` is the fixed string `"tool reported an error with no text content"`.
-5. When `cause: "execution"` originates from an `execute()` throw rather than `isError: true`, `<m>` is the thrown error's `.message` truncated under the same 4096-byte rule.
-
-V14c's Tests pin the success-path call shape (`Result<string, QueryError>`, AJV input validation, arg lowering) but say nothing about how `content` is filtered or joined and never assert the `Ok("")` empty-result case. V14g's Tests are the single line "Both shapes; message preserved." That covers neither the truncation rule, the code-point-boundary requirement, nor the fixed fallback string for the empty-text error case. Five distinct, individually-testable spec rules currently have zero asserting test bullets in the plan.
-
-## Plan Documents
-
-- `plan_topics/v14-tool-calls.md` — V14c, V14g (edited)
-- `plan_topics/coverage-matrix.md` — Pi Integration Contract row (edited)
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — Tool execution from loom code (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V14
-
-**Leaves (implementation order):**
-
-- V14c — Bare `<name>(args)` call from loom code — (modified)
-- V14g — `CodeToolError` variant: `execution` cause — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will diverge on observable runtime behaviour: one returns `Ok("")` for image-only tool output, another returns an error or a placeholder; one truncates the error message at exactly 4096 bytes (potentially splitting a multi-byte sequence into invalid UTF-8), another at 4096 code points or not at all; one emits the spec's exact fallback string for empty-text errors, another emits its own phrasing or an empty `Err`. None of these divergences are caught at V18o because no test asserts the rules. The V18o coverage gate fires on REQ-IDs grepped from `spec_topics/`, so if these rules carry REQ-IDs they will appear unmapped; if they do not, the gate passes vacuously and the bug ships.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit `plan_topics/v14-tool-calls.md` as follows:
-
-In **V14c**, append to the existing **Tests.** bullet (after `…ctx.modelRegistry, ctx.cwd forward to the live host.`):
-
-> `content` filtered to `type === "text"` entries before lowering (image / resource blocks discarded silently); multiple text blocks joined with single `"\n"` (no leading or trailing separator); `content: []` with `!isError` → `Ok("")`; content array containing only non-text blocks with `!isError` → `Ok("")`.
-
-In **V14g**, replace the current **Tests.** bullet (`Both shapes; message preserved.`) with:
-
-> `isError: true` with text content → `Err(CodeToolError { cause: "execution", message: <filtered-joined-text> })`; `isError: true` with no surviving text (empty `content` or only non-text blocks) → `message` equals the literal `"tool reported an error with no text content"`; `isError: true` with text exceeding 4096 UTF-8 bytes → `message` truncated to ≤4096 bytes at a code-point boundary (final byte never mid-multi-byte-sequence; no split surrogates); truncation boundary verified with a 4-byte UTF-8 character (e.g. `"😀"`) straddling the 4096-byte mark — the character is dropped whole, not split; `execute()` throws → `message` equals the thrown error's `.message` truncated under the same 4096-byte rule; both `isError` and throw paths share `cause: "execution"` and `kind: "code_tool"` on the wire.
-
-Edge cases the implementer must watch:
-
-- Truncation is on UTF-8 *bytes*, not code points or JS string length (`String.prototype.length` counts UTF-16 code units, not bytes).
-- The boundary rule must reject splitting any multi-byte continuation sequence, not just surrogate pairs; ASCII-only test fixtures will not exercise the rule.
-- The fixed fallback string is spec-verbatim; assert with literal equality, not substring match.
-
-No edit to `coverage-matrix.md` is required if the existing `Pi Integration Contract` row already lists `V14a–V14j`; verify the row's range still reads as inclusive of V14g after this edit.
-
-## Related Findings
-
-- "V14c too large — three distinct concerns" — same-cluster (if V14c is split into V14c-a / V14c-b, the success-path lowering tests added above belong with the dispatch / type-checking half, not the bare-object-literal half)
-- "V14d too hollow — merge into V14c" — same-cluster (also a V14c-family edit; resolves independently)
-- "V14c: `toolCallId` suffix scheme unspecified" — same-cluster (V14c Tests edit; independent rule)
-- "Closed diagnostic registry — many codes have no asserting plan leaf" — same-cluster (same shape of defect — spec-mandated behaviour without an asserting leaf — but a different rule)
