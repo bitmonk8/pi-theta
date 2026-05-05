@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_101 findings retained, 3 false positives dropped, 0 persistent failures_
+_100 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7100,65 +7100,3 @@ The `Deps.` and `Ships when.` fields are unchanged.
 
 ---
 
-# V16h binder seed not pinned to a value or derivation rule
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V16h binder seed value not specified
-**Kind:** implementability, validation
-
-## Finding
-
-V16h's Adds bullet says "`temperature: 0` and fixed seed (where provider supports)" and the spec's Determinism section in `binder.md` repeats the phrase verbatim ("a fixed seed"). Neither document pins the seed to a specific value, names a derivation rule (constant? hash of loom name? hash of input? per-call counter?), nor scopes the lifetime ("fixed" across what — process lifetime, per loom, per invocation?).
-
-The Tests bullet — "seed included for providers that support it" — is consequently satisfied by *any* non-null seed the implementer happens to write, including a per-call `Math.random()` that would defeat the determinism budget the leaf claims to deliver. Two reasonable implementers would produce two different binders that both pass the test, and a regression that swaps a stable seed for a per-call random would not be caught.
-
-The "Acknowledged near-deterministic, not guaranteed reproducible" hedge in V16h's Adds is about provider behaviour given a fixed seed; it does not absolve the leaf of specifying what seed to send.
-
-## Plan Documents
-
-- `plan_topics/v16-binder.md` — V16h (edited)
-
-## Spec Documents
-
-- `spec_topics/binder.md` — Determinism (option-dependent)
-
-## Affected Leaves
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16h — Binder determinism settings — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The "near-deterministic binder" property V16h is supposed to deliver depends on a stable seed. Without specifying the value or rule, two correct-by-the-test implementations diverge: one produces reproducible binder output across runs, the other does not. The Tests bullet passes vacuously against either, so V16h ships its acceptance gate without actually witnessing determinism.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Make the seed normative: a stable function of inputs the binder already has. The spec's Determinism section already exists to make binder calls reproducible across runs; leaving the seed implementation-defined would empty that section of meaning. The hash-of-qualified-name rule is one normative line in the spec, one in the plan, and converts the existing tautological test into one that actually witnesses determinism.
-
-**Plan edits.** In `plan_topics/v16-binder.md` under V16h:
-- Replace the Adds sentence "`temperature: 0` and fixed seed (where provider supports)." with: "`temperature: 0` and a fixed seed equal to a deterministic 32-bit hash of the loom's qualified name (per `binder.md` Determinism); identical for every invocation of the same loom across runs."
-- Replace the Tests bullet "seed included for providers that support it" with: "request payload's `seed` field equals the spec-defined hash of the loom's qualified name; two binder calls for the same loom in the same process produce identical `seed` values; two binder calls for *different* looms produce different `seed` values (with overwhelming probability — verified against a small fixed pair)."
-
-**Spec edits.** In `spec_topics/binder.md` Determinism section, replace "and, where the provider supports it, a fixed seed." with a two-sentence rule naming the hash function (e.g. FNV-1a 32-bit) and the input (the loom's qualified name as it appears in the slash registry).
-
-Edge cases:
-
-- If Pi's SDK exposes an unsigned-32 vs signed-32 `seed` parameter, the rule should mask to whichever the SDK accepts and document the mask in `binder.md`.
-- Per-loom seeding means two consecutive invocations of the same loom see the same seed — which providers may exploit to cache; that is the intended determinism property, not a bug.
-- If the qualified-name format changes later (renames, namespacing), the seed changes silently; acceptable given V1 has no rename machinery.
-
-## Related Findings
-
-- "V16h \"seed included for providers that support it\" — supported-provider list not pinned" — co-resolve (the supported-provider list and the seed value are both required to make the Tests bullet observable; a single revision of V16h's Adds + Tests should pin both)
-- "V16e strict-capability SDK surface not pinned; \"best-effort\" diagnostic code unnamed" — same-cluster (sibling V16 finding about under-specified SDK behaviour; resolves independently)
-
----
