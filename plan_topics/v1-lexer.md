@@ -28,7 +28,7 @@
 
 - **Spec.** [Lexical Structure](../spec_topics/lexical.md) (identifiers, reserved keywords).
 - **Adds.** First-letter-case enforcement (PascalCase vs. lowercase-first / `_`); reserved-keyword recognition for the spec's full list; the reserved discard `_`.
-- **Tests.** Lowercase-first identifier accepted in binding position; PascalCase identifier accepted in schema-name position; mismatch produces the spec's exact-wording errors; every reserved keyword in identifier position is rejected; `_` cannot be used as a regular identifier after binding.
+- **Tests.** Lowercase-first identifier accepted in binding position; PascalCase identifier accepted in schema-name position; mismatch emits `loom/parse/binding-case-mismatch` and `loom/parse/schema-case-mismatch` whose messages match the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* templates; every reserved keyword in identifier position is rejected with `loom/parse/reserved-keyword-as-identifier` (registry template); `_` cannot be used as a regular identifier after binding.
 - **Deps.** V1a.
 - **Ships when.** Case rule and keyword set are uniform across the lexer.
 

@@ -20,7 +20,7 @@
 
 - **Spec.** [Expression Sublanguage](../spec_topics/expressions.md), [Operator precedence](../spec_topics/expressions.md#operator-precedence).
 - **Adds.** `+ - * / %` with `+` overloaded for string concat; `< <= > >= == !=`; `&& ||`; ternary `? :`; parens. Comparison/equality non-associative (`a < b < c` rejected).
-- **Tests.** One test per row of the precedence table; non-associativity diagnostic verbatim from spec; mixed-type `+` rejected; division-by-zero produces `Infinity` per JS; ternary type-checks both arms.
+- **Tests.** One test per row of the precedence table; `a < b < c` and `a == b == c` each emit `loom/parse/comparison-chaining` whose message matches the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* template; mixed-type `+` rejected with `loom/parse/mixed-plus-operands` (registry template); division-by-zero produces `Infinity` per JS; ternary type-checks both arms.
 - **Deps.** V2a.
 - **Ships when.** Arithmetic and boolean expressions evaluate.
 
@@ -44,7 +44,7 @@
 
 - **Spec.** [Expression Sublanguage](../spec_topics/expressions.md) (truthiness).
 - **Adds.** `if`/`while`/ternary-cond/`&&`/`||` accept only `boolean`. Non-boolean operand is a parse error with the spec's hint (`if (x != "")`, etc.).
-- **Tests.** Each position rejects `string`, `number`, `null`; `boolean` accepted; the hint text matches spec.
+- **Tests.** Each position rejects `string`, `number`, `null` with `loom/parse/non-boolean-condition` (registry *Message* template); `boolean` accepted; the rendered hint matches the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Hint* column.
 - **Deps.** V2c (operators).
 - **Ships when.** Truthiness rule is enforced uniformly.
 
@@ -60,7 +60,7 @@
 
 - **Spec.** [Expression Sublanguage](../spec_topics/expressions.md) (`array<T>` table), [Object construction, array construction, and operator rules](../spec_topics/expressions.md#object-construction-array-construction-and-operator-rules).
 - **Adds.** `[]`, `[a, b, c]`; `length`, `join`, `includes`, `indexOf`, `slice`, `concat`. Common-type rules for literals (sink-driven; `integer`-widens-to-`number`).
-- **Tests.** Each method; `join` rejects non-string element type; element-type-mismatch in literal rejected with spec's exact message; sink propagates element type into elements.
+- **Tests.** Each method; `join` rejects non-string element type with `loom/parse/non-string-array-join` (registry *Message* template); element-type-mismatch in literal rejected with `loom/parse/array-element-type-mismatch` (registry template, naming the offending element); sink propagates element type into elements.
 - **Deps.** V2c, V2d.
 - **Ships when.** Arrays usable end-to-end.
 

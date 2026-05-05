@@ -20,7 +20,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (binder envelope).
 - **Adds.** Per-loom dynamic envelope schema with three `anyOf` arms (`ok`, `needs_info`, `ambiguous`); built once at load and reused.
-- **Tests.** Envelope shape matches spec verbatim; reused across invocations (cache hit); per-loom uniqueness.
+- **Tests.** Envelope shape matches the [`binder.md` Binder envelope schema](../spec_topics/binder.md) (`anyOf` of `ok` / `needs_info` / `ambiguous` arms); reused across invocations (cache hit); per-loom uniqueness.
 - **Deps.** V11a (discriminated unions), V3b.
 - **Ships when.** Envelope schema constructable.
 
@@ -108,7 +108,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (failure modes).
 - **Adds.** Transport failure on binder gets exactly one retry; second failure surfaces as system note.
-- **Tests.** Retry happens; second failure system-note text matches spec.
+- **Tests.** Retry happens; second failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder model transport failure (after 1 retry)*.
 - **Deps.** V16e.
 - **Ships when.** Transient failures don't fail-closed unnecessarily.
 
@@ -116,7 +116,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (failure modes).
 - **Adds.** Malformed-envelope returns (JSON-parse failure or envelope-`anyOf` discriminator failure) get exactly one retry against the same envelope schema; the second failure surfaces as system note `loom /<name>: argument binding failed — could not parse arguments`.
-- **Tests.** Malformed envelope retried once on JSON-parse or envelope-`anyOf` failure; final failure system-note text matches spec.
+- **Tests.** Malformed envelope retried once on JSON-parse or envelope-`anyOf` failure; final failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder returned malformed envelope (after 1 retry)*.
 - **Deps.** V16c.
 - **Ships when.** Malformed-envelope case handled.
 

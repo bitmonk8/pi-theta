@@ -60,7 +60,7 @@
 
 - **Spec.** [Query](../spec_topics/query.md) (coercion).
 - **Adds.** Follow-up turn re-states the schema instead of error.
-- **Tests.** Follow-up turn text matches spec; same termination/attempt-counting rules apply.
+- **Tests.** Follow-up turn text matches the `schema_repeat` template in [`query.md` Schema-validation coercion](../spec_topics/query.md#schema-validation-coercion); same termination/attempt-counting rules apply. **Blocked** on the spec authoring the canonical `schema_repeat` follow-up-turn template in `query.md` (or `frontmatter.md` `coercion.methodology`); until that template lands the assertion cannot be written without speculating about the wording.
 - **Deps.** V13g.
 - **Ships when.** Alternative methodology selectable.
 

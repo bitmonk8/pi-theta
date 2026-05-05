@@ -12,7 +12,7 @@
 
 - **Spec.** [Schema Declarations](../spec_topics/schemas.md) (discriminated unions).
 - **Adds.** Multiple qualifying fields → parse error naming all candidates with hint to use `by`.
-- **Tests.** Two-candidate case; three-candidate case; message text matches spec verbatim.
+- **Tests.** Two-candidate case; three-candidate case; message matches the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* template for `loom/parse/ambiguous-discriminator`.
 - **Deps.** V11a.
 - **Ships when.** Author has clear path to disambiguate.
 
@@ -20,7 +20,7 @@
 
 - **Spec.** [Schema Declarations](../spec_topics/schemas.md) (discriminated unions).
 - **Adds.** No qualifying field → parse error with hint to add `kind` field or use `by`.
-- **Tests.** Three different no-candidate shapes; message text matches spec verbatim.
+- **Tests.** Three different no-candidate shapes; message matches the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* template for `loom/parse/missing-discriminator`.
 - **Deps.** V11a.
 - **Ships when.** Discriminator-less unions are caught early.
 
@@ -28,7 +28,7 @@
 
 - **Spec.** [Schema Declarations](../spec_topics/schemas.md) (discriminated unions), [Grammar Appendix — `schema X by <field>`](../spec_topics/grammar.md#schema-x-by-field).
 - **Adds.** `schema X by kind = A | B`. The `by` clause is admitted **only** on the union form (the alternative beginning with `=`); a `schema X by f { ... }` declaration with an object body is `loom/parse/by-on-object-schema`. Resolves to loom-side identifier; lowering uses each variant's wire name.
-- **Tests.** Explicit form overrides detection; loom-side name accepted; wire name forbidden in `by` clause; `schema X by f { a: string }` (object body with `by`) emits `loom/parse/by-on-object-schema` and the diagnostic message matches the spec verbatim; `schema X by f` (no RHS at all) is rejected.
+- **Tests.** Explicit form overrides detection; loom-side name accepted; wire name forbidden in `by` clause; `schema X by f { a: string }` (object body with `by`) emits `loom/parse/by-on-object-schema` whose message matches the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* template; `schema X by f` (no RHS at all) is rejected.
 - **Deps.** V11a, V4b.
 - **Ships when.** Author can override detection on union schemas; misuse on object schemas is rejected with a clear diagnostic.
 

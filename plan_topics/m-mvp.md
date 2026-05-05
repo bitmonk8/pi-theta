@@ -9,7 +9,7 @@
 - Any unsupported keyword (`let`, `if`, `schema`, ...) → `loom/parse/unsupported-feature`.
 - Missing closing backtick → `loom/parse/unterminated-template`.
 - Run produces exactly one `send` call with the literal text.
-- `/hello extra text` emits the no-params overflow system note (text matches spec verbatim) and still runs the loom.
+- `/hello extra text` emits a `loom-system-note` whose `content` matches the [`slash-invocation.md` "No-params overflow"](../spec_topics/slash-invocation.md) template (`loom /<name>: ignoring extra arguments — this loom takes no parameters`), and the loom still runs.
 - `/hello   ` (whitespace-only remainder) emits no note and runs the loom.
 - The `description` argument to `pi.registerCommand` equals `frontmatter.description` exactly (no `argument-hint` concatenation).
 - AbortError surfaces as a system note.
