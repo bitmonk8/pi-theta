@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_103 findings retained, 3 false positives dropped, 0 persistent failures_
+_102 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7237,67 +7237,3 @@ Edge cases the implementer must watch:
 
 ---
 
-# V16i Tests cite "spec's exact examples" but `binder.md` disclaims its single example as non-normative
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V16i "spec's exact examples" but spec disclaims them
-**Kind:** implementability
-
-## Finding
-
-V16i's Tests bullet reads in full: *"Each formatting rule against spec's exact examples."* The implementer is told the spec carries a canonical fixture set the tests can pin against.
-
-`spec_topics/binder.md` carries no such fixture set. The "Echo policy" section gives one example (`Running /code-review: language=TypeScript, focus_areas=[error handling, async], author={Ada Lovelace, …}`) and explicitly disclaims it: *"The example below is illustrative — the format rules that follow are normative; no single example string can be (the formatter is data-driven and the rendered text depends on the loom's `params:` and the bound values)."* The two further examples appearing later in the section (`needs_info` / `ambiguous` notes) belong to the failure-modes path, not to the `bind_echo` formatter, and are themselves illustrative.
-
-The implementer following V16i top-to-bottom has no exact strings to pin against and will silently invent test inputs and expected outputs. Two implementers will produce two different fixture sets, neither of which exercises the rules with the same coverage, and neither anchored to anything in the spec. The Tests bullet's intent is correct (each format rule must be covered) but its mechanism (pin to exact examples) is incompatible with the spec's data-driven design.
-
-## Plan Documents
-
-- `plan_topics/v16-binder.md` — V16i (edited)
-
-## Spec Documents
-
-- `spec_topics/binder.md` — Echo policy (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16i — `bind_echo` formatter — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-The shipped formatter is fully constrained by the spec's "Format rules" list, so two implementers will produce equivalent runtime behaviour. They will, however, write divergent test suites, and the V18o coverage gate cannot tell whether a given test actually pins the rule it claims to or merely a one-off fixture the implementer made up. The risk is silent under-coverage of one of the six format rules — most plausibly the 120-code-point cap interacting with the array `…+N more` marker, which is the rule the spec calls out as needing care.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v16-binder.md`, replace V16i's Tests bullet:
-
-> **Tests.** Each formatting rule against spec's exact examples.
-
-with a per-rule enumeration anchored to `binder.md`'s "Format rules" list:
-
-> **Tests.** One property assertion per format rule from `binder.md` "Echo policy → Format rules": (1) top-level fields rendered in declaration order, comma-separated; (2) string values unquoted when they match `/^[A-Za-z0-9_.-]+$/`, quoted otherwise (whitespace, punctuation, or non-ASCII triggers quoting); (3) arrays of ≤3 elements rendered as `[a, b, c]` in element order, arrays of >3 elements rendered as `[a, b, c, …+N more]` where `N` is the count of dropped elements; (4) object values rendered as `{<first-field-value>, …}` using the schema's first declared field; (5) defaulted fields tagged ` (default)` (single leading space, parenthesised, no comma before the tag); (6) the whole rendered line — including the `Running /<name>: ` prefix — capped at 120 Unicode code points with overflow replaced by a trailing `…` (U+2026), counted in code points not UTF-16 units; (7) when truncation falls inside an array's `…+N more` marker, the inner marker is cut and only the line-level `…` survives. Each assertion is written against a synthetic params/args pair constructed in the test, not against a fixture string lifted from the spec.
-
-Edge cases the implementer must watch:
-
-- Rule 2's quote predicate is not stated as a regex in the spec — it says "whitespace or special characters." Pin the predicate definitively in the test (the regex above is one defensible reading; the implementer may pick another, but must commit to one and document it in the test file).
-- Rule 6's cap is measured *post-interpolation*, so the test for the cap must vary the loom name length to confirm the suffix budget shrinks accordingly (see `binder.md` rule 2 under "System-note rendering").
-- Rule 7 is the only rule with an inter-rule interaction (line cap vs array `…+N more`); it deserves its own test, not a sub-assertion of rule 3 or 6.
-
-Do not add a normative fixture table to `binder.md` — the spec's data-driven stance is deliberate and adding canonical input/output pairs would either over-constrain the formatter or duplicate the Format rules with no added precision.
-
-## Related Findings
-
-- "V16h binder seed value not specified" — same-cluster (sibling V16 leaf with the same shape of defect: Tests bullet references something the spec does not pin)
-- "V16h 'seed included for providers that support it' — supported-provider list not pinned" — same-cluster (same shape; sibling leaf)
-
----
