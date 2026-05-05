@@ -14,7 +14,7 @@ Slices are roughly ordered by dependencies; non-linear deps are stated in each l
 Every phase, leaf or otherwise, runs the same loop:
 
 1. **Tests first.** Write the failing tests for *every* spec rule the phase introduces. One assertion per rule where practical. A test that would pass when prerequisites are missing is a defect — fix it before writing code.
-2. **Implement.** Write the minimum code that turns red tests green. No speculative APIs.
+2. **Implement.** Write the smallest correct increment that turns the red tests green: correctness is the goal, the tests are the evidence — do not under-implement to game a thin test, and do not add speculative APIs (unused exports, public hooks no test in this leaf or its declared downstream consumers exercises) that anticipate later leaves.
 3. **Run.** All tests green; type-check clean; lint clean.
 4. **Self-review.** Re-read the spec section, the diff, the test list. Check: any rule unverified? any silent skip? any `catch(...)` that should be a specific type? any global / static / singleton creeping in?
 5. **Fix review issues.** Iterate from step 3 until the review is clean.

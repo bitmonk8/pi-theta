@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_2 findings retained, 3 false positives dropped, 0 persistent failures_
+_1 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -83,68 +83,4 @@ Edge cases for the implementer of the conventions edit:
 - "speculative APIs" undefined — same-cluster (sibling clarity defect on the same `conventions.md` page; resolves independently)
 - "Exception-handling convention weaker than CLAUDE.md" — same-cluster (sibling defect in the same Cross-cutting rules block; resolves independently)
 - "Ambiguous group-level leaf IDs in Deps fields" — same-cluster (another underspecified rule in `conventions.md`; resolves independently)
-
----
-
-# Step 2 of TDD ritual: "minimum code" invites test-gaming and "speculative APIs" is undefined
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** "speculative APIs" undefined
-**Kind:** clarity
-
-## Finding
-
-`plan_topics/conventions.md` step 2 of the per-phase TDD ritual reads: *"Implement. Write the minimum code that turns red tests green. No speculative APIs."* Both clauses are weak in opposite directions:
-
-- *"Minimum code that turns red tests green"* can be read as a license to under-implement: an implementer who finds a thin path through the test fixtures may ship a partially-correct implementation that happens to pass, treating the tests as the contract rather than as evidence for a separately-specified correctness target.
-- *"No speculative APIs"* has no operational predicate. "Speculative" is a judgement word; reviewers will disagree on whether an exported helper is speculative or load-bearing for the next leaf.
-
-The two clauses also collide with the plan's own surface-then-runtime split pattern (called out three paragraphs down in the Tests-bullet convention), where one leaf legitimately exports symbols whose runtime checks land in a downstream leaf.
-
-## Plan Documents
-
-- `plan_topics/conventions.md` — Per-phase TDD ritual, step 2 (edited)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-## Consequence
-
-**Severity:** advisory
-
-The rule applies cross-cuttingly to every leaf but does not block any of them. The risk is silent under-implementation (correct-by-the-tests but wrong-by-the-spec) and unbounded over-implementation (speculative exports anticipating later leaves), neither of which fails any leaf gate. The V18o REQ-ID coverage gate is unaffected.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/conventions.md`, replace the existing step 2:
-
-> Implement. Write the minimum code that turns red tests green. No speculative APIs.
-
-with:
-
-> **Implement.** Write the smallest correct increment that turns the red tests green: correctness is the goal, the tests are the evidence — do not under-implement to game a thin test, and do not add speculative APIs (unused exports, public hooks no test in this leaf or its declared downstream consumers exercises) that anticipate later leaves.
-
-Two operational anchors land in one sentence:
-
-1. *Correctness is the goal, the tests are the evidence.* A reviewer who sees an implementation that passes the suite but misses a spec rule the suite under-asserts can still reject the PR; the convention now names that posture explicitly.
-2. *Speculative = no test in this leaf or its declared downstream consumers exercises it.* The "declared downstream consumers" qualifier honours the surface-then-runtime split: a V4 schema lowering may export shapes that only V6 tests exercise, as long as V6 lists V4 in its `Deps`. Symbols not reachable from any current-leaf or declared-downstream-leaf test belong in the leaf that needs them.
-
-Edge case for the implementer: internal (non-exported) helpers introduced to keep the implementation readable are not covered by the speculative-API rule and remain a normal code-review judgement call.
-
-## Related Findings
-
-- `"documented spec reason" undefined` — same-cluster (sibling weasel-qualifier in the same `conventions.md` cross-cutting rules block; resolves independently)
 
