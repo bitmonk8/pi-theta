@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_118 findings retained, 3 false positives dropped, 0 persistent failures_
+_117 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -8404,83 +8404,6 @@ Companion edits:
 - "`loomAbort` controller construction not assigned to any leaf" — decision-dependency (the new V18 leaf must reference whichever earlier leaf is chosen to construct `loomAbort`; resolving that finding in H4 vs. M changes this leaf's `Deps` field)
 - "M's "AbortError" system-note path not defined in spec" — same-cluster (both touch the cancelled/AbortError system-note surface but resolve independently — that finding is about M's spec-citation gap, this one is about the missing checkpoint test)
 - "V16e ordering: forward Dep on V16o with misleading file order" — same-cluster (touches V16 ordering but unrelated to cancellation)
-
----
-
-# `pi.registerCommand` options object incomplete: `getArgumentCompletions` slot unwired and dynamic de-registration on `session_start` re-evaluation untested
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** `pi.registerCommand` argument-completions slot not wired; dynamic de-registration on collision not covered
-**Kind:** spec-coverage
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` step 3 fixes the registration call shape as `pi.registerCommand(name, { description, getArgumentCompletions, handler })` — three named options, not two. Every plan reference to that call (M's "the `description` argument to `pi.registerCommand` equals `frontmatter.description` exactly", H4's `/loom-status` no-op, the various V14 leaves) names only `description` and `handler`. No leaf asserts that `getArgumentCompletions` is supplied, what its V1 return value is, or that Pi's autocomplete machinery sees the slot as occupied rather than `undefined`. An implementer reading the plan in isolation will omit it; the spec's `loom/load/argument-hint-not-displayed` advisory and the `future-considerations.md` note about `argumentHint` both presuppose the slot is wired even when the V1 callback returns `[]`.
-
-The same spec paragraph mandates a second behaviour on the `session_start` handler: "The same handler also de-registers any previously-registered loom whose name now collides with a newly-appeared `.md` template or extension command (e.g. after a settings reload or another extension's activation), emitting the same diagnostic." V14q's Tests cover only the initial-load cross-format collision (`.loom` vs `.md` prompt / `.md` subagent / another extension's command — the loom does not register, the Pi-owned entry survives). It says nothing about the re-evaluation case where a loom has *already* registered and then a freshly-activated `.md` prompt or extension command takes the same slash name. V18f explicitly delegates structural change handling to a `/reload` prompt and disclaims `pi.unregisterCommand` for the chokidar path, so the de-registration leg has no closing leaf anywhere.
-
-Both gaps are V1-blocking for the integration slice: the registration call is observably wrong on the wire (autocomplete silently degrades) and a documented spec rule about command-pipeline correctness has no test that would notice if it broke.
-
-## Plan Documents
-
-- `plan_topics/h4-extension-shell.md` — H4 (edited)
-- `plan_topics/m-mvp.md` — M (edited)
-- `plan_topics/v14-tool-calls.md` — V14q (edited)
-- `plan_topics/v18-cancellation.md` — V18f (read-only — confirms structural-change path is reload-only and does not own this gap)
-- `plan_topics/coverage-matrix.md` — Spec → leaves table (read-only — `Pi Extension Integration` and `Pi Integration Contract` rows already list M, V14q, V18f, so no row edit is needed)
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — step 3 (read-only — already mandates both behaviours; the fix is purely on the plan side)
-
-Note: the spec's step 4 / "Structural changes" paragraph asserts Pi exposes no `pi.unregisterCommand`, which is in tension with the de-registration leg in step 3. That spec-internal contradiction is a separate concern; this finding accepts step 3 as written and closes the plan-side coverage gap.
-
-## Affected Leaves
-
-**Phases:** Horizontal, MVP, Vertical V14
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — modified
-- M — Minimal end-to-end loom — modified
-- V14q — Slash collision at the same priority (uniform across formats and sources) — modified
-
-## Consequence
-
-**Severity:** correctness
-
-Without the `getArgumentCompletions` assertion, the V1 implementation will ship with the autocomplete slot left `undefined` and no test will fire; users will see empty argument-hint dropdown rows for every loom and the `loom/load/argument-hint-not-displayed` advisory becomes incoherent (it presumes the slot exists). Without the de-registration test on V14q, a `session_start` re-evaluation that promotes a Pi `.md` template over a previously-registered loom will leave the stale loom registration visible and active in the slash UI, silently breaking the cross-format collision invariant after the first session.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add the following bullets, verbatim where quoted:
-
-- **`plan_topics/h4-extension-shell.md`**, **Tests.** — append:
-  - "The `/loom-status` `pi.registerCommand` call passes a `getArgumentCompletions` callback (V1 returns `[]`); the registered options object has all three keys `description`, `getArgumentCompletions`, `handler` (asserted on the `FakeExtensionAPI` registration record)."
-
-- **`plan_topics/m-mvp.md`**, **Tests.** — append (next to the existing `description` assertion at line 14):
-  - "The `pi.registerCommand` call for `/hello` carries a `getArgumentCompletions` callback. V1 returns `[]` (the binder is the only consumer of `argument-hint`; the autocomplete dropdown has no surface for it per `spec_topics/slash-invocation.md`)."
-
-- **`plan_topics/m-mvp.md`**, **Adds.** — extend the "Slash command registration" sentence to state that the registration options object passed to `pi.registerCommand` has exactly three keys: `description` (verbatim from frontmatter), `getArgumentCompletions` (V1 returns `[]`), and `handler`.
-
-- **`plan_topics/v14-tool-calls.md`**, V14q **Adds.** — append a sentence:
-  - "The `session_start` handler is also re-entrant: on a re-evaluation triggered by a settings reload or another extension's activation, any previously-registered loom whose slash name now collides with a higher-priority `.md` prompt, `.md` subagent, or extension command is de-registered and `loom/load/cross-format-collision` is emitted naming the surviving Pi-owned entry."
-
-- **`plan_topics/v14-tool-calls.md`**, V14q **Tests.** — append:
-  - "Re-evaluation: a loom registers cleanly on the first `session_start`; a second `session_start` fires after a fake `.md` prompt is added with the same slash name; the loom is de-registered and a single `loom/load/cross-format-collision` diagnostic is emitted naming the surviving `.md` entry. (Implementer note: this exercise depends on the de-registration mechanism Pi exposes on `session_start` re-entry; if Pi has no such mechanism, escalate to a spec amendment rather than silently dropping the test.)"
-
-The implementer note is mandatory: the spec contradicts itself about whether `pi.unregisterCommand` (or an equivalent re-entry semantics) exists. The V14q test must not silently no-op if the mechanism turns out to be unavailable — it must fail loudly until the spec is reconciled.
-
-## Related Findings
-
-- "M assumes registration/collision plumbing not yet scheduled" — co-resolve (the M/H4 pipeline-split clarification it asks for is the natural site to also state which leaf owns the `getArgumentCompletions` wiring and the re-entrant `session_start` handler)
-- "V14n / V14o missing V14q from Deps despite citing its collision rule in Tests" — same-cluster (touches the same V14q surface; resolve independently)
-- "V18f `/reload` re-run-of-factory not asserted" — decision-dependency (the V18f reload semantics — fresh extension instance, empty registration cache — frame what "previously-registered" means across factory boundaries and constrain the V14q re-evaluation test's setup)
-- "Settings-file watching silently assumed but excluded from V18f scope" — same-cluster (settings reload is one of the two example triggers cited in the spec for the de-registration leg; whichever leaf eventually owns settings re-watching must coordinate with the V14q re-evaluation test)
 
 ---
 
