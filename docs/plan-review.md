@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_83 findings retained, 3 false positives dropped, 0 persistent failures_
+_82 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5878,56 +5878,3 @@ Edge cases for the implementer:
 - "V14c too large — three distinct concerns" — decision-dependency (if V14c is split, the absorbed test bullet must land in the dispatch sub-leaf V14c-a, not the literal-sublanguage sub-leaf V14c-b)
 - "V14c tests registered-loom callees before V15e creates them (ordering gap)" — same-cluster (also edits V14c's `Tests.` and `Deps.`; the two edits should be coordinated to avoid stomping each other)
 - "V14c: `toolCallId` suffix scheme unspecified" — same-cluster (independent edit to V14c's `Adds.`; resolves independently)
-
----
-
-# V14e Deps omit V12a despite testing subagent-mode wiring
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V14e missing V12a from Deps (duplicate of V12 ordering finding)
-**Kind:** ordering
-
-## Finding
-
-V14e ("Pi tool wired into `@` queries as model-callable") declares `Deps. V14a, V5e.` Its Adds and Tests bullets, however, fan out across both wiring modes: subagent mode passes loom callees through `customTools` on `createAgentSession` plus an explicit `tools` allowlist, and the corresponding test asserts that "subagent-mode invocation triggers zero `pi.registerTool` calls and zero `pi.setActiveTools` calls on the user session."
-
-There is no subagent-mode invocation path to exercise until V12a lands — V12a is the leaf that accepts `mode: subagent` and spawns the in-process `AgentSession` (replacing V3a's "not implemented yet" stub). With V12a absent from V14e's Deps, V14e is scheduled before its observable surface exists; an implementer following the Deps graph will reach V14e with no way to write or run the subagent-mode test bullet.
-
-## Plan Documents
-
-- `plan_topics/v14-tool-calls.md` — V14e (edited)
-- `plan_topics/v12-subagent.md` — V12a (read-only)
-- `plan.md` — Vertical slice index (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical V12, Vertical V14
-
-**Leaves (implementation order):**
-
-- V12a — `mode: subagent` accepted; AgentSession spawn — (read-only / referenced)
-- V14e — Pi tool wired into `@` queries as model-callable — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-V14e cannot honestly satisfy its `Ships when` ("subagent-mode + prompt-mode wiring per query") if picked up before V12a, because the subagent-mode test bullet has no `AgentSession` surface to assert against. An implementer following the Deps graph literally will either ship V14e with the subagent-mode test stubbed out (silent coverage gap) or rediscover the missing dependency mid-implementation and reorder by hand.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v14-tool-calls.md`, edit the V14e `Deps.` bullet from `V14a, V5e.` to `V14a, V5e, V12a.`. No other field changes; V14e's Adds, Tests, and Ships-when already presume the subagent-mode surface exists.
-
-## Related Findings
-
-- "V12a missing from V14e Deps" — superseded-by (same defect, same fix; the present heading is explicitly a back-reference and resolves with the same one-token edit)
-- "`AgentSession` seam missing from H2 and H4" — decision-dependency (if the `AgentSession` seam is rescheduled into a new pre-V12a leaf, V14e's Dep should target that leaf instead of, or in addition to, V12a)
-
