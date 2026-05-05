@@ -2,9 +2,9 @@
 
 ## Overview
 
-`pi-loom` is a [Pi Coding Agent](https://pi.dev) extension that introduces a purpose-built scripting language for authoring parameterized, programmatic templates that target the code/model boundary. Where Pi's built-in `prompt` and `subagent` features provide parameterized Markdown — static text with YAML frontmatter — `pi-loom` provides a full scripting language whose *side effects are conversational injections* into the current or a new agent context.
+`pi-loom` is a [Pi Coding Agent](https://github.com/badlogic/pi-mono) extension that introduces a purpose-built scripting language for authoring parameterized, programmatic templates that target the code/model boundary. Where Pi's built-in `prompt` and `subagent` features provide parameterized Markdown — static text with YAML frontmatter — `pi-loom` provides a full scripting language whose *side effects are conversational injections* into the current or a new agent context.
 
-A `.loom` file is neither a TypeScript module nor a Markdown prompt: it interleaves code-side control flow (variables, loops, conditionals, function definitions) with model-side text emissions. The output of evaluating a loom is not a return value or a file write — it is a structured sequence of text fragments injected into a conversation context.
+A `.loom` file is neither a TypeScript module nor a Markdown prompt: it interleaves code-side control flow (variables, loops, conditionals, function definitions) with model-side text emissions. Evaluating a loom produces two outputs: a structured sequence of text fragments injected into a conversation context (its primary effect) and a final value — the loom's last expression or `return expr` — consumed by programmatic callers (`invoke`, subagent harness). Looms do not write files. Both outputs are detailed under [Scope of a Loom File](#scope-of-a-loom-file).
 
 ---
 
