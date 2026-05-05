@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_105 findings retained, 3 false positives dropped, 0 persistent failures_
+_104 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -7381,73 +7381,3 @@ The `enum`-vs-spec-allowlist discrepancy in V17b's permitted-forms list carries 
 - "`enum` permitted in `.warp` files by plan but absent from spec's `.warp` allowlist" — same-cluster (touches the same body-restriction bullet that this finding moves into V17a; the enum question must still be answered against the merged leaf)
 
 ---
-
-# Plan V17b permits `enum` in `.warp` files; spec's `.warp` allowlist omits it
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** `enum` permitted in `.warp` files by plan but absent from spec's `.warp` allowlist
-**Kind:** consistency
-
-## Finding
-
-Plan leaf `V17b` (`.warp` body restriction) declares: "Top-level: only `import`, `export`, `schema`, `enum`, `fn` allowed." The spec disagrees on the membership of that allowlist in two places:
-
-- `spec.md` line 5: ".warp` files are library modules — restricted to top-level `import`, `export`, `schema`, and `fn` declarations".
-- `spec_topics/imports.md` line 11: "Top-level may contain only `import`, `export`, `schema`, and `fn` declarations. No top-level statements, `let` bindings, or queries (`loom/parse/warp-top-level-statement`)."
-
-`enum` is absent from both. The diagnostic `loom/parse/warp-top-level-statement` is the only registry row covering forbidden top-level forms in `.warp`, and it does not enumerate which forms count as forbidden — it inherits the spec's prose list, so a plan that adds `enum` to the permitted set is silently widening that diagnostic too.
-
-The discrepancy matters because `enum` is `top-level only` in the language (`spec_topics/schemas.md` line 89: "`enum` is **top-level only** — there is no inline `enum["a", "b"]` form"). `.loom` files are not importable from each other, so if `.warp` also forbids `enum`, there is no V1 surface in which a shared enum can be declared and imported. The implicit-export rule in `spec_topics/imports.md` ("Every top-level `schema` and `fn` in a `.warp` file is implicitly exported" — note: also no mention of `enum`) reinforces that the spec wording was written without enums in mind, not that enums are intentionally excluded.
-
-## Plan Documents
-
-- `plan_topics/v17-warp.md` — V17b "Adds" bullet (edited)
-- `plan_topics/v17-warp.md` — V17b "Tests" bullet (edited)
-- `plan_topics/v10-enums.md` — V10a (read-only; confirms enum is a top-level declaration form)
-- `plan_topics/coverage-matrix.md` — Imports row (option-dependent: only edited if a new diagnostic split is introduced)
-
-## Spec Documents
-
-- `spec.md` — §1 paragraph at line 5 (edited)
-- `spec_topics/imports.md` — `.warp` file rules bullet at line 11 (edited)
-- `spec_topics/imports.md` — Visibility paragraph (edited; "Every top-level `schema` and `fn` ... is implicitly exported" must add `enum`)
-- `spec_topics/schemas.md` — enum subsection (read-only; confirms top-level-only constraint)
-- `spec_topics/diagnostics.md` — `loom/parse/warp-top-level-statement` row (read-only under Option A; option-dependent under Option B if a separate code is wanted for `enum`)
-
-## Affected Leaves
-
-**Phases:** Vertical V17
-
-**Leaves (implementation order):**
-
-- V17b — `.warp` body restriction — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers would diverge: one follows V17b verbatim and ships a parser that accepts `enum` at `.warp` top level; the other follows the spec and rejects it with `loom/parse/warp-top-level-statement`. The latter implementation makes shared enums impossible to declare anywhere in V1 (since `enum` is also forbidden inline and `.loom` files are not importable), which is almost certainly not the intended language. A user-facing `.warp` file containing a shared enum would either work or produce a parse error depending on which side the implementer happened to read.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Widen the spec's `.warp` allowlist to include `enum`; the spec wording was written before V10's enum design landed. The plan V17b is already internally consistent. Stripping `enum` from V17b instead would silently eliminate any V1 path to a shared enum (V10e's runtime enum-brand makes the duplicate-per-file workaround actively wrong: cross-file `Severity.High` comparisons would return `false`).
-
-**Plan edits.** None to V17b. Optional: V17b Tests bullet should be tightened to enumerate "permitted forms accepted: `import`, `export`, `schema`, `enum`, `fn`" verbatim so the test fixture pins all five.
-
-**Spec edits.**
-- `spec.md` line 5: change "restricted to top-level `import`, `export`, `schema`, and `fn` declarations" → "restricted to top-level `import`, `export`, `schema`, `enum`, and `fn` declarations".
-- `spec_topics/imports.md` `.warp` file rules first bullet: change "only `import`, `export`, `schema`, and `fn` declarations" → "only `import`, `export`, `schema`, `enum`, and `fn` declarations".
-- `spec_topics/imports.md` Visibility paragraph: change "Every top-level `schema` and `fn` in a `.warp` file is implicitly exported" → "Every top-level `schema`, `enum`, and `fn` in a `.warp` file is implicitly exported".
-
-Edge case the implementer must watch: the Visibility paragraph's enumeration of implicitly-exported declaration kinds must move in lockstep with the allowlist — leaving it as "schema and fn" while the allowlist mentions `enum` would create a new inconsistency where `enum` is declarable but unimportable. Three spec sites must move together; missing one re-creates the inconsistency in the opposite direction.
-
-## Related Findings
-
-- "V17a too hollow — merge into V17b" — same-cluster (touches the same leaf; if V17a is merged into V17b, the Adds bullet that lists permitted top-level forms is the merged leaf's, but the allowlist content is unchanged)
-- "Inbound enum-brand re-attachment not covered by any leaf" — same-cluster (both concern the enum surface area but resolve independently)
-- "Closed diagnostic registry — many codes have no asserting plan leaf" — decision-dependency (under Option B, V17b's Tests bullet becomes the asserting leaf for `loom/parse/warp-top-level-statement` against `enum` specifically; under Option A, no new asserting leaf is created)
-

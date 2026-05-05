@@ -12,7 +12,7 @@
 
 - **Spec.** [Imports](../spec_topics/imports.md) (`.warp` file rules).
 - **Adds.** Top-level: only `import`, `export`, `schema`, `enum`, `fn` allowed. Top-level statements, `let`, queries are parse errors.
-- **Tests.** Each forbidden top-level form rejected; permitted forms accepted.
+- **Tests.** Each forbidden top-level form rejected; permitted forms accepted (`import`, `export`, `schema`, `enum`, `fn`).
 - **Deps.** V17a.
 - **Ships when.** Library shape enforced.
 
