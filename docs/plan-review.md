@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_99 findings retained, 3 false positives dropped, 0 persistent failures_
+_98 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -6954,80 +6954,6 @@ Edge cases the implementer must watch:
 ## Related Findings
 
 - "V16e ordering: forward Dep on V16o with misleading file order" — same-cluster (same leaf, independent fix)
-- "V16e strict-capability SDK surface not pinned; \"best-effort\" diagnostic code unnamed" — same-cluster (same leaf, same Adds paragraph; resolve in the same V16e edit pass)
 - "V14n malformed settings JSON degrades silently; no fallback to last-known-good" — co-resolve (same blast-radius pattern; the consolidated-alert mechanism designed here can be reused for the malformed-JSON case)
 - "Settings-file watching silently assumed but excluded from V18f scope" — decision-dependency (this fix presupposes that *some* leaf — V14n or V18f — exposes a settings-change event; resolving that finding fixes the subscription point)
 - "V18f structural-change note text unspecified" — same-cluster (both findings concern underspecified `loom-system-note` text on reload prompts; if Option B were taken, the two would co-resolve)
-
----
-
-# V16e strict-capability check has no SDK call and no advisory diagnostic code
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V16e strict-capability SDK surface not pinned; "best-effort" diagnostic code unnamed
-**Kind:** clarity, implementability, risk
-
-## Finding
-
-V16e (and `spec_topics/binder.md`'s "Binder model" section) requires the runtime to check the resolved binder model against "Pi's model registry" for strict structured-output / strict tool-input capability at loom-load time, and says "if Pi's registry does not surface a strict-capable flag, the load-time check degrades to best-effort (advisory diagnostic noted; no load failure)." Two pieces are missing.
-
-First, the spec never names the Pi SDK expression used to query the flag. The `Model<Api>` shape exposed by `pi-coding-agent ^0.72.1` (visible in `dist/core/model-registry.d.ts` and the public `Model` type re-exported from `@mariozechner/pi-ai`) carries `id`, `provider`, `api`, `name`, `reasoning`, `input`, `cost`, `contextWindow`, `maxTokens`, `headers`, `compat`, and `thinkingLevelMap` — no per-model strict-capability boolean. As written, two implementers would either (a) hard-code a strict-capable allow-list of model IDs, (b) treat every model as strict-capable and let runtime envelope-malformed handle the rest, or (c) treat every model as unknown and fire the advisory unconditionally. They are observably different.
-
-Second, the "advisory diagnostic" has no code. The `loom/load/*` table in `spec_topics/diagnostics.md` lists `loom/load/binder-model-not-strict-capable` (the *failure* case) but no separate code for the *unknown-capability* case. The diagnostic-code registry is closed (rule 2 in `diagnostics.md`: adding a new code is a spec change), so V16e's Tests bullet "Pi registry without a strict flag → advisory diagnostic, loom registers" cannot be asserted on a specific code without a registry edit, and a test author would either invent a code or weaken the assertion to "some diagnostic fires."
-
-## Plan Documents
-
-- `plan_topics/v16-binder.md` — V16e (edited)
-
-## Spec Documents
-
-- `spec_topics/binder.md` — "Binder model" section (edited)
-- `spec_topics/diagnostics.md` — `loom/load/*` table and the hint on `loom/load/binder-model-not-strict-capable` (edited)
-
-## Affected Leaves
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16e — `bind_model` resolution chain — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Without a pinned SDK expression and a registered code, two implementers will produce divergent V16e implementations: one suppresses the advisory entirely (registry has no flag, so nothing emits), one fires it unconditionally for every binder model, and one invents a hard-coded strict-capable allow-list. The corresponding tests will pass against whichever choice the same implementer made. The closed-registry rule means a runtime emitting an unregistered code is itself a defect, so the gap forces the implementer to either ship something the spec forbids or weaken the test to a non-assertion.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Pin the SDK surface to what `pi-coding-agent ^0.72.1` actually exposes (no per-model strict flag) and register the advisory code.
-
-1. **Spec edit — `spec_topics/binder.md`, "Binder model" section.** Replace the sentence beginning *"The runtime checks this at the same load-time pass by querying Pi's model registry; absence of strict capability is a load-time error…"* and the following sentence beginning *"If Pi does not expose a strict-capable flag…"* with:
-
-   > The runtime checks this at the same load-time pass by calling `ctx.modelRegistry.find(provider, modelId)` and inspecting the returned `Model<Api>` for a strict-capability indicator. `pi-coding-agent ^0.72.1`'s `Model<Api>` exposes no per-model strict-capability field, so under the V1 dependency anchor (^0.72.1) the check is universally degraded to best-effort: every resolved binder model emits one `loom/load/binder-model-strict-capability-unknown` (W) diagnostic at load time, the loom registers, and runtime envelope-malformed failures surface as `loom/runtime/binder-malformed-envelope` per V16o. `loom/load/binder-model-not-strict-capable` (E) is reserved for the case where a future `pi-coding-agent` minor adds a strict-capability indicator and the resolved model is explicitly flagged as not strict-capable; it does not fire under ^0.72.1. A pi-coding-agent minor bump that adds the indicator must be re-validated against this contract before the loom `peerDependencies` range is widened (per [Pi Integration Contract](./pi-integration-contract.md)).
-
-2. **Spec edit — `spec_topics/diagnostics.md`, `loom/load/*` table.** Insert a new row immediately after `loom/load/binder-model-not-strict-capable`:
-
-   | `loom/load/binder-model-strict-capability-unknown` | W | load | Pi's `Model<Api>` for the resolved binder model exposes no strict-capability indicator, so the load-time check degrades to best-effort. Universal under `pi-coding-agent ^0.72.1`. | [Binder — Binder model](./binder.md) | Verify empirically that the chosen binder model supports strict structured-output / strict tool-input on its provider; upgrade `pi-coding-agent` once a minor exposes per-model strict capability. |
-
-   Strike the second sentence of the existing `loom/load/binder-model-not-strict-capable` row's hint (*"When Pi's registry does not surface a strict flag, the load-time check degrades to best-effort; runtime envelope-malformed failures surface as loom/runtime/binder-malformed-envelope."*) — that text is replaced by the new row plus the binder.md rewrite above.
-
-3. **Plan edit — `plan_topics/v16-binder.md`, V16e Adds.** Replace *"the load-time check degrades to best-effort (advisory diagnostic noted; no load failure)"* with *"the load-time check degrades to best-effort: `loom/load/binder-model-strict-capability-unknown` (W) is emitted, the loom registers, and runtime envelope-malformed failure surfaces as `loom/runtime/binder-malformed-envelope` per V16o."* Add a sentence: *"Under `pi-coding-agent ^0.72.1` the unknown branch is universal — `loom/load/binder-model-not-strict-capable` does not fire — because `Model<Api>` exposes no strict-capability field; a Pi minor bump that adds one re-enables the error branch automatically."*
-
-4. **Plan edit — `plan_topics/v16-binder.md`, V16e Tests.** Replace *"Pi registry without a strict flag → advisory diagnostic, loom registers, runtime envelope-malformed failure surfaces as `loom/runtime/binder-malformed-envelope` per V16o"* with *"Pi registry without a strict flag → exactly one `loom/load/binder-model-strict-capability-unknown` (W) per loom, loom registers (Pi's registered-command list contains it), runtime envelope-malformed failure surfaces as `loom/runtime/binder-malformed-envelope` per V16o."* Add a Tests bullet: *"the strict-capability query goes through `ctx.modelRegistry.find(provider, modelId)` (asserted against a fake `ModelRegistry` that records the call)."* Strike the *"resolved model lacking strict capability → `loom/load/binder-model-not-strict-capable` and not registered"* assertion or guard it with a comment that the test pins behaviour for a future Pi minor and is skipped on ^0.72.1.
-
-Edge cases the implementer must watch: the unknown-code emission is once per loom per load (re-scan deduplication per `diagnostics.md` does not suppress it; the user will see it recur on every reload until Pi exposes the flag — this is consistent with the rest of the persistent-diagnostics contract). Bypass-eligible looms still skip both the strict and the unknown-capability emissions — the existing "Bypass-eligible looms skip both checks" sentence already covers this and must be retained verbatim.
-
-## Related Findings
-
-- "Closed diagnostic registry — many codes have no asserting plan leaf" — decision-dependency (this finding *adds* a code to the closed registry; the other finding's resolution must accept that adding-to-registry-via-spec-edit is the canonical fix path).
-- "V16e ordering: forward Dep on V16o with misleading file order" — same-cluster (same leaf; resolves independently).
-- "V16e bad `looms.binderModel` setting silently unregisters all affected looms" — same-cluster (same leaf and same load-time pass; resolves independently).
-- "V16h \"seed included for providers that support it\" — supported-provider list not pinned" — same-cluster (parallel "Pi SDK detail not pinned" defect on a sibling V16 leaf; same fix shape but different surface).
-
----
-
