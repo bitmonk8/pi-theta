@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_54 findings retained, 3 false positives dropped, 0 persistent failures_
+_53 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -3868,72 +3868,6 @@ Edge cases for the implementer to pin in tests:
 - "Empty schema and enum body diagnostics — no test leaf" — same-cluster (V4 parse-coverage gap of the same shape)
 - "`loom/parse/non-string-discriminator` — no test leaf" — same-cluster (V11 parse-coverage gap of the same shape)
 - "V15n invocation-cycle message format not pinned to spec template" — same-cluster (the alias detector should pin the same `"X → Y → X"` template; co-resolve by adopting one shared message-format assertion across the three cycle leaves)
-
----
-
-# `loom/parse/non-string-discriminator` has no asserting leaf
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** `loom/parse/non-string-discriminator` — no test leaf
-**Kind:** spec-coverage
-
-## Finding
-
-`spec_topics/schemas.md` (Discriminated unions, line 103) mandates rejection of numeric and boolean literal discriminators with the diagnostic `loom/parse/non-string-discriminator`, and explicitly states the rule "applies equally to implicit detection and to the explicit `by <field>` form." The closing-leaf row in `plan_topics/coverage-matrix.md` for "Schema Declarations — discriminated union" lists V11a–V11f, but none of those leaves' Tests bullets cite `loom/parse/non-string-discriminator`:
-
-- V11a tests detection on string-discriminator examples and `anyOf` lowering.
-- V11b/V11c test ambiguous and missing-discriminator diagnostics.
-- V11d tests the explicit `by f` form and `loom/parse/by-on-object-schema` for object bodies, but not non-string tag values under `by`.
-- V11e/V11f cover nested discriminators and mixed unions.
-
-Both arms of the spec rule (implicit detection rejecting numeric/boolean tags; explicit `by` rejecting them too) are therefore unasserted. An implementation that omits the type-of-literal check, or only catches the implicit case and not the explicit-`by` case, ships green and the V18o registry-coverage gate currently has no row that would catch it.
-
-## Plan Documents
-
-- `plan_topics/v11-discriminated-unions.md` — V11a Tests, V11d Tests (edited)
-- `plan_topics/coverage-matrix.md` — read-only (the existing row already names V11a–V11f; no row change needed)
-- `plan.md` — read-only
-
-## Spec Documents
-
-- `spec_topics/schemas.md` — Discriminated unions paragraph (read-only — already mandates the rule and names the code)
-
-## Affected Leaves
-
-**Phases:** Vertical V11
-
-**Leaves (implementation order):**
-
-- V11a — Implicit discriminator detection — (modified)
-- V11d — Explicit `by <field>` form — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge: one implements V11a literally and accepts `kind: 1` / `kind: true` as discriminators (lowering them to numeric/boolean `const`), the other reads the spec and rejects them. Both pass V11a, V11b, V11c. The bug only surfaces against a real provider when grammar-constrained decoding silently degrades — exactly the failure mode the spec rule was added to prevent. The V18o coverage gate cannot catch this until the registry-coverage check is REQ-ID-pivoted.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit `plan_topics/v11-discriminated-unions.md`:
-
-1. **V11a Tests bullet** — append: "variant set with a numeric literal tag (`kind: 1` per variant) emits `loom/parse/non-string-discriminator`; same for boolean literal tags (`kind: true`); diagnostic message matches spec verbatim."
-
-2. **V11d Tests bullet** — append: "`schema X by kind = A | B` where the named `kind` field has numeric or boolean literal values emits `loom/parse/non-string-discriminator` (the rule applies under explicit `by` exactly as under implicit detection)."
-
-Optionally add a third assertion to V11a covering the wire-rename interaction (`kind as "Kind": 1` still emits `loom/parse/non-string-discriminator` — the rename does not interact), since the spec paragraph explicitly calls this out, but the two bullets above are the minimum required to close the coverage gap.
-
-No new leaf is needed; the existing V11a/V11d Deps and Ships-when remain valid.
-
-## Related Findings
-
-- "Empty schema and enum body diagnostics — no test leaf" — same-cluster (same shape: spec-mandated parse code with no asserting leaf in V4/V10/V11)
-- "Type-alias cycle detection (`loom/parse/type-alias-cycle`) — no plan leaf" — same-cluster (same shape, in the same v4/v10/v11 section of the review)
-- "Closed diagnostic registry — many codes have no asserting plan leaf" — superseded-by (this finding is one specific instance of that cross-cutting registry-coverage gap; resolving the cross-cutting gate would surface this systematically, but the V11a/V11d edit closes the immediate hole independently)
 
 ---
 

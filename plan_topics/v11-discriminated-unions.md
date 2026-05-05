@@ -4,7 +4,7 @@
 
 - **Spec.** [Schema Declarations](../spec_topics/schemas.md) (discriminated unions).
 - **Adds.** `schema X = A | B | C` where each variant has exactly one shared single-literal field with unique values per variant: detected as discriminator.
-- **Tests.** Detection works on representative examples; lowering is plain `anyOf` (no discriminator keyword emitted).
+- **Tests.** Detection works on representative examples; lowering is plain `anyOf` (no discriminator keyword emitted); a variant set with a numeric literal tag (`kind: 1` per variant) emits `loom/parse/non-string-discriminator`, and the same for boolean literal tags (`kind: true`), with the diagnostic message matching the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* template verbatim; wire-renamed discriminators (`kind as "Kind": 1`) still emit `loom/parse/non-string-discriminator` (the rename does not interact with the string-literal constraint on the value).
 - **Deps.** V4b, V4c.
 - **Ships when.** Standard discriminated unions work.
 
@@ -28,7 +28,7 @@
 
 - **Spec.** [Schema Declarations](../spec_topics/schemas.md) (discriminated unions), [Grammar Appendix — `schema X by <field>`](../spec_topics/grammar.md#schema-x-by-field).
 - **Adds.** `schema X by kind = A | B`. The `by` clause is admitted **only** on the union form (the alternative beginning with `=`); a `schema X by f { ... }` declaration with an object body is `loom/parse/by-on-object-schema`. Resolves to loom-side identifier; lowering uses each variant's wire name.
-- **Tests.** Explicit form overrides detection; loom-side name accepted; wire name forbidden in `by` clause; `schema X by f { a: string }` (object body with `by`) emits `loom/parse/by-on-object-schema` whose message matches the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* template; `schema X by f` (no RHS at all) is rejected.
+- **Tests.** Explicit form overrides detection; loom-side name accepted; wire name forbidden in `by` clause; `schema X by f { a: string }` (object body with `by`) emits `loom/parse/by-on-object-schema` whose message matches the [diagnostics registry](../spec_topics/diagnostics.md#code-registry) *Message* template; `schema X by f` (no RHS at all) is rejected; `schema X by kind = A | B` where the named `kind` field has numeric or boolean literal values across variants emits `loom/parse/non-string-discriminator` (the rule applies under explicit `by` exactly as under implicit detection).
 - **Deps.** V11a, V4b.
 - **Ships when.** Author can override detection on union schemas; misuse on object schemas is rejected with a clear diagnostic.
 
