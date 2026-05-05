@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 3 commit-ready findings (8 merge clusters, 22 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 2 commit-ready findings (8 merge clusters, 22 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -168,78 +168,6 @@ Edge cases:
 - The check is byte-exact lowercase (matching `lexical.md`'s path-literal grammar). `./x.LOOM` is rejected with the new code.
 - The `tools:` surface emits the new code at parse time (consistent with `loom/parse/invalid-path-separator`).
 - The discovery namespace note is descriptive — assign no REQ-ID, no per-leaf test obligation, no new diagnostic.
-
-## Related Findings
-
-- None outside this merge.
-
----
-
----
-
-## spec.md — Paragraph 3: Self-containment and reading scope
-
----
-
-# spec.md paragraph 3 — Self-containment and reading scope rewrite
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Merged from:** 3 findings:
-- "plan leaf" and its **Spec** field used before being defined or cross-linked
-- "Explicitly cross-linked" — link granularity is undefined
-- Self-containment + MAY-restrict permission has no closure rule and no enforcement
-
-**Kind:** cross-spec-consistency, completeness, traceability
-
-## Finding
-
-`spec.md` paragraph 3 carries three defects that all rewrite the same paragraph:
-
-1. The trailing sentence references "plan leaf" and its **Spec** field on first use without definition or cross-link.
-2. "Explicitly cross-linked" is normative but its target granularity (file-level vs. section-level vs. REQ-ID-level) is undefined.
-3. The self-containment claim and the MAY-restrict permission are jointly unsatisfiable: an implementer who restricts reading to listed topics may miss normative cross-links the listed topics depend on.
-
-All three rewrite the same paragraph and require the same companion edit to `plan_topics/conventions.md`.
-
-## Spec Documents
-
-- `spec.md` — paragraph 3 (edited)
-- `plan_topics/conventions.md` — Leaf format → Spec bullet (edited)
-
-## Plan Impact
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (read-only; closure invariant is enforced by author discipline at H6, not by H6 itself)
-
-## Consequence
-
-**Severity:** advisory
-
-A reader of paragraph 3 currently cannot tell what a plan leaf is, at what granularity cross-links must point, or whether the **Spec** field is closed under cross-link.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite `spec.md` paragraph 3 to:
-
-> Each topic page is authored to be self-contained: any rule it depends on from another topic must be either stated locally or referenced by a markdown link whose target is the specific REQ-ID anchor (`#prefix-n`) of the depended-upon rule. Where the depended-upon page is pure-narrative (no REQ-IDs per the appendix table), a section-level link to the relevant heading on that page suffices. An implementer MAY therefore restrict their reading to the topics listed under their plan leaf's **Spec** field, where a *plan leaf* is a terminal task in [`plan.md`](./plan.md) (leaf format defined in [`plan_topics/conventions.md`](./plan_topics/conventions.md#leaf-format)) and its **Spec** field is the list of `spec_topics/*.md` filenames the leaf implements. The **Spec** field is required to be closed under normative cross-link: any topic page cross-linked from a listed topic for a normative rule is itself listed.
-
-Companion edit to `plan_topics/conventions.md` (Leaf format → Spec bullet):
-
-> The **Spec** field MUST be closed under normative cross-link: if topic `T` is listed and `T` cross-links to a normative rule in topic `T'`, then `T'` MUST also appear in the field. Narrative cross-links (`overview.md`, `glossary.md`, `comparison.md`, `influences.md`, `related-work.md`, `future-considerations.md`) do not trigger the closure obligation. The closure is checked at fixed point — iterate adding pages until the field stops growing. A future mechanical lint is out of scope unless drift is observed.
-
-Edge cases:
-
-- Until H6 closes, REQ-ID anchors do not exist; the orientation rule binds *target form*, not *enforcement*. V18s gate accepts pre-H6 transitional spec-page-anchor citations per `conventions.md`.
-- Anchored cross-links to a specific REQ-ID still drag the entire page into the closure — there is no per-REQ-ID granularity in the **Spec** field.
-- If `plan_topics/conventions.md`'s `## Leaf format` slug differs from `leaf-format` under the project's renderer, adjust the fragment.
-- H6 will retroactively expand many existing **Spec** fields once anchors land.
 
 ## Related Findings
 
