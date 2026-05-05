@@ -45,7 +45,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Errors and Results — `Result`, `?`](../spec_topics/errors-and-results.md) | V6a, V6b |
 | [Errors and Results — runtime panics](../spec_topics/errors-and-results.md) | V7i, V18k, V18l, V18m, V18n |
 | [Errors and Results — runtime panics — `loom/runtime/internal-error` (unexpected interpreter throw)](../spec_topics/errors-and-results.md) | V18m, V18n |
-| [Diagnostics — `loom/runtime/system-note-delivery-failed` (system-note fallback chain)](../spec_topics/diagnostics.md) | V18h |
+| [Diagnostics — `loom/runtime/system-note-delivery-failed` (system-note fallback chain)](../spec_topics/diagnostics.md) | H4 |
 | [Diagnostics — `loom/runtime/registry-swap-failed` (watcher build-aside-then-publish swap)](../spec_topics/diagnostics.md) | V18f |
 | [Diagnostics — `loom/parse/invalid-path-separator` (backslash in path literal)](../spec_topics/diagnostics.md) | V15a, V15e, V17c |
 | [Return Statement](../spec_topics/return.md) | V8f, V9c, V9e |
@@ -54,7 +54,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Tool Calls — registered loom callees](../spec_topics/tool-calls.md) | V15e–V15g |
 | [Invocation](../spec_topics/invocation.md) | V15a–V15n |
 | [Imports](../spec_topics/imports.md) | V17a–V17m |
-| [Pi Extension Integration](../spec_topics/pi-integration.md) | H5, M, V14k–V14q, V14t, V18f, V18h |
+| [Pi Extension Integration](../spec_topics/pi-integration.md) | H4, H5, M, V14k–V14q, V14t, V18f |
 | [Directory Convention](../spec_topics/discovery.md) | V14k–V14q, V18r |
 | [Invocation from Pi](../spec_topics/slash-invocation.md) | V16a–V16p, V18i |
 | [Slash-Command Argument Binding — bypass](../spec_topics/binder.md) | V3c |
@@ -65,7 +65,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Implementation Notes — Parser](../spec_topics/implementation-notes.md#parser) | V1f, V1a–V1e, refined per slice |
 | [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) | M, V5e, V12a, V14c-a, V15a, V18a–V18n |
 | [Runtime Value Model](../spec_topics/runtime-value-model.md) | V2 (primitives/arrays/objects), V6a (Result), V10e (enum brand), V13b–V13d (wire-name) |
-| [Pi Integration Contract](../spec_topics/pi-integration-contract.md) | H5, M, V5h (provider error mapping), V6i (synthesised respond-tool shape), V12a, V14a–V14j (V14e: loom-callee `defineTool` shape), V14t (`resources_discover` subscription / `event.cwd` / `reason` / `{}` return), V18f, V18h, V18q |
+| [Pi Integration Contract](../spec_topics/pi-integration-contract.md) | H4 (`loom-system-note` channel + renderer + `sendSystemNote` helper), H5, M, V5h (provider error mapping), V6i (synthesised respond-tool shape), V12a, V14a–V14j (V14e: loom-callee `defineTool` shape), V14t (`resources_discover` subscription / `event.cwd` / `reason` / `{}` return), V18f, V18q |
 | [Pi Integration Contract — Runtime event channel](../spec_topics/pi-integration-contract.md) | V18q |
 | [Grammar Appendix — Loom literal sublanguage](../spec_topics/grammar.md#loom-literal-sublanguage) | V16a, V14c-b |
 | [Grammar Appendix — `let` form](../spec_topics/grammar.md#let-form) | V2a |
