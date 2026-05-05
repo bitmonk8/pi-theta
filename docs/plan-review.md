@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_20 findings retained, 3 false positives dropped, 0 persistent failures_
+_19 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1495,65 +1495,6 @@ The implementer is free to pick a different seam name (`AgentSessionFactory`, `S
 - "H4 \"no-logic shims\" claim contradicts registration cache and `withActiveTools`" — same-cluster (both touch H4's adapter list and the "no-logic" framing; neither blocks the other)
 - "`AgentSession.dispose()` failure path unbounded" — decision-dependency (depends on the seam this finding introduces; the failure-bound rule must be wired through `SubagentSpawner` once it exists)
 - "V12a missing from V14e Deps" — same-cluster (touches the same V12a leaf but resolves independently)
-
----
-
-# H2 omits the mandatory `Spec.` field
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** H2 missing mandatory Spec field
-**Kind:** spec-traceability
-
-## Finding
-
-`plan_topics/conventions.md` defines the leaf format and lists `**Spec.**` as the first mandatory field — "Page(s) under `../spec_topics/` the leaf implements." `plan_topics/h2-di-skeleton.md` opens directly with `**Adds.**` and never names a spec page (or explicitly disclaims one). H2 is a pure-infrastructure leaf — it has no normative spec citation to make — but the convention requires every leaf to surface that fact rather than silently omit the field.
-
-The omission breaks a discoverability invariant the rest of the plan relies on: a reader (or a coverage script) can no longer distinguish "this leaf has no spec basis on purpose" from "the author forgot to fill in the field." H1 and H4 share the same defect; H3 and M correctly carry the field.
-
-## Plan Documents
-
-- `plan_topics/h2-di-skeleton.md` — leaf header (edited)
-- `plan_topics/conventions.md` — Leaf format section (read-only — defines the mandatory field)
-- `plan_topics/h1-scaffold.md` — comparison precedent (read-only)
-- `plan_topics/h4-extension-shell.md` — comparison precedent (read-only)
-- `plan_topics/h3-diagnostics.md` — positive precedent for the disclaimer wording (read-only)
-
-## Spec Documents
-
-None.
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H2 — Dependency-injection skeleton with fakes — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A reader scanning leaves for spec coverage cannot tell whether H2's missing `Spec.` line is intentional or an oversight; the same ambiguity defeats any future tooling that enumerates leaves with no spec citation. The implementer can still execute H2 without the field, so no downstream code diverges — but the convention's discoverability guarantee is silently broken.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Insert a new line immediately after the H2 title line in `plan_topics/h2-di-skeleton.md`, before the existing `**Adds.**` line:
-
-```
-**Spec.** (none — infrastructure leaf; no normative spec page)
-```
-
-Followed by a blank line so the field reads as its own paragraph, matching the layout of `h3-diagnostics.md` and `m-mvp.md`. The literal disclaimer text is the same one proposed for H1 and H4 — keep it identical across all three so a `grep` for the disclaimer phrase finds every infrastructure leaf.
-
-## Related Findings
-
-- "H1 missing mandatory Spec field" — co-resolve (same edit, identical disclaimer text, in `plan_topics/h1-scaffold.md`)
-- "H4 missing mandatory Spec field" — co-resolve (same edit, identical disclaimer text, in `plan_topics/h4-extension-shell.md`)
 
 ---
 
