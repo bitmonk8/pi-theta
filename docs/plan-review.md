@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_11 findings retained, 3 false positives dropped, 0 persistent failures_
+_10 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -683,74 +683,6 @@ Edge case for the implementer: do not split this into a sub-row `[Invocation fro
 - "V18n missing from `Invocation` coverage row" — same-cluster (sibling row-completeness gap; edited independently in the same matrix)
 - ""Phase 12b" stale reference and embedded decision-log note" — same-cluster (also edits `coverage-matrix.md`; can be co-edited but resolves independently)
 - "REQ-ID system referenced everywhere but no leaf creates it" — decision-dependency (the per-REQ-ID re-pivot will eventually replace section rows with REQ-ID rows; this row-fix is still needed in the interim because the re-pivot is not scheduled)
-
----
-
-# V18n missing from `Invocation` coverage row
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V18n missing from `Invocation` coverage row
-**Kind:** consistency
-
-## Finding
-
-The `Invocation` row in `plan_topics/coverage-matrix.md` maps `spec_topics/invocation.md` to `V15a–V15n`. V18n closes the **Invocation depth bound** rule that lives in `invocation.md` (the per-chain cap of 32 across direct `invoke`, `tools:`-registered loom calls, and `.warp` `fn` invokes, raising `loom/runtime/invoke-depth`). V18n's `Spec.` field cites `Invocation — Invocation depth bound, Failures` explicitly, and its tests assert the cap, sibling-budget independence, and the parent-side `InvokeInfraError { reason: "panic" }` surface — all properties of the Invocation spec, not of generic runtime panics.
-
-Because V18n is listed only in the `Errors and Results — runtime panics` row (alongside V7i, V18k–V18m), the matrix violates the closing-leaf-per-spec-rule contract for the Invocation page: a reader auditing whether every Invocation rule has a closing leaf will not find one for the depth bound. Once REQ-IDs land under the `INV` prefix for the depth-bound paragraph, the V18o gate will not flag this — V18n is *somewhere* in the matrix — but the Invocation row itself will be silently incomplete and the page-to-leaf audit that the matrix is designed to support will give the wrong answer.
-
-## Plan Documents
-
-- `plan_topics/coverage-matrix.md` — `Invocation` row, ~line 53 (edited)
-- `plan_topics/v18-cancellation.md` — V18n entry, ~line 107 (read-only)
-- `plan_topics/v15-invoke.md` — V15a–V15n leaves (read-only)
-
-## Spec Documents
-
-- `spec_topics/invocation.md` — "Invocation depth bound" paragraph (read-only)
-- `spec_topics/errors-and-results.md` — runtime panics section (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18n — Panic routing: `invoke` parent surface — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-The plan still ships the depth-bound behaviour because V18n exists and its tests are concrete, and the V18o gate (REQ-ID-based) will pass once `INV` REQ-IDs are cited in V18n's `Tests.` bullet. What is lost is the page-to-leaf audit: anyone reading the `Invocation` row to confirm every Invocation rule has a closing leaf will conclude the depth bound is unimplemented, and reviewers walking the matrix top-down will not see V18n as part of the Invocation surface.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/coverage-matrix.md`, replace the `Invocation` row
-
-```
-| [Invocation](../spec_topics/invocation.md) | V15a–V15n |
-```
-
-with
-
-```
-| [Invocation](../spec_topics/invocation.md) | V15a–V15n, V18n (depth bound) |
-```
-
-Leave the existing `Errors and Results — runtime panics` row unchanged — V18n remains a panic-routing closing leaf as well as an Invocation closing leaf, and the matrix already permits the same leaf in multiple rows (e.g. V7i appears in both `Errors and Results — runtime panics` and the `match` patterns row's neighbourhood; V13e is split across multiple rows). Do not add a separate sub-row; the parenthetical `(depth bound)` is enough to tell a reader which Invocation rule V18n closes without fragmenting the row.
-
-No change is required to `v18-cancellation.md` itself — V18n's `Spec.` already cites `Invocation — Invocation depth bound, Failures`, so the leaf-side traceability is correct; only the matrix-side row is missing the back-link.
-
-## Related Findings
-
-- "V3c missing from `Invocation from Pi` coverage row" — co-resolve (same file, same closing-leaf-per-spec-rule defect, fix in the same edit pass)
-- "REQ-ID system referenced everywhere but no leaf creates it" — decision-dependency (once REQ-IDs are assigned, the matrix re-pivots to per-REQ-ID rows and this row-level fix is subsumed; until then the textual fix above stands)
-- "'Phase 12b' stale reference and embedded decision-log note" — same-cluster (same file, preamble vs. row body; resolves independently)
-- "Closed diagnostic registry — many codes have no asserting plan leaf" — same-cluster (also a coverage-completeness defect, but for the diagnostics registry rather than the matrix; resolves independently)
 
 ---
 

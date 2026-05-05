@@ -52,7 +52,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Function Definitions](../spec_topics/functions.md) | V9a–V9f |
 | [Tool Calls — Pi tools](../spec_topics/tool-calls.md) | V14a, V14b, V14c-a, V14c-b, V14e–V14j |
 | [Tool Calls — registered loom callees](../spec_topics/tool-calls.md) | V15e–V15g |
-| [Invocation](../spec_topics/invocation.md) | V15a–V15n |
+| [Invocation](../spec_topics/invocation.md) | V15a–V15n, V18n (depth bound) |
 | [Imports](../spec_topics/imports.md) | V17a–V17m |
 | [Pi Extension Integration](../spec_topics/pi-integration.md) | H4, H5, Mb, V14k–V14q, V14t, V18f |
 | [Directory Convention](../spec_topics/discovery.md) | V14k–V14q, V18r |
