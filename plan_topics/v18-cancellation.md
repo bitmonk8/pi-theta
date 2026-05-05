@@ -40,6 +40,14 @@
 - **Deps.** V18b, V18c, V18d.
 - **Ships when.** Direction rule enforced.
 
+## V18p — `AbortSignal` before and during the binder LLM call
+
+- **Spec.** [Cancellation](../spec_topics/cancellation.md) (Granularity, Surfacing — cancelled binder), [Slash-Command Argument Binding — Cancellation, Failure modes](../spec_topics/binder.md).
+- **Adds.** Pre-call signal check immediately before the binder LLM call; signal forwarded to the binder model's provider invocation so an abort observed mid-call surfaces; the single transport-failure retry honours the signal (an abort observed during the retry suppresses it). A cancelled binder produces the system note `loom /<name>: argument binding cancelled` per the failure-modes table and the loom does not run. Bypass-eligible looms (no-params, single-string) do **not** emit the cancelled-binder note — they have no binder call to cancel and remain cancellable at the next regular checkpoint inside the loom body.
+- **Tests.** Pre-call abort: binder request never issued (asserted via injected provider probe); cancelled-binder system note text matches the failure-modes table verbatim; the loom never starts. Mid-call abort: in-flight binder request observes the forwarded signal and the same system note surfaces. Abort observed during the transport-failure retry suppresses the retry (provider sees one request, not two) and surfaces the cancelled-binder note rather than the transport-unavailable note. Bypass-eligible looms (no-params; single-string) under abort emit no cancelled-binder note; the loom either runs to its first in-loom checkpoint and surfaces `Err({kind:"cancelled"})` there or completes (per the no-retroactive-`Ok`-to-`Err` rule). An abort observed *after* `ok` envelope return but *before* AJV validation lets validation complete (AJV is uncancellable per `cancellation.md`) and surfaces at the next in-loom checkpoint.
+- **Deps.** V16e, V16n, V18h.
+- **Ships when.** Binder calls are cancellable at the same granularity as queries, tools, and invokes, and the cancelled-binder failure-mode row is observable.
+
 ## V18f — File watcher (chokidar) over discovery roots
 
 - **Spec.** [Pi Extension Integration](../spec_topics/pi-integration.md), [Pi Integration Contract — Extension entry point](../spec_topics/pi-integration-contract.md).

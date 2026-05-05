@@ -108,7 +108,7 @@
 
 - **Spec.** [Slash-Command Argument Binding](../spec_topics/binder.md) (failure modes).
 - **Adds.** Transport failure on binder gets exactly one retry; second failure surfaces as system note.
-- **Tests.** Retry happens; second failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder model transport failure (after 1 retry)*.
+- **Tests.** Retry happens; second failure `loom-system-note` `content` matches the [`binder.md` Failure-mode templates](../spec_topics/binder.md#failure-mode-templates-normative) row for *Binder model transport failure (after 1 retry)*. An abort observed during the retry is asserted by V18p; this leaf does not duplicate that assertion.
 - **Deps.** V16e.
 - **Ships when.** Transient failures don't fail-closed unnecessarily.
 

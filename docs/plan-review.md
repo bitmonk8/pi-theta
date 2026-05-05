@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_117 findings retained, 3 false positives dropped, 0 persistent failures_
+_116 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -8328,82 +8328,6 @@ Implementer must watch:
 - "`AgentSession.dispose()` failure path unbounded" — same-cluster (sister operator-facing runtime-defect surface; both could grow a "cap-and-refuse" policy in a later edit but resolve independently here)
 - "V18n missing from `Invocation` coverage row" — same-cluster (any V18n edit should also propagate into the coverage matrix)
 - "M's `~/.pi/agent/looms/` path expansion unspecified for Windows" — decision-dependency (relevant only if Option B is chosen; Option A sidesteps the dependency)
-
----
-
-# Binder cancellation checkpoint — no plan leaf
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** Binder cancellation checkpoint — no plan leaf
-**Kind:** spec-coverage
-
-## Finding
-
-`spec_topics/cancellation.md` enumerates exactly five interpreter checkpoints; the fifth is "immediately before issuing the slash-command argument binder's LLM call (and the signal is forwarded to the binder model's provider invocation, so an abort observed *during* the binder call also surfaces)." `spec_topics/binder.md` § Cancellation re-states the requirement and adds the auxiliary rules: both the initial attempt and the single transport-failure retry honour the signal; an abort observed during the retry suppresses the retry and surfaces the cancelled-binder note immediately; the `cancelled` row of the failure-modes table renders `loom /<name>: argument binding cancelled`; and the bypass paths (no-params, single-string) do **not** emit the cancelled-binder note (they fall through to ordinary in-loom checkpoints).
-
-V18a–V18d cover the other four checkpoints (loop iteration, `@`-query, tool call, `invoke`) with one leaf each. No V18 leaf covers the binder checkpoint. No V16 leaf does either: V16e–V16p between them cover model resolution, envelope construction, defaulting, echoing, the two failure-arm envelopes, transport retry, malformed-envelope retry, and post-merge AJV validation, but none mentions cancellation, signal forwarding, retry-suppression-on-abort, or the cancelled-binder note. `plan_topics/coverage-matrix.md` row "Cancellation" maps to `V18a–V18e, V18o`, which is consistent with the leaf gap.
-
-The result is that the cancelled-binder failure-mode row in `binder.md` (one of six normative user-facing system-note shapes) ships unimplemented, and the fifth checkpoint enumerated in the cancellation spec has no asserting test.
-
-## Plan Documents
-
-- `plan_topics/v18-cancellation.md` — V18a–V18e block (edited)
-- `plan_topics/v16-binder.md` — V16n § Tests (edited)
-- `plan_topics/coverage-matrix.md` — Cancellation row (edited)
-- `plan_topics/conventions.md` — REQ-ID discipline (read-only)
-- `plan.md` — V18 entry (read-only)
-
-## Spec Documents
-
-- `spec_topics/cancellation.md` — Granularity, Surfacing (read-only)
-- `spec_topics/binder.md` — Cancellation, Failure modes (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V16, Vertical V18
-
-**Leaves (implementation order):**
-
-- V16n — Binder transport failure single retry — (modified)
-- `<new>` — Binder LLM-call cancellation checkpoint — (added)
-
-## Consequence
-
-**Severity:** correctness
-
-The cancelled-binder system-note row in `binder.md`'s normative failure-modes table has no asserting leaf, so an implementer following the plan can ship a binder that ignores `loomAbort.signal` (or forwards it but emits the wrong note, or fails to suppress the transport-failure retry on abort) and still pass every gate in V16 and V18. The V18o coverage gate would not catch this until REQ-IDs are assigned to the cancellation and binder pages and grepped against the matrix. Two implementers given the current plan would diverge on whether the binder checkpoint exists at all and whether the bypass path emits the cancelled note.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add one new leaf to `plan_topics/v18-cancellation.md`, placed immediately after V18e (alphabetically and topically — V18e closes the propagation rule and the binder leaf is the last per-checkpoint entry before the file-watcher block at V18f). Use the literal placeholder `<new>` for the ID; the implementer picks the real ID at land time.
-
-Leaf body (insert verbatim):
-
-```markdown
-## <new> — `AbortSignal` before and during the binder LLM call
-
-- **Spec.** [Cancellation](../spec_topics/cancellation.md) (Granularity, Surfacing — cancelled binder), [Slash-Command Argument Binding — Cancellation, Failure modes](../spec_topics/binder.md).
-- **Adds.** Pre-call signal check immediately before the binder LLM call; signal forwarded to the binder model's provider invocation so an abort observed mid-call surfaces; the single transport-failure retry honours the signal (an abort observed during the retry suppresses it). A cancelled binder produces the system note `loom /<name>: argument binding cancelled` per the failure-modes table and the loom does not run. Bypass-eligible looms (no-params, single-string) do **not** emit the cancelled-binder note — they have no binder call to cancel and remain cancellable at the next regular checkpoint inside the loom body.
-- **Tests.** Pre-call abort: binder request never issued (asserted via injected provider probe); cancelled-binder system note text matches the failure-modes table verbatim; the loom never starts. Mid-call abort: in-flight binder request observes the forwarded signal and the same system note surfaces. Abort observed during the transport-failure retry suppresses the retry (provider sees one request, not two) and surfaces the cancelled-binder note rather than the transport-unavailable note. Bypass-eligible looms (no-params; single-string) under abort emit no cancelled-binder note; the loom either runs to its first in-loom checkpoint and surfaces `Err({kind:"cancelled"})` there or completes (per the no-retroactive-`Ok`-to-`Err` rule). An abort observed *after* `ok` envelope return but *before* AJV validation lets validation complete (AJV is uncancellable per `cancellation.md`) and surfaces at the next in-loom checkpoint.
-- **Deps.** V16e, V16n, V18h.
-- **Ships when.** Binder calls are cancellable at the same granularity as queries, tools, and invokes, and the cancelled-binder failure-mode row is observable.
-```
-
-Companion edits:
-
-1. In `plan_topics/v16-binder.md` V16n § Tests, append a sentence: `An abort observed during the retry is asserted by <new>; this leaf does not duplicate that assertion.` (Cross-reference only; V16n's behavioural assertions stay scoped to the non-cancelled retry path.)
-2. In `plan_topics/coverage-matrix.md`, change the Cancellation row's mapping from `V18a–V18e, V18o` to `V18a–V18e, <new>, V18o`.
-3. In `plan.md`, no edit needed — the V18 file entry already covers the new leaf; the V18 file's title ("Cancellation, file watcher, system notes, panics, diagnostics rollup") is unchanged.
-
-## Related Findings
-
-- "`loomAbort` controller construction not assigned to any leaf" — decision-dependency (the new V18 leaf must reference whichever earlier leaf is chosen to construct `loomAbort`; resolving that finding in H4 vs. M changes this leaf's `Deps` field)
-- "M's "AbortError" system-note path not defined in spec" — same-cluster (both touch the cancelled/AbortError system-note surface but resolve independently — that finding is about M's spec-citation gap, this one is about the missing checkpoint test)
-- "V16e ordering: forward Dep on V16o with misleading file order" — same-cluster (touches V16 ordering but unrelated to cancellation)
 
 ---
 
