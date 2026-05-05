@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_6 findings retained, 3 false positives dropped, 0 persistent failures_
+_5 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -379,89 +379,4 @@ Edge case for the implementer: pin the Keep-a-Changelog header form (e.g. the st
 
 - "`docs/manual-smoke.md` does not exist and its creation violates CLAUDE.md" — co-resolve (same root question, resolved together: H4 bootstraps `docs/manual-smoke.md` on the same precedent)
 - "Exception-handling convention weaker than CLAUDE.md" — same-cluster (different convention bullet, separate fix)
-
----
-
-# REQ-ID infrastructure has no owning leaf; V18o gate passes vacuously
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** REQ-ID system referenced everywhere but no leaf creates it
-**Kind:** traceability, consistency, implementability, assumptions, codebase-grounding-broad, validation
-
-## Finding
-
-The plan and spec describe a complete REQ-ID traceability system that is not actually implemented anywhere in the repository. `spec.md` Appendix — REQ-ID prefix table assigns a stable per-page prefix to every non-narrative spec page (`LEX`, `TYPE`, `SCHM`, `DESC`, `SUBS`, `FRNT`, `QRY`, `EXPR`, `BNDG`, `CTRL`, `ERR`, `RET`, `FN`, `TOOL`, `INV`, `IMP`, `DISC`, `SLSH`, `BIND`, `CNCL`, `DIAG`, `RVM`, `PIC`, `IMPL`, `PIE`, `GRAM`). `plan_topics/conventions.md` mandates that every leaf's Tests bullet cite a REQ-ID inline (e.g. `BIND-7: ...`). `plan_topics/coverage-matrix.md` declares itself "section-level scaffolding that pre-dates the REQ-ID assignment pass." `plan_topics/v18-cancellation.md` V18o defines a CI gate that diffs REQ-IDs grepped from `spec_topics/*.md` against REQ-IDs grepped from `coverage-matrix.md`.
-
-What does not exist:
-
-1. Zero `**PREFIX-N.**` markers or `<a id="prefix-n"></a>` anchors in any file under `spec_topics/`. A `grep -roh -E '\b(LEX|TYPE|SCHM|DESC|SUBS|FRNT|QRY|EXPR|BIND|BNDG|CTRL|ERR|RET|FN|TOOL|INV|IMP|DISC|SLSH|CNCL|DIAG|RVM|PIC|IMPL|PIE|GRAM)-[0-9]+\b' spec_topics/` returns nothing.
-2. Zero leaves cite a REQ-ID in any Tests bullet. The only `BIND-7` token in the repo is the example in `conventions.md` itself.
-3. `coverage-matrix.md` rows still key on spec sections, not REQ-IDs.
-4. The "Phase 12b" referenced by `coverage-matrix.md`'s preamble does not exist (V12b is "`system:` field declaration", unrelated).
-5. No leaf in `plan.md` owns the work of inserting anchors, re-pivoting the matrix, or backfilling citations.
-
-The consequence is that V18o's gate diffs an empty set against an empty set and passes for any spec content. The convention requiring REQ-ID citation per leaf cannot be obeyed because the IDs do not exist. The traceability story the spec advertises in Appendix is fictional until a leaf takes ownership of standing it up.
-
-## Plan Documents
-
-- `plan_topics/conventions.md` — "Leaf format" section, "Cross-cutting rules — REQ-ID discipline" section (read-only; the rules are correct, only the work to satisfy them is missing)
-- `plan_topics/coverage-matrix.md` — preamble + every row (edited; preamble loses the "Phase 12b" sentence and gains a forward reference; rows are re-pivoted to per-REQ-ID granularity)
-- `plan_topics/v18-cancellation.md` — V18o (edited; Deps gain the new owning leaf, Adds/Tests text loses the "passes vacuously" failure mode)
-- `plan.md` — Horizontal phases or Vertical slices section (edited; new leaf added to the listing)
-- `plan_topics/h1-scaffold.md` … `plan_topics/v18-cancellation.md` (every per-phase file) — Tests bullets across all leaves (option-dependent; under Option A every existing leaf is rewritten to cite REQ-IDs, under Option B the rewrite is deferred to the closing leaf)
-
-## Spec Documents
-
-- `spec.md` — Appendix — REQ-ID prefix table (read-only; prefix table is correct as-is)
-- `spec_topics/lexical.md`, `type-system.md`, `schemas.md`, `descriptions.md`, `schema-subset.md`, `frontmatter.md`, `query.md`, `expressions.md`, `bindings.md`, `control-flow.md`, `errors-and-results.md`, `return.md`, `functions.md`, `tool-calls.md`, `invocation.md`, `imports.md`, `discovery.md`, `slash-invocation.md`, `binder.md`, `cancellation.md`, `diagnostics.md`, `runtime-value-model.md`, `pi-integration-contract.md`, `implementation-notes.md`, `pi-integration.md`, `grammar.md` — every normative obligation gets a `**PREFIX-N.**` marker (edited)
-
-## Affected Leaves
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- `<new>` — REQ-ID anchor insertion and coverage-matrix re-pivot — (added)
-- `V18o` — Per-call timeout marker / coverage-matrix closing gate — (modified)
-
-(All other leaves are touched only at Tests-bullet-citation granularity; under Option A they are mass-edited as part of the new leaf, under Option B they are individually backfilled. This is per-leaf editorial work, not a structural change to any leaf's contract.)
-
-## Consequence
-
-**Severity:** blocking
-
-V18o's CI gate is the project's V1.0 acceptance check for spec coverage. As written today it inspects two empty sets and reports success regardless of how much normative spec text ships unimplemented. Implementers also cannot satisfy the leaf-format convention "one bullet per REQ-ID … cite the ID inline" because there are no IDs to cite. Without a leaf that owns the anchoring + re-pivot work, the entire traceability story collapses and V18o ships as a no-op gate that gives false confidence at V1.0.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Insert a new horizontal phase **`H5 — REQ-ID anchor insertion and coverage-matrix re-pivot`** between H4 and M. The leaf walks every non-narrative spec page, inserts `**PREFIX-N.**` markers at each normative obligation, re-pivots `coverage-matrix.md` rows from section keys to REQ-ID keys, and is the gating point for the convention "one Tests bullet per REQ-ID" to become enforceable. From M onward every leaf cites real IDs from day one; nothing needs backfill.
-
-**Plan edits.**
-- `plan.md` Horizontal phases section: insert `- [H5 — REQ-ID anchor insertion and coverage-matrix re-pivot](./plan_topics/h5-req-ids.md)` after H4.
-- `plan_topics/h5-req-ids.md` (new file): full leaf with `Spec.` listing every page in the prefix table, `Adds.` describing the anchor pass, `Tests.` asserting (i) every non-narrative spec page contains ≥1 `PREFIX-N` marker, (ii) `coverage-matrix.md` has one row per REQ-ID, (iii) the V18o `comm -23` diff is empty against current spec text, `Deps.` `H4`, `Ships when.` "the V18o gate is enabled and green against current spec content."
-- `plan_topics/coverage-matrix.md` preamble: strike the sentence "The current rows below are section-level scaffolding that pre-dates the REQ-ID assignment pass; rows below will be re-pivoted to per-REQ-ID granularity as Phase 12b assigns REQ-IDs page-by-page (see [Conventions — REQ-ID discipline](conventions.md))." Replace with: "Rows are keyed per REQ-ID (per the prefix table in [`../spec.md`](../spec.md)); H5 owns the initial population pass."
-- `plan_topics/v18-cancellation.md` V18o `Deps.` field: add `H5` to the list. Strike the parenthetical "(the citation pass is editorial and ships incrementally with the leaves themselves)" — the bulk pass is now H5's responsibility and only post-H5 leaves carry their own citations as they ship.
-
-**Spec edits.** Every page listed in the prefix table gets `**PREFIX-N.**` markers inserted at each normative obligation. Pure-narrative pages (`overview.md`, `glossary.md`, `influences.md`, `comparison.md`, `related-work.md`, `future-considerations.md`) are untouched.
-
-The convention `conventions.md` already requires "one bullet per REQ-ID" from the first leaf; satisfying that convention only at the end of V18 (the alternative considered) would mean every leaf in between ships in violation of its own format spec, which is a worse defect than the one this finding raises. The immutability concern for REQ-IDs across spec churn is already covered by the "Spec drift" cross-cutting rule (stop, fix spec, resume).
-
-Implementer-relevant edge cases for the H5 leaf:
-
-- The new leaf's Tests assertion (i) must use the union of all prefixes from the appendix table, not the literal string `PREFIX-`; see the related finding "V18o CI command assumes sorted input and literal `PREFIX-` prefix" for the corresponding V18o fix.
-- Pure-narrative pages must be excluded from assertion (i)'s denominator; the prefix table marks them `(no IDs — narrative)`.
-- Deleting the `coverage-matrix.md` "Phase 12b" sentence is part of this leaf, not a separate edit; see related finding `"Phase 12b" stale reference and embedded decision-log note`.
-
-## Related Findings
-
-- `"Phase 12b" stale reference and embedded decision-log note` — co-resolve (the same H5/V18p leaf strikes the stale sentence as part of its preamble rewrite)
-- `V18o bundles per-call timeout marker with coverage-matrix CI gate` — decision-dependency (if V18o splits into V18o + V18p, the new owning leaf must pair with whichever half holds the gate; under Option B the names collide and one must be renamed)
-- `V18o CI command assumes sorted input and literal `PREFIX-` prefix` — same-cluster (both findings concern the V18o gate's mechanics; this one stands up the IDs the gate inspects, the other fixes the gate's command form)
-- `V18o wrong diagnostic code for `timeout:` field rejection` — same-cluster (touches V18o's other criterion; resolved independently)
-- `Diagnostic-code coverage has no closing CI check parallel to V18o's REQ-ID gate` — same-cluster (proposes a parallel gate for diagnostic-code coverage; the H5/V18p model here is the template for that follow-on leaf)
-- `"V1 reference implementation" identifier collision` — same-cluster (its suggested fix references "`IMPL-N` once REQ-IDs are assigned" — depends on this leaf shipping first)
 

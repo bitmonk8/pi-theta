@@ -1,6 +1,6 @@
 # Spec coverage matrix
 
-Every executable spec section maps to a closing leaf. The V18s gate (per [V18 — V18s](v18-cancellation.md)) enforces a stricter property in CI: every REQ-ID emitted by any spec page (per the prefix table in [`../spec.md`](../spec.md)) must have at least one mapping in this matrix. The V18s gate enforces a second closure property: every code in the registry table of [`../spec_topics/diagnostics.md`](../spec_topics/diagnostics.md) is asserted as a literal string by at least one test in the suite.
+Every executable spec section maps to a closing leaf. Rows are keyed per REQ-ID (per the prefix table in [`../spec.md`](../spec.md)); [H6](h6-req-ids.md) owns the initial population pass that inserts `PREFIX-N` anchors into the spec pages and re-pivots the rows below from section keys to REQ-ID keys. Until H6 closes, the rows below are section-level scaffolding (the V18s diff is vacuously empty). The V18s gate (per [V18 — V18s](v18-cancellation.md)) enforces a stricter property in CI: every REQ-ID emitted by any spec page must have at least one mapping in this matrix. The V18s gate enforces a second closure property: every code in the registry table of [`../spec_topics/diagnostics.md`](../spec_topics/diagnostics.md) is asserted as a literal string by at least one test in the suite.
 
 | Spec page | Closing leaf(s) |
 |---|---|

@@ -2,8 +2,8 @@
 
 Three kinds of phase:
 
-1. **Horizontal phases (H1–H5).** Project scaffold, dependency-injection skeleton, diagnostics primitive, Pi-extension shell, Pi end-to-end harness.
-   The harness (H5) exists so that from M onward every leaf whose `Ships when` claims a behaviour against "a real Pi session" can express that gate as a scripted assertion against an in-process `AgentSession`, not a manual smoke. "Manual in real Pi session" is reserved for gates that exercise Pi's CLI extension-discovery path itself (H4).
+1. **Horizontal phases (H1–H6).** Project scaffold, dependency-injection skeleton, diagnostics primitive, Pi-extension shell, Pi end-to-end harness, REQ-ID anchor insertion + coverage-matrix re-pivot.
+   The harness (H5) exists so that from M onward every leaf whose `Ships when` claims a behaviour against "a real Pi session" can express that gate as a scripted assertion against an in-process `AgentSession`, not a manual smoke. "Manual in real Pi session" is reserved for gates that exercise Pi's CLI extension-discovery path itself (H4). H6 stands up the REQ-ID anchors in `spec_topics/*.md` and re-pivots `coverage-matrix.md` to per-REQ-ID granularity so that the leaf-format convention ("one bullet per REQ-ID; cite the ID inline") is satisfiable from M onward and the V18s gate ceases to pass vacuously.
 2. **MVP phase (M).** The smallest end-to-end `.loom` that runs as a Pi slash command — single hard-coded untyped query, prompt mode.
 3. **Vertical slices (V1–V18, broken into leaf phases).** Each leaf is the smallest feature that can ship independently *and* be tested independently. Leaves carry IDs like `V4b`. Their grouping (V4) is editorial only — leaves are the unit of work. The IDs `H1`–`H4`, `M`, and `V1`–`V18` (and their `<group><letter>` leaf forms) are reserved for plan phases. When plan prose needs to refer to the initial release of the loom language, write "loom 1.0" or "the initial release"; never reuse "V1" for that meaning.
 
@@ -26,7 +26,7 @@ A phase is **not** complete until its exit gate is met. No "we'll fix it next sl
 
 Each leaf has the same fields, in the same order:
 
-- **Spec.** Page(s) under [`../spec_topics/`](../spec_topics/) the leaf implements, *or* **Convention.** Section(s) of [`conventions.md`](conventions.md) the leaf operationalises (used by horizontal phases H1–H4, which derive from project-level conventions rather than spec rules; H5 cites spec topics because it implements the Pi integration surface).
+- **Spec.** Page(s) under [`../spec_topics/`](../spec_topics/) the leaf implements, *or* **Convention.** Section(s) of [`conventions.md`](conventions.md) the leaf operationalises (used by horizontal phases H1–H4, which derive from project-level conventions rather than spec rules; H5 and H6 cite spec topics because they implement, respectively, the Pi integration surface and the REQ-ID anchoring + coverage-matrix re-pivot pass over the spec).
 - **Adds.** One sentence — what the leaf introduces.
 - **Tests.** Bullet list — one bullet per **REQ-ID** the leaf claims to implement; cite the ID inline (e.g. `BIND-7: ...`). Where a leaf implements only part of a rule (sometimes a leaf adds the parser surface and a later leaf adds the runtime check), each Tests bullet still cites its REQ-ID; the coverage matrix's REQ-ID-to-leaf mapping is many-to-many. The REQ-ID prefix table for each spec page lives in [`../spec.md` Appendix — REQ-ID prefix table](../spec.md). Pure-narrative pages (`overview.md`, `influences.md`, `comparison.md`, `related-work.md`, `future-considerations.md`) carry no IDs and need no leaf citation.
 - **Deps.** Other leaf IDs that must be complete first. Listed `-` if none beyond the previous-leaf-in-the-group.
