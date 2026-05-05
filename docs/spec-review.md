@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 32 commit-ready findings (8 merge clusters, 26 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 31 commit-ready findings (8 merge clusters, 26 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -2277,62 +2277,3 @@ Edge cases for the fixer:
 
 ---
 
-## spec_topics/errors-and-results.md
-
----
-
-# `InvokeInfraError` / `kind: "invoke_failure"` schema-vs-wire pair missing from the glossary
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** `` `InvokeInfraError` / `kind: "invoke_failure"` asymmetry not in glossary ``
-**Kind:** naming
-
-## Finding
-
-Every `QueryError` variant in `errors-and-results.md` pairs a loom-side schema name with a snake_case wire `kind` discriminant, and in eight of the nine cases the two are mechanically related: `CancelledError` ↔ `"cancelled"`, `CodeToolError` ↔ `"code_tool"`, `ToolLoopExhaustedError` ↔ `"tool_loop_exhausted"`, etc. `InvokeInfraError` is the lone exception — its wire form is `"invoke_failure"`, dropping the `Infra` qualifier entirely. The `Infra` qualifier exists to partition the invoke-side variants (`InvokeInfraError` for failures *around* the callee body, `InvokeCalleeError` for the callee's own propagated `Err`); the wire `kind` predates that split and was deliberately left at `"invoke_failure"` to preserve the on-wire contract.
-
-That history is captured in two prose footnotes inside `errors-and-results.md` (the **Notes** subsection and an inline aside on the `InvokeInfraError` schema), but it is invisible from the glossary. The glossary's general `loom-side name vs. wire name` entry establishes that the two surfaces *can* diverge with a `field as "WireName": T` rename, but it does not flag any specific `QueryError` variant where they actually do diverge, and it does not name `InvokeInfraError` / `"invoke_failure"` as the one V1 case where divergence is structural rather than per-field opt-in. Since `InvokeInfraError` is referenced from at least six topic pages (`errors-and-results.md`, `invocation.md`, `tool-calls.md`, `query.md`, `pi-integration.md`, `schema-subset.md`), it meets the glossary's own inclusion criterion ("terms reused on more than one page").
-
-The result is a discoverability gap: an author who encounters `kind: "invoke_failure"` on the wire and grep-misses to the glossary first will not find the schema name; an author who encounters `InvokeInfraError` in code and consults the glossary will not find the wire name. Both must read past two prose paragraphs in `errors-and-results.md` to discover the asymmetry is intentional.
-
-## Spec Documents
-
-- `spec_topics/glossary.md` — entry list (edited)
-- `spec_topics/errors-and-results.md` — `QueryError variants` and `Notes` (read-only; canonical authority)
-- `spec_topics/invocation.md` — `Failures` (read-only; cross-references the pair)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The fix is confined to the glossary page (and optionally a one-line back-link from the `errors-and-results.md` Notes paragraph). No leaf's `Adds` / `Tests` / `Ships when` text changes; in particular `V15l — InvokeInfraError variant` already pins schema name + wire `kind` correctly.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader who looks up either name in the glossary fails the lookup and must read two paragraphs of `errors-and-results.md` to learn the mapping. No implementer would build the wrong shape from this — the canonical schema declaration is unambiguous — but the glossary's stated role as "the spec's coined vocabulary in one alphabetised list" is undercut for the only `QueryError` variant whose two names do not match by construction.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a glossary entry for the `InvokeInfraError` ↔ `"invoke_failure"` pair. Suggested wording (alphabetises under `I`):
-
-> **`InvokeInfraError`** / **`kind: "invoke_failure"`** — The infra-side invoke failure variant of `QueryError`. The schema name carries an `Infra` qualifier to partition it from `InvokeCalleeError` (the callee's own `Err` propagated through), but the wire `kind` discriminant remains `"invoke_failure"`: snake_case discriminants are stable wire contract and are not renamed when their loom-side schema name changes. This is the only V1 `QueryError` variant whose schema and wire names diverge other than by an explicit `field as "..."` rename. See: [Errors and Results — Invoke variants](./errors-and-results.md), [Invocation — Failures](./invocation.md).
-
-The entry slots between the existing `coercion (type, expression-level)` and `loom-side name vs. wire name` items. Optionally extend the `loom-side name vs. wire name` entry with a sentence pointing forward to this entry as the canonical example. No edit to `errors-and-results.md` is required; if one is made, it should be limited to a single back-pointer ("see Glossary entry") in the Notes paragraph rather than relocating the explanation.
-
-Edge case for the implementer: keep the entry short — the canonical `reason` enum (`load_failure` / `parse_failure` / `validation` / `panic` / `internal_error`) belongs on the schema page, not the glossary, per the page's "descriptive only" preamble.
-
-## Related Findings
-
-- "`argument-hint` uses a hyphen; all loom-native multi-word fields use underscores" — same-cluster (a different naming-asymmetry-not-explained-in-spec instance; resolved on `frontmatter.md`, not the glossary, but symptom is the same)
-- ""binder bypass" conflates two distinct named conditions" — same-cluster (another glossary completeness gap; same edit pass on `glossary.md`)
-- ""loom" overloaded across three senses; no disambiguating glossary entries" — same-cluster (another glossary completeness gap; same edit pass on `glossary.md`)
-
----
