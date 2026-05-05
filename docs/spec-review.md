@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 37 commit-ready findings (8 merge clusters, 29 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 36 commit-ready findings (8 merge clusters, 29 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -2588,70 +2588,3 @@ Edge cases the implementer must watch:
 - "Non-text content \"silently\" discarded: no observable signal for tests" — same-cluster (testability gap; independent fix)
 - "Re-scan deduplication: no observable emission counter" — same-cluster (same family of "no observable counter" findings)
 
----
-
-## spec_topics/return.md
-
----
-
-# Inconsistent phrasing for the top-level scope of a loom in `return.md`
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** "top-level loom block" vs. "top level of a loom" — minor terminology inconsistency
-**Kind:** cross-spec-consistency-broad
-
-## Finding
-
-`spec_topics/return.md` refers to the same scope — the outermost block of a `.loom` file, which behaves as a function body for `return` and `?` purposes — using three different phrasings within five lines:
-
-1. Line 3: "the enclosing function (or **top-level loom block**)"
-2. Line 20: "a `void` function or `void` **top-level loom**"
-3. Line 21: "At the **top level of a loom**, `return expr` exits the loom..."
-
-Neither phrase is defined in `spec_topics/glossary.md`, and `spec.md` does not adjudicate. The drift extends to neighbouring topic pages: `errors-and-results.md` says "enclosing function (or top-level loom block)" (matching variant 1), while `diagnostics.md` says "a function or top-level loom" (matching variant 2). The three variants are interchangeable to a careful reader, but each is plausibly a different concept on a first pass — "top-level loom block" sounds like a syntactic block-expression construct, "top-level loom" sounds like the file, "the top level of a loom" sounds like a position. Once H6 attaches a `RET-N` REQ-ID anchor to one of these sentences, citers will quote whichever phrase happens to sit nearest the anchor and the inconsistency hardens.
-
-## Spec Documents
-
-- `spec_topics/return.md` — body, all three occurrences (edited)
-- `spec_topics/errors-and-results.md` — `?` operator paragraph (edited)
-- `spec_topics/diagnostics.md` — `loom/parse/question-outside-result-fn` row, V1-panic-sources paragraph (edited)
-- `spec_topics/glossary.md` — new entry (edited)
-- `spec_topics/functions.md` — "Top-level loom files follow the same rule…" paragraph (read-only; existing phrasing is the model)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. V8f, V9c, V9e implement `return` behaviour but their acceptance criteria are about runtime/parse semantics, not spec wording; they neither change nor are blocked by this fix. H6 (REQ-ID anchor pass) reads `return.md` but its leaf criteria don't depend on the wording being unified beforehand — though doing the rename first is hygienic.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader has to spend a few seconds confirming the three phrases denote the same scope. No implementer would diverge on behaviour. The risk is purely that REQ-ID citations later anchor to whichever variant sits nearest the marker, freezing the inconsistency.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Adopt **"top-level loom"** as the canonical phrase for the file-level scope (matches `diagnostics.md` and the established "top-level loom load" wording in `implementation-notes.md`). Apply throughout:
-
-- `spec_topics/return.md` line 3: "exits the enclosing function (or top-level loom) immediately" — drop "block".
-- `spec_topics/return.md` line 21: "At the top-level loom, `return expr` exits the loom..." — or rephrase to "From a top-level loom, `return expr`...".
-- `spec_topics/errors-and-results.md` `?`-operator paragraph: "early-returns the `Err` from the enclosing function (or top-level loom)" — drop "block".
-- `spec_topics/glossary.md`: add an entry **top-level loom** — "The outermost block of a `.loom` file. Acts as the implicit function body for the file: its tail expression is the loom's return value, `return expr` exits it, and `?` early-returns from it. Distinct from any nested function bodies declared inside the file. See: [Functions](./functions.md), [Return Statement](./return.md)."
-
-Edge cases for the implementer:
-
-- `diagnostics.md` line 117 already uses "function or top-level loom" — leave as-is, it matches the chosen canon.
-- `diagnostics.md` line 194 uses "top-level looms" (plural) for the V1-panic-sources sentence — also already canonical.
-- Do **not** rename the existing glossary cross-reference target "loom (file unit)" if/when [related finding](#related-findings) on "loom" overloading lands; "top-level loom" is a positional qualifier on top of that base term and should compose cleanly.
-
-## Related Findings
-
-- "\"loom\" overloaded across three senses; no disambiguating glossary entries" — co-resolve (both add glossary entries; the "loom (file unit)" entry from that finding is the natural anchor for the new "top-level loom" entry here, so land them in the same edit pass)
-- "REQ-ID anchors described as present-state; actually an H6 future deliverable" — decision-dependency (H6's anchor pass should run *after* this rename so anchors attach to the canonical phrasing)
