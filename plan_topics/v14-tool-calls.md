@@ -131,7 +131,7 @@
 ## V14p — Source priority and shadowing warning
 
 - **Spec.** [Directory Convention — Source priority](../spec_topics/discovery.md).
-- **Adds.** Five-level priority from spec; cross-priority name collision (higher priority wins) emits `loom/load/cross-source-shadow` warning and registers the higher-priority entry. Same-priority collisions are governed by V14q (uniform load-time error; neither registers).
+- **Adds.** Source-priority resolution implementing the ordered list from [Directory Convention — Source priority](../spec_topics/discovery.md), high to low: (1) CLI flag (`--loom <path>`), (2) settings (`looms` array, project `settings.json` overriding global), (3) project (`.pi/looms/`), (4) packages (`looms/` directories or `pi.looms` entries), (5) global (`~/.pi/agent/looms/`). Cross-priority name collision (higher priority wins) emits `loom/load/cross-source-shadow` warning and registers the higher-priority entry. Same-priority collisions are governed by V14q (uniform load-time error; neither registers).
 - **Tests.** Each adjacent priority pair tested for the cross-priority shadow case; warning text matches spec.
 - **Deps.** V14k–V14o.
 - **Ships when.** Priority rule is uniform.

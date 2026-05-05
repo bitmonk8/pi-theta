@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_90 findings retained, 3 false positives dropped, 0 persistent failures_
+_89 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -6342,58 +6342,3 @@ If the related finding "V14n / V14o missing V14q from Deps despite citing its co
 - "V14n / V14o missing V14q from Deps despite citing its collision rule in Tests" — co-resolve (same `Deps.` line on V14o; apply both additions together as `V14k, V14n, V14q`)
 - "V16e ordering: forward Dep on V16o with misleading file order" — same-cluster (both concern accuracy of `Deps.` lines; resolve independently)
 
----
-
-# V14p Adds elides the five-level priority order
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V14p "Five-level priority from spec" — no anchor
-**Kind:** clarity
-
-## Finding
-
-V14p's `Adds.` field reads in full: "Five-level priority from spec; cross-priority name collision (higher priority wins) emits `loom/load/cross-source-shadow` warning and registers the higher-priority entry. Same-priority collisions are governed by V14q (uniform load-time error; neither registers)." The phrase "Five-level priority from spec" does not name the five sources or the order, and the `Spec.` line links to `discovery.md` at section "Directory Convention — Source priority" without an anchor (the spec uses bolded paragraph headers, not `##` headings, so no fragment exists). An implementer reading V14p in isolation cannot determine which source preempts which, even though the entire ordering is the substance of the leaf.
-
-The same flaw recurs in V14m (`Tests.` says "precedence per spec"); the two should be fixed together. Inlining the ordered list in `Adds.` is consistent with how other V14 leaves enumerate enumerable rules in-line (e.g. V14n's per-source severity table reference, V14o's path-delimiter behaviour spelled out for both POSIX and Windows).
-
-## Plan Documents
-
-- `plan_topics/v14-tool-calls.md` — V14p (edited)
-- `plan_topics/v14-tool-calls.md` — V14m (read-only — sibling with the same defect, tracked under its own finding)
-
-## Spec Documents
-
-- `spec_topics/discovery.md` — "Source priority (high to low)" paragraph (read-only — source of the verbatim list)
-
-## Affected Leaves
-
-**Phases:** Vertical V14
-
-**Leaves (implementation order):**
-
-- V14p — Source priority and shadowing warning — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-An implementer can recover the ordering by following the `Spec.` link, so the leaf is not blocked. But the leaf's whole subject is a five-element ordered list, and omitting it from `Adds.` invites mis-ordering during implementation or review (e.g. swapping CLI and settings, or treating package and global as equal). Inlining it costs five lines and removes the failure mode.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace V14p's `Adds.` bullet in `plan_topics/v14-tool-calls.md` with a version that inlines the ordered list verbatim from `spec_topics/discovery.md` "Source priority (high to low)":
-
-> - **Adds.** Source-priority resolution implementing the ordered list from [Directory Convention — Source priority](../spec_topics/discovery.md), high to low: (1) CLI flag (`--loom <path>`), (2) settings (`looms` array, project `settings.json` overriding global), (3) project (`.pi/looms/`), (4) packages (`looms/` directories or `pi.looms` entries), (5) global (`~/.pi/agent/looms/`). Cross-priority name collision (higher priority wins) emits `loom/load/cross-source-shadow` warning and registers the higher-priority entry. Same-priority collisions are governed by V14q (uniform load-time error; neither registers).
-
-Edge cases the implementer must watch:
-- The settings entry in the spec parenthetical includes "project `settings.json` overriding global"; that intra-source ordering is part of level (2) and must not be hoisted to its own level — keep it inside the level-2 description as written above.
-- Do not introduce a Markdown heading-anchor in the `Spec.` link (e.g. `discovery.md#source-priority`); `discovery.md` uses bold paragraph labels, so the fragment would not resolve. The section-name suffix in the existing link text is the convention used by other V14 leaves.
-
-## Related Findings
-
-- "V14m 'precedence per spec' non-specific" — co-resolve (same defect in V14m's Tests bullet; the inlined ordered list above is the same text V14m needs)
-- "Cross-priority shadowing with no opt-out or rollback procedure" — same-cluster (also edits V14p but adds a rollback annotation and policy-knob discussion; resolves independently of the priority-list inlining)
