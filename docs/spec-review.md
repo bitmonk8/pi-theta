@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 25 commit-ready findings (8 merge clusters, 26 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 24 commit-ready findings (8 merge clusters, 25 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -1791,65 +1791,4 @@ Edge cases the implementer must cover in tests:
 
 - "Schema-validation coercion follow-up turn text not normative" — same-cluster (also targets the coercion follow-up surface but addresses a different gap — the wording of follow-up turns the runtime *does* issue rather than whether to issue them at all)
 - ""Five query-time variants" lists six" — same-cluster (touches the `validation` `kind` whose double-duty as both "AJV rejected the response" and "runtime refused its own constructed input" is what makes the empty-template / coercion interaction read ambiguously in the first place)
-
----
-
-## spec_topics/slash-invocation.md
-
----
-
-# `pi.sendMessage` delivery paragraph in `slash-invocation.md` duplicates `pi-integration-contract.md`
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** System-note `pi.sendMessage` delivery paragraph placed in wrong file
-**Kind:** placement
-
-## Finding
-
-The closing paragraph of `spec_topics/slash-invocation.md` specifies the SDK-level delivery mechanism for the per-`kind` top-level-`Err` system note: the `pi.sendMessage({ customType: "loom-system-note", content, display: true, details: { event: { ... } } }, { triggerTurn: false })` call shape, the `customType` constant, the `display: true` flag, the `details.event` payload, the registered renderer's one-line dim formatting, and the renderer-vs-log-scraper consumption split.
-
-Every one of those facts is already specified — and specified more completely — in `spec_topics/pi-integration-contract.md` under the **System notes** and **Runtime event channel** sections: the same `pi.sendMessage(...)` shape, the three disjoint `details` payload variants (`{ diagnostics }` / `{ event }` / `{ structural }`), the `pi.registerMessageRenderer("loom-system-note", ...)` registration, the `display: true` vs `display: false` rule, and the best-effort fallback chain. The `slash-invocation.md` paragraph adds nothing the contract page does not already say; it just signs off with "See [Pi Integration Contract] for the full mechanism," which is itself a tell that the detail belongs there.
-
-`slash-invocation.md` is the user-facing invocation surface — what the user types, what the user sees, the per-`kind` template table for the rendered note text. SDK delivery mechanics on this page are out of scope and create a two-source-of-truth hazard: any future edit to the `pi.sendMessage` call shape or the `details` schema must be remembered in both places or the pages drift.
-
-## Spec Documents
-
-- `spec_topics/slash-invocation.md` — closing paragraph after the per-`kind` table (edited)
-- `spec_topics/pi-integration-contract.md` — **System notes** section (read-only — already covers the delivery contract; receives at most a one-clause cross-reference noting that the per-`kind` table populates `details: { event }` for every row)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The affected leaves (`H4` for the `sendSystemNote` helper and renderer registration, `V18i` for the per-`kind` top-level-`Err` formatter, `V18q` for the runtime-event channel) already cite `pi-integration-contract.md` for delivery mechanics; their **Adds** and **Tests** clauses are unaffected by removing the duplicated paragraph from `slash-invocation.md`. `V18i`'s **Spec** field already lists `slash-invocation.md` for the per-`kind` table only, which is the post-edit role of that file.
-
-## Consequence
-
-**Severity:** cosmetic
-
-The two pages are mutually consistent today. No implementer is misled and no test changes; the harm is purely a future-drift risk if one page's `pi.sendMessage` call shape or `details` payload is updated and the other is not. Resolving it now is a maintenance hygiene win.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec_topics/slash-invocation.md`, replace the closing paragraph (the one beginning "The note is emitted as a custom-typed Pi message…") with a single short sentence that:
-
-1. States that every row of the per-`kind` table emits as a `loom-system-note` carrying `details: { event: RuntimeEvent }`, where the `RuntimeEvent` payload is the same value V18q emits at the originating site (so consumers deduplicate on `(kind, query_site, message, occurrence-timestamp)`).
-2. Cross-links to `pi-integration-contract.md` **System notes** for the `pi.sendMessage` call shape, the `details` payload variants, the renderer registration, and the best-effort fallback chain, and to `pi-integration-contract.md` **Runtime event channel** for the `RuntimeEvent` shape and the `display: true` vs `display: false` rule.
-
-Do not duplicate the call signature, the `customType` literal, the `triggerTurn: false` option, the renderer's styling, or the renderer-vs-log-scraper consumption split — those all live on the contract page.
-
-In `spec_topics/pi-integration-contract.md`, no edit is required: the **System notes** section already enumerates the `details` shapes including `{ event: RuntimeEvent }`, and the **Runtime event channel** section already specifies the payload, the `display` rule, and the deduplication key. Optionally, a one-clause aside under **Runtime event channel** noting that the per-`kind` top-level-`Err` table in `slash-invocation.md` is the user-facing renderer for `display: true` events would symmetrise the cross-reference, but the existing forward link from `slash-invocation.md` is sufficient.
-
-## Related Findings
-
-- "Prompt-mode streaming edge cases placed in wrong file" — co-resolve (the mirror move: prompt-mode user-visible streaming behaviour currently lives in `pi-integration-contract.md` and should migrate to `slash-invocation.md`. Resolving both in one edit cleanly partitions the two pages along the user-facing-vs-SDK-mechanics axis)
-- "SDK surface (`estimateTokens`, `ctx.sessionManager`) placed in binder behavioral page" — same-cluster (same placement lens — SDK delivery mechanics in a behavioural page; resolves independently against `binder.md` rather than `slash-invocation.md`)
-- "Provider seed-field mapping (Determinism section) placed in binder page" — same-cluster (same placement lens, different misplaced page; resolves independently)
-- "Provider compatibility local-backend note belongs in `future-considerations.md`" — same-cluster (placement lens; the misplaced content is a known-limitation aside rather than SDK mechanics, so the destination differs)
 
