@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_8 findings retained, 3 false positives dropped, 0 persistent failures_
+_7 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -552,64 +552,3 @@ Edge case for the implementer: do **not** rewrite occurrences of `V1` that appea
 - "Ambiguous group-level leaf IDs in Deps fields" — same-cluster (both stem from the `V1`–`V18` namespace being overloaded; the conventions.md edit landing here can co-locate with the group-level-Deps disambiguation rule, but the two findings resolve independently)
 - "Static-resolution cache named three different ways" — same-cluster (sibling terminology-hygiene defect; independent fix)
 - "V13 title inconsistency and \"retry\" terminological conflict" — same-cluster (sibling terminology-hygiene defect; independent fix)
-
----
-
-## plan_topics/coverage-matrix.md
-
----
-
-# "Phase 12b" stale reference and embedded decision-log note
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** "Phase 12b" stale reference and embedded decision-log note
-**Kind:** cruft, traceability, assumptions
-
-## Finding
-
-The preamble of `plan_topics/coverage-matrix.md` ends with: "The current rows below are section-level scaffolding that pre-dates the REQ-ID assignment pass; rows below will be re-pivoted to per-REQ-ID granularity as Phase 12b assigns REQ-IDs page-by-page (see [Conventions — REQ-ID discipline](conventions.md))."
-
-No "Phase 12b" exists in `plan.md`. The plan's phase taxonomy is H1–H4 / M / V1–V18; `12b` only appears as the leaf id `V12b` (the `system:` field declaration in `plan_topics/v12-subagent.md`), which is unrelated to REQ-ID pivoting. A reader following the reference therefore hits a dead end.
-
-Beyond the dangling identifier, the sentence is a decision-log entry — it describes an editorial transition the matrix is "currently in the middle of" — rather than a normative property of the matrix. Decision-log content does not belong in a coverage-gate source-of-truth document; the surrounding paragraph already establishes (correctly) that V18o is the gate and that the prefix table in `spec.md` is the source of REQ-IDs.
-
-## Plan Documents
-
-- `plan_topics/coverage-matrix.md` — preamble paragraph (edited)
-- `plan.md` — phase index (read-only — to confirm absence of "Phase 12b")
-- `plan_topics/conventions.md` — REQ-ID discipline (read-only)
-- `plan_topics/v18-cancellation.md` — V18o (read-only)
-
-## Spec Documents
-
-- `spec.md` — Appendix § REQ-ID prefix table (read-only)
-
-## Affected Leaves
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(The fix is a one-sentence deletion in a non-leaf document; no leaf's Spec / Adds / Tests / Deps / Ships-when fields change.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader of `coverage-matrix.md` who tries to look up "Phase 12b" in `plan.md` finds nothing and is left guessing whether the matrix is waiting on a missing leaf or describing a completed transition. The matrix still functions as the V18o input, but the dangling reference erodes confidence in the document and invites the next editor to invent a "Phase 12b" leaf to satisfy it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/coverage-matrix.md`, in the preamble paragraph immediately following the heading `# Spec coverage matrix`, strike the second sentence verbatim:
-
-> The current rows below are section-level scaffolding that pre-dates the REQ-ID assignment pass; rows below will be re-pivoted to per-REQ-ID granularity as Phase 12b assigns REQ-IDs page-by-page (see [Conventions — REQ-ID discipline](conventions.md)).
-
-Leave the first sentence ("Every executable spec section maps to a closing leaf. The V18o gate (per [V18 — V18o](v18-cancellation.md)) enforces a stricter property in CI: every REQ-ID emitted by any spec page (per the prefix table in [`../spec.md`](../spec.md)) must have at least one mapping in this matrix.") and the closing paragraph ("If, when V18o closes, any executable spec REQ-ID lacks a matrix mapping…") untouched. Do not insert a replacement sentence; the matrix's section-level state is self-evident from inspection and any forward reference belongs on the leaf that owns the REQ-ID assignment pass — see the related "REQ-ID system referenced everywhere but no leaf creates it" finding, which creates that leaf and may re-add a forward reference here when it lands.
-
-## Related Findings
-
-- "REQ-ID system referenced everywhere but no leaf creates it" — co-resolve (the offending sentence promises work that has no owning leaf; the companion finding adds the leaf, this finding deletes the orphaned forward reference; both edits land in one commit but neither blocks the other)
