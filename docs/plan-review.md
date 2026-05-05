@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_68 findings retained, 3 false positives dropped, 0 persistent failures_
+_67 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -4821,55 +4821,3 @@ Edge case the implementer must watch: an untyped query that emits text on its ve
 - "V6i too large — bundles six distinct concerns" — decision-dependency (V6i is V6k's Dep; if V6i splits, V6k's `Deps.` line must be updated to name the new sub-leaf that owns the two-phase loop core)
 
 ---
-
-# V6 leaf file order: V6k precedes V6j despite stronger deps
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V6 leaf file order: V6k appears before V6j
-**Kind:** consistency
-
-## Finding
-
-`plan_topics/conventions.md` states slices are "roughly ordered by dependencies". In `plan_topics/v6-typed-queries.md`, V6k is printed before V6j, but V6k's `Deps` are `V6i, V13f` while V6j's `Deps` are `V6i` alone. V6k therefore strictly depends on more than V6j and should appear after it under the stated convention.
-
-The deps DAG is internally consistent — this is purely a reading-order defect. A reader scanning the file top-to-bottom currently sees V6k (which transitively pulls in a V13 leaf) before V6j (which only needs V6i), inverting the dependency-order reading the convention promises.
-
-## Plan Documents
-
-- `plan_topics/v6-typed-queries.md` — V6j and V6k leaf blocks (edited)
-- `plan_topics/conventions.md` — "Slices are roughly ordered by dependencies" (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical V6
-
-**Leaves (implementation order):**
-
-- V6j — `ValidationIssue` schema — (resequenced)
-- V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError` — (resequenced)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader walking the file in order encounters V6k's `Deps. V6i, V13f` before V6j's `Deps. V6i`, contradicting the convention's "ordered by dependencies" promise. The deps DAG is correct; only the print order is wrong. No implementer is blocked.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v6-typed-queries.md`, swap the order of the V6j and V6k blocks so V6j's `## V6j — ValidationIssue schema` section precedes `## V6k — tool_loop cap enforcement and ToolLoopExhaustedError`. No content changes inside either block; no `Deps` field needs editing. The new file order becomes V6a, V6b, V6c, V6d, V6e, V6f, V6g, V6h, V6i, V6j, V6k.
-
-## Related Findings
-
-- "V6k tool-loop budget accounting ambiguous" — same-cluster (touches V6k's body but resolves independently of file ordering)
-- "V6i too large — bundles six distinct concerns" — same-cluster (a V6i split would not change the V6j-before-V6k ordering rule)
-
----
-

@@ -88,14 +88,6 @@
 - **Deps.** V6i.
 - **Ships when.** Typed queries on unsupported providers fail loudly at load and at runtime.
 
-## V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError`
-
-- **Spec.** [Query — Tool-call loop bound](../spec_topics/query.md), [Parameters and Frontmatter — `tool_loop`](../spec_topics/frontmatter.md).
-- **Adds.** `tool_loop: { max_iterations: N }` frontmatter parsing (default 25); per-query iteration counter that counts tool-call rounds (one round = model emits ≥1 `tool_use` blocks + runtime services them all + model produces next turn) and the forced respond turn (one slot). Exhaustion returns `Err(QueryError { kind: "tool_loop_exhausted", iterations: N, last_tool_name: <name | null>, raw_response: <text | null>, message: "tool-call loop exhausted" })`. Each coercion follow-up gets a fresh `tool_loop` budget (not a shared one). `max_iterations: 0` disables model-driven tool calls entirely.
-- **Tests.** Out-of-the-box default is 25 (no frontmatter declaration); a loom that loops to exactly 25 succeeds, 26 fails with `tool_loop_exhausted`; `last_tool_name` is the tool from the terminal iteration when exhaustion fires on a free-phase turn, `null` when it fires on the forced respond turn (typed query whose model never picks the respond tool); `max_iterations: 0` causes the model to receive an empty `tools` set during the free phase; one round counts as one slot regardless of how many parallel tool calls the model emitted; cancellation pre-empts the loop at any iteration boundary regardless of remaining budget; coercion follow-ups (V13g) reset the counter.
-- **Deps.** V6l, V13f (`tool_loop` is parsed alongside `coercion`).
-- **Ships when.** No query can run away.
-
 ## V6j — `ValidationIssue` schema
 
 - **Spec.** [Query](../spec_topics/query.md) (`ValidationIssue` shape).
@@ -103,3 +95,11 @@
 - **Tests.** Each AJV error keyword (`type`, `required`, `enum`, `const`) maps to the right `schema_keyword`; path is JSON-Pointer.
 - **Deps.** V6i.
 - **Ships when.** Loom code never touches raw AJV objects.
+
+## V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError`
+
+- **Spec.** [Query — Tool-call loop bound](../spec_topics/query.md), [Parameters and Frontmatter — `tool_loop`](../spec_topics/frontmatter.md).
+- **Adds.** `tool_loop: { max_iterations: N }` frontmatter parsing (default 25); per-query iteration counter that counts tool-call rounds (one round = model emits ≥1 `tool_use` blocks + runtime services them all + model produces next turn) and the forced respond turn (one slot). Exhaustion returns `Err(QueryError { kind: "tool_loop_exhausted", iterations: N, last_tool_name: <name | null>, raw_response: <text | null>, message: "tool-call loop exhausted" })`. Each coercion follow-up gets a fresh `tool_loop` budget (not a shared one). `max_iterations: 0` disables model-driven tool calls entirely.
+- **Tests.** Out-of-the-box default is 25 (no frontmatter declaration); a loom that loops to exactly 25 succeeds, 26 fails with `tool_loop_exhausted`; `last_tool_name` is the tool from the terminal iteration when exhaustion fires on a free-phase turn, `null` when it fires on the forced respond turn (typed query whose model never picks the respond tool); `max_iterations: 0` causes the model to receive an empty `tools` set during the free phase; one round counts as one slot regardless of how many parallel tool calls the model emitted; cancellation pre-empts the loop at any iteration boundary regardless of remaining budget; coercion follow-ups (V13g) reset the counter.
+- **Deps.** V6l, V13f (`tool_loop` is parsed alongside `coercion`).
+- **Ships when.** No query can run away.
