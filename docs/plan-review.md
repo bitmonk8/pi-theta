@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_74 findings retained, 3 false positives dropped, 0 persistent failures_
+_73 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -5264,63 +5264,4 @@ Edge cases the implementer should respect:
 - "V15c 'compatibility relation' undefined" — same-cluster (same pattern)
 - "V6c 'Spec's worked example' — which one?" — same-cluster (same pattern: definite-article reference with no antecedent)
 - "Spec's exact-wording errors without inline quote" — same-cluster (cross-cutting convention finding that, if adopted, would mechanically prevent this class of leaf-level defect)
-
----
-
-# V14e depends on V12a but does not declare it
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V12a missing from V14e Deps
-**Kind:** ordering
-
-## Finding
-
-V14e ("Pi tool wired into `@` queries as model-callable") asserts behavioural properties of subagent-mode invocation in its Tests bullet — specifically: "subagent-mode invocation triggers zero `pi.registerTool` calls and zero `pi.setActiveTools` calls on the user session." Exercising that assertion requires a working subagent-mode entry path: a frontmatter `mode: subagent` that actually spawns an `AgentSession` (or `FakeAgentSession`) and runs the interpreter against it.
-
-That entry path is provided by V12a ("`mode: subagent` accepted; AgentSession spawn"), which explicitly replaces V3a's "not implemented yet" stub. V14e's Deps line, however, reads only `V14a, V5e`. Neither V14a (frontmatter `tools:` parsing) nor V5e (prompt-mode driver) gives V14e a subagent-mode invocation to test against. With the current Deps, an implementer who picks V14e the moment its declared deps land would have no way to write the subagent-mode half of the Tests bullet — the `mode: subagent` frontmatter would still hit the V3a stub.
-
-## Plan Documents
-
-- `plan_topics/v14-tool-calls.md` — V14e (edited)
-- `plan_topics/v12-subagent.md` — V12a (read-only)
-- `plan_topics/v5-untyped-queries.md` — V5e (read-only)
-- `plan_topics/v3-frontmatter.md` — V3a (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical V14
-
-**Leaves (implementation order):**
-
-- V14e — Pi tool wired into `@` queries as model-callable — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-If V14e ships with its current Deps, an implementer who treats the Deps list as authoritative will pick it up before V12a is complete and either silently drop the subagent-mode Tests bullet, stub it against V3a's "not implemented yet" path (which cannot exercise registration behaviour), or invent an ad-hoc spawn path that diverges from V12a's design. The "Ships when" condition ("Same set serves both code and model") would then be declared met without the subagent-mode half ever running.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v14-tool-calls.md`, V14e, change the **Deps.** bullet from:
-
-> **Deps.** V14a, V5e.
-
-to:
-
-> **Deps.** V14a, V5e, V12a.
-
-No other field in V14e changes. V12a itself is not edited; this is a one-sided ordering fix.
-
-## Related Findings
-
-- "`AgentSession.dispose()` failure path unbounded" — same-cluster (also touches V12a but resolves with an independent edit to V12a's Tests / a new policy leaf)
 
