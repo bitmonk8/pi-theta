@@ -38,7 +38,7 @@
 - **Adds.** `PromptModeConversationDriver` issues `ctx.sendUserMessage(text)` (or `{ deliverAs: "steer" }` mid-stream), awaits via `agent_end` listener, returns assistant text. Replaces M's hard-coded driver.
 - **Tests.** A single `sendUserMessage` produces one assistant turn whose text equals the value `FakeModelClient` was queued to return for that turn (no truncation, no transformation, no extra turns); mid-stream send uses steer mode; `agent_end` listener cleaned up after each query (no leak); transport failure → `Err({kind:"transport"})`.
 - **Deps.** V5a, M.
-- **Ships when.** A real Pi session can run a multi-query loom (without `?` yet — bind every result).
+- **Ships when.** Manual: a `multi.loom` placed in `.pi/looms/` containing two consecutive `` let x = @`...` `` queries, slash invocation produces two distinct assistant turns in a real Pi session (manual smoke recorded as a new entry in `docs/manual-smoke.md` per the H4-defined format).
 
 ## V5f — Bare expression-statement query is parse error
 

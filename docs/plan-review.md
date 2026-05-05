@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_64 findings retained, 3 false positives dropped, 0 persistent failures_
+_63 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -4578,65 +4578,3 @@ Edge cases the implementer must watch:
 - "QueryError variant names inconsistently use wire kind strings vs. type names" — same-cluster (touches V5g's leaf prose; resolve independently)
 - "Runtime event channel / always-log set wholly absent from the plan" — decision-dependency (the always-log set excludes `context_overflow`; the new leaf's Tests must assert zero `RuntimeEvent` emissions when an overflow is detected, which presumes that finding's leaf exists)
 - "Closed diagnostic registry — many codes have no asserting plan leaf" — same-cluster (same class of coverage gap, distinct surface)
-
----
-
-# V5e Ships-when claim is unobservable from the leaf's own gate
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V5e Ships-when: "a real Pi session" is unverifiable from the leaf gate
-**Kind:** validation
-
-## Finding
-
-V5e's `Ships when` reads "A real Pi session can run a multi-query loom (without `?` yet — bind every result)." Every Tests bullet on V5e is fake-driven (`FakeModelClient`, `FakeExtensionAPI` — there is no `pi -e ...` invocation, no manual smoke note, and no Pi-flavoured integration harness anywhere in the plan). The gate as written therefore cannot be checked by anything inside the leaf.
-
-The two leaves that already make a "real Pi session" claim — M and H4 — both pair that claim with an explicit author-run manual smoke (M: "Manual: `hello.loom` placed in `.pi/looms/`, slash `/hello` produces an assistant turn in a real Pi session"; H4: "`pi -e C:\UnitySrc\pi-loom` loads the extension and `/loom-status` runs in a real Pi session (manual smoke recorded in `docs/manual-smoke.md`)"). V5e omits that pairing, so an implementer running V5e to green has no defined ritual for satisfying the gate. M's existing manual smoke is single-query, so it does not transitively cover V5e either.
-
-## Plan Documents
-
-- `plan_topics/v5-untyped-queries.md` — V5e bullet (edited)
-- `plan_topics/m-mvp.md` — M Ships-when (read-only; precedent for the manual-smoke convention)
-- `plan_topics/h4-extension-shell.md` — H4 Ships-when (read-only; precedent for `docs/manual-smoke.md` convention)
-- `plan_topics/conventions.md` — "Ships when" definition: "A concrete, externally observable change" (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical V5
-
-**Leaves (implementation order):**
-
-- V5e — Prompt-mode conversation driver — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will diverge: one will treat the fake-driven Tests as sufficient and ship V5e on green CI; another will read `Ships when` literally, hand-author a multi-query loom, and run it under `pi -e ...`. Neither outcome is wrong against the leaf as currently written, but the project loses the milestone's claim — V5e can be marked complete with no human ever having confirmed that a real Pi session drives more than one bound query through the new driver.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Keep the "real Pi session" milestone but anchor it to an author-run smoke recorded in `docs/manual-smoke.md`, mirroring the H4 + Mb precedent established under D1 (H4 bootstraps `docs/manual-smoke.md` with the fixed entry format that subsequent leaves reuse).
-
-**Plan edits.** In `plan_topics/v5-untyped-queries.md`, replace the V5e `Ships when.` line with:
-
-> **Ships when.** Manual: a `multi.loom` placed in `.pi/looms/` containing two consecutive `let x = @\`...\`` queries, slash invocation produces two distinct assistant turns in a real Pi session (manual smoke recorded as a new entry in `docs/manual-smoke.md` per the H4-defined format).
-
-**Spec edits.** None.
-
-Edge case for the implementer: V5e's `Deps` are V5a + Mb (per D5), so the smoke loom must use only V5a-grammar (bare `@\`literal\``, no `${}`, no `?`); two consecutive bound queries (`let x = @\`...\`; let y = @\`...\``) are sufficient to exercise the driver's multi-query behaviour. Author skipping the smoke and tagging `V5e-complete` anyway is mitigated only by review discipline.
-
-## Related Findings
-
-- "V5e: `agent_end` global listener instead of `ctx.waitForIdle()`" — same-cluster (different defect on the same leaf; both touch V5e Tests/Adds but resolve independently)
-- "V5e: `ctx.sendUserMessage()` — method does not exist on `ExtensionCommandContext`" — same-cluster (different defect on V5e Adds)
-- "V5e \"Single turn round-trips\" meaningless" — same-cluster (clarity defect on V5e Tests)
-
