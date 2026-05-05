@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 24 commit-ready findings (8 merge clusters, 25 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 23 commit-ready findings (8 merge clusters, 25 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -1734,61 +1734,4 @@ Edge cases the implementer must watch:
 - "Empty-template short-circuit: coercion interaction with `coercion.attempts` unclear" — same-cluster (both touch `coercion.attempts` semantics; resolve independently)
 - "`tool_loop_exhausted` renders `respond` — source of literal unclear" — decision-dependency (the `<slug>` placeholder above shares its source-of-truth question with the `respond` literal in the `tool_loop_exhausted` system note; pin both to the same rule)
 - "Tool-call loop default (25): no normative test vector for observability" — same-cluster (both are testability gaps in `query.md`'s coercion / tool-loop area)
-
----
-
-# Empty-template short-circuit does not state whether coercion follow-ups fire
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** Empty-template short-circuit: coercion interaction with `coercion.attempts` unclear
-**Kind:** testability
-
-## Finding
-
-`spec_topics/query.md` (Degenerate rendered templates) says that when the fully-rendered user turn is empty or whitespace-only, the typed query short-circuits to `Err(QueryError { kind: "validation", message: "rendered query template is empty", attempts: 0, validation_errors: [], raw_response: null })` "without consuming a provider round-trip." That paragraph also handles the symmetric case for follow-ups: a coercion follow-up turn that itself short-circuits "does **not** consume an `attempts` slot."
-
-The case the spec leaves implicit is the original-turn short-circuit on a typed query whose loom carries `coercion.attempts: 3` (or any non-zero value) and a non-`none` `coercion.methodology`. Schema-validation coercion is defined as a response to AJV failure on the model's *final response* (`Schema-validation coercion` section), and an empty-template short-circuit produces no model response to validate — so the operationally consistent reading is "no coercion follow-ups are ever issued, the `attempts: 0` value pinned in the short-circuit Err is also the count of follow-up turns the runtime tried." But the spec does not state that. A literal reader who keys off `kind: "validation"` could plausibly conclude the runtime should attempt the configured number of repair turns first (each of which would itself short-circuit, per the existing follow-up rule) before returning. The two interpretations diverge on observable provider traffic and on conversation-history shape, even though both end with `attempts: 0`.
-
-A typed query's coverage tests cannot assert "an empty original template with `coercion.attempts: 3` issues zero coercion follow-up turns" without the spec saying so. One sentence suppressing coercion at the original-turn short-circuit point closes the gap.
-
-## Spec Documents
-
-- `spec_topics/query.md` — Degenerate rendered templates (edited)
-- `spec_topics/query.md` — Schema-validation coercion (read-only)
-- `spec_topics/frontmatter.md` — `coercion` (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V5, Vertical V13
-
-**Leaves (implementation order):**
-
-- V5e — Prompt-mode conversation driver — modified (coverage matrix attributes the empty-rendered-template runtime short-circuit to V5e; tests must assert that the short-circuit returns `attempts: 0` and issues zero coercion follow-up turns when the loom carries non-zero `coercion.attempts` and a non-`none` methodology)
-- V13g — Coercion methodology: `validator_error` — modified (tests must assert the short-circuit path is not entered as a coercion-eligible failure: with an empty original template and `coercion.attempts: 3`, no follow-up user turn is appended to the conversation history and no follow-up provider round-trip is issued)
-- V13j — Coercion preserves tool-call side effects — modified (the existing "no follow-up issued / no `attempts` consumed" assertions are extended to cover the empty-original-template case alongside the existing `context_overflow` permanent-short-circuit case)
-
-## Consequence
-
-**Severity:** correctness
-
-Two implementers reading the spec strictly can ship divergent runtimes: one returns `Err(validation, attempts: 0)` immediately with zero provider traffic and a conversation history containing only the (un-sent) state from before the user turn; the other issues `coercion.attempts` follow-up user turns into the conversation, each of which itself short-circuits without a provider round-trip but each of which appears verbatim in the surviving conversation history that subagent-mode looms inherit. The first reading matches the spec's "without consuming a provider round-trip" phrasing; the second is not forbidden by anything currently normative.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec_topics/query.md` → Degenerate rendered templates, append to the existing Runtime short-circuit bullet: *"An empty-template short-circuit on the original user turn of a typed query MUST NOT trigger the coercion path: zero coercion follow-up turns are issued, no follow-up user turn is appended to the conversation history, and the returned `ValidationError.attempts` is 0 regardless of `coercion.attempts` and `coercion.methodology`. Rationale: coercion repairs a malformed model response (see Schema-validation coercion); the short-circuit is the runtime refusing input it constructed itself, before any model response exists, so there is nothing for a follow-up turn to repair."*
-
-Edge cases the implementer must cover in tests:
-
-- Loom with `coercion.methodology: validator_error, coercion.attempts: 3` + empty original template → returned Err has `attempts: 0`, conversation history at the subagent-mode `AgentSession` handle contains zero follow-up user turns appended after the short-circuit, zero provider round-trips observed on the fake transport.
-- Same assertion with `coercion.methodology: schema_repeat` (once V13h's template lands) and with `coercion.methodology: none` (the latter is already a no-op but the assertion pins the symmetry).
-- The pre-existing follow-up-short-circuit clause (a coercion follow-up that *itself* renders to empty) is unchanged: it remains a defensive case that does not consume an `attempts` slot.
-
-## Related Findings
-
-- "Schema-validation coercion follow-up turn text not normative" — same-cluster (also targets the coercion follow-up surface but addresses a different gap — the wording of follow-up turns the runtime *does* issue rather than whether to issue them at all)
-- ""Five query-time variants" lists six" — same-cluster (touches the `validation` `kind` whose double-duty as both "AJV rejected the response" and "runtime refused its own constructed input" is what makes the empty-template / coercion interaction read ambiguously in the first place)
 
