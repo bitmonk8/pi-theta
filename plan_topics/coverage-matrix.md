@@ -52,7 +52,7 @@ Every executable spec section maps to a closing leaf. The V18o gate (per [V18 �
 | [Invocation](../spec_topics/invocation.md) | V15a–V15n |
 | [Imports](../spec_topics/imports.md) | V17a–V17m |
 | [Pi Extension Integration](../spec_topics/pi-integration.md) | M, V14k–V14q, V18f, V18h |
-| [Directory Convention](../spec_topics/discovery.md) | V14k–V14q |
+| [Directory Convention](../spec_topics/discovery.md) | V14k–V14q, V18r |
 | [Invocation from Pi](../spec_topics/slash-invocation.md) | V16a–V16p, V18i |
 | [Slash-Command Argument Binding — bypass](../spec_topics/binder.md) | V3c |
 | [Slash-Command Argument Binding — full](../spec_topics/binder.md) | V16a–V16p |
