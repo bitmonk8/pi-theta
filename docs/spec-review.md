@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 33 commit-ready findings (8 merge clusters, 26 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 32 commit-ready findings (8 merge clusters, 26 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -2336,62 +2336,3 @@ Edge case for the implementer: keep the entry short — the canonical `reason` e
 - ""loom" overloaded across three senses; no disambiguating glossary entries" — same-cluster (another glossary completeness gap; same edit pass on `glossary.md`)
 
 ---
-
-## spec_topics/frontmatter.md
-
----
-
-# Hyphenated `argument-hint` breaks the loom-native underscore convention without an inline rationale
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** `argument-hint` uses a hyphen; all loom-native multi-word fields use underscores
-**Kind:** naming
-
-## Finding
-
-Every multi-word frontmatter field that loom defines for itself uses underscores: `bind_model`, `bind_context`, `bind_echo`, `tool_loop`, and the nested `coercion.max_iterations` / `tool_loop.max_iterations`. The single multi-word exception is `argument-hint`, which is hyphenated. The exception is deliberate — `spec_topics/frontmatter.md` describes the field as mirroring "Pi's prompt-template frontmatter", and Pi's prompt-template loader does in fact key off the literal YAML string `argument-hint` (`pi-coding-agent` `dist/core/prompt-templates.js:102`: `frontmatter["argument-hint"] && { argumentHint: frontmatter["argument-hint"] }`). Loom inherits that key verbatim so authors who already know Pi's prompt templates do not have to learn a second spelling.
-
-What the spec never states is the convention itself. The reader is left to infer "Pi-inherited names keep Pi's spelling; loom-native names use underscores" from the absence of a rule. An author writing a loom by analogy with `bind_model` will reach for `argument_hint:`, which then routes through the generic `loom/load/unknown-frontmatter-field` warner with the message `unknown frontmatter field 'argument_hint'`. The loom registers, no `Argument hint:` line reaches the binder grounding payload, and the autocomplete dropdown — which never surfaced the hint anyway — gives no signal that anything was misspelled. The symptom is silent degradation of binder grounding quality, traced only by an author who notices the warning and matches it against the field-contract table.
-
-`description` is the other Pi-inherited field but is single-word, so it carries the convention asymmetry without exhibiting it. Among V1 vocabulary, only `argument-hint` actually shows the asymmetry, which is precisely why a one-line note would close the gap.
-
-## Spec Documents
-
-- `spec_topics/frontmatter.md` — Field contract table preamble or footnote on the `argument-hint` row (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-(The minimum fix is a documentation note. V3a already implements `loom/load/unknown-frontmatter-field` for arbitrary unknown keys, including `argument_hint`, and its acceptance criteria do not change. The optional typo-detection enhancement described under Recommendation would touch V3a; if adopted, treat V3a as `(modified)`.)
-
-## Consequence
-
-**Severity:** advisory
-
-Authors who learn loom from its underscore-heavy field set will mistype `argument_hint:` and silently lose the binder grounding hint. The diagnostic surface is correct (one warning is emitted) but it does not connect the typo to the canonical name, so debugging requires opening the field-contract table. No implementation diverges; the cost is author confusion and degraded binder output for the affected loom file.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a one-line normative note to `spec_topics/frontmatter.md`, placed either as a sentence directly after the field-contract table or as a footnote on the `argument-hint` row. Suggested wording:
-
-> **Naming convention.** `description` and `argument-hint` retain Pi's prompt-template spellings verbatim (Pi's loader keys off the literal YAML string `argument-hint`); every loom-defined multi-word field uses underscore separators (`bind_model`, `bind_context`, `bind_echo`, `tool_loop`, and the nested `*.max_iterations` / `*.attempts` / `*.methodology` keys). A frontmatter key of `argument_hint:` is therefore unrecognised and surfaces as `loom/load/unknown-frontmatter-field`.
-
-Edge cases for the implementer of the spec edit:
-
-- Do **not** change the field name. `pi-coding-agent`'s prompt-template parser reads `frontmatter["argument-hint"]` literally, and the spec's design intent is verbatim inheritance of Pi's YAML key. Renaming to `argument_hint` would either fork the spelling from Pi or require a second alias, both of which defeat the "mirrors Pi" framing.
-- The note belongs in `frontmatter.md` only. The other files that mention the field (`binder.md`, `slash-invocation.md`, `pi-integration.md`, `future-considerations.md`) already use the canonical hyphenated form consistently and do not need touching.
-- Optional, out of scope of this finding's minimum fix: V3a's unknown-frontmatter-field warner could include a "did you mean `argument-hint`?" hint when the offending key is exactly `argument_hint`. If pursued, it modifies V3a's acceptance criteria and warrants a separate diagnostic-message variant — the present finding does not require it.
-
-## Related Findings
-
-- "`InvokeInfraError` / `kind: \"invoke_failure\"` asymmetry not in glossary" — same-cluster (sibling naming-asymmetry documentation gap; both fixed by adding a single explanatory note rather than by renaming, but the edits live in different files and resolve independently)
-
