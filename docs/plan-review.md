@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_34 findings retained, 3 false positives dropped, 0 persistent failures_
+_33 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -2454,61 +2454,3 @@ If a future cancellation path needs to forward an external `agent_end` (e.g. use
 - "V5e Ships-when: \"a real Pi session\" is unverifiable from the leaf gate" — same-cluster (touches V5e Ships-when, independent fix)
 - "V5e \"Single turn round-trips\" meaningless" — co-resolve (the Tests rewrite above replaces that bullet with a concrete `waitForIdle`-based assertion)
 - "M's \"AbortError\" system-note path not defined in spec" — same-cluster (also in M Adds/Tests; resolved independently but edits the same file)
-
----
-
-# V5e Adds calls `ctx.sendUserMessage(text)`, but that method lives on `pi: ExtensionAPI`, not on `ExtensionCommandContext`
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V5e: `ctx.sendUserMessage()` — method does not exist on `ExtensionCommandContext`
-**Kind:** doc-alignment-broad
-
-## Finding
-
-V5e's **Adds** field in `plan_topics/v5-untyped-queries.md` says the prompt-mode driver "issues `ctx.sendUserMessage(text)` (or `{ deliverAs: "steer" }` mid-stream)". The spec at `spec_topics/pi-integration-contract.md` (Conversation drive — prompt mode) is explicit and contrary: `sendUserMessage` is **not** a method on `ExtensionCommandContext`; the call site is `pi.sendUserMessage(text)` where `pi` is the `ExtensionAPI` captured by the extension factory (`default function (pi: ExtensionAPI)`). The per-handler `ctx` is consulted only for `ctx.isIdle()` and (per the sibling V5e finding on completion signalling) `ctx.waitForIdle()`.
-
-The two surfaces are not interchangeable. `pi: ExtensionAPI` is captured once at factory time and held for the lifetime of every loom invocation; `ctx: ExtensionCommandContext` is a per-handler argument with a deliberately narrower API. An implementer reading V5e literally would either (a) write code that fails to compile against Pi's TypeScript types, then guess at a fix, or (b) invent a wrapper on `ctx` that defeats the spec's two-surface design.
-
-The fix is a textual correction of one bullet, plus a Tests addition that pins the rule (so future drift is caught by the suite rather than by code review).
-
-## Plan Documents
-
-- `plan_topics/v5-untyped-queries.md` — V5e (Adds, Tests) (edited)
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — "Conversation drive — prompt mode" (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V5
-
-**Leaves (implementation order):**
-
-- V5e — Prompt-mode conversation driver — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The implementer of V5e is told to call a method that does not exist on the `ctx` surface and is told to ignore the surface that does carry it. A strict implementer will catch the mismatch against Pi's types and follow the spec; a less strict one will introduce a `ctx`-shaped shim that violates the spec's two-surface separation. Either way, downstream V5/V6/V12 leaves that wire the same driver inherit the ambiguity.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/v5-untyped-queries.md`, leaf `V5e — Prompt-mode conversation driver`:
-
-- Replace the **Adds** clause `` `PromptModeConversationDriver` issues `ctx.sendUserMessage(text)` (or `{ deliverAs: "steer" }` mid-stream) `` with `` `PromptModeConversationDriver` issues `pi.sendUserMessage(text)` (or `pi.sendUserMessage(text, { deliverAs: "steer" })` mid-stream), where `pi: ExtensionAPI` is the reference captured by the extension factory and held by the runtime for the lifetime of each loom invocation; `ctx: ExtensionCommandContext` is consulted only for idle-state probes (`ctx.isIdle()` / `ctx.waitForIdle()`) per [Pi Integration Contract — Conversation drive — prompt mode](../spec_topics/pi-integration-contract.md). ``
-- Append a Tests bullet: "Driver references the factory-captured `pi.sendUserMessage` for both initial and steer sends; an architectural test asserts no source file under the prompt-mode driver module reads `sendUserMessage` off any `ExtensionCommandContext`-typed value."
-
-Edge case the implementer must watch: the same `pi` reference is reused across concurrent loom invocations in the same extension process, so the driver must not mutate `pi`-level state (e.g. installing global listeners) per call — that is the subject of the sibling V5e completion-signal finding and must stay consistent with the resolution there.
-
-## Related Findings
-
-- "V5e: `agent_end` global listener instead of `ctx.waitForIdle()`" — co-resolve (same V5e Adds bullet; both edits land in one rewrite of the driver description)
-- "V5e Ships-when: \"a real Pi session\" is unverifiable from the leaf gate" — same-cluster (same leaf, independent fix to Ships-when)
-- "V5e \"Single turn round-trips\" meaningless" — same-cluster (same leaf, independent fix to Tests wording)
-
