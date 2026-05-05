@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_57 findings retained, 3 false positives dropped, 0 persistent failures_
+_56 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -4089,74 +4089,4 @@ Implementer edge cases the V4f fixture must cover:
 - "V4a 'validation produces expected error shapes' is not specific" — same-cluster (also a V4 Tests-bullet sharpening; resolves independently)
 
 ---
-
-# V4a Tests bullet "validation produces expected error shapes" is unfalsifiable
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** V4a "validation produces expected error shapes" is not specific
-**Kind:** validation
-
-## Finding
-
-`plan_topics/v4-schemas.md` V4a's last Tests bullet reads `validation produces expected error shapes`. Nothing in V4a fixes what an "expected error shape" is: there is no enumeration of which AJV keywords are exercised, no assertion about the error array structure, no reference fixture, and no statement of the path format. Any test that asserts `errors.length > 0` against a single failing fixture would satisfy this wording.
-
-The leaf's own scope makes this worse. V4a's `Adds` field commits to a specific validator behavioural contract — *one-pass multi-error reporting*, *no coercion*, *no default-filling*, *in-document `$ref` only*, *silent acceptance of any `format` keyword* — and configures AJV with `allErrors: true`. None of those four observable contract clauses appear as Tests bullets. Meanwhile the loom-shaped translation layer (`ValidationIssue` with `path` / `message` / `schema_keyword`, AJV-keyword-to-`schema_keyword` mapping, JSON-Pointer paths) is owned by V6j, which lands much later in the V6 slice.
-
-The current bullet therefore covers neither end: it does not pin AJV's native error contract that V4a is responsible for, and it cannot pin the loom-shaped contract because that contract does not yet exist at this point in the plan.
-
-## Plan Documents
-
-- `plan_topics/v4-schemas.md` — V4a (edited)
-- `plan_topics/v6-typed-queries.md` — V6j (read-only; cross-reference target)
-- `plan_topics/conventions.md` — Leaf format / Per-phase TDD ritual (read-only)
-
-## Spec Documents
-
-- `spec_topics/schema-subset.md` — Lowering Algorithm (read-only)
-- `spec_topics/implementation-notes.md` — Runtime / validator contract (read-only)
-- `spec_topics/errors-and-results.md` — `ValidationIssue` schema (read-only)
-- `spec_topics/query.md` — `ValidationIssue` shape reference (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V4
-
-**Leaves (implementation order):**
-
-- V4a — AJV pipeline scaffold — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will produce materially different V4a deliverables: one writes a single happy-path-plus-failure smoke test against AJV's raw `errors` array; another writes a richer suite that exercises the four behavioural-contract clauses in `Adds`. The leaf's `Ships when` ("Validator service can compile and validate against arbitrary JSON Schema documents") is satisfied by both, so the divergence is not caught at the phase exit gate. Since V6j later builds on the assumption that AJV is configured for `allErrors`, returns native AJV `keyword` / `instancePath` fields, and runs without coercion or default-filling, an under-tested V4a leaves V6j to discover those misconfigurations through its own translation tests — much later, and far from where the configuration was set.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the vague bullet with explicit, falsifiable assertions about AJV's native behaviour that V4a is directly responsible for, plus an explicit forward reference to V6j for the loom-shaped translation. V4a is the only leaf where AJV's runtime configuration is set; its Tests bullets must pin that configuration. The validator-contract clauses already enumerated in `Adds` are the natural source of those bullets — mirror the `Adds` line into `Tests`, which is the leaf format's intended discipline.
-
-**Plan edits.** In `plan_topics/v4-schemas.md`, V4a `Tests.` field, strike `validation produces expected error shapes` and insert in its place:
-
-- `allErrors:true returns every violation in one pass (fixture: object missing two required fields and one type-mismatched field → errors.length === 3);`
-- `no coercion (string "1" against {type:"number"} fails; data unchanged);`
-- `no default-filling (schema with default does not mutate input);`
-- `in-document $ref resolves; cross-document $ref rejected at compile time;`
-- `unknown format keyword silently accepted (e.g. {format:"uri"} compiles and validates without warning);`
-- `loom-shaped error translation deferred to V6j.`
-
-**Spec edits.** None.
-
-Edge case for the implementer: the `unknown format keyword silently accepted` test must register `ajv-formats` (per `Adds`) and *still* assert that an unregistered format string produces no compile-time error and no validation error — silent acceptance, not silent passing of registered formats.
-
-## Related Findings
-
-- "Schema-subset depth enforcement missing at three of four required sites" — same-cluster (also asserts `ValidationIssue` shape specifics, but at the four enforcement sites rather than at the AJV scaffold)
-- "Canonical schema hash algorithm unasserted" — same-cluster (parallel V4 specificity gap: V4f's stable-hash claim is similarly unfalsifiable)
-
----
-
 

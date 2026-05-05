@@ -4,7 +4,7 @@
 
 - **Spec.** [Schema Subset — Lowering Algorithm](../spec_topics/schema-subset.md#lowering-algorithm), [Pi Integration Contract](../spec_topics/pi-integration-contract.md) (schema-validation contract in [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime)).
 - **Adds.** `SchemaValidator` service that satisfies the validator behavioural contract: one-pass multi-error reporting, no coercion, no default-filling, in-document `$ref` only, and silent acceptance of any `format` keyword. Reference implementation uses AJV v8 (non-normative) with `strict: false`, `allErrors: true`, and `ajv-formats` registered. Compiled-schema cache keyed by lowered-schema content hash.
-- **Tests.** Cache hit on identical schema; cache miss on changed schema; AJV instance not shared across loom loads (no global state); validation produces expected error shapes.
+- **Tests.** Cache hit on identical schema; cache miss on changed schema; AJV instance not shared across loom loads (no global state); `allErrors:true` returns every violation in one pass (fixture: object missing two required fields and one type-mismatched field → `errors.length === 3`); no coercion (string `"1"` against `{type:"number"}` fails; data unchanged); no default-filling (schema with `default` does not mutate input); in-document `$ref` resolves; cross-document `$ref` rejected at compile time; unknown `format` keyword silently accepted (e.g. `{format:"uri"}` compiles and validates without warning); loom-shaped error translation deferred to V6j.
 - **Deps.** H2.
 - **Ships when.** Validator service can compile and validate against arbitrary JSON Schema documents.
 
