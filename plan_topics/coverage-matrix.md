@@ -11,7 +11,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Lexical Structure](../spec_topics/lexical.md) | V1a–V1e |
 | [Type System](../spec_topics/type-system.md) | V2c, V4d, V10a, V10d, V11a |
 | [Schema Declarations — object form](../spec_topics/schemas.md) | V4b |
-| [Schema Declarations — type alias / union](../spec_topics/schemas.md) | V4c |
+| [Schema Declarations — type alias / union](../spec_topics/schemas.md) | V4c, V4j |
 | [Schema Declarations — enum](../spec_topics/schemas.md) | V10a–V10c |
 | [Schema Declarations — discriminated union](../spec_topics/schemas.md) | V11a–V11f |
 | [Schema Declarations — recursion](../spec_topics/schemas.md) | V11g, V11h |

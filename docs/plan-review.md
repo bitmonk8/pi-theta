@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_53 findings retained, 3 false positives dropped, 0 persistent failures_
+_52 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -3789,85 +3789,6 @@ Both assertions must pin the exact code string and the verbatim message text fro
 - "`loom/parse/integer-narrowing` — no plan leaf" — same-cluster (sibling missing-diagnostic-coverage finding)
 - "`loom/load/missing-mode` and `loom/load/unknown-mode-value` — no asserting leaf" — same-cluster (sibling missing-diagnostic-coverage finding)
 - "Path literals forward-slash rule and `loom/parse/invalid-path-separator` — no leaf" — same-cluster (sibling missing-diagnostic-coverage finding)
-
----
-
-# Type-alias cycle detection has no plan leaf
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** Type-alias cycle detection (`loom/parse/type-alias-cycle`) — no plan leaf
-**Kind:** spec-coverage
-
-## Finding
-
-[`spec_topics/schemas.md:143`](../../../spec_topics/schemas.md) mandates a parse-time cycle detector for pure type aliases: `schema X = X`, `schema X = Y; schema Y = X`, and longer fully-aliased chains must emit `loom/parse/type-alias-cycle` with the cycle path printed (`"type-alias cycle: X → Y → X"`, mirroring the import- and invocation-cycle diagnostics). The detector is required to run "after schema-name resolution but before lowering". Cycles that pass through at least one object-schema hop remain legal — the runtime data-depth cap bounds those.
-
-No plan leaf covers this. `V4c` (the `schema X = T` type-alias leaf) tests primitive unions only; `V4i`, `V11g`, and `V11h` cover *legal* recursion through object schemas; `V11i` covers the runtime depth cap. The two analogous cycle detectors are scheduled (`V17k` for `loom/load/import-cycle`, `V15n` for `loom/load/invocation-cycle`), but the alias counterpart is absent. A grep of `plan_topics/` and `plan.md` for `type-alias-cycle` returns zero hits, and the [`plan_topics/coverage-matrix.md`](../../../plan_topics/coverage-matrix.md) row "Schema Declarations — type alias / union" maps to `V4c` only — which does not assert the diagnostic.
-
-A secondary, spec-side gap is worth flagging for the fixer: the closed registry table in [`spec_topics/diagnostics.md`](../../../spec_topics/diagnostics.md) does not list `loom/parse/type-alias-cycle` even though the spec narrative declares it. The plan leaf can cite `schemas.md` directly, but unless the registry table is also updated, the diagnostic-registry CI check (separately recommended in the "Closed diagnostic registry" finding) will not corroborate it.
-
-## Plan Documents
-
-- `plan_topics/v4-schemas.md` — V4c section and the spot for a new sibling leaf (edited)
-- `plan_topics/coverage-matrix.md` — "Schema Declarations — type alias / union" row (option-dependent)
-- `plan_topics/v15-invoke.md` — V15n (read-only; reference for cycle-message format)
-- `plan_topics/v17-warp.md` — V17k (read-only; reference for cycle-message format)
-- `plan_topics/conventions.md` — leaf-format and REQ-ID rules (read-only)
-
-## Spec Documents
-
-- `spec_topics/schemas.md` — type-alias cycle paragraph at line 143 (read-only; the source of truth)
-- `spec_topics/diagnostics.md` — closed registry table (option-dependent; an entry for `loom/parse/type-alias-cycle` is missing and should land in the same edit if the registry is treated as closed)
-
-## Affected Leaves
-
-**Phases:** Vertical V4
-
-**Leaves (implementation order):**
-
-- V4c — Type-alias `schema X = T` for primitive unions — (modified)
-- `<new>` — Type-alias cycle detector — (added)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will diverge: one will infinite-loop or stack-overflow when lowering `schema X = X`; another will emit some ad-hoc parse error with the wrong code or no printed cycle path. Neither case is caught by any existing leaf's tests, and the V18o coverage gate (REQ-ID-only) will not flag it. The closed-registry diagnostic gate proposed in a sibling finding would catch the missing code only if and when both the spec registry and a leaf-level test are added.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a new sibling leaf in `plan_topics/v4-schemas.md` (placement: after V4i, taking the next free letter slot — implementer-chosen, here `<new>`). The new leaf scopes only the alias-cycle pass, mirroring the structure of `V17k` (import cycles) and `V15n` (invocation cycles).
-
-**Plan edits.**
-
-- In `plan_topics/v4-schemas.md`, append a new leaf:
-  - **Spec.** [Schema Declarations — recursion / type-alias cycle](../spec_topics/schemas.md).
-  - **Adds.** Pass that walks the type-alias graph after schema-name resolution but before lowering; rejects `schema X = ...` whose right-hand side reduces to `X` through aliases only; emits `loom/parse/type-alias-cycle` with the printed cycle path in the spec format `"type-alias cycle: X → Y → X"`. Cycles that traverse at least one object-schema hop are walk leaves and remain legal.
-  - **Tests.** `schema X = X` → `loom/parse/type-alias-cycle`, message `"type-alias cycle: X → X"`; two-step `X = Y; Y = X` → diagnostic, message `"type-alias cycle: X → Y → X"`; three-step chain — diagnostic with full path; cycle that passes through one object schema → no diagnostic, lowers normally; pass runs before lowering (asserted via fixture or instrumentation).
-  - **Deps.** V4c (alias surface), V4b (object schema, to identify object-hop walk leaves).
-  - **Ships when.** Pure-alias cycles rejected with the documented code and printed path; cycles through object schemas remain legal.
-- In `plan_topics/coverage-matrix.md`, extend the "Schema Declarations — type alias / union" row's closing-leaf set to include the new leaf ID alongside `V4c`.
-
-**Spec edits.** Add a `loom/parse/type-alias-cycle` row to the registry table in `spec_topics/diagnostics.md` (severity `E`, stage `parse`, link to `schemas.md`).
-
-Edge cases for the implementer to pin in tests:
-
-- The printed path uses `→` (U+2192) and the literal prefix `"type-alias cycle: "` exactly — match the spec's quoted template byte-for-byte.
-- Self-cycle `schema X = X` must still produce a non-empty path (`"X → X"`), not a degenerate one-element rendering.
-- A cycle whose only object-hop is `null`-typed or otherwise non-`schema` (e.g. `schema X = X | null`) is *not* an object-schema hop — the detector must treat aliases-to-primitives-or-aliases as continuing the walk.
-- The pass must run before the V4c lowering attempt — without this ordering, lowering recurses into `X = X` and stack-overflows before the diagnostic fires.
-- The implementer must remember to schedule the new leaf before any leaf that exercises type aliases against potentially cyclic input — the explicit `Deps.` entry on `V4c` and on downstream leaves prevents that.
-
-## Related Findings
-
-- "Closed diagnostic registry — many codes have no asserting plan leaf" — same-cluster (the proposed registry-vs-tests CI gate would catch this code too; the original inventory of missing codes did not list `loom/parse/type-alias-cycle` because the registry table itself omits it)
-- "Empty schema and enum body diagnostics — no test leaf" — same-cluster (V4 parse-coverage gap of the same shape)
-- "`loom/parse/non-string-discriminator` — no test leaf" — same-cluster (V11 parse-coverage gap of the same shape)
-- "V15n invocation-cycle message format not pinned to spec template" — same-cluster (the alias detector should pin the same `"X → Y → X"` template; co-resolve by adopting one shared message-format assertion across the three cycle leaves)
 
 ---
 
