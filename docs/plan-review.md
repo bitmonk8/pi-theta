@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_25 findings retained, 3 false positives dropped, 0 persistent failures_
+_24 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -1821,85 +1821,6 @@ Edge cases for the implementer: the assertion is on the structured `details.diag
 
 - "H3 plans a serialiser to a Pi shape the spec says is unused" — decision-dependency (the spec-correct serialiser surface — `loom-system-note` with `details.diagnostics` — is the boundary this bullet must name; both findings edit H3's Adds/Tests in the same pass)
 - "lint rule forbids `throw new Error` has no asserting test" — same-cluster (also a Tests-bullet observability gap in H3, resolves independently)
-
----
-
-## plan_topics/h4-extension-shell.md
-
----
-
-# H4 missing mandatory `Spec.` field
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** H4 missing mandatory Spec field
-**Kind:** traceability, placement
-
-## Finding
-
-`plan_topics/conventions.md` — under *Leaf format* — declares `**Spec.**` as the first mandatory field of every leaf, listing the spec page(s) the leaf implements. `plan_topics/h4-extension-shell.md` opens directly with `**Adds.**` and never names a spec page. The neighbouring horizontal leaves `h3-diagnostics.md` and `m-mvp.md` carry their `**Spec.**` lines; `h1-scaffold.md` and `h2-di-skeleton.md` are missing theirs as well (see related findings), so H4 is part of a pattern, not a one-off.
-
-H4 is not a content-free leaf that could plausibly omit a spec citation. Its `Adds` body explicitly cites *Pi Integration Contract — Tool-registration lifetime and visibility* and lifts two normative obligations from it: the extension-scoped `Map<schema-hash, registeredToolName>` registration cache fronting `pi.registerTool`, and the `withActiveTools(loomCallableSet, fn)` snapshot/restore helper around `pi.getActiveTools` / `pi.setActiveTools`. Both clauses live in `spec_topics/pi-integration-contract.md` (the *Tool-registration lifetime and visibility* paragraph, prompt-mode subsection); the extension factory shape (`default function (pi: ExtensionAPI)` in `extensions/index.ts`, `pi.registerCommand` for the slash command) lives in the same file's *Extension entry point* paragraph.
-
-Compounding the leak, `plan_topics/coverage-matrix.md` lists `Pi Integration Contract` as closing in `M, V12a, V14a–V14j, V18f, V18g, V18h` and `Pi Extension Integration` as closing in `M, V14k–V14q, V18f, V18h`. H4 appears in neither row even though it ships the shell those rows depend on. Once REQ-IDs land for `pi-integration-contract.md` (prefix `PIC` per the spec.md prefix table), the V18o gate will scan the matrix for every `PIC-N` and find no mapping for the registration-cache and `withActiveTools` rules — the gate will either pass vacuously (if those rules never receive REQ-IDs) or fail (if they do). Either outcome is a silent ship of normative behaviour without a closing leaf.
-
-## Plan Documents
-
-- `plan_topics/h4-extension-shell.md` — full leaf body (edited)
-- `plan_topics/coverage-matrix.md` — `Pi Integration Contract` row and `Pi Extension Integration` row (edited)
-- `plan_topics/conventions.md` — *Leaf format* (read-only — defines the obligation)
-- `plan.md` — H4 leaf reference (read-only)
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — *Extension entry point* and *Tool-registration lifetime and visibility* (read-only)
-- `spec_topics/pi-integration.md` — extension-overview bullets (read-only)
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-H4's normative obligations (the registration cache content-addressing rule and the `withActiveTools` `try`/`finally` semantics) are invisible to the V18o coverage gate, so the rules can ship unimplemented without CI catching it. A second implementer reading H4 in isolation has no spec anchor to consult when the `Adds` text and the spec drift; they may invent dedup semantics (identity hash, name hash, last-write-wins) or skip the snapshot/restore restoration on rejection. The leaf also breaks the convention that downstream tools (`grep '^\*\*Spec\.\*\*' plan_topics/`) use to enumerate the plan's spec coverage.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `plan_topics/h4-extension-shell.md`, insert immediately after the H1 title (`# H4 — Pi extension shell`) and before the existing `**Adds.**` line:
-
-```
-**Spec.** [Pi Integration Contract — Extension entry point](../spec_topics/pi-integration-contract.md), [Pi Integration Contract — Tool-registration lifetime and visibility](../spec_topics/pi-integration-contract.md), [Pi Extension Integration](../spec_topics/pi-integration.md).
-```
-
-In `plan_topics/coverage-matrix.md`:
-
-1. Append `H4` to the leaf list of the existing `[Pi Extension Integration](../spec_topics/pi-integration.md)` row, making it read `H4, M, V14k–V14q, V18f, V18h`.
-2. Add a new row immediately above the existing `[Pi Integration Contract](../spec_topics/pi-integration-contract.md)` row:
-
-   ```
-   | [Pi Integration Contract — Tool-registration lifetime and visibility](../spec_topics/pi-integration-contract.md) | H4, V12a, V14a–V14j |
-   ```
-
-   Leave the catch-all `Pi Integration Contract` row unchanged so the per-section row supplies the H4 mapping the gate will look for once `PIC` REQ-IDs land for the cache and `withActiveTools` clauses.
-
-Implementer note: the `Tool-registration lifetime and visibility` paragraph also enumerates subagent-mode wiring (via `createAgentSession`) which H4 does *not* implement — that side of the rule is V12a's. The new matrix row is correct in citing both because they jointly close the section; H4's `Spec.` citation is honest about co-ownership rather than claiming the whole paragraph.
-
-## Related Findings
-
-- "H1 missing mandatory Spec field" — same-cluster (same `Spec.` omission in a horizontal leaf; resolves independently with its own spec citation)
-- "H2 missing mandatory Spec field" — same-cluster (same omission in H2)
-- "`AgentSession` seam missing from H2 and H4" — co-resolve (the H4 edit that adds the `Spec.` field is a natural place to also reckon with the missing `AgentSession` seam, since both are `pi-integration-contract.md` obligations)
-- "H4 \"no-logic shims\" claim contradicts registration cache and `withActiveTools`" — decision-dependency (resolving the `Spec.` citation forces an honest reading of the cache + `withActiveTools` obligations, which is what makes the "no-logic shims" claim untenable)
-- "Tool-registration dedup assumes no schema-hash collision" — same-cluster (touches the same registration-cache rule cited by H4's new `Spec.` field)
 
 ---
 
