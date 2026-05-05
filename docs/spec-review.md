@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-05T19:49:46Z (revised: merges + multi→single conversion + bottom-up reorder)_
-_60 source findings → 9 commit-ready findings (8 merge clusters, 23 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
+_60 source findings → 8 commit-ready findings (8 merge clusters, 23 standalone). 8 false positives dropped at consolidation; 0 persistent failures._
 
 Findings are ordered for **bottom-up processing**: each commit fixes the *last* finding in the doc until the doc is empty. Dependencies that require a particular landing order are encoded in the doc order — `MERGE-F` (`bindings.md` BNDS / BNDR rename) sits at the bottom of the REQ-ID-appendix supersection so it lands *before* `MERGE-G` (retirement registries + V18s sub-gates), which sits above it.
 
@@ -709,75 +709,3 @@ Edge cases the implementer must watch:
 - "`loom/runtime/internal-error` catch-all contradicts \"closed registry\" and \"exactly six panic sources\"" — same-cluster (the interpreter-body broad-catch under discussion here is the call site that emits `loom/runtime/internal-error`; that finding addresses the registry-closure tension while this one addresses the lint-rule tension; resolving both in a coordinated edit keeps the spec self-consistent on what `internal-error` is for and where it is allowed to originate)
 
 ---
-
-# Prompt-mode streaming edge cases live on the wrong page
-
-**Source:** docs/reviews/spec-review/spec-20260505-204733.md
-**Original heading:** Prompt-mode streaming edge cases placed in wrong file
-**Kind:** placement
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` carries a "User-visible streaming — prompt mode" paragraph (and a parallel "User-visible streaming — subagent mode" paragraph) describing what the human operator sees while a loom is running: that assistant tokens stream into the transcript in real time without buffering or restyling, that typed-query final responses render as ordinary Pi tool-call cards, that an `Err` propagated by `?` after partial assistant text leaves the streamed prefix in the transcript with the failure note appended after, and that cancellation mid-stream leaves whatever Pi has already rendered visible (no rollback). The companion subagent-mode paragraph asserts the dual: no tokens, tool-call cards, or system notes from a subagent's queries surface to any ancestor transcript.
-
-These are observer-side outcomes of slash invocation — what a user perceives when they invoke a `/foo` command — not SDK delivery mechanics. The natural home is `spec_topics/slash-invocation.md`, which already establishes the prompt-vs-subagent observer split ("In prompt mode, the loom drives the *current* conversation — every query is a turn the user sees in their session" / "When the loom finishes, only its return value reaches the caller; the intermediate transcript stays inside the subagent") and already owns the prompt-mode top-level-`Err` rendering table that pairs naturally with the "`Err` after partial text" edge case.
-
-What `pi-integration-contract.md` should retain are the genuinely SDK-shaped facts these paragraphs interleave: that `pi-loom` does not call any Pi-side suppression/styling API on the stream, that the typed-query sink is implemented as a synthesised one-shot tool whose Pi tool-call card is not specially formatted by loom, and that the subagent-mode in-memory `SessionManager` is what mechanically prevents subagent output from reaching Pi's user-facing UI. Those belong with the conversation-drive sections that already describe the underlying SDK calls.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — "User-visible streaming — prompt mode" and "User-visible streaming — subagent mode" sections (edited)
-- `spec_topics/slash-invocation.md` — receives the moved observer-side prose; integrates near the prompt-mode/subagent-mode paragraph and the top-level-`Err` table (edited)
-- `spec_topics/cancellation.md` — read-only; the cancellation edge case cross-links here (read-only)
-- `spec_topics/query.md` — read-only; the typed-query-renders-as-tool-call edge case is grounded by Query — Typed queries are tool-loop-shaped (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. Plan citations to the affected sections (`v5-untyped-queries.md` V5e, `v6-typed-queries.md` V6h, `v12-subagent.md`, `v18-cancellation.md`) all anchor on "Conversation drive — prompt mode", "Conversation drive — subagent mode", or "Subagent session lifecycle" — none cite the "User-visible streaming" section by anchor or by name. The move is invisible at the plan layer; no leaf needs reauthoring.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader looking for "what does the user see when a prompt-mode loom errors mid-stream" reaches for `slash-invocation.md` first and finds the top-level-`Err` table but nothing about partial-prefix retention, then has to know to also consult `pi-integration-contract.md`. The two pages each carry half of the observer contract. No implementation behaviour is at stake; no test changes; pure organisation.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Move the observer-side content to `spec_topics/slash-invocation.md`; keep the SDK-mechanics fragments in `spec_topics/pi-integration-contract.md`.
-
-Concretely:
-
-1. In `spec_topics/slash-invocation.md`, add a new section titled **"User-visible streaming"** placed immediately after the existing "In prompt mode … / In subagent mode …" bullet pair and before the "Top-level `Err` in prompt mode" section. It carries:
-   - The prompt-mode statement that assistant tokens stream into the transcript in real time and the loom interpreter resumes only after `ctx.waitForIdle()`, with the user seeing the response unfold while the loom is still mid-query.
-   - The two prompt-mode edge-case bullets verbatim (`Err`-via-`?` partial-prefix retention; cancellation-mid-stream partial retention with the cancellation note appended after).
-   - The subagent-mode dual: no assistant tokens, tool-call cards, or system notes from a subagent's queries surface to any ancestor transcript; the only artefact crossing back is the loom's return value (or `InvokeCalleeError` / `InvokeInfraError`).
-2. In `spec_topics/pi-integration-contract.md`, delete both "User-visible streaming — prompt mode" and "User-visible streaming — subagent mode" paragraphs, but **retain** the SDK-mechanics fragments by folding them into the adjacent "Conversation drive" sections:
-   - Into "Conversation drive — prompt mode": the fact that `pi-loom` performs no buffering, suppression, or restyling of Pi's stream; the fact that the typed-query final response is delivered through a synthesised one-shot tool whose tool-call card uses Pi's default rendering (no loom-side formatting).
-   - Into "Conversation drive — subagent mode" (or "Subagent session lifecycle"): the fact that the in-memory `SessionManager` is what mechanically prevents subagent output from reaching Pi's user-facing UI.
-3. Add a one-line cross-link from each side: `slash-invocation.md`'s new section ends with "Underlying SDK delivery mechanics live in [Pi Integration Contract — Conversation drive](./pi-integration-contract.md)"; the trimmed `pi-integration-contract.md` Conversation-drive sections gain "User-visible behaviour is specified in [Invocation from Pi — User-visible streaming](./slash-invocation.md)".
-
-Edge cases for the implementer:
-
-- The prompt-mode paragraph also notes that "intermediate tool calls render normally in the prompt-mode transcript; only the final response is the structured-value sink." That sentence straddles both pages — it is partly observer (renders normally) and partly mechanics (final response is the sink). Split it: the rendering claim moves to `slash-invocation.md`; the "final response is the structured-value sink" claim stays in `pi-integration-contract.md` next to the synthesised-one-shot-tool description.
-- Preserve the existing cross-link to `cancellation.md` from the cancellation-mid-stream bullet when moving it.
-- Do not introduce new normative MUST/SHOULD wording during the move; the current paragraphs are descriptive and should remain so. Any normative tightening is a separate finding.
-
-## Related Findings
-
-- "Provider compatibility local-backend note belongs in `future-considerations.md`" — same-cluster (another placement fix on the same page; resolve in the same editing pass)
-- "'A future feature MUST re-acquire `pi`' uses normative MUST for out-of-scope feature" — same-cluster (same page, scope/placement; the `pi` re-acquisition note sits in the prompt-mode "Conversation drive" prose adjacent to the streaming text being moved)
-- "System-note `pi.sendMessage` delivery paragraph placed in wrong file" — same-cluster (parallel placement issue elsewhere in the spec; same kind of fix, no shared edit)
-- "SDK surface (`estimateTokens`, `ctx.sessionManager`) placed in binder behavioral page" — same-cluster (same kind: SDK-vs-behavior boundary mis-placement on a different page)
-- "Provider seed-field mapping (Determinism section) placed in binder page" — same-cluster (same kind, different page)
-
----
-
-
