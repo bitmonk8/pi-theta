@@ -33,7 +33,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Query — tool-call loop bound](../spec_topics/query.md) | V6k |
 | [Query — degenerate rendered templates](../spec_topics/query.md) | V5e (runtime short-circuit), V5c (parse warning) |
 | [Query — coercion](../spec_topics/query.md) | V13g–V13j |
-| [Query — failure modes (`QueryError`)](../spec_topics/query.md) | V5g, V6i, V6k, V6j, V6m, V14r, V14f–V14i, V15l, V15m |
+| [Query — failure modes (`QueryError`)](../spec_topics/query.md) | V5g, V5h (`ContextOverflowError` detection), V6i, V6k, V6j, V6m, V14r, V14f–V14i, V15l, V15m |
 | [Expression Sublanguage](../spec_topics/expressions.md) | V2a–V2i, extended in V14c-a, V14c-b |
 | [Operator precedence](../spec_topics/expressions.md#operator-precedence) | V2c |
 | [Grammar disambiguation](../spec_topics/expressions.md#grammar-disambiguation) | V1e, V2 (struct-expr-in-scrutinee) |
@@ -63,7 +63,7 @@ Every executable spec section maps to a closing leaf. The V18s gate (per [V18 �
 | [Implementation Notes — Parser](../spec_topics/implementation-notes.md#parser) | V1a–V1e, refined per slice |
 | [Implementation Notes — Runtime](../spec_topics/implementation-notes.md#runtime) | M, V5e, V12a, V14c-a, V15a, V18a–V18n |
 | [Runtime Value Model](../spec_topics/runtime-value-model.md) | V2 (primitives/arrays/objects), V6a (Result), V10e (enum brand), V13b–V13d (wire-name) |
-| [Pi Integration Contract](../spec_topics/pi-integration-contract.md) | M, V6i (synthesised respond-tool shape), V12a, V14a–V14j (V14e: loom-callee `defineTool` shape), V14t (`resources_discover` subscription / `event.cwd` / `reason` / `{}` return), V18f, V18h |
+| [Pi Integration Contract](../spec_topics/pi-integration-contract.md) | M, V5h (provider error mapping), V6i (synthesised respond-tool shape), V12a, V14a–V14j (V14e: loom-callee `defineTool` shape), V14t (`resources_discover` subscription / `event.cwd` / `reason` / `{}` return), V18f, V18h |
 | [Pi Integration Contract — Runtime event channel](../spec_topics/pi-integration-contract.md) | V18q |
 | [Grammar Appendix — Loom literal sublanguage](../spec_topics/grammar.md#loom-literal-sublanguage) | V16a, V14c-b |
 | [Grammar Appendix — `let` form](../spec_topics/grammar.md#let-form) | V2a |
