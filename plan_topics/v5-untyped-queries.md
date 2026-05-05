@@ -44,7 +44,7 @@
 
 - **Spec.** [Query](../spec_topics/query.md) (discarded results).
 - **Adds.** A bare `@`...`` at statement position is parse error with the documented diagnostic. Author must write `?`, `let _ =`, or `let x =`.
-- **Tests.** Bare `@` rejected; `let _ = @` accepted; tail-expression `@` in a `void` function NOT rejected (the discard is on the function, not the statement). Cross-linked from V18q — `let _ = @`...`` of an always-log-set `Err` emits exactly one `display: false` runtime event at the discarding `let _` site.
+- **Tests.** Bare `@` rejected; `let _ = @` accepted; tail-expression `@` in a `void` function NOT rejected (the discard is on the function, not the statement). Cross-linked from V18q — `let _ = @`...`` of an always-log-set `Err` emits exactly one `display: false` runtime event at the discarding `let _` site. A panic raised inside `${expr}` (e.g. OOB index, null-access, non-exhaustive `match`) inside a `let _ = @`...`` propagates out of the discard form rather than being absorbed; assert via a synthetic `${arr[i]}` with `i` out of bounds and a synthetic `${match x { … }}` whose value falls outside the arms (the panic surfaces at the discard's enclosing frame's panic-routing surface per V18m / V18n, not as a `RuntimeEvent`).
 - **Deps.** V5a.
 - **Ships when.** Discarded queries can't sneak into code silently.
 

@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-05T08:11:29Z_
 _Source: docs/reviews/plan-review/plan-20260505-083349.md_
-_62 findings retained, 3 false positives dropped, 0 persistent failures_
+_61 findings retained, 3 false positives dropped, 0 persistent failures_
 
 ---
 
@@ -4426,80 +4426,3 @@ This pins newline-trim's no-op (the final `\n` survives because it is not immedi
 
 ---
 
-# Discarded-query runtime emission and `${expr}` panic propagation are unleafed
-
-**Source:** docs/reviews/plan-review/plan-20260505-083349.md
-**Original heading:** Discarded-query operator-facing observability and `let _ =` interaction — no plan leaf
-**Kind:** spec-coverage
-
-## Finding
-
-[Query — Observability of discarded results](../../../spec_topics/query.md) gives the discard form (`let _ = @`...`` and the equivalent `void`-tail-expression form) a precise three-part observability contract:
-
-1. An `Err` from a discarded query of any **always-log** kind (per [Pi Integration Contract — Runtime event channel](../../../spec_topics/pi-integration-contract.md)) is preserved as a runtime event on the `loom-system-note` channel with `display: false`, carrying the same `kind` / `code` / `message` / `attempts` / `tokens_used` payload it would have carried at the user-facing surface, plus the source location of the discarding `let _ =`.
-2. The event fires **exactly once per discarded `Err`**, regardless of how many tool-call iterations or schema-validation coercion follow-ups the underlying query consumed. `Ok` discards produce no event.
-3. A panic raised inside a `${expr}` interpolation propagates **before** the `let _ =` binding completes — the discard form does not contain it.
-
-No leaf in `plan_topics/` asserts any of those three properties. V5f covers only the parse-time half of the discard contract (bare `@` rejected, `let _ = @` accepted, void-tail `@` accepted). V9d covers void-tail discards at the type layer but not the runtime channel. V18h adds the `loom-system-note` `customType` and renderer but says nothing about which authorial sites must emit through it. V18i covers the `display: true` per-kind formatter for top-level `Err` in prompt mode — the opposite branch of the `display: true` / `display: false` switch this finding is about. A `grep -rn 'display: false\|always-log\|RuntimeEvent\|once per occurrence' plan_topics/` returns zero matches.
-
-## Plan Documents
-
-- `plan_topics/v5-untyped-queries.md` — V5f (edited)
-- `plan_topics/v18-cancellation.md` — new sibling leaf to V18h/V18i covering the always-log runtime event channel (edited)
-- `plan_topics/v9-functions.md` — V9d (read-only; the void-tail discard's runtime emission is asserted from the new V18 leaf, not V9d)
-- `plan_topics/coverage-matrix.md` — `Query — untyped` row and `Pi Integration Contract` row (edited; the new V18 leaf must be added to both)
-- `plan_topics/conventions.md` — read-only
-
-## Spec Documents
-
-None.
-
-## Affected Leaves
-
-**Phases:** Vertical V5, Vertical V18
-
-**Leaves (implementation order):**
-
-- V5f — Bare expression-statement query is parse error — (modified)
-- `<new>` — Always-log runtime event channel (sibling to V18h/V18i, sequenced after V18h and V18i and before V18o) — (added)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will diverge on the discard semantics. One will read "true discard at the user-facing surface" and wire `let _ =` to swallow the `Err` entirely, producing zero events — silently masking transport, tool, and binder failures from operators. Another will emit on every `?`-rethrow and every coercion follow-up, multiplying events. The `void`-tail-form contract is even more likely to be missed because V9d's "discards silently" wording reads as discharging the obligation. Without leaf-level Tests pinning the once-per-occurrence rule, the source-location field, and the panic-propagates-through-discard rule, the operator-facing observability layer ships broken in a way that only manifests as a missing log entry — the worst class of bug to triage.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-**Edit 1 — `plan_topics/v5-untyped-queries.md`, V5f, append to Tests bullet (single sentence):**
-
-> A panic raised inside `${expr}` (e.g. OOB index, null-access, non-exhaustive `match`) inside a `let _ = @\`...\`` propagates out of the discard form rather than being absorbed; assert via a synthetic `${arr[i]}` with `i` out of bounds and a synthetic `${match x { … }}` whose value falls outside the arms.
-
-**Edit 2 — `plan_topics/v18-cancellation.md`, the new always-log runtime event channel leaf added by the sibling finding "Runtime event channel / always-log set wholly absent from the plan".** That leaf is the structural home for runtime emission semantics and must include the following discard-specific Tests bullets in addition to the always-log set / `?`-propagation / payload coverage the sibling specifies:
-
-> - `let _ = @\`...\`` whose query returns `Err` of an always-log kind emits exactly one `loom-system-note` with `display: false`, `details: { event: RuntimeEvent }` whose `kind` / `code` / `message` match the `Err` and whose `query_site` resolves to the source location of the `let _ =` (not of the inner `@`-template).
-> - The `void`-tail-expression form (`fn f() -> void { @\`...\` }`) emits the same event with the same `display: false` shape; the `query_site` resolves to the tail expression's source location.
-> - `let _ = @\`...\`` whose query returns `Ok` emits zero events.
-> - A discarded `Err` whose underlying query consumed N tool-call iterations and M schema-validation coercion follow-ups still emits exactly one event (assert with N=3, M=2 against fakes); the `attempts` field on the terminal event reflects the coercion count.
-> - The four excluded kinds (`validation`, `context_overflow`, `cancelled`, `invoke_callee_error`) do not emit through the discard form either — discarding does not promote them into the always-log set.
-
-**Edit 3 — `plan_topics/coverage-matrix.md`:** add the new V18 leaf to the `Query — failure modes (\`QueryError\`)` row and the `Pi Integration Contract` row. The `Query — untyped` row already cites V5f and needs no change.
-
-**Edit 4 — `plan_topics/v18-cancellation.md`, V18m Deps:** add the new always-log leaf so panic-routing tests can rely on the runtime event preceding the user-facing system note (per [Pi Integration Contract — Runtime event channel](../../../spec_topics/pi-integration-contract.md): "panics emit through the existing `details: { diagnostics: [...] }` shape … **before** the panic system note is rendered").
-
-Implementer edge cases to watch:
-
-- The `query_site` location for the void-tail form must point at the tail expression itself, not at the enclosing function header — operators reading the log need the call site, not the declaration site.
-- The deduplication key from spec is `(kind, query_site, message)`; a discard inside a `for` loop firing the same `transport` failure twice is two distinct occurrences (different iteration, same site) — assert this is two events, not one.
-- The panic-through-discard test must assert the panic surfaces at the discard's enclosing frame's panic-routing surface (V18m or V18n depending on origin), not that it becomes a `RuntimeEvent`.
-
-## Related Findings
-
-- "Runtime event channel / always-log set wholly absent from the plan" — co-resolve (the new V18 leaf created there is the home for Edits 2–4 above; this finding contributes the discard-specific Tests bullets and the panic-propagation rider on V5f)
-- "`loom-system-note` delivery fallback chain unasserted" — same-cluster (touches the same `loom-system-note` channel; the fallback chain must apply to `display: false` discard events too, but resolves independently)
-- "V18i per-kind formatter: catch-all row, `last_tool_name=null`, chain recursion unasserted" — same-cluster (V18i is the `display: true` branch of the same channel; resolves independently)
-- "M requires `loom-system-note` channel that V18h introduces" — same-cluster (an ordering issue on the same channel infrastructure, independent of discard semantics)
