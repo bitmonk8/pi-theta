@@ -10,6 +10,7 @@ Resolved at loom-load time from a two-step chain: `bind_model:` frontmatter fiel
 
 > **Note (non-normative):** Binder calls are structurally function-calling tasks (schema in, JSON out), so cheaper structured-output-capable models (e.g. Claude Haiku, GPT-4o-mini, Gemini Flash) are usually adequate; authors with unusually subtle schemas can override per-loom via `bind_model:`. The model-selection guidance is advisory only — the only normative requirement is the strict-capability gate above.
 
+<a id="strict-capability-requirement"></a>
 The resolved model must support strict structured-output / strict tool-input. The runtime checks this at the same load-time pass by calling `ctx.modelRegistry.find(provider, modelId)` and inspecting the returned `Model<Api>` for a strict-capability indicator. `pi-coding-agent ^0.72.1`'s `Model<Api>` exposes no per-model strict-capability field, so under the V1 dependency anchor (^0.72.1) the check is universally degraded to best-effort: every resolved binder model emits one `loom/load/binder-model-strict-capability-unknown` (W) diagnostic at load time, the loom registers, and runtime envelope-malformed failures surface as `loom/runtime/binder-malformed-envelope` per V16o. `loom/load/binder-model-not-strict-capable` (E) is reserved for the case where a future `pi-coding-agent` minor adds a strict-capability indicator and the resolved model is explicitly flagged as not strict-capable; it does not fire under ^0.72.1. A pi-coding-agent minor bump that adds the indicator must be re-validated against this contract before the loom `peerDependencies` range is widened (per [Pi Integration Contract](./pi-integration-contract.md)). Bypass-eligible looms (no-params bypass and single-string bypass; see [Binder bypass](#binder-bypass)) skip both checks — they never call the binder.
 
 Hot-reload of Pi settings (`looms.binderModel` changed at runtime) re-resolves on the next loom load; it does not retroactively fix already-failed loads. When the change would have allowed a previously-failed load to succeed, the runtime emits a single consolidated `loom-system-note` listing the affected slash names and prompting the user to run `/reload`.
@@ -29,6 +30,7 @@ Declaring `bind_context: session` on a subagent-mode loom is `loom/parse/bind-co
 
 ## Binder bypass
 
+<a id="bypass-cases"></a>
 Two cases skip the binder call entirely; in both, no envelope schema is constructed at load time. The bypass decision is made at loom-load time from the static schema; there is no per-invocation branching.
 
 1. **No-params bypass.** When `params:` is absent, `params: {}`, the loom takes no parameters and the binder does not run. Slash-argument overflow against a no-params loom is governed by [Slash-Command Invocation — No-params overflow](./slash-invocation.md); the binder's only contribution is to not run. `bind_echo`, `bind_context`, and `bind_model` on a no-params loom have nothing to bind — `bind_echo: true` is a load warning (`loom/load/bind-echo-without-params`) and produces no echo regardless; `bind_context` and `bind_model` are silently ignored (they may be inherited from project-wide settings).

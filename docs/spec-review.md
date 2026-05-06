@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_13 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_12 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -809,79 +809,3 @@ Implementer notes:
 
 ---
 
-## spec.md — Orientation → Prerequisites → Binder LLM model
-
----
-
-# Binder LLM model orientation bullet: predicate, failure codes, and bypass-decision timing all hidden
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Structured-output-capable" predicate undefined
-**Kind:** assumptions, prescription, completeness
-
-## Finding
-
-The Orientation → Prerequisites → **Binder LLM model** bullet in `spec.md` reads:
-
-> A structured-output-capable model resolved via `ctx.modelRegistry`; non-bypass looms fail to load with `loom/load/binder-model-unresolved` if absent. Bypass cases (no-params, single-string with no default) skip the binder call.
-
-Three load-time questions a reader gets to via this bullet are answered nowhere on the bullet itself, and the bullet provides no cross-links to the pages where they *are* answered:
-
-1. **What "structured-output-capable" means as a runtime check.** `binder.md` states that the runtime calls `ctx.modelRegistry.find(provider, modelId)` and inspects the returned `Model<Api>` for a strict-capability indicator; `pi-coding-agent ^0.72.1`'s `Model<Api>` exposes no such field, so under the V1 anchor the check is universally degraded to best-effort and emits `loom/load/binder-model-strict-capability-unknown` (W). The orientation bullet leaves a reader to guess between capability flag, probe call, and static metadata.
-2. **What fires when a model resolves but is incapable.** `diagnostics.md` reserves `loom/load/binder-model-not-strict-capable` (E) for exactly that case (it cannot fire under `^0.72.1`, but it is the contract for any future minor that exposes the indicator). The orientation bullet only names `loom/load/binder-model-unresolved` and so reads as if the resolved-but-incapable case shares that code.
-3. **When bypass-eligibility is decided.** `binder.md` is explicit ("The bypass decision is made at loom-load time from the static schema"). The orientation bullet says nothing.
-
-Every other prerequisite bullet in the same Orientation list uses an explicit `(per [<topic>](./spec_topics/...))` cross-link. This one does not, so a reader who restricts themselves to `spec.md` (which the spec permits for plan-leaf-scoped reading) ends up with a binder-loading mental model that is wrong on all three points despite the topic pages being correct.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Prerequisites → Binder LLM model bullet (edited)
-- `spec_topics/binder.md` — "Binder model" section (read-only)
-- `spec_topics/pi-integration-contract.md` — Host prerequisites #2 (read-only)
-- `spec_topics/diagnostics.md` — `loom/load/binder-model-*` rows (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The fix is editorial cross-linking in `spec.md` orientation; it changes no acceptance criteria. The leaves that *implement* the underlying contract (`V3c` for bypass detection, `V16e` for resolution + capability check, `V18p` for binder cancellation) already pin the predicate, the diagnostic codes, and the load-time decision point against `binder.md` and `diagnostics.md`, and remain unaffected.
-
-## Consequence
-
-**Severity:** advisory
-
-A reader doing a `spec.md`-only pass forms a wrong model on three points (what the predicate checks, which code distinguishes resolved-but-incapable, when bypass is decided). The misreading would be caught the moment the reader opens `binder.md` or `diagnostics.md` — which V16e's plan leaf makes mandatory before implementation — so divergent implementations are unlikely. The cost is reader friction and a missed orientation cross-link convention, not a correctness gap in the normative pages.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite the Binder LLM model orientation bullet in `spec.md` Orientation → Prerequisites to expose the three currently-hidden obligations: the bypass-decision predicate, the failure codes, and the strict-capability degradation behaviour. This commit also resolves the sibling findings "Bypass criterion ambiguous in `spec.md` orientation bullet" and "V1 strict-capability degradation warning omitted from `spec.md`".
-
-**Spec edits.**
-
-In `spec.md` Orientation → Prerequisites → "Binder LLM model" bullet, replace the existing single sentence with the following three-clause form:
-
-> **Binder LLM model** — A structured-output-capable model resolved via `ctx.modelRegistry`. The runtime applies a **bypass criterion** at load time: a loom is *bypassable* iff (a) it declares no `params:` block, or (b) it declares a single string-typed parameter with no default value (per [Binder — Bypass cases](./spec_topics/binder.md#bypass-cases)). Bypassable looms skip the binder call entirely; non-bypass looms fail to load with `loom/load/binder-model-unresolved` if no structured-output-capable model is available. **V1 strict-capability degradation:** if a model resolves but lacks structured-output capability, the loom load also fails with the same `loom/load/binder-model-unresolved` code; V1 does not silently degrade to free-text output (per [Binder — Strict-capability requirement](./spec_topics/binder.md#strict-capability-requirement)).
-
-**Cross-cutting edits.**
-
-- `spec_topics/binder.md`: ensure two stable section anchors exist — `#bypass-cases` (covering both bypass conditions exhaustively) and `#strict-capability-requirement` (covering the V1-no-degradation rule). Both are already normative content on the page; this commit adds the anchors and ensures the wording matches the orientation bullet's claims.
-
-Edge cases for the implementer:
-
-- The bypass criterion is now stated by exhaustive enumeration ((a) and (b)) — no other condition counts as "bypass".
-- Two distinct failure scenarios both emit the same `loom/load/binder-model-unresolved` code; the `details.kind` discriminator distinguishes "no model resolved" from "model resolved but lacks structured-output capability". This is consistent with the capability-probe commit's pattern of one diagnostic code per failure surface, multiple `details.kind` discriminators.
-- The bullet is a forward-reference structure: the orientation bullet names what the rule does and where the canonical source is; the canonical source on `binder.md` carries the full predicate text and edge cases.
-
-## Related Findings
-
-- "V1 strict-capability degradation warning omitted from `spec.md`" — co-resolve (the recommended rewrite names `loom/load/binder-model-strict-capability-unknown` (W) inline, which is exactly what that finding asks for)
-- "Binder model bullet: two independent obligations, no identifiers" — same-cluster (touches the same bullet but addresses REQ-ID anchoring, which is independent of cross-link discoverability)
-- "Bypass criterion ambiguous" — same-cluster (touches the same bullet's bypass parenthetical; resolved by a separate clarification of the parenthetical, not by adding cross-links)
-
----
