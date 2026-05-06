@@ -31,3 +31,17 @@ Loom values are represented in the interpreter as native JavaScript values, tagg
 Frontmatter `params:` defaults bypass the inbound translation pass: defaults are written in the [Loom literal sublanguage](./grammar.md#loom-literal-sublanguage), parsed as ordinary Loom values at frontmatter-parse time, and therefore arrive at the loom body already branded and loom-side-named. `Severity.High` written as a default produces a value indistinguishable from `Severity.High` written in body code; cross-enum equality and `JSON.stringify` behave identically for the two paths.
 
 Loom code never sees wire names; tools, the model, and external JSON Schema consumers never see loom-side names.
+
+<a id="javascript-engine-assumptions"></a>
+
+## JavaScript engine assumptions
+
+**Engine value model (non-checked invariant).** The runtime targets the Node JavaScript engine (per the V1 host floor in [Pi Integration Contract — Step 0 (a)](./pi-integration-contract.md#entry-capability-probe), which pins `process.versions.node >= 20.6.0`). Every rule on this page is contingent on the engine providing: IEEE-754 `number`s; native `Map` / `Set`; native `JSON.stringify`; and `Object.is` semantics for primitive equality. These assumptions are a **non-checked invariant** — the runtime does not feature-detect, does not polyfill, and emits no diagnostic on violation. Behaviour is undefined if the host violates any of them; violations may manifest as silent value corruption, runtime panics with arbitrary messages, or unhandled host-process exceptions, and no entry of the always-log set is guaranteed to fire on a violation (see [Pi Integration Contract — Runtime event channel](./pi-integration-contract.md) for the always-log carve-out clause).
+
+V1 targets Node exclusively. Bun, Deno, browser embeds, and other JavaScript hosts are out of V1 scope; the Step 0 (a) probe is Node-specific (`process.versions.node`) and refuses to load on any host where that property is absent or unparseable as a `semver` version. Adding a non-Node host is a probe re-design and is out of V1 scope (see [Future Considerations](./future-considerations.md)).
+
+<a id="effects"></a>
+
+## Effects
+
+**No file-writing primitive.** The Loom language itself has no file-writing, network, or process-spawning primitive. Every external effect a loom produces flows through one of three named surfaces, each with its own normative owner: a query against the model ([Query](./query.md)); a tool call ([Tool Calls](./tool-calls.md)); or a child loom invocation ([Invocation](./invocation.md)). The set of tools the model and loom code can reach is bounded by the loom's `tools:` allowlist (the *callable set*; see [Glossary — `callable set`](./glossary.md)), whose lifetime and visibility are pinned in [Pi Integration Contract — Tool-registration lifetime and visibility](./pi-integration-contract.md). Beyond that allowlist, the runtime imposes no additional access channels (sandbox, capability filter, mediated proxy); the trust-boundary contract that owns this disposition lives in PIC. Filesystem reads performed by the runtime itself — discovery walks, `import` resolution, settings-file reads — are not loom-language effects and are unaffected by this rule; they are governed by [Discovery](./discovery.md) and [Imports](./imports.md).

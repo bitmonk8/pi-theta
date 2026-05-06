@@ -206,7 +206,7 @@ The `Ok` payload of an untyped query is a plain `string` containing the assistan
 
 ## Options surface
 
-The runtime-internal options record passed into the query primitive — the record carrying per-call configuration not surfaced to authors in V1 (cancellation hookup, provider routing, the typed-query schema slot) — is an **open struct**, not a closed positional record. V1 reserves the right to add fields in a minor revision without breaking call sites or test fixtures that construct or pattern-match on the struct; consumers MUST tolerate unknown fields rather than enforcing exhaustive shape equality. The seam is what allows the deferred per-call timeout and per-query `model` / `tools` / `system` override extensions in [Future Considerations](./future-considerations.md) to land additively.
+> **V1 seam — per-call timeout / per-query overrides.** The runtime-internal options record passed into the query primitive — the record carrying per-call configuration not surfaced to authors in V1 (cancellation hookup, provider routing, the typed-query schema slot) — is an **open struct**, not a closed positional record. V1 reserves the right to add fields in a minor revision without breaking call sites or test fixtures that construct or pattern-match on the struct; consumers MUST tolerate unknown fields rather than enforcing exhaustive shape equality. The seam is what allows the deferred per-call timeout and per-query `model` / `tools` / `system` override extensions in [Future Considerations](./future-considerations.md) to land additively.
 
 ## Failure modes
 

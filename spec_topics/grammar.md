@@ -81,12 +81,26 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
 
 `Type` annotations appear in `let`, `fn` parameter and return positions, schema field types, `params:` field types, and `invoke<Type>` / type-ascription contexts. The same grammar applies in every position; nullability is written `T | null`.
 
+## Block expressions
+
+<a id="block-expressions"></a>
+
+Loom distinguishes *expression-position blocks* (the right-hand side of `let`, `match`-arm bodies wrapped in `{ … }`, `if` / `while` arm bodies, and any other position where a value is required) from *body blocks* (a function body, the top level of a `.loom` file). Expression-position blocks require a trailing tail `Expr`; body blocks do not.
+
+```
+BlockExpr    ::= "{" Stmt* Expr "}"           // expression-position; tail Expr required, value is the tail expression
+FnBody       ::= "{" Stmt* Expr? "}"          // function body; tail Expr optional, see Function Definitions — Empty-tail body
+LoomBody     ::= Stmt* Expr?                  // top level of a .loom file; tail Expr optional, same rule
+```
+
+When `FnBody` or `LoomBody` is parsed without a trailing `Expr`, the function or loom's inferred return type is `null` (the literal type) and its final value is the literal `null`, per [Function Definitions — Empty-tail body](./functions.md#empty-tail-body). Authors who want the function or loom to be syntactically required to produce a value should declare an explicit non-`void` / non-`null` return type; `void` is the explicit "intentionally produces no value" annotation and is governed by the same page.
+
 ## `match` arm body
 
 ```
 MatchArm     ::= Pattern "=>" ArmBody
 ArmBody      ::= Expr
-              | "{" Stmt* Expr "}"           // block expression — value is the tail expression
+              | BlockExpr                    // expression-position block — see above; value is the tail expression
 ```
 
 An arm body is a single expression. Statements (`if`, `for`, `while`, `let`, assignment, `break`, `continue`, `return`) are not expressions in Loom and are not admissible as arm bodies on their own. To execute statements before producing the arm's value, wrap them in a block expression:
