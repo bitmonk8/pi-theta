@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_50 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_49 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -3677,65 +3677,6 @@ Edge cases for the implementer:
 - "SDK capability list duplicates `pi-integration-contract.md`" — same-cluster (touches `pi-integration-contract.md` organisation; co-edit window)
 - "'Closed under normative cross-link' definition ambiguous" — decision-dependency (clarifying what the closure rule reaches across affects whether Option A is even viable; if the closure cannot be widened to plan_topics, Option B is forced)
 - "'Read these first' scope unclear relative to Spec-field permission" — same-cluster (orientation/reading-scope rules; consistent with the same edit pass)
-
----
-
-## spec_topics/frontmatter.md
-
----
-
-# `tool_loop` default: design rationale embedded in normative prose
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** `tool_loop` "calibrated" rationale in normative prose
-**Kind:** testability
-
-## Finding
-
-The normative `tool_loop` paragraph in `spec_topics/frontmatter.md` (line 143) closes with:
-
-> The default of 25 is calibrated for the agentic patterns common in V1 looms (read → search → read → write → verify); authors who know their loom needs deeper agentic chains should raise it explicitly.
-
-This sentence sits inside an otherwise testable normative bullet but states no verifiable obligation. "Calibrated for the agentic patterns common in V1 looms" cannot be conformance-checked: there is no test that distinguishes a "calibrated 25" from an "uncalibrated 25." The author guidance in the second clause ("authors … should raise it explicitly") is advisory and addresses loom authors, not implementers; it has no place in an implementer-facing normative obligation.
-
-The actual normative content — the default value `25` — is already stated twice in the same page: in the `tool_loop:` example block (line 22) and in the field-defaults table (line 48), each in the form `default: 25`. The rationale sentence adds no obligation that those two statements do not already carry.
-
-## Spec Documents
-
-- `spec_topics/frontmatter.md` — `tool_loop` prose bullet (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(V13f and V6k parse and enforce `tool_loop.max_iterations`; both already test the default of 25 and the exhaustion behaviour. Neither leaf's acceptance criteria changes when the rationale sentence is removed.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader of the normative paragraph cannot derive any test or implementation obligation from the sentence, but the surrounding text already carries the testable default. No implementer is misled; the page reads slightly less crisply than it could.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete the sentence outright. Replace the run-on
-> The default of 25 is calibrated for the agentic patterns common in V1 looms (read → search → read → write → verify); authors who know their loom needs deeper agentic chains should raise it explicitly. The cap is a ceiling, not a floor: cancellation via `AbortSignal` preempts the loop at any iteration boundary.
-
-with the second sentence alone:
-> Cancellation via `AbortSignal` preempts the loop at any iteration boundary; the cap is a ceiling, not a floor.
-
-The default value `25` remains stated normatively in the example block (line 22) and the field-defaults table (line 48); both use the `(default: 25)` form already used for every other defaulted field on the page, so the contract is unaffected. The author-guidance fragment ("authors who know their loom needs deeper agentic chains should raise it explicitly") is true but belongs in author-facing material (a future authoring guide), not in the implementer-facing field contract — it does not need to be relocated as part of this edit.
-
-## Related Findings
-
-- "Multiple untestable quality assertions and advisory language in normative prose" — same-cluster (same pattern of non-testable prose embedded in a normative page; same fix shape but different page)
-- "\"Millisecond-scale\" performance claim without a testable threshold" — same-cluster (same pattern: a quantitative-sounding rationale phrase that is not actually a testable threshold)
 
 ---
 
