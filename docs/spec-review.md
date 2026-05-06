@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_36 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_35 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -2667,68 +2667,3 @@ Edge cases the implementer must watch:
 
 - "`AgentSession` characterised as 'disposable' — no `Symbol.dispose`" — same-cluster (both concern subagent-disposal contracts; this finding adds a new disposal trigger, that finding clarifies the disposal mechanism)
 - "Subagent isolation stated as expectation, not loom-side requirement" — same-cluster (touches subagent lifecycle wording but resolves independently)
-
----
-
-# `pi.sendMessage` is synchronous (`void`); spec treats it as returning a `Promise`
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** `pi.sendMessage` returns `void`, not `Promise<void>`
-**Kind:** codebase-grounding-broad
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` describes the loom-system-note delivery path as "If it throws or rejects, the runtime falls back…" and "The fallback path is taken on any thrown or rejected value from `sendMessage`". `spec_topics/diagnostics.md` repeats the same framing in two places (the renderer-fallback paragraph and the `loom/runtime/system-note-delivery-failed` registry row). The framing implies `pi.sendMessage` returns a `Promise` whose rejection is an observable failure mode the runtime must handle.
-
-In `@mariozechner/pi-coding-agent` v0.72.x, `ExtensionAPI.sendMessage` (the surface a loom extension actually consumes from the factory-supplied `pi`) is typed as `(...): void` (`dist/core/extensions/types.d.ts:833`, and the underlying `SendMessageHandler` alias on line 1022 is also `void`). Only two adjacent surfaces return `Promise<void>`: `AgentSession.sendCustomMessage` (used inside subagent code, not by the extension) and `ReplacedSessionContext.sendMessage` (the post-`withSession()` variant). The extension-level call cannot reject; it can only throw synchronously.
-
-The mis-typing has two concrete consequences. First, an implementer following the spec literally may write `pi.sendMessage(...).catch(...)` or `await pi.sendMessage(...)`-with-async-rejection-handling — the first is a `TypeError` at runtime (`undefined.catch`), the second silently never reaches the rejection branch. Second, the H4 and V18m plan tests inherit the same wording (h4-extension-shell.md "synchronous throw and asynchronous rejection both route to the diagnostics step"; v18-cancellation.md "synthetic probe that forces `pi.sendMessage` to reject") and as written would assert behaviour against a code path that the SDK shape forbids.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — System notes (best-effort fallback paragraph) (edited)
-- `spec_topics/diagnostics.md` — renderer paragraph + `system-note-delivery-failed` registry row (edited)
-- `C:/Users/thomasa/AppData/Roaming/npm/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/types.d.ts` — `ExtensionAPI.sendMessage` and `SendMessageHandler` (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- H4 — Extension shell, `loom-system-note` renderer, `sendSystemNote` helper — (modified)
-- V18m — Top-level panic / unexpected-throw routing — (modified)
-
-(`H3` references the `pi.sendMessage` payload shape but not its return type, so it is unaffected. `Mb` consumes `sendSystemNote` via a probe on the helper rather than on `pi.sendMessage` directly, so it is also unaffected.)
-
-## Consequence
-
-**Severity:** correctness
-
-A faithful implementer either writes code that throws `TypeError` at the boundary (`.catch` on `undefined`) or writes a fallback whose async-rejection branch is dead code. Two implementers reading the same spec disagree on whether `pi.sendMessage` is awaitable. The H4 and V18m tests as currently worded probe an unreachable rejection path and either fail to exercise the real synchronous-throw path or pass vacuously.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec_topics/pi-integration-contract.md`, the System-notes section, replace both occurrences of "throws or rejects" / "thrown or rejected value" with "throws" only, and add an inline clarification to the first paragraph that introduces the call:
-
-> `pi.sendMessage` returns `void` (synchronous); the runtime MUST NOT `await` it and MUST NOT attach a `.catch` handler. The best-effort fallback below covers synchronous throws only.
-
-In `spec_topics/diagnostics.md`, apply the same edit to the renderer paragraph (line 19) and the `loom/runtime/system-note-delivery-failed` registry row's description (line 206) — strike "or rejected", strike "or rejects".
-
-Edge cases the implementer must observe:
-- `ctx.ui.notify` likewise returns `void`; the same "synchronous throw only" rule applies and is already correctly worded ("can throw").
-- `AgentSession.sendCustomMessage` (subagent-internal) does return `Promise<void>` and must be `await`ed; this is a different surface and is not touched by the edit.
-- The H4 test for "asynchronous rejection" of `pi.sendMessage` should be deleted, not rewritten — there is no asynchronous rejection to assert. The synchronous-throw assertion remains.
-- The V18m test wording "forces `pi.sendMessage` to reject" should become "forces `pi.sendMessage` to throw".
-- If a future Pi minor changes `sendMessage`'s return type to `Promise<void>`, the spec edit is reversible; until then the synchronous shape is the contract.
-
-## Related Findings
-
-- "`loom-system-note` with `display: false` and empty `content`" — same-cluster (touches the same `pi.sendMessage` call site but resolves independently)
-- "`ExtensionContext` forwarded member list: no signatures or behavioural contracts" — same-cluster (a complete signature listing for forwarded members would have surfaced this `void` vs `Promise<void>` discrepancy structurally; co-resolution is possible but not required)
-
----
