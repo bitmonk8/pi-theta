@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_18 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_17 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -1198,81 +1198,4 @@ Edge cases for the implementer:
 ## Related Findings
 
 - "'Read these first' scope unclear relative to Spec-field permission" — co-resolve (same five-line block in `spec.md`; both fixes touch the Reading order section and should land in one edit)
-
----
-
-## spec.md — Appendix → GOV-1
-
----
-
-# GOV-1 leaves anchor placement ambiguous in two ways H6 cannot mechanically resolve
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** GOV-1 anchor form vague and over-prescribed
-**Kind:** clarity, completeness, prescription
-
-## Finding
-
-GOV-1 (`spec.md` line 100) names two anchor forms — the canonical inline `**PREFIX-N.**` marker and the alternate `<a id="prefix-n"></a>` HTML form — and says the HTML form is permitted "only where rendering constraints make the inline marker impractical, in which case both forms appear together on the same line." Two governance gaps remain that H6's anchor-insertion pass cannot resolve mechanically:
-
-1. **"Rendering constraints make the inline marker impractical" is undefined.** Bold-with-period inside a table cell, inside a fenced code block, inside an ATX heading, inside a list-item lead, inside a blockquote — each is a candidate context, and reasonable H6 implementers will disagree on which qualify. The decision cannot be deferred to H6 review because H6's acceptance criterion #9 (`plan_topics/h6-req-ids.md`) already hard-fails the gate when the HTML form appears without a co-located inline marker; an implementer who reads "table cell" as a rendering constraint and uses the HTML form alone will trip the V18s Reused-ID gate (`plan_topics/v18-cancellation.md` step 4), which keys off `**PREFIX-N.**` exclusively.
-
-2. **"Both forms appear together on the same line" specifies co-location but not ordering or separator.** Inline-then-HTML, HTML-then-inline, space-separated, no-space, or with intervening punctuation are all consistent with the current text. This matters because future tooling (and the V18s grepers) will pattern-match against whatever H6 emits; an inconsistent emission shape forces every downstream regex to tolerate both orderings or risk silent skip.
-
-The third sub-issue raised by the original reviewer — that bold/period is presentation masquerading as a normative anchor format — does not stand. The bold/period decoration is the only mechanism that distinguishes a *defining anchor* (`**BNDR-7.**`) from a *back-reference* (`per BNDR-7`); without it, H6's grep cannot tell anchor sites from citation sites and V18s's dense-numbering and reused-ID gates lose their witness. The decoration is doing parsing work, not styling work. The fix below leaves it intact.
-
-## Spec Documents
-
-- `spec.md` — Appendix → REQ-ID prefix table → GOV-1 (edited)
-- `plan_topics/h6-req-ids.md` — Adds, acceptance criterion #9 (edited)
-- `plan_topics/v18-cancellation.md` — V18s coverage-matrix closing CI gate, step 4 (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (modified)
-- V18s — coverage-matrix closing CI gate — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two H6 implementers reading GOV-1 as written will produce divergent anchor placements: one will emit HTML-only anchors inside table cells (citing "rendering constraints"), the other will force the inline form everywhere. The first will fail H6's own acceptance gate; the second will produce un-renderable bold-period sequences inside code fences. Both will then disagree on the order and separator when the dual form is required. Downstream V18s gates that grep for the canonical inline form will silently miss the HTML-only anchors, defeating the closure check.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace GOV-1 with three precise clauses:
-
-1. **Canonical anchor form.** Each REQ-ID's defining anchor is the inline `**PREFIX-N.**` marker. The bold-with-period decoration is normative: it distinguishes anchor sites from back-references and is the witness pattern for H6's gate, the V18s Reused-ID gate, and the V18s Dense-numbering gate.
-
-2. **Permitted alternate contexts (closed list).** The `<a id="prefix-n"></a>` HTML form MAY accompany the inline marker only in these enumerated contexts, where Markdown bold-with-period either does not render or breaks the surrounding construct:
-   - inside a Markdown table cell;
-   - inside an ATX heading (`#` … `######`);
-   - on the line immediately preceding a fenced code block whose content is the rule's normative example.
-
-   No other context permits the HTML form. A REQ-ID inside a fenced code block, an inline code span, or an HTML comment is neither an anchor nor a back-reference and is invisible to GOV-3 extraction (cross-referenced from the "Extraction regex scope" finding).
-
-3. **Dual-form layout.** When the HTML form is used, it MUST appear on the same source line as the inline marker, in the order `<a id="prefix-n"></a> **PREFIX-N.**` (HTML first, single ASCII space, inline marker second). This ordering keeps the inline marker adjacent to the rule text it introduces and gives V18s a single regex to anchor against (`<a id="prefix-n"></a>\s\*\*PREFIX-N\.\*\*`).
-
-H6's acceptance criterion #9 must be tightened to assert the dual-form layout literally when the HTML form is present, and a new criterion must assert that no HTML-form anchor appears outside the three enumerated contexts (a cheap structural grep over the spec page is sufficient).
-
-Edge cases the implementer must watch:
-
-- Headings: inserting an anchor inside an ATX heading shifts the heading's auto-generated GitHub fragment ID. If any topic page already cross-links to such a heading by fragment, the cross-link will break unless the explicit `<a id="...">` is added at the same edit. H6 should enumerate affected headings and either repoint cross-links or place the anchor on the line preceding the heading instead.
-- Tables: the inline marker inside a table cell still requires the cell to start with `**PREFIX-N.**`; long rule text following the marker will cause table column-width drift. Where this is intolerable, the rule belongs outside the table (the table cell carries only the anchor, the rule body carries the marker on its first line).
-- Code-block adjacency: the "line immediately preceding a fenced code block" form is reserved for the case where the rule's normative content is the example itself. Decorative code blocks (illustrations, not normative content) do not earn an anchor.
-
-## Related Findings
-
-- "Extraction regex scope unclear" — co-resolve (the closed list of permitted contexts in clause 2 implicitly answers the code-block / inline-code-span / comment exclusion question; both findings should land in one edit to keep GOV-1 and GOV-3 consistent)
-- "`FN` prefix (2 letters) contradicts `[A-Z]{3,4}` extraction regex" — same-cluster (touches the parsing contract for REQ-IDs but resolves independently — that finding is about prefix-table consistency, this one is about anchor placement)
-- "Prefix uniqueness scope ambiguous (case-sensitivity; GOV prefix status)" — same-cluster (also a GOV-section governance gap; resolves independently)
-- "GOV-7 atomicity: five independent procedures under one identifier" — same-cluster (structural critique of GOV-* organisation; the splitting recipe there does not affect GOV-1's content)
 
