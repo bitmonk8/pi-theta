@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_22 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_21 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -1518,82 +1518,3 @@ Edge cases for the implementer:
 
 ---
 
-# GOV-7 Merge composition with GOV-8: absorbed page's REQ-ID lifecycle unspecified
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** Merge: ordering of ID retirement vs prefix retirement unspecified
-**Kind:** completeness
-
-## Finding
-
-GOV-7 *Merge* says: "the surviving page keeps its prefix; the absorbed page's prefix is moved to the *Retired prefixes* sub-table." It does not say what becomes of the absorbed page's REQ-IDs, where their per-ID retirement records live, or how the obligations they encoded are re-expressed on the surviving page. At least three readings of "absorbed" are consistent with the current prose:
-
-(a) the absorbed page is deleted outright, taking its `## Retired REQ-IDs` section with it;
-(b) every absorbed REQ-ID undergoes a GOV-8 *Merge* into a freshly allocated ID under the surviving prefix on the surviving page;
-(c) absorbed REQ-IDs are dropped as GOV-8 *Deletions*.
-
-Each reading produces a different post-commit state. Reading (a) silently breaks the audit trail the spec requires elsewhere ("Per-ID retirements appear in a trailing `## Retired REQ-IDs` section on each non-narrative page") because the page that should carry the records no longer exists. Readings (b) and (c) diverge on whether the absorbed page's obligations survive at all under the surviving prefix.
-
-The composition matters most for V18s gate 6 (prefix-table-completeness): every entry in the *Retired prefixes* sub-table must have a witness — either a live-table row recording its rename history, or at least one entry in some `## Retired REQ-IDs` section that uses it. Under reading (a), the absorbed prefix can become witness-less the moment the page is deleted, and the merging commit fails the gate unless the maintainer separately remembers to annotate the surviving page's prefix-table row with a *Formerly* note or to transplant retirement entries onto the surviving page. The spec does not call out either obligation.
-
-The original "ordering" framing is a red herring: GOV-6 is checked at commit boundaries on `main`, and a single atomic commit has no observable intermediate state. The substantive gap is procedural composition between GOV-7 *Merge* and GOV-8, not sequencing within a commit.
-
-## Spec Documents
-
-- `spec.md` — Appendix → GOV-7 (*Merge* sub-bullet) and the retirement-recording obligation immediately below GOV-8 (edited)
-- `spec.md` — Appendix → *Retired prefixes* sub-table (option-dependent — the *Formerly* column convention may need to standardise a "merged into `<prefix>`" annotation)
-- `plan_topics/v18-cancellation.md` — V18s gate 6 witness logic (option-dependent — the witness rule may need to acknowledge merged-prefix annotations)
-- `plan_topics/h6-req-ids.md` — `## Retired REQ-IDs` skeleton (read-only — the skeleton survives unchanged; only its contents are repopulated at merge time)
-- `plan_topics/conventions.md` — REQ-ID discipline summary that paraphrases GOV-7 (read-only — re-cites whatever GOV-7 *Merge* ends up saying)
-
-## Plan Impact
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18s — Coverage-matrix closing CI gate — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two maintainers performing a page-level merge will produce divergent commits: one deletes the absorbed page (orphaning per-ID retirement records and risking V18s gate-6 failure), another carries IDs over as fresh successors under the surviving prefix, a third drops the obligations entirely. The first real GOV-7 *Merge* on `main` will either fail CI in a confusing way or land an audit-trail-incomplete commit that no later edit can repair (the *Retired prefixes* sub-table is itself append-only).
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Specify GOV-7 *Merge* as "carry-over via GOV-8b *Merge*": every live REQ-ID on the absorbed page undergoes a GOV-8b *Merge* into a freshly allocated ID under the surviving prefix; the absorbed page's `## Retired REQ-IDs` rows transplant verbatim into the surviving page's `## Retired REQ-IDs` section; the absorbed page file is deleted in the same commit; the *Retired prefixes* sub-table records the absorbed prefix with the surviving page named in the *Formerly* column.
-
-**Spec edits.**
-
-In `spec_topics/governance.md` GOV-7, replace the *Merge* bullet with:
-
-> **Merge.** When `<absorbed-page>` is merged into `<surviving-page>`:
-> - Every live REQ-ID on the absorbed page undergoes a GOV-8b *Merge* into a freshly allocated ID under the surviving prefix, appended at the surviving page's tail. The absorbed-page IDs retire on the absorbed page (its `## Retired REQ-IDs` section gains one row per merged ID) before the file is deleted.
-> - The absorbed page's pre-existing `## Retired REQ-IDs` rows transplant verbatim into the surviving page's `## Retired REQ-IDs` section.
-> - The absorbed prefix moves to the *Retired prefixes* sub-table; the *Formerly* cell records `<absorbed-page> (merged into <surviving-page> at <sha>)`.
-> - The absorbed page file is deleted in the same commit.
-
-Adjust GOV-9 (Retirement recording, landed in the prior GOV-8 sub-lettering commit) to explicitly name GOV-7 *Merge* as a trigger; the per-prefix and per-ID retirement records both live on the surviving page after the merge.
-
-Edge cases for the implementer:
-
-- Confirm that V18s gate 5 (dense numbering) reads its per-prefix invariant from the page's live `**PREFIX-N.**` markers and the page's `## Retired REQ-IDs` rows *filtered to that prefix*; tighten the wording in `plan_topics/v18-cancellation.md` if the current "per-page" phrasing is read literally — after a merge, the surviving page's `## Retired REQ-IDs` section carries two prefixes.
-- Standardise the *Formerly* column convention on the single phrase `<page> (merged into <surviving-page> at <sha>)` so future merges produce consistent rows.
-- Spell out in GOV-7 *Merge* that the absorbed page file is deleted as part of the same commit; otherwise V18s gate 6 sees both a retired prefix and a live page carrying it.
-- The duplicate-prefix gate (V18s gate 7, landed in the prior commit) catches any accidental violation of the "absorbed prefix moves to Retired prefixes" requirement.
-
-## Related Findings
-
-- "GOV-7 atomicity: five independent procedures under one identifier" — decision-dependency (if GOV-7 is split per sub-procedure, GOV-7-Merge becomes the natural anchor and the wording change here attaches cleanly to that ID rather than to a sub-bullet)
-- "GOV-8 atomicity: four operations plus retirement rule under one identifier" — decision-dependency (Option A's procedure cites GOV-8-Merge by sub-bullet today; an atomised GOV-8 gives it a stable identifier)
-- "GOV-4 'append-only / immutable' contradicts GOV-7 Delete / Merge / Rename" — same-cluster (both restate GOV-7 *Merge*'s effect on the live table; co-edit candidate)
-- "Rename: plan.md Spec-field update not addressed" — same-cluster (another procedural-completeness gap in GOV-7; same edit pass)
-- "Concurrent PRs racing on the same new prefix" — same-cluster (allocation discipline for GOV-7 *Add*; same surface, independent fix)
-- "GOV-3 narrative exclusion list out of sync with GOV-7 promotion" — same-cluster (procedural-completeness gap in a different GOV-7 sub-bullet)
-
----
