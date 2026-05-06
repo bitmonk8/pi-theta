@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_54 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_53 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -3917,79 +3917,4 @@ Edge case for the editor: confirm the deletion does not break any cross-referenc
 - "`tool_loop` \"calibrated\" rationale in normative prose" — co-resolve (same anti-pattern, same edit shape: strip the rationale clause, leave the testable obligation)
 - "Multiple untestable quality assertions and advisory language in normative prose" — same-cluster (broader sweep over `binder.md` of the same testability defect; resolve independently)
 - "\"Information content is normative\" — system prompt not mechanically verifiable" — same-cluster (also a testability gap in normative prose, but requires defining required fields rather than a deletion)
-
----
-
-## spec_topics/discovery.md
-
----
-
-# Discovery: "clean leaf-`ENOENT`" is undefined under Windows ENOENT-aliasing
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Clean leaf-ENOENT" undefined on Windows
-**Kind:** testability
-
-## Finding
-
-`spec_topics/discovery.md` line 66 instructs implementations to distinguish "missing root" (silent absence) from "unreadable root" (`loom/load/unreadable-source` warning) on Windows, where `fs.readdir` returns `ENOENT` for both *the leaf path being missing* and *a parent ACL denying enumeration*. The instruction is stated as: "treat any outcome that is neither a clean leaf-`ENOENT` nor a successful read as the unreadable-source case."
-
-The term **clean leaf-`ENOENT`** is never defined. Node's `NodeJS.ErrnoException` exposes `code: "ENOENT"` and a `path` field, but the `path` it reports is the path the caller handed to `readdir` — the system call gives no indication of which component along that path is missing. Two reasonable readings collapse into the same `code: "ENOENT"` surface: (a) "the candidate root literally does not exist, parents are fine" and (b) "an ancestor directory exists but denies enumeration, so the kernel reports the leaf as missing." A test cannot pin which diagnostic should fire because the spec gives no programmatic predicate for the phrase.
-
-The asymmetry has user-visible consequences: on a system where `~/.pi/agent/` exists but is ACL-locked to a different user, the global discovery root (`~/.pi/agent/looms/`) currently goes silent under one defensible reading and warns under the other. Two implementers will diverge, and neither can write a regression test that distinguishes the two outcomes from the OS surface alone.
-
-## Spec Documents
-
-- `spec_topics/discovery.md` — Implementation notes bullet under the Failure-modes section (edited)
-- `spec_topics/pi-integration-contract.md` — `FakeFileSystem` / `FileSystem` interface section (option-dependent — only edited under Option B)
-- `spec_topics/diagnostics.md` — `loom/load/unreadable-source` registry row (read-only — confirms the diagnostic this rule routes to)
-
-## Plan Impact
-
-**Phases:** MVP, Vertical V14, Vertical V18
-
-**Leaves (implementation order):**
-
-- Mb — Minimal runtime + slash registration + two-root discovery + no-params overflow note — (modified)
-- V14k — Discovery: global `~/.pi/agent/looms/` — (modified)
-- V14l — Discovery: project `.pi/looms/` — (modified)
-- V14m — Discovery: package `looms/` and `pi.looms` — (modified)
-- V14o — Discovery: `--loom` CLI flag — (modified)
-- V18f — File watcher (chokidar) over discovery roots — (modified)
-
-(`Mb`, `V14k–V14m`, and `V14o` each enumerate roots that hit `readdir`/`stat` and currently lack a Windows-disambiguation test row. `V18f` matters because chokidar `error` events from a parent-ACL change after extension load must classify identically to the load-time path.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable Node + Windows implementations of discovery will produce different diagnostic streams for the same on-disk state (parent ACL denies enumeration, candidate root nominally absent): one silently, one with `loom/load/unreadable-source`. Conformance tests cannot pin either outcome because the spec phrase has no operational predicate. Authors troubleshooting "my project loom doesn't appear" on a Windows install with restricted parents will see different behaviour across forks of the same loom.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Define *clean leaf-`ENOENT`* in `discovery.md` with an explicit ancestor-walk procedure. The same rule applies on POSIX and Windows, with no platform branch.
-
-**Spec edits.**
-
-In `spec_topics/discovery.md`, replace the bullet with the following definition:
-
-> A *clean leaf-`ENOENT`* is an `ENOENT` from `readdir` or `stat` on the candidate path whose ancestors all `lstat` successfully as directories the process can enter. Operationally: on `ENOENT`, walk the path's ancestor chain root-first; if every ancestor `lstat`s `ok` and is a directory, classify the result as *missing* (silent for conventional roots, error for explicit references); if any ancestor `lstat` returns `EACCES`, `EPERM`, `ENOTDIR`, or itself `ENOENT`, classify the result as *unreadable* and emit `loom/load/unreadable-source`.
-
-Add one row to the failure-modes commentary cross-referencing the new definition.
-
-Edge cases for the implementer:
-
-- Use `lstat` (not `stat`) as the ancestor probe so a broken symlink at an ancestor classifies as *unreadable* rather than silently traversing.
-- The candidate root path itself is checked with `readdir`/`stat` first; only the *failure* triggers the ancestor walk — successful enumeration short-circuits.
-- The rule applies uniformly on POSIX and Windows so the implementation has no platform branch and no platform-only test gap.
-- The H2 `FileSystem` seam needs `readdir` and `lstat` members to support this rule; the immediately-following commit ("FileSystem seam interface signature lives outside the spec corpus") moves the seam into the spec and must include both members.
-
-## Related Findings
-
-- "`FileSystem` seam member list lives in `plan_topics/`, not `spec_topics/`" — co-resolve (the H2 `FileSystem` interface currently has no `readdir`/`lstat` member; whichever option is chosen, the readdir/lstat surface must be pinned in `pi-integration-contract.md` to give the ancestor-walk rule a callable seam)
-- "Non-`.loom`/`.warp` and edge-case path failure modes not enumerated" — same-cluster (overlapping discovery-failure surface; resolves independently against a different bullet of the failure-modes table)
 
