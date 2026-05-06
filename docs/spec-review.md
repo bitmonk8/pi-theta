@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_8 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_7 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -455,78 +455,3 @@ Edge cases the implementer must watch:
 - "`peerDependencies` over-prescribed as the enforcement mechanism" — same-cluster (same sentence's second clause, independent resolution)
 - "\"Re-validating\" obligation undefined; no enforcement gate named" — same-cluster (adjacent normative sentences in the same paragraph)
 - "Pi SDK symbols treated as verified facts without a verification mechanism" — same-cluster (same Prerequisites block, independent resolution)
-
----
-
-# "Re-validating" obligation has no defined output and no enforcement gate
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Re-validating" obligation undefined; no enforcement gate named
-**Kind:** clarity, assumptions, prescription
-
-## Finding
-
-Three normative sentences in the spec impose a "re-validate before bumping" obligation on future maintainers without defining what re-validation produces or which gate enforces it:
-
-- `spec.md` — Pi SDK and capabilities: *"Widening `peerDependencies` requires re-validating the surface inventory above against the new Pi minor before the range moves."*
-- `spec.md` — Host runtime: *"A Pi minor bump that widens or narrows that range requires re-validating the loom range in the same edit."*
-- `spec_topics/pi-integration-contract.md` opening: *"a Pi minor bump requires re-validating this contract before the loom `peerDependencies` range is widened."*
-- `spec_topics/binder.md` (strict-capability paragraph): *"A pi-coding-agent minor bump that adds the indicator must be re-validated against this contract before the loom `peerDependencies` range is widened."*
-
-None of these specify the artefact re-validation produces (a regenerated symbol-inventory file? a passing test? an updated checklist entry?) or the gate that enforces it (CI job, PR template, codeowner rule). The plan provides exactly one mechanical anchor — H1's `package.json` `engines.node` literal-read test — and that test only catches silent edits to one field; it does not force the SDK surface inventory or the `pi-coding-agent` peer range itself to be re-checked. An implementer reading the obligation prose has nothing observable to point at, so the sentences read as informational rather than load-bearing and the work they require can quietly skip.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Prerequisites → Pi SDK and capabilities (edited)
-- `spec.md` — Orientation → Prerequisites → Host runtime (edited)
-- `spec_topics/pi-integration-contract.md` — opening paragraph (edited)
-- `spec_topics/binder.md` — strict-capability paragraph (option-dependent)
-
-## Plan Impact
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H1 — Repository scaffold and test framework — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A Pi minor bump can land that widens `peerDependencies` and updates `engines.node` (forced by the existing literal-read test) without anyone re-confirming that the seven SDK capabilities in the surface inventory still exist with the assumed shapes. The first observable failure is then a runtime crash from a missing or renamed symbol on user machines rather than a CI red light at the bump commit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Adopt a combined fix: extend H1 with literal-read assertions that pin the SDK surface, and add a "Pi version bump procedure" subsection to `pi-integration-contract.md` that the four "requires re-validating" sentences cite. This commit also resolves the sibling finding "Pi SDK surface inventory has no named verification gate" — the H1 literal-read assertions ARE the named verification gate that finding asks for, and the "Pi version bump procedure" subsection IS the documented enforcement contract.
-
-**Spec edits.**
-
-- Replace each "requires re-validating" sentence in `spec.md` (Prerequisites and Host runtime paragraphs) and in `pi-integration-contract.md` with a sentence that names both the test file and the procedure anchor: "…requires updating the H1 literal-read assertions in `test/extension/pinned-surface.test.ts` and following the procedure in [Pi version bump procedure](#pi-version-bump-procedure)."
-- Add a new `## Pi version bump procedure` subsection to `pi-integration-contract.md` enumerating the contributor checklist (re-typecheck against the new package, re-run the SDK surface inventory test, re-confirm the `engines.node` floor, update the version pin in `peerDependencies` and the equivalent literal in this contract, update the capability-probe pinned constants).
-
-**Plan edits.**
-
-- Extend H1 with two `package.json`-literal-read tests:
-  1. `peerDependencies["@mariozechner/pi-coding-agent"] === "<pinned-range>"` (and analogous assertions for `pi-agent-core`, `pi-ai`, `pi-tui` once those names/versions are pinned).
-  2. A static `SDK_SURFACE_INVENTORY` constant in `src/extension/` enumerating the seven capability symbols plus their PIC-N IDs, asserted by a test that imports `@mariozechner/pi-coding-agent` and confirms each name is present on the imported namespace at the pinned version.
-
-Edge cases for the implementer:
-
-- The literal-read assertion should pin all four package names (`pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`) jointly so a single drift fails one test, not four.
-- The pinned range, the H1 literal-read constant, and the capability-probe's pinned constants (introduced by the Runtime version/capability mismatch commit that precedes this one in bottom-up order) MUST be derived from one source of truth — a single literal constant or a build-time codegen step.
-- The SDK surface-inventory test must import the runtime package (not a fake) so it observes the real shape; this is one of the few production-package imports H1 should permit.
-
-## Related Findings
-
-- "`peerDependencies` over-prescribed as the enforcement mechanism" — same-cluster (touches the same prose; the contract-vs-mechanism rephrase and the gate-naming fix can land in the same edit but resolve independently)
-- "Pi SDK symbols treated as verified facts without a verification mechanism" — co-resolve (the SDK surface-inventory test from Option A is exactly the verification mechanism that finding asks for)
-- "SDK capability list duplicates `pi-integration-contract.md`" — decision-dependency (if that finding's fix collapses the seven-bullet list into a single cross-reference, the surface-inventory test should anchor against the contract page only, not against `spec.md`)
-- "SDK capability bullets carry no traceable identifiers" — decision-dependency (Option A's surface-inventory constant should key on the GOV-N anchors that finding adds)
-- "Peer-dep mismatch failure mode unspecified" — same-cluster (both sit on the `peerDependencies` enforcement story; one covers the contributor-side gate, the other the runtime-side failure surface)
-- "`pi-agent-core` / `pi-ai` / `pi-tui` lock-step version assumption" — co-resolve (the literal-read assertion in Option A pins all four version literals together)
-
