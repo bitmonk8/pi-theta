@@ -12,6 +12,8 @@ Every loom invocation runs under an `AbortSignal` provided by Pi. V1 cancellatio
 
 All forwarding listeners (Pi-side or invoke-parent-side) are removed when the loom returns or panics, in the same `finally` block that disposes any subagent `AgentSession` (see [Pi Integration Contract](./pi-integration-contract.md)); listener cleanup is mandatory to prevent `AbortController` leakage across long-running Pi sessions.
 
+A second trigger fires `loomAbort.abort()` independently of the per-invocation `finally`: the extension's `session_shutdown` handler (see [Pi Integration Contract — Extension entry point](./pi-integration-contract.md), step 4) iterates the `ActiveInvocationRegistry` on `/reload`, `/new`, fork, or quit and aborts every entry's `loomAbort` so that subagent provider connections, in-flight queries, and child invokes drain before Pi's `ExtensionRuntime.invalidate(...)` runs. The teardown handler also detaches the same forwarding listeners listed above, duplicating the per-invocation `finally`'s listener-cleanup work for the case where Pi tears the runtime down before that `finally` reaches its cleanup. The two paths are designed to overlap safely: each listener-removal call is idempotent at the call site, and the abort itself is a no-op on an already-aborted controller.
+
 **Propagation.** Cancellation propagates *down* (parent → child invokes, parent → in-flight queries, parent → in-flight tool calls). It does *not* propagate *up*: a child loom cancelling internally surfaces as `Err(QueryError { kind: "cancelled" })` (or the appropriate sub-variant) to the parent, which may handle it (`match`) or propagate it (`?`).
 
 **Granularity.** The interpreter checks the cancellation signal at exactly these points and no others:

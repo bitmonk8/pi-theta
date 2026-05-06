@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_35 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_34 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -2596,74 +2596,3 @@ Edge cases for the implementer:
 - ""Snapshot/restore" not a named Pi API" — co-resolve (both are answered by the same edit naming the actual Pi capabilities and clarifying that loom synthesises snapshot/restore on top of `pi.setActiveTools`)
 - "`pi.getActiveTools()` return type ambiguity vs `pi.setActiveTools()`" — same-cluster (touches the same code surface — the spread-based snapshot/restore call — but resolves independently with a return-type clarification)
 
----
-
-# Hot-reload teardown contract for the loom extension instance is unspecified
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** Hot-reload `ctx.reload()` pre-teardown contract missing
-**Kind:** implementability
-
-## Finding
-
-When the user runs `/reload`, Pi disposes the loom extension's runtime (`ExtensionRuntime.invalidate(...)`) and re-executes the factory in a fresh instance. Pi exposes a `session_shutdown` event (`reason: "quit" | "reload" | "new" | "resume" | "fork"`) explicitly described as "fired before an extension runtime is torn down due to quit, reload, or session replacement" — i.e., this is the SDK's documented teardown hook.
-
-`pi-integration-contract.md` does not subscribe to this hook. The only reload consequence the spec calls out is that the `Map<schema-hash, registeredToolName>` registration cache "drops … so a fresh extension instance starts empty." Nothing is said about the resources owned by the *outgoing* instance:
-
-- Per-invocation `AbortController`s (`loomAbort`) for every in-flight slash-command, tool-exposed, and `invoke`-spawned loom run.
-- Spawned subagent `AgentSession` instances (each owns a provider connection and event subscriptions; the spec already mandates `dispose()` on every exit path in **Subagent session lifecycle**).
-- The chokidar discovery-roots watcher (V18f) and the settings-file watcher (V18r) — both hold OS file handles and pending `Clock.setTimeout` debounce handles.
-- Forwarding listeners the runtime registered on Pi-side `ctx.signal`, `tool.execute(signal)`, and parent-`invoke` signals (cancellation.md mandates listener cleanup "in the same `finally` block that disposes any subagent `AgentSession`" — but a `/reload` during a long-running invocation never reaches that `finally` because Pi is asking the extension to stop now).
-
-After `ctx.reload()` the new factory instance is live, the old factory's closures keep these resources reachable through the chokidar watcher and any subagent `AgentSession` that has not yet returned. They will not be collected until the Node process exits. Repeated reloads accumulate file descriptors, abort controllers, and orphan subagent sessions still talking to providers.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — **Extension entry point** (edited; add a `session_shutdown` subscription bullet alongside `session_start`)
-- `spec_topics/pi-integration-contract.md` — **Subagent session lifecycle** (edited; cross-reference the teardown contract for the "reload while subagent in flight" path)
-- `spec_topics/cancellation.md` — **Forwarding into `loomAbort`** (edited; state that the per-invocation `loomAbort.abort()` is also fired from the teardown handler, not only from invocation `finally`)
-- `spec_topics/diagnostics.md` — diagnostics registry (edited; add `loom/runtime/reload-teardown-timeout` if a bounded-await is adopted)
-
-## Plan Impact
-
-**Phases:** Horizontal, Vertical V12, Vertical V18
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — (modified) — factory subscribes to `session_shutdown`; introduces an `ActiveInvocationRegistry` (the structure the teardown handler iterates) and a `WatcherRegistry` for chokidar handles owned by the extension instance
-- V12a — `mode: subagent` accepted; AgentSession spawn — (modified) — adds a teardown-while-in-flight test asserting `AgentSession.dispose()` is called from the `session_shutdown` handler when the invocation `finally` has not run
-- V18f — File watcher (chokidar) over discovery roots — (modified) — adds `watcher.close()` and pending-debounce-timer cancellation in the teardown path; test asserts the OS file handle is released and the debounce `Clock.setTimeout` handle is cleared
-- V18r — Settings-file watcher — (modified) — same pattern as V18f for the `~/.pi/agent/settings.json` and `.pi/settings.json` watcher
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will diverge: one will subscribe `session_shutdown` and tear resources down; one will read the spec literally, do nothing, and ship a leak that grows with every `/reload`. The leak is observable — orphan provider connections from undisposed subagent sessions can keep generating tokens after the user thinks the extension is gone, and chokidar handles accumulate against the OS descriptor budget over a long-lived Pi session.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add to `pi-integration-contract.md` **Extension entry point** a new step (between current step 3 and step 4) specifying that the factory subscribes to `pi.on("session_shutdown", handler)` and that the handler executes the following sequence in order, regardless of `event.reason`:
-
-1. **Stop accepting new work.** Mark the extension-scoped `LoomRegistry` as drained; the slash-command `handler` registered in step 3, on entry into a drained registry, returns the same cancelled-binder-style system note (`loom /<name>: extension shutting down`) without dispatching.
-2. **Cancel in-flight invocations.** For every entry in the `ActiveInvocationRegistry`, call `loomAbort.abort()`. This propagates through the `Checkpoint` seam and through `createAgentSession({ signal })` to in-flight provider calls.
-3. **Await subagent disposal.** `await Promise.allSettled(activeInvocations.map(inv => inv.disposeBarrier))`, where `disposeBarrier` is the promise the V12a `finally` block already settles after `AgentSession.dispose()` returns. The await is bounded by `Math.min(2000ms, remainingShutdownBudget)`; on timeout the runtime emits one `loom/runtime/reload-teardown-timeout` diagnostic naming the still-in-flight invocations and proceeds.
-4. **Close watchers.** Call `discoveryWatcher.close()` and `settingsWatcher.close()`; cancel any pending debounce `Clock.setTimeout` handles.
-5. **Detach forwarding listeners.** Remove every listener the runtime attached to Pi-side `ctx.signal`, tool `execute(signal)`, and parent-`invoke` signals (the same listeners cancellation.md already requires the per-invocation `finally` to remove — duplicated here for the reload-during-invocation path).
-
-The handler is idempotent (a second `session_shutdown` fired before the first returns is a no-op). The handler does not call `ctx.reload()` (Pi is already executing it) and does not call `pi.unregisterTool` (Pi exposes none, and the registration cache leak is the documented V1 cosmetic acceptance).
-
-Edge cases the implementer must watch:
-
-- `ExtensionRuntime.invalidate()` may already have been called by Pi when the handler runs; any `pi.*` call that reaches the stale runtime will throw. The teardown sequence above touches only loom-internal state and the SDK objects (`AbortController`, chokidar `FSWatcher`, `AgentSession`) directly — it does not call back into `pi.*`.
-- The `sendSystemNote` fallback chain (H4) MUST NOT be invoked from the teardown handler — `pi.sendMessage` against a stale runtime throws, and the H4 fallback to `ctx.ui.notify` would re-enter the same stale surface. Diagnostics emitted from the teardown handler use `console.error` directly, bypassing the normal persistent-diagnostic channel.
-- `reason: "new" | "resume" | "fork"` does not always tear down the *extension* runtime (only the session), but the type doc says the event "is fired before an extension runtime is torn down" — the handler treats every reason identically, since a no-teardown reason makes the sequence a fast-path no-op (no active invocations exist at session boundaries because Pi serialises turns).
-
-## Related Findings
-
-- "`AgentSession` characterised as 'disposable' — no `Symbol.dispose`" — same-cluster (both concern subagent-disposal contracts; this finding adds a new disposal trigger, that finding clarifies the disposal mechanism)
-- "Subagent isolation stated as expectation, not loom-side requirement" — same-cluster (touches subagent lifecycle wording but resolves independently)
