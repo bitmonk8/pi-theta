@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_19 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_18 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -1275,82 +1275,4 @@ Edge cases the implementer must watch:
 - "`FN` prefix (2 letters) contradicts `[A-Z]{3,4}` extraction regex" — same-cluster (touches the parsing contract for REQ-IDs but resolves independently — that finding is about prefix-table consistency, this one is about anchor placement)
 - "Prefix uniqueness scope ambiguous (case-sensitivity; GOV prefix status)" — same-cluster (also a GOV-section governance gap; resolves independently)
 - "GOV-7 atomicity: five independent procedures under one identifier" — same-cluster (structural critique of GOV-* organisation; the splitting recipe there does not affect GOV-1's content)
-
----
-
-## spec.md — Appendix → GOV-2
-
----
-
-# V18s CI gate failure surface unspecified
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** V18s CI gate failure surface unspecified
-**Kind:** error-model, prescription
-
-## Finding
-
-`spec.md` GOV-2 says the V18s coverage-matrix closing gate "treats any unmapped REQ-ID as a CI failure," and GOV-6 says the same gate "enforces" the prefix-table-completeness invariant. Both rules link to `plan_topics/v18-cancellation.md` for the gate contract, so the spec defers the observable surface to the plan. The plan, however, does not pin that surface either: the V18s leaf describes each of its six checks as "fails the gate" or "flips the check to non-zero" and tags everything as "all observable in `npm run check:coverage` (or equivalent)" — with the explicit disclaimer that "the exact script form is non-normative; the property is."
-
-That leaves four developer-visible behaviours unspecified across all six gates: (a) the process exit code on failure (only "non-zero" is implied — no value, no convention for distinguishing the six gate kinds); (b) the per-failure message format (no `<file>:<line>` location prescription, no template, no machine-parseable shape); (c) fast-fail vs. accumulate semantics within and across the six gates (a contributor with three bad anchors does not know whether they will see one error or three, nor whether gate (1) failing short-circuits gates (2)–(6)); (d) where the report is written (stdout, stderr, a file artifact, or a CI annotations format).
-
-Two reasonable implementers will produce two different gate scripts and two different contributor experiences. Both will satisfy the literal "fails the gate" obligation; neither contract is testable beyond "exit code is non-zero." The "exact script form is non-normative; the property is" hedge papers over a genuine API surface — the property under-specifies what a contributor sees when the property is violated.
-
-## Spec Documents
-
-- `spec.md` — Appendix → GOV-2, GOV-6 (option-dependent; edited only under Option A)
-- `plan_topics/v18-cancellation.md` — V18s — Coverage-matrix closing CI gate (edited)
-- `plan_topics/coverage-matrix.md` — opening paragraph + closing paragraph (read-only)
-- `plan_topics/conventions.md` — REQ-ID discipline, Sequential by default (read-only — both reference the gate)
-- `plan_topics/h6-req-ids.md` — Ships when (read-only — references the V18s diff)
-
-## Plan Impact
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18s — Coverage-matrix closing CI gate — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-The gate's correctness property (no unmapped REQ-ID, no unregistered diagnostic code, etc.) is enforceable as written, so V18s can technically ship. But contributors hitting a failure encounter an arbitrary, implementer-chosen surface — message format, ordering, locality, and exit code all vary by author. The contract becomes effectively un-portable: a second implementation of the gate (e.g. a faster Rust port, a pre-commit hook) cannot match the original's developer ergonomics because there is nothing to match against, and CI-log scrapers cannot rely on a stable shape.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Designate `plan_topics/v18-cancellation.md` as the normative source of the V18s gate failure surface. `governance.md` (the GOV namespace's home after the prior extraction commit) carries only the floor obligation ("non-zero exit on violation") plus a pointer to the plan leaf. This commit also resolves the sibling findings "GOV-2 transitional clause is a status report, not a normative rule" and "H6 transition contract not specified in GOV-2": the GOV-2 rewrite drops the "Until H6 closes…vacuously satisfied" status-report wording and replaces it with a normative rule that holds at every commit on `main`; the H6 transition contract becomes the single observable property of GOV-2's gate.
-
-**Spec edits.**
-
-- In `spec_topics/governance.md` GOV-2, replace the existing paragraph (including the "Until H6 closes" transitional clause) with a normative rule that holds at every commit on `main`: "The plan's coverage matrix in [`plan_topics/coverage-matrix.md`](./plan_topics/coverage-matrix.md) is keyed per REQ-ID, mapping each ID to its closing leaf. The V18s coverage-matrix closing gate (per [`plan_topics/v18-cancellation.md`](./plan_topics/v18-cancellation.md)) treats any unmapped REQ-ID as a CI failure. `plan_topics/v18-cancellation.md` is the normative source for the gate's failure surface."
-- Mirror the same disclaimer in GOV-6.
-- Drop the "Until H6 closes, the spec-side REQ-ID set is empty…" sentence entirely. The H6 transition contract is now: H6 inserts `**PREFIX-N.**` anchors and emits the per-page `## Retired REQ-IDs` skeleton; the day H6 lands, the matrix is repopulated per-REQ-ID and the gate begins firing on real unmapped IDs. Until then, the gate is vacuously satisfied as a *property of the input* (the REQ-ID set is empty), not as a transitional rule embedded in GOV-2.
-
-**Plan edits.**
-
-- Add a "Failure surface" sub-section to `plan_topics/v18-cancellation.md` § V18s enumerating: exit code, per-gate message templates, accumulation semantics, and output stream. Concretely: on any check failing, the script exits 1; each offence is written as one line to stderr in `<source-path>:<context>: <gate-id>: <symbol> <reason>` form (e.g. `spec_topics/binder.md: gov-2: BIND-7 unmapped`, `eslint.config.mjs:114: gov-3: BIND-9 not in matrix`); all gates run to completion within a single invocation; gate (3)'s warning lines (transitional pre-H6 spec-anchor citations) are written to stdout to keep them out of CI failure scrapers.
-- Update V18s `Tests.` to assert the contract: a fixture with two unmapped IDs produces exactly two stderr lines and exit 1; gate (1) failing does not skip gate (2).
-
-Edge cases for the implementer:
-
-- Gate (3)'s pre-H6 transitional warnings must go to stdout (not stderr), so that contributors reading CI logs see them but failure-line scrapers do not count them.
-- The gates must run to completion in one invocation (no fast-fail between gates).
-- The `Tests.` bullet must assert the accumulation property with a fixture that violates two distinct gate kinds at once.
-- The V18s leaf gains gates 7 and 8 (introduced by the "concurrent PR races" and "GOV-7 Rename cross-artefact updates" commits earlier in bottom-up order); the failure-surface contract applies to all eight gates uniformly.
-- Removing the "Until H6 closes" transitional clause does NOT affect H6's own behaviour; H6 still inserts anchors atomically per `plan_topics/h6-req-ids.md`.
-
-## Related Findings
-
-- "H6 transition contract not specified" — co-resolve (Option B's V18s `Adds.` revision is the natural place to record what `comm -23` returns at the H6-closing commit; both findings touch the same V18s `Adds.` block)
-- "GOV-1 anchor form vague and over-prescribed" — same-cluster (anchor form determines what the gate's grep matches; resolution of GOV-1 affects gate (1)'s extractor but not its failure surface)
-- "`FN` prefix (2 letters) contradicts `[A-Z]{3,4}` extraction regex" — same-cluster (the gate's extractor regex is a separate question from its failure surface; both feed contributor experience but resolve independently)
-- "Extraction regex scope unclear" — same-cluster (defines what the gate sees; this finding defines what the gate emits)
-- "GOV-N governance rules: scope boundary in spec.md" — decision-dependency (its outcome — whether `spec.md` may carry CI-observable obligations at all — bears directly on the choice between Option A and Option B here)
-
 
