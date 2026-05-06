@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_15 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_14 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -969,90 +969,4 @@ Edge cases for the implementer:
 - "JS engine value-model assumptions: placement, prescription, and completeness" — same-cluster (the value-model bullets are explicitly carved out as non-checked invariants by either option)
 
 ---
-
-# Host runtime paragraph: four obligations fused into one undivided block
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** Host runtime paragraph: four obligations fused, no identifiers
-**Kind:** traceability
-
-## Finding
-
-The single paragraph at `spec.md` Orientation → Prerequisites → **Host runtime** carries four independently verifiable obligations:
-
-1. The Node.js version floor is `>=20.6.0`, matching `@mariozechner/pi-coding-agent`'s pinned `engines.node`.
-2. A Pi minor bump that moves that floor requires re-validating the loom range in the same edit.
-3. The host's `AbortSignal` / `AbortController` types are the Node-bundled WHATWG implementation, which the loom runtime treats as a contractually fixed shape.
-4. The runtime value model assumes a JS engine providing IEEE-754 numbers, native `Map` / `Set`, native `JSON.stringify`, and `Object.is` primitive equality.
-
-These are written as one continuous prose block with no per-obligation anchor. spec.md already uses `**GOV-N.**` markers in its appendix (currently GOV-1..GOV-8) and the appendix's prefix-table entry for `spec.md` reserves the `GOV` prefix exactly for citations of this kind. Because the four obligations are fused, no plan leaf, test, or future review can cite a single one of them: `H1` already cross-references this paragraph by section heading ("**Orientation — Prerequisites — Host runtime**") to anchor the `engines.node` literal-read test, and that citation cannot be tightened to "the floor obligation" vs. "the value-model obligation" without per-obligation anchors. Partial-pass reporting (e.g. "obligation #1 verified, #4 deferred") is not expressible.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Prerequisites → Host runtime (edited)
-- `spec.md` — Appendix → REQ-ID prefix table (read-only; confirms `GOV` prefix is the citation namespace for spec.md normative obligations and that GOV-9..GOV-N are the next available numbers per the per-page dense-numbering rule)
-
-## Plan Impact
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H1 — Repository scaffold and test framework — (modified) — the `engines.node` literal-read test cross-references "Orientation — Prerequisites — Host runtime" by section heading; once per-obligation GOV-N anchors exist, the citation should be tightened to the floor-obligation ID.
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (modified) — H6 owns the canonical anchor pass over every page in the prefix table; spec.md is a row in that table (`GOV` prefix). The Host runtime paragraph is in scope for H6's pass and is the trigger for adding GOV-9..GOV-12 if those anchors have not landed beforehand.
-
-## Consequence
-
-**Severity:** advisory
-
-Implementers can build a working system without per-obligation anchors, but the spec's own traceability discipline (GOV-1, GOV-2, the V18s coverage gate, the leaf-format convention "one bullet per REQ-ID") cannot be applied to these four normative claims. Cross-references from `H1` and from any future leaf must paraphrase by section heading, which is brittle under section renames and prevents partial-pass reporting in reviews.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Restructure the Host runtime paragraph in `spec.md` Orientation → Prerequisites into four addressable sub-bullets, one per obligation, with each obligation phrased to be testable and cite-able. This commit also resolves the sibling findings "`>=20.6.0` mis-labelled as a 'range'", "JS engine value-model assumptions: placement, prescription, and completeness", "`AbortSignal`/`AbortController` surface dependence is not enumerated", and "'Load-bearing SDK contract' is undefined spec vocabulary".
-
-**Spec edits.**
-
-In `spec.md` Orientation → Prerequisites, replace the existing Host runtime paragraph with:
-
-> **Host runtime.** The loom runtime executes inside the Pi extension host process under four host preconditions:
->
-> 1. **Node version floor.** Node `>=20.6.0` (matching `@mariozechner/pi-coding-agent`'s `engines.node` floor at the pinned peer-dep version). The literal `>=20.6.0` is a *floor*, not a range — there is no upper bound. A Pi minor bump that widens or narrows that floor requires re-validating the loom range in the same edit per the [Pi version bump procedure](./spec_topics/pi-integration-contract.md#pi-version-bump-procedure).
->
-> 2. **Pi-supplied `AbortSignal` / `AbortController` shape.** The runtime requires the WHATWG `AbortSignal` and `AbortController` constructors plus the following named members: `signal.aborted`, `signal.reason`, `signal.throwIfAborted()`, `signal.addEventListener("abort", …)`, `AbortSignal.any([…])`, `AbortSignal.timeout(ms)`, `AbortController.prototype.abort(reason?)`. Each member is exercised by a runtime call site enumerated in [Pi Integration Contract — Cancellation source](./spec_topics/pi-integration-contract.md#cancellation-source) and [Cancellation](./spec_topics/cancellation.md).
->
-> 3. **Pi SDK named-capability surface.** The seven SDK capabilities enumerated in [Pi Integration Contract — SDK capability inventory](./spec_topics/pi-integration-contract.md#sdk-capability-inventory) MUST be present at extension-factory entry. The capability probe, refusal protocol, and `loom/load/host-incompatible` diagnostic that enforce this precondition are specified in [Pi Integration Contract — Extension entry point](./spec_topics/pi-integration-contract.md#extension-entry-point).
->
-> 4. **JavaScript engine value model.** The runtime value model assumes a JavaScript engine with IEEE-754 numbers, native `Map`/`Set`, native `JSON.stringify`, and `Object.is` semantics for primitive equality (see [Runtime Value Model](./spec_topics/runtime-value-model.md)). Behaviour is undefined if the host violates any of these assumptions; the runtime does not feature-detect, does not polyfill, and emits no diagnostic on violation. This is a non-checked invariant, in contrast to obligations 1–3 which the capability probe enforces.
-
-Drop the "load-bearing SDK contract" wording entirely — replace each occurrence in `spec.md` and `spec_topics/pi-integration-contract.md` with either "non-checked invariant" (for the value-model bullets) or "probed at extension-factory entry per [PIC-N]" (for the SDK capability and AbortSignal members). The phrase has no defined meaning in the spec vocabulary and is not used elsewhere.
-
-**Cross-cutting edits.**
-
-- `spec_topics/pi-integration-contract.md`: the AbortSignal member list above appears verbatim in the Cancellation source section as the canonical enumeration the runtime depends on. Cross-link from `cancellation.md`.
-- `spec_topics/runtime-value-model.md`: the IEEE-754 / `Map` / `Set` / `JSON.stringify` / `Object.is` assumptions are stated as the canonical source; the spec.md sub-bullet 4 cross-references it.
-- `spec_topics/cancellation.md`: cross-reference the AbortSignal member list rather than restating it.
-
-Edge cases for the implementer:
-
-- Sub-bullet 1 names "floor" not "range" — the prior "supported version range is `>=20.6.0`" wording was a category error (`>=N` is a floor; a range has both bounds).
-- Sub-bullet 2's AbortSignal member enumeration is the single source of truth that the capability probe (per the Runtime version / capability mismatch commit) consumes. The probe's pinned-constants file MUST derive its member list from this enumeration.
-- Sub-bullet 3 forward-references the SDK capability inventory which the SDK-capability-bullets-relocation commit creates as PIC-N rules. By bottom-up processing order, that commit has already landed when this one runs.
-- Sub-bullet 4 is the only obligation explicitly marked non-checked; the asymmetry with 1–3 is intentional and stated.
-- The four sub-bullets are still inside `spec.md` Introduction (not REQ-ID anchored), but they are addressable by ordinal — plan leaves and review tooling can cite "Host runtime obligation 2" stably.
-
-## Related Findings
-
-- "SDK capability bullets carry no traceable identifiers" — same-cluster (identical traceability gap on a different paragraph in the same Prerequisites section; both should adopt GOV-N anchors in coordinated edits).
-- "Binder model bullet: two independent obligations, no identifiers" — same-cluster (same pattern of fused obligations without identifiers, also under Prerequisites).
-- "\">=20.6.0\" described as a \"range\"; should be \"floor\"" — co-resolve (rewords obligation #1; anchor and reword in one edit).
-- "JS engine value-model assumptions: placement, prescription, and completeness" — decision-dependency (one option moves obligation #4 out of this paragraph entirely into `runtime-value-model.md`; if accepted, GOV-N for #4 is not allocated here).
-- "`AbortSignal`/`AbortController` surface across Node versions" — co-resolve (rewords/expands obligation #3).
-- "\"Load-bearing SDK contract\" jargon undefined" — co-resolve (rewords obligation #3).
-- "Runtime version / capability mismatch: no failure contract" — decision-dependency (may add a fifth obligation about a load-time capability probe; if accepted, allocate one additional GOV-N here).
-- "GOV-N governance rules: scope boundary in spec.md" — decision-dependency (proposes extracting GOV-N machinery into a separate governance page; if accepted, the prefix family used to anchor the Host runtime obligations changes accordingly).
 
