@@ -77,8 +77,8 @@ All retirements (per GOV-7 *Delete* / *Merge* and per GOV-8 *Split* / *Merge* / 
 
 | Prefix | Formerly | Retired in |
 |---|---|---|
-| `BIND` | `binder.md` (transitional, post-`BIND` / `BNDG` split) | `7851d7c` |
-| `BNDG` | `bindings.md` (transitional, post-`BIND` / `BNDG` split) | `7851d7c` |
-| `PIE` | `pi-integration.md` (demoted to narrative) | `<demotion commit>` |
+| `BIND` | `binder.md` | `7851d7c` |
+| `BNDG` | `bindings.md` | `7851d7c` |
+| `PIE` | `pi-integration.md` | `<demotion commit>` |
 
-The Retired prefixes sub-table is itself append-only — a retired prefix cannot be un-retired or reassigned. The `Retired in` column carries the commit SHA (or release tag) of the retiring change. A fourth `Reason` column MAY be added without breaking the GOV-6 gate.
+The Retired prefixes sub-table is itself append-only — a retired prefix cannot be un-retired or reassigned. The `Retired in` column carries either the 7-character abbreviated commit SHA (e.g. `7851d7c`) or a release tag (e.g. `v0.42.0`), nothing else — no prose, no parentheticals, no qualifiers (the `<demotion commit>` placeholder above is replaced with a concrete SHA at the moment of the demoting commit). A fourth `Reason` column MAY be added without breaking the GOV-6 gate; if added, it carries free-form prose, while the `Retired in` cell remains strictly SHA-or-tag.

@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_25 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_24 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -1775,75 +1775,6 @@ Edge cases for the implementer:
 - "GOV-8 atomicity: four operations plus retirement rule under one identifier" — same-cluster (both target GOV-8's structural shape; decomposing into atomic entries per that finding would give the *Pure rewording* sub-rule its own ID, which makes the posture statement from this finding easier to attach)
 - "REQ-ID numbering start and monotonicity unspecified" — same-cluster (third GOV-8 gap surfaced by this review; resolves independently)
 - "GOV-7 / GOV-8 ordering ambiguity in the merge case" — decision-dependency (any explicit "review-only vs. CI-enforced" tagging added by this finding sets the precedent the GOV-7/GOV-8 ordering fix would inherit)
-
----
-
-## spec.md — Appendix → Retired prefixes sub-table
-
----
-
-# Editorial reason text mixed into `Formerly` column of the *Retired prefixes* sub-table
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Transitional" editorial commentary in Formerly column
-**Kind:** cruft
-
-## Finding
-
-The *Retired prefixes* sub-table in `spec.md` (Appendix → after GOV-8) declares three columns: `Prefix`, `Formerly`, `Retired in`. By construction the `Formerly` column carries the page name a retired prefix used to point at — it is the only datum needed to chain a historical REQ-ID back to its current page. The two existing rows currently overload this cell:
-
-| Prefix | Formerly | Retired in |
-|---|---|---|
-| `BIND` | `` `binder.md` `` (transitional, post-`BIND` / `BNDG` split) | `7851d7c` |
-| `BNDG` | `` `bindings.md` `` (transitional, post-`BIND` / `BNDG` split) | `7851d7c` |
-
-The parenthetical "transitional, post-`BIND` / `BNDG` split" is editorial reason text, not page-name data. The same paragraph that introduces the sub-table already provides the explicit affordance: "A fourth `Reason` column MAY be added without breaking the GOV-6 gate." Reason text either belongs in that fourth column or does not belong in the table at all; smuggling it into `Formerly` mixes two distinct schemas in one cell and sets a precedent that future retirements will follow.
-
-## Spec Documents
-
-- `spec.md` — Appendix → *Retired prefixes* sub-table (lines ~170–177) (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — the V18s *Prefix-table-completeness gate* (per `plan_topics/v18-cancellation.md`) reads only the `Prefix` column of this sub-table; the contents of `Formerly` and `Retired in` are not consumed by any leaf. `plan_topics/conventions.md` references the sub-table abstractly. Either fix is a pure spec-text edit with no plan churn.
-
-## Consequence
-
-**Severity:** cosmetic
-
-The corpus still parses, every gate still passes, and a human reader still understands the rename history. The only cost is precedent: every future retirement row will copy this shape and the `Formerly` column will accumulate ad-hoc parentheticals instead of crystallising into a clean schema.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Strip the parenthetical "(transitional, post-`BIND` / `BNDG` split)" from both `Formerly` cells in the *Retired prefixes* sub-table, AND pin the `Retired in` column format. This commit also resolves the sibling finding "`Retired in` column has no format contract".
-
-**Spec edits.**
-
-In `spec_topics/governance.md` (the GOV namespace's home after the prior extraction commit):
-
-- Edit the two existing rows in the *Retired prefixes* sub-table to remove the parenthetical from each `Formerly` cell. The rows become `` `binder.md` `` and `` `bindings.md` `` respectively.
-- Pin the `Retired in` column format with a sentence above the sub-table: "The `Retired in` column carries either the 7-character abbreviated commit SHA (e.g. `7851d7c`) or a release tag (e.g. `v0.42.0`), nothing else. No prose, no parentheticals, no qualifiers." The two existing cells (both `7851d7c`) already comply; this sentence documents the existing practice.
-- Leave the existing sentence "A fourth `Reason` column MAY be added without breaking the GOV-6 gate" intact — it remains a true and useful affordance for future retirements that need structured rationale. If a row carries a `Reason`, the cell is free-form prose; the `Retired in` cell remains strictly SHA-or-tag.
-
-Edge cases for the implementer:
-
-- The split-history context for the two existing retirements lives in commit `7851d7c`, which both `Retired in` cells point at; readers seeking "why" follow the SHA.
-- The format contract is reviewer-enforced (no V18s gate parses the column today); future tooling that reads the column can rely on the SHA-or-tag invariant.
-- A future retirement that genuinely needs structured rationale should add the optional `Reason` column at that time, populating the new column and any prior rows with empty cells.
-
-## Related Findings
-
-- "SHA / tag format in `Retired in` column not specified" — same-cluster (sibling column in the same sub-table; resolves independently)
-- "GOV-8 conflates four lifecycle operations and the retirement-recording obligation" — same-cluster (touches GOV-8 prose immediately above the sub-table; resolves independently)
-- "Appendix governs the spec itself but lives in the orientation file" — supersedes (if the entire Appendix is extracted to a separate governance file, this finding becomes part of the cleanup pass on the extracted table)
 
 ---
 
