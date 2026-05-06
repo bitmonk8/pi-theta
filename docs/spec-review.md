@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_46 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_45 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -3394,85 +3394,3 @@ Edge cases the implementer must watch:
 
 ---
 
-# Echo policy: "special characters" undefined; "first field" ordering undefined
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** Echo policy: "special characters" undefined; "first field" ordering undefined
-**Kind:** testability
-
-## Finding
-
-The `bind_echo` formatter rules in `spec_topics/binder.md` ("Echo policy") leave two predicates open, and conformance tests cannot resolve either from spec text alone.
-
-(a) **String quoting.** Rule: *"String values quoted only when they contain whitespace or special characters."* The set of "special characters" is not enumerated. For inputs containing `,`, `[`, `]`, `{`, `}`, `"`, `\`, `=`, `/`, `:`, `;`, non-ASCII letters, or C0 control characters, two implementers will pick different membership rules and produce different rendered strings — all consistent with the current sentence. The escape convention for an embedded `"` (or `\`) inside the quoted form is also unspecified. The empty string is not addressed; the natural rendering is `""` but the rule as written would emit nothing.
-
-(b) **"First field" ordering.** Rule: *"Object values shown as `{first-field-value, …}` — just the first field's value as a hint."* The applicable ordering is not stated. Top-level params already pin "declaration order" two bullets earlier, so an attentive reader will infer the same here, but the type system explicitly says field order is irrelevant for object-type compatibility (`type-system.md` row 8: *"Field order is irrelevant"*), which leaves the formatter's notion of "first" free-floating. Discriminated-union variants compound the question: for a value of an aliased union type, is "first field" taken from the variant the value inhabits, and does the discriminator field count?
-
-The recursive case in the array bullet (*"a nested object element renders as `{first-field-value, …}`"*) inherits both gaps unchanged.
-
-## Spec Documents
-
-- `spec_topics/binder.md` — Echo policy → Format rules (edited)
-- `spec_topics/binder.md` — Echo policy → Array bullet (edited; recursive reference)
-- `spec_topics/schemas.md` — schema declaration syntax (read-only; supplies "declaration order" anchor)
-- `spec_topics/type-system.md` — Type compatibility row 8 (read-only; "field order is irrelevant" must not be contradicted)
-- `spec_topics/query.md` — Stringification of interpolated values (read-only; confirm echo formatter is intentionally distinct from the canonical interpolation table)
-
-## Plan Impact
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16i — `bind_echo` formatter — modified
-
-(V16i's test bullet already concedes the predicate is unpinned and asks the implementer to commit to one in the test file; tightening the spec lets V16i drop that disclaimer and assert against a normative predicate instead.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two conforming implementers will emit different system notes for the same params (e.g. one quotes `key=value` for the `=`, the other does not; one renders `{red, …}` for a `Cat { color: "red", name: "Whiskers" }`, the other renders `{Whiskers, …}` if it picks alphabetic order). Echo strings appear in the user-facing transcript and in any test fixtures that diff system notes, so divergence is observable end-to-end.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the two ambiguous bullets in `spec_topics/binder.md` § "Echo policy" with closed predicates and add a small block of normative test vectors.
-
-**(a) String quoting predicate.**
-
-> A string value renders unquoted if it is non-empty and every code point matches `[A-Za-z0-9_.-]`; otherwise it is rendered quoted. The quoted form is a U+0022 (`"`), then the string with each U+0022 replaced by `\"` and each U+005C (`\`) replaced by `\\` (no other escapes), then a closing U+0022. The empty string renders as `""`.
-
-Notes for implementers: the predicate is over Unicode code points (any non-ASCII letter triggers quoting); whitespace, punctuation, and control characters all fall outside `[A-Za-z0-9_.-]` and therefore force quoting; only `"` and `\` are escaped — newlines cannot appear because the shared System-note rendering rule 1 has already collapsed them to spaces upstream of the formatter.
-
-**(b) "First field" definition.**
-
-> For the echo formatter, "first field" of an object value means the first field listed in the declaring `schema` block's source order (the same notion of order used by the top-level `params:` bullet). For a value whose static type is a discriminated union, the variant's declared fields are used in the variant's own source order; the discriminator field is included in that order if it appears there. The "field order is irrelevant" clause in the type-system compatibility table refers to type compatibility only and does not override this rendering rule.
-
-**Test vectors to add (suggested, normative).** Place after the format-rules bullets:
-
-| Value (declared type) | Renders as |
-| --- | --- |
-| `""` (string) | `""` |
-| `"plain_id-1.2"` (string) | `plain_id-1.2` |
-| `"has space"` (string) | `"has space"` |
-| `"key=value"` (string) | `"key=value"` |
-| `"with \"quote\" and \\slash"` (string) | `"with \"quote\" and \\slash"` |
-| `"café"` (string) | `"café"` |
-| `Cat { name: "Whiskers", color: "red" }` (schema declared `name` first) | `{Whiskers, …}` |
-| `Pet::Cat { kind: "cat", name: "Whiskers" }` (variant declares `kind` first) | `{cat, …}` |
-| `[]` (array) | `[]` |
-| `["a", "b c"]` (array) | `[a, "b c"]` |
-
-Edge cases the implementer must keep in mind: the line-level 120-code-point cap (rule 6) is applied *after* per-value rendering, so quoted strings that fit per-value may still be truncated by `…`; the recursive nested-object case in the array bullet automatically inherits both predicates and needs no separate restatement.
-
-## Related Findings
-
-- "Multiple untestable quality assertions and advisory language in normative prose" — same-cluster (same testability lens applied to other binder.md sentences; resolved independently)
-- "'Information content is normative' — system prompt not mechanically verifiable" — same-cluster (sibling testability gap on a different surface)
-- "Diagnostic message placeholder rendering not defined" — same-cluster (parallel "rendered text underspecified" gap in the diagnostics surface)
-
----

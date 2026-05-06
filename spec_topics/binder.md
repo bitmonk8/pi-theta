@@ -151,11 +151,26 @@ Configured via `bind_echo:` (`true` | `false`; default `true`). When echo is on 
 Format rules:
 
 - Top-level `params:` fields shown in declaration order, comma-separated.
-- String values quoted only when they contain whitespace or special characters.
+- String values are rendered **unquoted** if the string is non-empty and every Unicode code point matches `[A-Za-z0-9_.-]`; otherwise they are rendered **quoted**. The quoted form is U+0022 (`"`), then the string with each U+0022 replaced by `\"` and each U+005C (`\`) replaced by `\\` (no other escapes), then a closing U+0022. The empty string renders as `""`. Whitespace, ASCII punctuation outside the unquoted set, non-ASCII letters, and C0 control characters all fall outside the unquoted set and therefore force quoting; only `"` and `\` are escaped — newlines cannot reach the formatter because [System-note rendering](#system-note-rendering) rule 1 has already collapsed them to spaces upstream.
 - Array values: arrays of **3 or fewer** elements are shown in full as `[a, b, c]` in element order; arrays of **4 or more** elements are shown as `[a, b, c, …+N more]` where the rendered prefix is the first three elements in order and `N` is the count of dropped elements (i.e. `total − 3`). An empty array renders as `[]`. Per-element rendering follows the same rules recursively (a string element is quoted by the same predicate as a top-level string value; a nested object element renders as `{first-field-value, …}`).
-- Object values shown as `{first-field-value, …}` — just the first field's value as a hint.
+- Object values shown as `{first-field-value, …}` — just the first field's value as a hint. "First field" of an object value is the first field listed in the declaring `schema` block's source order (the same notion of order used by the top-level `params:` bullet above). For a value whose static type is a discriminated union, the variant's declared fields are used in the variant's own source order; the discriminator field is included in that order if it appears there. The "field order is irrelevant" clause in [Type System](./type-system.md) compatibility row 8 governs type compatibility only and does not override this rendering rule.
 - Defaulted fields tagged `(default)`: `focus_areas=[] (default)`.
-- Total line subject to the shared 120-code-point cap defined in [System-note rendering](#system-note-rendering) above, measured over the whole line including the `Running \`/<name>\`: ` prefix; overflow truncated with `…`. The line-level cap wins over the array rule's own `…+N more` marker — if truncation falls inside an array, the inner `…+N more` may be cut.
+- Total line subject to the shared 120-code-point cap defined in [System-note rendering](#system-note-rendering) above, measured over the whole line including the `Running \`/<name>\`: ` prefix; overflow truncated with `…`. The line-level cap wins over the array rule's own `…+N more` marker — if truncation falls inside an array, the inner `…+N more` may be cut. The 120-code-point cap is applied *after* per-value rendering, so a quoted string that fits its own predicate may still be truncated at the line level.
+
+Reference renderings (normative; conforming implementations MUST reproduce these exactly):
+
+| Value (declared type) | Renders as |
+| --- | --- |
+| `""` (string) | `""` |
+| `"plain_id-1.2"` (string) | `plain_id-1.2` |
+| `"has space"` (string) | `"has space"` |
+| `"key=value"` (string) | `"key=value"` |
+| `"with \"quote\" and \\slash"` (string) | `"with \"quote\" and \\slash"` |
+| `"café"` (string) | `"café"` |
+| `Cat { name: "Whiskers", color: "red" }` (schema declares `name` first) | `{Whiskers, …}` |
+| `Pet::Cat { kind: "cat", name: "Whiskers" }` (variant declares `kind` first) | `{cat, …}` |
+| `[]` (array) | `[]` |
+| `["a", "b c"]` (array) | `[a, "b c"]` |
 
 Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is `loom/parse/bind-echo-on-bypass` (warning).
 
