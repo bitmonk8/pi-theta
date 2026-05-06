@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_38 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_37 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -2797,58 +2797,3 @@ Edge cases the implementer must watch:
 
 ---
 
-# Structural-change note: emission rule undefined when N = 0
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** N = 0 structural-change note: behaviour undefined
-**Kind:** testability
-
-## Finding
-
-`spec_topics/pi-integration-contract.md` defines the watcher's structural-change `loom-system-note` with `<N>` substituted from `details.structural.added.length + details.structural.removed.length`. It worked-examples N = 1 and N = 5 but never states what happens when both arrays are empty. The trigger language ("When the watcher observes such an event, it emits a single `loom-system-note`…") implies the note only fires on observed add/remove events, but it does not say so as a normative rule, and the rest of the section never returns to N = 0.
-
-The settings-file watcher path (`plan_topics/v18-cancellation.md` V18r) widens the surface. V18r routes "a delta in the `looms` array" through the same structural-change channel, but several legitimate triggers can produce no delta after the V14n re-merge: a settings edit that touches only `looms.binderModel`, a whitespace/comment edit, or a partial intermediate write that recovers identically. The spec gives no rule for those cases — should the watcher render `loom watcher: 0 file(s) added or removed; run /reload to refresh the slash command list`, suppress the note, or emit a degenerate note with empty `added` and `removed` arrays?
-
-Two reasonable implementers will diverge here. One reads "when the watcher observes such an event" as gating on N ≥ 1 and suppresses; another reads V18r's "routes the delta through the same path" as unconditional and renders the literal `0 file(s)` template. V18f's "exactly one note per debounce window" test (and V18r's analogous test) cannot be authored without picking a side.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — *Extension entry point* → "Structural changes." paragraph (edited)
-- `spec_topics/pi-integration-contract.md` — *System notes* → `details: { structural: ... }` bullet (edited)
-
-## Plan Impact
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18f — File watcher (chokidar) over discovery roots — (modified)
-- V18r — Settings-file watcher (`~/.pi/agent/settings.json`, `.pi/settings.json`) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-V18f's structural-change tests and V18r's settings-edit tests both assume implicit N ≥ 1; no test currently pins down what happens when a debounce window closes with no structural delta. Without a rule, the V18r `binderModel`-only-edit test (test (d) in V18r) silently depends on whichever choice the implementer makes — and a transcript-replay consumer that filters on `details.structural` would either see noise or miss real events depending on that choice.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `pi-integration-contract.md`'s "Structural changes." paragraph, add an explicit suppression rule immediately after the `<N>` substitution rule:
-
-> The note MUST NOT be emitted when `added.length + removed.length === 0`. A debounce window that closes with no resolved add or remove paths produces no `loom-system-note` — including a settings-file edit whose post-merge `looms` array is byte-identical to the previous resolved set, an edit that touches only `looms.binderModel` or unrelated keys, and a chokidar burst over discovery roots that does not net any added or removed `.loom` / `.warp` files. The watcher's other obligations for the window (validator-cache invalidation per **In-flight invocation rule**, V14n cache invalidation per V18r) still run; only the note is suppressed.
-
-Cross-reference this rule from V18f's "Tests" bullet (add an N = 0 negative case: a debounce window whose only events are content edits to existing files emits zero structural-change notes) and from V18r's "Tests" bullet (the existing `binderModel`-only test (d) explicitly asserts zero structural-change notes).
-
-Edge case the implementer must watch: a rename observed as `removed` of path P followed by `added` of path P inside the same debounce window still has `added.length + removed.length = 2` and MUST emit the note (per the existing "two arrays are disjoint by role and not deduplicated" rule); the suppression rule applies only to the strictly-empty case.
-
-## Related Findings
-
-- "`loom-system-note` with `display: false` and empty `content`" — same-cluster (both clarify when an entry on the `loom-system-note` channel is or is not emitted; resolve independently).
-- "`customType: "loom-system-note"` namespacing not specified" — same-cluster (touches the same channel surface, different concern).
-- ""Consumers MUST deduplicate" — obligation on undefined party" — same-cluster (adjacent on the same channel, but about RuntimeEvent dedup rather than structural-note suppression).
-
----
