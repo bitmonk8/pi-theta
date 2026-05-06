@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_12 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_11 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -750,62 +750,6 @@ Implementer edge cases:
 - "`pi.sendMessage` returns `void`, not `Promise<void>`" — decision-dependency (if `pi.sendMessage` cannot reject — only throw — the **System notes** fallback chain wording must be reconciled before the `pi.sendUserMessage` rejection rule above is finalised, because `sendUserMessage` may have the same return-type nuance).
 - "Hot-reload `ctx.reload()` pre-teardown contract missing" — same-cluster (another lifecycle SDK-boundary gap).
 - "Observability contract for three terminal failure modes unstated" — same-cluster (the always-log-set membership for the new `active-set-restore-failed` code lives at the same surface).
-
----
-
-# `.warp` slash-invocation prevention rests on an unverified negative claim about Pi
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Looms do not write files" — Pi discovery path assumption
-**Kind:** assumptions
-
-## Finding
-
-`spec.md` Introduction asserts that "`.warp` files are never directly invoked: slash invocation is prevented by construction (discovery scans `*.loom` only — see [Discovery](./spec_topics/discovery.md))". This construction-based guarantee depends on a *negative* fact about Pi: that no Pi-owned subsystem has a parallel discovery path that would walk a directory for `*.warp` (or any non-`*.loom`) files and turn the result into a slash command behind the loom extension's back. That fact is true today — `resources_discover` carries only `skillPaths` / `promptPaths` / `themePaths` (per `discovery.md`'s framing paragraph), the `pi` package-manifest namespace recognises only `extensions` / `skills` / `prompts` / `themes` / `video` / `image`, and Pi has no central file-extension registry. But it is asserted only in passing inside `discovery.md`, scattered across two paragraphs whose primary subject is something else, and `pi-integration-contract.md` — the page where pinned, version-gated Pi facts live — never states the negative claim explicitly.
-
-The omission matters because the claim is load-bearing for the `.loom` / `.warp` security-relevant separation (a `.warp` library can declare callables that the file's author intends to be reachable only from in-scope `import` sites, not from a slash-command surface). On a future Pi minor that introduces a generic resource-walker (or a sibling extension that also walks `*.warp`), the construction silently weakens, and there is no version-pinned assertion in `pi-integration-contract.md` that the H4 / V14 work can re-validate against.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — Discovery API (edited)
-- `spec_topics/discovery.md` — framing paragraph and File-extension namespace (read-only; supports the assertion)
-- `spec.md` — Introduction (read-only; cites the construction)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The fix is a purely additive spec assertion in `pi-integration-contract.md`. No leaf's `Adds.` / `Tests.` / `Ships when.` changes — the loom-side discovery walk already scans `*.loom` only (V14k tests `.warp` not registered as a command), and the negative Pi fact is not testable from inside the extension. Leaves whose `Spec.` field already cites `pi-integration-contract.md` (H4, Mb, V14k–V14t) pick up the new paragraph automatically.
-
-## Consequence
-
-**Severity:** advisory
-
-The current spec is operationally correct against the pinned Pi version, but the negative fact is asserted by inference across two paragraphs in `discovery.md` rather than as a single version-pinned statement in `pi-integration-contract.md` (where every other "this is true under `^0.72.1`" fact lives). A future Pi-minor re-validation pass — the same pass the GOV-N rules and H6 REQ-IDs are built to support — has no single anchor to re-check against.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a new sub-paragraph to `pi-integration-contract.md`'s **Discovery API** section asserting the negative fact explicitly, gated on the pinned Pi version. Suggested text:
-
-> **No Pi-owned discovery path enumerates `.loom` or `.warp`.** Under the pinned `^0.72.1` peer-dep range, Pi exposes exactly three slash-command sources (`source: "prompt" | "extension" | "skill"`, per `core/slash-commands.d.ts`); `prompt` and `skill` enumerate `*.md` files only, and `extension` requires programmatic `pi.registerCommand` calls. The `resources_discover` event carries `skillPaths` / `promptPaths` / `themePaths` only — there is no `loomPaths` slot — and the `pi` package-manifest namespace recognises only `extensions` / `skills` / `prompts` / `themes` / `video` / `image`. Therefore the only path by which a `.warp` file could become a slash command is through this extension's own discovery walk; that walk matches `*.loom` only (per [Directory Convention](./discovery.md)), so the `.warp`-cannot-be-slash-invoked guarantee in [`spec.md`](../spec.md) Introduction holds by construction. A Pi minor that adds a fourth `SlashCommandSource` arm, a `loomPaths` field on `ResourcesDiscoverResult`, or a generic file-extension registry MUST trigger a re-validation of this paragraph in the same edit that widens `peerDependencies`.
-
-Implementer notes:
-
-- Place this immediately after the existing **Discovery API** paragraph so the positive claim ("the extension owns enumeration") and the negative claim ("no other path enumerates `.warp`") sit together.
-- The re-validation obligation in the last sentence is the same shape as the existing peer-dep widening obligation in **Host prerequisites**, and should be cited from H6's REQ-ID minting pass once that lands (no new REQ-ID is required for V1 — the assertion is a pinned-Pi-fact, not a loom-side rule).
-- Do not duplicate this assertion into `spec.md` — the Introduction already cross-references `discovery.md`; cross-referencing `pi-integration-contract.md` from there is sufficient and avoids the cross-spec drift the SDK-capability-list finding flags.
-
-## Related Findings
-
-- "`.loom`/`.warp` namespace clearance treated as a given" — co-resolve (the broader sibling finding; its (b) sub-claim "Pi's only slash-discovery path is the one loom registers" is exactly what this finding's recommended paragraph asserts — a single edit to `pi-integration-contract.md` discharges both)
-- "SDK capability list duplicates `pi-integration-contract.md`" — same-cluster (touches the same pinned-Pi-version-gated section but resolves independently)
-- "Pi SDK symbols treated as verified facts without a verification mechanism" — same-cluster (both are about pinning negative or positive Pi facts to a verifiable version anchor)
 
 ---
 
