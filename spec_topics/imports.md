@@ -6,6 +6,8 @@
 import { Author, persona_block } from "./shared/personas.warp"
 ```
 
+<a id="permitted-top-level-forms"></a>
+
 **`.warp` file rules:**
 
 - Top-level may contain only `import`, `export`, `schema`, `enum`, and `fn` declarations. No top-level statements, `let` bindings, or queries (`loom/parse/warp-top-level-statement`).
