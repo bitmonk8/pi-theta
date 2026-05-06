@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_17 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_16 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -1125,77 +1125,4 @@ Edge cases for the implementer:
 ## Related Findings
 
 - "Pronoun antecedent ambiguous in cancellation bullet" — co-resolve (same orientation→prerequisites→cancellation passage; both edits land in the same paragraph cluster and should ship together so the prerequisites bullet's links and the orientation paragraph's framing are revised in one pass)
-
----
-
-## spec.md — Orientation → Reading order
-
----
-
-# `influences.md` listed alongside normative pages in the Reading order
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** `influences.md` (pure-narrative) listed in required reading
-**Kind:** cruft
-
-## Finding
-
-`spec.md` §"Reading order" (line 35) introduces three bullets with the directive *"Read these first to understand the design"* and lists `overview.md`, `influences.md`, and `comparison.md` as a single undifferentiated set. `influences.md` is, however, formally classified as pure-narrative by `spec.md` §GOV-3 (line 104) — it is excluded from REQ-ID extraction and carries no obligations — and the REQ-ID prefix table (line 136) records it as `(no IDs — narrative)`. `overview.md` and `comparison.md` are likewise pure-narrative under GOV-3, but they describe the conceptual model and the loom-vs.-Pi delta respectively; `influences.md` is a one-page rationale ("Loom borrows from Rust for semantics, TypeScript for surface…") that explains design *provenance*, not the design itself.
-
-Co-listing the three under the same imperative blurs the difference between orientation an implementer needs to read in order to interpret normative pages downstream, and historical/justificatory commentary an implementer may safely skip. The Reading order section is the project's first signal about what is load-bearing and what is not; it should not undermine GOV-3's own narrative/normative split on its first appearance.
-
-## Spec Documents
-
-- `spec.md` — §"Reading order" (edited)
-- `spec.md` — §"Appendix → GOV-3", §"REQ-ID prefix table" (read-only — establishes the narrative/normative split this finding leans on)
-- `spec_topics/influences.md` — entire file (read-only — confirms content is pure rationale)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-(The Reading order section is project-orientation prose. No plan leaf cites it as **Spec**, and no acceptance criterion changes under either fix.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A first-time reader spends a few minutes on rationale they were told was prerequisite and may infer that influences carry interpretive weight. Nothing breaks at implementation time; the cost is wasted reader attention and a small credibility dent on the spec's own normative/narrative discipline.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Restructure the **Reading order** subsection into two sub-blocks: a normative prerequisites list and a non-normative background list. This commit also resolves the sibling finding "'Read these first' scope unclear relative to Spec-field permission" — the explicit non-normative label on the background block, combined with the prerequisites block standing alone, makes the relationship to the `**Spec**`-field permission self-evident without an additional disclaimer.
-
-**Spec edits.**
-
-In `spec.md` § Orientation, replace the current single "Reading order" list with:
-
-> ### Reading order
->
-> Read these two topics first to understand the design:
->
-> - [Overview and Conceptual Model](./spec_topics/overview.md) — what a loom is, query-and-await, prompt vs. subagent mode.
-> - [Comparison with Existing Pi Features](./spec_topics/comparison.md) — loom vs. Pi `prompt` / `subagent`.
->
-> **Background (non-normative).** Skippable; explains design provenance, not requirements.
->
-> - [Influences](./spec_topics/influences.md) — what loom borrows from Rust, TypeScript, and what it doesn't.
-
-Edge cases for the implementer:
-
-- The `**Background (non-normative).**` label uses the same vocabulary GOV-3 uses for "pure-narrative" pages, so a future reader linking the Reading order back to GOV-3 sees the same term on both ends.
-- The prerequisites list does NOT override the `**Spec**`-field permission (per GOV-11): a leaf author whose `**Spec**` field does not list `overview.md` is not obliged to read it. The Reading order is orientation for first-time readers; per-leaf reading is governed by the `**Spec**` field.
-- Future rationale pages (`related-work.md`, `future-considerations.md`) can be appended to the Background block without restructure.
-
-## Related Findings
-
-- "'Read these first' scope unclear relative to Spec-field permission" — co-resolve (same five-line block in `spec.md`; both fixes touch the Reading order section and should land in one edit)
 

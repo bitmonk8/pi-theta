@@ -46,11 +46,14 @@ This subsection pins four cross-cutting V1 dispositions that no single topic pag
 
 ### Reading order
 
-Read these first to understand the design:
+Read these two topics first to understand the design:
 
 - [Overview and Conceptual Model](./spec_topics/overview.md) — what a loom is, query-and-await, prompt vs. subagent mode.
-- [Influences](./spec_topics/influences.md) — what loom borrows from Rust, TypeScript, and what it doesn't.
 - [Comparison with Existing Pi Features](./spec_topics/comparison.md) — loom vs. Pi `prompt` / `subagent`.
+
+**Background (non-normative).** Skippable; explains design provenance, not requirements.
+
+- [Influences](./spec_topics/influences.md) — what loom borrows from Rust, TypeScript, and what it doesn't.
 
 ---
 
