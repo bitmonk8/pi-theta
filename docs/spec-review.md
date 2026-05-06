@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_26 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_25 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -1847,95 +1847,3 @@ Edge cases for the implementer:
 
 ---
 
-## spec.md — Appendix (scope)
-
----
-
-# GOV-N governance rules: scope boundary in spec.md
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** GOV-N governance rules: scope boundary in spec.md
-**Kind:** scope, placement
-
-## Finding
-
-`spec.md` is two documents in one. The body is a thin orientation/TOC for `pi-loom` — Prerequisites, Reading order, and grouped links into `spec_topics/`. The Appendix then becomes an unrelated meta-spec: GOV-1 through GOV-8 govern how REQ-IDs are coined, anchored, retired, and gated; the prefix table is the canonical mapping consumed by H6 and by the V18s CI gates; the *Retired prefixes* sub-table is the registry V18s gate (6) reads. None of this is about the loom language or its runtime — it governs the spec corpus itself.
-
-The split shows up in citations: every plan reference into the Appendix is a deep-link to a specific GOV-N rule or to the prefix table — `plan_topics/h6-req-ids.md` cites `../spec.md` Appendix — GOV-1 and the prefix table; `plan_topics/v18-cancellation.md` cites GOV-6 and GOV-8 from gates (4)–(6); `plan_topics/conventions.md` cites GOV-4/5/6/7/8 in the REQ-ID-discipline bullet. No live citation aims at the orientation body. A reader who lands on `spec.md` for orientation hits five screens of governance procedure before reaching `Future Considerations`; a reader who lands for governance has to scroll past the link tree to find it.
-
-The Appendix also self-justifies its placement (the `GOV` row's footnote: "per GOV-3, the extraction regex is applied only to `spec_topics/*.md`, so `GOV-N` IDs in `spec.md` are not consumed by the V18s coverage gate"). That carve-out exists *because* the meta-spec was put in `spec.md` rather than alongside the pages it governs; on a dedicated page under `spec_topics/`, the carve-out disappears and `GOV` joins the regular extraction set.
-
-## Spec Documents
-
-- `spec.md` — Appendix (REQ-ID prefix table, GOV-1 through GOV-8, Retired prefixes sub-table) (edited)
-- `spec.md` — body, for the surviving link to the new governance page (edited)
-- `spec_topics/governance.md` — new file holding the extracted GOV-N rules and tables (edited, option-dependent)
-
-## Plan Impact
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (modified)
-- V18s — Coverage-matrix closing CI gate — (modified)
-
-(Both leaves cite `../spec.md` Appendix — GOV-N anchors that move under any extraction option; `plan_topics/conventions.md` and `plan_topics/coverage-matrix.md` are not leaves but carry the same citation pattern and edit alongside.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-`spec.md` reads as two documents stapled together and forces a self-referential carve-out in GOV-3 to keep its `GOV-N` IDs out of the extraction set the rest of the appendix governs. No implementer is misled and no gate misfires; the cost is reader friction and a piece of meta-architecture that exists only because of the placement.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extract the entire REQ-ID-related Appendix content from `spec.md` into a new `spec_topics/governance.md`. The new page becomes a regular non-narrative spec topic; the GOV-3 self-referential carve-out for `spec.md` disappears.
-
-**Spec edits.**
-
-- Create `spec_topics/governance.md` containing the moved content: the prefix table, the *Retired prefixes* sub-table, GOV-1 through GOV-8, and the explanatory paragraphs between them.
-- In the moved prefix table, replace the row `| spec.md (this appendix's GOV-N rules) | GOV |` with `| governance.md | GOV |`.
-- In the moved GOV-3 paragraph, drop the parenthetical narrative-exclusion list — the table cell becomes the single source of truth (this is also handled by a later commit on GOV-3, but the migration must not regress it).
-- Delete the entire `### REQ-ID prefix table` section and everything below it through the *Retired prefixes* sub-table from `spec.md`.
-- Add `[Governance](./spec_topics/governance.md)` to the Appendix list in `spec.md` (replacing the deleted content with a single bullet alongside Glossary / Grammar / Related Work).
-
-**Plan / cross-link edits.**
-
-- Update `plan_topics/h6-req-ids.md` `**Spec.**` field to add `governance.md`; update the GOV-1 anchor link target.
-- Update `plan_topics/v18-cancellation.md` gates (4)/(5)/(6) link targets and the prose that names `../spec.md` Appendix as the source of the prefix table; the gates' file-path argument updates to `spec_topics/governance.md`.
-- Update `plan_topics/conventions.md` REQ-ID-discipline bullet to cite `../spec_topics/governance.md#gov-N` rather than `../spec.md` Appendix.
-- Update `plan_topics/coverage-matrix.md` scaffolding paragraph (which also cites `../spec.md` for the prefix table).
-
-Edge cases for the implementer:
-
-- This commit is a load-bearing precondition for the eight GOV-edit commits that follow it in bottom-up order. All of those target `governance.md` rather than `spec.md`.
-- After the move, `governance.md`'s REQ-IDs (`GOV-1` … `GOV-8`) are subject to V18s gates 4 (reused-ID) and 5 (dense-numbering) like every other non-narrative page; H6's anchor pass treats it normally. Confirm H6's `**Spec.**` enumeration includes the new file.
-- The Glossary should gain a "Governance" entry pointing at the new page if other glossary entries follow the topic-page convention.
-
-## Related Findings
-
-- "GOV-1 anchor form vague and over-prescribed" — same-cluster (touches GOV-1 inside the moving content; resolve in whichever file ends up owning GOV-1)
-- "FN prefix (2 letters) contradicts `[A-Z]{3,4}` extraction regex" — same-cluster (touches GOV-3 and the prefix table)
-- "Extraction regex scope unclear" — same-cluster (GOV-3)
-- "GOV-3 narrative exclusion list out of sync with GOV-7 promotion" — same-cluster (GOV-3 / GOV-7)
-- "Prefix uniqueness scope ambiguous (case-sensitivity; GOV prefix status)" — decision-dependency (the GOV-prefix-status sub-question disappears under Option A: `GOV` becomes a regular prefix on a regular page)
-- "GOV-7 atomicity: five independent procedures under one identifier" — same-cluster (GOV-7)
-- "GOV-4 \"append-only / immutable\" contradicts GOV-7 Delete / Merge / Rename" — same-cluster (GOV-4 / GOV-7)
-- "Rename: plan.md Spec-field update not addressed" — same-cluster (GOV-7 Rename)
-- "Merge: ordering of ID retirement vs prefix retirement unspecified" — same-cluster (GOV-7 Merge)
-- "Concurrent PRs racing on the same new prefix" — same-cluster (GOV-7 Add)
-- "GOV-8 atomicity: four operations plus retirement rule under one identifier" — same-cluster (GOV-8)
-- "\"Pure rewording\" boundary detection has no mechanism" — same-cluster (GOV-8)
-- "REQ-ID numbering start and monotonicity unspecified" — same-cluster (GOV-3 / GOV-8)
-- "\"Transitional\" editorial commentary in Formerly column" — same-cluster (Retired prefixes sub-table)
-- "SHA / tag format in `Retired in` column not specified" — same-cluster (Retired prefixes sub-table)
-- "\"Until H6 closes … vacuously satisfied\" transitional clause in normative rule" — same-cluster (GOV-2)
-- "H6 transition contract not specified" — same-cluster (GOV-2)
-- "V18s CI gate failure surface unspecified" — same-cluster (GOV-2 / GOV-6)
-
----

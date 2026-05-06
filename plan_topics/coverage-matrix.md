@@ -1,6 +1,6 @@
 # Spec coverage matrix
 
-Every executable spec rule will be mapped to its closing leaf(s) once H6 closes; today the matrix is section-keyed scaffolding. Rows will be keyed per REQ-ID (per the prefix table in [`../spec.md`](../spec.md)) once [H6](h6-req-ids.md) lands the initial population pass that inserts `PREFIX-N` anchors into the spec pages and re-pivots the rows below from section keys to REQ-ID keys. Until H6 closes, the rows below are section-level scaffolding (the V18s diff is vacuously empty). The V18s gate (per [V18 — V18s](v18-cancellation.md)) enforces a stricter property in CI: every REQ-ID emitted by any spec page must have at least one mapping in this matrix. The V18s gate enforces a second closure property: every code in the registry table of [`../spec_topics/diagnostics.md`](../spec_topics/diagnostics.md) is asserted as a literal string by at least one test in the suite.
+Every executable spec rule will be mapped to its closing leaf(s) once H6 closes; today the matrix is section-keyed scaffolding. Rows will be keyed per REQ-ID (per the prefix table in [`../spec_topics/governance.md`](../spec_topics/governance.md)) once [H6](h6-req-ids.md) lands the initial population pass that inserts `PREFIX-N` anchors into the spec pages and re-pivots the rows below from section keys to REQ-ID keys. Until H6 closes, the rows below are section-level scaffolding (the V18s diff is vacuously empty). The V18s gate (per [V18 — V18s](v18-cancellation.md)) enforces a stricter property in CI: every REQ-ID emitted by any spec page must have at least one mapping in this matrix. The V18s gate enforces a second closure property: every code in the registry table of [`../spec_topics/diagnostics.md`](../spec_topics/diagnostics.md) is asserted as a literal string by at least one test in the suite.
 
 | Spec page | Closing leaf(s) |
 |---|---|
@@ -76,6 +76,7 @@ Every executable spec rule will be mapped to its closing leaf(s) once H6 closes;
 | [Grammar Appendix — `///` placement](../spec_topics/grammar.md#-placement) | V13e, V9a, V10f |
 | [Grammar Appendix — newline continuation](../spec_topics/grammar.md#newline-continuation) | V1e |
 | [Grammar Appendix — `array<T>` literal type-sink rule](../spec_topics/grammar.md#arrayt-literal-type-sink-rule) | V2h, V8b |
+| [Governance — REQ-ID prefix table, GOV-1 through GOV-8, Retired prefixes](../spec_topics/governance.md) | H6, V18s |
 | [Future Considerations](../spec_topics/future-considerations.md) | – (out of scope) |
 | [Related Work](../spec_topics/related-work.md) | – |
 
