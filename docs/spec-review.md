@@ -1,7 +1,7 @@
 # pi-loom — Consolidated Spec Review
 
 _Generated: 2026-05-06T18:09:51Z_
-_55 findings retained, 16 false positives dropped, 0 persistent failures_
+_41 findings retained, 30 dropped (14 NITs removed in this triage pass), 0 persistent failures_
 
 ---
 
@@ -42,7 +42,7 @@ The "looms do not write files" claim is a scope statement, not a checked invaria
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Two reasonable implementers will not diverge on runtime behaviour — the trust-boundary bullet is unambiguous and a reviewer who notices the conflict will pick the consistent reading. The risk is downstream: a conformance test or a future spec edit could entrench the wrong reading, and the orientation paragraph that introduces the language to new readers gives a misleading first impression of the threat model.
 
@@ -121,7 +121,7 @@ The second half of the gap is not covered anywhere downstream. `functions.md` sa
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two implementers reading the preamble and `functions.md` will diverge on two observable surfaces. First, the framing of the "final value" sentence will lead one implementer to synthesise a sentinel `null` final value on the failure paths (because the prose promises a final value unconditionally) while another correctly delivers only the `Result::Err` envelope; tests that round-trip through `invoke` will disagree on whether `Err` arms ever carry a value. Second, an empty-tail loom will parse-error in one implementation, return `Ok(null)` in another, and panic in a third — with corresponding divergence in `invoke<Schema>` AJV behaviour. Both surfaces are reachable from author code on day one of MVP.
 
@@ -217,7 +217,7 @@ None — the fix is editorial in `spec.md`'s preamble. The load-time codes thems
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A reader who treats the trichotomy as exhaustive will mis-model the failure surface and will look for "where does `host-incompatible` fit into success / fail / cancelled?" without finding an answer. Two implementers can still converge — diagnostics.md and pi-integration-contract.md pin the load-time codes precisely — but the preamble misleads on first read and forces the reader to reconstruct the boundary from disjoint pages.
 
@@ -287,7 +287,7 @@ The classification this finding asks the preamble to surface is already implemen
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A first-time reader of the preamble forms the incorrect mental model that all four V1 ceilings produce the same terminal "fail" outcome, and only learns otherwise by walking four topic pages. Implementers do not get this wrong because each ceiling's owner page is unambiguous, but reviewers and authors reading the spec top-down will routinely conflate the four classes — which is exactly what the surrounding section of the consolidated review keeps re-discovering.
 
@@ -366,7 +366,7 @@ The fix is preamble orientation only. The underlying surface contracts are alrea
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A two-implementer divergence is unlikely on the *contracts* themselves — they are pinned. The cost is reader-side: anyone using `spec.md` as the navigational entry point (per [Governance — GOV-12](../spec_topics/governance.md), the intended use of aggregator paragraphs) has to re-discover the cause-to-surface matrix by reading at least four topic pages. The "limit-exceeded" lumping is the higher-risk half — a reader can plausibly miss that the four ceilings split into three routing classes and assume a single uniform surface (e.g. that all four panic, or that all four are recoverable `Err`s).
 
@@ -432,7 +432,7 @@ None — the fix is documentation-only and does not change any observable runtim
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A reasonable implementer is unlikely to invent an implicit transactional layer or a completed-side-effect enumeration channel — both would be substantial unspecified surface area, easy to recognise as out-of-scope. The risk is downstream: loom authors and reviewers reading the preamble in isolation may misjudge what guarantees the runtime offers (for example, assuming a panic in a multi-step file-mutating loom triggers some operator-visible "here is what completed" notice), and write tools or callers that depend on a property the runtime never promised.
 
@@ -503,7 +503,7 @@ The fix is editorial: it removes a misleading parenthetical from the preamble an
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** medium
 
 A first-time reader of `spec.md` is told the cancellation signal is `ctx.signal`, contradicting the cancellation owner page that designates `loomAbort.signal` as the single source of truth. The risk is a misimplementation that wires interpreter / binder / tool-call cancellation directly to `ctx.signal`, bypassing the per-invocation `AbortController` the cancellation contract requires. The damage is bounded because the canonical pages are correct and the leaves implementing cancellation cite them, not the preamble.
 
@@ -564,7 +564,7 @@ The implementer-visible consequence is decision drift on items the preamble simp
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 The behaviour the runtime ships will be correct because the per-mode wiring in PIC's `Conversation drive — subagent mode` mechanically enforces it (explicit `tools: []` allowlist, `SessionManager.inMemory(cwd)`, fresh per-invocation `loomAbort`). The cost is that the spec preamble — the page authors and reviewers cite when reasoning about isolation — under-specifies what "isolated" means, and the named forward-link target addresses only one of the three preamble items. A future widening (e.g., adding a `model:` override on the spawn call, or threading caller `params` through a new mechanism) cannot be reviewed against the preamble at all; it has to be argued against scattered PIC prose.
 
@@ -657,7 +657,7 @@ None — the existing leaves already encode the partial-fragment behaviour where
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A reader who consults only the preamble plus its named forward-links (`errors-and-results.md`, `diagnostics.md`) for the "what survives a terminal event" contract will infer that the unit of survival is a completed turn, and may be surprised by a streamed assistant prefix that remains visible after a cancellation or `?`-early-return. The runtime behaviour is fully specified in `slash-invocation.md`, so an implementer will not produce a wrong system; a reviewer triaging a bug report ("the assistant text is half-finished after my loom failed") will simply spend longer locating the governing rule.
 
@@ -737,7 +737,7 @@ The consequence is that a reviewer or implementer who wants to cite "the partial
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two implementers can disagree on what counts as a "partial-append contract" violation or as the boundary of the "three terminal outcomes" if no single topic-page rule defines either. After H6 closes, the coverage-closing gate iterates per REQ-ID; obligations stranded in `spec.md` prose or in narrative pages have no row and no closing leaf, so no V1 leaf will ever assert them as a conformance test. The unified concepts the preamble names — the trichotomy and the partial-append contract — silently cease to exist as enforceable rules.
 
@@ -849,7 +849,7 @@ The result is an unjustified, untested deviation from a documented Pi convention
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Under a strict peer-dep resolver (pnpm, npm v7+), a host whose Pi installation has bumped its bundled `typebox` to a 2.x line will refuse to install pi-loom or surface a hard peer-dep error, despite the runtime needing only the long-stable `Type.Unsafe` surface. The deviation from documented Pi convention is also unaccompanied by any literal-read test, so a future contributor cannot tell whether the `^1.1.24` pin was deliberate or an accident, and silent drift is undetectable.
 
@@ -905,7 +905,7 @@ None. `H1` already pins both the `peerDependencies` literal-read test and the SD
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A careful implementer who follows the forward-link to PIC reaches the correct conclusion (the four `peerDependencies` entries are mandatory, the package-manager enforcement is best-effort), and the H1 literal-read test catches any mistake regardless. A skimming reader of `spec.md` alone could misread "non-load-bearing" as "optional" and either omit the field or pin it to the wrong range, but the build gate would refuse the result.
 
@@ -992,7 +992,7 @@ The change is a prose tightening of an `informative` orientation paragraph that 
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A reviewer who skims only `spec.md` may take away the wrong mental model — believing the three siblings are passive resolutions rather than independently declared peer-deps subject to the lock-step rule and the H1 literal-read gate. This invites questions like "why is `pi-ai` in our `peerDependencies` at all?" and erodes the belt-and-braces rationale recorded in PIC. No runtime behaviour is at stake; the wording quietly misrepresents a contract whose mechanical enforcement is correctly specified elsewhere.
 
@@ -1020,216 +1020,7 @@ Edge cases for the editor:
 - "Seven SDK capabilities listed by label only — no probe shape or factory-entry semantics" — same-cluster (adjacent bullets in the same prerequisite block; independent fix)
 - "Binder LLM model availability assumed but never stated as a precondition" — same-cluster (item 7 of the same bullet list; independent fix)
 
----
-
-# Per-paragraph "Orientation; this paragraph is informative" tags duplicate GOV-12
-
-**Original heading:** Meta-annotation labels ("Orientation; this paragraph is informative") are editorial cruft
-**Kind:** cruft
-
-## Finding
-
-`spec.md`'s **Orientation → Prerequisites** section opens five paragraphs in a row with an italic meta-label classifying the paragraph's normative status: *"Orientation; this paragraph is informative."* (line 19), *"Orientation aggregator (per [Governance — GOV-12])."* (line 31), and three repetitions of *"Orientation; the operative rule lives in PIC."* on the numbered Host-runtime obligations (lines 33, 35, 37).
-
-`spec_topics/governance.md` GOV-12 already declares the entire `spec.md` page non-normative orientation: *"`spec.md` carries no per-page REQ-ID prefix and is treated as informative orientation: every normative obligation it appears to state is owned by a topic page that `spec.md` forward-links to."* Given that page-wide framing, restating "this paragraph is informative" on individual paragraphs adds no information a reader does not already have from being on `spec.md`. The labels also do not consistently appear — many paragraphs later in the file (e.g. obligation 4, the SDK capability bullets) carry no such tag, so their absence cannot be read as a normative-status signal either, weakening any classification value the present labels might claim.
-
-The "operative rule lives in PIC" variant is similarly redundant: each paragraph's body already opens with a forward-link to the owning PIC anchor, so the label restates in compressed form the same pointer the reader is about to encounter. The "aggregator (per GOV-12)" variant is the most defensible — it back-links to the rule that classifies the paragraph — but even it is non-load-bearing: GOV-12 covers the whole page without per-paragraph annotation.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Prerequisites → Pi SDK and capabilities (edited)
-- `spec.md` — Orientation → Prerequisites → Host runtime, including obligations 1–3 (edited)
-- `spec_topics/governance.md` — GOV-12 (read-only; provides the page-wide informative classification the labels duplicate)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — no plan leaf audits or maintains paragraph-level "informative" labels in `spec.md`. GOV-12's lock-step convention (aggregator paragraphs are kept in sync with their source pages by editorial PR review, with no V18s mechanical gate) is the closest discipline, and it operates on aggregator content, not on meta-status labels.
-
-## Consequence
-
-**Severity:** cosmetic
-
-Readers must parse and skip a five-word italic preamble on every Orientation paragraph that adds no rule-finding or traceability value beyond what GOV-12 and the existing forward-links already provide. Drift risk is low (the labels are inert), but inconsistent application — present on five paragraphs, absent on later ones in the same section — invites a future reviewer to read meaning into the absence and propagate the labels further, multiplying the noise.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete all five inline meta-status labels from `spec.md`'s Orientation section:
-
-- Line 19, after `**Pi SDK and capabilities.**`: remove `*Orientation; this paragraph is informative.* `.
-- Line 31, after `**Host runtime.**`: remove `*Orientation aggregator (per [Governance — GOV-12](./spec_topics/governance.md)).* `.
-- Lines 33, 35, 37, after each obligation's bold lead-in: remove `*Orientation; the operative rule lives in PIC.* ` (or its `*…canonical member-with-kind enumeration lives in PIC.*` variant on line 35).
-
-The page-wide informative classification is already established by `spec_topics/governance.md` GOV-12; it does not need per-paragraph reinforcement. The forward-links in each paragraph's body continue to point implementers at the operative rules, so the "operative rule lives in PIC" pointer carries no information the next sentence does not.
-
-Edge cases for the implementer:
-
-- The deletions are pure-rewording in GOV-8's sense (no normative obligation moved or changed). No `Retired in:` entry is required and no REQ-ID is touched.
-- Do **not** also delete the `*(per [Governance — GOV-12])*` link itself if it appears outside the meta-label context elsewhere in `spec.md` — that back-link to the rule that justifies aggregator behaviour is load-bearing where it identifies *which paragraph* is an aggregator for traceability. The deletion target here is only the redundant per-paragraph status preamble.
-- After deletion, scan the remaining Orientation prose for any other `*Orientation…*` italic openers (e.g. in sections not surveyed by this review) and remove them in the same commit so the cleanup is exhaustive rather than partial.
-
-## Related Findings
-
-- "GOV-8 bookkeeping description is editorial cruft" — same-cluster (same lens, separate page; resolves independently)
-- "\"By editorial convention\" undefined; editorial-convention parenthetical is cruft" — same-cluster (same lens, separate paragraph)
-- "Reviewer SHOULD NOT directive belongs in governance, not in spec body" — same-cluster (touches the same `spec.md` cleanup commit but resolves independently)
-- "No CI validation of spec.md cross-links / anchors" — same-cluster (could in principle host a label-hygiene lint, but is scoped to anchor validity, not editorial labels)
-
 ## spec.md — Orientation → Prerequisites → Host runtime
-
----
-
-# `H1` referenced without expansion or anchor in `spec.md`
-
-**Original heading:** "H1" acronym unexpanded and unlinked
-**Kind:** clarity
-
-## Finding
-
-`spec.md` § Orientation → Prerequisites → Host runtime, obligation 2, contains the parenthetical "the source of truth the **H1** surface-inventory test consumes". `H1` appears nowhere else in `spec.md`, is absent from `spec_topics/glossary.md`, and is not introduced anywhere in the spec corpus — its only definition lives in `plan.md` (`H1 — Repository scaffold and test framework`) and its expanded test description lives in `plan_topics/h1-scaffold.md`.
-
-A reader confined to `spec.md` cannot resolve the token. The plausible interpretations (heading level, host-integration tier, implementation phase, test class) all parse, and only the plan corpus disambiguates them. The same paragraph also pre-empts the structural fix usually applied here: it already links forward to `pi-integration-contract.md` § Step 0 (b), which is the *substantive* anchor for the test's contents — so the `H1` qualifier is not even carrying load. It is a stray plan-corpus token that leaked into a normative spec sentence.
-
-The wider review independently flags the spec→plan citation pattern as a boundary violation (see *Related Findings*), so the natural plan-corpus link is itself contested. The fix needs to land cleanly under either resolution of that boundary.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Prerequisites → Host runtime, obligation 2 (edited)
-- `spec_topics/pi-integration-contract.md` — Step 0 (b) Capability probe (read-only; the link target the rephrased sentence already points at)
-- `plan_topics/h1-scaffold.md` — SDK surface-inventory literal-read test (option-dependent; only read/linked under option A)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The change is editorial within `spec.md`. No leaf's Tests / Ships-when criteria move; no leaf is blocked or unblocked by either resolution.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A first-time reader of `spec.md` hits an unexplained token and must context-switch into the plan corpus to recover meaning. No implementer arrives at a different runtime behaviour because of it; the substantive contract is on the linked PIC anchor.
-
-## Solution Space
-
-**Shape:** multiple
-
-### Option A — Expand on first use and link to the plan leaf
-
-`Approach`: Replace `the H1 surface-inventory test` with `the H1 [Horizontal phase 1] SDK surface-inventory test`, and link `H1` to `./plan_topics/h1-scaffold.md`.
-
-`Spec edits`:
-- `spec.md` obligation 2 — change the parenthetical to: "the source of truth the [H1 (Horizontal phase 1)](./plan_topics/h1-scaffold.md) SDK surface-inventory test consumes".
-
-`Pros`:
-- Mirrors the existing convention in `spec_topics/pi-integration-contract.md`, which already links `H1` to `plan_topics/h1-scaffold.md` in five places.
-- Keeps the implementation-phase signal that the rest of PIC relies on.
-
-`Cons`:
-- Adds a new spec→plan link from `spec.md` itself (currently `spec.md` contains zero `plan_topics` links).
-- Doubles down on the pattern flagged by the related finding `Normative spec pages cite plan documents as enforcement gates — spec/plan boundary conflated`.
-
-`Risks`:
-- If the spec/plan boundary finding is later resolved by stripping plan citations from normative spec text, this link must be removed too — net thrash.
-
-### Option B — Drop the `H1` qualifier; rely on the existing PIC link
-
-`Approach`: Remove `H1` from the parenthetical entirely. The surface-inventory test's *contents* (the four pinned constants, member-with-kind table, etc.) are owned by `pi-integration-contract.md` § Step 0 (b), which the same sentence already links. The test's *plan-leaf identity* is plan-corpus concern and does not need to surface in `spec.md`.
-
-`Spec edits`:
-- `spec.md` obligation 2 — change the parenthetical from `(the source of truth the H1 surface-inventory test consumes)` to `(the source of truth the SDK surface-inventory test consumes)`.
-
-`Pros`:
-- Aligns with the spec/plan boundary fix proposed in the related finding — `spec.md` stays free of plan-leaf identifiers.
-- The substantive forward link (to PIC § Step 0 (b)) is unchanged, so the reader's path to the test's contract is preserved.
-- Smallest edit; no new cross-doc link to maintain.
-
-`Cons`:
-- The "the SDK surface-inventory test" phrasing now reads as a definite reference to a singular test that `spec.md` does not name — the disambiguation has merely moved one hop down the link.
-- PIC itself still uses `H1 SDK surface-inventory test` in five places; this option creates a phrasing mismatch between `spec.md` and PIC unless those are updated in lockstep with the spec/plan boundary fix.
-
-`Risks`:
-- If the related boundary finding is later resolved as *keep* the plan citations, this edit will need to be reverted — symmetric thrash to Option A.
-
-### Recommendation
-
-Option B. The `H1` token does no work in this sentence — the substantive anchor (`pi-integration-contract.md` § Step 0 (b)) is already in the same parenthetical, and `spec.md` is the only page in the corpus that currently has zero `plan_topics` references. Introducing the first one to define an acronym whose only purpose is to identify a plan leaf is the wrong direction; deleting the qualifier costs nothing and keeps the boundary intact pending resolution of the larger spec/plan-boundary finding. Implementer watch-out: when the boundary finding lands, sweep PIC's five remaining `H1 SDK surface-inventory test` mentions in the same commit so the corpus stays consistent.
-
-## Related Findings
-
-- "Normative spec pages cite plan documents as enforcement gates — spec/plan boundary conflated" — decision-dependency (its resolution determines whether spec.md may link to `plan_topics/h1-scaffold.md` at all; Option B is the boundary-respecting fix, Option A defers to the opposite resolution).
-- "No CI validation of spec.md cross-links / anchors" — same-cluster (both concern correctness of cross-doc references in `spec.md`; resolved independently).
-- "`peerDependencies` role unclear: \"non-load-bearing\" jargon and mandatory-field status unspecified" — same-cluster (also flags an `H1`-anchored phrase in `spec.md`'s prerequisites block; same boundary question).
-
----
-
-# Host runtime obligation 2 quantifies the AbortSignal member surface vaguely ("a small set of named members")
-
-**Original heading:** "A small set of named members" is a vague quantifier
-**Kind:** clarity
-
-## Finding
-
-`spec.md` Orientation → Prerequisites → Host runtime obligation 2 reads:
-
-> The runtime requires the WHATWG `AbortSignal` and `AbortController` constructors **and a small set of named members**; the canonical enumeration with per-member kind tags … lives at [Pi Integration Contract — Step 0 (b)](./spec_topics/pi-integration-contract.md#entry-capability-probe).
-
-The phrase "a small set of named members" is the only quantifier in the Host runtime block that is not numeric. The neighbouring obligations are precise: obligation 1 names the literal `>=20.6.0`, and obligation 3 says "the **seven** SDK capabilities the runtime depends on." Obligation 2 has the same shape — a fixed-size enumeration owned by another page — and ought to follow the same template.
-
-The canonical table in `pi-integration-contract.md` Step 0 (b) lists nine probed entries: the two constructors plus seven actual members (`AbortController.prototype.abort`, `AbortSignal.any`, `AbortSignal.timeout`, `AbortSignal.prototype.throwIfAborted`, `AbortSignal.prototype.addEventListener`, `AbortSignal.prototype.aborted`, `AbortSignal.prototype.reason`). The spec.md sentence already separates the constructors from "named members," so the count that fits the existing grammar is **seven**.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Prerequisites → Host runtime, obligation 2 (edited)
-- `spec_topics/pi-integration-contract.md` — Step 0 (b) member-with-kind table (read-only; canonical source)
-- `plan_topics/h1-scaffold.md` — SDK surface-inventory literal-read test description (read-only; consumes the same canonical table)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The H1 surface-inventory test (`plan_topics/h1-scaffold.md`) reads its member list from the `SDK_SURFACE_INVENTORY` constant co-located with the PIC table, not from spec.md's prose count. Replacing "a small set" with "seven" in spec.md does not change any test, fixture, or shipped constant.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader of `spec.md` alone cannot tell whether the AbortSignal surface is a 3-member or 30-member dependency without clicking through to PIC. The page is internally inconsistent (numeric for obligations 1 and 3; vague for obligation 2). No implementer is led astray — PIC owns the operative rule — but the orientation page fails its own template.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec.md` Host runtime obligation 2, replace "a small set of named members" with "seven named members". The sentence becomes:
-
-> The runtime requires the WHATWG `AbortSignal` and `AbortController` constructors and **seven** named members; the canonical enumeration with per-member kind tags … lives at [Pi Integration Contract — Step 0 (b)](./spec_topics/pi-integration-contract.md#entry-capability-probe).
-
-Edge cases for the implementer:
-
-- The count is **seven members**, not nine entries. The two constructor entries (`AbortController` global, `AbortSignal` global) are already named separately in the same sentence; double-counting them under "named members" would contradict the existing grammar.
-- The Pi version-bump procedure in `pi-integration-contract.md` (steps 2 and 5) is the lock-step site that keeps the PIC table honest. Add a note there — or co-locate the obligation-2 sentence in the bump checklist — so that a future bump that adds or removes a member also updates the literal "seven" in spec.md. Without that, the count drifts silently the next time PIC's table changes.
-- This sits inside the same "no normative weight" preamble that other findings in this section (REQ-IDs, obligation 4's misplacement) target. The fix here is mechanical and independent: it does not commit to or block any of those larger restructurings.
-
-## Related Findings
-
-- "'H1' acronym unexpanded and unlinked" — co-resolve (same paragraph in obligation 2; both are clarity tweaks to a single sentence and should land in one edit)
-- "Seven SDK capabilities listed by label only — no probe shape or factory-entry semantics" — same-cluster (parallel obligation 3 quantifier; sets the template this finding adopts)
-- "Preamble obligations have no REQ-IDs and cannot be individually cited" — decision-dependency (a REQ-ID assignment for HOST-1…HOST-4 would supply the citation anchor "obligation 2" currently lacks; if that finding lands first, the wording here can cite `HOST-2` rather than positional ordinal)
-- "Four distinct obligations in one unIDed bullet" — same-cluster (broader structural critique of the same Host runtime block)
-- "Obligation 4 contradicts its own 'no normative weight' preamble" — same-cluster (touches the same preamble; resolves independently)
 
 ---
 
@@ -1263,7 +1054,7 @@ None. The H1a literal-read tests anchor `engines.node === ">=20.6.0"` and the SD
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two reasonable implementers can read obligation 4 differently: one treats "JavaScript engine" as descriptive (Node, by inheritance from obligation 1) and ships a Node-only build; another treats it as normative scope and invests in Bun/Deno compatibility (or refuses to use Node-conditional APIs in code paths the spec leaves unconstrained). The runtime ships either too narrow or too wide a compatibility envelope depending on which reading wins. The ambiguity is invisible at H1 because the literal-read tests never exercise non-Node engines.
 
@@ -1331,7 +1122,7 @@ None. Obligation 4 is, by the preamble's own carve-out, a non-checked invariant 
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 An implementer reading `runtime-value-model.md` alone (the page obligation 4 forward-links to) will not encounter the "do not feature-detect / do not polyfill / do not emit diagnostic" prohibitions. They could plausibly add a defensive runtime probe — e.g. asserting `Map`'s presence at extension entry and emitting `loom/load/host-incompatible` on absence — and produce a runtime that contradicts the spec while passing every topic-page-derived test. The prohibitions are also genuinely useful: a future leaf considering "should we surface a friendlier error when `Object.is(NaN, NaN)` returns false?" needs to find the answer somewhere normative.
 
@@ -1430,7 +1221,7 @@ The result: operators have no spec-level cue to distinguish "no terminal event b
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Operators relying on the always-log set as a complete failure-record will silently mis-attribute obligation-4 violations to runtime defects, or worse, miss them entirely. Implementers writing V18q tests against the unconditional "exactly-once" contract may also be surprised when integration with a non-conformant host produces zero or duplicate emissions. The runtime itself behaves correctly under the design; the gap is purely in the operator-facing contract's edge-case framing.
 
@@ -1500,7 +1291,7 @@ The placement also forces a contradiction the aggregator preamble tries to paper
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Implementers can ship a correct runtime regardless of where bullet 4 lives — there is nothing to detect or refuse. The cost is reviewer and reader friction: the bullet's presence in a list of operator-observable preconditions invites repeated review-time challenges ("why is this not probed?", "what diagnostic fires?"), and the preamble's normative-weight carve-out exists primarily to defend the placement. Three of the four sibling findings on this same heading in the source review are downstream of the misplacement.
 
@@ -1571,7 +1362,7 @@ None. Source-language stability is a release-governance statement; no leaf imple
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Two reviewers comparing a V1.0 build to a V1.x candidate would reasonably disagree on what `behave identically` covers (return values only? plus diagnostic codes? plus token counts?) and on whether a divergence is grounds to block the release. No implementer action is blocked, but the manual review process the bullet relies on is itself underspecified.
 
@@ -1599,176 +1390,6 @@ Edge cases the implementer must watch:
 - "GOV-8 bookkeeping description is editorial cruft" — co-resolve (the rewrite excises the GOV-8 bookkeeping prose from the same bullet)
 - "Future conformance suite detail too verbose inline" — co-resolve (the rewrite reduces the deferred-suite paragraph to a forward-link)
 - "Four distinct obligations in one unIDed bullet" — same-cluster (splitting the bullet into REQ-IDed atoms is complementary to clarifying its language; either ordering works, but doing both in one edit is cheaper)
-
----
-
-# Reviewer-directed sentence in `spec.md` Source-language stability bullet duplicates governance and addresses the wrong audience
-
-**Original heading:** Reviewer SHOULD NOT directive belongs in governance, not in spec body
-**Kind:** cruft, assumptions, traceability
-
-## Finding
-
-The Source-language stability bullet in [`spec.md` — Orientation → Scope](../../../spec.md#scope) contains the sentence:
-
-> Reviews of `spec.md` SHOULD NOT re-raise the absence of this gate as a V1.0 correctness finding.
-
-This is a process instruction aimed at human reviewers of the spec, not at implementers building the runtime. `spec.md` is implementer-facing orientation (its aggregator paragraphs are explicitly informative under [GOV-12](../../../spec_topics/governance.md)), so a reviewer-directed sentence has no addressee here.
-
-The same instruction is already carried in its proper home: the GOV-8 *Scope note* in [`spec_topics/governance.md`](../../../spec_topics/governance.md) reads "reviews SHOULD NOT cite GOV-8 as a substitute for that gate, and they SHOULD NOT re-raise the absence of that gate as a V1.0 correctness finding." The `spec.md` copy is therefore both misplaced and a duplicate. Worse, embedding the SHOULD-NOT modal in `spec.md` creates the impression that the sentence is a normative obligation on some unspecified party — which contradicts both GOV-12 (aggregator paragraphs are informative) and the surrounding bullet's own claim that this is a release-process aspiration.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Scope → Source-language stability bullet (edited)
-- `spec_topics/governance.md` — GOV-8 *Scope note* (read-only; canonical home of the directive)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-## Consequence
-
-**Severity:** cosmetic
-
-No implementer behaviour diverges and no test target shifts. The sentence is editorial noise that risks confusing reviewers about whether they are normatively bound by `spec.md`, and that conflates spec-process governance with the implementer-facing aggregator. Removing it strengthens the spec/governance boundary without altering any obligation.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete the sentence "Reviews of `spec.md` SHOULD NOT re-raise the absence of this gate as a V1.0 correctness finding." from the Source-language stability bullet in `spec.md`. No replacement or forward-link is needed — the GOV-8 *Scope note* in `spec_topics/governance.md` already carries the same guidance verbatim and is the correct location, since reviewer process discipline is governance's subject matter.
-
-Edge cases for the implementer of the edit:
-
-- Do not transplant the sentence into `spec_topics/governance.md`; the duplicate is already there. A second copy would create a synchronisation hazard.
-- Leave the rest of the Source-language stability bullet untouched in this edit. Other defects in the same bullet (vague modals, the GOV-8 bookkeeping aside, the verbose conformance-suite description, and the four-obligations-in-one-bullet structural problem) are tracked as separate findings and have their own resolutions.
-- No REQ-ID is being touched, so GOV-8 lifecycle bookkeeping does not apply. No `## Retired REQ-IDs` row is required.
-
-## Related Findings
-
-- "Four distinct obligations in one unIDed bullet" — co-resolve (splitting the Source-language stability bullet into atomic items naturally drops the reviewer directive from the implementer-facing set; if that finding's split is performed first, this deletion is subsumed)
-- "GOV-8 bookkeeping description is editorial cruft" — same-cluster (same bullet, same diagnosis: spec-process commentary embedded in implementer-facing orientation)
-- "Future conformance suite detail too verbose inline" — same-cluster (same bullet, also a relocation/trim of non-implementer content)
-- "Vague modals, contradictory tone, and ambiguous pronoun — all in the same requirement" — same-cluster (same bullet, different defect class)
-- "No mechanical regression gate — source-language stability is untestable" — decision-dependency (if a conformance fixture suite is promoted to V1.0, the entire premise of the reviewer directive disappears; the deletion still applies but the surrounding bullet is rewritten)
-- "Governance page lacks 'not for implementing agents' signal" — same-cluster (related spec/governance boundary defect, opposite direction)
-
----
-
-# GOV-8 bookkeeping description duplicates governance-page content in the Scope bullet
-
-**Original heading:** GOV-8 bookkeeping description is editorial cruft
-**Kind:** cruft
-
-## Finding
-
-The "Source-language stability" Scope bullet in `spec.md` carries a sentence that explains what GOV-8 is and what it is not: *"`GOV-8`'s REQ-ID lifecycle (split / merge / deletion-plus-add, never in-place rewording) is the bookkeeping discipline that keeps substantive edits visible to that review; it is not a behaviour-equivalence proof, and the spec does not claim otherwise."* This is meta-commentary about the spec-authoring process aimed at would-be reviewers — it neither states a runtime obligation nor constrains implementer behaviour.
-
-The same content is already canonically owned where it belongs. `spec_topics/governance.md` defines GOV-8 directly under the heading `**GOV-8 (REQ-ID lifecycle).**` and prefixes it with an explicit *"Scope note (non-normative)"* paragraph that says, in nearly the same words, that GOV-8 is a bookkeeping discipline rather than a behaviour-equivalence proof and forward-links the very Scope bullet under discussion. The `spec.md` sentence is therefore not just out of place — it is a verbatim-equivalent duplicate of text the governance page already carries, with the dependency direction backwards: the informative orientation page is restating a non-normative footnote owned by the normative page it forward-links to.
-
-The bullet is also informative-aggregator text (per GOV-12), so it has no REQ-ID and no test gate. Leaving the duplicate in place wastes reviewer attention on the Scope subsection and creates two surfaces that must be kept in sync if the GOV-8 framing is ever refined.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Scope → Source-language stability (edited)
-- `spec_topics/governance.md` — GOV-8 (REQ-ID lifecycle) and its Scope note (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-## Consequence
-
-**Severity:** cosmetic
-
-The duplicated sentence is informative orientation that no implementer reads for a behavioural obligation and no test gate consumes; the runtime semantics of `.loom` / `.warp` execution are unaffected. The cost is purely editorial: two locations to maintain if the GOV-8 framing evolves, plus a recurring distraction in Scope reviews.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In the `spec.md` *Source-language stability* bullet, delete the sentence beginning *"`GOV-8`'s REQ-ID lifecycle (split / merge / deletion-plus-add, never in-place rewording) …"* through *"… and the spec does not claim otherwise."* The existing forward-links from the bullet to `spec_topics/governance.md` (and the *Scope note (non-normative)* paragraph already in place under `**GOV-8 (REQ-ID lifecycle).**`) are sufficient to surface the bookkeeping-vs-behaviour distinction to anyone who follows the chain.
-
-Edge cases for the implementer:
-
-- Verify the *Scope note (non-normative)* paragraph above `**GOV-8 (REQ-ID lifecycle).**` in `spec_topics/governance.md` is left intact — that note is the surviving canonical statement and links back to `spec.md#orientation`. Do not delete it.
-- The bullet's remaining sentences (the V1.x "intended to load and behave identically" promise, the no-mechanical-gate disclosure, the conformance-suite forward link, the cross-major-version disclaimer) stay; this edit removes only the GOV-8 sentence. The neighbouring "Reviews … SHOULD NOT re-raise" sentence is the subject of a separate finding and is out of scope for this fix.
-- No REQ-IDs are coined, retired, or renumbered; GOV-8 itself is not edited; no V18s gate is touched.
-
-## Related Findings
-
-- "Reviewer SHOULD NOT directive belongs in governance, not in spec body" — co-resolve (same bullet, identical "move editorial framing out of spec.md into governance.md" remedy; the two deletions land in one edit)
-- "Future conformance suite detail too verbose inline" — co-resolve (same bullet, same trim-inline-cruft-and-forward-link pattern)
-- "Vague modals, contradictory tone, and ambiguous pronoun — all in the same requirement" — same-cluster (same bullet, but rewords the surviving normative sentence rather than deleting cruft)
-- "No mechanical regression gate — source-language stability is untestable" — same-cluster (same bullet's substantive testability gap; resolves independently)
-- "Four distinct obligations in one unIDed bullet" — decision-dependency (a split into atomic COMPAT-N IDs would absorb this deletion as a side-effect of restructuring; if that finding is acted on first, this one is discharged in passing)
-
----
-
-# Conformance-suite description belongs on Future Considerations, not in the Scope bullet
-
-**Original heading:** Future conformance suite detail too verbose inline
-**Kind:** cruft
-
-## Finding
-
-The "Source-language stability" Scope bullet in `spec.md` (line 47) carries a long inline description of a deferred V1.0 conformance fixture suite — what it would diff (return values, ordered system-note codes, diagnostic batches), against what (a frozen V1.0 baseline), and where it sits on the roadmap (deferred to a post-V1.0 maintenance pass). That detail is not a V1 disposition; it is a description of a V1.x follow-up artefact. The Scope subsection's own preface declares its bullets to be *informative orientation* that forward-link the topic page owning the normative contract — here, [Future Considerations](../spec_topics/future-considerations.md). The conformance-suite paragraph violates that convention by inlining the future-work description rather than forward-linking to it.
-
-Compounding the mismatch, `future-considerations.md` currently has no entry for the conformance fixture suite at all. The topic page that is supposed to *own* this future-work item does not mention it; the orientation bullet that is supposed to *forward-link* to it carries the entire description. The relationship is inverted.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Scope → Source-language stability (edited)
-- `spec_topics/future-considerations.md` — Known V1 limitations (no seam expected) (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-(The Scope subsection of `spec.md` is pure orientation and is not referenced by any plan leaf in `plan.md` or `plan_topics/`. `future-considerations.md` is explicitly marked "out of scope" in `plan_topics/coverage-matrix.md`. This is an editorial relocation only.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-The inline description is technically accurate and does not mislead implementers. The cost is structural: the Scope bullet violates the section's own forward-link convention, and the future-work item is not anchored on the page that nominally owns it, so a reader looking for "what is the planned conformance gate?" on `future-considerations.md` finds nothing.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a new entry to `spec_topics/future-considerations.md` under "Known V1 limitations (no seam expected)" — adjacent to the existing "No formal source-language migration mechanism" entry — that owns the full description of the deferred conformance fixture suite (what it diffs, against what baseline, and that it is deferred to a post-V1.0 maintenance pass). Anchor it (`<a id="conformance-fixture-suite"></a>`) so the spec-side bullet can deep-link to it.
-
-In `spec.md`'s "Source-language stability" bullet, replace the conformance-suite sentence with a single forward-link sentence of the form: *"A V1.0 conformance fixture suite that mechanically diffs runtime outputs against a frozen V1.0 baseline is a recognised follow-up; see [Future Considerations — Conformance fixture suite](./spec_topics/future-considerations.md#conformance-fixture-suite)."* The remaining content of that bullet (the V1.x compatibility intent, the absence of a mechanical gate, the GOV-8 cross-reference, the migration disclaimer) is governed by sibling findings in this same section and may be restructured by them; this finding only requires that the conformance-suite *description* move out and a forward-link replace it.
-
-Edge cases for the implementer:
-- The new Future Considerations entry follows the existing "*Recorded at:*" convention used by the two adjacent bullets, pointing back at `spec.md#scope`.
-- If sibling findings in this section ("Four distinct obligations in one unIDed bullet", "GOV-8 bookkeeping description is editorial cruft", "Reviewer SHOULD NOT directive belongs in governance, not in spec body") are resolved in the same edit pass, the surviving spec-side text may be a multi-line atomic-ID set rather than a single bullet; the forward-link replacement still applies, but lives on whichever atomic item carries the V1.x stability promise.
-
-## Related Findings
-
-- "No mechanical regression gate — source-language stability is untestable" — same-cluster (same bullet; this finding moves text out, that finding asks whether the text should make a stronger commitment)
-- "Reviewer SHOULD NOT directive belongs in governance, not in spec body" — co-resolve (also relocates text out of the same bullet, to a different destination)
-- "GOV-8 bookkeeping description is editorial cruft" — co-resolve (also relocates text out of the same bullet)
-- "Four distinct obligations in one unIDed bullet" — decision-dependency (splitting the bullet into atomic IDs is the structural change that absorbs all three relocation findings; this finding's edit lives on the atomic item that carries the V1.x stability promise)
 
 ---
 
@@ -1809,7 +1430,7 @@ H6 is the leaf that mints `GOV-N` anchors on `governance.md`. Splitting the GOV-
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Implementers can ship V1 unaffected — the bullet expresses intent, not runtime behaviour. The cost is paid by the spec corpus's own review and maintenance loop: reviewers cannot record per-obligation pass/fail, GOV-12 lock-step drift is undetectable because there is nothing structural to align against, and a future spec edit that wants to retire (4) (the reviewer directive) without disturbing (1)–(3) cannot do so cleanly.
 
@@ -1886,7 +1507,7 @@ None. V14d (per-mode `tools:` wiring) and V14j (`tools: []` ≡ absent; ambient-
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** medium
 
 V1 deliberately ships without a loom-level sandbox, so no observer behaviour is wrong. The risk is that operators, security reviewers, and downstream extension authors read the trust-boundary bullet as promising a Pi-enforced per-extension boundary and an allowlist-as-sandbox, and deploy looms (or grant Pi extension permissions) on that mistaken model. The mismatch surfaces only when a loom declares a high-privilege callable like `bash` and the operator assumed the allowlist contained the blast radius.
 
@@ -1949,7 +1570,7 @@ None
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A reader of the orientation bullet alone walks away believing V1 has soft-committed to a future capability model, then encounters the opposite stance on the page they are forward-linked to. The mismatch is unlikely to mislead an implementer into wrong code, but it weakens the scope disclaimer's load-bearing function: the bullet is meant to be one of four cross-cutting V1 dispositions a reviewer can rely on without reading the topic page.
 
@@ -2014,7 +1635,7 @@ The "this paragraph is informative" framing combined with the absence of an anch
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A future loom-runtime change that interposed access mediation beyond the declared `tools:` allowlist would violate the disclaimer, but no V18s gate would catch it and no test fixture would regress. The substantive runtime invariant (the explicit allowlist suppresses Pi's default built-ins; ambient tools are not inherited) is independently anchored under `pi-integration-contract.md` and is exercisable through the V14 leaves, so the gap is in the standalone "no sandbox" guarantee — a reviewer-facing traceability defect rather than a correctness one.
 
@@ -2109,7 +1730,7 @@ None. The fix is an orientation-bullet edit that forward-links to surfaces alrea
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A reviewer auditing the trust-boundary disposition cannot confirm the failure-observability invariant from the orientation page alone; they must navigate to two topic pages to reconstruct the answer. Implementation behaviour is unaffected — V14g already pins `CodeToolError { cause: "execution" }` for `execute()` throws and `isError: true` returns, which is the channel every Pi-side resource denial flows through. The cost is reviewer time and a small documentation completeness gap, not divergent implementations.
 
@@ -2177,7 +1798,7 @@ Both gaps are minor on their own but they sit on the channel that V18q tests are
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Two reasonable implementers will not produce divergent runtime behaviour — the channel name, the payload shape, and the `display` flag rules are pinned elsewhere. The cost is review friction and downstream documentation drift: each subsequent reader (and each follow-up review pass) re-litigates "what does operator mean here" and "is `always-log set` a term I missed", which the glossary exists precisely to short-circuit.
 
@@ -2216,61 +1837,6 @@ Edge cases for the implementer:
 - "`callable set` vs `tools: allowlist` — two names for one concept" — same-cluster (same glossary discipline)
 - "system-note codes" terminology does not match channel or diagnostic terminology" — same-cluster (terminology hygiene around the same channel)
 
----
-
-# Orientation bullet presents `loom-system-note` as a Pi-owned channel rather than a loom-registered one
-
-**Original heading:** `loom-system-note` channel assumed registered via capability item 6 — not stated
-**Kind:** assumptions
-
-## Finding
-
-The Runtime observability orientation bullet in `spec.md` § Scope reads:
-
-> Operator-facing runtime failure events are emitted on the Pi `loom-system-note` channel via the always-log set defined in [Pi Integration Contract — Runtime event channel].
-
-The phrasing "the Pi `loom-system-note` channel" parses on first read as if `loom-system-note` were an intrinsic Pi-host channel that the loom runtime merely writes to. It is not: `loom-system-note` is a `customType` that the loom extension itself registers via Pi's `pi.registerMessageRenderer(customType, renderer)` surface — the **Custom-message channel and renderer** capability listed as item 6 of the [SDK capability inventory](./spec_topics/pi-integration-contract.md#sdk-capability-inventory) and verified by the factory-time capability probe (Step 0 (c)). The channel's existence at runtime is therefore conditional on capability item 6 being present and on the renderer registration in the H4 extension shell having succeeded; if either fails, system notes degrade to the `ctx.ui.notify` → `console.error` fallback chain documented under **System notes** in `pi-integration-contract.md`.
-
-The forward-link from the orientation bullet points only at "Runtime event channel", which describes the always-log partitioning rather than the registration story. A reader who follows that one link does not learn who owns the channel or what makes it available; they have to chase a second hop through "System notes" and "Renderer registration" to reach the registration rules and the capability-item-6 anchor. The result is a brief but real ownership-and-availability gap in the Scope-level orientation: the V1 disposition for runtime observability silently presupposes that capability item 6 is present and that the H4 extension factory's `registerMessageRenderer` call succeeded.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Scope → Runtime observability bullet (edited)
-- `spec_topics/pi-integration-contract.md` — System notes; Renderer registration; SDK capability inventory item 6; Step 0 (c) capability probe (read-only)
-- `spec_topics/diagnostics.md` — `loom-system-note` references in the diagnostic-channel framing (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — the fix is a wording / cross-link tweak in `spec.md`'s Scope orientation bullet. The behaviours it points at (capability probe in H1, renderer registration in H4, runtime-event helper in V18q) are already specified normatively on the topic pages and their leaf acceptance criteria do not change.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader of `spec.md` Scope is briefly misled about who owns `loom-system-note` and what its availability depends on, but the normative pages are unambiguous. No implementer would build the wrong thing on the strength of this bullet alone; H1's capability probe and H4's renderer-registration ordering already pin the contract.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite the channel mention in the Runtime observability bullet to flag both the registration mechanism and the dependency on capability item 6, and add the second forward-link so the reader reaches the registration story in one hop rather than two. Suggested replacement for the first sentence:
-
-> Operator-facing runtime failure events are emitted on the loom-extension-registered `loom-system-note` custom-message channel — registered via Pi's [SDK capability item 6 — Custom-message channel and renderer](./spec_topics/pi-integration-contract.md#sdk-capability-inventory) and gated by the factory-time capability probe (see [Pi Integration Contract — System notes](./spec_topics/pi-integration-contract.md)) — via the always-log set defined in [Pi Integration Contract — Runtime event channel](./spec_topics/pi-integration-contract.md).
-
-Implementer-relevant edge cases the rewording must not contradict: (a) when capability item 6 fails the probe, the entire factory short-circuits and no notes flow at all; (b) when the probe passes but `pi.registerMessageRenderer` itself rejects, system notes permanently degrade to the `ctx.ui.notify` arm of the System-notes fallback chain. The orientation bullet should not contradict either of those by promising channel availability unconditionally; the proposed wording above does not.
-
-## Related Findings
-
-- "\"Operator-facing\" undefined; \"always-log set\" undefined with no glossary entry" — same-cluster (same Runtime observability bullet, independent terminology concern)
-- "Three obligations conflated in one unIDed bullet" — same-cluster (same bullet, independent ID-granularity concern; a rewrite that splits the bullet into IDed sub-rules could co-resolve this finding)
-- "Observability bullet misplaced — belongs in a Non-Functional Requirements section" — same-cluster (same bullet, independent placement concern)
-
 ## spec.md — Orientation → Scope → Hard runtime ceilings
 
 ---
@@ -2306,7 +1872,7 @@ None. The change is editorial enrichment of an aggregator bullet under [Governan
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** medium
 
 The four enumerated ceilings still match what the implementing leaves test, so a strictly-following implementer ships a correct V1 runtime. The risk is divergent defensive additions: an implementer reading the bullet who notices the gap and decides to install a wall-clock or memory guard "to be safe" produces a runtime that rejects programs the spec accepts, with no fixture suite to flag the divergence. Adjacent findings on this same bullet (counting conventions, retry-vs-call rule, code-enumeration) compound the operability gap.
 
@@ -2377,7 +1943,7 @@ The four ceilings' implementing leaves (V4f / V11i for the depth walk; V6i and t
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two reasonable implementers will diverge on the failure surface for at least one ceiling — most likely the binder cap (no code, system-note only) or the depth cap (validation-shaped, not panic-shaped) — because the index advertises uniformity that the topic pages do not deliver. Reviewers cannot verify the "no ceiling fails silently" claim without chasing four cross-references; conformance fixtures cannot be written against the index alone.
 
@@ -2405,139 +1971,6 @@ Edge cases the implementer must respect:
 - "Wall-clock, memory, and token bounds absent — \"complete V1 set\" claim overstated" — same-cluster (both findings tighten the aggregator's "complete V1 set" promise; they touch the same bullet but resolve along independent axes — completeness vs. failure-surface enumeration)
 - "Binder-call ceiling counting rule for retries unspecified" — same-cluster (both touch the binder-cap row but address orthogonal gaps: counting basis vs. failure-surface naming)
 - "JSON-document depth counting convention ambiguous" — same-cluster (both touch the depth-cap row but address orthogonal gaps: counting basis vs. failure-surface naming)
-
----
-
-# "Hard runtime ceilings" sits under a heading labelled "Scope"
-
-**Original heading:** Numeric ceilings misplaced — belong in a Non-Functional Requirements section
-**Kind:** placement
-
-## Finding
-
-`spec.md`'s `Orientation → Scope` subsection holds four bullets: trust boundary, source-language stability, runtime observability, and hard runtime ceilings. The intro paragraph candidly reframes the section as "four cross-cutting V1 dispositions that no single topic page enumerates as a unit," but the heading itself still reads "Scope." That label is conventionally read as in/out-of-V1 disposition (which fits trust-boundary and source-language-stability — both of which the intro explicitly tags as "scope disclaimers") and not as a home for non-functional requirements such as numeric resource ceilings (`invoke`-chain depth 32, `tool_loop.max_iterations` 25, 3 binder LLM calls, JSON-document depth 5).
-
-A reader auditing resource bounds — capacity planning, conformance testing, fitness for embedded hosts — will not look under "Scope." The bullet is itself well-formed and well-anchored to its four owner topic pages; only its container is mis-labelled relative to its contents. The same diagnosis applies to the runtime-observability bullet directly above it (see related findings), so resolving this one in isolation would leave the section half-fixed.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Scope → Hard runtime ceilings (edited)
-- `spec.md` — Orientation → Scope (intro paragraph) — (edited; the "four cross-cutting V1 dispositions" framing changes shape under any restructuring)
-- `spec.md` — Orientation → Scope → Runtime observability (option-dependent; co-edited under Option A)
-- `spec_topics/governance.md` — GOV-12 (read-only; owns the aggregator-vs-source lock-step convention that any moved bullet must continue to honour)
-- `spec_topics/invocation.md`, `spec_topics/frontmatter.md`, `spec_topics/binder.md`, `spec_topics/schema-subset.md` (read-only; own the four ceilings the bullet forward-links to)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — every leaf that implements one of the four ceilings (e.g. V4 / V11i for JSON-document depth, V6 / V13 for `tool_loop.max_iterations`, V16 family for binder retries, V18 for `invoke`-depth) anchors its `Spec.` reference at the owner topic page (`schema-subset.md`, `frontmatter.md`, `binder.md`, `invocation.md`), not at the `spec.md` Scope aggregator. Renaming or relocating the aggregator bullet does not touch any leaf's acceptance criteria.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader hunting "what are the resource limits in V1?" must already know to look under `Orientation → Scope`, which is counter-intuitive. No diagnostic, behaviour, or test is wrong; only discoverability of the ceilings list suffers.
-
-## Solution Space
-
-**Shape:** multiple
-
-### Option A — Split the aggregator into "Scope" and "Non-Functional Requirements"
-
-- **Approach.** Keep `Orientation → Scope` for the two scope-disclaimer bullets (trust boundary, source-language stability). Add a new sibling subsection `Orientation → Non-Functional Requirements` containing the runtime-observability and hard-runtime-ceilings bullets. Both subsections retain their forward-links to topic pages and their GOV-12 aggregator pointer.
-- **Spec edits.** New `### Non-Functional Requirements` heading and intro paragraph in `spec.md`; observability and ceilings bullets moved verbatim under it; the existing Scope intro shortens to mention only the two remaining bullets; GOV-12 aggregator note repeated (or factored into a shared note above both subsections).
-- **Pros.** Matches conventional spec hygiene; resource ceilings appear under a heading a capacity-planning reader will search for; co-resolves the parallel observability finding.
-- **Cons.** Two subsections share an aggregator-vs-source lock-step convention; either GOV-12's text is duplicated or it must be hoisted above both.
-- **Risks.** Any cross-page link or external reference to `#scope` that targets the moved bullets becomes stale; an audit of inbound `#scope`-anchored links is required.
-
-### Option B — Rename the heading to match the section's actual contract
-
-- **Approach.** Rename `### Scope` to `### Cross-cutting V1 dispositions` (the exact phrase the intro paragraph already uses). Bullets and order unchanged.
-- **Spec edits.** One heading rename in `spec.md`; intro paragraph trims one redundant clause; any inbound link anchored at `#scope` retargeted to the new slug.
-- **Pros.** Smallest possible edit; preserves the aggregator intent the author already articulated; fixes the mismatch between heading and contents without splitting the section.
-- **Cons.** Does not isolate non-functional requirements into a section a reader can search for under that conventional name; ceilings are still discoverable only by reading the cross-cutting aggregator.
-- **Risks.** Same inbound-link risk as Option A, plus a less idiomatic heading name that future contributors may revert toward something more conventional.
-
-### Recommendation
-
-**Option A — split.** The parallel observability finding (`Observability bullet misplaced — belongs in a Non-Functional Requirements section`) makes Option B a half-measure: two of the four bullets are non-functional and belong under a conventional NFR heading; the other two are genuine V1 disclaimers and belong under Scope. A single heading rename cannot satisfy both findings. Implementer must:
-
-1. Audit every link in `spec.md`, the topic pages, and the plan that anchors `#scope` (inbound or outbound) and retarget those that pointed at the moved bullets.
-2. Either duplicate the GOV-12 aggregator note in both subsections, or hoist it into the shared `## Orientation` preamble so it covers both — pick one and commit; a half-stated convention is worse than either choice.
-3. Preserve the bullets' bold ledes (`**Runtime observability.**`, `**Hard runtime ceilings.**`) and forward-links verbatim; only the container heading and intro paragraphs change.
-
-## Related Findings
-
-- "Observability bullet misplaced — belongs in a Non-Functional Requirements section" — co-resolve (same Option A restructuring fixes both; under Option B both must remain side-by-side)
-- "Diagnostic codes for ceiling breaches not enumerated at the index level" — same-cluster (also touches the Hard-runtime-ceilings bullet but adds a diagnostic-code line rather than restructuring; resolve independently)
-- "Four ceilings in one bullet — cannot be individually cited or tested" — same-cluster (also touches the Hard-runtime-ceilings bullet by splitting it into per-ceiling entries; resolve before or after this finding, not jointly — both edits compose cleanly)
-- "Wall-clock, memory, and token bounds absent — 'complete V1 set' claim overstated" — same-cluster (touches the same bullet's content, not its placement)
-- "'By editorial convention' undefined; editorial-convention parenthetical is cruft" — same-cluster (touches the same bullet's trailing parenthetical, independent of placement)
-
----
-
-# Hard-runtime-ceilings parenthetical duplicates GOV-12 in weaker language
-
-**Original heading:** "By editorial convention" undefined; editorial-convention parenthetical is cruft
-**Kind:** clarity, cruft
-
-## Finding
-
-The Scope bullet on hard runtime ceilings (`spec.md` line 51) closes with a parenthetical that re-states the lock-step rule already owned by `governance.md` GOV-12:
-
-> (This bullet is an aggregator under [Governance — GOV-12]; a future V1 leaf that introduces a new ceiling updates this bullet and the new ceiling's owner page in the same commit **by editorial convention**.)
-
-GOV-12 is the canonical, single-source-of-truth statement of this discipline. Its text is explicit ("aggregator paragraphs are maintained in lock-step with their source pages by editorial convention: a PR that adds, removes, or renames an item on a source page … MUST update the corresponding `spec.md` aggregator in the same commit"), and GOV-12 itself notes that "previous load-bearing MUSTs scattered across `spec.md` aggregator paragraphs (most notably the hard-runtime-ceilings migration MUST) are removed in favour of citing GOV-12." The Scope parenthetical is exactly such a scattered restatement — left over from before GOV-12 absorbed it.
-
-The duplication is not benign. The parenthetical phrases the obligation as "updates … by editorial convention" (no modal verb), whereas GOV-12 writes "MUST update … in the same commit." A reader who lands on `spec.md` first and never follows the GOV-12 link will see the weaker informal wording and treat the lock-step as a habit rather than a normative rule. Worse, "by editorial convention" is undefined locally — it could plausibly read as a CI rule, a CODEOWNERS rule, or shared folklore — when GOV-12 in fact pins it as a documentation defect with no mechanical gate. This belongs in `governance.md` only.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Scope → "Hard runtime ceilings" bullet (edited)
-- `spec_topics/governance.md` — GOV-12 (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(The fix is a pure spec-text edit on a paragraph that GOV-12 has already declared informative. No plan leaf currently depends on the parenthetical's wording. H6's introduction-link rewrite pass scopes to text between the H1 title and `## Orientation`, so the bullet under `### Scope` is outside its rewrite surface.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A weakened, locally-undefined restatement of GOV-12 sits next to the canonical normative form. No runtime behaviour or implementation choice is affected; the cost is reader doubt about whether the lock-step is a MUST or a soft custom, and a small drift hazard if GOV-12's wording is later refined and the parenthetical is missed.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete the parenthetical entirely. The four owner-page links earlier in the same bullet already give a reader the route into each ceiling's normative home, and `governance.md` GOV-12 is the single canonical statement of the lock-step discipline; no `spec.md`-side reminder is required. After the edit, the bullet ends at "No additional implicit nesting, iteration, or recursion limit applies in V1." with no trailing parenthesis.
-
-Edge cases the implementer must watch:
-
-- Do not replace the deleted parenthetical with a "see GOV-12" backlink — GOV-12's own text declares the migration away from such scattered restatements complete, and adding a fresh backlink reintroduces the pattern under a different shape.
-- The Scope bullet's existing four owner-page links (invocation.md, frontmatter.md, binder.md, schema-subset.md) must be preserved verbatim; only the trailing parenthetical is removed.
-- Confirm GOV-12's current text still names the hard-runtime-ceilings list among its enumerated aggregators ("currently: the four Scope bullets, the Pi SDK and capabilities bullet list, the four Host runtime obligations, and the four-item hard-runtime-ceilings list"). It does today; if a future edit drops it, that is a separate GOV-12 hygiene fix, not a reason to retain the parenthetical.
-
-## Related Findings
-
-- "GOV-8 bookkeeping description is editorial cruft" — same-cluster (same cruft pattern: spec.md duplicates governance-owned bookkeeping prose; both resolve by deletion-in-favour-of-governance-page but on different bullets).
-- "Meta-annotation labels (\"Orientation; this paragraph is informative\") are editorial cruft" — same-cluster (cruft pattern across spec.md orientation-section meta-prose; resolves independently).
-- "Inline five-form list contradicts the HTML comment that forbids inlining it" — same-cluster (another spec.md aggregator paragraph carrying inline content that an owner topic page is supposed to hold; same diagnosis, different bullet).
-- "Numeric ceilings misplaced — belong in a Non-Functional Requirements section" — same-cluster (touches the same Hard runtime ceilings bullet; if that finding's relocation lands first, the parenthetical move is wasted work — co-sequence the deletion with any relocation).
-- "Four ceilings in one bullet — cannot be individually cited or tested" — same-cluster (same bullet, different concern; splitting into four atomic entries removes the aggregator framing the parenthetical was justifying).
-- "Wall-clock, memory, and token bounds absent — \"complete V1 set\" claim overstated" — same-cluster (same bullet; resolves independently).
-- "Diagnostic codes for ceiling breaches not enumerated at the index level" — same-cluster (same bullet; resolves independently).
-- "JSON-document depth counting convention ambiguous" — same-cluster (same bullet; resolves independently).
-- "Binder-call ceiling counting rule for retries unspecified" — same-cluster (same bullet; resolves independently).
 
 ## spec.md — Language index / .warp permitted forms
 
@@ -2572,7 +2005,7 @@ None. `V17a` (`.warp` files parse with body restriction) restates the same five 
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A future PR that extends the canonical permitted-form list in `imports.md` will leave the `spec.md` parenthetical silently stale, which is precisely the failure mode the HTML comment was placed to prevent. Two reasonable editors confronted with the contradiction today will resolve it in opposite directions (delete the parenthetical vs. delete the comment), neither knowing which direction the spec author intended.
 
@@ -2662,7 +2095,7 @@ The fix is a one-sentence spec edit. No plan leaf's acceptance criteria changes;
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 `spec.md` self-contradicts its own MUST on the term `callable set`, which weakens the glossary's authority for every downstream reader and every future reviewer. No implementation diverges, but the next person editing the Scope section now has a precedent for ignoring the glossary's deprecation list.
 
@@ -2694,353 +2127,7 @@ Edge cases for the implementer:
 - "\"system-note codes\" terminology does not match channel or diagnostic terminology" — same-cluster (sibling naming-consistency finding; independent fix)
 - "`factory-probable` — undefined compound adjective" — same-cluster (sibling naming-consistency finding; independent fix)
 
----
-
-# `## Implementation Notes` section heading shadows its first child link
-
-**Original heading:** "Implementation Notes" section and its first child link share the same string
-**Kind:** naming
-
-## Finding
-
-`spec.md` line 102 opens a top-level section `## Implementation Notes`. Its first bullet (line 106) is a link whose visible text is also "Implementation Notes," pointing at `spec_topics/implementation-notes.md`. The two strings are identical, so a citation of the form "see Implementation Notes" is ambiguous between the section container and the specific topic page.
-
-The section name is also too narrow for what it actually contains. Its four bullets cover (1) the parser/runtime/schema-validation notes that the topic page actually owns, (2) the Runtime Value Model, (3) the Pi Integration Contract, and (4) Future Considerations. Three of the four bullets are not "implementation notes" in the topic-page sense, so the umbrella heading mis-describes the section even before considering the shadowing problem.
-
-In practice, every downstream reference uses the disambiguated form `Implementation Notes — Runtime` or links directly to the topic file (no cross-reference resolves to the spec.md `#implementation-notes` anchor at all — confirmed by `grep`). The defect is therefore confined to spec.md's own table of contents, but it actively misleads first-time readers of the index.
-
-## Spec Documents
-
-- `spec.md` — `## Implementation Notes` section header (line 102) (edited)
-- `spec_topics/implementation-notes.md` — `# Implementation Notes` H1 (read-only; the topic page name stays)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-No plan leaf references `spec.md#implementation-notes`; all leaves cite either the topic page (`implementation-notes.md`) or its sub-anchor (`#runtime`, `#parser`). Renaming the spec.md section header has zero link-rot cost.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader of `spec.md`'s index sees the same string twice in adjacent positions and cannot tell from the index alone which level of the hierarchy a future "see Implementation Notes" citation refers to. No implementation diverges, no behaviour is at stake, and no downstream cross-reference breaks; the cost is purely orientation friction in the spec ToC.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rename the `spec.md` H2 from `## Implementation Notes` to a name that covers all four child bullets without colliding with the topic-page title. Recommended: `## Runtime and Pi Integration`. The body sentence ("Implementer-facing notes about the runtime and Pi SDK contract.") already reads as a fit for this name; no body edit is needed beyond the heading line itself.
-
-Leave the topic page (`spec_topics/implementation-notes.md`), its filename, its H1, and the first bullet's link text all untouched — they remain "Implementation Notes" and continue to be cited as `Implementation Notes — <subsection>` everywhere they appear.
-
-Edge case for the implementer: confirm by `grep -rn 'spec.md#implementation-notes\|](#implementation-notes)' .` that no anchor link to the renamed section exists before committing. (Current state: zero matches.)
-
-## Related Findings
-
-- "`callable set` vs `tools: allowlist` — two names for one concept" — same-cluster (both live under spec.md's Naming and Terminology cross-cutting section; resolve independently)
-- "`respond_repair` (underscore) vs `respond-repair` (hyphen) inconsistency" — same-cluster (naming bucket; independent)
-- "\"system-note codes\" terminology does not match channel or diagnostic terminology" — same-cluster (naming bucket; independent)
-- "`factory-probable` — undefined compound adjective" — same-cluster (naming bucket; independent)
-
----
-
-# "System-note codes" is an undefined synonym for "diagnostic codes"
-
-**Original heading:** "system-note codes" terminology does not match channel or diagnostic terminology
-**Kind:** naming
-
-## Finding
-
-The Source-language stability bullet in `spec.md` describes a deferred conformance fixture suite as one that "mechanically diffs return values, ordered system-note codes, and diagnostic batches against a frozen V1.0 baseline." The phrase **"system-note codes"** appears nowhere else in the corpus.
-
-Throughout the rest of the spec the consistent vocabulary is:
-
-- `loom-system-note` — the **channel** (a Pi `customType`), defined in `pi-integration-contract.md` and used uniformly in `diagnostics.md`, `binder.md`, `slash-invocation.md`, `errors-and-results.md`, `cancellation.md`, `query.md`.
-- **diagnostic code** — the stable identifier (e.g. `loom/runtime/system-note-delivery-failed`) carried inside a `Diagnostic`, defined in the registry table at `diagnostics.md` and explicitly named "diagnostic codes" by `diagnostics.md` line 308 ("via `related`") and by the rule "Codes are stable identifiers" (`diagnostics.md` §3).
-- **diagnostic batch** — a `Diagnostic[]` payload on the `loom-system-note` channel.
-
-Codes are emitted on the channel; the codes are not codes "of" the channel. The hyphenated noun phrase "system-note codes" therefore reads as either (a) a third concept the reader has missed, or (b) a careless contraction of "codes that travel through `loom-system-note`." `glossary.md` defines neither — it has no entry for either "system-note code" or "diagnostic code." A reader cross-referencing the bullet against the rest of the spec has no way to confirm which reading is intended.
-
-The bullet is itself a description of post-V1 work (a deferred fixture suite) — no V1 implementation behaviour hinges on the wording. The fix is editorial.
-
-## Spec Documents
-
-- `spec.md` — Source-language stability bullet (Orientation → Scope) (edited)
-- `spec_topics/diagnostics.md` — registry table and "Codes are stable identifiers" rule (read-only)
-- `spec_topics/pi-integration-contract.md` — `loom-system-note` channel definition (read-only)
-- `spec_topics/glossary.md` — confirms no existing entry for either term (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The bullet describes a deferred post-V1 conformance fixture suite (filed under Future Considerations); no plan leaf builds it, references "system-note codes," or asserts anything about the wording of this bullet.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader who consults the rest of the spec for "system-note codes" finds nothing and must infer that the phrase is shorthand for "diagnostic codes carried on the `loom-system-note` channel." No V1 implementation work is affected; the only cost is one moment of reader doubt about whether a third concept is being introduced.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec.md` (Source-language stability bullet), replace
-
-> mechanically diffs return values, ordered system-note codes, and diagnostic batches
-
-with
-
-> mechanically diffs return values, ordered diagnostic codes, and diagnostic batches
-
-This aligns with `diagnostics.md`'s registered vocabulary and avoids introducing a phantom concept. No glossary addition is needed: "diagnostic code" is already the canonical term and is unambiguous in context.
-
-Edge cases:
-
-- The word "ordered" matters and must be preserved — it commits the future fixture suite to comparing emission order, not just the code multiset.
-- The companion phrase "diagnostic batches" already aligns with the spec's vocabulary (a batch = `Diagnostic[]` on one `loom-system-note`); leave it as-is.
-- Do not also rename "diagnostic batches" to e.g. "system-note batches" — that would re-introduce the same channel-vs-payload confusion in the opposite direction.
-
-## Related Findings
-
-- "Future conformance suite detail too verbose inline" — same-cluster (same sentence in the same bullet; if that finding moves the conformance-suite description into Future Considerations, the wording fix lands in the moved text instead of in `spec.md`)
-- "`callable set` vs `tools: allowlist` — two names for one concept" — same-cluster (same Naming and Terminology section, same class of two-names-for-one-thing defect; resolves independently)
-- "`respond_repair` (underscore) vs `respond-repair` (hyphen) inconsistency" — same-cluster (same section, same class; resolves independently)
-- "`factory-probable` — undefined compound adjective" — same-cluster (same section, also a single-occurrence undefined term; resolves independently)
-- "`loom-system-note` channel assumed registered via capability item 6 — not stated" — same-cluster (touches the same `loom-system-note` channel surface but is about registration assumptions, not terminology; resolves independently)
-
----
-
-# `factory-probable` is used as a defined term in spec.md without being defined there
-
-**Original heading:** `factory-probable` — undefined compound adjective
-**Kind:** naming
-
-## Finding
-
-`spec.md` §"Pi SDK named-capability surface" (item 3 under Host runtime) contains the sentence: "Five (items 1, 2, 3, 4, 6) are factory-probable and verified at extension-factory entry; item 5 (cancellation propagation) is covered by obligation 2 above; item 7 (binder LLM model) is verified at per-loom load time …". The compound `factory-probable` is the load-bearing classifier that partitions the seven SDK capabilities into the Step 0 (c) subset versus the deferred ones, but it is introduced here without a definition, parenthetical gloss, or Glossary entry. It is also not the anchor text of the trailing forward link — the reader has to land on `pi-integration-contract.md` and notice that step (c)'s heading happens to be "Factory-probable SDK capabilities" to discover that the term is meant as a defined concept rather than incidental phrasing.
-
-The same-sentence clause "and verified at extension-factory entry" provides enough context that a careful reader can reconstruct the intent, so this is a clarity defect rather than a correctness one. But `spec.md` is the orientation page; readers skim it precisely to learn the project's vocabulary, and an undefined hyphenated adjective on first appearance is exactly the sort of friction this page should not produce. The term is also live elsewhere — `spec_topics/pi-integration-contract.md` step (c) is titled "Factory-probable SDK capabilities" and `plan_topics/h1-scaffold.md` references "the **factory-probable** subset" — so the term is genuinely a recurring concept, not a one-off rhetorical flourish.
-
-## Spec Documents
-
-- `spec.md` — §Host runtime, item 3 "Pi SDK named-capability surface" (edited)
-- `spec_topics/pi-integration-contract.md` — Step 0 (c) "Factory-probable SDK capabilities" and §"SDK capability inventory" (read-only; defines the term in situ)
-- `spec_topics/glossary.md` — (option-dependent; only edited under Option B)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-(`plan_topics/h1-scaffold.md` reuses the term but consumes it via the PIC anchor where it is defined; an editorial fix to `spec.md`'s lone use does not change the leaf's acceptance criteria.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A skimming reader of `spec.md` momentarily stalls on an undefined compound adjective and either reconstructs its meaning from the same sentence or follows the forward link. No implementation diverges. The cost is purely reader friction on the orientation page.
-
-## Solution Space
-
-**Shape:** multiple
-
-### Option A — Replace the term inline with transparent prose
-
-**Approach:** Edit the one occurrence in `spec.md` line 37 from "Five (items 1, 2, 3, 4, 6) are factory-probable and verified at extension-factory entry" to "Five (items 1, 2, 3, 4, 6) are **checked at extension-factory entry by a structural probe** (see [Step 0 (c)+(d)] for the exact algorithm)". Leave PIC and `h1-scaffold.md` unchanged — they continue to use `factory-probable` as a locally-defined term where it is anchored.
-
-**Spec edits:** `spec.md` only, one sentence in §Host runtime item 3.
-
-**Pros:** Smallest diff. `spec.md` becomes self-contained for this bullet. No new Glossary entry to maintain. The forward link already points at the canonical algorithm, so the parenthetical is just a courtesy.
-
-**Cons:** The vocabulary `factory-probable` continues to live in PIC and the plan without a top-level index entry. A reader who hits the term in `h1-scaffold.md` first still has to discover its definition by following links.
-
-**Risks:** None substantive — purely editorial.
-
-### Option B — Add a Glossary entry and keep the spec.md prose as is
-
-**Approach:** Add a `factory-probable` (and possibly companion `factory-time` / `per-loom-load`) entry to `spec_topics/glossary.md` defining: "An SDK capability whose presence is verifiable by a synchronous `typeof <member> === 'function'` check at extension-factory construction time, before any `pi.register*` or `pi.on` call. Step 0 (c) of the Pi Integration Contract enumerates the factory-probable subset." Then either leave `spec.md` line 37 alone or add a short link "(see Glossary)".
-
-**Spec edits:** `spec_topics/glossary.md` (new entry); optionally `spec.md` line 37 (link addition).
-
-**Pros:** Promotes a real recurring concept to first-class vocabulary. Benefits readers who encounter the term in PIC or the plan, not just in `spec.md`. Aligns with how other cross-cutting terms are handled.
-
-**Cons:** Larger edit, and Glossary additions in this project carry REQ-ID/governance overhead. Slightly redundant with PIC step (c)'s in-situ definition.
-
-**Risks:** Glossary entry can drift from PIC's authoritative algorithm if the latter is later refined; needs an aggregator-source lock-step note (per GOV-12 conventions).
-
-### Recommendation
-
-Take **Option A**. The term appears exactly once on `spec.md`, the same sentence already paraphrases its meaning, and the trailing forward link to PIC step (c)+(d) carries the authoritative algorithm. Replacing the adjective with "checked at extension-factory entry by a structural probe" closes the clarity gap with a one-sentence edit and avoids creating a Glossary entry that would compete with PIC's existing in-situ definition. Implementer note for the editor: do not touch `spec_topics/pi-integration-contract.md` step (c)'s heading or `plan_topics/h1-scaffold.md`'s use of `factory-probable` — those are consumers of a locally-anchored term and the term remains correct in those contexts.
-
-## Related Findings
-
-- "Seven SDK capabilities listed by label only — no probe shape or factory-entry semantics" — co-resolve (same `spec.md` bullet; that finding's suggested qualifier "the factory-time probe is structural (see [Pi Integration Contract — Step 0])" is essentially Option A here applied to the broader bullet)
-
 ## spec.md — Whole document (cross-cutting assumptions)
-
----
-
-# Source encoding (UTF-8) is anchored only inside `lexical.md` with no forward-link from `spec.md`
-
-**Original heading:** Source encoding (UTF-8) never stated
-**Kind:** assumptions
-
-## Finding
-
-`spec.md` is the front-door aggregator and the only document a reader is guaranteed to open before deciding whether `.loom`/`.warp` files are a fit for their toolchain. It never states — and never forward-links to — the source encoding requirement. The bullet introducing the lexical topic (`Lexical Structure — identifiers, keywords, comments, strings, numbers.`) does not list "encoding" among the topics that page covers, so a reader scanning the index has no signal that encoding is fixed elsewhere rather than left implementation-defined.
-
-The encoding rule itself is spelled out fully in `spec_topics/lexical.md` ("Source files are UTF-8. A leading UTF-8 BOM is consumed and ignored…") and is implemented under plan leaf V1f. The gap is purely editorial: a tool author writing a syntax-highlighter, formatter, or git attribute file from `spec.md` alone has no cue to consult `lexical.md` for encoding rules.
-
-## Spec Documents
-
-- `spec.md` — Reading order / Language section (edited)
-- `spec_topics/lexical.md` — Source files / Encoding bullet (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — the encoding rule itself, its diagnostic (`loom/load/invalid-encoding`), and its tests are already owned by V1f. This finding asks for a one-line editorial addition to `spec.md` that does not change any acceptance criterion.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader who reads only `spec.md` may assume encoding is unspecified and either ask, or invent a convention. Anyone who follows the `Lexical Structure` link reaches the canonical rule on the first scan of that page. No implementation behaviour or interoperability is at risk.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend the `Lexical Structure` bullet under `spec.md` § Language to name encoding among the topics that page owns:
-
-```
-- [Lexical Structure](./spec_topics/lexical.md) — source encoding, identifiers, keywords, comments, strings, numbers.
-```
-
-Edge cases for the editor:
-
-- Keep the canonical rule (UTF-8 only, BOM consumed, `loom/load/invalid-encoding` on violation) where it lives in `lexical.md`. Do not duplicate the normative text into `spec.md`; the index entry is sufficient.
-- The companion finding on path portability suggests a parallel one-line addition; resolve both in the same edit so the Language and Extension Architecture sections remain consistent in tone.
-
-## Related Findings
-
-- "Path portability (POSIX vs. Windows) not addressed" — same-cluster (both are spec.md-level forward-link omissions about cross-cutting source-text assumptions; resolve in the same editorial pass)
-- "No CI validation of spec.md cross-links / anchors" — same-cluster (also targets spec.md as aggregator, but addresses link integrity rather than missing forward-links; resolve independently)
-
----
-
-# spec.md aggregator omits orientation pointer to path-portability rules
-
-**Original heading:** Path portability (POSIX vs. Windows) not addressed
-**Kind:** assumptions
-
-## Finding
-
-The `spec.md` aggregator forward-links `Imports`, `Invocation`, and `Discovery`
-for path-extension enforcement, but it carries no orientation about the cross-cutting
-*platform-portability* discipline that those topic pages establish. A first-time reader
-of `spec.md` is given no signal that path literals in source must be forward-slash
-only (with `\` rejected as `loom/parse/invalid-path-separator`), that discovery roots
-and the `--loom` flag accept OS-native paths, that `~` is expanded uniformly through
-the injected `FileSystem` seam (no platform branches), or that the `--loom` separator
-follows `path.delimiter` (`:` POSIX, `;` Windows, with the latter required to avoid
-drive-letter colon collisions).
-
-The topic pages already own all of this: `lexical.md` §"Path literals" is the normative
-home for the source-literal rule; `imports.md` and `invocation.md` re-anchor it at the
-`import` / `invoke` / `tools:` `.loom` sites; `discovery.md` covers `path.delimiter`,
-home-directory expansion, the case-insensitive collision rule, the non-canonical
-extension-case warning, and the `lstat`-ancestor probe that uniformises `ENOENT`
-between POSIX and Windows. The gap is narrow and aggregator-level only: `spec.md`
-already carries one path-related forward-link sentence (extension matching, line 9),
-and a parallel one-line orientation pointer for path-platform portability would
-keep the aggregator honest with the spec it indexes.
-
-This is the same shape as the sibling finding on source encoding: a topic page
-(`lexical.md`) is the normative source, and `spec.md` lacks a one-line orientation
-forward-link. Resolving both together keeps the editorial pattern uniform.
-
-## Spec Documents
-
-- `spec.md` — Orientation / Scope (or a short new "Path literals" orientation bullet) (edited)
-- `spec_topics/lexical.md` — "Path literals" rule (read-only; forward-link target)
-- `spec_topics/discovery.md` — `path.delimiter`, home-directory expansion, case-collision rule (read-only; forward-link target)
-- `spec_topics/imports.md` — Path resolution rule (read-only; forward-link target)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The normative behaviour the orientation pointer would describe is already owned
-by topic pages whose plan leaves (V14n, V15a, V15e, V17c) implement and test the
-`loom/parse/invalid-path-separator` rule, the `path.delimiter` split, and the home
-expansion via the `FileSystem` seam. An aggregator-only forward-link adds no new
-implementer obligation and no new test.
-
-## Consequence
-
-**Severity:** cosmetic
-
-A reader who only skims `spec.md` and never opens the topic pages may not realise
-that path-platform portability is a settled discipline rather than implementer
-discretion. No implementer behaviour or diagnostic surface is at risk — the topic
-pages are normative, complete, and consistent — so the gap is purely editorial.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a one-line orientation bullet (or paragraph) to `spec.md`'s `## Orientation`
-section under either `### Scope` or a small new `### Path conventions` subsection,
-forward-linking the three normative anchors:
-
-> **Path conventions.** *Orientation; the operative rules live on the topic pages.*
-> Path literals in source (`import`, `invoke`, `.loom` entries inside `tools:`) are
-> forward-slash only and are extension-checked byte-exact lowercase per
-> [Lexical Structure — Path literals](./spec_topics/lexical.md) and
-> [Lexical — Extension matching](./spec_topics/lexical.md#extension-matching).
-> Discovery roots and the `--loom` CLI flag accept OS-native paths and split on
-> `path.delimiter` (`:` POSIX, `;` Windows); home-directory expansion is uniform
-> across platforms via the injected `FileSystem` seam — see
-> [Discovery](./spec_topics/discovery.md) and
-> [Imports — Path resolution](./spec_topics/imports.md).
-
-Add the bullet alongside (or co-located with) the resolution of the sibling
-"Source encoding (UTF-8) never stated" finding to keep the editorial pattern
-uniform — both add an orientation pointer to a settled topic-page rule.
-
-Implementer-relevant edge cases the bullet should *not* try to summarise (they live
-on the topic pages and would only drift if duplicated): the exact diagnostic code
-strings, the `realpath`-vs-`lstat` semantics for the discovery `ENOENT` classifier,
-and the case-insensitive intra-source collision rule.
-
-## Related Findings
-
-- "Source encoding (UTF-8) never stated" — co-resolve (same shape: spec.md aggregator missing a one-line orientation pointer to a settled `lexical.md` rule; resolve in the same edit pass for editorial uniformity)
-- "No CI validation of spec.md cross-links / anchors" — same-cluster (the proposed bullet adds new cross-links; if a link/anchor CI gate lands, those new links benefit; resolution is independent)
 
 ---
 
@@ -3074,7 +2161,7 @@ The exposure compounds at H6. `plan_topics/h6-req-ids.md` rewrites every `spec.m
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Broken anchors degrade silently: navigation from `spec.md` lands at the top of the target file rather than the cited rule, and reviewers chasing GOV-9 cross-links may cite a rule that no longer exists at that anchor without noticing. Once H6 has rewritten the aggregator to `#prefix-n` form, a single GOV-7 *Rename* or heading-text edit can break tens of links in one commit with no PR signal. Implementers can still ship correct behaviour from a corpus with rotted anchors — hence advisory rather than correctness — but the cost rises sharply post-H6.
 
@@ -3136,7 +2223,7 @@ None — the gap is purely orientational; no leaf's `Tests` or `Ships when` chan
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 A reader of `spec.md` cannot determine from the orientation pages alone whether `pi-loom` must contend with concurrent user sessions in one process. The truth is reachable by reading `pi-integration-contract.md`'s `session_shutdown` reasons table and noticing that all four reasons are session-replacement events, but that is a multi-page inference. Implementers may either over-engineer (per-session keying that Pi's lifecycle already provides) or under-engineer (assume singularity without naming it, then break a future seam quietly). Neither outcome is wrong-on-arrival, but both waste review cycles.
 
@@ -3203,7 +2290,7 @@ The fix is confined to spec-page prose. H1, H2, H6, V18s, and V16o leaves contin
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 An implementing agent working a non-horizontal leaf (say, V8) under GOV-10's reading scope cannot tell whether the spec sentences they encounter naming `H1` or `H2` describe runtime behaviour they must produce, build-time artefacts another leaf owns, or CI gates they can ignore. They will either over-read into plan pages outside their scope or under-implement against requirements they misclassified as someone else's CI obligation. No two implementers will diverge on observable runtime behaviour because of this — the named tests still exist and still gate merges — so the impact is confusion and reading-scope inflation, not divergent implementations.
 
@@ -3317,7 +2404,7 @@ The fix is a pure spec-organisation reformat: the same paragraphs remain normati
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** medium
 
 Implementers can produce a working V1 system without the marker, but the unmarked seam paragraphs invite two specific mistakes: over-engineering the seam (named-argument binding, `candidates` rendering) at V1, or quietly dropping the seam during refactors because it reads as dead code. Both surface as spec-conformance regressions long after merge.
 
@@ -3397,7 +2484,7 @@ The proposed edit is editorial framing only: it adds a self-describing banner se
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 An implementing agent who reads `governance.md` cold may spend time trying to translate GOV-1 through GOV-12 into runtime behaviour before realising they are spec-corpus obligations. No implementer would produce wrong runtime behaviour from this confusion (the rules do not describe runtime behaviour at all), but they may waste reading time and may quote GOV obligations in code-review threads where they do not apply.
 
@@ -3459,7 +2546,7 @@ None. The relocation is editorial: H3's `Diagnostic` shape and serialiser, and V
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 Two conformant implementations can ship without disagreement on the six enumerated categories — that part is byte-pinned. They can still disagree on the rendering of every other placeholder, because the spec hands them the unenumerated set under a non-normative paragraph and leaves the choice of "obvious extension" to each implementer. The disagreement is bounded (the affected diagnostics are operator-facing panic and load messages, not author-facing parse errors that tests assert on), but the page misrepresents itself as fully closing placeholder rendering when it does not.
 
@@ -3528,7 +2615,7 @@ None. No current plan leaf owns the `session_shutdown` teardown handler or asser
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two reasonable implementers will produce divergent byte sequences for the same in-flight invocation set. Any test that asserts on the diagnostic's `message` field is non-portable; tests that only assert on the registry code (per V18s) survive but lose the ability to verify that the rendered list actually identifies the offending invocations.
 
@@ -3590,7 +2677,7 @@ The mismatch is between (a) a normative E-level diagnostic that ships in V1, (b)
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 The V1 user-visible behaviour is correct (the W-level diagnostic fires, looms register, malformed envelopes surface via the V16o template). The defect is a verification hole: an E-level diagnostic that ships as part of the V1 contract has no executed test asserting its emission, and the V18s gate cannot detect this because the literal string is present in (skipped) test source. When a Pi minor finally adds the indicator and the bump procedure unskips the test, any regression introduced in the interim surfaces for the first time at upgrade — exactly the moment the spec promises the contract has been "re-validated".
 
@@ -3713,7 +2800,7 @@ The fixtures themselves do exist (per V16h tests), so on a CI that runs the full
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** medium
 
 A contributor following the bump checklist verbatim can widen `peerDependencies` past a Pi minor that adds, renames, or splits an `Api` value without ever exercising the seed-field table. The spec waives review pressure on the gap, so the MUST relies entirely on contributor diligence. The most likely failure mode is silent: a new provider with no table row inherits `omitted`, binder requests carry no seed for it, and reproducibility is lost without any test or diagnostic firing.
 
@@ -3777,7 +2864,7 @@ The `session_shutdown` handler — its subscription, the `ActiveInvocationRegist
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two implementers will diverge on the bound: one will treat `remainingShutdownBudget` as "no extra cap" and use a flat 2000 ms, another will invent a settings key or environment variable, a third will return immediately on the assumption that an undefined operand makes `Math.min` resolve to `NaN`. The corresponding diagnostic message will be unreproducible across implementations, defeating the V18s gate that asserts every diagnostic code surfaces against a known fixture.
 
@@ -3842,7 +2929,7 @@ V13g's acceptance test ("attempts exhausted → `Err({kind:"validation", attempt
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two implementers shipping V6l + V13g against the same fixture set can produce divergent observables for the "model ignored forced tool" path: one synthesises a `ValidationIssue { schema_keyword: "required", … }` and populates `raw_response`, another emits `validation_errors: []` and `raw_response: null`, a third routes the case through `tool_loop_exhausted` instead. All three pass the existing V13g test ("attempts exhausted"). Loom authors writing recovery via `match` cannot rely on a stable shape; reviewers cannot mechanically reject any of them.
 
@@ -3927,7 +3014,7 @@ Net effect: for a discarded `let _ = @\`...\``, four of the nine `QueryError` va
 
 ## Consequence
 
-**Severity:** correctness
+**Severity:** high
 
 Two reasonable implementers reading only `query.md` vs. only `pi-integration-contract.md` will produce divergent runtime behaviour for discarded `validation` / `context_overflow` / `cancelled` / `invoke_callee_error` failures. A conformance test cannot be written today that closes both interpretations. The plan resolves the ambiguity in V18q by fiat, but the spec — the document the V1 conformance suite is supposed to certify — does not.
 
@@ -4005,7 +3092,7 @@ This is purely a scoping/justification gap; the normative wording is unambiguous
 
 ## Consequence
 
-**Severity:** advisory
+**Severity:** low
 
 The behavioural contract is unambiguous, so V14m / V14n implementers will produce a working system either way. The cost of leaving it as-is is operator confusion (three knobs whose existence is unjustified) plus a slightly larger V1 surface than necessary. The cost of getting it wrong in the other direction (silently dropping the knobs without leaving an opt-out) would be operationally bad on monorepos that exceed the hardcoded cap.
 
