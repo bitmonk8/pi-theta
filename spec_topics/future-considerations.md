@@ -7,6 +7,7 @@ The categories are:
 1. **Tooling deferrals (no V1 impact).** Items that ship as new tools or commands and require no V1 runtime decision.
 2. **Surface extensions (V1 leaves a seam).** Items that extend a V1 type, struct, or call shape in a backward-compatible way. Each item names the V1 seam it needs.
 3. **Model-level changes (no V1 seam expected).** Items that change the runtime value model, evaluation model, or tool-result contract enough that V1 is not expected to anticipate them; adding them post-V1 will require a migration.
+4. **Known V1 limitations (no seam expected).** Cross-cutting V1 scope decisions where V1 deliberately leaves no seam because the disposition is "ship without one" rather than "defer the seam". Each item names the orientation bullet on `spec.md` that records the V1 disposition.
 
 Items occasionally carry a `Depends on:` annotation where they presuppose another item in the list.
 
@@ -80,4 +81,13 @@ Each bullet below describes a deferred V1 extension and points at the normative 
 - **Non-decimal number literals** (hex `0x...`, octal `0o...`, binary `0b...`) **and underscore digit separators** (`1_000_000`) — V1 accepts decimal literals only with no separators.
 - **Integer-division operator** — V1's `/` always produces `number`; there is no dedicated truncating-division operator.
 - **Additional string and array stdlib methods** beyond the V1 set — the V1 method surface is deliberately small; extending it is non-breaking by design (anything not on the list is a parse-time "unknown method" error, leaving the namespace open).
+
+---
+
+## Known V1 limitations (no seam expected)
+
+- **No per-loom sandbox or capability model.** V1 looms run inside the Pi extension-host process at full host privilege; filesystem, network, and Pi-API access are bounded only by Pi's own extension permissions and by the per-loom `tools:` allowlist. A future per-loom capability model is not anticipated by V1 and will require a migration.
+  *Recorded at:* [`spec.md` — Orientation — Scope — Trust boundary](../spec.md#scope).
+- **No formal source-language migration mechanism for major-version transitions.** V1 promises that a `.loom` or `.warp` file loading cleanly under V1.0 loads and behaves identically under every V1.x release (substantive changes are mediated by the `GOV-8` REQ-ID lifecycle); migration across major versions is out of V1 scope and will require a separate mechanism when V2 ships.
+  *Recorded at:* [`spec.md` — Orientation — Scope — Source-language stability](../spec.md#scope).
 

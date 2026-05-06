@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_28 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_27 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -2008,79 +2008,3 @@ Edge cases for the implementer:
 
 - `"looms do not write files" claim` — co-resolve (the recommended README rewrite incorporates the file-write rewording; the spec-side edits remain owned by that finding)
 - `Final value contract on failure unstated` — same-cluster (both touch the "loom produces a final value" contract; the failure-case gap is a spec-side problem and resolves independently)
-
----
-
-# `spec.md` Orientation lacks a Scope section pinning four cross-cutting concerns
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** Missing top-level forward references for load-bearing concerns
-**Kind:** completeness
-
-## Finding
-
-`spec.md`'s Orientation section enumerates Prerequisites and a Reading Order, but never enumerates what V1 *does not* cover or where to find the cross-cutting policies that bound runtime behaviour. Four concerns sit in this gap:
-
-1. **Authentication / authorization / tenancy.** Neither `spec.md` nor any topic page states the trust boundary a `.loom` file inherits — what filesystem, network, tool-execution, or Pi-API surface a loom may touch, and whether V1 imposes any sandbox separate from the Pi extension host's own permissions. The implicit V1 answer (looms run inside the extension host process at full host privilege; the only enforcement is whatever Pi already enforces on extensions and on the active-tool set) is correct but unwritten, so a reader who searches for "permission" finds only filesystem-EACCES diagnostics.
-2. **Source-language migration / backward-compatibility policy.** `spec.md` says nothing about whether a `.loom` file that loads cleanly under V1.0 is guaranteed to load and behave identically under V1.x, nor what the policy is across major versions. Pi-side compatibility *is* covered (the `peerDependencies` widening rule under Prerequisites), but loom-source compatibility is the orthogonal axis and is unaddressed.
-3. **Loom-runtime observability orientation.** The Runtime event channel — the operator-facing log surface for the always-log `QueryError` set — is normatively pinned in `pi-integration-contract.md` and consumed by `diagnostics.md` and `query.md`'s discard-observability rule, but `spec.md`'s top-level reading order links neither. An implementer surveying the spec for "what does the runtime emit for logging / metrics" must already know the channel's name to find it.
-4. **Centralised resource-limit inventory.** The runtime *does* specify each ceiling — invoke-chain depth 32 (`invocation.md`), `tool_loop.max_iterations` 25 (`frontmatter.md`), at most 3 binder LLM calls per slash invocation (`binder.md`), JSON-document depth 5 (`schema-subset.md`) — but no page enumerates them together, and `spec.md` does not state that these are the complete set of hard ceilings (so an implementer cannot tell whether some implicit nesting / iteration limit is also expected).
-
-The result is not that implementers will invent the ceilings (the per-page numbers are pinned and tested) but that the four concerns are individually invisible from the entry document. A reader following the spec's own orientation contract — "restrict reading to the topics listed under your plan leaf's Spec field" — has no signal that any of these concerns exist until they hit the topic page that owns it.
-
-## Spec Documents
-
-- `spec.md` — Orientation (edited)
-- `spec_topics/future-considerations.md` — *Known V1 limitations (no seam expected)* (edited)
-- `spec_topics/pi-integration-contract.md` — Runtime event channel (read-only)
-- `spec_topics/invocation.md` — Invocation depth bound (read-only)
-- `spec_topics/frontmatter.md` — `tool_loop` (read-only)
-- `spec_topics/binder.md` — Failure modes / retry budget (read-only)
-- `spec_topics/schema-subset.md` — depth ceiling (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The edit is doc-only on `spec.md`'s Orientation and `future-considerations.md`'s *Known V1 limitations* bucket; it adds cross-references to existing normative text and (in two cases — auth/tenancy and source-language migration) records a V1 disposition without changing observable behaviour. No leaf's Tests or Ships-when criteria move.
-
-If the auth/tenancy or migration disposition is written as a numbered governance rule (e.g. `GOV-9` / `GOV-10`), it falls under the existing `spec.md → GOV` row in the REQ-ID prefix table; per `GOV-3` the V18s coverage gate does not consume `GOV-N` IDs in `spec.md`, so no plan leaf needs to claim them.
-
-## Consequence
-
-**Severity:** advisory
-
-The four concerns are individually reachable from their owning topic pages and from `pi-integration-contract.md`, so an implementer who reads the full spec will find them; but a reader entering through `spec.md` and following the spec's own "restrict to plan-leaf Spec field" reading discipline can implement most leaves without ever discovering the auth-trust assumption, the source-language stability promise, the runtime-event channel, or the inventory of hard ceilings. Two implementers can ship V1 with divergent assumptions about migration policy and about whether further implicit nesting limits apply.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a `### Scope` subsection to `spec.md` under `## Orientation` (after `### Prerequisites`, before `### Reading order`). Use four bullet-style sub-paragraphs, each one or two sentences, that pin the V1 disposition and forward-link the owning page. Suggested content (paraphrasing — wording is the writer's call):
-
-- **Trust boundary.** "V1 looms execute inside the Pi extension-host process at full host privilege. There is no loom-level sandbox: filesystem, network, and Pi-API access are bounded only by what Pi grants to extensions and by the per-loom `tools:` allowlist (see [Pi Integration Contract — Tool-registration lifetime and visibility](./spec_topics/pi-integration-contract.md)). A future per-loom capability model is recorded under [Future Considerations](./spec_topics/future-considerations.md)."
-- **Source-language stability.** "A `.loom` or `.warp` file that loads cleanly under V1.0 is guaranteed to load and behave identically under every V1.x release; substantive grammar or semantics changes follow the REQ-ID lifecycle in the Appendix (split / merge / deletion-plus-add, never in-place). Migration across major versions is out of V1 scope; see [Future Considerations](./spec_topics/future-considerations.md)."
-- **Runtime observability.** "Operator-facing runtime failure events are emitted on the Pi `loom-system-note` channel via the always-log set defined in [Pi Integration Contract — Runtime event channel](./spec_topics/pi-integration-contract.md). Diagnostics for parse / load / type / runtime-panic batches share the same channel under a disjoint `details` shape (see [Diagnostics](./spec_topics/diagnostics.md)). Aggregation, latency histograms, per-loom token reports, and a consumer-facing read API are deferred (see [Future Considerations — Richer runtime-event telemetry](./spec_topics/future-considerations.md))."
-- **Hard runtime ceilings.** "The complete V1 set of hard runtime ceilings is: invoke-chain nesting depth 32 ([Invocation — Invocation depth bound](./spec_topics/invocation.md)); `tool_loop.max_iterations` per query, default 25 ([Parameters and Frontmatter — `tool_loop`](./spec_topics/frontmatter.md)); at most 3 binder LLM calls per slash invocation ([Binder — Failure modes](./spec_topics/binder.md)); JSON-document depth 5 against typed-query / tool-arg / `params` schemas ([Schema Subset](./spec_topics/schema-subset.md)). No additional implicit nesting, iteration, or recursion limit applies."
-
-In `future-considerations.md`, add two entries to the **Known V1 limitations (no seam expected)** bucket — one for "no per-loom sandbox / capability model" and one for "no formal source-language migration mechanism for major-version transitions" — each a single-sentence disposition referencing the new Scope subsection. Both belong in *Known V1 limitations* (not *Surface extensions*) because V1 deliberately leaves no seam — the trust model is "full host privilege" and the migration model is "V1.x stability + restart for V2".
-
-Edge cases the implementer should watch:
-- The trust-boundary bullet must NOT be written as a normative obligation on the runtime (e.g. "the runtime MUST NOT sandbox") — it is a scope disclaimer, not a behavioural rule. Phrase it as "V1 imposes no loom-level sandbox" rather than "loom code may access X".
-- The source-language stability bullet must align with the REQ-ID immutability rule (`GOV-8`): the V1.x stability promise is *consistent* with split/merge/deletion-plus-add (since those are substantive changes that retire IDs), so the bullet should reference `GOV-8` for the change-discipline mechanism and frame stability as the user-facing observable that mechanism produces.
-- The runtime-observability bullet must not duplicate the always-log set or the `RuntimeEvent` shape; orientation cross-references only. Duplicating these would create a normative-duplication finding of the same shape that already affects the SDK capability list.
-- The hard-ceilings bullet asserts *completeness*. If a future V1 leaf introduces a new ceiling (e.g. a per-`for`-loop iteration cap), the Scope bullet and the new ceiling must move in the same edit; consider noting this constraint inline as a maintenance reminder.
-
-## Related Findings
-
-- "SDK capability list duplicates `pi-integration-contract.md`" — same-cluster (both touch the Orientation section's cross-reference shape; the Scope addition must avoid the same duplication antipattern that finding flags on the Prerequisites bullet list).
-- "Cancellation not stated as a distinct outcome in orientation" — same-cluster (sibling completeness gap in the same Orientation section; could be co-resolved in one editorial pass).
-- "V1 strict-capability degradation warning omitted from `spec.md`" — same-cluster (also flags an Orientation omission; resolves independently but the same edit window is natural).
-- "V1 emission contract and `RuntimeEvent` shape buried in deferrals document" — decision-dependency (the runtime-observability bullet recommended here forward-links to the Runtime event channel; if that finding moves the channel's contract out of `future-considerations.md`, the cross-link target shifts but the Scope bullet is still required).
-- "V1 limitations mixed with genuinely deferred features" — decision-dependency (this finding adds two entries to *Known V1 limitations*; if that bucket is reorganised, the new entries land in whichever section absorbs *Known V1 limitations*).
-- "Self-referential 'informative orientation only' clause" — same-cluster (touches the same Orientation paragraph that disclaims normativity; the new Scope subsection inherits the same informative-vs-normative question and should declare its status explicitly).
-
