@@ -55,7 +55,7 @@ This page owns the spec corpus's REQ-ID governance: the per-page prefix table, t
 **GOV-7 (mutation procedures).**
 
 - **Add.** New page → append a row with a previously-unused prefix.
-- **Rename.** Prefix follows the page; the row's Page column updates, the Prefix column does not. Existing in-page anchors are not rewritten.
+- **Rename.** Prefix follows the page; the row's Page column updates, the Prefix column does not. Existing in-page anchors are not rewritten. In the same commit, update every reference to the old filename across `plan.md` and `plan_topics/**.md`; the V18s plan-link gate (per [`plan_topics/v18-cancellation.md`](../plan_topics/v18-cancellation.md#v18s-coverage-matrix-closing-ci-gate)) enforces this.
 - **Delete.** The row is moved from the live table to the Retired prefixes sub-table. The prefix MUST NOT be reused.
 - **Merge.** When `<absorbed-page>` is merged into `<surviving-page>`:
     - Every live REQ-ID on the absorbed page undergoes a GOV-8 *Merge* into a freshly allocated ID under the surviving prefix, appended at the surviving page's tail. The absorbed-page IDs retire on the absorbed page (its `## Retired REQ-IDs` section gains one row per merged ID) before the file is deleted.

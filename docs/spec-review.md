@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_21 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_20 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -1442,79 +1442,4 @@ Edge cases for the implementer:
 - "`FN` prefix (2 letters) contradicts `[A-Z]{3,4}` extraction regex" — same-cluster (sibling GOV-3 defect; both should land in the same GOV-3 edit)
 - "Extraction regex scope unclear" — same-cluster (also a GOV-3 extraction-scope gap; co-locate the fix)
 
----
-
-## spec.md — Appendix → GOV-7
-
----
-
-# GOV-7 Rename: cross-artefact reference update not specified
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** Rename: plan.md Spec-field update not addressed
-**Kind:** completeness
-
-## Finding
-
-GOV-7 *Rename* (spec.md:153) specifies only that "the row's Page column updates, the Prefix column does not. Existing in-page anchors are not rewritten." It is silent on the dozens of cross-artefact references that hard-code the renamed page's filename: every plan leaf's `Spec` field links spec_topics pages by URL (`[Schema Declarations](../spec_topics/schemas.md)`), and `plan_topics/coverage-matrix.md` keys every row by such a URL. A grep across `plan_topics/` and `plan.md` returns 322 hits over 30 distinct `spec_topics/*.md` filenames.
-
-A rename executed under the present GOV-7 wording therefore silently invalidates two classes of artefact: plan-leaf `Spec`-field links (which are how the plan-leaf execution loop, per plan.md:8, tells implementers what to read) and coverage-matrix row keys (which are how V18s gate (1) reads spec/matrix coverage at the section level until H6 closes). The closure property the spec relies on — that every reference into `spec_topics/` resolves — is not enforced by any GOV-N rule and is not gated by V18s.
-
-GOV-7 should either (a) make the cross-artefact update a same-edit obligation of the rename procedure, or (b) gate it in CI, or both. The companion finding "GOV-3 narrative exclusion list out of sync with GOV-7 promotion" identifies the same pattern (a GOV-7 mutation silently invalidates a separate artefact) and the same fix shape applies.
-
-## Spec Documents
-
-- `spec.md` — Appendix → GOV-7 *Rename* sub-bullet (edited)
-- `plan_topics/conventions.md` — REQ-ID discipline / cross-cutting rules (option-dependent; only edited if the fix adds a convention)
-- `plan_topics/v18-cancellation.md` — V18s coverage-gate definition (option-dependent; only edited if the fix adds a CI gate)
-- `plan_topics/coverage-matrix.md` — row-key URLs (read-only; informs the scope but not edited by the fix itself)
-- `plan.md` — leaf navigation contract (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18s — Coverage-matrix closing CI gate — (modified, option-dependent)
-
-## Consequence
-
-**Severity:** correctness
-
-A future rename executed strictly per GOV-7 produces a commit in which 1–N plan-leaf `Spec`-field links and coverage-matrix row keys point at a now-non-existent path. Nothing in the present V18s gate set fails on this — gates (1)–(6) all read `PREFIX-N` markers, not URLs. Two implementers handed the present GOV-7 will diverge on whether they sweep `plan_topics/` and `coverage-matrix.md`; one of the two outputs leaves the repo in a state where leaf execution (plan.md step 2: "read only the leaf and the spec topic(s) listed under its **Spec** field") chases a 404.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a CI-gated link-resolution check (V18s gate 8) that fails on any unresolved `(../spec_topics/<page>.md…)` reference under `plan.md` and `plan_topics/**.md`, and amend GOV-7 *Rename* to point at the gate.
-
-**Spec edits.**
-
-In `spec_topics/governance.md` GOV-7, replace the *Rename* sub-bullet with: "Prefix follows the page; the row's Page column updates, the Prefix column does not. Existing in-page anchors are not rewritten. In the same commit, update every reference to the old filename across `plan.md` and `plan_topics/**.md`; the V18s plan-link gate (per [`plan_topics/v18-cancellation.md`](./plan_topics/v18-cancellation.md)) enforces this."
-
-**Plan edits.**
-
-Add gate (8) — *Plan-link gate* — to `plan_topics/v18-cancellation.md` § V18s. The gate enumerates every Markdown link of the form `(../spec_topics/<page>.md(#…)?)` appearing under `plan.md` and `plan_topics/**.md`, and asserts each resolves to a file that currently exists in `spec_topics/`. Implementation is a one-line `grep -rohE` over the plan corpus piped against `ls spec_topics/`. Add a synthetic-rename test that flips the check.
-
-Edge cases for the implementer:
-
-- The gate's grep MUST restrict to the URL shape `(../spec_topics/<kebab>\.md(#…)?)` to avoid false positives on quoted prose or unrelated cross-file links.
-- The gate runs on the merge tip and therefore does not need to coordinate with the GOV-7 row mutation in the same PR — both edits land together.
-- The gate's scope is the file portion of the URL only; broken `#anchor` fragments are out of scope (separate, broader hygiene concern).
-- The gate must be added to V18s' `Deps.` (already includes H6) and to V18s' test enumeration.
-- The gate is numbered 8 because gate 7 is taken by the duplicate-prefix detector landed by the prior commit (concurrent-PR races finding).
-
-## Related Findings
-
-- "GOV-3 narrative exclusion list out of sync with GOV-7 promotion" — co-resolve (same shape: a GOV-7 mutation silently invalidates a separate artefact; same "in the same edit" remedy)
-- "GOV-7 atomicity: five independent procedures under one identifier" — decision-dependency (if GOV-7 is split into GOV-7a–e, this finding's edit lands on the *Rename* sub-entry and must be re-targeted)
-- "GOV-4 'append-only / immutable' contradicts GOV-7 Delete / Merge / Rename" — same-cluster (also touches GOV-7 Rename's surface; resolves independently)
-- "Merge: ordering of ID retirement vs prefix retirement unspecified" — same-cluster (also a GOV-7 procedure-completeness gap)
-- "Concurrent PRs racing on the same new prefix" — same-cluster (GOV-7 cross-PR coordination gap)
-
----
 
