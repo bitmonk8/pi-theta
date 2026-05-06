@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_6 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_5 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -325,74 +325,3 @@ Edge cases for the implementer:
 - "Introduction cross-references by section link, not REQ-ID anchor" — same-cluster (touches the same orientation paragraph's links; resolves independently)
 - "Authoring-conventions paragraph placement" — same-cluster (adjacent orientation prose; independent fix)
 
----
-
-## spec.md — Orientation → Prerequisites → Pi SDK and capabilities
-
----
-
-# SDK capability bullets in spec.md Orientation are unreachable to REQ-ID tooling
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** SDK capability bullets carry no traceable identifiers
-**Kind:** traceability
-
-## Finding
-
-`spec.md` Orientation → Prerequisites carries normative content with no path to a stable identifier under the existing governance rules. The seven SDK capability bullets (lines 23–29: `pi.registerCommand`, `pi.sendUserMessage` + `ctx.waitForIdle`, `createAgentSession`, `pi.registerTool` + `pi.setActiveTools`, Pi-supplied `AbortSignal`, `pi.sendMessage` + `pi.registerMessageRenderer`, binder LLM model resolution) each state a distinct load-bearing obligation. Two further standalone normative sentences sit alongside: "Widening `peerDependencies` requires re-validating the surface inventory above…" (line 31) and "A Pi minor bump that widens or narrows that range requires re-validating the loom range in the same edit" (line 33). One of these refers to "the surface inventory above" by paraphrase rather than ID.
-
-GOV-3 restricts the REQ-ID extraction regex to `spec_topics/*.md`. The `GOV` prefix in the appendix table is scoped to "this appendix's GOV-N rules" — it does not cover the Orientation section. There is no other prefix assigned to `spec.md`. H6's anchor pass (per `plan_topics/h6-req-ids.md`) only visits non-narrative pages listed in the prefix table, so it will not anchor any of these bullets or sentences. Plan leaves and test authors must therefore cite them by paraphrase, the V18s coverage-matrix gate cannot police whether any leaf actually closes them, and a reviewer cannot grep for which leaf owns "the binder LLM model fail-load rule" or "the peer-dep re-validation obligation."
-
-The duplication of the same surface in `pi-integration-contract.md` (which *will* carry `PIC-N` IDs after H6) compounds the problem: when one location drifts, there is no mechanical link from the spec.md bullet to the corresponding PIC-N rule.
-
-## Spec Documents
-
-- `spec.md` — Orientation → Prerequisites → Pi SDK and capabilities (edited)
-- `spec.md` — Appendix → REQ-ID prefix table / GOV-3 (option-dependent; edited only under Option B)
-- `spec_topics/pi-integration-contract.md` — Host prerequisites, Extension entry point, Conversation drive (prompt + subagent), Tool-registration lifetime and visibility, Cancellation source, System notes (option-dependent; edited under Option A as the relocation target)
-
-## Plan Impact
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (modified)
-- V18s — coverage-matrix closing CI gate — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Plan leaves cannot pin the SDK-capability obligations or the re-validation rules to stable identifiers, and the V18s coverage-matrix gate has no row to police them. Two reasonable implementers will write divergent tests for "Pi SDK capability X is required at load" because each will paraphrase the bullet differently, and silent drift between the spec.md bullets and `pi-integration-contract.md`'s soon-to-be PIC-N rules has no mechanical detector.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Relocate the seven SDK-capability bullets from `spec.md` Orientation into `pi-integration-contract.md` as `PIC-N`-anchored normative rules, and replace the bullets in `spec.md` with a name-only bulleted cross-reference list (each capability name links to its new PIC-N anchor). This commit also resolves the sibling "SDK capability list duplicates `pi-integration-contract.md`" finding.
-
-**Spec edits.**
-
-- Add a `## SDK capability inventory` section to `pi-integration-contract.md` containing seven numbered obligations (one per former `spec.md` bullet) plus the two re-validation sentences. H6 will assign each a `PIC-N` ID under its existing scope.
-- In `spec.md` Orientation → Prerequisites → "Pi SDK and capabilities", replace the bullets and their connector with a name-only cross-reference list of the form:
-  - `**Slash-command registration** — see [PIC-N](./spec_topics/pi-integration-contract.md#pic-n).`
-  - (and so on for each of the seven capabilities)
-- Keep the introductory sentence about the peer-dep pin and the standalone trailing sentence about widening `peerDependencies` requiring re-validation; both are independent of this finding.
-
-Edge cases for the implementer:
-
-- Bullet 7's `loom/load/binder-model-unresolved` registry code is also referenced in `binder.md` (which owns the `BNDR` prefix). Keep `binder.md` as the canonical home and have the new PIC-N rule cross-reference it rather than restating the code.
-- The bullet on Pi-supplied `AbortSignal` overlaps with `pi-integration-contract.md`'s existing "Cancellation source" prose — fold rather than duplicate.
-- After relocation, sweep `plan.md` and `plan_topics/` for any `Spec.` line that links to `spec.md#…-prerequisites` and re-target it to the new PIC-N anchors.
-- The two re-validation sentences on `peerDependencies` widening become PIC-N rules in their own right; they no longer live in `spec.md`.
-
-## Related Findings
-
-- "SDK capability list duplicates `pi-integration-contract.md`" — co-resolve (Option A here is the same edit that resolves the duplication; both findings collapse to one PR).
-- "\"Re-validating\" obligation undefined; no enforcement gate named" — same-cluster (touches the same two re-validation sentences; resolves independently — that finding is about *what* re-validating means, this one is about *anchoring* the rule).
-- "`peerDependencies` over-prescribed as the enforcement mechanism" — same-cluster (sits in the same paragraph; independent fix).
-- "Introduction cross-references by section link, not REQ-ID anchor" — same-cluster (spec.md cross-link traceability; the sweep this recommends would also re-target the cross-references that finding flags).
-- "Pi SDK symbols treated as verified facts without a verification mechanism" — decision-dependency (whichever location ends up owning the inventory is also where the verification record belongs).
