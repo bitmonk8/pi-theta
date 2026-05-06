@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_45 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_44 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -3323,74 +3323,4 @@ Edge cases for the editor:
 
 ---
 
-# Binder system prompt: "information content is normative" lacks a verifiable field set
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Information content is normative" — system prompt not mechanically verifiable
-**Kind:** testability
-
-## Finding
-
-`spec_topics/binder.md` § *Binder system prompt* introduces the rendered prompt with: "The exact wording is not part of the contract; the *information content* below is normative." It then shows a fenced block that mixes literal text (`Loom: /<name>`, `Description: …`, `Parameters:`, `User arguments: …`), template directives (`<for each param: "  <name> (<type>) <required|default=<value>> — <description if any>">`), conditional blocks (`[Recent session context (when bind_context: session): …]`), and a closing instruction list (the three envelope kinds and the no-invent-defaults rule).
-
-A conformance test cannot assert "information content" directly. To pass-fail the prompt rendering it must either (a) match exact strings — which the spec explicitly forbids — or (b) check for specific structural fields. Path (b) is the right one, but the spec never enumerates which fields are required, in what shape, or under which conditions. Two implementers reading this section will disagree on, for example: must the literal token `Loom:` appear, or merely *some* line that conveys the loom name? Is the per-parameter line format (`  <name> (<type>) <required|default=<value>> — <description if any>`) a normative shape implementers must reproduce, or just one illustrative rendering? Must the `Argument hint:` line be omitted when `argument-hint:` is absent (V16f tests assert this), and must the analogous suppression apply to `Description:` when frontmatter has no description? Is the `[Recent session context …]` block's bracket-and-label framing part of the contract or freely re-skinnable? Is the envelope-kinds enumeration normative content the model must see, or vendor-replaceable framing?
-
-The downstream consequence is concrete: V16f and V16g will land with idiosyncratic test sets that pin whatever the first implementer happened to render, and a second implementation that conveys the same information differently will fail those tests despite being spec-conformant. Either the per-implementation tests over-fit (re-introducing the exact-wording contract the spec tried to disclaim) or they under-test (asserting nothing beyond "the prompt is non-empty"). Neither outcome matches the section's stated intent.
-
-## Spec Documents
-
-- `spec_topics/binder.md` — *Binder system prompt* (edited)
-- `spec_topics/binder.md` — *Binder context* + *Session-context truncation* (read-only — defines what the `bind_context: session` block contains)
-- `spec_topics/frontmatter.md` — `description:`, `argument-hint:`, `params:` (read-only — drives which fields are present/absent)
-
-## Plan Impact
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16f — `bind_context: none` — (modified)
-- V16g — `bind_context: session` truncation — (modified)
-- V16e — `bind_model` resolution chain — (read-only; consumes the prompt but does not test its shape)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will produce binder prompts that look superficially similar but disagree on which lines, labels, and conditional suppressions are part of the contract. Their conformance tests will diverge accordingly: one suite will pass against its own renderer and fail against the other's, even though both honour the section's stated intent. The downstream binder-model behaviour (whether the LLM correctly extracts arguments) is also affected, since structured-output models cue on label tokens — `Parameters:` vs `Args:` vs no label at all is not behaviourally neutral.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the "information content is normative" framing with an explicit list of normative structural obligations on the rendered prompt, keeping the fenced example as illustrative. The list should pin each field that V16f / V16g tests need to assert, with the conditional-presence rules made explicit.
-
-Add a subsection — *System-prompt structure (normative)* — to `binder.md` immediately under the fenced example, containing the following obligations. Wording may vary; the listed tokens, line-prefixes, and conditional rules are the contract:
-
-1. **Loom identity line.** A line of the form `Loom: /<name>` MUST appear, where `<name>` is the bare slash command name (no leading `/`, matching the FNV-1a-hashed string from the *Determinism* section). Exactly one such line per prompt.
-2. **Description line.** When the loom's frontmatter `description:` is non-empty, a line of the form `Description: <description>` MUST appear. When `description:` is absent or empty, the line MUST be omitted (no `Description:` with empty value).
-3. **Argument-hint line.** When frontmatter `argument-hint:` is non-empty, a line of the form `Argument hint: <value>` MUST appear exactly once. When absent, the line MUST be omitted. (V16f already tests this; the rule is restated here for symmetry.)
-4. **Parameters block.** When `params:` declares ≥1 field, the block MUST contain a header line `Parameters:` followed by one indented line per declared field, in declaration order. Each per-field line MUST contain the field's wire name, its declared type rendered per the binder's type-display convention (defined separately — see edge cases), and one of the tokens `required` or `default=<literal>` where `<literal>` is the default rendered in Loom literal syntax. When the field carries a non-empty `description:`, the line MUST also include that description; when absent, the description segment MUST be omitted. When `params:` is absent or empty, the entire `Parameters:` block (header + per-field lines) MUST be omitted.
-5. **User-arguments line.** A line of the form `User arguments: <raw>` MUST appear, where `<raw>` is the raw slash text after the command name with leading/trailing whitespace stripped but no other normalisation. When the user supplied no arguments, `<raw>` is the empty string and the line still appears (with an empty value after the colon-space).
-6. **Session-context block.** When `bind_context: session` and the truncation walk produced ≥1 included turn, the prompt MUST contain a delimited block whose opening line begins `Recent session context` and whose body is the truncated transcript per *Session-context truncation*. When the walk produced zero included turns (single oversized newest turn, empty session, or `bind_context: none`), the block MUST be omitted entirely (no header, no empty body).
-7. **Envelope-kinds enumeration.** The prompt MUST list all three envelope kinds (`ok`, `needs_info`, `ambiguous`) by name. The exact phrasing of each kind's description is non-normative; the three kind-name tokens are normative.
-8. **No-invent-defaults instruction.** The prompt MUST contain an instruction directing the model not to invent values for defaulted parameters the user did not specify. Wording is non-normative; the instruction's presence is.
-
-Edge cases the implementer must watch:
-
-- The per-field type-display convention (item 4) is itself unspecified. Pin it in the same edit: the type rendering MUST be the field's declared Loom type written in surface syntax (`string`, `int`, `Severity`, `array<int>`, `Cat | Dog`), not the JSON Schema form. Add one normative test vector per primitive and one per each compound (array, enum, discriminated union).
-- The default-literal rendering (item 4, `default=<literal>`) MUST use the same Loom literal sublanguage parsed by V16a, so a default of `Severity.High` round-trips as `default=Severity.High` and a string default round-trips with double quotes.
-- Items 2, 3, 4, and 6 are conditional-presence rules. The V16f / V16g test suites MUST include a negative assertion per condition (the line / block does not appear when the trigger is absent), not just a positive assertion when the trigger is present.
-- The fenced example in the spec should be updated to be self-consistent with these rules — currently the example uses the template directive `<for each param: …>` rather than showing a worked-out parameter line, which has misled reviewers into reading the directive itself as normative shape.
-
-## Related Findings
-
-- "Echo policy: 'special characters' undefined; 'first field' ordering undefined" — same-cluster (sibling testability gap in `binder.md`; both replace prose hand-waves with closed enumerations and test vectors)
-- "Multiple untestable quality assertions and advisory language in normative prose" — same-cluster (general untestability sweep across `binder.md`; this finding is one specific instance the sweep should also catch)
-- "Diagnostic message placeholder rendering not defined" — same-cluster (analogous template-with-placeholders problem; the *Failure-mode templates* table has the same "rendered character-for-character with placeholders interpolated" issue this finding raises for the system prompt)
-- "Open question embedded in normative `binder.md`" — same-cluster (binder.md normative-hygiene cleanup; co-resolvable in one editing pass)
-
----
 

@@ -100,24 +100,24 @@ Token counts are computed per message via `estimateTokens` and the message list 
 
 ### Binder system prompt
 
-The runtime constructs a system prompt that conveys the following information to the binder model. The exact wording is not part of the contract; the *information content* below is normative.
+The runtime constructs a system prompt that conveys the loom's binding context to the binder model. The exact wording is not part of the contract; the structural obligations enumerated under *System-prompt structure (normative)* below are. The fenced block that follows is one conforming rendering, included for illustration; an alternative renderer that satisfies every obligation in the structure list is equally conformant.
 
 ```
 You bind free-form slash-command arguments to typed loom parameters.
 
-Loom: /<name>
-Description: <description from frontmatter>
-Argument hint: <argument-hint from frontmatter>
+Loom: /code-review
+Description: Review code for issues.
+Argument hint: <language> focusing on <areas>, by <author>
 
 Parameters:
-<for each param:
-  "  <name> (<type>) <required|default=<value>> — <description if any>">
+  language (string) required — the language being reviewed
+  focus_areas (array<string>) default=[] — comma-separated focus areas
+  author (Author) required — the author of the code under review
 
-User arguments: <raw slash text after the command name>
+User arguments: TypeScript focusing on error handling, by Ada Lovelace
 
-[Recent session context (when bind_context: session):
+Recent session context (most recent 20 turns / 8000 tokens):
 <truncated transcript>
-]
 
 Return one of three envelopes:
 - { "kind": "ok", "args": { ... } } when every required parameter can be confidently extracted.
@@ -126,6 +126,34 @@ Return one of three envelopes:
 
 Do not invent values for defaulted parameters that the user did not specify; omit them.
 ```
+
+#### System-prompt structure (normative)
+
+The rendered prompt MUST satisfy each obligation below. Wording may vary; the listed tokens, line-prefixes, and conditional-presence rules are the contract. Conditional rules (items 2, 3, 4, and 6) require both a positive assertion when the trigger is present and a negative assertion when the trigger is absent — neither half alone exercises the rule.
+
+1. **Loom identity line.** A line of the form `Loom: /<name>` MUST appear, where `<name>` is the bare slash command name (no leading `/`, matching the byte sequence hashed by [Determinism](#determinism) below). Exactly one such line per prompt.
+2. **Description line.** When the loom's frontmatter `description:` is non-empty, a line of the form `Description: <description>` MUST appear. When `description:` is absent or empty, the line MUST be omitted entirely (no `Description:` token with an empty value).
+3. **Argument-hint line.** When frontmatter `argument-hint:` is non-empty, a line of the form `Argument hint: <value>` MUST appear exactly once. When absent or empty, the line MUST be omitted entirely.
+4. **Parameters block.** When `params:` declares ≥1 field, the block MUST contain a header line `Parameters:` followed by one indented line per declared field, in declaration order. Each per-field line MUST contain (a) the field's wire name, (b) its declared type rendered per *Type display* below, and (c) one of the tokens `required` or `default=<literal>` where `<literal>` is the default rendered in [Loom literal sublanguage](./grammar.md#loom-literal-sublanguage) surface syntax (the same notation V16a parses on the RHS of `params:` defaults). When the field carries a non-empty `description:` (per [Descriptions](./descriptions.md)), the line MUST also include that description; when absent or empty, the description segment MUST be omitted. When `params:` is absent or empty, the entire `Parameters:` block (header **and** all per-field lines) MUST be omitted.
+5. **User-arguments line.** A line of the form `User arguments: <raw>` MUST appear, where `<raw>` is the raw slash text after the command name with leading and trailing whitespace stripped and no other normalisation. When the user supplied no arguments, `<raw>` is the empty string and the line still appears (the `User arguments:` token is followed by a single space and then nothing).
+6. **Session-context block.** When `bind_context: session` and the [Session-context truncation](#session-context-truncation-bind_context-session) walk produced ≥1 included turn, the prompt MUST contain a delimited block whose opening line begins with the literal token `Recent session context` and whose body is the truncated transcript per that section. When the walk produced zero included turns (single oversized newest turn, empty session) or `bind_context: none`, the entire block — opening line and body — MUST be omitted (no header with empty body).
+7. **Envelope-kinds enumeration.** The prompt MUST list all three envelope kinds by their `kind`-token names: `ok`, `needs_info`, `ambiguous`. The exact phrasing of each kind's accompanying description is non-normative; the three kind-name tokens are normative.
+8. **No-invent-defaults instruction.** The prompt MUST contain an instruction directing the model not to invent values for defaulted parameters the user did not specify. Wording is non-normative; the instruction's presence is.
+
+*Type display.* The per-field type rendering in item 4 MUST use the field's declared Loom type written in the surface syntax of [Type System](./type-system.md), not the JSON Schema lowering. Reference renderings (normative; conforming implementations MUST reproduce these exactly):
+
+| Declared Loom type | Renders as |
+| --- | --- |
+| `string` | `string` |
+| `int` | `int` |
+| `boolean` | `boolean` |
+| `Severity` (enum) | `Severity` |
+| `Author` (named schema) | `Author` |
+| `array<int>` | `array<int>` |
+| `string \| null` | `string \| null` |
+| `Cat \| Dog` (discriminated union) | `Cat \| Dog` |
+
+*Default-literal rendering.* The `<literal>` in `default=<literal>` (item 4) MUST be the field's default value rendered in the [Loom literal sublanguage](./grammar.md#loom-literal-sublanguage) surface syntax — the same notation V16a parses on the RHS of `params:` defaults. A default of `Severity.High` round-trips as `default=Severity.High`; a string default `"hello"` round-trips as `default="hello"`; an array default `[1, 2, 3]` round-trips as `default=[1, 2, 3]`; the empty-array default `[]` round-trips as `default=[]`.
 
 ## Defaulting
 
