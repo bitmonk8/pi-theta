@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_37 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_36 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -2732,68 +2732,3 @@ Edge cases the implementer must observe:
 - "`ExtensionContext` forwarded member list: no signatures or behavioural contracts" — same-cluster (a complete signature listing for forwarded members would have surfaced this `void` vs `Promise<void>` discrepancy structurally; co-resolution is possible but not required)
 
 ---
-
-# `Consumers MUST deduplicate` is a normative obligation on a party V1 does not define
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Consumers MUST deduplicate" — obligation on undefined party
-**Kind:** testability
-
-## Finding
-
-`spec_topics/pi-integration-contract.md`'s **Runtime event channel — Deduplication and lifetime rules** section says:
-
-> A `?`-propagation chain emits exactly once at the originating site, not at each rethrow. A failure that is created at site A, propagated through frames B and C via `?`, and finally cascades out as a top-level `Err` at frame D produces one runtime event (origin: A) plus the user-facing top-level note at D when `display: true` applies; both share the same `RuntimeEvent` payload. **Consumers MUST deduplicate on `(kind, query_site, message, occurred_at)`.** Re-emissions for symmetry MUST copy the originating `RuntimeEvent` instance verbatim — including `occurred_at` — rather than re-stamping. Two emissions from the same `query_site` with the same `kind` and `message` but distinct `occurred_at` values represent two distinct occurrences.
-
-The MUST sits on "consumers" — a party that the same page explicitly *defers* in the next paragraph: "V1 ships the always-log set and the payload shape only; the channel is intentionally write-only at the spec level, with downstream consumers free to read from Pi's session transcript via existing surfaces." A V1-conformance test against the loom runtime cannot assert anything about a downstream party that the spec has placed out of scope.
-
-The MUST is also not a redundancy with the surrounding rules — it makes a normative claim about consumer behaviour, whereas the bracketing sentences ("MUST copy verbatim", "two distinct `occurred_at` values represent two distinct occurrences") describe runtime-side emission and the *interpretation contract* a consumer can rely on. Strip the consumer-facing MUST and the runtime obligations remain intact and testable; leave it in and the V18s coverage gate has a normative requirement with no implementer to bind to.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — Runtime event channel → *Deduplication and lifetime rules* (edited)
-
-## Plan Impact
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18i — Per-`kind` formatting for prompt-mode top-level `Err` — (modified) — already specifies the cascade-side note populates `details: { event }` with the same `RuntimeEvent` payload; the byte-identical-twin emission rule must remain assertable here regardless of which option is chosen
-- V18q — Runtime event channel and always-log emission — (modified) — owns the origin-site emission helper and the cascade-vs-origin emission count; current tests already assert "exactly one event at the originating site" + the cascade-side display flag, which matches the runtime-side guarantee that should remain after the consumer MUST is dropped
-
-## Consequence
-
-**Severity:** advisory
-
-A V1-conformance audit cannot pin a behaviour to "consumers" because no consumer ships in V1; the V18s coverage gate then either silently skips the rule or maps it to whichever surface the gate-author guesses. Either failure is recoverable post-ship without breaking deployed loom code, but it leaves a normative MUST without a testable owner.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the sentence
-
-> Consumers MUST deduplicate on `(kind, query_site, message, occurred_at)`.
-
-with a non-normative consumer-guidance note plus an explicit runtime-side guarantee that makes deduplication mechanically possible:
-
-> The runtime emits the same `RuntimeEvent` payload at most twice per origin: once at the originating site (always), and once again at the boundary as the `details: { event }` payload of the user-facing top-level note when a cascade applies. Both emissions are byte-identical including `occurred_at`. Consumers that aggregate the event stream may therefore deduplicate on `(kind, query_site, message, occurred_at)` to collapse the cascade twin; this is a non-normative consumer concern and not part of V1 conformance.
-
-This keeps the design intact (twin emission for cascade symmetry is still required) while moving the only normative claim onto the runtime — where a test can observe it. The two adjacent sentences ("Re-emissions … MUST copy the originating `RuntimeEvent` instance verbatim — including `occurred_at`" and "Two emissions … with distinct `occurred_at` values represent two distinct occurrences") stay as written; the first is a runtime obligation, the second is the interpretation contract a consumer can rely on.
-
-Edge cases the implementer must watch:
-
-- The "at most twice" wording matters: prompt-mode cascade with `display: true` is the two-emission case; subagent-mode cascade emits once at origin (`display: false`) and once at the subagent boundary (`display: false`) — also two — both still byte-identical. A handled `Err` (matched, discarded, or `?`-propagated to a frame that handles it) emits once. The cap is two, not exactly two.
-- Panics route through `details: { diagnostics: [...] }`, not `details: { event }`, so the twin-emission rule does not apply to them — the partition between the two `details` channels (raised by the related routing finding listed below) is the precondition for this rewrite making sense.
-- V18q's existing test list already asserts "exactly one event at the originating site" plus the cascade-side display-flag emission. After the rewrite, V18q must additionally assert byte-equality of the twin (origin payload `===` cascade payload, including `occurred_at`) — this is a one-line strengthening of an existing assertion, not a new test.
-
-## Related Findings
-
-- "`RuntimeEvent` routing: panics appear in both always-log set and `details: {diagnostics}` path" — decision-dependency (the panic-vs-event partition must be settled before the "at most twice" cap is unambiguous; this finding's rewrite assumes panics route exclusively through `details: { diagnostics }`)
-- "`loom-system-note` with `display: false` and empty `content`" — same-cluster (touches the same `pi.sendMessage` carrier; resolves independently)
-
----
-
