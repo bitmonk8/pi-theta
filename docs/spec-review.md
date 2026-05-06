@@ -2,7 +2,7 @@
 
 _Generated: 2026-05-06T06:31:26Z_
 _Source: docs/reviews/spec-review/spec-20260506-064723.md_
-_53 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
+_52 findings retained (collapsed from 93 by merge / subsumption), 14 false positives dropped, 0 persistent failures_
 
 _Severity: 27 correctness · 17 advisory · 12 cosmetic · 0 blocking_
 _Shape: 56 single · 0 multiple · 0 unresolved_
@@ -3859,62 +3859,4 @@ Rename the H1 of `spec_topics/slash-invocation.md` from `# Invocation from Pi` t
 None
 
 ---
-
-## spec_topics/cancellation.md
-
----
-
-# "Millisecond-scale" latency claim is rationale, not a testable rule
-
-**Source:** docs/reviews/spec-review/spec-20260506-064723.md
-**Original heading:** "Millisecond-scale" performance claim without a testable threshold
-**Kind:** testability
-
-## Finding
-
-`spec_topics/cancellation.md` (Granularity paragraph) states: "Synchronous in-process work — schema lowering at file-load time, AJV validation of already-received bytes, default-merging — is not a checkpoint; it runs to completion. **These steps are millisecond-scale and off the interactive hot path.**"
-
-The bolded sentence sits inside normative prose but does not form a verifiable criterion. No reference hardware profile is defined anywhere in the spec, no upper-bound latency is stated, and "off the interactive hot path" is a design observation rather than an obligation. A conforming implementation in which AJV validation took 500 ms could not be distinguished from a non-conforming one; conversely, no test can fail an implementation for missing the implied bound. The surrounding behavioural rule — "is not a checkpoint; it runs to completion" — is testable (V18p already exercises the AJV-uncancellable case) and carries the entire normative weight of the paragraph. The latency sentence adds rationale, not constraint.
-
-This is the same anti-pattern flagged by the `binder.md` "calibrated"/"more than capable" findings: design intuition phrased as if it were a requirement.
-
-## Spec Documents
-
-- `spec_topics/cancellation.md` — Granularity paragraph (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None
-
-(The non-checkpoint behavioural rule is observed indirectly via V18p's "abort observed after `ok` envelope return but before AJV validation lets validation complete" assertion; that rule is unchanged. Removing rationale prose modifies no acceptance criterion.)
-
-## Consequence
-
-**Severity:** cosmetic
-
-A conformant implementer extracts the same obligation either way: the listed operations are non-checkpoints. Leaving the sentence in place clutters the normative section with unverifiable wording and weakens the spec's "every sentence in normative prose forms a test criterion" property; removing it has no behavioural consequence.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Delete the sentence "These steps are millisecond-scale and off the interactive hot path." from the Granularity paragraph in `spec_topics/cancellation.md`. The surrounding sentences already carry the full normative content:
-
-> Synchronous in-process work — schema lowering at file-load time, AJV validation of already-received bytes, default-merging — is not a checkpoint; it runs to completion. No checkpoint fires inside a primitive operation (arithmetic, comparison, field/index access). …
-
-Do not introduce a latency bound in its place: V1 has no reference hardware profile, per-call timeouts are explicitly deferred (V18o, `loom/parse/timeout-field-rejected`), and adding one would create an unenforceable obligation. If the rationale must be retained for reader orientation, fold it into a `> **Note (non-normative):**` block immediately after the paragraph rather than leaving it inline.
-
-Edge case for the editor: confirm the deletion does not break any cross-reference. `grep -rn "millisecond" spec.md spec_topics/` should return zero hits after the edit.
-
-## Related Findings
-
-- "`tool_loop` \"calibrated\" rationale in normative prose" — co-resolve (same anti-pattern, same edit shape: strip the rationale clause, leave the testable obligation)
-- "Multiple untestable quality assertions and advisory language in normative prose" — same-cluster (broader sweep over `binder.md` of the same testability defect; resolve independently)
-- "\"Information content is normative\" — system prompt not mechanically verifiable" — same-cluster (also a testability gap in normative prose, but requires defining required fields rather than a deletion)
 
