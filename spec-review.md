@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 12 high, 10 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 11 high, 10 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -1465,68 +1465,4 @@ Edge cases the implementer must watch:
 - T18 "CIO-6 hard-ceiling co-fire: predicate, test vector, and normative ownership" — must-precede
 - T19 "Ceiling #4's opening classification contradicts its own table and CIO-1" — must-precede
 - T20 "CIO-3 enumerates four AJV boundaries; ceiling #4's table has five" — must-precede
-
----
-
-# T22 — Post-cancel late Promise settlement: discard mechanism unspecified, leaves `unhandledRejection` exposure
-
-**Original heading:** Post-cancel late settlements: silent or observable
-**Original section:** spec.md — Orientation > Prerequisites > Session model
-**Kind:** completeness, error-model
-**Importance:** high
-## Finding
-
-The spec is unambiguous that a post-cancel late settlement is observably silent at the loom-language surface: [`cancellation.md` — Race semantics] says "the runtime MUST NOT rebind the call site to the late value, MUST NOT emit a second `Err` for the same invocation, and MUST NOT emit a second `RuntimeEvent`," and the *Outcome routing summary* in [`pi-integration-contract.md` — Tool execution from loom code] echoes the discard rule. The "silent or observable" question is therefore already answered in favour of silent. What the spec does **not** pin is the mechanism by which silence is achieved when the late settlement is a **rejection**.
-
-In Node, an unhandled promise rejection fires the `unhandledRejection` process event (and, under `--unhandled-rejections=strict`, terminates the process). The runtime owns the underlying `execute()` Promise from the moment it is constructed; once the `tool-call` checkpoint surfaces `Err(CodeToolError { cause: "cancelled" })` and the `await` site has already moved on, nothing in the spec requires the runtime to keep an error handler attached. A faithful implementer reading "discarded — no rebinding, no second `Err`, no second `RuntimeEvent`" can plausibly drop the Promise on the floor and let Node surface the eventual rejection as a process-level event — a classic case where two reasonable implementers diverge and one of them produces operator-visible noise (or worse, a hard process exit) that the spec believes it has forbidden. The same gap applies symmetrically to `@`-query providers and to `invoke` callees whose top-level Promise rejects after their parent's checkpoint has surfaced cancellation.
-
-A precedent for the rule already exists elsewhere in the corpus: V14m's package-discovery leaf explicitly tests that "the abandoned read's late settlement does not re-enter the discovery pass and produces **no unhandled-rejection event**." That same property is the missing half of the post-cancel discard contract for tool calls, queries, and invokes. The original framing also raised resource-leak concerns (file descriptors carried inside a discarded value) — that is genuinely out of scope for the runtime, which has no general way to traverse arbitrary tool return values, and the cleanup contract already belongs to the tool implementation.
-
-## Spec Documents
-
-- `spec_topics/cancellation.md` — Race semantics (edited)
-- `spec_topics/tool-calls.md` — Failures > Outcome enumeration > Post-cancel resolution (edited)
-- `spec_topics/pi-integration-contract.md` — Tool execution from loom code > Outcome routing summary (edited)
-- `spec.md` — Trust boundary bullet that forward-links "post-cancel late settlements (discarded)" (read-only)
-
-## Plan Impact
-
-**Phases:** V18
-
-**Leaves (implementation order):**
-
-- V18b — `AbortSignal` before every `@` query — (modified)
-- V18c — `AbortSignal` before every tool call — (modified)
-- V18d — `AbortSignal` before every `invoke` — (modified)
-- V18q — Runtime event channel and always-log emission — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A runtime that lets the underlying `execute()` (or query / invoke) Promise reject without a swallowing handler will, after every cancellation that races a late tool failure, fire Node's `unhandledRejection` event — surfacing operator-visible noise the spec believes it has forbidden, and under `--unhandled-rejections=strict` killing the host process. The "no second `RuntimeEvent`" rule is preserved on paper while being violated in practice through a side channel the spec did not name.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend the *Race semantics* paragraph in [`cancellation.md`](./spec_topics/cancellation.md) (and mirror the addition in the *Post-cancel resolution* bullet of [`tool-calls.md`](./spec_topics/tool-calls.md) and the *Outcome routing summary* of [`pi-integration-contract.md`](./spec_topics/pi-integration-contract.md)) with the discard-mechanism rule:
-
-> The runtime MUST keep a swallowing handler attached to the underlying `execute()` Promise (and, symmetrically, to the underlying `@`-query provider Promise and the `invoke` callee's top-level Promise) for the lifetime of that Promise, so that a late rejection arriving after the corresponding checkpoint has already surfaced `cause: "cancelled"` is silently discarded and does not surface as a Node `unhandledRejection` process event. The discard is total: no `Err` rebinds the call site, no `RuntimeEvent` reaches the always-log channel, and no diagnostic of any severity is emitted. The discarded value is not traversed; resource cleanup of any handles it carries (file descriptors, native handles) is the tool implementation's responsibility, not the runtime's.
-
-Add one test case to each of V18b, V18c, V18d that fires `loomAbort.abort()` from the *next* checkpoint's `before(...)` hook (the existing no-retroactive-rewrite shape) and **then resolves the underlying Promise with a rejection**. Assert: (a) zero new `Err` arrives at the call site, (b) zero `RuntimeEvent` reaches the always-log channel (cross-link with V18q's emission probe), and (c) no `unhandledRejection` event fires on the test runner's `process` (the same property V14m already asserts for abandoned discovery reads). The `Checkpoint` seam already provides the deterministic substrate for landing the late settlement at the chosen point.
-
-Edge cases the implementer must watch:
-
-- A late `reject` whose `.message` is itself diagnostic-worthy (e.g. an `OOMError`-style host failure) is still discarded — promotion to `loom/runtime/internal-error` would re-introduce the second-event surface the silent-discard rule forbids.
-- The swallowing handler must be attached **at the same site that constructs the Promise**, not lazily after cancellation fires; a `.catch(() => {})` registered after a microtask boundary will not catch a rejection that has already been queued for `unhandledRejection`.
-- The rule applies to every site that owns a Pi-returned Promise the runtime might abandon under cancellation: code-side tool calls, the underlying provider Promise of an `@`-query, and the `invoke` child's top-level execution Promise. The subagent-mode `AgentSession.abort()` Promise is already documented as "discarded" by [`pi-integration-contract.md` — Subagent session lifecycle] and is covered by the same rule.
-
-## Relationships
-
-- T23 "Per-call `AbortController` / `AbortSignal` defect routing has gaps" — same-cluster (both findings concern silent failure modes around the cancellation surface, but resolve independently)
-
----
 
