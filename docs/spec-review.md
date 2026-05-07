@@ -4,7 +4,7 @@ _Generated: 2026-05-07T13:35:00Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T21) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 8 high, 13 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
+_Triage tally: 8 high, 12 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
 
 ---
 
@@ -1378,71 +1378,3 @@ Edge cases the implementer must watch:
 - T19 "'No additional V1 runtime ceiling' closing paragraph: missing anchor / per-claim IDs and an unverifiable host-OOM routing claim" — co-resolve (immediately adjacent paragraph with the identical anchor + per-claim-ID gap; one H6 editing pass introduces both `CIO-*` and `NOCEIL-*`)
 - T21 "Masked ceilings: no observability requirement for the unreported breach" — must-follow (CIO-6's exact wording depends on whether a `details.masked` field is added)
 
----
-
-# T21 — Masked ceilings: no observability requirement for the unreported breach
-
-**Original heading:** Masked ceilings: no observability requirement for the unreported breach
-**Original section:** spec.md — Orientation > Scope: Hard ceilings (general)
-**Kind:** error-model
-**Importance:** medium
-
-## Finding
-
-The Hard-ceilings "Interaction between ceilings" paragraph in `spec.md` fixes a deterministic evaluation order for ceilings #1–#4 and concludes: "At most one ceiling surfaces per event; the spec does not promise reporting both." Worked examples confirm that when two ceilings would fire at the same site (e.g. a `tool_use` round whose tool-arg payload is depth-6 at iteration `max_iterations`), only the earlier-in-order ceiling — here #4 (`schema_validation`) — surfaces, and the later one (`tool_loop_exhausted`) is silently suppressed.
-
-No companion obligation requires the suppressed condition to be recorded anywhere. `spec_topics/diagnostics.md` defines no `details` field for masking, the always-log set in `spec_topics/pi-integration-contract.md` (and its implementation leaf V18q) emits one `RuntimeEvent` per originating `Err` with no provision for a co-fired condition, and the panic emission path (V18m, V18n) carries only the panic code. An operator inspecting `loom-system-note` after a masked event sees the surfaced ceiling and has no signal — not even at debug level — that a second hard ceiling was simultaneously breached at the same site.
-
-This is an under-specified observability surface, not a routing bug. Two reasonable implementers will diverge: one will record the masked condition somewhere (a `display: false` companion event, a `details` field, a debug log) on the assumption that "no ceiling fails silently" implies all breaches are at least logged; the other will read the spec literally and discard the masked condition entirely. The aggregator's "no ceiling fails silently" claim is in tension with the masking rule and needs explicit reconciliation.
-
-## Spec Documents
-
-- `spec.md` — Scope > Hard ceilings > Interaction between ceilings (edited)
-- `spec_topics/diagnostics.md` — `loom-system-note` `details` shapes (edited)
-- `spec_topics/pi-integration-contract.md` — Runtime event channel / always-log set (edited)
-- `spec_topics/errors-and-results.md` — Runtime panics (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V18
-
-**Leaves (implementation order):**
-
-- V18q — Runtime event channel and always-log emission — (modified)
-- V18m — Panic routing: slash-command surface — (modified)
-- V18n — Panic routing: `invoke` parent surface — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-When two hard ceilings fire at the same site (the documented `tool_loop` × depth-6 case being the canonical example, but #1 × #4 is also reachable), the operator-facing record contains exactly one of them and no marker that masking occurred. Post-mortem analysis cannot distinguish "depth-6 happened at a healthy round" from "depth-6 happened at a near-exhausted query." The system still works; the failure surface is still observable for the surfaced ceiling; but the diagnosability claim implicit in "no ceiling fails silently" is overstated.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend the surfaced diagnostic / runtime event to carry an optional `details.masked` field (or `event.masked` on `RuntimeEvent`) listing the ceiling identifiers (`"ceiling#1" | "ceiling#2" | "ceiling#3" | "ceiling#4"`) whose preconditions were also satisfied at the same check site. The field is omitted when no masking occurred. Detection happens at the surfaced ceiling's check site by re-evaluating the would-be siblings' preconditions before short-circuiting.
-
-Spec edits:
-
-- `spec.md` Hard-ceilings interaction paragraph: replace "the spec does not promise reporting both" with "the surfaced diagnostic / runtime event carries `details.masked: <ceiling-id[]>` enumerating any other ceiling whose precondition was satisfied at the same check site; an empty/absent field means no co-fire."
-- `spec_topics/diagnostics.md`: extend the `details` shape catalogue to permit `masked: string[]` on the affected codes (`loom/runtime/invoke-depth-exceeded`, the `validation` system-note shape, the `tool_loop_exhausted` event shape).
-- `spec_topics/pi-integration-contract.md` Runtime event channel: add `masked?: string[]` to the `RuntimeEvent` schema.
-
-This preserves "no ceiling fails silently" as written, gives operators a one-shot post-mortem signal without paying for two emissions, and keeps detection cost bounded — only the ≤3 sibling ceilings need to be re-evaluated at the surfaced site.
-
-Edge cases the implementer must watch:
-
-- The reachable mask domain differs per check site. At the typed-query response / tool-arg / `params` boundary (ceiling #4 site) only ceiling #2 can co-fire (binder #3 is load-time, depth #1 is at `invoke` entry). At the `invoke` entry site (ceiling #1) only ceiling #4 can co-fire (against the `invoke<T>` return payload after the callee runs, but #1 is checked at entry — so the reachable set at #1's site is empty). The spec must enumerate the per-site reachable set or the field will be inconsistent across implementations.
-- Ceiling #3 (binder) is load-time and runs before any runtime ceiling can be checked; its surface is a `loom-system-note` rendered from a failure-mode template, not an `Err` value. The `masked` field on #3's surface is always empty by construction; the spec should say so.
-- The detection step must not have observable side effects. Re-evaluating ceiling #2's `tool_loop` counter or ceiling #4's depth-walk for masking purposes must be a pure read; it must not advance the counter, mutate the round bookkeeping, or trip a second emission.
-- Tests must cover both the co-fire case (depth-6 at iteration `max_iterations` produces a `validation` event with `masked: ["ceiling#2"]`) and the no-mask case (depth-6 at a healthy round produces `masked` absent or `[]`) — pick one of "absent" or "empty array" as canonical and enforce it.
-
-## Relationships
-
-- T20 "Hard-ceiling interaction paragraph: missing anchor, undefined jargon, and bundled ordering rules" — co-resolve (same paragraph; the masking sentence and the ordering rules need IDs together)
-- T18 "Ceiling #4 routing class collapses four boundaries whose destinations differ" — must-precede (the model-driven tool-arg row is the canonical 'silent to loom code' case; the observability decision here shapes how T18's per-boundary table phrases the model-driven row)
-- T19 "'No additional V1 runtime ceiling' closing paragraph: missing anchor / per-claim IDs and an unverifiable host-OOM routing claim" — must-precede (the at-most-one-per-event rule that masks rival ceilings is settled here; T19's host-OOM routing must not be confused for an additional ceiling that could be masked)

@@ -36,6 +36,7 @@ Internal diagnostic shape:
   message:  string,                          // single-line summary
   hint?:    string,                          // optional suggested fix
   related?: array<{ file, range, message }>, // related sites (e.g., the colliding declaration)
+  masked?:  array<string>,                   // hard-ceiling co-fire enumeration; see below
 }
 ```
 
@@ -59,6 +60,8 @@ Three rules govern the diagnostic-code surface:
 4. **The Message column is normative.** Every row in the registry below carries a *Message* (the rendered author-facing string with `<…>`-style placeholders for interpolated content); renderers MUST emit it character-for-character with placeholders interpolated. Tests asserting a diagnostic's rendered message MUST source the string from this column rather than copy-pasting prose from the spec rule's home page. Wording changes are spec-versioned breaking changes.
 
 Naming convention for codes is `<namespace>/<kebab-case-rule-name>`. The rule-name component derives from the spec rule's short name; it is not generated, so the registry below is the source of truth.
+
+**`masked` field (hard-ceiling co-fire).** The optional `masked` field on the `Diagnostic` shape above carries the hard-ceiling co-fire enumeration defined in [`spec.md` — Hard ceilings — Interaction between ceilings](../spec.md). It is populated only on diagnostics emitted from a hard-ceiling check site whose precondition fired while at least one *sibling* hard ceiling's precondition was simultaneously satisfied at the same site — in V1 this is the `loom/runtime/invoke-depth-exceeded` row below (the only diagnostic-shape hard-ceiling surface; the other co-fire-eligible surfaces are runtime events, not diagnostics, and carry the same enumeration as `event.masked` per [Pi Integration Contract — Runtime event channel](./pi-integration-contract.md)). Each entry is one of `"ceiling#1"`, `"ceiling#2"`, `"ceiling#3"`, `"ceiling#4"`. The field is **omitted** when no co-fire occurred; implementations MUST NOT emit `masked: []`. The per-site reachable mask domain is fixed by the interaction paragraph in `spec.md`.
 
 ## Placeholder rendering (normative)
 
