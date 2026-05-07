@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 16 high, 10 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 15 high, 10 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -1732,66 +1732,3 @@ Implementer edge cases:
 - T24 "`details.event.reason` coercion is unspecified for non-string Pi values" — same-cluster (already partially answered by PIC's `"<unreadable>"` sentinel; touches the same diagnostic payload)
 - T26 "Teardown sub-steps 1, 4, and 5 lack a per-step isolation rule" — co-resolve (same per-step-isolation discipline; one PIC edit can pin both the generic teardown-step isolation rule and the diagnostic-emission isolation rule)
 - T28 "`session_shutdown` teardown contract has no plan-leaf owner" — must-follow (this rule has no implementer until that leaf exists; the leaf's `Adds.` field must enumerate the wrap)
-
----
-
-# T26 — Teardown sub-steps 1, 4, and 5 lack a per-step isolation rule
-
-**Original heading:** Teardown-step failure: no per-step isolation rule
-**Original section:** spec.md — Orientation > Prerequisites > Session model
-**Kind:** error-model
-**Importance:** high
-## Finding
-
-The five-sub-step `session_shutdown` sequence in [Pi Integration Contract — Extension entry point, step 4](../../../spec_topics/pi-integration-contract.md) (`spec_topics/pi-integration-contract.md` lines 97–103) only specifies failure isolation for sub-step 2: a per-entry `try`/`catch` around `loomAbort.abort()` and a `Promise.allSettled` over `disposeBarrier`s in sub-step 3 absorb per-invocation failures. Sub-steps 1 (mark `LoomRegistry` drained), 4 (`discoveryWatcher.close()`, `settingsWatcher.close()`, `Clock.clearTimeout` of the debounce handle), and 5 (detach forwarding listeners on `ctx.signal`, tool `execute(signal)`, and parent-`invoke` signals) are written as bare imperative calls with no statement of what happens if any of them throws.
-
-A throw from `discoveryWatcher.close()` would, on the most natural reading, propagate out of the handler and skip both `settingsWatcher.close()` and the entire listener-detachment step — exactly the leak class the handler exists to prevent. Two reasonable implementers will diverge: one wraps each call in `try`/`catch` and continues, another lets the throw escape, a third swallows it silently. None of those choices is observable from the spec, and there is no diagnostic code reserved for partial teardown — the only two codes the handler is permitted to emit (`loom/runtime/reload-teardown-timeout` and `loom/host/session-shutdown-reason-unknown`, per the *Edge cases* paragraph at line 123) cover neither sub-step 1 nor sub-step 4 nor sub-step 5.
-
-The gap is narrow but load-bearing: the same paragraph asserts the handler exists *because* `ExtensionRuntime.invalidate(...)` will not strand chokidar handles or `AbortController` listeners, yet the spec leaves the failure mode of the very steps that close those handles unspecified.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — Extension entry point, step 4 (sub-steps 1, 4, 5; the *Edge cases* "two diagnostics" closure rule) (edited)
-- `spec_topics/diagnostics.md` — `loom/host/*` namespace registry; the "two carved-out exceptions" sentence in the **Persistent diagnostics (default)** preamble (edited)
-- `spec_topics/pi-integration-contract.md` — *Registry contract* bullets (per-entry `try`/`catch` for `loomAbort.abort()` in sub-step 2) (read-only — already correct, used as the structural template for the new rule)
-- `spec_topics/errors-and-results.md` — Runtime panics / runtime-defect surface (read-only — confirms the new diagnostic should *not* re-enter that surface, since the teardown handler must not depend on `sendSystemNote`)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — the plan corpus contains no leaf for the `session_shutdown` handler or the `ActiveInvocationRegistry` teardown sequence (this gap is itself the subject of a separate finding in the same review). When that leaf is created, the per-step isolation rule and its diagnostic become acceptance criteria for it; until then there is no existing leaf whose Tests / Ships-when fields would change.
-
-## Consequence
-
-**Severity:** correctness
-
-Without a per-step isolation rule, two implementers will produce observably different teardown behaviour on the failure path: one will leak a `settingsWatcher` handle and several signal listeners after a `discoveryWatcher.close()` throw, another will swallow it silently with no operator visibility, a third will let the throw escape into Pi. The handler's stated reason for existing — preventing exactly those leaks across `/reload`, `/new`, fork, and quit — is contingent on a rule the spec does not state.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a *Per-step isolation rule* paragraph to step 4 of [Pi Integration Contract — Extension entry point](../../../spec_topics/pi-integration-contract.md), placed immediately after the five-sub-step list and before the **idempotent** sentence, with the following content:
-
-> **Per-step isolation.** Sub-steps 1, 4, and 5 each run inside their own `try`/`catch`; a throw from any of them MUST be caught, MUST emit exactly one `loom/host/session-shutdown-teardown-step-failed` (W, runtime) diagnostic via `console.error` with `details: { step: 1 | 4 | 5, call: <static call-site label>, error: <error.message> }`, and MUST NOT prevent the remaining sub-steps from running. Within sub-step 4 the rule applies independently to each of `discoveryWatcher.close()`, `settingsWatcher.close()`, and the debounce-handle `Clock.clearTimeout(...)` call (three potential emissions, one per failing call). Within sub-step 5 the rule applies independently to each enumerated listener-detach call. Sub-steps 2 and 3 retain their existing per-entry isolation rules (per-entry `try`/`catch` around `loomAbort.abort()`; `Promise.allSettled` over `disposeBarrier`s) and do not emit `teardown-step-failed`.
-
-Update the *Edge cases* bullet at line 123 ("Two diagnostics may be emitted from this handler, both via `console.error`: ... No other diagnostic code may be emitted from this handler.") to enumerate three codes: `loom/runtime/reload-teardown-timeout`, `loom/host/session-shutdown-reason-unknown`, and the new `loom/host/session-shutdown-teardown-step-failed`.
-
-In `spec_topics/diagnostics.md`:
-
-- Add a row to the `loom/host/*` registry table for `loom/host/session-shutdown-teardown-step-failed` (severity `W`, phase `runtime`) with a trigger description that names the three sub-steps it covers and points back to PIC's *Per-step isolation* paragraph.
-- Update the **Persistent diagnostics (default)** preamble's "two carved-out exceptions" wording to match the new count, and extend the `loom/runtime/*` summary at line 47 if its enumeration is exhaustive.
-
-Edge cases the implementer must observe: the static call-site label in `details.call` is a fixed string per call site (e.g. `"discoveryWatcher.close"`, `"settingsWatcher.close"`, `"Clock.clearTimeout(debounce)"`, `"ctx.signal.removeEventListener"`) so deduplication on `(code, details.step, details.call)` is meaningful across runs; a `console.error` that itself throws is silently dropped (the handler is the bottom of the stack and has no further fallback); the new code is not added to the always-log set defined under [Pi Integration Contract — Runtime event channel](../../../spec_topics/pi-integration-contract.md), matching the existing `reload-teardown-timeout` and `session-shutdown-reason-unknown` exclusions.
-
-## Relationships
-
-- T24 "`details.event.reason` coercion is unspecified for non-string Pi values" — same-cluster (both pin a `details` payload shape for a teardown-handler diagnostic; the sentinel-string convention chosen for `event.reason` should be applied symmetrically to `details.error` here when the captured throw is not an `Error` instance)
-- T25 "Session-shutdown teardown: `console.error` is the unguarded last resort, but no rule says emission MUST NOT propagate" — same-cluster (the diagnostic-channel-failure question constrains how the new `teardown-step-failed` code degrades when `console.error` itself is unavailable)
-- T28 "`session_shutdown` teardown contract has no plan-leaf owner" — must-follow (the new isolation rule is one of the acceptance criteria the missing leaf must carry)
-
