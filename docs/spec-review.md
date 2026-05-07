@@ -4,7 +4,7 @@ _Generated: 2026-05-07T13:35:00Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T21) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 high, 5 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
+_Triage tally: 1 high, 4 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
 
 ---
 
@@ -284,66 +284,3 @@ Edge cases the implementer must watch:
 ## Relationships
 
 - T06 "`loom/runtime/*` namespace summary mis-describes the namespace as panics-only" — same-cluster (both touch `diagnostics.md` registry-section accuracy; resolve independently)
-
----
-
-# T05 — `tool_loop.max_iterations` is named for the wrong unit (rounds, not iterations)
-
-**Original heading:** `max_iterations` field counts "rounds" not "iterations"
-**Original section:** spec_topics/ — Naming inconsistencies (multiple files)
-**Kind:** naming
-**Importance:** medium
-
-## Finding
-
-The frontmatter cap on the model's tool-call loop is exposed as `tool_loop.max_iterations`, but every normative description of what it counts uses a different unit. `spec_topics/frontmatter.md` defines it as "a non-negative integer counting tool-call *rounds*, not individual tool calls," then has to spend a clause defining what "round" means (model emits ≥1 `tool_use` blocks → runtime executes them all → results returned). `spec_topics/query.md`, `spec_topics/implementation-notes.md`, and the V6k / V13f plan leaves all repeat the same "counts rounds, not tool calls" disclaimer. The disclaimer is necessary precisely because the field name asserts the opposite.
-
-The same mis-naming propagates to the failure surface: `ToolLoopExhaustedError` carries an `iterations: number` field whose documented value is `tool_loop.max_iterations` on exhaustion — i.e. a round count surfaced under a name that authors will read as a tool-call count. With parallel tool-use a single round may cover several tool calls, so the field name is not just stylistically off but observationally misleading: an author who interprets `iterations: 25` as "the model called tools 25 times" can be wrong by a wide margin.
-
-The whole `tool_loop` block is pre-V1 with no installed user base; the field name is editable at the same cost as any other spec edit.
-
-## Spec Documents
-
-- `spec_topics/frontmatter.md` — `tool_loop` field-contract row, `tool_loop` prose bullet, frontmatter YAML example, naming-convention paragraph (edited)
-- `spec_topics/query.md` — Tool-call loop bound section, forced-respond-turn paragraph (edited)
-- `spec_topics/errors-and-results.md` — `ToolLoopExhaustedError` schema (`iterations: number` field) (edited)
-- `spec_topics/diagnostics.md` — `loom/load/frontmatter-value-out-of-range` description row (edited)
-- `spec_topics/implementation-notes.md` — tool-loop enforcement bullet citing the field name in the `Err` payload (edited)
-- `spec_topics/future-considerations.md` — `looms.toolLoopMaxIterations` deferred settings key (edited)
-- `spec.md` — Hard ceiling #2 (`tool_loop.max_iterations` per query) (edited)
-- `plan_topics/v6-typed-queries.md` — V6k leaf (read-only; no spec-text edits, but field-name references will need to follow)
-- `plan_topics/v13-wire-names.md` — V13f leaf (read-only; same)
-
-## Plan Impact
-
-**Phases:** V6, V13
-
-**Leaves (implementation order):**
-
-- V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError` — (modified)
-- V13f — `respond_repair:` and `tool_loop:` frontmatter parsing — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-The cap still works under either name and implementations will agree on its semantics (the prose is unambiguous). The cost is paid by every author who reads `max_iterations: 25` and assumes it bounds tool-call count, and by every reader of `ToolLoopExhaustedError.iterations` who reads "iterations: 25" as "25 tool calls." With parallel tool-use widely supported by V1 providers, the gap between rounds and tool calls can be a small integer multiplier — large enough to mis-size budgets in real usage.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rename `tool_loop.max_iterations` → `tool_loop.max_rounds`; rename `ToolLoopExhaustedError.iterations` → `ToolLoopExhaustedError.rounds`; rename the deferred `looms.toolLoopMaxIterations` settings key in `future-considerations.md` → `looms.toolLoopMaxRounds`. Drop the "counting *rounds*, not individual tool calls" disclaimer at every site where it currently appears (`frontmatter.md`, `query.md`, `implementation-notes.md`, V6k, V13f) — the name now carries that meaning.
-
-This is pre-V1 spec with no installed users; the field name is the cheapest editable surface in the system, and the spec already standardises on "round" as the unit-of-counting noun in every adjacent paragraph. Renaming both the frontmatter field and the error payload removes the disclaimer permanently and makes `iterations: 25` (now `rounds: 25`) mean what it says.
-
-Edge cases the implementer must watch:
-
-- V6k's test names ("`max_iterations: 25` and 24 free-phase rounds") and `loom/load/frontmatter-value-out-of-range`'s "currently `tool_loop.max_iterations` and `respond_repair.attempts`" enumeration in `diagnostics.md` both spell the field name in prose and must be updated in the same pass.
-- The pin in `errors-and-results.md` (`iterations: number`) is observable wire surface, so any V1 implementation sketch already committing to the field name must follow.
-
-## Relationships
-
-None

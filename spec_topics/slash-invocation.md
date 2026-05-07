@@ -42,7 +42,7 @@ Per-`kind` formatting:
 | `context_overflow` | "loom `/<name>` returned `Err`: context window exceeded" |
 | `cancelled` | "loom `/<name>` cancelled" |
 | `code_tool` | "loom `/<name>` returned `Err`: tool `<tool_name>` call failed (`<cause>`) — `<message>`" |
-| `tool_loop_exhausted` | "loom `/<name>` returned `Err`: tool-call loop exhausted after `<iterations>` iterations (last tool: `<last_tool_name>`)" |
+| `tool_loop_exhausted` | "loom `/<name>` returned `Err`: tool-call loop exhausted after `<rounds>` rounds (last tool: `<last_tool_name>`)" |
 | `invoke_failure` | "loom `/<name>` returned `Err`: invoke of `<callee_path>` failed (`<cause>`)" |
 | `invoke_callee_error` | "loom `/<name>` returned `Err`: invoked `<callee_path>` returned `Err` — `<inner.kind>`" |
 | _any unlisted `kind`_ (catch-all) | "loom `/<name>` returned `Err`: `<kind>` — `<message>`" |

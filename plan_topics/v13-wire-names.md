@@ -43,8 +43,8 @@
 ## V13f — `respond_repair:` and `tool_loop:` frontmatter parsing
 
 - **Spec.** [Parameters and Frontmatter — `respond_repair`](../spec_topics/frontmatter.md), [Parameters and Frontmatter — `tool_loop`](../spec_topics/frontmatter.md).
-- **Adds.** `respond_repair: { attempts: N, methodology: <enum> }`. Defaults: 3, `validator_error`. Methodologies: `validator_error`, `schema_repeat`, `none`. `tool_loop: { max_iterations: N }`. Default 25. Both blocks are optional with the documented defaults.
-- **Tests.** Each methodology accepted; out-of-range `attempts` rejected; unknown methodology rejected; `tool_loop.max_iterations` accepts non-negative integers (0 disables model tool-use; positive integers cap the loop); negative or non-integer values rejected.
+- **Adds.** `respond_repair: { attempts: N, methodology: <enum> }`. Defaults: 3, `validator_error`. Methodologies: `validator_error`, `schema_repeat`, `none`. `tool_loop: { max_rounds: N }`. Default 25. Both blocks are optional with the documented defaults.
+- **Tests.** Each methodology accepted; out-of-range `attempts` rejected; unknown methodology rejected; `tool_loop.max_rounds` accepts non-negative integers (0 disables model tool-use; positive integers cap the loop); negative or non-integer values rejected.
 - **Deps.** V3a.
 - **Ships when.** Respond-repair and tool-loop config parse.
 
@@ -52,7 +52,7 @@
 
 - **Spec.** [Query — Schema-validation respond-repair](../spec_topics/query.md), [Query — Typed queries are tool-loop-shaped](../spec_topics/query.md) (respond-repair follow-ups restart the two-phase loop).
 - **Adds.** On AJV failure of the respond turn's payload, append a follow-up user turn quoting the AJV error; restart the two-phase loop with a fresh `tool_loop` budget (free phase — the model may re-tool, e.g. re-read a file — then forced respond turn); re-validate. Bounded by `respond_repair.attempts`.
-- **Tests.** Successful respond-repair at attempt 1, 2, 3; attempts exhausted → `Err({kind:"validation", attempts: N})`; conversation history preserves the malformed respond-tool call and the follow-up user turn; respond-repair follow-up that triggers an intermediate frontmatter tool call (model re-reads a file before answering) succeeds; respond-repair follow-up gets the full `tool_loop.max_iterations` budget independent of how many rounds the original turn consumed.
+- **Tests.** Successful respond-repair at attempt 1, 2, 3; attempts exhausted → `Err({kind:"validation", attempts: N})`; conversation history preserves the malformed respond-tool call and the follow-up user turn; respond-repair follow-up that triggers an intermediate frontmatter tool call (model re-reads a file before answering) succeeds; respond-repair follow-up gets the full `tool_loop.max_rounds` budget independent of how many rounds the original turn consumed.
 - **Deps.** V13f, V6l, V6k.
 - **Ships when.** Default-mode respond-repair works through the two-phase loop.
 

@@ -217,13 +217,13 @@ schema CancelledError {
 }
 ```
 
-Fires when the per-query tool-call iteration cap is reached without the model producing a terminating turn (see [Query — Tool-call loop bound](./query.md)).
+Fires when the per-query tool-call round cap is reached without the model producing a terminating turn (see [Query — Tool-call loop bound](./query.md)).
 
 ```loom
 schema ToolLoopExhaustedError {
   kind: "tool_loop_exhausted",
   message: string,
-  iterations: number,                        // == tool_loop.max_iterations on exhaustion
+  rounds: number,                            // == tool_loop.max_rounds on exhaustion
   last_tool_name: string | null,             // most recent tool the model called, or null if exhaustion fired on the forced respond turn
   raw_response: string | null                // any text the model emitted alongside the final tool call, when surfaced by the provider
 }
@@ -283,6 +283,6 @@ Each variant carries only its meaningful fields; there are no null-padded sentin
 
 `raw_response` only appears on variants where the model produced (or attempted to produce) a final text response. `cancelled` and `context_overflow` rarely have one; `transport` failures by definition have no assistant response. `ToolLoopExhaustedError` carries `raw_response` only when the model emitted text alongside its terminating tool-use block; the field is `null` when exhaustion fired on a pure tool-use turn.
 
-`ToolLoopExhaustedError` is distinct from `CancelledError`: the former is the runtime giving up on the model; the latter is the user or parent giving up on the runtime. `last_tool_name` is `null` when exhaustion fired on the forced respond turn of a typed query (the model never picked the respond tool within the budget); otherwise it names the tool the model invoked on the loop's terminal iteration.
+`ToolLoopExhaustedError` is distinct from `CancelledError`: the former is the runtime giving up on the model; the latter is the user or parent giving up on the runtime. `last_tool_name` is `null` when exhaustion fired on the forced respond turn of a typed query (the model never picked the respond tool within the budget); otherwise it names the tool the model invoked on the loop's terminal round.
 
 `InvokeInfraError`'s wire `kind` remains `"invoke_failure"` — snake_case discriminants are wire contract and are not renamed when the schema name changes. Code that pattern-matches on `kind: "invoke_failure"` is unaffected by the schema rename.
