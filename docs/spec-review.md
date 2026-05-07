@@ -5,7 +5,7 @@ _Source: docs/reviews/spec-review/spec-20260507-064438-enriched.md_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T26) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 5 high, 12 medium retained; 31 low discarded; 4 low findings merged into 2 medium findings; 8 nit dropped; 0 false dropped._
+_Triage tally: 4 high, 12 medium retained; 31 low discarded; 4 low findings merged into 2 medium findings; 8 nit dropped; 0 false dropped._
 
 ---
 
@@ -997,75 +997,3 @@ Edge cases the implementer must watch:
 - T15 "Ceiling #3 (binder LLM-call cap) is misclassified across the hard-ceilings aggregator" — co-resolve (the same pre-evaluation list is the target of both fixes; closing the list and adding binder-cap exhaustion can land in one edit)
 
 ---
-
-# T15 — Ceiling #3 (binder LLM-call cap) is misclassified across the hard-ceilings aggregator
-
-**Source:** docs/reviews/spec-review/spec-20260507-064438-enriched.md
-**Original heading:** Ceiling #3 (Binder LLM cap) is misclassified on multiple axes — consistency failure
-**Original section:** spec.md — Orientation > Scope > Hard runtime ceilings
-**Kind:** consistency, cross-spec-consistency-broad
-**Importance:** high
-
-## Finding
-
-The "Hard runtime ceilings" bullet in `spec.md` (Orientation > Scope) lists four items meant to share a structural shape — each is a hard upper bound whose breach has a distinct, observable failure surface. Ceiling #3 (the binder LLM-call cap) does not belong to that shape and is misclassified on four interlocking axes.
-
-1. **Category name vs. content.** The category is "Hard *runtime* ceilings," but ceiling #3 fires at slash-invocation load time, before evaluation begins. Its own bullet says so explicitly: "load-time system note. The loom does not start." It is not a runtime event in the sense the other three ceilings are.
-
-2. **Trichotomy contradiction.** The opening paragraph of `spec.md` lists "exhausting one of the [Hard runtime ceilings] below" as a way evaluation reaches the *fail* arm of the success/fail/cancelled trichotomy. Ceiling #3 then says the opposite: "Not an evaluation outcome — nothing reaches loom code, no `Result` value is observable." The hedging clause "those ceilings split across distinct routing classes … the per-ceiling failure class is named at the bullet" is not strong enough to dissolve the contradiction.
-
-3. **Pre-evaluation enumeration gap.** The pre-evaluation failure list in paragraph 3 of `spec.md` (and verbatim in `errors-and-results.md#terminal-outcomes`) enumerates six pre-evaluation failures. It does not include binder LLM-call exhaustion. Ceiling #3 thus has no home: the runtime-ceilings bullet says it is not an evaluation outcome, and the load-time list omits it.
-
-4. **Cross-spec gloss hides the per-class structure.** The aggregator gloss "Binder LLM-call cap (3 per slash invocation)" reads as a single flat counter. `binder.md` actually defines two independent per-class retry budgets: at most one transport-failure retry and at most one malformed-envelope retry per slash invocation, with AJV failures not retried. The "3" is the algebraic worst-case sum (1 initial + 1 transport-class retry + 1 malformed-envelope-class retry). The user-visible system-note rendered on exhaustion comes from the *most recent* failure's class template, not from a generic "cap exceeded" template — which an implementer reading only the aggregator would not realise. Two reasonable implementers can diverge: one builds a single counter that fires a generic exhaustion note at the third call regardless of class; the other builds two per-class counters and renders the most-recent-failure template. Only the second matches `binder.md`.
-
-## Spec Documents
-
-- `spec.md` — Opening paragraph (terminal-outcomes clause and pre-evaluation failure list) (edited)
-- `spec.md` — Orientation > Scope > Hard runtime ceilings (edited)
-- `spec_topics/errors-and-results.md` — `terminal-outcomes` section (edited; same trichotomy/load-time wording is mirrored here and must move in lockstep)
-- `spec_topics/binder.md` — `failure-mode-templates-normative` (read-only; source of truth for the per-class budget structure)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The fix is entirely aggregator-level prose. V16n (transport-failure single retry), V16o (malformed-envelope single retry), and V16p (AJV no-retry) already implement the per-class structure that `binder.md` defines, and their **Adds** / **Tests** wording already routes through the per-class failure-mode templates — none of those leaves' acceptance criteria need to change.
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer reading only the aggregator can build the wrong cap (a flat counter with a generic exhaustion note instead of two per-class counters with the most-recent-class template) and the wrong outcome routing (returning an `Err` to loom code instead of refusing to start the loom). A reviewer or test author also cannot cite the binder cap by stable handle without resolving four conflicting framings.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Make four edits, all to the aggregator-level text. The per-class behaviour in `binder.md` is correct and stays untouched.
-
-1. **Rename the category and split out the load-time ceiling.** Rename the bullet from "Hard runtime ceilings" to "Hard ceilings" (drop "runtime"). Re-order the four items so that ceilings #1, #2, #4 stay together as runtime ceilings and ceiling #3 (binder cap) is presented under a separate sub-heading or annotation marking it as load-time.
-
-2. **Restrict the trichotomy clause in the opening paragraph.** Change "exhausting one of the [Hard runtime ceilings] below" to "exhausting one of the runtime-class hard ceilings below (ceilings whose routing class is panic or `Err`; the load-time binder cap is excluded — see ceiling #3 and the pre-evaluation failure list above)." Mirror the same carve-out in `errors-and-results.md#terminal-outcomes` under the **Failure** bullet.
-
-3. **Add binder-cap exhaustion to the pre-evaluation failure enumeration.** In `spec.md` paragraph 3 and in `errors-and-results.md#terminal-outcomes`, add "binder LLM-call exhaustion" between "binder-model resolution failure" and "`tools:` resolution failure". This places ceiling #3 in the only list that already routes load-time failures to `loom-system-note`.
-
-4. **Restate ceiling #3 using `binder.md`'s per-class framing.** Replace the parenthetical "(3 per slash invocation)" with: "Binder per-class retry budget — at most one transport-failure retry and at most one malformed-envelope retry per slash invocation; AJV-on-`args` failures are not retried (worst-case sum: 3 binder LLM calls); the loom does not start, the operator-facing note is rendered from the failure-mode template matching the *most recent* failure's class — see [Slash-Command Argument Binding — Failure-mode templates](./spec_topics/binder.md#failure-mode-templates-normative)."
-
-Edge cases the implementer must watch:
-
-- The two per-class budgets interleave: a transport failure observed on the retry of a malformed envelope consumes the transport budget, and vice versa (`binder.md` already specifies this; the aggregator must not contradict it by implying a flat counter).
-- Cancellation observed during any retry suppresses that retry and surfaces the cancelled-binder template, irrespective of which budget remains.
-- The pre-evaluation failure list is referenced from two places (`spec.md` paragraph 3 and `errors-and-results.md#terminal-outcomes`); both must be updated together to keep the aggregator-vs-source lock-step rule (GOV-12) honest.
-
-## Relationships
-
-- T14 "Pre-evaluation failure enumeration: inline restatement in preamble, list never marked closed at owner" — co-resolve (same pre-evaluation list edit; closing the list and adding binder-cap exhaustion can land in one edit)
-- T13 "`tool_loop.max_iterations`: validation rules and diagnostic surface unspecified" — same-cluster (same Hard runtime ceilings bullet)
-- T10 "Hard-ceiling interaction: no rule for which surface fires when two ceilings could trip on the same event" — co-resolve (both rest on tightening which ceilings can produce evaluation outcomes)
-
----
-
