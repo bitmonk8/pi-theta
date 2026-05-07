@@ -4,7 +4,7 @@ _Generated: 2026-05-07T13:35:00Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T21) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 3 high, 11 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
+_Triage tally: 2 high, 11 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
 
 ---
 
@@ -786,73 +786,4 @@ Edge cases the implementer must observe: an unknown reason at a moment when `Ext
 ## Relationships
 
 - T11 "`session_shutdown` fast-path: spec.md sentence implies a branching short-circuit that PIC does not authorise" — same-cluster (both touch the step-4 reason-handling surface; resolutions interlock — removing the fast-path simplifies the unknown-reason rule to "always run the full sequence")
-
----
-
-# T13 — `resourceLoader` example mis-names the `LoadExtensionsResult` field as `diagnostics`; the SDK shape is `errors`
-
-**Original heading:** `getExtensions()` resourceLoader adapter uses `diagnostics` key; installed SDK uses `errors`
-**Original section:** spec_topics/pi-integration-contract.md
-**Kind:** doc-alignment
-**Importance:** high
-
-## Finding
-
-The `resourceLoader` code block in *Conversation drive — subagent mode* (`spec_topics/pi-integration-contract.md` line 247) declares `getExtensions: () => ({ extensions: [], diagnostics: [] })`. Pi's `ResourceLoader.getExtensions()` returns `LoadExtensionsResult`, whose two fields are `extensions: Extension[]` and `errors: Array<{ path: string; error: string }>` — not `diagnostics`. A literal copy of the example fails TypeScript's structural check against the pinned `ResourceLoader` interface.
-
-The spec is also internally inconsistent. `spec_topics/diagnostics.md` line 3 explicitly references `LoadExtensionsResult.errors` by its correct name when explaining why loom does not consume that field; the PIC code example uses the wrong name for the same field on the same SDK pin. The four sibling adapter members in the same code block (`getSkills`, `getPrompts`, `getThemes`, plus the unused-by-loom `extendResources` / `reload`) genuinely return `{ …, diagnostics: ResourceDiagnostic[] }` — `getExtensions` is the one outlier whose field name diverges, and the example has been written by analogy with its neighbours rather than against the actual `LoadExtensionsResult` declaration.
-
-The shape mismatch was confirmed against the installed `@mariozechner/pi-coding-agent@0.73.0` types; under the spec's pinned `~0.72.1` range the relevant declaration site (`dist/core/extensions/types.d.ts`) is the same `LoadExtensionsResult { extensions, errors }` interface that `dist/core/resource-loader.d.ts` re-exports. There is no `diagnostics` field on this type at any version in the supported range.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — *Conversation drive — subagent mode*, the `resourceLoader` code block (line 247) (edited)
-- `spec_topics/diagnostics.md` — opening paragraph that already references `LoadExtensionsResult.errors` correctly (read-only)
-- `spec_topics/pi-integration-contract.md` — *Pi version bump procedure*, step 1 ("Re-typecheck against the new package") (read-only — establishes that a future SDK rename of this field is caught by typecheck and would be expected to update the example)
-
-## Plan Impact
-
-**Phases:** Vertical V12
-
-**Leaves (implementation order):**
-
-- V12a — `mode: subagent` accepted; AgentSession spawn — (modified)
-
-V12a constructs the loom-side `ResourceLoader` adapter in production code; its acceptance tests assert that `agentSession.systemPrompt` after spawn equals the resolved `system:` string, which presupposes the adapter compiles against the SDK's `ResourceLoader` type. With the spec example using the wrong field name, a faithful V12a implementation either silently diverges from the example to satisfy `tsc`, or copies the example verbatim and fails to build. No other leaf references `getExtensions` or `LoadExtensionsResult`.
-
-## Consequence
-
-**Severity:** correctness
-
-A TypeScript implementation copying the spec's object literal produces an immediate `tsc` error against `ResourceLoader.getExtensions(): LoadExtensionsResult`. The shape is also semantically wrong — `errors` is keyed by `path`, `diagnostics` was being treated as a parallel of the `ResourceDiagnostic[]` arrays returned by the four sibling getters — so a JavaScript-only implementation that dropped types would silently return an object Pi's loader cannot interpret as an extension-load result. The spec contradicts itself between PIC and `diagnostics.md`, leaving no in-spec way to determine which form is canonical without reading the SDK.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `spec_topics/pi-integration-contract.md`, change the `getExtensions` line of the `resourceLoader` code block from
-
-```ts
-getExtensions: () => ({ extensions: [], diagnostics: [] }),
-```
-
-to
-
-```ts
-getExtensions: () => ({ extensions: [], errors: [] }),
-```
-
-No other adapter line changes — `getSkills` / `getPrompts` / `getThemes` correctly return `{ …, diagnostics: ResourceDiagnostic[] }` per the SDK and stay as written.
-
-Edge cases the implementer must watch:
-
-- The `errors` field's element shape is `{ path: string; error: string }` (note the singular `error` for the message), not `{ path: string; message: string }` or a `ResourceDiagnostic`. The empty-array literal `[]` is valid against either spelling, but any future revision that pre-populates entries (e.g. for tests) must use the SDK's exact element shape.
-- `Pi version bump procedure` step 1 (`Re-typecheck against the new package`) is the existing mechanical gate for this kind of drift. No new step is needed; the typecheck would catch a future rename. Optionally, the *bump procedure* preamble may note that the four `ResourceLoader` member return shapes are part of the loom-load-bearing surface that step 1 covers, but this is not required to fix the immediate defect.
-- The fix does not affect runtime behaviour of any current prototype — Pi never calls `getExtensions` on the spawned subagent's adapter (subagent sessions do not load nested extensions), so the empty-array return is observationally inert. The defect is purely a static contract violation that would block compilation of a faithful implementation.
-
-## Relationships
-
-None
 

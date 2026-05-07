@@ -245,7 +245,7 @@ const resourceLoader: ResourceLoader = {
   // Loom-owned adapter: getSystemPrompt is the only loom-load-bearing member; the rest return empty/defaults.
   getSystemPrompt: () => loomSystemPrompt,
   getAppendSystemPrompt: () => [],
-  getExtensions: () => ({ extensions: [], diagnostics: [] }),
+  getExtensions: () => ({ extensions: [], errors: [] }),
   getSkills: () => ({ skills: [], diagnostics: [] }),
   getPrompts: () => ({ prompts: [], diagnostics: [] }),
   getThemes: () => ({ themes: [], diagnostics: [] }),
