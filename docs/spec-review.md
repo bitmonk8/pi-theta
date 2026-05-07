@@ -4,7 +4,7 @@ _Generated: 2026-05-07T13:35:00Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T21) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 high, 10 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
+_Triage tally: 1 high, 9 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
 
 ---
 
@@ -608,69 +608,3 @@ Edge cases the implementer must watch:
 None
 
 ---
-
-# T10 — Post-probe SDK-shape drift has no stated routing or operator attribution
-
-**Original heading:** Mid-session capability invalidation unaddressed
-**Original section:** spec.md — Orientation > Prerequisites: Host runtime
-**Kind:** error-model
-**Importance:** medium
-
-## Finding
-
-The Step 0 capability probe (`spec_topics/pi-integration-contract.md#entry-capability-probe`) is single-shot at extension-factory entry. After it succeeds, the spec gives no general rule for what happens if a previously-probed Pi capability degrades or disappears later in the session: a member that was `typeof === "function"` at probe time stops being callable, returns the wrong shape, or starts throwing; `pi.setActiveTools` is replaced by an object with a different signature; the binder model handle resolved at load time is unregistered before the next binder call; `pi.sendUserMessage` rejects when the SDK contract says it returns `void`; an `AgentSession.sendUserMessage` call rejects with a transport error rather than yielding through the message stream; and so on.
-
-For three specific surfaces, the spec does provide a dedicated code: `loom/runtime/active-set-restore-failed` (restore-side `pi.setActiveTools` throw), `loom/runtime/system-note-delivery-failed` (`pi.sendMessage` synchronous throw), and `loom/runtime/subagent-dispose-failure` (`AgentSession.dispose()` throw). The catch-all `loom/runtime/internal-error` row in `spec_topics/diagnostics.md` enumerates "a host-function `TypeError`, an internal invariant violation, an unanticipated SDK reject" as triggers and routes them through the panic surface. Read together, these cover the *throw* path for almost every host-drift scenario that an implementer would actually encounter.
-
-What is still missing is (a) an explicit aggregator-level statement that post-probe capability drift routes through `loom/runtime/internal-error` (the `internal-error` row's example list does not name the snapshot-side `pi.setActiveTools` call, the per-invocation `pi.sendUserMessage` call, the post-load `ctx.modelRegistry` re-resolution, or any "previously probed but now wrong shape" case, and the spec nowhere says the runtime does not re-run the probe); (b) any operator-facing way to distinguish a host-drift failure from a genuine loom-runtime defect — both currently surface as the same `"loom /<name> aborted with internal error: <message>"` system note with the underlying error's `message`/`stack` in `hint`, leaving the operator no signal about which side of the seam to investigate; and (c) the silent-shape-drift sub-case (a member that no longer matches its probed shape but does not throw — e.g., `pi.setActiveTools` becoming a Promise-returning function the runtime forgets to `await`), which has no detection rule at all.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — Host prerequisites / Step 0 (Capability probe) / SDK capability inventory (edited)
-- `spec_topics/pi-integration-contract.md` — Tool-registration lifetime and visibility (read-only under the recommendation)
-- `spec_topics/pi-integration-contract.md` — Conversation drive (prompt mode and subagent mode) (read-only)
-- `spec_topics/diagnostics.md` — `loom/runtime/internal-error` row (edited)
-- `spec_topics/errors-and-results.md` — Runtime panics / runtime-defect surface (read-only)
-- `spec_topics/binder.md` — Binder model resolution (read-only)
-- `spec.md` — Orientation > Prerequisites: Host runtime (read-only — the orientation paragraph the finding cites stays a forward-link to PIC)
-
-## Plan Impact
-
-**Phases:** Horizontal H4, Vertical V14, Vertical V16, Vertical V18
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — (modified: `withActiveTools` and `sendSystemNote` plumbing, plus the `PiSubagentSpawner`/`PiToolHost` shims, are the call sites that would carry the drift-routing rule)
-- V14e — Pi tool wired into `@` queries as model-callable — (modified: prompt-mode `pi.setActiveTools` snapshot-side failure currently has no asserted routing; the leaf would gain a snapshot-side drift test paralleling its existing restore-side coverage)
-- V16 (binder leaves under `plan_topics/v16-binder.md`) — (modified: post-load binder-model re-resolution needs a defined route when the cached `Model<Api>` handle has been invalidated between load and call)
-- V18m — Panic routing: slash-command surface — (modified: add a new test case that synthesises a probed-capability post-call throw and confirms it lands on `internal-error`)
-- V18n — Panic routing: `invoke` parent surface — (modified: same shape, on the `InvokeInfraError { cause: "internal_error" }` arm)
-
-## Consequence
-
-**Severity:** advisory
-
-Without the explicit rule, two implementers will diverge on the silent-shape-drift case (one `await`s a function the probe said was sync, the other does not; one re-probes on each invocation, the other does not), and operators triaging an `"aborted with internal error"` note have no way to decide whether to file a Pi bug or a loom bug. Throw-side behavior is recoverable from the existing `internal-error` row, so nothing critical breaks; the gap shows up as inconsistent triage and as a quiet correctness hazard for the no-throw drift path.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add one paragraph under PIC's Step 0 (or under the SDK capability inventory) stating: (i) the probe runs exactly once at factory entry and is not re-run; (ii) any post-probe call to a previously-probed Pi member that throws, rejects, or returns a value of the wrong shape is routed to `loom/runtime/internal-error` per the existing catch-all, except where a more specific code applies (cross-link the four existing dedicated codes — `active-set-restore-failed`, `system-note-delivery-failed`, `subagent-dispose-failure`, `registry-swap-failed`); (iii) silent-shape drift that does not throw is undefined behavior — the runtime is not required to detect it. Then extend the `internal-error` row in `diagnostics.md` to mention "post-probe SDK-shape drift" alongside the existing examples.
-
-This is a documentation-only edit over an already-implemented routing rule. The runtime keeps its existing single catch-all wrap and the existing test scaffolding in V18m/V18n still applies. The operator-facing attribution gap (host-drift vs. loom-defect) is real but small enough to defer; if triage proves painful in practice after V1 ships, a `details.kind` discriminator on `loom/runtime/internal-error` is an additive registry-minor change that does not break any existing emission or routing.
-
-Edge cases the implementer must watch:
-
-- The binder-model handle is re-resolved per call (`spec_topics/binder.md` — "the resolved binder-model handle [is] constructed afresh on every binder call"); a mid-session unregistration therefore surfaces on the *next* binder call as a `ctx.modelRegistry.find` throw (or a falsy return). The catch-all wrap MUST cover this surface; it is not the binder transport-failure case (`binder.md`'s `Binder model transport failure` row), which fires after a successful resolution.
-- The `pi.setActiveTools` snapshot-side call (the *first* `setActiveTools` of the swap) is not covered by `loom/runtime/active-set-restore-failed`; that code is restore-side only. A snapshot-side throw must route to `internal-error` and the swap must be aborted before the wrapped `fn` runs.
-- `pi.sendUserMessage` returns `void` per the `ExtensionAPI` surface; a synchronous throw from it is the observable failure mode and routes to `internal-error`. The runtime MUST NOT `await` it (the `Promise<void>` shape exists only on `AgentSession.sendUserMessage` and `ReplacedSessionContext.sendUserMessage`).
-- The probe's "single-shot" property must be stated in the same paragraph that introduces the post-probe drift rule, otherwise an implementer reading PIC top-to-bottom will reasonably guess that the runtime re-probes per invocation.
-
-## Relationships
-
-- T17 "Tool failure modes beyond `throw` / `isError: true` unspecified" — same-cluster (analogous error-model gap on a different host surface; resolves independently using the same routing-class taxonomy)
-- T16 "Pre-evaluation setup failures: no routing rule for the slash, `invoke()`, or tool-call dispatch surfaces" — same-cluster (both extend `loom/runtime/internal-error`'s reach across boundaries the existing taxonomy does not name)
-
