@@ -5,7 +5,7 @@ _Source: docs/reviews/spec-review/spec-20260507-064438-enriched.md_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T26) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 high, 10 medium retained; 31 low discarded; 4 low findings merged into 2 medium findings; 8 nit dropped; 0 false dropped._
+_Triage tally: 1 high, 9 medium retained; 31 low discarded; 4 low findings merged into 2 medium findings; 8 nit dropped; 0 false dropped._
 
 ---
 
@@ -548,86 +548,3 @@ None
 
 ---
 
-# T09 — Schema-hash identifier is referred to by six surface names; none are in the glossary
-
-**Source:** docs/reviews/spec-review/spec-20260507-064438-enriched.md
-**Original heading:** "slug" and "Canonical schema hash" are two names for the same concept; neither is in the glossary
-**Original section:** spec_topics/glossary.md
-**Kind:** naming
-**Importance:** medium
-
-## Finding
-
-The 16-hex-character SHA-256 truncation that content-addresses every lowered JSON Schema fragment is the most heavily cross-referenced identifier in the runtime contract — it keys the per-extension `pi.registerTool` cache, names the synthesised `__inline_…` `$defs` entries and `__loom_respond_…` typed-query tools, and keys the AJV compiled-validator cache. `schema-subset.md` defines the recipe under the heading **Canonical schema hash** and, in step 4 of that recipe, names the resulting value the **Slug** ("first 16 hex characters of the digest, lowercased"). Everywhere else, the spec uses one of at least six interchangeable surface forms:
-
-- `<slug>` — the placeholder used in every `__inline_<slug>`, `__loom_respond_<slug>`, and `__loom_callee_<slug>__…` template (`schema-subset.md`, `query.md`, `implementation-notes.md`, `pi-integration-contract.md`).
-- `<sha12>` — the placeholder used for the same identifier in `pi-integration-contract.md`'s prompt-mode registration paragraph (`__loom_callee_<sha12>__<post-rename-name>`, `__loom_respond_<sha12>`).
-- "canonical schema hash" — used as both the recipe name and (informally) the resulting value in `pi-integration-contract.md`, `implementation-notes.md`, `query.md`, and `diagnostics.md`.
-- "schema hash" — the type parameter of the registration cache (`Map<schema-hash, registeredToolName>` in `pi-integration-contract.md`).
-- "the colliding slug" — used by `loom/runtime/registration-cache-collision` in `diagnostics.md`.
-- "lowered-schema hash" / "lowered-schema content hash" — used as the validator cache key in `implementation-notes.md` and as the registration cache key in plan leaves derived from `pi-integration-contract.md`.
-
-None of these terms appears in `glossary.md`, despite the spec's own rule that a coined term reused on more than one page warrants an entry. The relationship between "canonical schema hash" (the recipe / algorithm) and "slug" (its 16-hex output) is buried in step 4 of one section of one page; a reader landing on `pi-integration-contract.md`'s `Map<schema-hash, registeredToolName>` or `diagnostics.md`'s "the colliding slug" has no anchor to confirm that "schema hash", "slug", "canonical schema hash", and `<sha12>` all denote the same 64-bit truncation. The drift is internally inconsistent inside single sections too (`pi-integration-contract.md` switches between `<sha12>` and `<slug>` for the same template names; `v6-typed-queries.md` does the same in adjacent sentences).
-
-## Spec Documents
-
-- `spec_topics/glossary.md` — alphabetised vocabulary list (edited)
-- `spec_topics/schema-subset.md` — `## Canonical schema hash` section, step 4 "Slug" (edited)
-- `spec_topics/pi-integration-contract.md` — *Tool-registration lifetime and visibility*, *V1 diagnostic limitation* (edited)
-- `spec_topics/query.md` — typed-query forced-respond paragraph and template body (edited)
-- `spec_topics/implementation-notes.md` — *Runtime* — synthesised respond tool, `LoweredSchema` interface (edited)
-- `spec_topics/diagnostics.md` — `loom/runtime/registration-cache-collision` row (edited)
-- `spec_topics/errors-and-results.md` — `cause: "schema_validation"` paragraph (read-only; references the synthesised respond tool by name)
-- `spec_topics/future-considerations.md` — diagnostic-placeholder closure list (read-only; lists `<slug>` as an unclosed placeholder)
-
-## Plan Impact
-
-**Phases:** Horizontal H4, Vertical V4, V6, V12, V14, V18
-
-**Leaves (implementation order):**
-
-- H4 — Pi extension shell — (modified)
-- V4a — AJV pipeline scaffold — (modified)
-- V4f — Inline anonymous object hoisting — (modified)
-- V6i — Synthesised respond tool: schema lowering, AJV-validating `execute`, per-mode wiring — (modified)
-- V12a — `mode: subagent` accepted; AgentSession spawn — (modified)
-- V14e — Pi tool wired into `@` queries as model-callable — (modified)
-- V18f — File watcher (chokidar) over discovery roots — (modified)
-
-Each leaf cites the schema-hash identifier under one of the surface forms above. All are *modified* (terminology sweep in `Adds` / `Tests` prose); none are *blocked* — the underlying mechanism is fully specified.
-
-## Consequence
-
-**Severity:** advisory
-
-Every site that mentions the identifier means the same value, so an implementer following the cross-references will arrive at a working system. The cost is reviewer- and test-author-side: cross-referencing diagnostic codes, registration-cache invariants, and validator-cache hit rates requires mentally normalising five or six surface names, and within-paragraph drift (e.g. `__loom_respond_<sha12>` vs. `__loom_respond_<slug>` in `pi-integration-contract.md`) invites real typos into placeholder-rendering tests and conformance fixtures.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Pin two glossary entries and sweep the corpus to a two-term vocabulary:
-
-1. **`canonical schema hash`** — the recipe defined in `schema-subset.md#canonical-schema-hash`. Use only when referring to the algorithm or the section.
-2. **`schema slug`** (short form: `slug` when context is unambiguous) — the 16-lowercase-hex output of step 4 of that recipe. Use everywhere the spec or plan refers to the resulting identifier value.
-
-Concretely:
-
-- Add two `glossary.md` entries (alphabetised), each with a one-paragraph descriptor and a `See:` pointer to `schema-subset.md#canonical-schema-hash`. The `schema slug` entry must explicitly call out the synonyms to be avoided (`schema hash`, `schema-hash`, `sha12`, `lowered-schema hash`, `lowered-schema content hash`) so future drift is catchable by a grep gate.
-- In `schema-subset.md` step 4, rename the bolded item from **Slug** to **Schema slug** so the canonical term appears at the source of truth.
-- Sweep all six surface forms to `schema slug` (or `<slug>` in placeholder positions). In particular: `Map<schema-hash, registeredToolName>` becomes `Map<schemaSlug, registeredToolName>`; `__loom_callee_<sha12>__…` and `__loom_respond_<sha12>` become `__loom_callee_<slug>__…` and `__loom_respond_<slug>`; "the colliding slug" stays as-is; "lowered-schema content hash" / "lowered-schema hash" become "lowered-schema slug" or simply "schema slug".
-- Plan leaves H4, V4a, V4f, V6i, V12a, V14e, V18f need the same sweep in their `Adds` / `Tests` prose.
-
-Edge cases the implementer must watch:
-
-- The diagnostic registry placeholder `<slug>` (called out in `future-considerations.md` as one of the still-unclosed identifier-shaped placeholders) is the same token; do not rename to `<schema-slug>` in placeholder positions, or the placeholder-rendering closure work will diverge from the rendering convention used by every other identifier-shaped placeholder.
-- Wire-format identifiers (the literal characters Pi sees) must not change. The renames above are spec-prose only; the on-the-wire tool names `__loom_respond_<actual-16-hex-chars>` and `__loom_callee_<actual-16-hex-chars>__<name>` are unaffected.
-- The byte-equality verification step in `pi-integration-contract.md` ("verify byte-equality of the cached canonical-form schema bytes against the new entry's canonical-form bytes before reusing the registration") still reads "canonical-form bytes" — that is the SHA-256 input, not the slug, and stays as-is. The recommendation only collapses names for the slug *output*.
-
-## Relationships
-
-None
-
----
