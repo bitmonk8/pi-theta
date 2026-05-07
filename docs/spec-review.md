@@ -5,7 +5,7 @@ _Source: docs/reviews/spec-review/spec-20260507-064438-enriched.md_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T26) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 high, 9 medium retained; 31 low discarded; 4 low findings merged into 2 medium findings; 8 nit dropped; 0 false dropped._
+_Triage tally: 1 high, 8 medium retained; 31 low discarded; 4 low findings merged into 2 medium findings; 8 nit dropped; 0 false dropped._
 
 ---
 
@@ -481,70 +481,3 @@ Implementer edge cases:
 None
 
 ---
-
-# T08 — Per-`package.json` read timeout: overrun is unbounded
-
-**Source:** docs/reviews/spec-review/spec-20260507-064438-enriched.md
-**Original heading:** Per-`package.json` read timeout: overrun is unbounded
-**Original section:** spec_topics/discovery.md
-**Kind:** testability
-**Importance:** medium
-
-## Finding
-
-`spec_topics/discovery.md` (Edge cases bullet under "Package discovery") states that the `looms.scanPackagesTimeoutMs` cap is checked "*before each new candidate-package read attempt*; a single very slow read is not aborted mid-flight (deferred hardening)." The two `looms.scanPackages*` caps therefore only bound the number of *completed* reads and the elapsed wall-clock measured *between* reads — they place no upper bound on the time a single in-flight `package.json` open/read may consume.
-
-The practical consequence is that a discovery walk can hang indefinitely on a single slow read (a stalled NFS mount, a FUSE filesystem with a wedged backing process, an EBS volume mid-failover, an antivirus driver holding an open). Because this read is performed during `session_start` (the `resources_discover` handler installed by V14t and exercised by V14m), an indefinite hang blocks slash-command registration for the whole session — not just the offending package — and the operator gets no `loom/load/discovery-slow` warning, because the cap-check site never fires while the read is suspended.
-
-The deferral is also untestable as currently written. V14m's test list includes a `FakeClock`-driven case that "exceeds `looms.scanPackagesTimeoutMs` … stepped between candidate-package read attempts to push elapsed `Clock.now()` past the cap" — which exercises the cap *in the same shape the spec admits is the limitation*, not the slow-read case. Without a normative statement of overrun behaviour (a per-read deadline, or an explicit "no bound, tests MUST NOT assert" carve-out), conformance test authors cannot tell whether a 10-minute hang on a single read is a defect, an acceptable consequence of the deferral, or a violation of the `looms.scanPackagesTimeoutMs` contract.
-
-## Spec Documents
-
-- `spec_topics/discovery.md` — Package discovery → Edge cases bullet (the "package walk is bounded" paragraph) (edited)
-- `spec_topics/diagnostics.md` — `loom/load/unreadable-source` registry row (edited)
-- `spec_topics/pi-integration-contract.md` — `Clock` / `FakeClock` interface (read-only; the seam any per-read deadline implementation builds on already exists)
-
-## Plan Impact
-
-**Phases:** Vertical V14
-
-**Leaves (implementation order):**
-
-- V14m — Discovery: package `looms/` and `pi.looms` — (modified)
-
-The V14m **Adds** paragraph already names the two caps and the opt-out; under the recommended fix the prose grows by one clause (per-read deadline) and the **Tests** list grows by one case. No other plan leaf grep-matches the per-read-timeout concept; V14n / V14o reuse the *settings file* read mechanism, not the package-walk read mechanism, so they are unaffected.
-
-## Consequence
-
-**Severity:** correctness
-
-A single hung `package.json` read on a slow or wedged filesystem can block `session_start` indefinitely, preventing every loom (not just the offending package's) from registering and producing no `loom/load/discovery-slow` warning to tell the operator what happened. Two reasonable implementations will diverge: one will wrap reads in a deadline and surface a recoverable diagnostic, the other will trust the OS and hang. The spec currently sanctions both.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a per-`package.json` read deadline derived from the global cap: `max(200 ms, floor(looms.scanPackagesTimeoutMs / 10))` (so the default `2000 ms` cap yields a `200 ms` per-read deadline; an operator who raises the global cap automatically raises the per-read budget). Each candidate read is wrapped in `Promise.race([read, Clock.setTimeout(deadline)])`; on timeout the in-flight read is abandoned (no cancellation contract on `fs.readFile` is required — the handle is dropped and GC'd), the package is treated as unreadable for this scan, a `loom/load/unreadable-source` warning is emitted naming the package and the per-read-deadline cause, and the walk continues with the next candidate.
-
-**Spec edits.**
-- Replace the "deferred hardening" parenthetical in `discovery.md`'s Edge cases bullet with the per-read-deadline rule, naming the formula and the diagnostic.
-- Add a sentence to the `loom/load/unreadable-source` registry row in `diagnostics.md` listing the per-read deadline as one of its causes, with a `details.kind = "package-read-timeout"` discriminator and a message template like `package '<name>' package.json read exceeded <deadline>ms during package discovery`.
-- No new settings key; the per-read deadline is derived, not configurable, in V1.
-
-This closes the indefinite-hang hole, reuses the existing `Clock` seam V14m already depends on, and is testable with the `FakeClock` infrastructure H2 ships. The derivation `max(200 ms, floor(looms.scanPackagesTimeoutMs / 10))` keeps the operator surface (one settings key, two caps) unchanged.
-
-Implementer must watch:
-
-- The abandoned read's Promise will eventually resolve or reject; the runtime MUST attach a `.catch(() => {})` to silence unhandled-rejection warnings without re-routing the late result back into the discovery pass.
-- The per-read timer MUST be scheduled through the injected `Clock.setTimeout` (not the global `setTimeout`), or the `FakeClock` test in V14m's list cannot drive it deterministically.
-- When the deadline fires, the package is treated as unreadable for *this scan only* — a subsequent reload must re-attempt, not cache the timeout outcome — matching the existing rule that `loom/load/unreadable-source` is per-pass.
-- If the per-read deadline fires but the global `looms.scanPackagesTimeoutMs` would also have tripped on the next iteration, the per-read warning is emitted first and the global `loom/load/discovery-slow` warning still fires from the cap-check site at the next candidate (no suppression rule needed).
-
-## Relationships
-
-None
-
----
-
