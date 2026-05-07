@@ -4,7 +4,7 @@ _Generated: 2026-05-07T13:35:00Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T21) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 high, 9 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
+_Triage tally: 1 high, 8 medium retained; 23 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped (13 false positives were filtered upstream by the enricher)._
 
 ---
 
@@ -529,79 +529,6 @@ Edge cases the implementer must watch:
 - `AbortSignal.any([source])` and manual `addEventListener` calling `loomAbort.abort(source.reason)` produce equivalent reason-propagation observable behaviour; either is conformant. The choice may be left to the implementation provided the observable rule above holds.
 - The one-shot guard on `loomAbort.abort()` already documented in `cancellation.md` means a second forwarder firing after the first does not re-stamp the reason; the first source's reason wins. Tests that fire two sources concurrently must order their assertions accordingly.
 - The `invoke` entry's "derived controller" wording is most naturally implemented with `AbortSignal.any([parent])`, but a manual derived-`AbortController` whose `abort()` is wired to the parent's `addEventListener("abort", …, { once: true })` is equally conformant under the rule above.
-
-## Relationships
-
-None
-
----
-
-# T09 — "No invocation cap / event-loop-only ordering" normative claim has no owning page
-
-**Original heading:** "No invocation cap / event-loop-only ordering" normative claim has no owning page
-**Original section:** spec.md — Orientation > Prerequisites: Session model
-**Kind:** prescription, traceability
-**Importance:** medium
-
-## Finding
-
-The Session model paragraph in `spec.md` (lines 39, inside *Orientation > Prerequisites: Session model*) carries the sentence:
-
-> V1 imposes **no maximum on the number of in-flight invocations** within a session and no fairness or scheduling rule beyond Pi's event-loop ordering.
-
-This is a behaviourally observable, testable normative disposition: an implementer that imposed a cap, a queue, or a fairness scheduler would diverge from the spec. It is the only obligation in the Session model paragraph that lacks a forward-link — every other claim in that paragraph is anchored elsewhere (`session_shutdown` reason set → PIC `#session-shutdown-semantics`; abort-and-await → PIC `#session-shutdown-semantics`; per-invocation `AbortController` → `cancellation.md`; private subagent `AgentSession` → `implementation-notes.md` *Per-invocation single-threaded execution*; registry → PIC `#active-invocation-registry`; per-invocation budgets → `binder.md` / `frontmatter.md` / hard-ceilings; parent→child-only propagation → `cancellation.md`).
-
-`spec_topics/governance.md` GOV-12 makes this an explicit defect: "[`spec.md`] is treated as informative orientation: every normative obligation it appears to state is owned by a topic page that `spec.md` forward-links to." The no-cap / event-loop-ordering rule has no such owner. PIC's `#active-invocation-registry` describes the registry as a `Set<{ loomAbort, disposeBarrier }>` but does not state that the set is uncapped or that scheduling reduces to event-loop ordering. `implementation-notes.md` *Per-invocation single-threaded execution* describes per-invocation isolation and notes that "Sibling invocations can interleave on the event loop" but does not assert the absence of a cap or of any fairness/scheduling layer above the event loop. No other topic page addresses concurrency caps or scheduling.
-
-The result: a normative rule sits exclusively in an informative-orientation surface that disclaims normative ownership. Per GOV-12 the rule is unowned, uncitable from tests or from sibling pages, and unprotected against silent removal during a `spec.md` rewrite.
-
-## Spec Documents
-
-- `spec.md` — *Orientation > Prerequisites: Session model* (edited — drop or replace the unowned sentence with a forward-link)
-- `spec_topics/implementation-notes.md` — *Per-invocation single-threaded execution* bullet (edited — gain the no-cap / event-loop-ordering rule as a normative sentence with an `<a id>`)
-- `spec_topics/pi-integration-contract.md` — `#active-invocation-registry` (option-dependent — alternative home if the rule is co-located with the registry definition)
-- `spec_topics/governance.md` — GOV-12 (read-only — the governance rule the defect violates)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The rule is a normative *absence* (no cap, no scheduler) that no V1 code implements; no leaf currently tests it and none would gain a test from re-anchoring the sentence. Adding the sentence to `implementation-notes.md` does not change any existing leaf's **Spec** field closure under GOV-11 because every leaf already in the V18 (cancellation/teardown) and V15 (invoke) slices that touches concurrent invocations either does not cite `implementation-notes.md` for this rule or cites it for unrelated bullets. The fix is editorial-internal to the spec corpus.
-
-## Consequence
-
-**Severity:** advisory
-
-GOV-12 is silently violated: a behaviourally observable rule sits in an aggregator paragraph that disclaims normative ownership, with no topic page to cite from tests, plan leaves, or sibling spec pages. An implementer who adds an in-flight cap "for safety" or a fairness queue "to prevent starvation" would have no spec text to point to as authoritative refusal. A future `spec.md` rewrite that drops the sentence loses the rule entirely with no detectable trace because no other page asserts it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Move the sentence to `spec_topics/implementation-notes.md` as a normative addition to the *Per-invocation single-threaded execution* bullet (or as a sibling bullet under the same heading), giving it a stable anchor. Replace the orientation sentence in `spec.md` with a forward-link of the same shape used by every other claim in the Session model paragraph.
-
-Concretely:
-
-1. In `implementation-notes.md`, extend the *Per-invocation single-threaded execution* bullet (which already establishes the surrounding concurrency model — sibling independence, event-loop interleaving, shared-validator-cache safety) with an anchored sentence such as:
-
-   > <a id="no-invocation-cap"></a> V1 imposes no maximum on the number of in-flight loom invocations within an extension instance and no fairness or scheduling rule above Pi's event-loop ordering. The runtime MUST NOT introduce an admission cap, a priority queue, or any scheduler interposed between sibling invocations and the event loop; widening or narrowing this rule is a major-version concern.
-
-   Place it adjacent to the existing "Sibling invocations can interleave on the event loop" sentence, which provides natural context.
-
-2. In `spec.md`, replace the bare sentence with a forward-link of the canonical form used by adjacent claims:
-
-   > V1 concurrency disposition for in-flight invocations — no admission cap, no scheduler interposed above Pi's event loop — is owned by [Implementation Notes — No invocation cap](./spec_topics/implementation-notes.md#no-invocation-cap).
-
-`implementation-notes.md` is the correct home over PIC's `#active-invocation-registry` because the rule is a *runtime architecture* statement (the runtime imposes no scheduler, no admission control), not a Pi-SDK integration contract; the surrounding *Per-invocation single-threaded execution* bullet already owns the per-invocation/event-loop interleaving substrate the rule extends. PIC's registry section may add a one-line cross-reference if reviewers find the absence-of-cap surprising at the registry definition site, but the source of truth is `implementation-notes.md`.
-
-Edge cases the implementer must watch:
-
-- The rule constrains the **runtime** only. Pi's own session-level serialisation (the host already serialises slash-command turns within one user session in prompt mode; see PIC) is upstream of the runtime and remains in force; the no-cap rule does not promise that a single user can dispatch unbounded *user-visible* slash commands in parallel.
-- The rule does not promise *resource* unboundedness — host-OOM still routes through `loom/runtime/internal-error` per the existing aggregator. The rule prohibits a runtime-imposed admission cap; it does not prohibit observable OOM-class failures from below.
 
 ## Relationships
 
