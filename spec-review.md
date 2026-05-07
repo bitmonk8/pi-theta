@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 8 high, 9 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 7 high, 9 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -1102,78 +1102,3 @@ Edge cases the implementer must watch:
 - T15 "Concurrent prompt-mode invocations: isolation claim is unbacked for the prompt-mode arm" — must-precede
 - T23 "Per-call `AbortController` / `AbortSignal` defect routing has gaps" — same-cluster
 
----
-
-# T17 — Ceiling #4 slash-load `params` arm: budget accounting, `masked` provenance, and unnamed binder hook
-
-**Original heading:** Ceiling #4 slash-load cross-ceiling seam: budget accounting, masked provenance, and binder hook unnamed
-**Original section:** spec.md — Orientation > Scope > Hard ceilings > Ceiling #4 and CIO rules
-**Kind:** completeness, implementability
-**Importance:** high
-## Finding
-
-`spec.md`'s ceiling #4 table and `schema-subset.md`'s parallel table both route a depth-violating `params` payload at slash-load time through "ceiling #3's no-retry classification (the binder's AJV-on-`args` arm) … as a load-time system note per [Failure-mode templates]". This is the only ceiling #4 enforcement point that produces a non-`Err` surface, and it is the only handoff in the corpus where one ceiling's check fires inside another ceiling's surface. Three implementer-visible questions are unanswered.
-
-1. **Budget accounting and template selection.** The depth-walk fires *before* AJV at every `SchemaValidator` site (per `schema-subset.md` Enforcement point and CIO-3), so when a depth-6 `args` payload arrives the AJV step never runs. The spec nevertheless classifies the failure as "AJV-on-`args` (HC3-c)". Two derived questions are silent: (a) does the binder LLM call that produced the depth-6 envelope still count toward HC3-d's worst-case 3-call budget — i.e. is HC3-c's "no retry" sufficient to settle accounting, or is a separate "depth-violation" bookkeeping rule needed? (b) Which row of the binder Failure-mode templates table renders? The natural candidate is the `AJV validation … failed (no retry)` row — `loom /<name>: argument binding produced invalid args — <ajv-summary>` — but `<ajv-summary>` is the output of `errorsText(errors, { separator: '; ' })` over AJV's `errors` array, and AJV did not run, so the placeholder has no defined contents on this code path.
-
-2. **`masked` provenance.** CIO-6 states "ceiling #3's surface always omits `masked` by construction (the binder runs before any runtime ceiling can be checked per CIO-1)". That rationale does not cover the slash-load `params` sub-case: in this sub-case ceiling #4's depth-walk *did* execute and *did* fire — the surfaced ceiling is #3 only because of the routing carve-out, not because #4's check was unreached. The spec does not say whether the load-time system note (or the `RuntimeEvent` carrying its `details`) emits `masked: ["ceiling#4"]` to record the originating depth-walk, or whether the blanket "ceiling #3 surface omits `masked`" rule swallows that provenance. Diagnostics consumers and the operator-visible system note both lose the trail under the latter reading.
-
-3. **Unnamed binder hook and unnamed template ID.** `binder.md`'s AJV-on-`args` paragraph and the surrounding `Defaulting` and `Failure-class taxonomy` sections describe a "post-default-merge AJV validation" step but assign no symbolic name to the hook the depth-walk runs in front of (no `bindParams` / `validateArgs` / per-class label). Cross-references from `schema-subset.md` ("the depth walk runs before AJV at the `params` boundary") and from plan leaf V16p ("depth walk fires before AJV at the `params` boundary; see V11i") point at the site obliquely but without a stable identifier. Combined with the unnamed template row (#1b above), an implementer reading only the spec cannot reproduce the routing without inferring it. The plan compensates — V16p's test asserts the AJV-row template renders with `<ajv-summary>` containing the literal `maxDepth` — but that resolution lives only in the plan and must be lifted into the spec.
-
-## Spec Documents
-
-- `spec.md` — Hard ceilings > Ceiling #4 (per-boundary table, slash-load row of `params` validation) (edited)
-- `spec.md` — Hard ceilings > Interaction between ceilings > CIO-6 (`masked` per-site rule) (edited)
-- `spec_topics/binder.md` — Failure-class taxonomy (AJV-on-`args` bullet) (edited)
-- `spec_topics/binder.md` — Failure-mode templates (normative) (edited)
-- `spec_topics/binder.md` — Defaulting (anchor for the post-default-merge step name) (edited)
-- `spec_topics/schema-subset.md` — Depth Enforcement (#4 `params` row of per-boundary table) (edited)
-- `spec_topics/diagnostics.md` — `masked` field paragraph (option-dependent — only edited if the load-time system note's `details.masked` becomes addressable)
-- `spec_topics/pi-integration-contract.md` — Runtime event channel > Hard-ceiling co-fire (`masked`) (option-dependent — same condition)
-- `spec_topics/slash-invocation.md` — load-time system-note carrier (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V4 (Schemas / AJV pipeline), Vertical V11 (Discriminated unions and recursion), Vertical V16 (Slash-command argument binder).
-
-**Leaves (implementation order):**
-
-- V4g — Recursive schema and depth cap at AJV layer — (modified — depth-walk site that the slash-load arm reuses; stays the same in code, but the leaf may need to cite the new template-selection rule)
-- V11i — Runtime depth cap of 5 — (modified — service-level walk is unchanged, but its per-boundary surfacing list must reference the new template-selection rule for the slash-load `params` boundary)
-- V16d — Defaulted-fields-relaxed in envelope's `args` arm — (read-only — context for what `args` the depth-walk sees)
-- V16p — AJV validation of `args` post-default-merge — (modified — the leaf already chooses the AJV-row template with `<ajv-summary>` carrying `maxDepth`, but its tests must align with the spec's resolved template-selection rule and budget-accounting statement, and with whatever `masked` carriage the spec settles on)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers can diverge: one renders the AJV-row template with a synthesised `<ajv-summary>` line (matching V16p), another adds a depth-specific row, a third panics on the unfilled `<ajv-summary>` placeholder when AJV's `errors` array is empty. Operator-facing rendered text and downstream consumers that key on the system-note prefix would all observe the divergence. Provenance loss in `masked` is silent and only observable via diagnostic-consumer tooling, but it converts a documented co-fire surface into an undocumented one.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Treat the depth-walk fast-fail at the `params` boundary as a synthetic AJV failure for routing purposes: classify under HC3-c, render via the existing `AJV validation of the binder's args failed (no retry)` row, and synthesise the `<ajv-summary>` from the depth-walk's canonical `ValidationIssue` (`schema_keyword: "maxDepth"`, message `"JSON document depth exceeds 5"`) using the same `errorsText`-style formatting (single-issue summary, no separator).
-
-**Spec edits.**
-- `binder.md` Failure-class taxonomy — extend the `AJV-on-`args`` bullet: "Depth-walk failures at the `params` boundary (per `schema-subset.md` Enforcement point #4) are classified into this class and rendered through this row; `<ajv-summary>` is the depth-walk's `ValidationIssue` rendered as `'<path>' <message>` (single-issue form)."
-- `binder.md` Failure-mode templates — annotate the AJV row's `<ajv-summary>` placeholder definition: "When the underlying failure is a depth-walk fast-fail, `<ajv-summary>` is `<JSON-Pointer> JSON document depth exceeds 5`."
-- `spec.md` ceiling #4 slash-load row, and `schema-subset.md` #4 — name the template row explicitly: "renders through the AJV-on-`args` row of [Failure-mode templates]; the `<ajv-summary>` placeholder carries the depth-walk's canonical issue."
-- `binder.md` Defaulting — name the hook: "the post-default-merge step that AJV-validates merged `args` against the lowered `params` schema; the `SchemaValidator.validate()` call at this site runs the depth-walk first per [Schema Subset — Depth Enforcement #4]."
-- `spec.md` CIO-6 — fix the rationale: "ceiling #3's surface always omits `masked`. The slash-load `params` cross-ceiling sub-case still omits `masked`: the originating ceiling is recoverable from the `<ajv-summary>` placeholder (which names `maxDepth`)."
-
-The plan has already chosen this disposition (V16p asserts the AJV row with `<ajv-summary>` containing `maxDepth`); aligning the spec to it requires the smallest set of edits and avoids opening a new wire surface for a single sub-case. The depth-walk's canonical issue rendered as `<JSON-Pointer> JSON document depth exceeds 5` carries enough information for operators to act, and the literal token `maxDepth` (or the canonical message string) is itself a sufficient origin marker for diagnostics consumers parsing the rendered note.
-
-Edge cases the implementer must watch:
-- The depth-walk on the `params` boundary is a structural no-op for params schemas restricted to primitives or `array<T>` over primitives (per `schema-subset.md` Edge cases) — V16p's depth-6 test must construct an artificial schema that admits a depth-6 instance.
-- Whether the binder LLM call counts toward HC3-d's 3-call budget: yes — the call already happened and HC3-c's "no retry" applies as written; no separate accounting rule is needed. The spec should state this explicitly in the ceiling #4 slash-load row to forestall the question.
-- Hot-reload via `/reload` after a depth-violation slash-load failure: the failure does not enter the V16e prior-failure list (which tracks `loom/load/binder-model-unresolved` and `loom/load/binder-model-not-strict-capable` only). Confirm this is intentional or extend V16e accordingly.
-
-## Relationships
-
-- T18 "CIO-6 hard-ceiling co-fire: predicate, test vector, and normative ownership" — must-follow (CIO-6's `masked` rule is the rule this finding asks to extend; a CIO-6 rewrite must land Option A's "ceiling #3 always omits `masked` even in the cross-ceiling sub-case" clause)
-- T19 "Ceiling #4's opening classification contradicts its own table and CIO-1" — must-follow
-- T20 "CIO-3 enumerates four AJV boundaries; ceiling #4's table has five" — same-cluster (both find seam gaps in how CIO-3 enumerates ceiling #4's enforcement points)
-- T21 "Hard ceilings block does load-bearing definitional work inside informative orientation" — must-follow
