@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 high, 7 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 0 high, 6 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -381,69 +381,3 @@ The install-time skew gate is concrete value on the package managers most produc
 
 - T09 "`typebox` host-shape failure has no named diagnostic; `Type.Unsafe` stability claim is uncited" — same-cluster (touches the same `peerDependencies` block and the same `packages.md` convention, but resolves around a different sub-question — `typebox` probe and packaging-vs-behavioural-contract — and the edits do not coincide)
 
----
-
-# T07 — Worked consequence "Depth-6 forced respond at `max_rounds`" contradicts CIO-4's stated ordering and invokes the wrong terminal variant
-
-**Original heading:** CIO-4 forced-respond slot-accounting reversal in worked consequence
-**Original section:** spec.md — Orientation > Scope > Hard ceilings > Ceiling #4 and CIO rules
-**Kind:** consistency, implementability
-**Importance:** medium
-## Finding
-
-`spec.md` ceiling-interaction rule **CIO-4** fixes the order of events at the tool-call-round boundary: ceiling #2 is evaluated *after* the round's tool calls have completed and *after* the slot count has been incremented for the just-completed round, and *before* the next model turn is requested — and on a typed query at the final round permitted by `max_rounds`, that "next turn" is the forced respond turn. The slot-increment for the last free-phase round therefore happens *before* the forced respond turn is issued, and the forced respond turn itself is the next turn that runs under that bookkeeping.
-
-The worked consequence *Depth-6 forced respond at `max_rounds`* (`spec.md` line 86) reads:
-
-> a typed-query forced respond turn at the final round permitted by `max_rounds` that produces depth-6 output surfaces as `cause: "schema_validation"` because CIO-3's depth-walk fires at the typed-query response AJV boundary **before CIO-4's slot-increment for the just-completed round would tip into `tool_loop_exhausted`**.
-
-Two independent errors:
-
-1. **Ordering is reversed.** The slot-increment for the just-completed free-phase round has already happened by the time the forced respond turn fires. Per CIO-4, slot-accounting precedes the next-turn dispatch; there is no mid-state where a turn is in flight while its predecessor's slot is still un-incremented. The depth-walk on the forced respond turn's response cannot fire "before" an increment that has already occurred upstream.
-2. **Wrong terminal variant for the typed-query path.** Per CIO-4 itself and per `spec_topics/query.md` ("Tool-call loop bound", "Typed queries are tool-loop-shaped"), at the final round permitted by `max_rounds` the runtime *issues* the forced respond turn — that is the precondition's typed-query branch. A typed query at `max_rounds` whose forced respond turn produces an AJV-rejectable payload routes through the schema-validation surface (and respond-repair, where applicable), not through `tool_loop_exhausted`. `tool_loop_exhausted` fires when no terminating turn is produced within the cap; the forced respond turn *is* the typed-query terminating mechanism. Citing it as the counterfactual the depth-walk "races" makes the worked example illustrate a path that cannot occur on a typed query.
-
-The normative content elsewhere (CIO-4's own statement, `query.md`'s tool-loop bound, leaves V6k / V6l in the plan) is correct; the wording bug is confined to this single bullet, but it is the only bullet that walks an implementer through the forced-respond-at-`max_rounds` interaction, so leaving it inverted teaches the wrong sequence.
-
-## Spec Documents
-
-- `spec.md` — Hard ceilings > Worked consequences > *Depth-6 forced respond at `max_rounds`* bullet (edited)
-- `spec.md` — Hard ceilings > Interaction between ceilings > CIO-4 (read-only)
-- `spec_topics/query.md` — Typed queries are tool-loop-shaped; Tool-call loop bound (read-only)
-- `spec_topics/errors-and-results.md` — `ValidationError` `cause: "schema_validation"` (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The fix is a wording correction in `spec.md`'s informative worked-consequences list; no plan leaf's acceptance criteria change. V6k (`tool_loop` cap enforcement and `ToolLoopExhaustedError`), V6l (two-phase tool-loop driver), and V11i (depth walk) already encode the correct semantics — they cite CIO-4 and the per-boundary table, not the worked-consequence bullet — and remain untouched.
-
-## Consequence
-
-**Severity:** advisory
-
-A reader who treats the worked consequence as ground truth will internalise an event ordering that contradicts CIO-4 and a terminal variant (`tool_loop_exhausted`) that cannot fire on the path being illustrated. Leaf authors and test writers who anchor on this bullet — rather than on CIO-4 + `query.md` — risk constructing test fixtures that assert against the wrong variant or the wrong slot-count state. Behaviour is not at risk because the normative rules elsewhere are correct, but the worked example fails its purpose of de-confusing a tricky cross-ceiling case.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite the bullet so the sequence matches CIO-4 and the terminal variant matches the typed-query path. Suggested replacement text:
-
-> *Depth-6 forced respond at `max_rounds`* (CIO-3, CIO-4): on a typed query at the final round permitted by `max_rounds`, CIO-4's slot-increment for the last free-phase round has already occurred and the forced respond turn has been dispatched. When that turn produces a depth-6 payload, CIO-3's depth-walk fires at the typed-query response AJV boundary inside the synthesised respond tool's `execute` and surfaces `Err(QueryError { kind: "validation", cause: "schema_validation", validation_errors: [{ schema_keyword: "maxDepth", … }], … })` per the model-driven row of the ceiling #4 per-boundary table. The `tool_loop_exhausted` variant is not reachable on this path — the forced respond turn is precisely the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to.
-
-Implementer-relevant edge cases the rewritten bullet (or a sibling bullet) should still cover:
-
-- The depth-walk fires *inside* the respond tool's `execute` against the call payload, before the runtime treats the turn as completed; the forced respond turn's own slot increment is irrelevant to the surface (the response is already invalidated).
-- Respond-repair (V13g–j) may then attempt a follow-up; per `query.md`, each respond-repair follow-up gets a *fresh* `tool_loop` budget, so the `max_rounds` boundary is not what gates retry — `respond_repair.attempts` is.
-- An untyped query at `max_rounds` has no forced respond turn; that scenario belongs to a separate (existing) bullet about plain-text exhaustion and should not be conflated here.
-
-## Relationships
-
-- T18 "CIO-6 hard-ceiling co-fire: predicate, test vector, and normative ownership" — same-cluster (CIO-6 inherits CIO-3's site list and reasons about the same depth-walk + slot-accounting interaction; the rewritten bullet here would be a useful test-vector source for CIO-6's missing co-fire example)
-- T19 "Ceiling #4's opening classification contradicts its own table and CIO-1" — same-cluster (different defect on the same Hard-ceilings paragraph)
-- T20 "CIO-3 enumerates four AJV boundaries; ceiling #4's table has five" — same-cluster (touches the CIO-3 boundary inventory the rewritten bullet cites; resolves independently)
-- T21 "Hard ceilings block does load-bearing definitional work inside informative orientation" — must-follow
