@@ -260,6 +260,11 @@ Format rules:
 
 - Top-level `params:` fields shown in declaration order, comma-separated.
 - String values are rendered **unquoted** if the string is non-empty and every Unicode code point matches `[A-Za-z0-9_.-]`; otherwise they are rendered **quoted**. The quoted form is U+0022 (`"`), then the string with each U+0022 replaced by `\"` and each U+005C (`\`) replaced by `\\` (no other escapes), then a closing U+0022. The empty string renders as `""`. Whitespace, ASCII punctuation outside the unquoted set, non-ASCII letters, and C0 control characters all fall outside the unquoted set and therefore force quoting; only `"` and `\` are escaped — newlines cannot reach the formatter because [System-note rendering](#system-note-rendering) rule 1 has already collapsed them to spaces upstream.
+- `integer` values are rendered as the canonical decimal form: a leading `-` for negative values, then the magnitude as base-10 digits with no leading zeros (other than the single `0` for zero itself), no thousands separators, no decimal point, no exponent. `-0` renders as `0`.
+- `number` values are rendered as the shortest round-tripping decimal that reparses to the same IEEE-754 double, with the following pins: scientific notation MUST NOT be used in V1 (the JS `String(n)` switch at ±1e21 is forbidden — render the integer part in full); a non-integral value MUST include at least one fractional digit; an integral value MUST NOT carry a trailing `.0` (an integral `number` renders as `42`, not `42.0`); `-0` renders as `0`. `NaN` and `±Infinity` are not valid JSON numbers and cannot reach the formatter — the binder envelope schema rejects them upstream.
+- `boolean` values render as the literal lowercase tokens `true` and `false`.
+- `null` values (a bound value of static type `null`, or a nullable field whose binding is `null`) render as the literal lowercase token `null`.
+- Enum-variant values render as the variant's underlying wire string (the explicit RHS, or the variant name verbatim when no RHS is given — the same string the runtime stores per [Schemas](./schemas.md) "V1 enums carry string values only"), passed through the same quote predicate as a top-level string value. So `Severity.High` (RHS `"High"`) renders as `High`; an enum variant whose underlying string is `"needs review"` renders as `"needs review"`. The formatter sees only the underlying string at runtime; this rule keeps the implementation a flat type switch rather than carrying the static `Enum`-vs-`string` distinction into the formatter.
 - Array values: arrays of **3 or fewer** elements are shown in full as `[a, b, c]` in element order; arrays of **4 or more** elements are shown as `[a, b, c, …+N more]` where the rendered prefix is the first three elements in order and `N` is the count of dropped elements (i.e. `total − 3`). An empty array renders as `[]`. Per-element rendering follows the same rules recursively (a string element is quoted by the same predicate as a top-level string value; a nested object element renders as `{first-field-value, …}`).
 - Object values shown as `{first-field-value, …}` — just the first field's value as a hint. "First field" of an object value is the first field listed in the declaring `schema` block's source order (the same notion of order used by the top-level `params:` bullet above). For a value whose static type is a discriminated union, the variant's declared fields are used in the variant's own source order; the discriminator field is included in that order if it appears there. The "field order is irrelevant" clause in [Type System](./type-system.md) compatibility row 8 governs type compatibility only and does not override this rendering rule. The trailing `, …` is part of the format and MUST be rendered for every object value, including objects whose declaring schema (or discriminated-union variant) declares exactly one field; the marker is fixed text, not an elided-field indicator (contrast with the array rule's count-bearing `…+N more`).
 - Defaulted fields tagged `(default)`: `focus_areas=[] (default)`.
@@ -280,6 +285,15 @@ Reference renderings (normative; conforming implementations MUST reproduce these
 | `Cat { name: "Whiskers" }` (schema declares only `name`) | `{Whiskers, …}` |
 | `[]` (array) | `[]` |
 | `["a", "b c"]` (array) | `[a, "b c"]` |
+| `42` (integer) | `42` |
+| `-0` (integer or number) | `0` |
+| `3.14` (number) | `3.14` |
+| `1e21` (number) | `1000000000000000000000` |
+| `true` (boolean) | `true` |
+| `false` (boolean) | `false` |
+| `null` (null) | `null` |
+| `Severity.High` (enum, RHS `"High"`) | `High` |
+| `Severity.NeedsReview` (enum, RHS `"needs review"`) | `"needs review"` |
 
 Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is `loom/parse/bind-echo-on-bypass` (warning).
 

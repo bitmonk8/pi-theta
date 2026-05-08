@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 2 high, 8 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 1 high, 8 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -580,66 +580,4 @@ Independently of the option chosen, delete the uncited "stable across the TypeBo
 ## Relationships
 
 - T16 "Pi API surfaces asserted without `.d.ts` citations: setActiveTools, createAgentSession, ExtensionCommandContext, AgentSession, tool-result envelope" — same-cluster
-
----
-
-# T10 — Bind-echo formatter: no rendering rule for scalar non-string bound values
-
-**Original heading:** Bind-echo rendering: no rule for scalar non-string types (integer, number, boolean, null, enum)
-**Original section:** spec_topics/binder.md
-**Kind:** testability
-**Importance:** high
-## Finding
-
-The `bind_echo` *Format rules* in `spec_topics/binder.md` (Echo policy) enumerate exactly four shapes: top-level field order, **string** values (quote predicate, escape rules), **array** values (3-or-fewer-vs-`…+N more`), **object** values (`{first-field-value, …}`), plus the `(default)` tag and the 120-code-point line cap. The accompanying *Reference renderings* table covers strings, schema-typed objects, and arrays. There is no rule — and no reference rendering — for the remaining V1 scalar types: `integer`, `number`, `boolean`, `null`, and enum variants (the latter being statically-typed-as-enum but underlyingly string per `spec_topics/schemas.md` "V1 enums carry string values only"). Loom literal types (`42`, `true`, `null`) inherit the same gap because the formatter never says how to render the bound value, only how to render the field's *default* (`Default-literal rendering`, which uses the Loom literal sublanguage and applies only to defaults the runtime fills, not to values the binder actually returned).
-
-A loom whose `params:` declares e.g. `score: integer`, `enabled: boolean`, `severity: Severity`, or `notes: string?` (with a bound `null` value) cannot be tested for echo conformance: the spec table claims to be exhaustive ("conforming implementations MUST reproduce these exactly") but no row covers the cases. Two reasonable implementers will diverge on shortest-decimal vs. `String(n)` (which switches to scientific notation at ±1e21), on `-0` vs. `0`, on `true`/`false` vs. `True`/`False`, on `null` vs. `nil` vs. omission, and on whether enum variants render as the wire string (subject to the string quote predicate) or as the source-form `Severity.High`. The plan leaf that closes the rules (V16i) currently writes one property assertion per format rule — for these types there are no rules to assert against.
-
-## Spec Documents
-
-- `spec_topics/binder.md` — Echo policy → Format rules + Reference renderings (edited)
-- `spec_topics/binder.md` — Defaulting + Default-literal rendering (read-only; bounds the contrast between bound-value rendering and default-literal rendering)
-- `spec_topics/type-system.md` — Primitive types list (read-only; pins the closed scalar set: `string`, `number`, `integer`, `boolean`, `null`)
-- `spec_topics/schemas.md` — Enum declarations (read-only; pins that enum underlying values are strings)
-
-## Plan Impact
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16i — `bind_echo` formatter — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The Reference renderings table is declared normative and exhaustive ("conforming implementations MUST reproduce these exactly"), so two implementers writing V16i tests against the spec will both pass yet emit divergent bytes for `score=42`, `score=-0`, `score=1e21`, `enabled=true`, `notes=null`, and `severity=Severity.High`. Because the echo line is the operator's only post-binding evidence of what the loom was invoked with, divergence is observable to users and to any downstream tooling that grep-matches against echo output.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend the *Format rules* bullet list and the *Reference renderings* table in `spec_topics/binder.md` (Echo policy) to cover every V1 scalar shape. Specifically:
-
-- **`integer`** values render as the canonical decimal form: a leading `-` for negative values, then the magnitude as base-10 digits with no leading zeros (other than the single `0` for zero itself), no thousands separators, no decimal point, no exponent. `-0` renders as `0`.
-- **`number`** values render as the shortest round-tripping decimal that reparses to the same IEEE-754 double, with the following pins: never use scientific notation in V1 (the JS `String(n)` switch at ±1e21 is forbidden — render the integer part in full); always include at least one fractional digit when the value is non-integral, and never include a trailing `.0` when the value is integral (an integral `number` renders as `42`, not `42.0`); `-0` renders as `0`. `NaN` and `±Infinity` are not valid JSON numbers and cannot reach the formatter — the binder envelope schema rejects them upstream; the formatter need not handle them.
-- **`boolean`** values render as the literal lowercase tokens `true` and `false`.
-- **`null`** values (a bound value of static type `null`, or a nullable field's `null` binding) render as the literal lowercase token `null`.
-- **Enum variant** values render as the variant's underlying wire string (the explicit RHS, or the variant name verbatim when no RHS is given — the same string the runtime stores), passed through the same quote predicate as a top-level string value. So `Severity.High` (RHS `"High"`) renders as `High`; an enum variant whose underlying string is `"needs review"` renders as `"needs review"`. This reuses an existing rule rather than introducing a parallel one.
-
-Add reference-rendering rows to the normative table covering at minimum: `42` (integer), `-0` (integer or number), `3.14` (number), `1e21` (number — to pin the no-scientific-notation rule), `true` (boolean), `false` (boolean), `null` (null), `Severity.High` (enum, unquoted-eligible underlying string), and an enum variant whose underlying string forces quoting.
-
-Edge cases the V16i implementer must watch:
-
-- The 120-code-point line cap still applies after per-value rendering, so a `number` rendered without scientific notation can be very long (e.g. `1e21` becomes 22 characters); the line-level `…` truncation still wins per the existing cap rule.
-- The `(default)` tag composes with every new scalar type the same way it does today: `score=0 (default)`, `enabled=false (default)`, `severity=High (default)`. No new interaction.
-- For enum values, the formatter sees the underlying string at runtime; the recommendation routes them through the existing string predicate rather than carrying the static `Enum`-vs-`string` distinction into the formatter, keeping the implementation a flat type switch.
-
-## Relationships
-
-- T05 "Mid-stream cancellation: no observable rule for loom-runtime conversation behaviour" — same-cluster (sibling testability gap; resolves independently)
-- T11 "`estimateTokens`: meaning of `chars` undefined for non-ASCII inputs" — same-cluster (sibling determinism-of-rendering gap in the same spec corpus; independent fix)
 
