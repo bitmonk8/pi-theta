@@ -6,6 +6,8 @@ _Process: bottom-up — the last finding (T46) is addressed first; the first fin
 
 _Triage tally: 17 high, 29 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
 
+_Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
+
 ---
 
 # T01 — `V1` denotes two distinct things across the spec and plan corpora
@@ -45,7 +47,9 @@ A reader cross-referencing `plan.md` and `spec.md` will, on first encounter with
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A.
 
 ### Option A — Rename in the spec corpus
 
@@ -187,7 +191,9 @@ A fresh implementer reading the spec end-to-end sees `semver` only inside parent
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option B. Decision-time merge: T33 absorbed (cross-package `engines.node` equality test rides this commit; both edit Host runtime item 1). See T33 stub.
 
 ### Option A — Promote `semver` to a formal entry in PIC `Host prerequisites`
 
@@ -357,7 +363,9 @@ Authors must remember a one-letter root-word delta when moving between two adjac
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A.
 
 ### Option A — Document the per-surface mapping; ship the spelling split as-is
 
@@ -517,7 +525,9 @@ Two conformant runtimes can emit different `message` strings for the same failur
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A.
 
 ### Option A — Single blanket non-normativity rule
 
@@ -722,7 +732,9 @@ Two implementers reading the current text will plausibly diverge: one starts the
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A.
 
 ### Option A — Bind `""` and run the loom
 
@@ -1169,6 +1181,8 @@ Implementer-relevant edge cases:
 **Kind:** assumptions, prescription
 **Importance:** medium
 
+**STATUS:** Merged into T24 on 2026-05-08. The `console.error` last-resort sink contract is tightened (drop redundant channel/mechanism prose from spec.md aggregator; cite Pi stdio policy in PIC) in the same commit that lands T24 Option A's `loom/host/discovery-degraded-after-shutdown` diagnostic. The body below is retained for traceability; the actionable hardened recommendation lives in T24.
+
 ## Finding
 
 The Session-model paragraph in `docs/spec.md` (Orientation > Prerequisites) ends an `event.reason`-routing sentence with a parenthetical that names the teardown-handler sink and the control-flow mechanism inline:
@@ -1333,7 +1347,9 @@ Two reasonable implementers will diverge: one will add an ad-hoc per-invocation 
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A.
 
 ### Option A — Add `invocation_id` to `RuntimeEvent` and pin per-invocation channel scope
 
@@ -1414,7 +1430,9 @@ Under load (a parent fanning out parallel tool calls into many subagent-mode `.l
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A.
 
 ### Option A — Widen the existing disclaimer
 
@@ -1626,7 +1644,9 @@ If Pi does not serialise per-session slash-handler dispatch as assumed, two conc
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. (Option B — behavioural fixture in H5 — queued as a future follow-up finding once the H5 harness exists; not part of this commit.)
 
 ### Option A — Cite the existing Pi mechanism
 
@@ -1734,7 +1754,9 @@ After a `"fork"` shutdown the extension runtime is alive but every subsequent sl
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. Decision-time merge: T17 absorbed (`console.error` teardown sink contract tightened in same commit; T24's new diagnostic emits through the verified sink). See T17 stub.
 
 ### Option A — Keep deterministic full-teardown; specify the degraded state and emit one diagnostic
 
@@ -1975,7 +1997,9 @@ If left as-is, the spec ships with two parallel statements of the same wire shap
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. Decision-time merge: T28 absorbed (ceiling #4 schema-kind list expanded to five labels per T28 Option A in the same aggregator-trim commit). See T28 stub.
 
 ### Option A — Trim aggregator to enumeration-and-link
 
@@ -2030,6 +2054,8 @@ Option A. The aggregator's stated purpose under GOV-12 is enumeration, and the c
 **Kind:** consistency
 **Importance:** medium
 
+**STATUS:** Merged into T27 on 2026-05-08. T28 chose Option A (expand ceiling #4 schema-kind list to five labels: typed-query response / model-driven tool-arg / code-driven tool-arg / `params` / `invoke<T>` return). The five-label expansion lands in the same aggregator-trim commit as T27 Option A. The body below is retained for traceability; the actionable hardened recommendation lives in T27.
+
 ## Finding
 
 The Hard-ceilings aggregator bullet for ceiling #4 in `docs/spec.md` (line 61) reads "JSON-document depth 5 against typed-query / tool-arg / `params` / `invoke<T>` return schemas" — a four-element list of schema kinds — and then refers in the same sentence to "the per-boundary destination/surface table (five enforcement points)." A reader counting the items cannot reconcile the 4 vs. 5: nothing in spec.md explains which kind splits, or whether one item is being doubled, or whether the count is a typo.
@@ -2060,7 +2086,9 @@ A first-time reader hits an off-by-one between adjacent clauses in the same sent
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. Resolved by merge into T27 — see STATUS banner at top of this finding.
 
 ### Option A — Expand the schema-kind list to five items
 
@@ -2119,6 +2147,8 @@ Option A. The Five-site list co-edit obligation already pins the cardinality at 
 **Original section:** docs/spec.md — Orientation > Scope > Hard ceilings
 **Kind:** consistency
 **Importance:** high
+
+**STATUS:** Merged into T30 on 2026-05-08. The pre-evaluation exclusion clause edit (extending the clause to name ceiling #4's slash-load `params` arm) lands in the same commit as T30 Option A's trichotomy carve-out — both edit the Overview terminal-outcomes paragraph and the `errors-and-results.md` mirror sentence. The body below is retained for traceability; the actionable hardened recommendation lives in T30.
 
 ## Finding
 
@@ -2217,7 +2247,9 @@ Two reasonable implementers reading only the trichotomy paragraph would diverge 
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. Decision-time merge: T29 absorbed (pre-evaluation exclusion clause extended to name ceiling #4's slash-load `params` arm in same commit; both edit the Overview terminal-outcomes paragraph and the `errors-and-results.md` mirror sentence). See T29 stub. Ordering note: land **after** T26 (terminal-outcomes paragraph trim) so the spec.md half collapses; the carve-out content survives on `errors-and-results.md` regardless.
 
 ### Option A — Carve the model-driven row out of the qualifier
 
@@ -2273,6 +2305,8 @@ Adopt **Option A**. The trichotomy paragraph's job is to enumerate query-termina
 **Kind:** assumptions
 **Importance:** medium
 
+**STATUS:** Merged into T32 on 2026-05-08. T31 chose Option B (audit-methodology paragraph on `hard-ceilings.md § No additional V1 runtime ceiling applies`, plus a tightened aggregator pointer in spec.md). The methodology paragraph gates T32 Option A's GOV-15 carve-out for V1.x ceiling additions and lands in the same commit. The body below is retained for traceability; the actionable hardened recommendation lives in T32.
+
 ## Finding
 
 The Hard-ceilings bullet in `spec.md` opens with "The complete V1 set of hard ceilings is the four below" — a closure claim treated as fact. The aggregator gives no inline pointer to whatever evidence backs the closure; a reader has no path from "four" to "and here is why a fifth cannot exist."
@@ -2305,7 +2339,9 @@ Implementers can build a conformant V1 runtime from the existing text — every 
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option B. Resolved by merge into T32 — see STATUS banner at top of this finding.
 
 ### Option A — Tighten the aggregator phrasing only
 
@@ -2382,7 +2418,9 @@ A future V1.x leaf author, told that adding a fifth ceiling is a permitted in-pl
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. Decision-time merge: T31 absorbed (audit-methodology paragraph from T31 Option B lands in same commit; T32's GOV-15 carve-out for V1.x ceiling additions is unsafe without T31's methodology gating the additions). See T31 stub.
 
 ### Option A — Carve new ceilings out of GOV-15
 
@@ -2442,6 +2480,8 @@ Edge cases the implementer (here, the spec editor) must watch: (i) the carve-out
 **Kind:** assumptions
 **Importance:** medium
 
+**STATUS:** Merged into T03 on 2026-05-08. T33 chose Option A (cross-package `engines.node` equality test in H1 surface-inventory; PIC bump-procedure step 3 rewritten to reference the test). The H1 test extension and PIC bump-procedure rewrite land in the same Host-runtime-item-1 cleanup commit as T03 Option B's `**Loom-package implementation dependencies (V1).**` PIC sub-paragraph. The body below is retained for traceability; the actionable hardened recommendation lives in T03.
+
 ## Finding
 
 `spec.md` Host runtime obligation 1 states the loom runtime requires Node `>=20.6.0`, "matching `@mariozechner/pi-coding-agent`'s `engines.node` floor." `pi-integration-contract.md` Step 0 (a) restates the same literal as the canonical pinned floor, and `package.json#engines.node` carries the same string. The "matching" claim is asserted as a fact; nothing in the spec corpus or the test suite mechanically verifies that loom's literal equals Pi's `engines.node` at the pinned `~0.72.1` version.
@@ -2474,7 +2514,9 @@ A patch-level `pi-coding-agent` release that raises `engines.node` within the `~
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. Resolved by merge into T03 — see STATUS banner at top of this finding.
 
 ### Option A — Cross-package equality test in H1
 
@@ -2852,7 +2894,9 @@ A V1 implementer can ship a conforming runtime without a consolidated non-goals 
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option B. Ordering note: land **before** T15, T16, T22 so they can place their relocations into the new home; rename `future-considerations.md § Known V1 limitations (no seam expected)` to `V1 non-goals` with internal `no seam expected` / `deferred with seam` split.
 
 ### Option A — New top-level "Non-goals (V1)" section in `spec.md`
 
@@ -3311,7 +3355,9 @@ Substantive edits to HC3-x / NOCEIL-N can land in-place with no GOV-8 retirement
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option B (semantic preservation; introduce GOV-16 inline-label class for HC3/NOCEIL/CIO). Decision-time merge: T45 absorbed (T45 Option A — register CIO as co-owned prefix on `hard-ceilings.md` — is the symmetric counterpart of this Option B; both land as one "GOV-16 inline-label class + CIO co-owned prefix" commit). See T45 stub. Ordering note: land **before** T39, T40, T41, T42 (per-MUST REQ-ID splits) and **before** T27 (Hard ceilings aggregator trim) so the labels are formally registered when they are referenced or removed.
 
 ### Option A — Promote HC3-x and NOCEIL-N to formal `CEIL-N` REQ-IDs
 
@@ -3358,6 +3404,8 @@ Edge cases the implementer must watch:
 **Kind:** traceability
 **Importance:** high
 
+**STATUS:** Merged into T44 on 2026-05-08. T45 chose Option A (register CIO as a co-owned prefix on `hard-ceilings.md`; rework GOV-3/4/5/7 from "per-page prefix" to "per-page prefix(es)"). T45's CIO co-owned-prefix registration is the symmetric counterpart of T44 Option B's GOV-16 inline-label class for HC3/NOCEIL — both decisions land as one "GOV-16 inline-label class + CIO co-owned prefix" commit. The body below is retained for traceability; the actionable hardened recommendation lives in T44.
+
 ## Finding
 
 `hard-ceilings.md` defines six rules `**CIO-1.**` through `**CIO-6.**` under *Interaction between ceilings*, using exactly the GOV-1 inline anchor form. Per GOV-3 the unknown-prefix detector regex is `\b[A-Z]{2,4}-[1-9][0-9]*\b`; `CIO` is three uppercase ASCII letters and `CIO-1`…`CIO-6` match this regex. GOV-6 then requires every observed prefix to belong to the union of (live prefix table, *Retired prefixes* sub-table). `CIO` appears in neither table — `hard-ceilings.md`'s row in the live table allocates it `CEIL`, and `CIO` is absent from the retired sub-table. The V18s *Prefix-table-completeness gate* (per `plan_topics/v18-cancellation.md` gate 6) would therefore exit non-zero on every commit until `CIO` is either registered or eliminated.
@@ -3396,7 +3444,9 @@ The V18s closing CI gate cannot ship green against the current spec — it would
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
+
+**Decision (2026-05-08):** Option A. Resolved by merge into T44 — see STATUS banner at top of this finding.
 
 ### Option A — Register `CIO` as a co-owned prefix on `hard-ceilings.md`
 
