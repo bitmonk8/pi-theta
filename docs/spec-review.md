@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T46) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 17 high, 29 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 16 high, 29 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -3480,86 +3480,3 @@ Edge cases the implementer must watch:
 
 - T44 "`HC3-a`–`HC3-e` and `NOCEIL-N` labels escape GOV-3 detection and GOV-8 governance" — co-resolve.
 - T27 "Hard ceilings aggregator duplicates owner-page error codes and sub-obligation labels" — same-cluster.
-
----
-
-# T46 — GOV-9 cross-link contract is unsatisfiable for body-paragraph REQ-IDs
-
-**Original heading:** GOV-1–13 have no HTML anchors; tension between GOV-1 and GOV-9
-**Original section:** docs/spec_topics/governance.md
-**Kind:** traceability
-**Importance:** high
-
-## Finding
-
-GOV-1 makes the inline `**PREFIX-N.**` marker the canonical anchor and confines the dual-form `<a id="prefix-n"></a>` to a closed list of three contexts (table cell, ATX heading, the line immediately preceding a normative-example fenced code block). Body paragraphs are not on the list. GOV-9 then requires every cross-page reference to a normative rule to resolve at `#prefix-n` granularity. GitHub-flavoured Markdown does not auto-generate fragment IDs from bold-text paragraphs, so the fragment exists only when the dual-form HTML anchor is present. The two rules together leave every body-paragraph REQ-ID — the majority of rules across the corpus — uncitable per GOV-9.
-
-The symptom is visible today in `spec.md`'s aggregator paragraphs (e.g. `[Governance — GOV-12](./spec_topics/governance.md)` and the `Host runtime` and `Hard ceilings` aggregators), which target the page root because no `#gov-N` fragment resolves on the destination. The same arithmetic applies to every other prefix whose rules sit in paragraph context — BNDR, CIO/CEIL, CNCL, ERR, INV, and so on — so the defect is systemic.
-
-The downstream consequence is that the V18s spec-anchor gate (`v18-cancellation.md` gate 9), which resolves a fragment only when a literal `<a id>` or an ATX-heading auto-slug exists, has no path to green once H6 lands the `#prefix-n` rewrite mandated by H6's `Adds` block.
-
-## Spec Documents
-
-- `docs/spec_topics/governance.md` — GOV-1 (*Permitted alternate contexts* and *Dual-form layout* clauses); GOV-9 (cross-link form) (edited)
-- `docs/spec.md` — Host runtime aggregator; Hard ceilings aggregator; reading-order entry for Governance (option-dependent)
-- `docs/spec_topics/pi-integration-contract.md` — PIC-1 anchor placement (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal H6, Vertical V18
-
-**Leaves (implementation order):**
-
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (modified)
-- V18s — Coverage-matrix closing CI gate (gate 9, *Spec-anchor gate*) — (modified)
-
-`docs/plan_topics/h6-req-ids.md`'s `Adds` block currently restricts the dual-form HTML anchor to "where rendering constraints make the inline marker impractical" and its third `Tests.` bullet asserts that no `<a id>` appears outside GOV-1's three permitted contexts. Both clauses must change under Option A. V18s gate 9's resolution rule is structurally unchanged but becomes non-vacuous only after H6 inserts the universal anchors.
-
-## Consequence
-
-**Severity:** blocking
-
-H6 cannot ship coherently in its current form: its outbound-link rewrite produces `#prefix-n` targets that, under GOV-1 as written, no target page is permitted to serve. Two implementers reading GOV-9 will diverge — one leaves cross-links page-level (silently violating GOV-9), the other inserts HTML anchors on body paragraphs (silently violating GOV-1's closed-list restriction). The V18s spec-anchor gate inherits the contradiction and cannot be made non-vacuous without resolving it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Universalize the HTML form. The bold-with-period inline marker stays canonical for byte-level grep gates; the HTML form's only remaining job is to give cross-page Markdown links a resolvable target, and there is no design reason to deny that job to body-paragraph REQ-IDs. H6 is the natural site for the insertion, and V18s gate 9 becomes a single unconditional rule.
-
-**Approach.** Extend GOV-1's *Permitted alternate contexts* list with a fourth entry that admits ordinary body-paragraph context, then state in the *Dual-form layout* clause that the HTML form is REQUIRED (not merely permitted) wherever the inline marker is the page's only anchor for that REQ-ID. The H6 anchor pass inserts `<a id="prefix-n"></a> **PREFIX-N.**` on every normative-paragraph line.
-
-**Spec edits.**
-- `governance.md` GOV-1: add fourth bullet ("paragraph context"); tighten *Dual-form layout* to require the HTML form when no other GOV-1 context applies.
-- `h6-req-ids.md`: change the `Adds` clause to "accompanies every inline marker"; drop the third `Tests.` bullet's "outside the three contexts" assertion.
-- `spec.md` aggregator paragraphs: re-target the GOV-12, GOV-15, GOV-14, and Hard-ceilings forward-links to `#gov-12` / `#gov-15` / `#gov-14` / `#hard-runtime-ceilings` once H6 inserts the anchors.
-
-**Pros.**
-- GOV-9 becomes universally satisfiable; every REQ-ID has a working `#prefix-n` fragment.
-- Co-resolves the GOV-14/15/PIC-1 placement finding.
-- V18s gate 9 becomes an unconditional grep with one rule.
-- Zero impact on the byte-level CI gates.
-
-**Cons.**
-- HTML noise on every rule paragraph (cosmetic, source-only — does not render).
-- The "closed list" framing of *Permitted alternate contexts* effectively collapses.
-
-**Risks.** The H6 anchor pass enlarges in scope but does not change shape; the test infrastructure is already keyed off the dual-form regex.
-
-Implementer notes:
-- Keep the existing literal byte order (`<a id="prefix-n"></a>` + single ASCII space + `**PREFIX-N.**`).
-- The two pre-existing positional alternates stay in GOV-1 unchanged.
-- The ATX-heading edge case in GOV-1 (anchor inside a heading shifts the GFM auto-slug) continues to apply. The H6 pass MUST repoint any in-corpus link that targeted the old auto-slug in the same edit.
-- After H6 lands, audit `spec.md`'s aggregator paragraphs: the four current page-level forward-links to GOV-12, GOV-14, GOV-15, and the Hard-ceilings aggregator should be re-aimed at their REQ-ID fragments.
-
-## Relationships
-
-- T43 "GOV-14, GOV-15, PIC-1 violate GOV-1's Dual-form layout rule" — co-resolve (Option A's universalization moves these from "misplaced exception" to "correctly-placed dual-form").
-- T44 "`HC3-a`–`HC3-e` and `NOCEIL-N` labels escape GOV-3 detection and GOV-8 governance" — same-cluster.
-- T45 "`CIO-N` labels use a prefix that is not registered in the GOV-3 prefix table" — same-cluster.
-- T39 "Mid-stream cancellation paragraph bundles multiple obligations under one anchor" — same-cluster.
-- T40 "Pre-evaluation failure list has no per-item anchors" — same-cluster.
-- T41 "Binder refinement-loop seam bundles three independent MUSTs under one navigational anchor" — same-cluster.
-- T42 "Race semantics: cancellation MUSTs lack per-obligation REQ-ID anchors" — same-cluster.
