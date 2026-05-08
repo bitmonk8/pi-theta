@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 high, 8 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 0 high, 7 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -447,67 +447,3 @@ Implementer-relevant edge cases the rewritten bullet (or a sibling bullet) shoul
 - T19 "Ceiling #4's opening classification contradicts its own table and CIO-1" — same-cluster (different defect on the same Hard-ceilings paragraph)
 - T20 "CIO-3 enumerates four AJV boundaries; ceiling #4's table has five" — same-cluster (touches the CIO-3 boundary inventory the rewritten bullet cites; resolves independently)
 - T21 "Hard ceilings block does load-bearing definitional work inside informative orientation" — must-follow
-
----
-
-# T08 — "No ceiling fails silently" headline contradicts the model-driven row's loom-code-silent surface
-
-**Original heading:** "No ceiling fails silently" vs. model-driven silent-at-loom-code row
-**Original section:** spec.md — Orientation > Scope > Hard ceilings (general)
-**Kind:** consistency
-**Importance:** medium
-## Finding
-
-The Hard ceilings opening (`spec.md` line 51, the `<a id="hard-runtime-ceilings"></a>` bullet) makes an unqualified normative-flavoured claim: "each has a distinct, observable failure surface and **no ceiling fails silently**." The per-boundary table for ceiling #4 (JSON-document depth) immediately below contains a row whose carrier shape and destination are explicitly *the model* — the model-driven tool-arg row routes the depth violation back to the model as a tool-error result, with no `QueryError` or diagnostic reaching loom code at the depth-walk site.
-
-The post-table prose (line 72) acknowledges this directly: "The model-driven row is the only one whose surface is silent at the loom-code level — the depth violation reaches the model as a tool-result and reaches the operator only via the `loom-system-note` channel **if and when** the loop later exhausts under ceiling #2 … The 'no ceiling fails silently' claim above is honoured in the model-as-observer sense." That reconciliation — that the model itself is the observer for this row — is the load-bearing qualifier on the headline claim, but it lives roughly 20 lines and one large table away from the claim it qualifies. A reader who stops at the opening bullet (or who quotes it in a downstream document) carries away a stricter promise than the spec actually keeps.
-
-The contradiction is editorial, not behavioural — the per-boundary table, the post-table prose, and the plan leaves (V11i, V14e, V14f) all consistently describe the model-driven row's surface. But the spec cannot simultaneously assert "no ceiling fails silently" as a headline rule and rely on a deferred "in the model-as-observer sense" rider to make that rule true.
-
-## Spec Documents
-
-- `spec.md` — Orientation > Scope > Hard ceilings opening bullet (edited)
-- `spec.md` — Orientation > Scope > Hard ceilings, post-table reconciliation paragraph (read-only; the reconciliation moves up rather than disappearing)
-- `spec_topics/schema-subset.md` — Depth Enforcement (read-only)
-- `spec_topics/query.md` — Tool calls during a query (read-only; defines the model-driven tool-arg routing)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None. The model-driven row's behaviour (tool-error fed back to the model; round counts against `tool_loop.max_rounds`; not a `QueryError`) is already correctly encoded in V11i (depth-walk service-level), V14e (model-driven tool-arg boundary surfacing), V14f (code-driven tool-arg boundary surfacing), and V16p (slash-load `params` arm). This finding is a spec-text wording fix; no acceptance criteria change.
-
-## Consequence
-
-**Severity:** advisory
-
-A careful reader concludes the spec contradicts itself in its first sentence on Hard ceilings; an inattentive reader carries the false invariant "every ceiling surfaces somewhere loom code or the operator can see immediately" into downstream design or documentation. Implementers do not diverge — the per-boundary table is the authoritative routing source and the test coverage already exists — but the headline claim is the single most quotable line in the Hard ceilings section, and shipping it as written invites mis-quotation.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the absolute clause in the opening bullet with a clause that names the three observer roles the spec actually depends on, and move the model-as-observer reconciliation up against the claim instead of leaving it deferred. Concretely, in the Hard ceilings opening (`spec.md` line 51), replace:
-
-> each has a distinct, observable failure surface and no ceiling fails silently.
-
-with:
-
-> each has a distinct, observable failure surface — addressed to at least one of *loom code*, *the model*, or *the operator* — and no ceiling is unobservable to all three. (Ceiling #4's model-driven tool-arg row is observable to the model and, if the loop later exhausts, to the operator via ceiling #2; see the per-boundary table and reconciliation paragraph below.)
-
-Then, in the post-table reconciliation paragraph (line 72), strike the now-redundant sentence "The 'no ceiling fails silently' claim above is honoured in the model-as-observer sense" (the headline already states the three-role rule, so the rider is no longer load-bearing). Keep the rest of that paragraph — the masked-row `tool_loop` accounting and the slash-load `params` cross-ceiling carve-out — verbatim.
-
-Edge cases the editor must preserve:
-
-- The headline must not be weakened to "addressed to at least one observer of any kind" — that would also cover NOCEIL-3's uncatchable-fatal carve-out, which the spec deliberately treats as out-of-scope rather than as a covered ceiling. Naming the three roles (loom code, model, operator) closes that loophole.
-- The rephrased headline must continue to reject any future hypothetical ceiling whose only "observability" is e.g. a host-process exit code or a debug build flag; that is what the "addressed to at least one of" enumeration is doing and why it is closed rather than open-ended.
-- Do not move the per-boundary table or the worked-consequence list as part of this edit; they are scoped by other findings (`Hard ceilings block misplaced in informative orientation section` and the per-label HTML anchor finding) and conflating the edits would entangle two independent reviews.
-
-## Relationships
-
-- T21 "Hard ceilings block does load-bearing definitional work inside informative orientation" — must-follow
-
