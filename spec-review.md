@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 3 high, 8 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 2 high, 8 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -642,65 +642,4 @@ Edge cases the V16i implementer must watch:
 
 - T05 "Mid-stream cancellation: no observable rule for loom-runtime conversation behaviour" — same-cluster (sibling testability gap; resolves independently)
 - T11 "`estimateTokens`: meaning of `chars` undefined for non-ASCII inputs" — same-cluster (sibling determinism-of-rendering gap in the same spec corpus; independent fix)
-
----
-
-# T11 — `estimateTokens`: meaning of `chars` undefined for non-ASCII inputs
-
-**Original heading:** `estimateTokens`: "chars" unit undefined for non-ASCII inputs
-**Original section:** spec_topics/pi-integration-contract.md — `estimateTokens`
-**Kind:** testability
-**Importance:** high
-## Finding
-
-The Pi Integration Contract describes the V1 behaviour of `estimateTokens` as "a conservative `Math.ceil(chars / 4)` over the message's text, thinking, tool-call argument JSON, and tool-result text" without defining what `chars` counts. For ASCII-only inputs the three plausible interpretations agree, but for any message containing a code point outside the Basic Multilingual Plane they diverge:
-
-- JavaScript `String.prototype.length` (UTF-16 code units) — astral code points count as 2.
-- `Array.from(str).length` (Unicode scalar values) — astral code points count as 1.
-- `new TextEncoder().encode(str).length` (UTF-8 bytes) — astral code points count as 4.
-
-A user message of three "😀" characters (`\u{1F600}` × 3) yields `Math.ceil(6/4) = 2` under UTF-16 length, `Math.ceil(3/4) = 1` under scalar count, and `Math.ceil(12/4) = 3` under UTF-8 byte count. Two conformant binders could therefore disagree on per-turn token counts for the same caller session, and disagree on which turns the `bind_context: session` walk includes — the walk's 8000-token cap is an exact threshold and the worked example in `binder.md` is stated to the token. The spec already pins binder behaviour to Pi's own compaction estimator ("matches Pi's own compaction-decision estimator, so binder truncation behaviour stays consistent with Pi as model tokenizers evolve"), but the unit that estimator uses is not transcribed into the contract, so an implementer reading only the spec cannot reproduce it.
-
-## Spec Documents
-
-- `spec_topics/pi-integration-contract.md` — `estimateTokens` paragraph (edited)
-- `spec_topics/binder.md` — Session-context truncation, worked example (read-only)
-
-## Plan Impact
-
-**Phases:** Vertical V16
-
-**Leaves (implementation order):**
-
-- V16g — `bind_context: session` truncation — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers reading the spec in isolation will pick different `chars` units, producing different per-turn token totals for any session containing astral code points (emoji, many CJK extensions, mathematical symbols). The 8000-token / 20-turn walk is an exact-boundary algorithm, so the divergence directly changes which turns appear in the binder prompt and breaks the worked example's reproducibility on non-ASCII corpora. Determinism of the binder prompt — a stated property of the contract — fails.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In the `estimateTokens` paragraph of `spec_topics/pi-integration-contract.md`, replace "a conservative `Math.ceil(chars / 4)` over the message's text, thinking, tool-call argument JSON, and tool-result text" with a definition that fixes the unit as JavaScript `String.prototype.length` (UTF-16 code units). The replacement should:
-
-1. State explicitly that `chars` is the sum of `String.prototype.length` over each contributing string: message text content, assistant `thinking` blocks, `JSON.stringify(toolCall.arguments)`, `toolCall.name`, and tool-result text content. This matches Pi's own implementation in `@mariozechner/pi-coding-agent`'s `core/compaction/compaction.ts` `estimateTokens(message)`, which sums `.length` over those exact fields and returns `Math.ceil(chars / 4)`.
-2. Add one normative reference vector with a non-ASCII input where the three candidate units diverge — e.g. a user message whose only text content is `"😀😀😀"` (three U+1F600) MUST estimate to `Math.ceil(6 / 4) = 2` tokens. One such vector is enough to nail down the unit; further coverage belongs in V16g's test plan, not the spec.
-3. Keep the existing pin to Pi's compaction-decision estimator, but make it advisory rather than load-bearing: the normative requirement is the unit, and the Pi-parity remark explains *why* that unit was chosen.
-
-Edge cases the implementer must watch:
-
-- Lone surrogate halves (malformed UTF-16) count as 1 each under `String.prototype.length`; no special handling is required and none should be added.
-- `JSON.stringify` escapes non-ASCII by default in some serializers but not in V8's; the spec should require the unescaped form (i.e. plain `JSON.stringify(value)` with no `replacer`), so that two engines agree on the input string before `.length` is taken.
-- Image content blocks contribute a fixed constant in Pi's implementation (4800 chars per image); since loom message inputs into `estimateTokens` are LLM messages whose composition is governed by Pi, the spec should defer to Pi's accounting for non-text blocks rather than re-specify it.
-
-## Relationships
-
-- T12 "`ExtensionContext.compact()` declared as async-no-args; SDK shape is sync with optional `CompactOptions`" — same-cluster (same SDK-transcription failure mode; resolved independently)
-- T13 "`ExtensionContext.sessionManager` is `ReadonlySessionManager`, not `SessionManager`; `buildSessionContext()` is not on the exposed surface" — same-cluster (same SDK surface, both about transcribing Pi types accurately into the contract; resolved independently)
-- T16 "Pi API surfaces asserted without `.d.ts` citations: setActiveTools, createAgentSession, ExtensionCommandContext, AgentSession, tool-result envelope" — same-cluster (broader citation gap of which this is one specific instance; resolved independently)
 
