@@ -43,8 +43,8 @@ Maintain a running counter `fixed = 0` and a list `failed = []`.
      task: "<heading text from step 1, verbatim, no quoting>",
      targetPaths: [
        "docs/plan-review.md",
-       "plan.md",
-       "spec.md"
+       "docs/plan.md",
+       "docs/spec.md"
      ]
    })
    ```
@@ -61,7 +61,7 @@ Maintain a running counter `fixed = 0` and a list `failed = []`.
    Run, from the worktree root:
 
    ```bash
-   git add -A docs/ plan.md plan_topics/ spec.md spec_topics/ && \
+   git add -A docs/ && \
      git -c core.editor=true commit -m "<message>" && \
      git push
    ```

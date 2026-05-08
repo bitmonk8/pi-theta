@@ -21,7 +21,7 @@ this structure:
   the very first line.
 - A preamble block (italic underscore lines) recording counts.
 - Repeated `## ` section headers grouping findings by plan leaf /
-  area (typically `plan_topics/<id>-<slug>.md`).
+  area (typically `docs/plan_topics/<id>-<slug>.md`).
 - One finding per `# ` H1 heading **after the title**. Each
   finding's body contains a `## Solution Space` subsection whose
   next non-blank, non-heading line reads either:

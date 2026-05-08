@@ -38,9 +38,9 @@ Write a single Markdown file to `.pi/tmp/plan-review-improved/<slug>.md`. Create
 
 ## Procedure
 
-1. **Locate the finding.** Read `<source-path>` (resolved in step 0) and find the section whose `### `-level heading exactly matches the input. Note the `## `-level section header above it (used as `Original section` — typically a plan leaf file path such as `plan_topics/v4-schemas.md`) and the bullets in its body (`Description`, `Suggested fix`, `Lenses`).
+1. **Locate the finding.** Read `<source-path>` (resolved in step 0) and find the section whose `### `-level heading exactly matches the input. Note the `## `-level section header above it (used as `Original section` — typically a plan leaf file path such as `docs/plan_topics/v4-schemas.md`) and the bullets in its body (`Description`, `Suggested fix`, `Lenses`).
 
-2. **Verify the finding.** Read the plan text the finding cites — `plan.md` plus any leaf file under `plan_topics/`. Read the spec topics the leaf references when needed (`spec.md` plus files under `spec_topics/`). Read enough first-hand to decide between two outcomes:
+2. **Verify the finding.** Read the plan text the finding cites — `docs/plan.md` plus any leaf file under `docs/plan_topics/`. Read the spec topics the leaf references when needed (`docs/spec.md` plus files under `docs/spec_topics/`). Read enough first-hand to decide between two outcomes:
    - **`stands`** — the finding describes a real plan defect. The original framing may be sloppy, mis-name the leaf, or undercount/miscount; you fix that silently when you write the polished finding. Do not surface the original wording or your corrections in the output.
    - **`false positive`** — no real defect. The cited plan text already addresses the concern, or the finding rests on a misreading.
 
@@ -48,7 +48,7 @@ Write a single Markdown file to `.pi/tmp/plan-review-improved/<slug>.md`. Create
 
 3. **If `false positive`, the entire output file content is the single line `False positive`** (followed by a trailing newline). Skip steps 4–10 and proceed directly to writing the file. The filename slug already identifies which finding was rejected; nothing else is written.
 
-4. **Identify plan documents affected.** Union of (potentially edited by any solution under consideration) ∪ (must be read to understand the issue). Tag each entry `(edited)` / `(read-only)` / `(option-dependent)`. Plan documents are `plan.md`, `plan_topics/conventions.md`, `plan_topics/coverage-matrix.md`, and the per-phase leaf files `plan_topics/<id>-<slug>.md`. If a file appears in multiple distinct sections, list each section as a separate row.
+4. **Identify plan documents affected.** Union of (potentially edited by any solution under consideration) ∪ (must be read to understand the issue). Tag each entry `(edited)` / `(read-only)` / `(option-dependent)`. Plan documents are `docs/plan.md`, `docs/plan_topics/conventions.md`, `docs/plan_topics/coverage-matrix.md`, and the per-phase leaf files `docs/plan_topics/<id>-<slug>.md`. If a file appears in multiple distinct sections, list each section as a separate row.
 
 5. **Identify spec documents affected.** A plan-level finding may also force spec edits — for example, when the fix is "the plan cites a REQ-ID that does not exist in the spec; either add it to the spec or strike it from the plan." List spec files the fix may touch with the same `(edited)` / `(read-only)` / `(option-dependent)` tags. If the fix is purely internal to plan files, write `None`.
 
@@ -61,9 +61,9 @@ Write a single Markdown file to `.pi/tmp/plan-review-improved/<slug>.md`. Create
 
    Lookup recipe:
    - Identify the plan leaf file(s) the finding touches; read them in full.
-   - For findings about cross-cutting rules, read `plan_topics/conventions.md` and `plan_topics/coverage-matrix.md`.
-   - `grep -rn '<keyword>' plan_topics/ plan.md` to find sibling leaves whose **Spec** / **Deps** / **Adds** fields reference the same concept.
-   - Leaf IDs follow the form `H1`–`H4` (horizontal phases), `M` (MVP), and `V<N><letter>` (vertical-slice leaves, e.g. `V4b`, `V18o`). Order the resulting leaf list by appearance order in `plan.md` — that is the canonical implementation order.
+   - For findings about cross-cutting rules, read `docs/plan_topics/conventions.md` and `docs/plan_topics/coverage-matrix.md`.
+   - `grep -rn '<keyword>' docs/plan_topics/ docs/plan.md` to find sibling leaves whose **Spec** / **Deps** / **Adds** fields reference the same concept.
+   - Leaf IDs follow the form `H1`–`H4` (horizontal phases), `M` (MVP), and `V<N><letter>` (vertical-slice leaves, e.g. `V4b`, `V18o`). Order the resulting leaf list by appearance order in `docs/plan.md` — that is the canonical implementation order.
    - Tag each leaf `(modified)` / `(blocked)` / `(both)` / `(added)` / `(removed)` / `(resequenced)`.
    - If no leaves are affected (rare for plan findings — usually only for findings about `conventions.md` or `coverage-matrix.md` that do not propagate), write `None`.
 
@@ -113,12 +113,12 @@ The file should read as a polished, fresh finding — as if a sharper reviewer h
 
 ## Plan Documents
 
-- `plan_topics/<file>.md` — <section> (edited | read-only | option-dependent)
+- `docs/plan_topics/<file>.md` — <section> (edited | read-only | option-dependent)
 - ...
 
 ## Spec Documents
 
-- `spec_topics/<file>.md` — <section> (edited | read-only | option-dependent)
+- `docs/spec_topics/<file>.md` — <section> (edited | read-only | option-dependent)
 - ...
 
 (or `None`)
@@ -167,7 +167,7 @@ Nothing else — no metadata, no H1, no related findings. The filename slug iden
 ## Rules
 
 - Do not modify the source review file or any other existing file. The only write is to `.pi/tmp/plan-review-improved/<slug>.md`.
-- Do not invent leaf IDs. Cite only IDs that already exist in `plan.md` or under `plan_topics/`. For new leaves the fix would create, use the literal placeholder `<new>` and let the fixer/implementer pick the real ID.
+- Do not invent leaf IDs. Cite only IDs that already exist in `docs/plan.md` or under `docs/plan_topics/`. For new leaves the fix would create, use the literal placeholder `<new>` and let the fixer/implementer pick the real ID.
 - For Affected Leaves, do the actual `grep` lookup. Do not skip it or guess based on the finding's prose.
 - Be concrete in Solution Space. A future fixer agent will rely on it; vague recommendations defeat the purpose. Name the exact file, the exact bullet field, and the literal text to insert or strike whenever possible.
 - Do not include the `Lenses:` line from the original — `Kind:` replaces it, with the `plan-lens-` or `spec-lens-` prefix stripped from each label.

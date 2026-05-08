@@ -15,15 +15,15 @@ occur only through Pi tools the loom explicitly admits via frontmatter
 `tools:` (e.g. `write`, `edit`). `.warp` files are library modules that
 share loom's grammar and type system and are imported by `.loom` files.
 
-The full design lives in [`spec.md`](./spec.md). The implementation roadmap
-lives in [`plan.md`](./plan.md).
+The full design lives in [`docs/spec.md`](./docs/spec.md). The implementation roadmap
+lives in [`docs/plan.md`](./docs/plan.md).
 
 ## Status
 
 Pre-implementation. The specification and implementation plan are complete;
 no runtime code has been written yet. Track progress against
-[`plan.md`](./plan.md) and the
-[spec coverage matrix](./plan_topics/coverage-matrix.md).
+[`docs/plan.md`](./docs/plan.md) and the
+[spec coverage matrix](./docs/plan_topics/coverage-matrix.md).
 
 ## Highlights
 
@@ -51,12 +51,12 @@ field in `package.json`.
 
 | Path | Contents |
 |---|---|
-| [`spec.md`](./spec.md) | Top-level spec index. |
-| [`spec_topics/`](./spec_topics/) | Per-topic normative spec pages. |
-| [`plan.md`](./plan.md) | Top-level implementation plan. |
-| [`plan_topics/`](./plan_topics/) | Per-phase plan pages and coverage matrix. |
+| [`docs/spec.md`](./docs/spec.md) | Top-level spec index. |
+| [`docs/spec_topics/`](./docs/spec_topics/) | Per-topic normative spec pages. |
+| [`docs/plan.md`](./docs/plan.md) | Top-level implementation plan. |
+| [`docs/plan_topics/`](./docs/plan_topics/) | Per-phase plan pages and coverage matrix. |
+| [`docs/spec-review.md`](./docs/spec-review.md) | Spec review log. |
 | `extensions/` | Pi extension entry points (populated during implementation). |
-| `docs/` | Supplementary documentation. |
 | `package.json` | Package manifest; declares the Pi extension and peer-deps on `@mariozechner/pi-*`. |
 
 ## License

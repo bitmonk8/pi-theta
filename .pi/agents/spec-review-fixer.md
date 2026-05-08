@@ -47,16 +47,16 @@ findings — you must read directly from `docs/spec-review.md`.
    Space is not `single`, stop and report it in "Notes" without
    editing — this is an orchestrator bug.
 4. **Read the spec sections cited.** The canonical spec is
-   `spec.md` plus the topic files under `spec_topics/` (flat —
+   `docs/spec.md` plus the topic files under `docs/spec_topics/` (flat —
    no subfolders). Read the cited sections first-hand; do not
    paraphrase blindly from the finding text.
 5. **Apply the recommended spec edits.** Touch the minimum set of
    files needed; keep cross-references consistent (the index in
-   `spec.md`, sibling topic files, glossary entries, plan-leaf
-   references in `plan.md` / `plan_topics/`). If the recommendation
-   requires creating a new topic file, add it under `spec_topics/`,
+   `docs/spec.md`, sibling topic files, glossary entries, plan-leaf
+   references in `docs/plan.md` / `docs/plan_topics/`). If the recommendation
+   requires creating a new topic file, add it under `docs/spec_topics/`,
    keep it within the ~400–600 line target, and link it from
-   `spec.md`'s topic index plus any sibling files that reference
+   `docs/spec.md`'s topic index plus any sibling files that reference
    it.
 6. **Remove the finding from the review document.** Delete the
    block of lines from the finding's `# ` heading up to (but not
@@ -84,7 +84,7 @@ the substantive change, which spec files were touched).
 ## Notes (if any)
 - Any deviations from the recommendation and why.
 - Anything the orchestrator should know before committing
-  (e.g. plan leaves under `plan_topics/` that now need follow-up
+  (e.g. plan leaves under `docs/plan_topics/` that now need follow-up
   work, downstream findings that became easier or harder,
   inability to locate the finding heading, mismatched Shape, etc.).
 - A suggested one-line commit message in the form:
@@ -98,8 +98,8 @@ the substantive change, which spec files were touched).
   the recommendation depends on introducing an ID scheme, surface
   that in "Notes" and do not silently invent prefixes.
 - Plan-leaf IDs (`H1`–`H4`, `M`, `V<N><letter>` such as `V4b`,
-  `V18o`) live in `plan.md` and `plan_topics/`. Cite only IDs
+  `V18o`) live in `docs/plan.md` and `docs/plan_topics/`. Cite only IDs
   that already exist; do not invent new leaf IDs from the fixer.
-- Removal of the finding from `spec-review.md` is part of the
+- Removal of the finding from `docs/spec-review.md` is part of the
   fix, not a separate step. A fix is incomplete if the finding is
   still present in the review document.

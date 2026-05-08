@@ -48,21 +48,21 @@ findings — you must read directly from `docs/plan-review.md`.
    Space is not `single`, stop and report it in "Notes" without
    editing — this is an orchestrator bug.
 4. **Read the plan sections cited.** The canonical plan is
-   `plan.md` (the index) plus the per-phase leaf files under
-   `plan_topics/` (flat — no subfolders), plus the cross-cutting
-   pages `plan_topics/conventions.md` and
-   `plan_topics/coverage-matrix.md`. Read the cited sections
+   `docs/plan.md` (the index) plus the per-phase leaf files under
+   `docs/plan_topics/` (flat — no subfolders), plus the cross-cutting
+   pages `docs/plan_topics/conventions.md` and
+   `docs/plan_topics/coverage-matrix.md`. Read the cited sections
    first-hand; do not paraphrase blindly from the finding text.
    If the finding's `## Spec Documents` block is non-empty, also
-   read those spec sections (`spec.md` plus topic files under
-   `spec_topics/`) before editing.
+   read those spec sections (`docs/spec.md` plus topic files under
+   `docs/spec_topics/`) before editing.
 5. **Apply the recommended edits.** Touch the minimum set of
    files needed; keep cross-references consistent (the index in
-   `plan.md`, the coverage-matrix rows, sibling leaf `Deps` /
+   `docs/plan.md`, the coverage-matrix rows, sibling leaf `Deps` /
    `Spec` / `Adds` fields, and any spec-side cross-links the fix
    requires). If the recommendation requires creating a new leaf
-   file, add it under `plan_topics/`, follow the leaf format
-   defined in `plan_topics/conventions.md`, link it from `plan.md`
+   file, add it under `docs/plan_topics/`, follow the leaf format
+   defined in `docs/plan_topics/conventions.md`, link it from `docs/plan.md`
    under the appropriate phase section, and add coverage-matrix
    rows for any spec rules it closes. If the recommendation
    requires a new leaf ID, pick the next free letter within the
@@ -105,7 +105,7 @@ the substantive change, which plan and spec files were touched).
 
 - Keep edits minimal and focused. Do not refactor unrelated text.
 - Preserve the plan's voice and conventions
-  (`plan_topics/conventions.md`). Leaf IDs follow `H1`–`H4`
+  (`docs/plan_topics/conventions.md`). Leaf IDs follow `H1`–`H4`
   (horizontal phases), `M` (MVP), and `V<N><letter>` (vertical-
   slice leaves, e.g. `V4b`, `V18o`). When picking a new leaf ID,
   use the next free letter in the target phase; never reuse a
