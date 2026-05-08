@@ -4,7 +4,7 @@ _Generated: 2026-05-07T17:37:47Z_
 _Spec: spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 high, 4 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
+_Triage tally: 0 high, 3 medium retained; 10 low discarded; 0 low findings merged into 0 medium findings; 19 nit dropped; 0 false dropped._
 
 ---
 
@@ -198,62 +198,3 @@ Edge cases for the implementer:
 ## Relationships
 
 None
-
----
-
-# T04 — Session-model paragraph: uncited Pi event shape and ambiguous "may close watchers" wording
-
-**Original heading:** `session_shutdown` event: shape and property-access contract uncited; ambiguous teardown wording
-**Original section:** spec.md — Orientation > Prerequisites > Session model
-**Kind:** assumptions, clarity
-**Importance:** medium
-## Finding
-
-The Session-model paragraph in `spec.md` (Orientation > Prerequisites) asserts four things about Pi as plain fact with no citation: the event name `session_shutdown`, the payload path `event.reason`, the closed reason set `"quit" | "reload" | "new" | "resume" | "fork"`, and the unknown-reason routing that exists specifically because property access on `event.reason` may throw. Each of these is a load-bearing input to the runtime's teardown contract; with no anchor into a Pi type or doc, a future SDK pin bump cannot be diff-audited against the spec, and a reader cannot tell which claims are observed from Pi versus designed by loom.
-
-The same paragraph contains the sentence "the V1 acceptance that it **may** close watchers on a reason that did not in fact tear down the extension." `may` reads three ways: (a) "is permitted to" (a normative permission), (b) "could happen that" (a descriptive observation about an inevitable side-effect), or (c) "is allowed but not required" (an implementation discretion). The intended reading — confirmed by the corresponding paragraph in `pi-integration-contract.md` ("the handler treats every reason identically, since a no-teardown reason makes the sequence a fast-path no-op") — is that the handler always closes watchers regardless of reason, and the V1 position is that the resulting wasted close on a non-teardown reason is acceptable. The current wording does not convey that.
-
-## Spec Documents
-
-- `spec.md` — Orientation > Prerequisites > Session model paragraph (edited)
-- `spec_topics/pi-integration-contract.md` — Extension entry point, step 4, including the "Unknown-reason rule", the fixed five-sub-step sequence, and the "Edge cases the handler must observe" bullet that contains the parallel "V1 acceptance" sentence (edited)
-- Pi SDK type declaration shipped with `@mariozechner/pi-coding-agent` (`dist/core/extensions/types.d.ts`, `SessionShutdownEvent` interface) — read-only
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — the fix is a citation insertion plus a wording rewrite in spec prose. No leaf's **Tests** or **Ships when** condition changes; no leaf is blocked or unblocked. The absence of a teardown-handler leaf is a separate finding (`Plan corpus has no leaf for session_shutdown handler / ActiveInvocationRegistry teardown`) and is not resolved here.
-
-## Consequence
-
-**Severity:** advisory
-
-A future Pi SDK release that adds, renames, or removes a reason member silently desynchronises the spec; without a citation, the spec audit cannot be mechanised against `dist/core/extensions/types.d.ts`. The ambiguous "may" sentence is unlikely to mislead an implementer who reads PIC step 4 alongside it (PIC pins the unconditional sequence), but a spec-only reader can plausibly conclude that closing watchers is optional on `"new" | "resume" | "fork"`, which contradicts the normative fixed-order sequence.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit the Session-model paragraph in `spec.md` to do two things:
-
-1. **Cite the SDK type for the event shape.** Add a parenthetical citation to `SessionShutdownEvent` in `dist/core/extensions/types.d.ts` (line 418 in the V1-pinned `@mariozechner/pi-coding-agent` build, verified to declare `reason: "quit" | "reload" | "new" | "resume" | "fork"` on a `type: "session_shutdown"` interface). Phrase the citation so it survives a line-number drift — name the interface, not the line — e.g. "Pi fires `session_shutdown` (`SessionShutdownEvent` in `@mariozechner/pi-coding-agent`'s `dist/core/extensions/types.d.ts`) with `event.reason: "quit" | "reload" | "new" | "resume" | "fork"`." The same citation covers the closed set and the payload path; the property-access-throws accommodation is owned by PIC's "Unknown-reason rule" and only needs a forward-link from `spec.md`, not a separate SDK citation (it is a loom-side defence, not a Pi guarantee).
-
-2. **Replace the ambiguous "may close watchers" sentence** with a declarative statement that matches PIC's fixed-order sequence. Suggested wording: "Pi may fire `session_shutdown` for reasons (e.g. `"fork"`) that do not tear down the extension process; the runtime's handler runs the full fixed teardown sequence — including watcher closure — for every reason in the closed set, and the V1 position accepts that watchers may be closed on a reason that did not in fact tear the extension down (recovery is one `/reload` away)." Apply the same rewrite to PIC step 4's "Edge cases" bullet so the two paragraphs stay byte-aligned on the contract they share.
-
-Edge cases the rewrite must preserve:
-
-- The unknown-reason path (reason outside the closed set, or property access throwing) MUST still route through the full sequence — PIC already pins this and the spec.md sentence must not contradict it.
-- The "fast-path no-op" framing in PIC ("a no-teardown reason makes the sequence a fast-path no-op (no active invocations exist at session boundaries because Pi serialises turns)") is about the abort-and-await sub-steps being trivially empty, not about watcher closure being skipped. The rewritten sentence must not be readable as license to skip sub-step 4.
-
-## Relationships
-
-- T16 "Pi API surfaces asserted without `.d.ts` citations: setActiveTools, createAgentSession, ExtensionCommandContext, AgentSession, tool-result envelope" — co-resolve (a single citation pass over the Pi-SDK-fact surfaces in `spec.md` resolves both)
-- T24 "`details.event.reason` coercion is unspecified for non-string Pi values" — same-cluster (the property-access-throws path this finding flags as uncited; that finding closes the sentinel value)
-- T25 "Session-shutdown teardown: `console.error` is the unguarded last resort, but no rule says emission MUST NOT propagate" — same-cluster (same teardown handler, separate axis: diagnostic emission contract)
-- T26 "Teardown sub-steps 1, 4, and 5 lack a per-step isolation rule" — same-cluster (same handler, separate axis: per-step error containment)
-- T28 "`session_shutdown` teardown contract has no plan-leaf owner" — same-cluster (touches the same handler; resolved separately by adding a plan leaf, not by editing spec prose)
