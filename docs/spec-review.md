@@ -3473,9 +3473,11 @@ H6 cannot ship coherently in its current form: its outbound-link rewrite produce
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
 
-### Option A — Universalize the HTML form
+### Recommendation
+
+Universalize the HTML form. The bold-with-period inline marker stays canonical for byte-level grep gates; the HTML form's only remaining job is to give cross-page Markdown links a resolvable target, and there is no design reason to deny that job to body-paragraph REQ-IDs. H6 is the natural site for the insertion, and V18s gate 9 becomes a single unconditional rule.
 
 **Approach.** Extend GOV-1's *Permitted alternate contexts* list with a fourth entry that admits ordinary body-paragraph context, then state in the *Dual-form layout* clause that the HTML form is REQUIRED (not merely permitted) wherever the inline marker is the page's only anchor for that REQ-ID. The H6 anchor pass inserts `<a id="prefix-n"></a> **PREFIX-N.**` on every normative-paragraph line.
 
@@ -3495,25 +3497,6 @@ H6 cannot ship coherently in its current form: its outbound-link rewrite produce
 - The "closed list" framing of *Permitted alternate contexts* effectively collapses.
 
 **Risks.** The H6 anchor pass enlarges in scope but does not change shape; the test infrastructure is already keyed off the dual-form regex.
-
-### Option B — Loosen GOV-9 with a fragment-availability fallback
-
-**Approach.** Amend GOV-9 to permit a section-level link (heading-slug fragment on the target page) when no `<a id="prefix-n"></a>` exists on the target. Leave GOV-1's three-context restriction intact. V18s gate 9 must be widened in lock-step.
-
-**Pros.**
-- Minimal edit to GOV-1; preserves the bold-marker-as-canonical-anchor intent.
-- Aligns with current de-facto practice in `spec.md`'s aggregator paragraphs.
-
-**Cons.**
-- Loses the per-rule precision GOV-9 was designed for: section anchors point at multi-rule sections.
-- The V18s gate's section-containment check is harder to specify deterministically than a literal-anchor lookup.
-- Cross-prefix REQ-IDs remain un-citable at rule granularity for body-paragraph rules.
-
-**Risks.** Mechanising "the section containing the rule" requires deciding what counts as a section boundary on pages where rules straddle sub-headings.
-
-### Recommendation
-
-Adopt Option A. The bold-with-period inline marker stays canonical for byte-level grep gates; the HTML form's only remaining job is to give cross-page Markdown links a resolvable target, and there is no design reason to deny that job to body-paragraph REQ-IDs. H6 is the natural site for the insertion, and V18s gate 9 becomes a single unconditional rule.
 
 Implementer notes:
 - Keep the existing literal byte order (`<a id="prefix-n"></a>` + single ASCII space + `**PREFIX-N.**`).
