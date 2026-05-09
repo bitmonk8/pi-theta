@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T46) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 14 high, 28 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 14 high, 27 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -2622,81 +2622,4 @@ Edge cases the implementer must watch:
 - T16 "Trust boundary bullet conflates scope decision with normative contracts and a deferral" — co-resolve (same Trust-boundary edit pass).
 - T35 "SDK capability inventory closed-set claim has no negative-direction audit" — same-cluster (a sibling closed-set-without-audit defect).
 - T37 "Built-artefact path `dist/core/extensions/types.d.ts` cited as the source of truth for Pi-SDK types" — same-cluster (the audit recommended here inherits the dist-path stability problem).
-
----
-
-# T35 — SDK capability inventory closed-set claim has no negative-direction audit
-
-**Original heading:** Seven Pi capabilities asserted as exhaustive without audit evidence
-**Original section:** docs/spec.md — Orientation > Prerequisites > Pi SDK and capabilities
-**Kind:** assumptions
-**Importance:** medium
-
-## Finding
-
-`spec.md` (Orientation > Prerequisites > Pi SDK and capabilities) and `pi-integration-contract.md` (SDK capability inventory) both state that "the seven SDK capabilities the runtime depends on" are the closed list anchored under the inventory. The supporting H1 leaf (`pinned-surface.test.ts`, consuming `SDK_SURFACE_INVENTORY`) and the Pi-version-bump procedure (PIC step 2) verify the inventory in only one direction: that each declared capability member is present on the imported Pi namespace at the pinned `~0.72.1`. Nothing in the spec corpus or the H1 test plan verifies the converse — that no `pi.<member>` access, no destructured field of `ExtensionAPI` / `ExtensionContext` / `ExtensionCommandContext`, and no named import from `@mariozechner/pi-coding-agent`, `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, or `@mariozechner/pi-tui` exists in `src/` outside the seven inventory entries (plus the `AbortSignal` shape and the bundled-`typebox` shape, which are accounted for separately).
-
-The closed-set claim is therefore a maintenance assertion, not a tested invariant. A future leaf that reaches for an additional Pi surface — for example `pi.theme.*` for renderer styling, a Pi key-binding registration call, an `ExtensionAPI` logging member, a file-watcher facility, or a new `pi-agent-core` re-export — would silently widen the runtime's dependence on Pi without lighting up the inventory, the bump procedure, or any spec rule. The first observable failure would arrive at the next Pi minor bump that removes or renames the silently-used member.
-
-The same maintenance gap binds the parallel "complete set of four hard ceilings" and "13 typed/structural seams" claims (separate findings). What this finding addresses is specifically the Pi-surface inventory — the claim that the runtime's coupling to Pi is bounded by the seven items, with no audit demonstrating the bound holds.
-
-## Spec Documents
-
-- `docs/spec.md` — Orientation > Prerequisites > Pi SDK and capabilities (edited)
-- `docs/spec_topics/pi-integration-contract.md` — SDK capability inventory; Pi version bump procedure (edited)
-- `docs/plan_topics/h1-scaffold.md` — SDK surface-inventory test bullet (read-only for spec; edited at the plan layer)
-
-## Plan Impact
-
-**Phases:** Horizontal H1
-
-**Leaves (implementation order):**
-
-- H1 — Repository scaffold and test framework — (modified)
-
-The audit lives naturally inside H1's existing `pinned-surface.test.ts` (or as a sibling `pi-surface-coverage.test.ts` in the same suite); no new phase is required. H4 / Mb / V14 / V18 leaves that introduce new `pi.*` call sites simply update `SDK_SURFACE_INVENTORY` in lock-step, and the new audit fails loudly if they don't.
-
-## Consequence
-
-**Severity:** advisory
-
-The runtime keeps working today; the gap surfaces only when (a) a contributor adds a new Pi-surface call without updating the inventory, then (b) a future Pi minor bump removes or behaviour-changes that surface. The combined likelihood is low but the failure mode is silent at every gate the spec currently names — surface-inventory test green, capability probe green, bump procedure green — until user runtime.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a negative-direction Pi-surface coverage audit as a second assertion in the H1 SDK surface-inventory test, and bind it to the existing bump procedure.
-
-**Audit rule (executable).** A static AST walk over `src/**/*.ts` (TypeScript compiler API, matching the existing `no-static-state` pattern in H1) collects:
-
-1. Every `MemberExpression` whose root identifier is `pi` (the `ExtensionAPI` parameter name H4 pins). Record the full member path (`pi.registerCommand`, `pi.sendMessage`, `pi.modelRegistry.find`, etc.).
-2. Every `ImportDeclaration` whose specifier matches `@mariozechner/pi-coding-agent`, `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, or `@mariozechner/pi-tui`. Record each named import.
-3. Every property access on identifiers locally bound to `ExtensionContext` / `ExtensionCommandContext` (typed parameters, including via destructuring). Record the accessed member name.
-
-The test asserts that each collected access maps to either (i) an entry in `SDK_SURFACE_INVENTORY`, (ii) an `AbortSignal` / `AbortController` member already covered by the `abortsignal-member` entries, (iii) the `Type.Unsafe` import covered by the `typebox` shape probe in PIC Step 0 (e), or (iv) an explicit, named exemption in a sibling `PI_SURFACE_EXEMPTIONS` constant carrying a `// allow: <REQ-ID> — <spec-page>` comment. A collected access that matches none fails the test with a message naming the file, the offending member path, and the closest inventory entry to triage against.
-
-**Spec edits.**
-
-- `pi-integration-contract.md`, SDK capability inventory preamble: add one sentence after the existing "items 1, 2, 3, 4, and 6 are factory-probable" sentence — "The closed-set claim is mechanically enforced: an H1 static-AST audit asserts that every `pi.<member>` access, every named import from the four `@mariozechner/*` peer packages, and every `ExtensionContext` / `ExtensionCommandContext` member access in `src/` resolves to an entry in `SDK_SURFACE_INVENTORY` or a named exemption."
-- `pi-integration-contract.md`, Pi version bump procedure step 2: extend to cite both directions — "asserts each enumerated capability is present **and** that the source tree references no Pi surface outside the inventory."
-- `spec.md`, the orientation paragraph that declares "the seven capabilities the runtime depends on": replace with "the seven SDK capabilities the runtime depends on (closed set; the closed-set claim is mechanically enforced — see [PIC — SDK capability inventory](./spec_topics/pi-integration-contract.md#sdk-capability-inventory))." No literal-restatement of the audit lives in `spec.md`.
-- `h1-scaffold.md`, SDK surface-inventory test bullet: add the negative-direction assertion as a second sub-bullet under the existing test, sharing the same `SDK_SURFACE_INVENTORY` source of truth.
-
-**Edge cases the implementer must watch.**
-
-- The audit walks `src/`, not `test/` or `dist/`. Test fakes (`FakeExtensionAPI`) are exempt by directory; this is correct because they implement Pi rather than consume it.
-- Property-access detection on typed `ExtensionContext` parameters requires resolving the parameter's TypeScript type, not just the identifier name (a parameter named `ctx` may be typed `ExtensionCommandContext` or some unrelated context). Use the TypeScript type-checker, not name-matching.
-- `pi.modelRegistry.find` (capability 7) is a multi-segment path; the inventory entry is `{ kind: "load-time-resolution", path: "ctx.modelRegistry.find", ... }` and the audit must match nested member paths against inventory `path` fields, not just the leaf identifier.
-- The `PI_SURFACE_EXEMPTIONS` escape hatch must be small and named per-site (one entry per `<file>:<line-range>`). A bare wildcard exemption defeats the audit.
-- The audit is static — a dynamic `pi[name]()` call evades it. H1 should also forbid computed member access on `pi` / `ctx` (a small `no-restricted-syntax` rule covering `MemberExpression[computed=true][object.name=/^(pi|ctx)$/]` in `src/`).
-
-## Relationships
-
-- T34 "Trust-boundary 'no privilege facet' claim is asserted but not gated by any audit the spec cites" — same-cluster (Pi-surface audit-evidence-missing, different claim).
-- T31 "Hard-ceiling closure asserted at the aggregator without pointing at the backing audit" — same-cluster (identical pattern, different surface).
-- T25 "Forward-compatibility-seam aggregator count is not gated by CI" — same-cluster (same pattern, different surface).
-- T36 "`SessionShutdownEvent.reason` closed set has no build-time pin against the SDK type" — same-cluster (closed-set integrity under tilde-range Pi pin).
 
