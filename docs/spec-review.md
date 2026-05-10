@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T46) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 12 high, 25 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 12 high, 24 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -2011,7 +2011,7 @@ If left as-is, the spec ships with two parallel statements of the same wire shap
 
 **Shape:** single
 
-**Decision (2026-05-08):** Option A. Decision-time merge: T28 absorbed (ceiling #4 schema-kind list expanded to five labels per T28 Option A in the same aggregator-trim commit). See T28 stub.
+**Decision (2026-05-08):** Option A. Decision-time merge: T28 absorbed (ceiling #4 schema-kind list expanded to five labels per T28 Option A in the same aggregator-trim commit). T28 has since been resolved independently — the five-label expansion is already present at `spec.md` line 61; the planned T27 trim removes the schema-kind list outright, which subsumes it.
 
 ### Option A — Trim aggregator to enumeration-and-link
 
@@ -2050,104 +2050,8 @@ Option A. The aggregator's stated purpose under GOV-12 is enumeration, and the c
 
 ## Relationships
 
-- T28 "Ceiling #4 aggregator: schema-kind list of length 4 paired with 'five enforcement points'" — same-cluster (same row of the aggregator).
 - T29 "Pre-evaluation exclusion clause names ceiling #3 only; ceiling #4's slash-load `params` arm is also pre-evaluation" — same-cluster.
 - T30 "Ceiling #4's model-driven row is neither panic nor `Err`, contradicting the trichotomy paragraph's qualifier" — same-cluster.
 - T31 "Hard-ceiling closure asserted at the aggregator without pointing at the backing audit" — same-cluster.
 - T26 "Terminal-outcomes paragraph in Overview restates routing taxonomy owned by Errors and Results" — same-cluster (same placement complaint applied to a different aggregator).
 - T44 "`HC3-a`–`HC3-e` and `NOCEIL-N` labels escape GOV-3 detection and GOV-8 governance" — must-precede (if HC3-/NOCEIL- are formalised as `CEIL-N` REQ-IDs, the aggregator's restated identifier list must be retargeted at the new IDs in the same commit; trimming the aggregator first reduces the surface that retargeting touches).
-
----
-
-# T28 — Ceiling #4 aggregator: schema-kind list of length 4 paired with "five enforcement points"
-
-**Original heading:** Ceiling #4: 4 named schema kinds but 5 enforcement points stated
-**Original section:** docs/spec.md — Orientation > Scope > Hard ceilings
-**Kind:** consistency
-**Importance:** medium
-
-**STATUS:** Merged into T27 on 2026-05-08. T28 chose Option A (expand ceiling #4 schema-kind list to five labels: typed-query response / model-driven tool-arg / code-driven tool-arg / `params` / `invoke<T>` return). The five-label expansion lands in the same aggregator-trim commit as T27 Option A. The body below is retained for traceability; the actionable hardened recommendation lives in T27.
-
-## Finding
-
-The Hard-ceilings aggregator bullet for ceiling #4 in `docs/spec.md` (line 61) reads "JSON-document depth 5 against typed-query / tool-arg / `params` / `invoke<T>` return schemas" — a four-element list of schema kinds — and then refers in the same sentence to "the per-boundary destination/surface table (five enforcement points)." A reader counting the items cannot reconcile the 4 vs. 5: nothing in spec.md explains which kind splits, or whether one item is being doubled, or whether the count is a typo.
-
-The owner page resolves the discrepancy. `docs/spec_topics/hard-ceilings.md` § Per-boundary destination/surface table enumerates exactly five rows: typed-query response, tool-call args (model-driven), tool-call args (code-driven), `params` validation, `invoke<T>` return value. CIO-3 on the same page repeats the five-site list in the same order, and the "Five-site list co-edit obligation" makes the cardinality 5 a normative invariant maintained in lockstep across hard-ceilings.md and PIC-1. The split that produces 5 is therefore in **tool-arg** (model-driven vs. code-driven), not in `params` or in any other label.
-
-The spec.md aggregator collapses that split into the single label "tool-arg" and then quotes the count "five" without acknowledging the collapse, so the aggregator is internally inconsistent and silently desynchronised from the canonical five-site enumeration that GOV-12 / the co-edit obligation are meant to keep in step.
-
-## Spec Documents
-
-- `docs/spec.md` — Orientation > Scope > Hard ceilings, ceiling #4 row (edited)
-- `docs/spec_topics/hard-ceilings.md` — Per-boundary destination/surface table (ceiling #4); CIO-3; Five-site list co-edit obligation (read-only)
-- `docs/spec_topics/pi-integration-contract.md` — PIC-1 per-site reachable-mask-domain table (read-only; one of the three sites the co-edit obligation already binds together)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The fix is wording inside an orientation aggregator. No leaf's acceptance criteria reference the spec.md aggregator's enumeration shape; the leaves that own per-boundary enforcement (V4g, V6, V11i, V14, V16q, plus the `invoke<T>` return path) anchor on the per-boundary table in `hard-ceilings.md`, which already enumerates five sites correctly.
-
-## Consequence
-
-**Severity:** advisory
-
-A first-time reader hits an off-by-one between adjacent clauses in the same sentence and must navigate to `hard-ceilings.md` to find out which of the four labels splits. No implementer would diverge in behavior — the per-boundary table is unambiguous — but the aggregator is exactly the page GOV-12 designates as the visible summary, and an inconsistent summary undermines the cross-page lock-step convention. It also means a future leaf that adds a sixth enforcement site can update the canonical table without anyone noticing the aggregator no longer matches.
-
-## Solution Space
-
-**Shape:** single
-
-**Decision (2026-05-08):** Option A. Resolved by merge into T27 — see STATUS banner at top of this finding.
-
-### Option A — Expand the schema-kind list to five items
-
-**Approach.** Replace the four-item label list in spec.md ceiling #4 with the five labels used by the per-boundary table, splitting "tool-arg" into its model-driven and code-driven arms.
-
-**Spec edits.**
-
-- `docs/spec.md` line 61, opening clause of ceiling #4:
-  - Before: "**JSON-document depth 5** against typed-query / tool-arg / `params` / `invoke<T>` return schemas *(runtime)*"
-  - After:  "**JSON-document depth 5** against typed-query response / model-driven tool-arg / code-driven tool-arg / `params` / `invoke<T>` return schemas *(runtime)*"
-- The "(five enforcement points)" parenthetical later in the same sentence then matches the list verbatim.
-
-**Pros.**
-- Aggregator becomes self-consistent without a forward-trip.
-- Aggregator and per-boundary table use identical row labels, strengthening the GOV-12 / Five-site co-edit obligation: any future row split or merge produces visible drift in both places.
-- Reader sees, at the orientation level, that model-driven vs. code-driven tool-arg are distinct surfaces — a distinction that matters because only the model-driven row produces no `Err` on the loom-code side.
-
-**Cons.**
-- Marginally longer ceiling #4 line in the aggregator.
-
-**Risks.** None material; the new labels are quoted verbatim from existing canonical text.
-
-### Option B — Drop the count, defer cardinality to the per-boundary table
-
-**Approach.** Keep the four-label "schema-kinds" framing in spec.md but remove the numeric "(five enforcement points)" and let the linked per-boundary table own the cardinality.
-
-**Spec edits.**
-
-- `docs/spec.md` line 61, second sentence: replace "the per-boundary destination/surface table (five enforcement points) and the cross-ceiling slash-load handoff are owned by …" with "the per-boundary destination/surface table and the cross-ceiling slash-load handoff are owned by …".
-
-**Pros.**
-- Smallest possible edit; leaves the existing four-grouping summary intact.
-- Eliminates the literal count from the aggregator, removing one drift surface.
-
-**Cons.**
-- Reader loses the at-a-glance signal that the boundary count is 5, not 4 — i.e., that "tool-arg" hides an internal split.
-- The Five-site list co-edit obligation now binds three sites (per-boundary table, CIO-3, PIC-1) with no echo at the aggregator level, weakening orientation visibility.
-
-**Risks.** Future readers may continue to assume the schema-kind groupings and the boundary count coincide.
-
-### Recommendation
-
-Option A. The Five-site list co-edit obligation already pins the cardinality at 5 across `hard-ceilings.md` (per-boundary table + CIO-3) and `pi-integration-contract.md` (PIC-1); the spec.md aggregator should join that lockstep set rather than abstract over it, since GOV-12's purpose is precisely to make divergence between the aggregator and the canonical enumeration visible. The model-driven vs. code-driven split is also semantically load-bearing — the model-driven row is the only enforcement point whose surface is silent at the loom-code level — so surfacing it at orientation rather than burying it in the topic page improves first-read accuracy. Edge case for the implementer of the edit: keep the order of the five labels identical to the per-boundary table and to CIO-3, since the Five-site list co-edit obligation's wording ("in the same order and with the same row labels") makes the order itself a normative invariant.
-
-## Relationships
-
-- T29 "Pre-evaluation exclusion clause names ceiling #3 only; ceiling #4's slash-load `params` arm is also pre-evaluation" — same-cluster (same ceiling #4 row).
-- T30 "Ceiling #4's model-driven row is neither panic nor `Err`, contradicting the trichotomy paragraph's qualifier" — same-cluster (same ceiling #4 row).
-- T27 "Hard ceilings aggregator duplicates owner-page error codes and sub-obligation labels" — co-resolve (the broader trim of the Hard ceilings aggregator naturally includes reconciling the schema-kind list with the boundary count).
-
