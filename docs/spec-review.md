@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T46) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 12 high, 23 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 11 high, 23 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -1886,70 +1886,4 @@ Edge cases the implementer must watch:
 - T31 "Hard-ceiling closure asserted at the aggregator without pointing at the backing audit" — same-cluster (sibling closed-set claim that the same gate covers).
 - T35 "SDK capability inventory closed-set claim has no negative-direction audit" — same-cluster (sibling closed-set claim).
 - T38 "Non-goals are not consolidated into a single section" — same-cluster (touches the aggregator-vs-source relationship).
-
----
-
-# T26 — Terminal-outcomes paragraph in Overview restates routing taxonomy owned by Errors and Results
-
-**Original heading:** Terminal-outcomes paragraph: normative routing detail and error codes in aggregator
-**Original section:** docs/spec.md — Overview
-**Kind:** placement
-**Importance:** high
-
-## Finding
-
-The Overview paragraph anchored at `#terminal-outcomes-aggregator` (`docs/spec.md` line 10) is a single ~600-word sentence that does far more than orient. It enumerates the three failure modes (`Err`, panic, hard-ceiling exhaustion); names the routing-class qualifier ("ceilings whose routing class is panic or `Err`"); calls out a specific exclusion (the load-time binder cap, identified as ceiling #3); references the closed pre-evaluation failure enumeration; restates the partial-append contract (turns appended before the terminal event remain in the conversation, no implicit rollback, mid-stream fragments governed elsewhere); and asserts the trichotomy applies "only once evaluation has begun." Every one of those statements is owned, with its closed enumeration and per-cause routing rule, by `spec_topics/errors-and-results.md` under the `#terminal-outcomes` and `#partial-append-contract` anchors.
-
-GOV-12 sanctions a fixed list of five aggregator paragraphs in `spec.md` — Scope bullets, Pi SDK and capabilities bullet list, Host runtime obligations, hard-runtime-ceilings list, and `.warp` permitted-top-level-forms list. The terminal-outcomes paragraph is not on that list, and the GOV-12 framing ("enumerate a closed set of items each owned by a different topic page") does not fit it: rather than enumerating a closed set with one item per owner-page, it inlines a routing taxonomy. Because there is no CI gate for aggregator drift (GOV-12 makes drift a documentation defect, not a correctness one), the duplication has already produced cross-paragraph inconsistencies that other findings in this review surface independently — the exclusion clause names only ceiling #3 and silently omits ceiling #4's slash-load arm; the "panic or `Err`" qualifier is incompatible with ceiling #4's "boundary-dependent" routing class; the pre-evaluation enumeration is referenced but never bounded.
-
-The fix is to demote the paragraph to a true orientation sentence — name the trichotomy, name its owner — and let `errors-and-results.md` carry the routing detail, exclusions, and partial-append contract. Doing so also reduces the surface H6 must retarget when it rewrites `spec.md`'s introduction onto REQ-ID anchors.
-
-## Spec Documents
-
-- `docs/spec.md` — Overview, terminal-outcomes paragraph (`<a id="terminal-outcomes-aggregator">`) (edited)
-- `docs/spec_topics/errors-and-results.md` — `#terminal-outcomes`, `#partial-append-contract` (read-only; canonical owner)
-- `docs/spec_topics/governance.md` — GOV-12 (read-only; constrains what an aggregator may carry and lists the sanctioned set)
-- `docs/spec_topics/hard-ceilings.md` — referenced by the paragraph for routing classes (read-only)
-- `docs/spec_topics/cancellation.md` — referenced for the cancellation arm (read-only)
-- `docs/spec_topics/pi-integration-contract.md` — referenced for `loomAbort.signal` (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal phases
-
-**Leaves (implementation order):**
-
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (modified)
-
-The H6 test "spec.md's introduction contains zero links of the form `./spec_topics/<non-narrative-page>.md#<non-prefix-anchor>`" today must rewrite the paragraph's `#terminal-outcomes`, `#partial-append-contract`, and `#cancellation-source` links onto whichever `ERR-N` / `PIC-N` anchors H6 assigns to those rules. Trimming the paragraph as proposed shrinks the set of links H6 must retarget but does not change the test or block the leaf.
-
-## Consequence
-
-**Severity:** correctness
-
-The duplication is the upstream cause of three already-filed inconsistencies in this same review (the ceiling #3-only exclusion clause, the "panic or `Err`" qualifier vs. ceiling #4's "boundary-dependent" routing, and the unbounded pre-evaluation enumeration). Two implementers reading Overview vs. `errors-and-results.md` can extract different routing-class sets for ceiling #4 and a different exclusion list for the trichotomy. Future edits to Errors and Results — adding a fail variant, retiring a routing class, splitting a ceiling — must be mirrored manually in this paragraph, with no mechanical check that the mirror happened.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Replace the paragraph with a single orientation sentence whose only normative content is the trichotomy name and the owner-page link. Concretely, something of the form:
-
-> Loom evaluation produces one of three terminal outcomes — success, failure, cancellation. The closed enumeration, the per-cause caller-surface map, the partial-append contract, the routing classes for each hard-ceiling breach, and the pre-evaluation failure enumeration that fires before the trichotomy applies are all owned by [Errors and Results — Terminal outcomes](./spec_topics/errors-and-results.md#terminal-outcomes) and [Errors and Results — Partial-append contract](./spec_topics/errors-and-results.md#partial-append-contract). The cancellation arm is owned by [Cancellation](./spec_topics/cancellation.md).
-
-Edge cases the implementer of the edit must watch:
-
-- The `<a id="terminal-outcomes-aggregator">` anchor itself should be retained — other prose (and possibly diagnostics scripts) may already link to it. The anchor stays; only the paragraph behind it shrinks.
-- Do not extend GOV-12's sanctioned aggregator list to add this paragraph as a sixth aggregator. The point of the demotion is that this paragraph is not a closed-set enumeration; it is an orientation pointer. Adding it to GOV-12 would re-license the same drift problem.
-- The sentence "The success / fail / cancelled trichotomy applies only once evaluation has begun" carries a real boundary distinction (pre-evaluation failures are not in the trichotomy). Retain it in the orientation sentence — it is the one piece of framing the owner page assumes the reader brings in.
-- The cancellation source detail (`loomAbort.signal`, Pi's `ctx.signal` forwarding) currently embedded mid-paragraph belongs in the Session model / Cancellation aggregator, not here. Excise it; do not relocate it into the trimmed sentence.
-- After the edit, re-check the H6 link-rewrite plan: the surviving links should target `errors-and-results.md` and `cancellation.md` page-level (or REQ-ID anchors once H6 lands), not surviving section anchors.
-
-## Relationships
-
-- T29 "Pre-evaluation exclusion clause names ceiling #3 only; ceiling #4's slash-load `params` arm is also pre-evaluation" — co-resolve (the exclusion clause goes away with the trim).
-- T30 "Ceiling #4's model-driven row is neither panic nor `Err`, contradicting the trichotomy paragraph's qualifier" — co-resolve (the qualifier goes away with the trim).
-- T27 "Hard ceilings aggregator duplicates owner-page error codes and sub-obligation labels" — same-cluster (identical pattern applied to a different aggregator paragraph).
 
