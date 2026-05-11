@@ -2,11 +2,13 @@
 
 _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up — the last finding (T46) is addressed first; the first finding (T01) is addressed last._
+_Process: bottom-up — the last finding (T01) is addressed first; the first finding (T11c, after the 2026-05-11 reshape) is addressed last in addressing order. After the reshape pass children replace their parents at the parent's file position; addressing within a child cluster runs alphabetically (a addressed first)._
 
 _Triage tally: 10 high, 22 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped._
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
+
+_Reshape pass (2026-05-11, mode `reshape-only`, `PreserveIDs: true`): T01 and T04 reshaped from `Shape: single` to `Shape: unresolved` (`Atomicity: unbounded`); T03, T08, T19 flagged UNSPLITTABLE (composite-3+ with no enumerable Edit Plan in their Recommendation blocks); T11 split into T11a/b/c (must-precede chain); T15 split into T15a/b/c (co-resolve cluster); T16 split into T16a/b/c/d (co-resolve cluster); T18 split into T18a/b/c/d (T18a must-precede the rest)._
 
 ---
 
@@ -47,43 +49,20 @@ A reader cross-referencing `plan.md` and `spec.md` will, on first encounter with
 
 ## Solution Space
 
-**Shape:** single
+**Shape:** unresolved
+**Atomicity:** unbounded
 
-**Decision (2026-05-08):** Option A.
+### Reasoning
 
-### Option A — Rename in the spec corpus
+The original recommendation (Option A, decided 2026-05-08) directs an unbounded sweep across the spec corpus. The open-ended phrases that exceed an atomic edit budget are: *"Sweep `docs/spec.md` and `docs/spec_topics/*.md` replacing bare `V1`…"*, *"Mechanical search-and-replace across `docs/spec.md` plus all 27 affected `spec_topics/*.md` pages, with manual review of each hit"*, and *"~234 spec-prose edits, each requiring a judgement call between the two replacement phrasings"*. The recommendation's own Cons section acknowledges that each hit needs a per-site judgement call between *loom 1.0* and *the initial release*, and the Risks section forbids a blind regex replacement.
 
-**Approach.** Sweep `docs/spec.md` and `docs/spec_topics/*.md` replacing bare `V1` with `loom 1.0` (when referring to the released language) or `the initial release` (when contrasting with deferred features), matching the phrasing the convention already prescribes for plan prose. Anchor IDs containing `v1` (e.g. `#v1-seam-binder-refinement-loop`, the `> **V1 seam — <name>.**` blockquote convention) are kept as-is — they are stable IDs, not prose — but their human-visible labels are updated. Dotted forms `V1.0`, `V1.x` and the next-major form `V2` stay as-is.
+To bound this finding for the per-finding fix-loop, a scope decision must be recorded. Candidate budgets:
 
-**Spec edits.** Mechanical search-and-replace across `docs/spec.md` plus all 27 affected `spec_topics/*.md` pages, with manual review of each hit to choose between *loom 1.0* and *the initial release*. The five plan-prose breaches in `plan_topics/h2-di-skeleton.md`, `h3-diagnostics.md`, `h4-extension-shell.md`, `h5-pi-e2e-harness.md`, `m-mvp.md` get the same treatment.
+- **Page-set budget.** Pick a fixed subset of the 27 spec-topic pages (e.g. the highest-traffic ones, or the pages plan leaves cite most often) for the V1.0 commit and split the remainder into a follow-up tracking finding per page-cluster.
+- **Single-phrase budget.** Drop the per-hit judgement call and adopt one replacement phrase (`loom 1.0`) uniformly for every bare `V1` site, accepting any minor meaning drift as the cost of bounded execution.
+- **Reframe as Option B.** Adopt the *carve spec corpus out of the convention* path (≤50 words in `plan_topics/conventions.md`), eliminating the sweep entirely; the document-level overload remains but the edit budget collapses to one file.
 
-**Pros.** Single, consistent vocabulary across spec and plan; the convention's stated rationale (one token, one referent) is honoured; future readers see no overloading; the `> **V1 seam — <name>.**` blockquote convention is the only construct that retains `V1`, and there it is a fixed phrase tied to anchor IDs.
-
-**Cons.** ~234 spec-prose edits, each requiring a judgement call between the two replacement phrasings; risk of subtle meaning shifts where *V1* was doing work the longer phrasings can't (e.g. *"V1 enums carry string values only"* — does *the initial release* read as "release 1.0 only" or as "the loom language as currently specified"?); the `V1 seam` blockquote convention becomes a lone exception that future readers will question.
-
-**Risks.** Search-and-replace pollution: bare `V1` appears inside multi-word constructs like `V1 seam` (intentional, keep), `V1 Pi SDK pin` (replace), `V1 enums` (replace). Requires per-hit review; cannot be a blind regex replacement.
-
-### Option B — Carve `spec.md` and `spec_topics/` out of the convention
-
-**Approach.** Amend the *Vertical slices* paragraph in `docs/plan_topics/conventions.md` to scope the `V1`-as-phase-ID reservation to *plan prose* (`plan.md`, `plan_topics/`), explicitly noting that `spec.md` and `spec_topics/*.md` use `V1` to mean *the initial release of the loom language* and that this is the older, established usage which the convention does not displace.
-
-**Spec edits.** One sentence added to `docs/plan_topics/conventions.md` (one file, ~50 words). No edits anywhere in the spec corpus. The five plan-prose breaches noted above still need cleanup since they are inside plan files.
-
-**Pros.** Minimal edit surface; no risk of meaning drift; the spec corpus stays as written; the convention's existing reservation continues to hold within the plan corpus where it actually constrains identifier choice (no plan author will ever name a leaf `V1a` and intend "the initial release sub-leaf a").
-
-**Cons.** Cross-doc reading still requires a context-switch on every bare `V1`; the convention now codifies the overload rather than eliminating it; future spec authors retain a token whose meaning depends on which corpus the reader came from.
-
-**Risks.** A new spec page or topic could introduce a usage where context does not disambiguate (the current 234 hits all happen to be unambiguous in context, but that's a property of the current text, not a guarantee for future edits).
-
-### Recommendation
-
-Option A. The convention's stated intent — one token, one referent — is the right policy, and the cost of paying the rename tax once is bounded; the cost of leaving the overload in place is paid on every cross-doc reading session forever. Concretely:
-
-- Replace bare `V1` with `loom 1.0` when the surrounding clause is talking about the *released artifact* (versioning, scope, what ships); use `the initial release` when contrasting with deferred features (*"deferred to a future release"*, *"not supported in the initial release"*).
-- Preserve the `> **V1 seam — <name>.**` blockquote convention as a fixed phrase — its `V1` is part of an established anchor-ID-bearing construct, not prose, and renaming it would invalidate every `#v1-seam-…` link.
-- Preserve dotted (`V1.0`, `V1.1`, `V1.x`) and next-major (`V2`) forms as-is; they do not collide with any plan token.
-- Clean up the five plan-prose breaches (`h2-di-skeleton.md`, `h3-diagnostics.md`, `h4-extension-shell.md`, `h5-pi-e2e-harness.md`, `m-mvp.md`) in the same pass.
-- Diagnostic message strings in the registry that read *"…not supported in V1"* (`loom/parse/break-with-value`, `loom/parse/match-guard-not-supported`, `loom/parse/rest-pattern-not-supported`, `loom/parse/nested-fn`) are author-visible output, not internal prose — keep their wire text untouched (renaming would invalidate any external test fixtures that pin the message verbatim) and treat them as a separate, GOV-8-governed message-string change if a future edit wants to align them.
+Until one of these is recorded as a decision, the finding cannot be addressed atomically. The original Options A and B (and the supporting prose around the `V1 seam` blockquote convention, dotted forms, and plan-prose breaches) are preserved in the source file's Decision history; this reshape only blocks the fix-loop until a bounded scope is chosen.
 
 ## Relationships
 
@@ -147,7 +126,7 @@ Edge cases for the implementer:
 
 ## Relationships
 
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — same-cluster (broader pattern of misplaced detail in the Overview/Orientation prose).
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster (broader pattern of misplaced detail in the Overview/Orientation prose).
 - T26 "Terminal-outcomes paragraph in Overview restates routing taxonomy owned by Errors and Results" — same-cluster (sibling Overview placement issue).
 
 ---
@@ -158,6 +137,8 @@ Edge cases for the implementer:
 **Original section:** docs/spec.md — Orientation > Prerequisites > Host runtime
 **Kind:** assumptions
 **Importance:** medium
+**Atomicity:** composite-3+
+**Triage note:** UNSPLITTABLE — manual reshape required (Recommendation block is unstructured prose with no numbered/lettered Edit-Plan items; the splitter has no enumerable boundary. The finding's effective edit set lives in the **Decision** block's *Absorbed T33 Option A spec edits* bullets plus Option B's *Spec edits* bullets — six distinct edits across `pi-integration-contract.md` (new sub-paragraph + recipe-parenthetical trim + bump-procedure step 3), `docs/spec.md` (Host-runtime item 1 sentence rewrite), and `docs/plan_topics/h1-scaffold.md` (SDK surface-inventory row + cross-package `engines.node` test). A human reshape pass should fold those bullets into a numbered Recommendation Edit Plan or split the finding by edit cluster.)
 
 ## Finding
 
@@ -299,22 +280,20 @@ A reader of the orientation paragraph cannot pin down whether "the single load-b
 
 ## Solution Space
 
-**Shape:** single
+**Shape:** unresolved
+**Atomicity:** unbounded
 
-### Recommendation
+### Reasoning
 
-Drop "load-bearing" from `spec.md` and replace each use with the operational meaning the sentence actually carries:
+The original recommendation directs an unbounded sweep across `pi-integration-contract.md`. The open-ended phrases that exceed an atomic edit budget are: *"Apply the same pass across `pi-integration-contract.md`: replace each 'load-bearing' with the concrete consequence it implies in context"*, with a population estimated by the Finding as *"≥10 occurrences across host-prerequisites prose, member surfaces, and `Clock` / `FileSystem` interface descriptions"*. Each replacement requires a per-site judgement call between three different operational meanings ("checked at extension-factory entry by Step 0", "consumed by [section]", "required for [behaviour]"). Two `non-load-bearing` negation sites and one `dist/core/index.d.ts` re-export site each need bespoke rewrites, not the same template.
 
-- For the `Type.Unsafe` sentence: *"…the host-shape check that `Type.Unsafe` is a callable function — which causes the runtime to refuse extension registration on failure — is owned by [PIC — Step 0 (e)]…"*.
-- For the closing sentence: *"…the capability probe owned by [PIC — Step 0 (Capability probe)]; on any of its sub-step failures the runtime emits `loom/load/host-incompatible` and skips every factory-time host-binding call."* The "single" qualifier is dropped because the probe is already described as a single named procedure; the "no other gating check at this site" claim, if needed, is carried by PIC Step 0's *On failure: refusal and diagnostic* clause and does not need restating in orientation prose.
+To bound this finding for the per-finding fix-loop, a scope decision must be recorded. Candidate budgets:
 
-Apply the same pass across `pi-integration-contract.md`: replace each "load-bearing" with the concrete consequence it implies in context — typically "checked at extension-factory entry by Step 0" for shape-check sites, "consumed by [section]" for member-surface sites, and "required for [behaviour]" for interface sites. Do **not** add a Glossary entry for "load-bearing"; the term has no single meaning to canonicalise, and a Glossary entry would license further informal use.
+- **Spec.md-only budget.** Limit the edit to the two `spec.md` orientation sentences (the `Type.Unsafe` sentence and the closing capability-probe sentence); leave PIC's ≥10 occurrences for a follow-up finding per PIC subsection (host prerequisites, `ExtensionContext`/`ExtensionCommandContext` member-surface paragraphs, renderer registration, `Clock`/`FileSystem` interfaces, version-bump procedure).
+- **Per-subsection split.** Carve the PIC sweep into one child finding per PIC subsection that contains "load-bearing" hits; each child becomes atomic against its subsection.
+- **Mechanical-only sweep.** Replace every "load-bearing" uniformly with one phrase (e.g. "contract-bearing") regardless of context, accepting that some sentences will read awkwardly; eliminates the per-site judgement axis.
 
-Edge cases the editor must watch:
-
-- The `plan_topics/h2-di-skeleton.md` and `plan_topics/h1-scaffold.md` uses of "load-bearing" are inside plan rationale, not normative spec text, and are out of scope for this fix.
-- Two PIC sites use "non-load-bearing" as a negation (`pi-integration-contract.md:3` and `:501`) to mark surfaces Pi may revise without spec changes. Replace with "non-contract" or "outside the V1 contract" rather than leaving the negated form behind.
-- The `dist/core/index.d.ts` re-export sentence in PIC Step 0 (c) uses "the import path is load-bearing" to mean "the runtime depends on the re-export specifically." Rewrite as "the runtime depends on the `dist/core/index.d.ts` re-export specifically (not on direct import from `@mariozechner/pi-agent-core`)" so the dependency surface is named explicitly.
+Until one of these is recorded, the finding cannot be addressed atomically. The two `spec.md` sentence rewrites and the three named edge cases (the negation sites and the `dist/core/index.d.ts` site) from the original recommendation are preserved in the source file's history; this reshape only blocks the fix-loop until a bounded scope is chosen.
 
 ## Relationships
 
@@ -497,7 +476,7 @@ Edge cases the implementer must watch:
 
 ## Relationships
 
-- T18 "Success-side operator observability is unstated" — same-cluster (overlapping scope: what the operator sees on success vs across non-interactive paths).
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — same-cluster (overlapping scope: what the operator sees on success vs across non-interactive paths).
 - T38 "Non-goals are not consolidated into a single section" — same-cluster (the V1 "no non-interactive delivery path" disclaimer is one of the items the consolidated Non-goals section would cite back to the glossary entry).
 
 ---
@@ -589,6 +568,8 @@ Option A. The structured discriminant fields on each variant already carry the i
 **Original section:** docs/spec_topics/errors-and-results.md
 **Kind:** naming
 **Importance:** medium
+**Atomicity:** composite-3+
+**Triage note:** UNSPLITTABLE — manual reshape required (Recommendation block is unstructured prose with no numbered/lettered Edit-Plan items. The effective edit set is three file-level rewrites — `slash-invocation.md` `context_overflow` row literal, `errors-and-results.md` line 206 prose, `query.md` line 285 prose — plus a leave-untouched note for four other files. A human reshape pass should re-author the Recommendation as three numbered items so the splitter can produce one child per file edit, with `co-resolve` topology since they must land before V18i pins the literal text.)
 
 ## Finding
 
@@ -782,32 +763,75 @@ None
 
 ---
 
-# T11 — `tool_loop` slot accounting on the forced respond turn is internally inconsistent
+# T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
 
 **Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated
 **Original section:** docs/spec_topics/query.md and docs/spec_topics/hard-ceilings.md
+**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 1 of 3)
 **Kind:** testability
 **Importance:** high
 
 ## Finding
 
-Three normative sites disagree about how `tool_loop.max_rounds` accounts for the typed-query forced respond turn, and the disagreement is observable at the boundary case `max_rounds: 0`.
-
-- `query.md` — *Tool-call loop bound* states "The forced respond turn for typed queries also consumes one slot," and exhaustion fires "when the cap is reached without the model producing a terminating turn (a plain text turn for untyped queries, a respond-tool call for typed queries)." Read in isolation, the two clauses are compatible only because the forced respond turn is itself a terminating-turn vehicle.
-- `frontmatter.md` — `tool_loop` description repeats the "consumes one slot" claim verbatim.
-- `plan_topics/v6-typed-queries.md` — V6k pins a **counting formula**: "Total slots consumed by a query = (free-phase rounds) + (1 if a forced respond turn is issued, else 0). Exhaustion fires when total slots would exceed `max_rounds`." Under that formula, a typed query with `max_rounds: 0` consumes 0 + 1 = 1 slot, exceeding 0, and must therefore exhaust before the respond tool's `execute` ever runs.
-- `query.md` — *Worked example: depth-6 forced respond at `max_rounds`*, closing paragraph: "With `max_rounds: 0`, no free phase runs (the model gets an empty tool-set per V6k), the forced respond turn is the only turn, and `masked` is omitted on the surfaced event." The phrasing "is the only turn" presupposes the forced respond turn is dispatched and surfaces a result (in the example, the depth-6 `validation` error) — not `tool_loop_exhausted`.
-- `hard-ceilings.md` — CIO-4 specifies that ceiling #2 is checked "before the next model turn (or, on a typed query at the final round permitted by `max_rounds`, the forced respond turn) is requested," and the *Depth-6 forced respond at `max_rounds`* worked consequence calls the forced respond turn "precisely the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to."
-
-The CIO-4 wording, the worked examples, and PIC-1's V1 reachable predicate are mutually consistent: the forced respond turn dispatches unconditionally as the terminating mechanism, and the only way the forced respond turn surfaces `tool_loop_exhausted` is the V6k case where the model fails to call the respond tool (`last_tool_name: null`). But the V6k counting formula and the "consumes one slot" prose, taken at face value, predict the opposite outcome at `max_rounds: 0`. A test writer asked "given `max_rounds: 0` and a typed query whose forced respond turn returns a valid payload, must the runtime return `Ok(validated_value)` or `Err(tool_loop_exhausted)`?" cannot answer from the spec without choosing which site to trust. Neither V6k's tests nor the worked example exercise this boundary.
+Three normative sites — `query.md` *Tool-call loop bound*, `frontmatter.md` `tool_loop` field description, and `hard-ceilings.md` CIO-4 worked consequence — currently assert or imply *"the forced respond turn for typed queries also consumes one slot."* That phrasing contradicts the CIO-4 routing rule and the *Depth-6 forced respond at `max_rounds`* worked consequence, which together require the forced respond turn to dispatch unconditionally as the typed-query terminating mechanism (see the parent finding's full divergence analysis preserved in the source-file history). This child addresses the spec-prose rewrite step that establishes the explicit forced-respond-exemption rule on which the V6k changes (siblings T11b, T11c) depend.
 
 ## Spec Documents
 
-- `docs/spec_topics/query.md` — *Tool-call loop bound* and *Worked example: depth-6 forced respond at `max_rounds`* (edited)
+- `docs/spec_topics/query.md` — *Tool-call loop bound* (edited)
 - `docs/spec_topics/frontmatter.md` — `tool_loop` field description (edited)
-- `docs/spec_topics/hard-ceilings.md` — CIO-4 and *Depth-6 forced respond at `max_rounds`* worked consequence (edited)
-- `docs/spec_topics/pi-integration-contract.md` — PIC-1 (d) V1 reachable predicate (read-only; already consistent with the recommended rule)
-- `docs/plan_topics/v6-typed-queries.md` — V6k Adds and Tests (edited; counting formula must be reconciled and a `max_rounds: 0` typed-query test added)
+- `docs/spec_topics/hard-ceilings.md` — CIO-4 and *Depth-6 forced respond at `max_rounds`* worked consequence (read-only; confirm wording remains aligned, no edit if it does)
+- `docs/spec_topics/pi-integration-contract.md` — PIC-1 (d) V1 reachable predicate (read-only; already consistent)
+
+## Plan Impact
+
+**Phases:** None for this child (V6 leaves V6k/V6l are touched by sibling children T11b and T11c).
+
+**Leaves (implementation order):** None — the spec-prose rewrite is editorial against the named normative sites.
+
+## Consequence
+
+**Severity:** correctness
+
+Until this prose is rewritten, the per-finding fix-loop cannot land the explicit forced-respond-exemption rule the sibling children depend on; the contradiction between the "consumes one slot" framing and the CIO-4 terminating-mechanism wording remains observable on every typed query at the boundary case `max_rounds: 0`.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Replace the loose "The forced respond turn for typed queries also consumes one slot" sentence in `query.md` *Tool-call loop bound* and the matching sentence in `frontmatter.md` with the rule:
+
+> The forced respond turn for typed queries is the terminating mechanism the runtime routes to when the free phase ends or when CIO-4's `max_rounds`-final branch fires. The slot-accounting check (CIO-4) is **not** evaluated against the forced respond turn itself: the runtime MUST dispatch the forced respond turn whenever a typed query reaches that branch, including when `max_rounds: 0` (in which case the forced respond turn is the only turn issued). The forced respond turn surfaces `Err({ kind: "tool_loop_exhausted", … })` if and only if the model fails to invoke the synthesised respond tool on that turn (the `last_tool_name: null` case V6k already pins); a successful respond-tool invocation surfaces `Ok(value)` on a valid payload or `Err({ kind: "validation", … })` on an invalid one, regardless of the current slot count.
+
+Confirm `hard-ceilings.md` CIO-4 prose still aligns (the *Depth-6 forced respond at `max_rounds`* worked consequence already calls the forced respond turn "precisely the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to"); no edit if it does.
+
+Edge cases (applies to all children of T11): respond-repair follow-ups (V13g) get a fresh `tool_loop` budget; the same exemption rule applies recursively. No edit needed to PIC-1 (d) — its predicate is already worded against the *free-phase* slot count and remains correct under this rule.
+
+## Relationships
+
+- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-precede (the prose rule must land before V6k's formula can be rewritten against it).
+- T11c "V6k normative test vector for `max_rounds: 0` typed query" — must-precede (the prose rule must land before V6k's test can assert against it).
+
+---
+
+# T11b — V6k counting-formula tighten: forced respond outside the budget
+
+**Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated
+**Original section:** docs/plan_topics/v6-typed-queries.md
+**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 2 of 3)
+**Kind:** testability
+**Importance:** high
+
+## Finding
+
+V6k's *Adds* paragraph currently pins a counting formula — *"Total slots consumed by a query = (free-phase rounds) + (1 if a forced respond turn is issued, else 0). Exhaustion fires when total slots would exceed `max_rounds`."* — that contradicts the spec rule T11a establishes (the forced respond turn is exempt from CIO-4 slot-accounting). The formula must be rewritten so the leaf's *Adds* prose matches the spec it implements.
+
+## Spec Documents
+
+- `docs/plan_topics/v6-typed-queries.md` — V6k *Adds* paragraph (edited)
+- `docs/spec_topics/query.md` — *Tool-call loop bound* (read-only; the rule established by T11a)
 
 ## Plan Impact
 
@@ -815,37 +839,83 @@ The CIO-4 wording, the worked examples, and PIC-1's V1 reachable predicate are m
 
 **Leaves (implementation order):**
 
+- V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError` — (modified; counting formula rewritten)
 - V6l — Two-phase tool-loop driver for typed queries — (modified; driver MUST dispatch the forced respond turn unconditionally and not consult the slot count to decide whether to issue it)
-- V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError` — (modified; counting formula and tests both need the `max_rounds: 0` typed-query case and the rule that the forced respond turn alone never trips ceiling #2 on the slot-accounting path)
 
 ## Consequence
 
 **Severity:** correctness
 
-Two implementers reading the spec in good faith will diverge on the `max_rounds: 0` typed-query case: one treating the V6k formula as authoritative and emitting `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`, the other treating CIO-4's "terminating mechanism" wording as authoritative and emitting `Ok(validated_value)` (or `Err({ kind: "validation", … })` on a bad payload). The same divergence affects any non-zero `max_rounds` where a free-phase round was skipped — the behavioural difference between "forced respond is exempt from slot-accounting exhaustion" and "forced respond consumes a slot that can tip the count over `max_rounds`" is observable on every typed query.
+If V6k's formula is not updated alongside T11a's prose rewrite, the leaf's *Adds* paragraph remains internally inconsistent with the spec it implements, and a `max_rounds: 0` typed query produces undefined behaviour from the leaf's perspective.
 
 ## Solution Space
 
 **Shape:** single
+**Atomicity:** atomic
 
 ### Recommendation
 
-State the rule explicitly on `query.md`'s *Tool-call loop bound* and propagate the wording to the three other normative sites. The substantive rule the existing CIO-4 / PIC-1 / worked-example trio already implies is:
+Tighten V6k's *Adds* paragraph: redefine the counting formula as `slots = free-phase rounds`, with the forced respond turn outside the budget; restate exhaustion as:
 
-> The forced respond turn for typed queries is the terminating mechanism the runtime routes to when the free phase ends or when CIO-4's `max_rounds`-final branch fires. The slot-accounting check (CIO-4) is **not** evaluated against the forced respond turn itself: the runtime MUST dispatch the forced respond turn whenever a typed query reaches that branch, including when `max_rounds: 0` (in which case the forced respond turn is the only turn issued). The forced respond turn surfaces `Err({ kind: "tool_loop_exhausted", … })` if and only if the model fails to invoke the synthesised respond tool on that turn (the `last_tool_name: null` case V6k already pins); a successful respond-tool invocation surfaces `Ok(value)` on a valid payload or `Err({ kind: "validation", … })` on an invalid one, regardless of the current slot count.
+> (slot count would exceed `max_rounds` and the next required turn is a free-phase turn) OR (the forced respond turn was dispatched and the model failed to invoke the respond tool).
 
-Concretely:
-
-1. Replace the loose "The forced respond turn for typed queries also consumes one slot" sentence in `query.md` *Tool-call loop bound* and the matching sentence in `frontmatter.md` with the rule above. The "consumes one slot" framing is what creates the contradiction; drop it.
-2. Tighten V6k's *Adds* paragraph: redefine the counting formula as `slots = free-phase rounds`, with the forced respond turn outside the budget; restate exhaustion as "(slot count would exceed `max_rounds` and the next required turn is a free-phase turn) OR (the forced respond turn was dispatched and the model failed to invoke the respond tool)."
-3. Add a normative test vector to V6k's *Tests* line: a typed query with `max_rounds: 0`, frontmatter tools omitted, model invoked once with empty tool-set + forced choice on the respond tool, model returns a valid respond-tool call → MUST return `Ok(validated_value)`; same vector with the model returning a non-respond `tool_use` block (or text under non-strict providers) → MUST return `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`.
-4. No edit needed to PIC-1 (d) — its predicate ("after CIO-4's slot increment for the just-completed free-phase round, leaves the `tool_loop` slot count equal to `max_rounds`") is already worded against the *free-phase* slot count and remains correct under the recommendation. The `max_rounds: 0` case (no free-phase round, predicate vacuously false → `masked` omitted) matches the existing worked example.
-
-Edge case the implementer must watch: respond-repair follow-ups already get a fresh `tool_loop` budget per query.md and V13g, so the same rule applies recursively — each follow-up's forced respond turn is exempt from its own follow-up budget's slot-accounting. The "respond-repair follow-ups (V13g) reset the counter" line in V6k's tests already covers the budget-reset side; the exemption rule above carries over without additional text.
+Edge cases (applies to all children of T11): respond-repair follow-ups (V13g) reset the counter; the new exhaustion clause must be re-checked against each follow-up's fresh budget independently.
 
 ## Relationships
 
-None
+- T11a "Replace 'consumes one slot' prose with explicit forced-respond exemption rule" — must-follow (the spec rule must land first so V6k's formula has something to anchor against).
+- T11c "V6k normative test vector for `max_rounds: 0` typed query" — must-precede (the formula change must land before the test can assert against it).
+
+---
+
+# T11c — V6k normative test vector for `max_rounds: 0` typed query
+
+**Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated
+**Original section:** docs/plan_topics/v6-typed-queries.md
+**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 3 of 3)
+**Kind:** testability
+**Importance:** high
+
+## Finding
+
+V6k's *Tests* line currently has no row exercising the `max_rounds: 0` typed-query boundary case. Without that test, two compliant V6k implementations could ship divergent behaviour (one returning `Ok(validated_value)`, the other returning `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`) and the leaf's *Ships when* condition would not catch the divergence.
+
+## Spec Documents
+
+- `docs/plan_topics/v6-typed-queries.md` — V6k *Tests* line (edited)
+- `docs/spec_topics/query.md` — *Tool-call loop bound*; *Worked example: depth-6 forced respond at `max_rounds`* (read-only)
+
+## Plan Impact
+
+**Phases:** V6 — Typed queries
+
+**Leaves (implementation order):**
+
+- V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError` — (modified; one new test vector)
+
+## Consequence
+
+**Severity:** correctness
+
+Without this test vector pinned, the divergence at `max_rounds: 0` (Ok vs tool_loop_exhausted) ships unaddressed, even after T11a/T11b land the rule and the formula.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Add a normative test vector to V6k's *Tests* line:
+
+> A typed query with `max_rounds: 0`, frontmatter tools omitted, model invoked once with empty tool-set + forced choice on the respond tool, model returns a valid respond-tool call → MUST return `Ok(validated_value)`; same vector with the model returning a non-respond `tool_use` block (or text under non-strict providers) → MUST return `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`.
+
+Edge cases (applies to all children of T11): respond-repair follow-ups (V13g) get a fresh `tool_loop` budget; the test should not conflate `max_rounds: 0` on a follow-up with `max_rounds: 0` on the original query.
+
+## Relationships
+
+- T11a "Replace 'consumes one slot' prose with explicit forced-respond exemption rule" — must-follow.
+- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-follow.
 
 ---
 
@@ -1035,154 +1105,396 @@ Edge cases the implementer must watch:
 ## Relationships
 
 - T23 "Pi's per-session slash-handler serialisation is asserted without a verifiable Pi source" — same-cluster (different premise of the same argument).
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — same-cluster (touches the same Session-model paragraph; co-edit pass).
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster (touches the same Session-model paragraph; co-edit pass).
 - T19 "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" — same-cluster (also concerns the sibling-subagent fan-out path, on the diagnostics axis).
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster (same fan-out path, resource-exhaustion axis).
 
 ---
 
-# T15 — Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block
+# T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet
 
 **Original heading:** Detailed architecture content in Orientation heading; out-of-scope statements buried in narrative
 **Original section:** docs/spec.md — Orientation > Session model
-**Kind:** placement, scope
+**Split from:** "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" (entry 1 of 3)
+**Kind:** placement
 **Importance:** medium
 
 ## Finding
 
-The `<a id="session-model"></a>` paragraph under `## Orientation > Prerequisites` is a single ~700-word block that carries five distinct categories of content: (a) the Pi-extension/session binding fact, (b) the `session_shutdown` payload contract and teardown forward-link, (c) prompt-mode strict-sequentiality and its three supporting premises (Pi handler serialisation, prompt-mode-tool rejection, no parallel-`invoke`), (d) tool-table and transcript isolation semantics keyed to mode, and (e) the V1 admission-cap and per-invocation-budget posture. The paragraph also opens with `*Pi SDK and capabilities. Orientation; this paragraph is informative.*` framing inherited from the surrounding subsection, yet its bullets read as load-bearing architectural commitments — the source of truth a reader will reach for when asking "can two prompt-mode looms run at once?" or "are sibling invocations cancellation-coupled?".
-
-Two scope deferrals are buried inside the same paragraph rather than appearing in a Non-goals surface: `"V1 exposes no parallel-invoke surface"` (mid-clause inside premise (iii)) and `"Concurrent user sessions in the same host process are out of scope for V1 because Pi does not support them."` (terminal sentence). A reader scanning Orientation for V1 boundaries cannot find them; they are visible only to a reader who reads the entire Session-model paragraph linearly.
-
-The two halves are separable but related: the architectural detail wants a normative home (Extension Architecture or Implementation Notes), and the scope deferrals want the consolidated Non-goals surface that document-level finding "No consolidated Non-goals section" already calls for.
+The `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prerequisites carries five distinct categories of content (Pi-session binding, `session_shutdown` payload contract, prompt-mode sequentiality argument, tool-table/transcript isolation, admission-cap and budget posture) compressed into one ~700-word block. This child handles the foundational reduction: trim the paragraph to the four sentences that actually belong at Orientation level and forward-link the rest. The architectural relocation and the scope-deferral lift are owned by sibling children T15b and T15c respectively; this child unblocks them by making room.
 
 ## Spec Documents
 
 - `docs/spec.md` — Orientation > Prerequisites > Session model (edited)
-- `docs/spec.md` — new Non-goals (V1) section (edited; created by the co-resolved Non-goals finding)
-- `docs/spec.md` — Extension Architecture (edited; gains a Session-model anchor or absorbs detail under Pi Extension Integration)
-- `docs/spec_topics/pi-integration-contract.md` — `ActiveInvocationRegistry`, Tool-registration lifetime and visibility, Session-shutdown semantics (read-only; already owns the normative rules being aggregated)
-- `docs/spec_topics/implementation-notes.md` — No invocation cap, Per-invocation single-threaded execution (read-only; already owns the disposition)
-- `docs/spec_topics/invocation.md` — Cross-mode semantics (read-only; already owns the no-parallel-`invoke` rule)
-- `docs/spec_topics/frontmatter.md` — `tools` (read-only; already owns the load-time prompt-mode-callee rejection)
-- `docs/spec_topics/future-considerations.md` — Known V1 limitations (read-only; already records the concurrent-user-session deferral)
+- `docs/spec_topics/pi-integration-contract.md` — `ActiveInvocationRegistry`, Tool-registration lifetime and visibility, Session-shutdown semantics (read-only; remains the normative owner of the rules being orientation-only here)
 
 ## Plan Impact
 
 **Phases:** N/A
 
-**Leaves (implementation order):** None
-
-(The change is confined to the spec.md aggregator's prose organisation. The normative rules being relocated already live on topic pages owned by H4, V12, V15, V18, etc.; no leaf's `Spec` field, `Tests`, or `Ships when` condition changes.)
+**Leaves (implementation order):** None — confined to the `spec.md` aggregator's prose organisation.
 
 ## Consequence
 
 **Severity:** advisory
 
-A reader looking for the V1 concurrency posture must read the entire paragraph linearly to extract it; a reader looking for V1 scope boundaries cannot find the two deferrals at all without prose-grepping. No implementer derives wrong behaviour — every claim still forward-links to its owning topic page — but the spec.md aggregator fails its own stated job of providing scannable orientation, and the `*informative*` framing is in tension with the load-bearing architectural commitments the paragraph carries.
+Until this reduction lands, sibling children T15b (architectural relocation) and T15c (scope-deferral lift) have nowhere to relocate content from — the paragraph remains a single mixed block.
 
 ## Solution Space
 
 **Shape:** single
+**Atomicity:** atomic
 
 ### Recommendation
 
-Split the current Session-model paragraph into three pieces, in this order:
+Reduce the Session-model bullet at `docs/spec.md` Orientation > Prerequisites to four sentences:
 
-1. **Keep in `Orientation > Prerequisites > Session model`, reduced to four sentences:** the one-session-at-a-time binding, the `session_shutdown` payload reference, the closed `event.reason` set anchored to the SDK type, and a forward-link to the new architectural home for concurrency semantics. Drop the prompt-mode-sequentiality argument, the tool-table isolation explanation, the admission-cap statement, and the per-invocation-budget statement from this bullet.
+1. The one-session-at-a-time binding (with the existing forward-link to PIC — Session-binding contract installed by T22a).
+2. The `session_shutdown` payload reference and teardown forward-link.
+3. The closed `event.reason` set anchored to the SDK type.
+4. A forward-link to the new `Concurrency model` architectural home (created by sibling T15b).
 
-2. **Move concurrency semantics into `Extension Architecture` under a new `Concurrency model` subsection** (sibling to Pi Extension Integration), or into `Implementation Notes` as a new `Concurrency model` entry. This subsection owns: the mode-qualified isolation summary (cancellation always independent; transcript and tool-table isolation subagent-only); prompt-mode strict sequentiality with its three supporting premises (i)/(ii)/(iii); the genuine-concurrency-only-between-subagent-invocations conclusion; the cancellation-propagates-downward-only restatement; per-invocation budget scoping. Each clause keeps its existing forward-links to PIC, Implementation Notes, Cancellation, Invocation, and Frontmatter — those topic pages remain the normative owners; this section is an aggregator like the Hard-ceilings bullet.
+Drop from this bullet (relocations owned by siblings): the prompt-mode sequentiality argument, the tool-table isolation explanation, the admission-cap statement, the per-invocation-budget statement, the parallel-`invoke` and concurrent-user-session scope deferrals.
 
-3. **Lift both scope deferrals into the new `Non-goals (V1)` section** (created by the co-resolved document-level finding) as two bullets:
-   - `Parallel invocation surface — V1 exposes no API by which a parent loom can spawn sibling invocations concurrently. (See [Invocation — Cross-mode semantics].)`
-   - `Concurrent user sessions in the same host process — Pi binds an extension to one active session at a time and V1 does not work around this. (See [Future Considerations — Known V1 limitations].)`
+Edge cases (applies to all children of T15):
 
-Edge cases the implementer must watch:
-
-- The new Concurrency-model subsection must keep all eleven existing forward-links intact — this is a reorganisation, not a rewrite. GOV-12 lock-step still applies between this aggregator and the owner pages.
-- If the co-resolved Non-goals section has not yet landed, gate this fix on it; do not invent a Non-goals home unilaterally and create a third placement to reconcile later.
-- The choice between `Extension Architecture` and `Implementation Notes` as the home for the architectural half follows whatever rule the spec establishes for prompt-vs-subagent-mode-mechanics (the Hard-ceilings aggregator sits in `Orientation > Scope` and forward-links to `Implementation Notes`; either home is consistent with that pattern, but pick one and apply it across the cluster of placement findings).
-- The reduced four-sentence Session-model bullet must continue to anchor `<a id="session-model"></a>` so existing inbound links in the Overview's terminal-outcomes paragraph and elsewhere do not break.
+- The reduced bullet MUST continue to anchor `<a id="session-model"></a>` so existing inbound links in the Overview's terminal-outcomes paragraph and elsewhere do not break.
+- GOV-12 lock-step continues to apply between the reduced bullet and its owner pages.
 
 ## Relationships
 
-- T38 "Non-goals are not consolidated into a single section" — must-follow (the two extracted scope deferrals require the Non-goals surface; T38 must land first).
+- T15b "Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection" — co-resolve (the reduction makes room for the relocated content).
+- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — co-resolve (the reduction makes room for the lifted deferrals).
 - T02 "Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph" — same-cluster (identical placement pattern).
-- T16 "Trust boundary bullet conflates scope decision with normative contracts and a deferral" — same-cluster (sibling Scope bullet exhibiting the same mixing of categories).
-- T18 "Success-side operator observability is unstated" — same-cluster (third instance of the pattern, in the Runtime-observability bullet).
+- T16a "Trust boundary bullet: keep scope claim and drop SDK-pin literal" — same-cluster (sibling Scope bullet exhibiting the same mixing of categories).
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — same-cluster (third instance of the pattern, in the Runtime-observability bullet).
 - T24 "Fork-reason watcher closure leaves the extension in an unspecified, silently degraded state" — same-cluster (touches the same Session-model paragraph but addresses content correctness).
-- T14 "Prompt-mode sequentiality argument has an unstated fourth premise" — must-follow (the three premises being relocated are the ones that need citations; the move is the natural moment to add them).
-- T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — must-follow (the admission-cap disposition being relocated is the surface that needs the resource-exhaustion answer).
-- T19 "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" — same-cluster (lives in the same architectural area being relocated).
 
 ---
 
-# T16 — Trust boundary bullet conflates scope decision with normative contracts and a deferral
+# T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection
 
-**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration
-**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
-**Kind:** placement, prescription, scope
+**Original heading:** Detailed architecture content in Orientation heading; out-of-scope statements buried in narrative
+**Original section:** docs/spec.md — Orientation > Session model
+**Split from:** "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" (entry 2 of 3)
+**Kind:** placement
 **Importance:** medium
 
 ## Finding
 
-`spec.md` line 48's `Trust boundary` bullet is introduced as an *informative orientation aggregator* (per the prose immediately above it: "The bullets are *informative orientation*: each one forward-links the topic page that owns the normative contract"). In practice the bullet carries three classes of content that violate that framing:
+The architectural half of the Session-model paragraph — prompt-mode strict sequentiality with its three supporting premises (i)/(ii)/(iii), mode-qualified isolation summary, the genuine-concurrency-only-between-subagent-invocations conclusion, the cancellation-propagates-downward-only restatement, per-invocation budget scoping — belongs in a normative-architectural home, not in an Orientation bullet labelled `*informative*`. This child creates that home and migrates the content; T15a removes the content from Orientation in coordination.
 
-1. **Restated normative tool-execution contracts.** The bullet inlines the full denial-routing rule (`Err(QueryError { kind: "code_tool", cause: "execution", ... })`), the non-conforming-envelope handling (routed off `CodeToolError` to `loom/runtime/internal-error` with `details.kind = "tool-return-shape"`), the non-settling-Promise behaviour, and the post-cancel late-settlement discard rule. These are owned verbatim by [`tool-calls.md` — Failures / Outcome enumeration (normative)](../../docs/spec_topics/tool-calls.md) and [`pi-integration-contract.md` — Tool execution from loom code](../../docs/spec_topics/pi-integration-contract.md#tool-execution-from-loom-code). Restating them here creates two normative copies that GOV-12 expects to drift.
+## Spec Documents
 
-2. **Inlined SDK-call mechanism.** The bullet names `customTools` array on `createAgentSession` for subagent mode and `pi.setActiveTools` snapshot/restore for prompt mode — packaging-level details that belong to PIC's `Tool-registration lifetime and visibility` and `Conversation drive — subagent mode` sections. The behavioural property the trust-boundary scope decision actually rests on is "the per-mode wiring isolates each loom's callable set from the user session's active tool set" — not the specific Pi APIs that achieve it.
+- `docs/spec.md` — Extension Architecture (edited; new Concurrency-model subsection added) OR Implementation Notes (edited; new Concurrency-model entry added) — implementer picks one per Edge cases below
+- `docs/spec_topics/pi-integration-contract.md` — `ActiveInvocationRegistry`, Tool-registration lifetime and visibility, Session-shutdown semantics (read-only)
+- `docs/spec_topics/implementation-notes.md` — No invocation cap, Per-invocation single-threaded execution (read-only)
+- `docs/spec_topics/invocation.md` — Cross-mode semantics (read-only)
+- `docs/spec_topics/frontmatter.md` — `tools` (read-only)
 
-3. **Misplaced future-consideration.** "A per-loom capability model is **out of scope for V1** and is not anticipated by V1; introducing one would require a migration." duplicates the already-owned bullet at [`future-considerations.md` line 97 — No per-loom sandbox or capability model](../../docs/spec_topics/future-considerations.md). A doc-level Non-goals section (called out separately in this review) would be the natural consolidated home; until that exists the deferral lives correctly on `future-considerations.md` and should be a forward-link from the bullet, not a restatement.
+## Plan Impact
 
-The net effect is a ~13-line bullet doing the work of a 2–3 line scope disclaimer plus three forward-links. The scope decision the aggregator exists to record — "V1 has no loom-level sandbox; `tools:` is a model-side allowlist, not a host-process boundary" — is buried in the middle of the prose.
+**Phases:** N/A
+
+**Leaves (implementation order):** None.
+
+## Consequence
+
+**Severity:** advisory
+
+Without this relocation, the Concurrency-model content stays mis-placed in Orientation (after T15a's reduction it is dropped on the floor) and the architectural reader has no aggregator to land on.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Create a new `Concurrency model` subsection under Extension Architecture (sibling to Pi Extension Integration) or under Implementation Notes (as a new entry). This subsection owns:
+
+- The mode-qualified isolation summary (cancellation always independent; transcript and tool-table isolation subagent-only).
+- Prompt-mode strict sequentiality with its three supporting premises (i)/(ii)/(iii) preserved verbatim, plus T14's premise (iv) once that finding lands.
+- The genuine-concurrency-only-between-subagent-invocations conclusion.
+- The cancellation-propagates-downward-only restatement.
+- Per-invocation budget scoping.
+
+Each clause keeps its existing forward-links to PIC, Implementation Notes, Cancellation, Invocation, and Frontmatter — the topic pages remain the normative owners; this new section is an aggregator analogous to the Hard-ceilings bullet.
+
+Edge cases (applies to all children of T15):
+
+- The choice between `Extension Architecture` and `Implementation Notes` as the home follows whatever rule the spec establishes for prompt-vs-subagent-mode mechanics; pick one and apply it across the cluster of placement findings.
+- All eleven existing forward-links must be preserved verbatim — this is a reorganisation, not a rewrite. GOV-12 lock-step continues to apply between this aggregator and its owner pages.
+
+## Relationships
+
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — co-resolve (the reduction at Orientation must land alongside this relocation).
+- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — co-resolve (sibling restructure of the same paragraph).
+- T14 "Prompt-mode sequentiality argument has an unstated fourth premise" — must-follow (the three premises being relocated are the ones T14 needs to extend with the fourth premise; the relocation is the natural moment to add it).
+- T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — must-follow (the admission-cap disposition being relocated is the surface T20 needs the resource-exhaustion answer on).
+- T19 "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" — same-cluster (lives in the same architectural area being created here).
+
+---
+
+# T15c — Lift Session-model scope deferrals into Non-goals (V1) section
+
+**Original heading:** Detailed architecture content in Orientation heading; out-of-scope statements buried in narrative
+**Original section:** docs/spec.md — Orientation > Session model
+**Split from:** "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" (entry 3 of 3)
+**Kind:** scope
+**Importance:** medium
+
+## Finding
+
+Two scope deferrals are buried inside the Session-model paragraph rather than appearing in a Non-goals surface: `"V1 exposes no parallel-invoke surface"` (mid-clause inside premise (iii)) and `"Concurrent user sessions in the same host process are out of scope for V1 because Pi does not support them."` (terminal sentence). A reader scanning Orientation for V1 boundaries cannot find them. This child lifts both into the consolidated Non-goals (V1) section that document-level finding T38 calls for.
+
+## Spec Documents
+
+- `docs/spec.md` — Orientation > Prerequisites > Session model (edited; the two deferrals are removed in coordination with T15a's reduction)
+- `docs/spec.md` — new Non-goals (V1) section (edited; created by T38)
+- `docs/spec_topics/future-considerations.md` — Known V1 limitations (read-only; already records the concurrent-user-session deferral)
+- `docs/spec_topics/invocation.md` — Cross-mode semantics (read-only)
+
+## Plan Impact
+
+**Phases:** N/A
+
+**Leaves (implementation order):** None.
+
+## Consequence
+
+**Severity:** advisory
+
+Without this lift, the two scope deferrals remain invisible to a reader scanning Orientation for V1 boundaries; the consolidated Non-goals section, once created by T38, is missing two of its natural members.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Lift both scope deferrals into the new Non-goals (V1) section as two bullets:
+
+- `Parallel invocation surface — V1 exposes no API by which a parent loom can spawn sibling invocations concurrently. (See [Invocation — Cross-mode semantics].)`
+- `Concurrent user sessions in the same host process — Pi binds an extension to one active session at a time and V1 does not work around this. (See [Future Considerations — Known V1 limitations] and [Pi Integration Contract — Session-binding contract].)`
+
+Edge cases (applies to all children of T15):
+
+- If the co-resolved Non-goals section (T38) has not yet landed, gate this fix on it; do not invent a Non-goals home unilaterally.
+- The forward-link `[Pi Integration Contract — Session-binding contract]` is the anchor installed by T22a; T22b's contingency entry should align with whichever bullet text lands here.
+
+## Relationships
+
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — co-resolve (the reduction removes the deferrals from the paragraph in the same edit pass).
+- T15b "Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection" — co-resolve (sibling restructure of the same paragraph).
+- T38 "Non-goals are not consolidated into a single section" — must-follow (the lift target only exists once T38 lands).
+- T22b "Multi-session contingency response is unspecified in Future Considerations" — co-resolve (T22b proposes a forward-link from the closing scope sentence to `future-considerations.md#v1-non-goals`; the lift performed here is the natural target for that forward-link).
+
+---
+
+# T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal
+
+**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration
+**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
+**Split from:** "Trust boundary bullet conflates scope decision with normative contracts and a deferral" (entry 1 of 4)
+**Kind:** placement
+**Importance:** medium
+
+## Finding
+
+The Trust-boundary bullet's SDK-surface clause restates the V1 Pi-SDK pin literal (`~0.72.1`) inline, duplicating the literal owned by PIC — Host prerequisites. The behavioural content the scope decision actually rests on is "the four peer packages expose no per-extension privilege facet at the V1 Pi-SDK pin"; the literal version range belongs only to PIC. (Items 1 and 3 of the parent's Recommendation — keep the first sentence and scope claim, keep the no-extra-mediation sentence with its PIC forward-link — are preservation verifications folded into this child's edge cases since they require no rewrite.)
 
 ## Spec Documents
 
 - `docs/spec.md` — Orientation > Scope > Trust boundary (edited)
-- `docs/spec_topics/tool-calls.md` — Failures / Outcome enumeration (read-only — already owns the routing rules being trimmed from the aggregator)
-- `docs/spec_topics/pi-integration-contract.md` — Tool execution from loom code; Tool-registration lifetime and visibility; Conversation drive — subagent mode (read-only — already owns the SDK-call mechanism)
-- `docs/spec_topics/future-considerations.md` — No per-loom sandbox or capability model (read-only — already owns the deferral)
+- `docs/spec_topics/pi-integration-contract.md` — Host prerequisites — Pi SDK pin (read-only; owns the literal)
 
 ## Plan Impact
 
 **Phases:** None
 
-**Leaves (implementation order):**
-
-None — the fix is editorial restructuring of a `spec.md` aggregator bullet. The normative contracts being trimmed already live on owner pages that plan leaves cite directly (`tool-calls.md`, `pi-integration-contract.md`, `future-considerations.md`); no leaf's `Spec:` reference, acceptance criteria, or test list is affected.
+**Leaves (implementation order):** None — editorial.
 
 ## Consequence
 
 **Severity:** advisory
 
-The bullet is currently consistent with its owner pages, so no implementer is misled today. The risk is forward: the next time `tool-calls.md` widens the `CodeToolError.cause` enum, or PIC swaps `customTools` for a future Pi API, or `future-considerations.md` revises the capability-model framing, the Trust-boundary bullet becomes a stale duplicate and GOV-12's lock-step convention has to chase it. The bullet's stated role ("informative orientation, each bullet forward-links the owner") is the correct shape; the fix restores it.
+Until this clause is reduced, the SDK-pin literal lives in two places that GOV-12 expects to drift on the next bump.
 
 ## Solution Space
 
 **Shape:** single
+**Atomicity:** atomic
 
 ### Recommendation
 
-Rewrite the bullet to carry **only** the scope decision plus forward-links. Concretely:
+Reduce the SDK-surface clause to its behavioural content: "the four peer packages expose no per-extension privilege facet at the V1 Pi-SDK pin (the literal pin is owned by PIC)." Drop the `~0.72.1` parenthetical entirely. The "build-time SDK surface-inventory assertion" sentence about a future Pi privilege facet stays — it is a scope decision (detection point), not a normative contract on routing — reduced to one sentence with the forward-link to `pi-version-bump-procedure` retained.
 
-1. Keep the first sentence ("V1 looms execute inside the Pi extension-host process at full Node host-process privilege.") and the scope claim ("V1 imposes no loom-level sandbox.").
-2. Reduce the SDK-surface clause to its behavioural content: the four peer packages expose no per-extension privilege facet at the V1 Pi-SDK pin (the literal pin is owned by PIC — drop the `~0.72.1` parenthetical entirely; this aligns with the separate "SDK pin literal restated in aggregator" finding).
-3. Keep the "no extra mediation" sentence with its forward-link to PIC.
-4. Keep the *callable-set* paragraph but state the behavioural isolation rule ("subagent-mode invocations see only the loom's declared callable set; prompt-mode invocations see the loom's declared callable set unioned with the user session's snapshot for the swap window") and forward-link to PIC's `Tool-registration lifetime and visibility` for the SDK-call mechanism. Drop the inline `customTools` / `createAgentSession` / `pi.setActiveTools` names.
-5. Reduce the host-side-denial paragraph to one sentence: "Host-side denials of filesystem, network, or Pi-API access reach loom code through the tool that issued the request; the complete enumeration of observable `execute()` outcomes — including non-conforming return envelopes, non-settling Promises, and post-cancel late settlements — is owned by [Tool Calls — Failures](./spec_topics/tool-calls.md) and [Pi Integration Contract — Tool execution from loom code](./spec_topics/pi-integration-contract.md#tool-execution-from-loom-code); silent success on denial is forbidden." Drop the parenthetical reproductions of `Err(QueryError { kind: "code_tool", cause: "execution", ... })` and `details.kind = "tool-return-shape"`.
-6. Replace the closing capability-model paragraph with a single forward-link sentence: "A per-loom capability model is out of V1 scope; see [Future Considerations — No per-loom sandbox or capability model](./spec_topics/future-considerations.md). When a doc-level Non-goals section lands (separate finding), this disclaimer relocates there."
+Edge cases (applies to all children of T16):
 
-Implementer-relevant edge cases:
-
-- The "build-time SDK surface-inventory assertion" sentence about a future Pi privilege facet stays — it is a scope decision (detection point), not a normative contract on routing. It should remain in the bullet, reduced to one sentence, with the forward-link to `pi-version-bump-procedure` retained.
-- Do not delete the *callable set* clarification ("a configuration knob over the *model's* reachable callable set, NOT a host-process sandbox"). That distinction *is* the scope decision and would otherwise be stranded on `frontmatter.md`.
-- The `bash` / `read` "illustrative" sentence is editorial colour, not scope-bearing; drop it as part of the slim-down.
+- Preserve the bullet's first sentence ("V1 looms execute inside the Pi extension-host process at full Node host-process privilege.") and scope claim ("V1 imposes no loom-level sandbox.") verbatim.
+- Preserve the "no extra mediation" sentence with its forward-link to PIC verbatim.
+- The `bash` / `read` "illustrative" sentence is editorial colour, not scope-bearing; drop it in this pass.
 
 ## Relationships
 
-- T38 "Non-goals are not consolidated into a single section" — must-follow (the third sub-issue's permanent home is the proposed doc-level Non-goals section).
+- T16b "Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names" — co-resolve (same Trust-boundary bullet; must land in one commit).
+- T16c "Reduce host-side-denial paragraph to one sentence with forward-links" — co-resolve.
+- T16d "Replace closing capability-model paragraph with single forward-link sentence" — co-resolve.
 - T34 "Trust-boundary 'no privilege facet' claim is asserted but not gated by any audit the spec cites" — same-cluster (same bullet; orthogonal fix — adds an audit citation rather than restructures placement).
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — same-cluster (the Session model paragraph exhibits the same aggregator-overreach pattern).
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster (the Session-model paragraph exhibits the same aggregator-overreach pattern).
+
+---
+
+# T16b — Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names
+
+**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration
+**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
+**Split from:** "Trust boundary bullet conflates scope decision with normative contracts and a deferral" (entry 2 of 4)
+**Kind:** placement
+**Importance:** medium
+
+## Finding
+
+The Trust-boundary bullet's *callable-set* paragraph names `customTools` array on `createAgentSession` for subagent mode and `pi.setActiveTools` snapshot/restore for prompt mode — packaging-level details owned by PIC's `Tool-registration lifetime and visibility` and `Conversation drive — subagent mode` sections. The behavioural property the trust-boundary scope decision rests on is the per-mode wiring isolation, not the specific Pi APIs.
+
+## Spec Documents
+
+- `docs/spec.md` — Orientation > Scope > Trust boundary, callable-set paragraph (edited)
+- `docs/spec_topics/pi-integration-contract.md` — Tool-registration lifetime and visibility; Conversation drive — subagent mode (read-only)
+- `docs/spec_topics/frontmatter.md` — `tools` (read-only)
+
+## Plan Impact
+
+**Phases:** None
+
+**Leaves (implementation order):** None — editorial.
+
+## Consequence
+
+**Severity:** advisory
+
+If left unfixed, swapping Pi APIs in PIC requires a parallel edit to the aggregator bullet that GOV-12 expects to drift.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Keep the *callable-set* paragraph but state the behavioural isolation rule ("subagent-mode invocations see only the loom's declared callable set; prompt-mode invocations see the loom's declared callable set unioned with the user session's snapshot for the swap window") and forward-link to PIC's `Tool-registration lifetime and visibility` for the SDK-call mechanism. Drop the inline `customTools` / `createAgentSession` / `pi.setActiveTools` names.
+
+Edge cases (applies to all children of T16):
+
+- Do NOT delete the *callable set* clarification ("a configuration knob over the *model's* reachable callable set, NOT a host-process sandbox"). That distinction *is* the scope decision and would otherwise be stranded on `frontmatter.md`.
+
+## Relationships
+
+- T16a "Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal" — co-resolve.
+- T16c "Reduce host-side-denial paragraph to one sentence with forward-links" — co-resolve.
+- T16d "Replace closing capability-model paragraph with single forward-link sentence" — co-resolve.
+
+---
+
+# T16c — Reduce host-side-denial paragraph to one sentence with forward-links
+
+**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration
+**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
+**Split from:** "Trust boundary bullet conflates scope decision with normative contracts and a deferral" (entry 3 of 4)
+**Kind:** placement, prescription
+**Importance:** medium
+
+## Finding
+
+The Trust-boundary bullet's host-side-denial paragraph inlines the full denial-routing rule (`Err(QueryError { kind: "code_tool", cause: "execution", ... })`), the non-conforming-envelope handling (routed off `CodeToolError` to `loom/runtime/internal-error` with `details.kind = "tool-return-shape"`), the non-settling-Promise behaviour, and the post-cancel late-settlement discard rule. These are owned verbatim by `tool-calls.md` — Failures and `pi-integration-contract.md` — Tool execution from loom code; restating them here creates two normative copies GOV-12 expects to drift.
+
+## Spec Documents
+
+- `docs/spec.md` — Orientation > Scope > Trust boundary, host-side-denial paragraph (edited)
+- `docs/spec_topics/tool-calls.md` — Failures / Outcome enumeration (read-only)
+- `docs/spec_topics/pi-integration-contract.md` — Tool execution from loom code (read-only)
+
+## Plan Impact
+
+**Phases:** None
+
+**Leaves (implementation order):** None — editorial.
+
+## Consequence
+
+**Severity:** advisory
+
+The next time `tool-calls.md` widens the `CodeToolError.cause` enum, the aggregator bullet becomes a stale duplicate.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Reduce the host-side-denial paragraph to one sentence:
+
+> Host-side denials of filesystem, network, or Pi-API access reach loom code through the tool that issued the request; the complete enumeration of observable `execute()` outcomes — including non-conforming return envelopes, non-settling Promises, and post-cancel late settlements — is owned by [Tool Calls — Failures](./spec_topics/tool-calls.md) and [Pi Integration Contract — Tool execution from loom code](./spec_topics/pi-integration-contract.md#tool-execution-from-loom-code); silent success on denial is forbidden.
+
+Drop the parenthetical reproductions of `Err(QueryError { kind: "code_tool", cause: "execution", ... })` and `details.kind = "tool-return-shape"`.
+
+## Relationships
+
+- T16a "Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal" — co-resolve.
+- T16b "Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names" — co-resolve.
+- T16d "Replace closing capability-model paragraph with single forward-link sentence" — co-resolve.
+
+---
+
+# T16d — Replace closing capability-model paragraph with single forward-link sentence
+
+**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration
+**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
+**Split from:** "Trust boundary bullet conflates scope decision with normative contracts and a deferral" (entry 4 of 4)
+**Kind:** placement, scope
+**Importance:** medium
+
+## Finding
+
+The closing paragraph of the Trust-boundary bullet ("A per-loom capability model is **out of scope for V1** and is not anticipated by V1; introducing one would require a migration.") duplicates the already-owned bullet at `future-considerations.md` — No per-loom sandbox or capability model. The deferral lives correctly on `future-considerations.md` and should be a forward-link from the bullet, not a restatement.
+
+## Spec Documents
+
+- `docs/spec.md` — Orientation > Scope > Trust boundary, closing paragraph (edited)
+- `docs/spec_topics/future-considerations.md` — No per-loom sandbox or capability model (read-only)
+
+## Plan Impact
+
+**Phases:** None
+
+**Leaves (implementation order):** None — editorial.
+
+## Consequence
+
+**Severity:** advisory
+
+Until this paragraph is reduced to a forward-link, `future-considerations.md` revisions to the capability-model framing must be mirrored in the aggregator bullet.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Replace the closing capability-model paragraph with a single forward-link sentence:
+
+> A per-loom capability model is out of V1 scope; see [Future Considerations — No per-loom sandbox or capability model](./spec_topics/future-considerations.md). When a doc-level Non-goals section lands (separate finding), this disclaimer relocates there.
+
+## Relationships
+
+- T16a "Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal" — co-resolve.
+- T16b "Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names" — co-resolve.
+- T16c "Reduce host-side-denial paragraph to one sentence with forward-links" — co-resolve.
+- T38 "Non-goals are not consolidated into a single section" — must-follow (the disclaimer's permanent home is the proposed doc-level Non-goals section once T38 lands).
 
 ---
 
@@ -1249,28 +1561,23 @@ The concrete channel name (`console.error`) and control-flow primitive (`try`/`c
 
 ---
 
-# T18 — Success-side operator observability is unstated
+# T18a — Append success-side null-policy paragraph to PIC Runtime event channel
 
 **Original heading:** Success-outcome observability and operator-channel obligations undefined
 **Original section:** docs/spec.md — Orientation > Scope > Runtime observability
+**Split from:** "Success-side operator observability is unstated" (entry 1 of 4)
 **Kind:** completeness
 **Importance:** medium
 
 ## Finding
 
-The Runtime observability bullet in `spec.md` and the Runtime event channel section in `pi-integration-contract.md` define the **always-log set** as a closed subset of `QueryError` `kind` values. The set, by construction, covers only failure outcomes. The spec never makes the symmetric statement on the success side: that a loom which terminates with `Ok(v)` emits **nothing** on the `loom-system-note` channel, and that an `invoke` parent's observation of a child's success is purely programmatic (the value flows through the return surface, no operator-visible event is generated). A reader has to infer the absence by exhausting the failure-only enumeration.
-
-The asymmetry is most visible on the slash-invocation surface. For a prompt-mode loom the conversation itself is the user-facing surface (`slash-invocation.md` says explicitly that the final `Ok` value is not surfaced — the user sees the streamed turns). For a **subagent-mode** loom invoked via slash, the operator sees the binder echo before the loom starts, then — on success — silence: the subagent transcript stays private, the return value goes only to the (in V1 always implicit) caller, and no terminal event hits `loom-system-note`. On failure the operator sees the normative top-level `Err` note. Whether that asymmetry is intended (no completion note for subagent slash invocations) or an oversight (a `loom /<name> completed` parity note was forgotten) is left to implementer judgement.
-
-The third sub-question raised by the original framing — what the operator sees during the session-shutdown abort-and-await window — *is* covered: `pi-integration-contract.md`'s `session_shutdown` block specifies `loom/runtime/cancelled-by-session-shutdown` (E, runtime, `display: false`) for invocations that cancel cleanly inside `SHUTDOWN_AWAIT_CAP_MS`, and `loom/runtime/reload-teardown-timeout` for those still in flight at the deadline. The remaining gap is the success side and the `invoke`-parent success-observation rule; the spec should state both as explicit null-policies rather than leaving them as inferences from a failure-only inventory.
+The always-log set defined in `pi-integration-contract.md` Runtime event channel covers only failure outcomes. The spec never makes the symmetric statement on the success side: that a loom terminating with `Ok(v)` emits nothing on `loom-system-note`, and that an `invoke` parent's success observation is purely programmatic. This child installs the central success-side null-policy paragraph in PIC, on which the sibling per-surface restatements (T18b, T18c) and the leaf-internal test (T18d) all depend.
 
 ## Spec Documents
 
-- `docs/spec.md` — Orientation > Scope > Runtime observability (edited)
-- `docs/spec_topics/pi-integration-contract.md` — Runtime event channel (edited)
-- `docs/spec_topics/slash-invocation.md` — Once a loom is invoked / Top-level `Err` in prompt mode (edited)
-- `docs/spec_topics/invocation.md` — Final-value propagation across callees (read-only)
+- `docs/spec_topics/pi-integration-contract.md` — Runtime event channel (edited; one paragraph appended)
 - `docs/spec_topics/glossary.md` — `always-log set` entry (read-only)
+- `docs/spec_topics/invocation.md` — Final-value propagation across callees (read-only; the existing programmatic-side counterpart sentence reads correctly once this null-policy lands centrally)
 
 ## Plan Impact
 
@@ -1278,41 +1585,189 @@ The third sub-question raised by the original framing — what the operator sees
 
 **Leaves (implementation order):**
 
-- V18i — Per-`kind` formatting for prompt-mode top-level `Err` — (modified)
-- V18q — Runtime event channel and always-log emission — (modified)
-
-V18q already asserts that the four excluded `kind`s emit zero events; the same leaf needs an additional assertion that a successful prompt-mode and subagent-mode termination emits zero events on `loom-system-note` (the success-side null-policy). V18i is touched only if the recommendation below adds a parity completion note for subagent-slash success; under the recommendation as written it stays read-only.
+- V18q — Runtime event channel and always-log emission — (modified by sibling T18d; this child only edits the spec)
 
 ## Consequence
 
 **Severity:** advisory
 
-A literal reader of the always-log set will conclude "no success event," which is the intended behaviour, so two implementations will not silently diverge on the wire. The cost is operator UX: a slash-invoked subagent loom produces a binder echo, then nothing visible until the user notices the prompt has returned. Reviewers and authors looking for the operator-visibility contract have to triangulate across `spec.md`, `pi-integration-contract.md`, `slash-invocation.md`, and `invocation.md` to convince themselves that the absence is deliberate.
+Until the central null-policy lands in PIC, the per-surface restatements have nothing to anchor against and the test in T18d has no spec sentence to assert.
 
 ## Solution Space
 
 **Shape:** single
+**Atomicity:** atomic
 
 ### Recommendation
 
-State the success-side null-policy explicitly in two places, and leave behaviour unchanged.
+Append a short paragraph to `pi-integration-contract.md` Runtime event channel immediately after the always-log-set enumeration:
 
-1. **`pi-integration-contract.md` — Runtime event channel.** Append a short paragraph immediately after the always-log-set enumeration: *"Successful terminal outcomes (a loom whose body produces an `Ok` final value, including a child loom whose `Ok` flows to its `invoke` parent) emit no event on the `loom-system-note` channel. The channel is failure-only by design; success surfaces are the driven conversation (prompt mode) and the programmatic return value (every mode). This is the success-side counterpart of the always-log set's failure inventory."*
+> Successful terminal outcomes (a loom whose body produces an `Ok` final value, including a child loom whose `Ok` flows to its `invoke` parent) emit no event on the `loom-system-note` channel. The channel is failure-only by design; success surfaces are the driven conversation (prompt mode) and the programmatic return value (every mode). This is the success-side counterpart of the always-log set's failure inventory.
 
-2. **`slash-invocation.md` — Once a loom is invoked.** Add one sentence to each of the prompt-mode and subagent-mode bullets making the operator-side null explicit. Prompt mode: *"No `loom-system-note` is emitted on successful termination; the conversation is the operator-visible surface."* Subagent mode: *"On successful termination the operator sees no terminal note (the subagent transcript is private and the return value reaches only the programmatic caller); the operator-visible surfaces in subagent slash invocations are the pre-start binder echo and, on failure, the top-level `Err` note formatted per the table below."*
+Edge cases (applies to all children of T18):
 
-3. **`spec.md` — Runtime observability bullet.** Replace "*Operator*-facing runtime failure events are emitted…" with a one-clause widening: "*Operator*-facing observability of loom termination is failure-only on the `loom-system-note` channel; the always-log set… (existing text). Successful terminations emit nothing on this channel — see [Pi Integration Contract — Runtime event channel](./spec_topics/pi-integration-contract.md) for the explicit success-side null-policy and [Slash-Command Invocation](./spec_topics/slash-invocation.md) for the per-mode operator surfaces."
-
-4. **`invocation.md` — Final-value propagation across callees.** No edit required; the existing "On callee failure …, no final value flows in either mode — the caller observes only the `InvokeCalleeError` / `InvokeInfraError` envelope" sentence is the programmatic-side counterpart and reads correctly once the operator-side null is stated centrally.
-
-5. **V18q tests.** Add a leaf-internal test asserting zero `loom-system-note` emissions on a successful prompt-mode loom and on a successful slash-invoked subagent-mode loom, mirroring V18q (b)'s structure for the four excluded kinds.
-
-Edge case the implementer must watch: the binder echo (`bind_echo: true`) and the no-params overflow note are pre-evaluation surfaces and remain operator-visible regardless of terminal outcome; the success-side null applies only to the *terminal* surface, not to the per-loom pre-start surfaces. The recommendation deliberately does not add a "completed" parity note for subagent slash invocations — the existing failure-only convention is intentional, the binder echo already attributes the invocation to the operator, and adding a success note would re-open the deferred aggregation/latency surface that `pi-integration-contract.md` and `future-considerations.md` have already scoped out of V1.
+- The binder echo (`bind_echo: true`) and the no-params overflow note are pre-evaluation surfaces and remain operator-visible regardless of terminal outcome; the success-side null applies only to the *terminal* surface.
+- Do NOT add a "completed" parity note for subagent slash invocations — the existing failure-only convention is intentional; adding a success note would re-open the deferred aggregation/latency surface already scoped out of V1.
 
 ## Relationships
 
-- T19 "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" — same-cluster (operator-surface gap on the failure side; symmetric to this finding's success-side gap).
+- T18b "Add per-mode operator-side null sentences to slash-invocation.md" — must-precede (the central PIC paragraph must land before the slash-invocation restatement points at it).
+- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — must-precede (the bullet's forward-link target must exist).
+- T18d "Add V18q test asserting zero `loom-system-note` emissions on successful termination" — must-precede (the test asserts against the spec sentence installed here).
+- T19 "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" — same-cluster (operator-surface gap on the failure side; symmetric to this child's success-side gap).
 - T06 "Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers" — same-cluster.
+
+---
+
+# T18b — Add per-mode operator-side null sentences to slash-invocation.md
+
+**Original heading:** Success-outcome observability and operator-channel obligations undefined
+**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
+**Split from:** "Success-side operator observability is unstated" (entry 2 of 4)
+**Kind:** completeness
+**Importance:** medium
+
+## Finding
+
+`slash-invocation.md` *Once a loom is invoked* describes the per-mode invocation surfaces but is silent on the operator-side success outcome. Both prompt-mode and subagent-mode bullets need an explicit null sentence so a reader does not have to triangulate across PIC and `invocation.md` to confirm the absence is deliberate.
+
+## Spec Documents
+
+- `docs/spec_topics/slash-invocation.md` — Once a loom is invoked, prompt-mode and subagent-mode bullets (edited)
+- `docs/spec_topics/pi-integration-contract.md` — Runtime event channel (read-only; the central rule installed by T18a)
+
+## Plan Impact
+
+**Phases:** None (V18i remains read-only)
+
+**Leaves (implementation order):** None.
+
+## Consequence
+
+**Severity:** advisory
+
+Without these per-mode sentences, slash-invocation readers see no operator-side null and may assume a missing completion note is a defect.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Add one sentence to each of the prompt-mode and subagent-mode bullets in `slash-invocation.md` *Once a loom is invoked*:
+
+- **Prompt mode:** *"No `loom-system-note` is emitted on successful termination; the conversation is the operator-visible surface."*
+- **Subagent mode:** *"On successful termination the operator sees no terminal note (the subagent transcript is private and the return value reaches only the programmatic caller); the operator-visible surfaces in subagent slash invocations are the pre-start binder echo and, on failure, the top-level `Err` note formatted per the table below."*
+
+Edge cases (applies to all children of T18): see T18a's edge-case list.
+
+## Relationships
+
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-follow (the central rule must land first).
+- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — co-resolve (sibling per-surface restatement; same edit pass).
+- T18d "Add V18q test asserting zero `loom-system-note` emissions on successful termination" — co-resolve.
+
+---
+
+# T18c — Widen spec.md Runtime observability bullet to forward-link the null-policy
+
+**Original heading:** Success-outcome observability and operator-channel obligations undefined
+**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
+**Split from:** "Success-side operator observability is unstated" (entry 3 of 4)
+**Kind:** completeness
+**Importance:** medium
+
+## Finding
+
+`spec.md`'s Runtime observability bullet currently reads as failure-only without acknowledging the success-side null-policy. Reviewers auditing the operator-visibility contract from the aggregator have to follow links to PIC and `slash-invocation.md` to confirm the absence is deliberate. The bullet should widen to name the null-policy and forward-link the per-surface owners.
+
+## Spec Documents
+
+- `docs/spec.md` — Orientation > Scope > Runtime observability (edited)
+- `docs/spec_topics/pi-integration-contract.md` — Runtime event channel (read-only; the central rule installed by T18a)
+- `docs/spec_topics/slash-invocation.md` — Once a loom is invoked (read-only; the per-mode null sentences installed by T18b)
+
+## Plan Impact
+
+**Phases:** None
+
+**Leaves (implementation order):** None.
+
+## Consequence
+
+**Severity:** advisory
+
+Until this widening lands, the aggregator misses the chance to forward-link the null-policy and reviewers continue triangulating.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+In `spec.md` Orientation > Scope > Runtime observability, replace "*Operator*-facing runtime failure events are emitted…" with a widened opening:
+
+> *Operator*-facing observability of loom termination is failure-only on the `loom-system-note` channel; the always-log set… (existing text). Successful terminations emit nothing on this channel — see [Pi Integration Contract — Runtime event channel](./spec_topics/pi-integration-contract.md) for the explicit success-side null-policy and [Slash-Command Invocation](./spec_topics/slash-invocation.md) for the per-mode operator surfaces.
+
+Edge cases (applies to all children of T18): see T18a's edge-case list.
+
+## Relationships
+
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-follow.
+- T18b "Add per-mode operator-side null sentences to slash-invocation.md" — co-resolve.
+- T18d "Add V18q test asserting zero `loom-system-note` emissions on successful termination" — co-resolve.
+
+---
+
+# T18d — Add V18q test asserting zero `loom-system-note` emissions on successful termination
+
+**Original heading:** Success-outcome observability and operator-channel obligations undefined
+**Original section:** docs/plan_topics/v18-cancellation.md
+**Split from:** "Success-side operator observability is unstated" (entry 4 of 4)
+**Kind:** completeness
+**Importance:** medium
+
+## Finding
+
+V18q already asserts that the four excluded `kind`s emit zero events on the always-log channel; it does not yet assert the symmetric success-side null. Once T18a installs the central rule, V18q needs a parallel test or two compliant implementations could still ship divergent behaviour on success.
+
+## Spec Documents
+
+- `docs/plan_topics/v18-cancellation.md` — V18q Tests (edited)
+- `docs/spec_topics/pi-integration-contract.md` — Runtime event channel (read-only; the central rule installed by T18a)
+
+## Plan Impact
+
+**Phases:** Vertical V18
+
+**Leaves (implementation order):**
+
+- V18q — Runtime event channel and always-log emission — (modified; one new test row)
+
+## Consequence
+
+**Severity:** advisory
+
+Without this test, the success-side null-policy installed by T18a is asserted only in prose; the leaf's *Ships when* condition does not catch a regression.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Add a leaf-internal test to V18q asserting zero `loom-system-note` emissions on a successful prompt-mode loom and on a successful slash-invoked subagent-mode loom, mirroring V18q (b)'s structure for the four excluded kinds.
+
+Edge cases (applies to all children of T18): see T18a's edge-case list.
+
+## Relationships
+
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-follow.
+- T18b "Add per-mode operator-side null sentences to slash-invocation.md" — co-resolve.
+- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — co-resolve.
 
 ---
 
@@ -1322,6 +1777,8 @@ Edge case the implementer must watch: the binder echo (`bind_echo: true`) and th
 **Original section:** docs/spec.md — Orientation > Session model
 **Kind:** error-model
 **Importance:** high
+**Atomicity:** composite-3+
+**Triage note:** UNSPLITTABLE — manual reshape required (Recommendation block is unstructured prose with three inline-numbered watch-out parentheticals, not a numbered Edit Plan. The chosen Option A's *Spec edits* enumeration (five numbered items across `pi-integration-contract.md` registry shape, `RuntimeEvent` field, dedup-key widening, per-invocation operator-visibility, and timing-rule paragraph) is in the Option block, not in Recommendation, so the splitter cannot read it. A human reshape pass should promote those five items into a numbered Recommendation Edit Plan; the natural topology is `co-resolve` since the new `invocation_id` field, the dedup-key widening, and the cascade-twin re-emission rule must all land in one V18q commit to keep the wire contract additive.)
 
 ## Finding
 
@@ -1394,8 +1851,8 @@ Option A. The cost is one field on the `RuntimeEvent` payload and one entry-shap
 ## Relationships
 
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster (both touch the unbounded-concurrent-sibling surface; admission cap vs observability).
-- T18 "Success-side operator observability is unstated" — must-precede (any decision to add operator-visibility for successful sibling outcomes will want to reuse the `invocation_id` field this finding adds).
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — same-cluster.
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede (any decision to add operator-visibility for successful sibling outcomes will want to reuse the `invocation_id` field this finding adds).
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
 
 ---
 
@@ -1482,7 +1939,7 @@ Adopt **Option A**. The finding's real defect is silence, not absence of machine
 ## Relationships
 
 - T19 "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" — same-cluster (same Session-model paragraph; addresses sibling-diagnostic correlation).
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — same-cluster.
+- T15b "Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection" — same-cluster (the relocated concurrency-model home is the natural surface for the resource-exhaustion disclaimer).
 
 ---
 
@@ -1607,7 +2064,7 @@ Edge cases the implementer must watch:
 - T22a "Single-active-session premise lacks a Pi-source citation in PIC" — must-precede (T22a installs the `#session-binding-contract` anchor this step audits against; resolving T22c first leaves the anchor dangling).
 - T22b "Multi-session contingency response is unspecified in Future Considerations" — independent (no shared edit surface; either order works after T22a).
 - T21 "Pi-side slash-handler promise lifecycle taken as given" — same-cluster (sibling Pi-side guarantee under PIC).
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — independent (T15 restructures `spec.md`'s Orientation block; this finding edits PIC only).
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — independent (T15a restructures `spec.md`'s Orientation block; this finding edits PIC only).
 
 ---
 
@@ -1669,7 +2126,7 @@ Edge cases the implementer must watch:
 
 - T22a "Single-active-session premise lacks a Pi-source citation in PIC" — must-precede (the anchor `#session-binding-contract` and the spec.md opening-sentence forward-link both come from T22a; resolving T22b first would leave dangling links).
 - T22c "Pi version-bump procedure has no step for the session-binding contract" — independent (no shared edit surface; either order works after T22a).
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — co-resolve (T15 proposes extracting the closing scope sentence into a top-level Non-goals section; the forward-link this finding installs is the natural target for that extraction).
+- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — co-resolve (T15c extracts the closing scope sentence into the Non-goals (V1) section; the forward-link this finding installs is the natural target for that extraction).
 
 ---
 
@@ -1736,5 +2193,5 @@ Edge cases the implementer must watch:
 - T34 "Trust-boundary 'no privilege facet' claim is asserted but not gated by any audit the spec cites" — same-cluster (same uncited-Pi-internals pattern).
 - T21 "Pi-side slash-handler promise lifecycle taken as given" — same-cluster.
 - T36 "`SessionShutdownEvent.reason` closed set has no build-time pin against the SDK type" — same-cluster (same diff-audit-on-pin-bump remedy).
-- T15 "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" — must-precede (its proposal to extract the 'concurrent user sessions … out of scope' sentence into a top-level Non-goals section interacts with the forward-link this finding installs on the opening sentence).
+- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — must-precede (T15c's extraction of the 'concurrent user sessions … out of scope' sentence interacts with the forward-link this finding installs on the opening sentence).
 
