@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding in the file (T22b, after the 2026-05-11 reshape-extract pass excised T22a to `spec-review-needs-reshape.md`) is addressed first; the first finding in the file (T02, after the 2026-05-11 spec-sweeps extraction) is addressed last in addressing order. After the reshape pass, split children replace their parents at the parent's file position; addressing within a child cluster runs alphabetically (a addressed first)._
 
-_Triage tally: 9 high, 24 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.) (Updated 2026-05-12: T19e resolved into PIC Runtime event channel concurrent-sibling emission timing paragraph; −1 high.) (Updated 2026-05-12: T20 resolved into Implementation Notes no-invocation-cap disclaimer; −1 medium.) (Updated 2026-05-12: T21 resolved into PIC; −1 medium.) (Updated 2026-05-12: T19d resolved into PIC Per-invocation operator visibility and Diagnostics cancelled-by-session-shutdown row payload; −1 high.)_
+_Triage tally: 9 high, 24 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.) (Updated 2026-05-12: T19e resolved into PIC Runtime event channel concurrent-sibling emission timing paragraph; −1 high.) (Updated 2026-05-12: T20 resolved into Implementation Notes no-invocation-cap disclaimer; −1 medium.) (Updated 2026-05-12: T21 resolved into PIC; −1 medium.) (Updated 2026-05-12: T19d resolved into PIC Per-invocation operator visibility and Diagnostics cancelled-by-session-shutdown row payload; −1 high.) (Updated 2026-05-12: T19c resolved into PIC Runtime event channel dedup-key widening to `(invocation_id, kind, query_site, message, occurred_at)`; −1 high.)_
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -2065,57 +2065,4 @@ Edge cases (applies to all children of T19): see T19a's edge-case list. Addition
 - T19e "Add real-time sibling emission timing paragraph" — co-resolve.
 - T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
 - T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
-
----
-
-# T19c — Widen always-log dedup key to include invocation_id
-
-**Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface
-**Original section:** docs/spec.md — Orientation > Session model
-**Split from:** "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" (entry 3 of 5, second reshape pass 2026-05-11; chosen Option A's `Spec edits` block)
-**Kind:** error-model
-**Importance:** high
-
-## Finding
-
-The parent finding identified that the dedup key `(kind, query_site, message, occurred_at)` collides on real clocks when two siblings of the same loom fail at the same millisecond. The Decision was Option A: widen the dedup key to include the per-invocation correlation key. This child installs the dedup-rule change; siblings provide the registry source, the wire field, the cancelled-shutdown details, and the timing rule.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract.md` — Runtime event channel — Deduplication and lifetime rules (edited)
-
-## Plan Impact
-
-**Phases:** V18
-
-**Leaves (implementation order):**
-
-- V18q — Runtime event channel and always-log emission — (modified — implements the dedup-key check; tests must cover same-tick concurrent-sibling collisions per the Recommendation edge case)
-
-## Consequence
-
-**Severity:** correctness
-
-Without per-invocation dedup, two siblings failing at the same `Clock.now()` tick collapse to one note on the operator stream and one of the failures vanishes. V18q test (l) currently uses `FakeClock.advance` to force distinct `occurred_at` values, but two real siblings on a real clock can hit the same millisecond.
-
-## Solution Space
-
-**Shape:** single
-**Atomicity:** atomic
-
-### Recommendation
-
-In `pi-integration-contract.md` Runtime event channel — Deduplication and lifetime rules, widen the dedup key from `(kind, query_site, message, occurred_at)` to `(invocation_id, kind, query_site, message, occurred_at)`. State explicitly that the always-log channel is session-flat at the wire level but the dedup key is per-invocation.
-
-Edge cases (applies to all children of T19): see T19a's edge-case list. Additionally, V18q test (l) should be supplemented with a same-tick concurrent-sibling test that exercises the per-`invocation_id` dedup arm without advancing the clock.
-
-## Relationships
-
-- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve.
-- T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve (this child reads the field T19b adds).
-- T19d "Populate cancelled-by-session-shutdown details with invocation_id" — co-resolve.
-- T19e "Add real-time sibling emission timing paragraph" — co-resolve.
-- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
-- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
-
 
