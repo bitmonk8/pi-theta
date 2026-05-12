@@ -2438,5 +2438,68 @@ Edge cases the implementer must watch:
 ## Relationships
 
 - T22a "Single-active-session premise lacks a Pi-source citation in PIC" — must-precede (T22a installs the `#session-binding-contract` anchor this step audits against; resolving T22c first leaves the anchor dangling).
+- T22b "Multi-session contingency response is unspecified in Future Considerations" — independent (no shared edit surface; either order works after T22a).
 - T21 "Pi-side slash-handler promise lifecycle taken as given" — same-cluster (sibling Pi-side guarantee under PIC).
 - T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — independent (T15a restructures `spec.md`'s Orientation block; this finding edits PIC only).
+
+---
+
+# T22b — Multi-session contingency response is unspecified in Future Considerations
+
+**Original heading:** Concurrent user sessions: Pi guarantee uncited; fallback if Pi adds support undefined (split from T22, part 2 of 3)
+**Original section:** docs/spec_topics/future-considerations.md — V1 non-goals
+**Kind:** completeness
+**Importance:** medium
+
+## Finding
+
+The Session-model paragraph closes with "Concurrent *user sessions* in the same host process are out of scope for V1 because Pi does not support them," and `future-considerations.md` records the matching non-goal entry ("No concurrent user sessions in the same host process"), but neither states the runtime's V1 response if Pi quietly relaxes the binding within the `~0.72.1` tilde range or a subsequent pin. The runtime is not told whether to refuse to load, to bind to the first session and ignore additional ones, to extend the registry to multi-session keying, or to emit a host-incompatibility diagnostic.
+
+This sub-finding records the **contingency response**. It depends on T22a having landed first (T22a installs the PIC anchor this entry's citation links to). It is independent of T22c.
+
+## Spec Documents
+
+- `docs/spec_topics/future-considerations.md` — "No concurrent user sessions in the same host process" entry under V1 non-goals (edited in place; one cross-link + one disposition sentence appended)
+- `docs/spec.md` — Orientation > Session model (edited; closing clause becomes a forward-link only)
+
+## Plan Impact
+
+**Phases:** None
+
+**Leaves (implementation order):**
+
+None — V1 ships nothing for the multi-session case. The contingency is documentation-only: every single-session-scoped site (factory-captured `pi`, `ActiveInvocationRegistry`, prompt-mode `pi.setActiveTools` snapshot/restore protocol) stays so scoped, and any second session reaching the extension is explicitly out of V1 scope. No leaf's `Tests` or `Ships when` criteria change.
+
+## Consequence
+
+**Severity:** advisory
+
+Without the recorded response, a future maintainer reading `future-considerations.md` after Pi relaxed the binding would have no guidance on whether the V1 runtime is expected to adapt or stay scoped, and the spec.md closing clause would still read as a flat scope decision rather than a documented disposition.
+
+## Solution Space
+
+**Shape:** single
+
+### Recommendation
+
+**Hard edit budget:** one sentence appended to the existing `future-considerations.md` non-goal entry, plus the spec.md closing-clause forward-link rewrite. No new top-level non-goal entry. No edits to `pi-integration-contract.md`. No new MUSTs.
+
+1. **In `docs/spec_topics/future-considerations.md`**, augment the existing "No concurrent user sessions in the same host process" entry by appending one sentence after the current text:
+
+   > V1 response if relaxed: every single-session-scoped site (factory-captured `pi`, `ActiveInvocationRegistry`, prompt-mode `pi.setActiveTools` snapshot/restore protocol) stays scoped to a single session per extension instance, and any second session reaching the extension is out of V1 scope; see [Pi Integration Contract — Session-binding contract](./pi-integration-contract.md#session-binding-contract) for the binding citation.
+
+   Add `pi-integration-contract.md#session-binding-contract` to the entry's existing *Recorded at:* list.
+
+2. **In `docs/spec.md` — Session-model paragraph**, replace the bare closing sentence "Concurrent *user sessions* in the same host process are out of scope for V1 because Pi does not support them." with a forward-link: "Concurrent *user sessions* in the same host process are out of scope for V1 per [Future Considerations — No concurrent user sessions in the same host process](./spec_topics/future-considerations.md#v1-non-goals)." No other `spec.md` edit (the opening sentence is owned by T22a).
+
+Edge cases the implementer must watch:
+
+- Augment the existing entry; do not add a duplicate "Multi-session Pi extension instances" entry. The existing entry is already named verbatim by `spec.md`'s GOV-12 lock-step aggregator.
+- The appended sentence is documentation-only — no MUST verbs, no plan-leaf obligations, no test fixtures.
+- The spec.md edit is restricted to the closing sentence. The opening sentence's forward-link is owned by T22a.
+
+## Relationships
+
+- T22a "Single-active-session premise lacks a Pi-source citation in PIC" — must-precede (the anchor `#session-binding-contract` and the spec.md opening-sentence forward-link both come from T22a; resolving T22b first would leave dangling links).
+- T22c "Pi version-bump procedure has no step for the session-binding contract" — independent (no shared edit surface; either order works after T22a).
+- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — co-resolve (T15c extracts the closing scope sentence into the Non-goals (V1) section; the forward-link this finding installs is the natural target for that extraction).
