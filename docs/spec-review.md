@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding in the file (T22b, after the 2026-05-11 reshape-extract pass excised T22a to `spec-review-needs-reshape.md`) is addressed first; the first finding in the file (T02, after the 2026-05-11 spec-sweeps extraction) is addressed last in addressing order. After the reshape pass, split children replace their parents at the parent's file position; addressing within a child cluster runs alphabetically (a addressed first)._
 
-_Triage tally: 10 high, 25 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.) (Updated 2026-05-12: T21 resolved into PIC; −1 medium.)_
+_Triage tally: 10 high, 26 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.)_
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -2317,3 +2317,66 @@ Adopt **Option A**. The finding's real defect is silence, not absence of machine
 - T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — same-cluster (same Session-model paragraph; addresses sibling-diagnostic correlation; co-resolve siblings T19b/c/d/e also relevant).
 - T15b "Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection" — same-cluster (the relocated concurrency-model home is the natural surface for the resource-exhaustion disclaimer).
 
+---
+
+# T21 — Pi-side slash-handler promise lifecycle taken as given
+
+**Original heading:** `ctx.signal` propagation semantics taken as given
+**Original section:** docs/spec.md — Orientation > Session model
+**Kind:** assumptions
+**Importance:** medium
+
+## Finding
+
+The orientation cancellation paragraph in `spec.md` and the **Cancellation source** paragraph in `pi-integration-contract.md` describe the runtime side of the slash-command cancellation chain in detail: `ctx.signal` is observed inside the runtime's `tool_call`/`tool_result`/`message_update`/`turn_end`/`agent_end` event handlers, an aborted `ctx.signal` triggers `loomAbort.abort(reason)`, the symmetric direction (`loomAbort.abort()` → `ctx.abort()`) tears down the user run and unblocks `await ctx.waitForIdle()`, the handler eventually returns the cancelled-arm `loom-system-note`. The runtime side is fully pinned.
+
+The **Pi side** of the same chain is not. The capability-inventory entry (item 5, `sdk-cap-cancellation-propagation`) requires only that Pi *supplies* an `AbortSignal` at the two extension entry points. It does not state what Pi does with the slash-command handler's returned `Promise` after `ctx.signal` aborts: whether Pi awaits the handler's promise indefinitely, whether Pi imposes any internal deadline, whether Pi continues to deliver subsequent events to the same context, whether the handler is permitted to keep emitting `pi.sendMessage` calls between the abort and its eventual return, and whether Pi treats a handler that never returns as a host-process error or as a benign stall. The runtime's design implicitly assumes "Pi awaits the handler normally; `ctx.signal` is Pi's only out-of-band interaction with the handler after dispatch" — the prompt-mode *Hang handling* paragraph's "`waitForIdle()` has no internal deadline; hangs are bounded only by the cancellation path" wording rests on that assumption — but the assumption is not stated as a Pi-side guarantee anywhere in the spec.
+
+A reader cross-checking the runtime's behaviour against Pi's contract has nothing to verify against. A future Pi version that introduces a handler-promise deadline, or that abandons the handler's promise after `ctx.signal` aborts (rather than awaiting it), would silently break the runtime's cancelled-system-note delivery and the `disposeBarrier`-driven session-shutdown drain rule, with no spec test or build-time gate to catch the drift.
+
+## Spec Documents
+
+- `docs/spec.md` — Orientation > Session model (cancellation paragraph) (edited)
+- `docs/spec_topics/pi-integration-contract.md` — *Cancellation source*, *SDK capability inventory item 5* (edited)
+- `docs/spec_topics/cancellation.md` — *Forwarding into `loomAbort`*, *Surfacing* (read-only — already covers the runtime side)
+- `docs/spec_topics/pi-integration-contract.md` — *Conversation drive — prompt mode* (read-only — the *Hang handling* sub-paragraph that consumes the assumption)
+
+## Plan Impact
+
+**Phases:** None
+
+**Leaves (implementation order):**
+
+None — the fix is documentary. Existing leaves (H4 *Pi extension shell*, H5 *Pi end-to-end harness*, Mb *MVP runtime*, V18a–V18e *cancellation checkpoints*) already exercise the runtime side of the assumption correctly; no acceptance criterion changes under the recommended fix. If the fix were instead landed as a new SDK-capability assertion in the entry capability probe (Step 0 (c)), H4's capability-probe tests would gain one row — but the recommendation below does not take that path.
+
+## Consequence
+
+**Severity:** advisory
+
+The runtime ships correctly because Pi's actual behaviour matches the unstated assumption. The cost is verification debt: an implementer or auditor cannot confirm the cancellation chain by reading `spec.md` plus the linked PIC sections alone — they must read Pi's source to discover that Pi awaits the handler's promise normally and imposes no deadline. A future Pi change in this area would not be caught by any spec gate.
+
+## Solution Space
+
+**Shape:** single
+
+### Recommendation
+
+Add one paragraph to `pi-integration-contract.md`'s **Cancellation source** section (immediately after the existing `ctx.signal` JSDoc quote) stating Pi's slash-command-handler lifecycle as a host prerequisite the runtime consumes:
+
+> **Slash-handler promise lifecycle.** Pi awaits the `Promise` returned by the slash-command `handler` for the full duration of the loom invocation, including any time elapsed between `ctx.signal` becoming `aborted` and the handler's eventual return. Pi imposes no internal deadline on the handler, and `ctx.signal` is Pi's only out-of-band interaction with the in-flight handler — Pi does not force-resolve, abandon, or detach the handler's promise after abort. The handler MAY continue to emit `pi.sendMessage` calls (including the cancelled-arm `loom-system-note`) and MAY continue to drive `ExtensionCommandContext` reads between the abort and its return; Pi continues to render those emissions on the same context until the handler settles. The runtime's *Hang handling* rule above (`waitForIdle()` is bounded only by the cancellation path) and the `session_shutdown` handler's `Promise.allSettled(activeInvocations.map(inv => inv.disposeBarrier))` await both consume this guarantee.
+
+Bind the new paragraph into the SDK capability inventory by widening item 5's text from "Pi MUST supply an `AbortSignal` …" to additionally require "… and Pi MUST award the handler's returned promise unbounded settle time after `ctx.signal` aborts (per **Slash-handler promise lifecycle** above)." The capability count in `spec.md`'s orientation bullet 3 stays at seven — this is a refinement of item 5, not a new capability.
+
+The orientation cancellation paragraph in `spec.md` already forward-links capability inventory item 5 for cancellation propagation; no `spec.md` edit is required beyond ensuring that link continues to land on the widened item.
+
+Edge cases the implementer must watch:
+
+- The new paragraph is a Pi-side guarantee, not a runtime obligation; it goes under PIC, not under `cancellation.md`.
+- The guarantee covers the *slash-command* handler only. The `tool.execute(...)` adapter's promise lifecycle is governed independently by the *Tool execution from loom code* section's outcome-routing summary.
+- If the SDK-pin bump procedure later widens to mechanically verify Pi-side behavioural guarantees (not just type-shape), the fixture for this paragraph is a slash-handler that never returns after `ctx.signal` aborts — assert that Pi does not surface a host-process error and does not invoke a second handler concurrently.
+
+## Relationships
+
+- T22a "Single-active-session premise lacks a Pi-source citation in PIC" — same-cluster.
+- T22b "Multi-session contingency response is unspecified in Future Considerations" — same-cluster.
+- T23 "Pi's per-session slash-handler serialisation is asserted without a verifiable Pi source" — same-cluster.
