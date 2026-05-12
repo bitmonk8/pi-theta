@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding in the file (T22b, after the 2026-05-11 reshape-extract pass excised T22a to `spec-review-needs-reshape.md`) is addressed first; the first finding in the file (T02, after the 2026-05-11 spec-sweeps extraction) is addressed last in addressing order. After the reshape pass, split children replace their parents at the parent's file position; addressing within a child cluster runs alphabetically (a addressed first)._
 
-_Triage tally: 10 high, 24 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.) (Updated 2026-05-12: T19e resolved into PIC Runtime event channel concurrent-sibling emission timing paragraph; −1 high.) (Updated 2026-05-12: T20 resolved into Implementation Notes no-invocation-cap disclaimer; −1 medium.) (Updated 2026-05-12: T21 resolved into PIC; −1 medium.)_
+_Triage tally: 10 high, 24 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.) (Updated 2026-05-12: T20 resolved into Implementation Notes no-invocation-cap disclaimer; −1 medium.) (Updated 2026-05-12: T21 resolved into PIC; −1 medium.)_
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -2168,6 +2168,58 @@ Edge cases (applies to all children of T19): see T19a's edge-case list.
 - T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve.
 - T19c "Widen always-log dedup key to include invocation_id" — co-resolve.
 - T19e "Add real-time sibling emission timing paragraph" — co-resolve.
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
+
+---
+
+# T19e — Add real-time sibling emission timing paragraph
+
+**Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface
+**Original section:** docs/spec.md — Orientation > Session model
+**Split from:** "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" (entry 5 of 5, second reshape pass 2026-05-11; chosen Option A's `Spec edits` block)
+**Kind:** error-model
+**Importance:** high
+
+## Finding
+
+The parent finding identified that `pi-integration-contract.md`'s Deduplication and lifetime rules pin "exactly once per origin" but say nothing about ordering across concurrent origins. Per Option A's fifth spec edit, the spec must explicitly pin that sibling always-log emissions surface in real time at the originating site rather than being batched into the parent's tool-loop round. Siblings T19a–T19d install the registry-side, wire-field, dedup, and cancelled-shutdown-details changes respectively.
+
+## Spec Documents
+
+- `docs/spec_topics/pi-integration-contract.md` — Runtime event channel (edited; one paragraph appended)
+
+## Plan Impact
+
+**Phases:** V18
+
+**Leaves (implementation order):**
+
+- V18q — Runtime event channel and always-log emission — (modified — tests must cover concurrent-sibling failure interleaving without asserting a specific interleaving order)
+
+## Consequence
+
+**Severity:** correctness
+
+Without the timing rule pinned, an implementer could batch sibling emissions until the parent's tool-loop round closes, changing the operator-observable timing of failures and breaking the implicit assumption behind V18q's emission tests.
+
+## Solution Space
+
+**Shape:** single
+**Atomicity:** atomic
+
+### Recommendation
+
+Append one paragraph to `pi-integration-contract.md`'s Runtime event channel section stating that sibling always-log emissions appear on `loom-system-note` in real time at the originating site (no batching, no aggregation; interleaving order is the JavaScript event-loop scheduling order — non-normative for tests, observable for operators).
+
+Edge cases (applies to all children of T19): see T19a's edge-case list. Additionally, the interleaving-order clause is deliberately non-normative — V18q tests should not assert a specific interleaving.
+
+## Relationships
+
+- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve.
+- T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve.
+- T19c "Widen always-log dedup key to include invocation_id" — co-resolve.
+- T19d "Populate cancelled-by-session-shutdown details with invocation_id" — co-resolve.
 - T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
 - T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
 
