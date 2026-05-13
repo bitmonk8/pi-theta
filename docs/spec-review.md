@@ -302,7 +302,6 @@ Per the Option A decision (2026-05-08), document the per-surface mapping rather 
 - Do not rename `bind_model`, `bind_context`, or `bind_echo` to `binder_model` / `binder_context` / `binder_echo` — Option B (cross-surface rename) was explicitly rejected; the resolution is documentary.
 - The new `**binder model**` entry must be a sibling of (not a replacement for) the existing `**binder**` glossary entry — the latter refers to the mechanism, not the model.
 - The `loom/load/binder-model-unresolved` remediation-hint string in `docs/spec_topics/diagnostics.md` is verbatim author-facing; if a `See:` reference is added it must be appended after the hint, not spliced inside.
-- Coordinate the root-word framing with the sibling "Binder LLM model" / "binder model" rename finding so the prose-side rename in `docs/spec.md` capability bullet 7 / anchor `sdk-cap-binder-llm-model` in PIC is not duplicated here.
 
 ## Success criteria
 
@@ -583,11 +582,11 @@ None
 
 ---
 
-# T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
+# T11c — V6k normative test vector for `max_rounds: 0` typed query
 
 **Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated
-**Original section:** docs/spec_topics/query.md and docs/spec_topics/hard-ceilings.md
-**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 1 of 3)
+**Original section:** docs/plan_topics/v6-typed-queries.md
+**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 3 of 3)
 **Kind:** testability
 **Importance:** high
 **Atomicity:** atomic
@@ -596,30 +595,28 @@ None
 
 ## Problem
 
-The *Tool-call loop bound* section in `docs/spec_topics/query.md` (anchor `tool-call-loop-bound`) and the `tool_loop` field paragraph in `docs/spec_topics/frontmatter.md` each assert that the forced respond turn for a typed query consumes one `tool_loop` slot. That framing contradicts CIO-4 in `docs/spec_topics/hard-ceilings.md` and its *Depth-6 forced respond at `max_rounds`* worked consequence, which together treat the forced respond turn as the unconditional terminating mechanism CIO-4's `max_rounds`-final branch routes to (slot-accounting is evaluated only against free-phase rounds). At `max_rounds: 0` the contradiction is directly observable: under the "consumes one slot" reading the only available turn is already over budget; under CIO-4 it MUST still be dispatched. The sibling findings T11b and T11c cannot land their V6k changes against the spec until this prose is reconciled.
+The V6k *Tests* line in `docs/plan_topics/v6-typed-queries.md` (leaf "V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError`") currently exercises `max_rounds: 0` only as far as asserting that the model receives an empty `tools` set during the free phase; it does not pin the boundary outcome of a `max_rounds: 0` typed query. Two compliant readings of the spec rule established by T11a and the V6k counting-formula re-stated by T11b — one in which the forced respond turn fires (returning `Ok(validated_value)`) and one in which the loop is treated as already exhausted (returning `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`) — would each pass V6k's existing *Tests* row and *Ships when* gate, so the leaf cannot catch the divergence.
 
 ## Solution approach
 
-Rewrite the relevant sentences in the *Tool-call loop bound* section of `docs/spec_topics/query.md` and in the `tool_loop` field paragraph of `docs/spec_topics/frontmatter.md` to replace the "consumes one slot" framing with an explicit forced-respond-exemption rule: the forced respond turn is the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to; the runtime MUST dispatch it on every typed query that reaches that branch (including the `max_rounds: 0` boundary case, where it is the only turn issued); and CIO-4's slot-accounting check is not evaluated against the forced respond turn itself. Confirm `docs/spec_topics/hard-ceilings.md` CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence remain aligned with the new rule and leave them unedited if they do.
+Add a paired normative test vector to V6k's *Tests* line covering the `max_rounds: 0` typed-query boundary: one row in which the model — invoked once against an empty tool set with forced choice on the respond tool — emits a valid respond-tool call and the query MUST return `Ok(validated_value)`, paired with one row in which the model emits a non-respond `tool_use` block (or text under non-strict providers) and the query MUST return `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`. The error-payload field values are load-bearing because they are what distinguishes the two compliant readings the finding identifies. Land after T11a (spec rule) and T11b (V6k *Adds* formula) per Relationships.
 
 ## Solution constraints
 
-- Treat `docs/spec_topics/hard-ceilings.md` (CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence) and PIC-1 (d) in `docs/spec_topics/pi-integration-contract.md` as read-only — they are already aligned with the new rule.
-- Plan leaves V6k and V6l in `docs/plan_topics/v6-typed-queries.md` are owned by T11b and T11c — out of scope here.
+- The new vector applies to the original typed query only; do not conflate `max_rounds: 0` on the original query with `max_rounds: 0` on a respond-repair follow-up (V13g follow-ups receive a fresh `tool_loop` budget).
+- Do not edit spec topic files; the *Tool-call loop bound* section in `docs/spec_topics/query.md` is owned by T11a.
 
 ## Success criteria
 
-- The *Tool-call loop bound* section in `docs/spec_topics/query.md` (anchor `tool-call-loop-bound`) no longer contains the literal sentence "The forced respond turn for typed queries also consumes one slot." or any equivalent assertion that the forced respond turn occupies a `tool_loop` slot.
-- The `tool_loop` field paragraph in `docs/spec_topics/frontmatter.md` no longer contains the literal sentence "The forced respond turn that terminates a typed query also consumes one slot." or any equivalent assertion that the forced respond turn occupies a `tool_loop` slot.
-- Both edited paragraphs state that the runtime MUST dispatch the forced respond turn on every typed query that reaches CIO-4's terminating branch, including the `max_rounds: 0` boundary case.
-- Both edited paragraphs state that CIO-4's slot-accounting check is not evaluated against the forced respond turn itself.
-- The respond-repair follow-up clause stating that each follow-up receives a fresh `tool_loop` budget remains present in both edited paragraphs.
-- The CIO-4 paragraph and the *Depth-6 forced respond at `max_rounds`* worked consequence in `docs/spec_topics/hard-ceilings.md`, and the PIC-1 (d) V1 reachable predicate in `docs/spec_topics/pi-integration-contract.md`, are unchanged byte-for-byte by this finding.
+- V6k's *Tests* line in `docs/plan_topics/v6-typed-queries.md` contains a row asserting that a typed query with `max_rounds: 0` whose forced respond turn returns a valid respond-tool call returns `Ok(validated_value)`.
+- V6k's *Tests* line contains a paired row asserting that the same `max_rounds: 0` typed-query setup, when the model emits a non-respond `tool_use` block (or text under non-strict providers) instead of a respond-tool call, returns `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })` — including each of the literal payload fields `kind: "tool_loop_exhausted"`, `rounds: 0`, and `last_tool_name: null`.
+- V6k's *Tests* line continues to assert that `max_rounds: 0` causes the model to receive an empty `tools` set during the free phase.
+- The V6k *Adds* paragraph, *Spec* line, *Deps* line, and *Ships when* line in `docs/plan_topics/v6-typed-queries.md` are unchanged byte-for-byte by this finding's edits, and no spec topic file is modified.
 
 ## Relationships
 
-- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-precede (the prose rule must land before V6k's formula can be rewritten against it).
-- T11c "V6k normative test vector for `max_rounds: 0` typed query" — must-precede (the prose rule must land before V6k's test can assert against it).
+- T11a "Replace 'consumes one slot' prose with explicit forced-respond exemption rule" — must-follow.
+- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-follow.
 
 ---
 
@@ -663,11 +660,11 @@ Rewrite the counting-formula and exhaustion sentences in V6k's *Adds* paragraph 
 
 ---
 
-# T11c — V6k normative test vector for `max_rounds: 0` typed query
+# T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
 
 **Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated
-**Original section:** docs/plan_topics/v6-typed-queries.md
-**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 3 of 3)
+**Original section:** docs/spec_topics/query.md and docs/spec_topics/hard-ceilings.md
+**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 1 of 3)
 **Kind:** testability
 **Importance:** high
 **Atomicity:** atomic
@@ -676,28 +673,30 @@ Rewrite the counting-formula and exhaustion sentences in V6k's *Adds* paragraph 
 
 ## Problem
 
-The V6k *Tests* line in `docs/plan_topics/v6-typed-queries.md` (leaf "V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError`") currently exercises `max_rounds: 0` only as far as asserting that the model receives an empty `tools` set during the free phase; it does not pin the boundary outcome of a `max_rounds: 0` typed query. Two compliant readings of the spec rule established by T11a and the V6k counting-formula re-stated by T11b — one in which the forced respond turn fires (returning `Ok(validated_value)`) and one in which the loop is treated as already exhausted (returning `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`) — would each pass V6k's existing *Tests* row and *Ships when* gate, so the leaf cannot catch the divergence.
+The *Tool-call loop bound* section in `docs/spec_topics/query.md` (anchor `tool-call-loop-bound`) and the `tool_loop` field paragraph in `docs/spec_topics/frontmatter.md` each assert that the forced respond turn for a typed query consumes one `tool_loop` slot. That framing contradicts CIO-4 in `docs/spec_topics/hard-ceilings.md` and its *Depth-6 forced respond at `max_rounds`* worked consequence, which together treat the forced respond turn as the unconditional terminating mechanism CIO-4's `max_rounds`-final branch routes to (slot-accounting is evaluated only against free-phase rounds). At `max_rounds: 0` the contradiction is directly observable: under the "consumes one slot" reading the only available turn is already over budget; under CIO-4 it MUST still be dispatched. The sibling findings T11b and T11c cannot land their V6k changes against the spec until this prose is reconciled.
 
 ## Solution approach
 
-Add a paired normative test vector to V6k's *Tests* line covering the `max_rounds: 0` typed-query boundary: one row in which the model — invoked once against an empty tool set with forced choice on the respond tool — emits a valid respond-tool call and the query MUST return `Ok(validated_value)`, paired with one row in which the model emits a non-respond `tool_use` block (or text under non-strict providers) and the query MUST return `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`. The error-payload field values are load-bearing because they are what distinguishes the two compliant readings the finding identifies. Land after T11a (spec rule) and T11b (V6k *Adds* formula) per Relationships.
+Rewrite the relevant sentences in the *Tool-call loop bound* section of `docs/spec_topics/query.md` and in the `tool_loop` field paragraph of `docs/spec_topics/frontmatter.md` to replace the "consumes one slot" framing with an explicit forced-respond-exemption rule: the forced respond turn is the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to; the runtime MUST dispatch it on every typed query that reaches that branch (including the `max_rounds: 0` boundary case, where it is the only turn issued); and CIO-4's slot-accounting check is not evaluated against the forced respond turn itself. Confirm `docs/spec_topics/hard-ceilings.md` CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence remain aligned with the new rule and leave them unedited if they do.
 
 ## Solution constraints
 
-- The new vector applies to the original typed query only; do not conflate `max_rounds: 0` on the original query with `max_rounds: 0` on a respond-repair follow-up (V13g follow-ups receive a fresh `tool_loop` budget).
-- Do not edit spec topic files; the *Tool-call loop bound* section in `docs/spec_topics/query.md` is owned by T11a.
+- Treat `docs/spec_topics/hard-ceilings.md` (CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence) and PIC-1 (d) in `docs/spec_topics/pi-integration-contract.md` as read-only — they are already aligned with the new rule.
+- Plan leaves V6k and V6l in `docs/plan_topics/v6-typed-queries.md` are owned by T11b and T11c — out of scope here.
 
 ## Success criteria
 
-- V6k's *Tests* line in `docs/plan_topics/v6-typed-queries.md` contains a row asserting that a typed query with `max_rounds: 0` whose forced respond turn returns a valid respond-tool call returns `Ok(validated_value)`.
-- V6k's *Tests* line contains a paired row asserting that the same `max_rounds: 0` typed-query setup, when the model emits a non-respond `tool_use` block (or text under non-strict providers) instead of a respond-tool call, returns `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })` — including each of the literal payload fields `kind: "tool_loop_exhausted"`, `rounds: 0`, and `last_tool_name: null`.
-- V6k's *Tests* line continues to assert that `max_rounds: 0` causes the model to receive an empty `tools` set during the free phase.
-- The V6k *Adds* paragraph, *Spec* line, *Deps* line, and *Ships when* line in `docs/plan_topics/v6-typed-queries.md` are unchanged byte-for-byte by this finding's edits, and no spec topic file is modified.
+- The *Tool-call loop bound* section in `docs/spec_topics/query.md` (anchor `tool-call-loop-bound`) no longer contains the literal sentence "The forced respond turn for typed queries also consumes one slot." or any equivalent assertion that the forced respond turn occupies a `tool_loop` slot.
+- The `tool_loop` field paragraph in `docs/spec_topics/frontmatter.md` no longer contains the literal sentence "The forced respond turn that terminates a typed query also consumes one slot." or any equivalent assertion that the forced respond turn occupies a `tool_loop` slot.
+- Both edited paragraphs state that the runtime MUST dispatch the forced respond turn on every typed query that reaches CIO-4's terminating branch, including the `max_rounds: 0` boundary case.
+- Both edited paragraphs state that CIO-4's slot-accounting check is not evaluated against the forced respond turn itself.
+- The respond-repair follow-up clause stating that each follow-up receives a fresh `tool_loop` budget remains present in both edited paragraphs.
+- The CIO-4 paragraph and the *Depth-6 forced respond at `max_rounds`* worked consequence in `docs/spec_topics/hard-ceilings.md`, and the PIC-1 (d) V1 reachable predicate in `docs/spec_topics/pi-integration-contract.md`, are unchanged byte-for-byte by this finding.
 
 ## Relationships
 
-- T11a "Replace 'consumes one slot' prose with explicit forced-respond exemption rule" — must-follow.
-- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-follow.
+- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-precede (the prose rule must land before V6k's formula can be rewritten against it).
+- T11c "V6k normative test vector for `max_rounds: 0` typed query" — must-precede (the prose rule must land before V6k's test can assert against it).
 
 ---
 
@@ -826,13 +825,13 @@ The `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prere
 
 ## Solution approach
 
-Rewrite the `<a id="session-model"></a>` paragraph so it carries only four orientation-level sentences: the one-session-at-a-time binding with its existing forward-link to the Session-binding contract in `docs/spec_topics/pi-integration-contract.md`; the `session_shutdown` payload reference with its existing teardown forward-link to the Extension entry point in `docs/spec_topics/pi-integration-contract.md`; the closed `event.reason` set anchored to the SDK type in `@mariozechner/pi-coding-agent`'s `dist/core/extensions/types.d.ts`; and a forward-link to the new `Concurrency model` architectural home created by T15b. Delete from this paragraph every clause being relocated by T15b (mode-qualified isolation summary, prompt-mode sequentiality with premises (i)/(ii)/(iii), genuine-concurrency-only-between-subagent-invocations conclusion, cancellation-propagates-downward restatement, per-invocation budget scoping, no-admission-cap statement) and every clause being lifted by T15c (parallel-`invoke` deferral, concurrent-user-sessions deferral). Co-resolve with T15b and T15c so the reduction, the relocation, and the lift land in one commit.
+Rewrite the `<a id="session-model"></a>` paragraph so it carries only four orientation-level sentences: the one-session-at-a-time binding with its existing forward-link to the Session-binding contract in `docs/spec_topics/pi-integration-contract.md`; the `session_shutdown` payload reference with its existing teardown forward-link to the Extension entry point in `docs/spec_topics/pi-integration-contract.md`; the closed `event.reason` set anchored to the SDK type in `@mariozechner/pi-coding-agent`'s `dist/core/extensions/types.d.ts`; and a forward-link to the `Concurrency model` architectural home installed by T15b. Delete from this paragraph every clause already copied to that subsection by T15b (mode-qualified isolation summary, prompt-mode sequentiality with premises (i)/(ii)/(iii), genuine-concurrency-only-between-subagent-invocations conclusion, cancellation-propagates-downward restatement, per-invocation budget scoping, no-admission-cap statement) and every clause already lifted by T15c (parallel-`invoke` deferral, concurrent-user-sessions deferral). T15b and T15c land in the two preceding commits under bottom-up addressing order; this finding is the cleanup pass that resolves the transient duplication those commits introduced. The `/fix-spec-shape-single-findings` orchestrator commits one finding at a time — do not attempt to merge with T15b or T15c.
 
 ## Solution constraints
 
 - The reduced paragraph must retain the `<a id="session-model"></a>` anchor — inbound links (the Overview's terminal-outcomes paragraph, the `[Session model](#session-model)` reference inside the V1 non-goals subsection) depend on it.
 - The destination `Concurrency model` subsection is owned by T15b — do not author it under this finding.
-- Co-resolve in one commit with T15b and T15c; landing this reduction in isolation drops the architectural clauses and scope deferrals on the floor.
+- T15b and T15c MUST have already landed before this finding is addressed (bottom-up ordering guarantees this: T15c at the highest line number is addressed first, T15b second, this finding T15a last). If either the `Concurrency model` subsection installed by T15b or the V1 non-goals entries verified by T15c is absent at edit time, defer.
 
 ## Success criteria
 
@@ -869,16 +868,16 @@ The architectural half of the `<a id="session-model"></a>` paragraph in `docs/sp
 
 ## Solution approach
 
-Add a new `Concurrency model` subsection in `docs/spec.md` under either `## Extension Architecture` (as a sibling entry to Pi Extension Integration) or `## Implementation Notes` (as a new bulleted entry); pick whichever home the rest of the T15 / T16 placement cluster selects for prompt-vs-subagent-mode mechanics and apply the same choice here. Move the listed architectural clauses out of the `<a id="session-model"></a>` paragraph into the new subsection as an aggregator analogous to the Hard-ceilings bullet, preserving each clause's existing forward-links to `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, and `docs/spec_topics/frontmatter.md` verbatim. Co-resolve with T15a so the migration and the Orientation reduction land in one commit.
+Add a new `Concurrency model` subsection in `docs/spec.md` under either `## Extension Architecture` (as a sibling entry to Pi Extension Integration) or `## Implementation Notes` (as a new bulleted entry); pick whichever home the rest of the T15 / T16 placement cluster selects for prompt-vs-subagent-mode mechanics and apply the same choice here. **Copy** the listed architectural clauses into the new subsection as an aggregator analogous to the Hard-ceilings bullet, preserving each clause's existing forward-links to `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, and `docs/spec_topics/frontmatter.md` verbatim. The corresponding **removal** from the `<a id="session-model"></a>` paragraph is owned by T15a and is out of scope here — the addition (this finding) and the removal (T15a) land as two consecutive single-finding commits under bottom-up ordering, with a transient content duplication in HEAD between them by design.
 
 ## Solution constraints
 
 - The new subsection's home (under `## Extension Architecture` or `## Implementation Notes`) must match whichever home the rest of the T15 / T16 placement cluster selects for prompt-vs-subagent-mode mechanics — apply the same choice consistently.
 - The new subsection is an aggregator: do not restate owner-page text beyond what the forward-links require.
-- Preserve every forward-link from the migrated clauses verbatim — same targets, same count — across the relocation. This is a relocation, not a rewrite.
+- Preserve every forward-link from the listed clauses verbatim — same targets, same count — across the copy. This is a copy, not a rewrite.
 - Preserve the three sequentiality premises (i)/(ii)/(iii) verbatim from the source paragraph; the fourth premise is owned by T14 and added in T14's edit pass, not here.
-- The `<a id="session-model"></a>` paragraph removal is owned by T15a — do not edit it under this finding.
-- Co-resolve with T15a in one commit; the migration cannot land while the Orientation paragraph still carries the content.
+- Do NOT edit the `<a id="session-model"></a>` paragraph under this finding — removal of the now-duplicated clauses from the source paragraph is owned by T15a and lands in the immediately-following commit under bottom-up ordering. A transient content duplication between the new `Concurrency model` subsection and the still-untouched `<a id="session-model"></a>` paragraph is the **expected intermediate state** between this commit and T15a's commit.
+- **Inner-loop guidance for the spec-diff fix loop on this commit:** the diff for this finding intentionally introduces content that duplicates the unchanged `<a id="session-model"></a>` paragraph in `docs/spec.md`. Findings of the form *"the new Concurrency model subsection duplicates the session-model paragraph"*, *"the same forward-link appears in two places"*, or *"premises (i)/(ii)/(iii) are stated twice"* are out of scope for the inner loop on this commit and MUST NOT be acted on by `spec-diff-fixer` — fixing them would either re-add removed content (defeating the finding's purpose) or remove content from the still-canonical session-model paragraph (crossing the scope guard above and pre-empting T15a's commit). Treat any such finding as `ignore — out-of-scope`.
 
 ## Success criteria
 
@@ -1138,10 +1137,11 @@ Rewrite the session-model paragraph in `docs/spec.md` so every site naming the t
 
 ---
 
-# T18a — Append success-side null-policy paragraph to PIC Runtime event channel
+# T18d — Add V18q test asserting zero `loom-system-note` emissions on successful termination
 
 **Original heading:** Success-outcome observability and operator-channel obligations undefined
-**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
+**Original section:** docs/plan_topics/v18-cancellation.md
+**Split from:** "Success-side operator observability is unstated" (entry 4 of 4)
 **Kind:** completeness
 **Importance:** medium
 **Atomicity:** atomic
@@ -1150,72 +1150,29 @@ Rewrite the session-model paragraph in `docs/spec.md` so every site naming the t
 
 ## Problem
 
-The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` enumerates the **always-log set** of failure outcomes that emit on the `loom-system-note` channel — including the explicit four-excluded-kinds paragraph (`validation`, `context_overflow`, `cancelled`, `invoke_callee_error`) — but never makes the symmetric statement on the success side: that a loom terminating with `Ok(v)`, including a child loom whose `Ok` flows to its `invoke` parent, emits no event on that channel. Reviewers must triangulate against `docs/spec_topics/invocation.md` and the per-mode bullets in `docs/spec_topics/slash-invocation.md` to confirm the success-visible surfaces are programmatic-only, and the sibling per-surface restatements (T18b in `slash-invocation.md`, T18c in `spec.md`) and the V18q test clause (T18d) have no central spec sentence to anchor against.
+The V18q **Tests.** bullet under `## V18q — Runtime event channel and always-log emission` in `docs/plan_topics/v18-cancellation.md` asserts via clause (b) that the four excluded `kind`s (`validation`, `context_overflow`, `cancelled`, `invoke_callee_error`) emit zero `loom-system-note` events on the always-log channel, but contains no symmetric clause asserting the success-side null: that a loom terminating with `Ok(v)` emits zero `loom-system-note` events on that channel. Sibling T18a installs the central success-side null-policy paragraph in PIC Runtime event channel; without a paired test clause in V18q, the leaf's **Ships when.** condition cannot catch a regression of that rule, and two compliant implementations could ship divergent success-side emission behaviour.
 
 ## Solution approach
 
-Append one paragraph to the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md`, placed as a coherent peer of the always-log-set framing (around the four-excluded-kinds enumeration / discard-site disposition cluster, not interleaved with the `RuntimeEvent` payload normative text). The paragraph MUST name the `loom-system-note` channel, assert the zero-emission predicate on successful terminal outcomes (including the case where a child loom's `Ok` flows to its `invoke` parent), identify the success-visible surfaces as the driven conversation in prompt mode and the programmatic return value in every mode, and frame itself as the success-side counterpart of the always-log set's failure inventory. The paragraph scopes its null-policy to the *terminal* surface only — pre-evaluation surfaces remain operator-visible regardless of terminal outcome and are out of scope.
+Add one new lettered clause to the V18q **Tests.** bullet in `docs/plan_topics/v18-cancellation.md` asserting that a successful prompt-mode loom and a successful slash-invoked subagent-mode loom each emit zero `loom-system-note` events on the always-log channel. Mirror clause (b)'s structural shape (one clause covering both scenarios inline). The clause asserts against the success-side null-policy that sibling T18a installs centrally in PIC Runtime event channel; do not author the spec-side rule here.
 
 ## Solution constraints
 
-- Scope the null-policy to the *terminal* outcome surface only; do not extend it to pre-evaluation surfaces (the binder echo on `bind_echo: true` and the no-params overflow note remain operator-visible regardless of terminal outcome).
-- Do not add a "completed" parity note for subagent slash invocations — that re-opens the deferred aggregation / latency surface intentionally scoped out of V1.
-- The per-mode operator-side null sentences in `slash-invocation.md`, the `spec.md` **Runtime observability** aggregator forward-link, and the V18q test clause are owned by T18b, T18c, and T18d respectively.
-- Do not introduce a new diagnostic code, a new always-log `kind`, or a new `customType` value; the edit is one additive paragraph inside the existing section.
+- Append to V18q's **Tests.** bullet using the next free letter; do not renumber, drop, reword, or reorder existing clauses (a) through (l). In particular, do not weaken clause (b)'s four-excluded-kinds enumeration — the success-side null is additive to those guarantees, not a substitute.
+- Do not edit V18q's **Spec.**, **Adds.**, **Deps.**, or **Ships when.** lines, and do not introduce a new diagnostic code, always-log `kind`, `customType`, or cross-leaf dependency change.
 
 ## Success criteria
 
-- The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` contains a paragraph that names the `loom-system-note` channel, asserts the zero-emission predicate on successful terminal outcomes, identifies the driven conversation (prompt mode) and the programmatic return value (every mode) as the success-visible surfaces, and explicitly covers the case where a child loom's `Ok` flows to its `invoke` parent — or wording of equivalent normative force naming the channel, the zero-emission predicate, both per-mode success-visible surfaces, and the `invoke`-parent `Ok` propagation case.
-- The pre-existing always-log-set framing in the same section — the group A / group B partition, the four-excluded-kinds enumeration, the discard-site disposition paragraph, the engine-assumption carve-out, and the `RuntimeEvent` payload shape — remains present and unchanged in normative content.
-- No "completed" parity note for subagent slash invocations is authored, no per-mode operator-side null sentence is authored inside `pi-integration-contract.md` (those remain owned by T18b in `slash-invocation.md`), and no edit is made to `docs/spec.md` or any other topic file under this finding.
-- No new diagnostic-code identifier appears in `docs/spec_topics/diagnostics.md`, no new `customType` value or always-log `kind` appears anywhere, and the always-log-set partitioning by routing channel remains unchanged.
+- The V18q **Tests.** bullet under `## V18q — Runtime event channel and always-log emission` in `docs/plan_topics/v18-cancellation.md` contains a new lettered clause that names both a successful prompt-mode loom and a successful slash-invoked subagent-mode loom and asserts zero `loom-system-note` emissions on the always-log channel for each (or wording of equivalent normative force naming both modes and the zero-emission predicate).
+- All pre-existing V18q Tests clauses (a) through (l), including clause (b)'s four-excluded-kinds enumeration, remain present in the same **Tests.** bullet with their original wording, lettering, and order unchanged.
+- The V18q **Spec.**, **Adds.**, **Deps.**, and **Ships when.** lines remain textually unchanged, and no other `## V18` leaf in the file is edited.
+- No new diagnostic-code identifier appears in `docs/spec_topics/diagnostics.md`, no new `customType` value or always-log `kind` appears anywhere, and no spec topic file is edited under this finding (the central PIC rule is owned by T18a).
 
 ## Relationships
 
-- T18b "Add per-mode operator-side null sentences to slash-invocation.md" — must-precede (the central PIC paragraph must land before the slash-invocation restatement points at it).
-- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — must-precede (the bullet's forward-link target must exist).
-- T18d "Add V18q test asserting zero `loom-system-note` emissions on successful termination" — must-precede (the test asserts against the spec sentence installed here).
-- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — same-cluster (operator-surface gap on the failure side; symmetric to this child's success-side gap; co-resolve siblings T19b/c/d/e also relevant).
-- T06 "Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers" — same-cluster.
-
----
-
-# T18b — Add per-mode operator-side null sentences to slash-invocation.md
-
-**Original heading:** Success-outcome observability and operator-channel obligations undefined
-**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
-**Split from:** "Success-side operator observability is unstated" (entry 2 of 4)
-**Kind:** completeness
-**Importance:** medium
-**Atomicity:** atomic
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The **prompt mode** and **subagent mode** bullets under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md` describe the per-mode invocation and conversation-driving surfaces but neither bullet states the operator-side success-outcome null — that a successfully terminating loom emits no `loom-system-note` and that the operator-visible surfaces on success are the per-mode conversation / programmatic-return-value pair only. Sibling T18a installs the central success-side null-policy paragraph in the PIC **Runtime event channel** section, but a reader of `slash-invocation.md` must triangulate against PIC and `docs/spec_topics/invocation.md` to confirm the absence of a terminal operator-side note is deliberate rather than an under-specified surface.
-
-## Solution approach
-
-Add one per-surface null sentence to each of the **prompt mode** and **subagent mode** bullets under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md`. Each sentence restates, at the per-mode operator-surface level, the success-side null-policy that T18a installs centrally in the PIC **Runtime event channel** section: the prompt-mode sentence names `loom-system-note` and asserts no such note is emitted on successful termination, identifying the driven conversation as the operator-visible surface; the subagent-mode sentence asserts that the operator sees no terminal note on success (the subagent transcript is private and the return value reaches only the programmatic caller) and identifies the pre-start binder echo and the failure-side top-level `Err` note as the operator-visible surfaces. Do not author the central rule — restate the per-mode consequence and rely on T18a's PIC paragraph for the normative source.
-
-## Solution constraints
-
-- Do not modify the pre-existing per-mode framing in either bullet (the prompt-mode current-conversation-driving description and `Ok`-return-value-not-surfaced-to-user clause; the subagent-mode fresh-isolated-conversation description and return-value-only-reaches-caller clause).
-- The central success-side null-policy paragraph (T18a), the `spec.md` aggregator forward-link (T18c), and the V18q test clause (T18d) are owned elsewhere — out of scope here.
-
-## Success criteria
-
-- The **prompt mode** bullet under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md` contains text naming `loom-system-note` and asserting the zero-emission predicate on successful termination, with the driven conversation named as the operator-visible surface (or wording of equivalent normative force naming the channel, the zero-emission predicate, and the operator-visible surface).
-- The **subagent mode** bullet under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md` contains text asserting that on successful termination the operator sees no terminal note (the subagent transcript is private; the return value reaches only the programmatic caller) and naming both the pre-start binder echo and the failure-side top-level `Err` note as the subagent-mode operator-visible surfaces.
-- The pre-existing prompt-mode and subagent-mode framing in those bullets — the current-conversation-driving description and the `Ok`-return-value-not-surfaced-to-user clause; the fresh-isolated-conversation description and the return-value-only-reaches-caller clause — remains present and unchanged in normative content, and no other section of `docs/spec_topics/slash-invocation.md` is edited.
-- No central success-side null-policy paragraph is authored in `docs/spec_topics/slash-invocation.md` (owned by T18a), no edit is made to `docs/spec.md` or any other topic file under this finding, and no new diagnostic-code identifier appears in `docs/spec_topics/diagnostics.md`.
-
-## Relationships
-
-- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-follow (the central rule must land first).
-- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — co-resolve (sibling per-surface restatement; same edit pass).
-- T18d "Add V18q test asserting zero `loom-system-note` emissions on successful termination" — co-resolve.
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-follow.
+- T18b "Add per-mode operator-side null sentences to slash-invocation.md" — co-resolve.
+- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — co-resolve.
 
 ---
 
@@ -1259,11 +1216,11 @@ Widen the **Runtime observability** bullet under `### Scope` in `docs/spec.md` b
 
 ---
 
-# T18d — Add V18q test asserting zero `loom-system-note` emissions on successful termination
+# T18b — Add per-mode operator-side null sentences to slash-invocation.md
 
 **Original heading:** Success-outcome observability and operator-channel obligations undefined
-**Original section:** docs/plan_topics/v18-cancellation.md
-**Split from:** "Success-side operator observability is unstated" (entry 4 of 4)
+**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
+**Split from:** "Success-side operator observability is unstated" (entry 2 of 4)
 **Kind:** completeness
 **Importance:** medium
 **Atomicity:** atomic
@@ -1272,36 +1229,79 @@ Widen the **Runtime observability** bullet under `### Scope` in `docs/spec.md` b
 
 ## Problem
 
-The V18q **Tests.** bullet under `## V18q — Runtime event channel and always-log emission` in `docs/plan_topics/v18-cancellation.md` asserts via clause (b) that the four excluded `kind`s (`validation`, `context_overflow`, `cancelled`, `invoke_callee_error`) emit zero `loom-system-note` events on the always-log channel, but contains no symmetric clause asserting the success-side null: that a loom terminating with `Ok(v)` emits zero `loom-system-note` events on that channel. Sibling T18a installs the central success-side null-policy paragraph in PIC Runtime event channel; without a paired test clause in V18q, the leaf's **Ships when.** condition cannot catch a regression of that rule, and two compliant implementations could ship divergent success-side emission behaviour.
+The **prompt mode** and **subagent mode** bullets under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md` describe the per-mode invocation and conversation-driving surfaces but neither bullet states the operator-side success-outcome null — that a successfully terminating loom emits no `loom-system-note` and that the operator-visible surfaces on success are the per-mode conversation / programmatic-return-value pair only. Sibling T18a installs the central success-side null-policy paragraph in the PIC **Runtime event channel** section, but a reader of `slash-invocation.md` must triangulate against PIC and `docs/spec_topics/invocation.md` to confirm the absence of a terminal operator-side note is deliberate rather than an under-specified surface.
 
 ## Solution approach
 
-Add one new lettered clause to the V18q **Tests.** bullet in `docs/plan_topics/v18-cancellation.md` asserting that a successful prompt-mode loom and a successful slash-invoked subagent-mode loom each emit zero `loom-system-note` events on the always-log channel. Mirror clause (b)'s structural shape (one clause covering both scenarios inline). The clause asserts against the success-side null-policy that sibling T18a installs centrally in PIC Runtime event channel; do not author the spec-side rule here.
+Add one per-surface null sentence to each of the **prompt mode** and **subagent mode** bullets under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md`. Each sentence restates, at the per-mode operator-surface level, the success-side null-policy that T18a installs centrally in the PIC **Runtime event channel** section: the prompt-mode sentence names `loom-system-note` and asserts no such note is emitted on successful termination, identifying the driven conversation as the operator-visible surface; the subagent-mode sentence asserts that the operator sees no terminal note on success (the subagent transcript is private and the return value reaches only the programmatic caller) and identifies the pre-start binder echo and the failure-side top-level `Err` note as the operator-visible surfaces. Do not author the central rule — restate the per-mode consequence and rely on T18a's PIC paragraph for the normative source.
 
 ## Solution constraints
 
-- Append to V18q's **Tests.** bullet using the next free letter; do not renumber, drop, reword, or reorder existing clauses (a) through (l). In particular, do not weaken clause (b)'s four-excluded-kinds enumeration — the success-side null is additive to those guarantees, not a substitute.
-- Do not edit V18q's **Spec.**, **Adds.**, **Deps.**, or **Ships when.** lines, and do not introduce a new diagnostic code, always-log `kind`, `customType`, or cross-leaf dependency change.
+- Do not modify the pre-existing per-mode framing in either bullet (the prompt-mode current-conversation-driving description and `Ok`-return-value-not-surfaced-to-user clause; the subagent-mode fresh-isolated-conversation description and return-value-only-reaches-caller clause).
+- The central success-side null-policy paragraph (T18a), the `spec.md` aggregator forward-link (T18c), and the V18q test clause (T18d) are owned elsewhere — out of scope here.
 
 ## Success criteria
 
-- The V18q **Tests.** bullet under `## V18q — Runtime event channel and always-log emission` in `docs/plan_topics/v18-cancellation.md` contains a new lettered clause that names both a successful prompt-mode loom and a successful slash-invoked subagent-mode loom and asserts zero `loom-system-note` emissions on the always-log channel for each (or wording of equivalent normative force naming both modes and the zero-emission predicate).
-- All pre-existing V18q Tests clauses (a) through (l), including clause (b)'s four-excluded-kinds enumeration, remain present in the same **Tests.** bullet with their original wording, lettering, and order unchanged.
-- The V18q **Spec.**, **Adds.**, **Deps.**, and **Ships when.** lines remain textually unchanged, and no other `## V18` leaf in the file is edited.
-- No new diagnostic-code identifier appears in `docs/spec_topics/diagnostics.md`, no new `customType` value or always-log `kind` appears anywhere, and no spec topic file is edited under this finding (the central PIC rule is owned by T18a).
+- The **prompt mode** bullet under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md` contains text naming `loom-system-note` and asserting the zero-emission predicate on successful termination, with the driven conversation named as the operator-visible surface (or wording of equivalent normative force naming the channel, the zero-emission predicate, and the operator-visible surface).
+- The **subagent mode** bullet under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md` contains text asserting that on successful termination the operator sees no terminal note (the subagent transcript is private; the return value reaches only the programmatic caller) and naming both the pre-start binder echo and the failure-side top-level `Err` note as the subagent-mode operator-visible surfaces.
+- The pre-existing prompt-mode and subagent-mode framing in those bullets — the current-conversation-driving description and the `Ok`-return-value-not-surfaced-to-user clause; the fresh-isolated-conversation description and the return-value-only-reaches-caller clause — remains present and unchanged in normative content, and no other section of `docs/spec_topics/slash-invocation.md` is edited.
+- No central success-side null-policy paragraph is authored in `docs/spec_topics/slash-invocation.md` (owned by T18a), no edit is made to `docs/spec.md` or any other topic file under this finding, and no new diagnostic-code identifier appears in `docs/spec_topics/diagnostics.md`.
 
 ## Relationships
 
-- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-follow.
-- T18b "Add per-mode operator-side null sentences to slash-invocation.md" — co-resolve.
-- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — co-resolve.
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-follow (the central rule must land first).
+- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — co-resolve (sibling per-surface restatement; same edit pass).
+- T18d "Add V18q test asserting zero `loom-system-note` emissions on successful termination" — co-resolve.
 
 ---
 
-# T19a — Extend ActiveInvocationRegistry entry shape with invocationId
+# T18a — Append success-side null-policy paragraph to PIC Runtime event channel
+
+**Original heading:** Success-outcome observability and operator-channel obligations undefined
+**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
+**Kind:** completeness
+**Importance:** medium
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` enumerates the **always-log set** of failure outcomes that emit on the `loom-system-note` channel — including the explicit four-excluded-kinds paragraph (`validation`, `context_overflow`, `cancelled`, `invoke_callee_error`) — but never makes the symmetric statement on the success side: that a loom terminating with `Ok(v)`, including a child loom whose `Ok` flows to its `invoke` parent, emits no event on that channel. Reviewers must triangulate against `docs/spec_topics/invocation.md` and the per-mode bullets in `docs/spec_topics/slash-invocation.md` to confirm the success-visible surfaces are programmatic-only, and the sibling per-surface restatements (T18b in `slash-invocation.md`, T18c in `spec.md`) and the V18q test clause (T18d) have no central spec sentence to anchor against.
+
+## Solution approach
+
+Append one paragraph to the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md`, placed as a coherent peer of the always-log-set framing (around the four-excluded-kinds enumeration / discard-site disposition cluster, not interleaved with the `RuntimeEvent` payload normative text). The paragraph MUST name the `loom-system-note` channel, assert the zero-emission predicate on successful terminal outcomes (including the case where a child loom's `Ok` flows to its `invoke` parent), identify the success-visible surfaces as the driven conversation in prompt mode and the programmatic return value in every mode, and frame itself as the success-side counterpart of the always-log set's failure inventory. The paragraph scopes its null-policy to the *terminal* surface only — pre-evaluation surfaces remain operator-visible regardless of terminal outcome and are out of scope.
+
+## Solution constraints
+
+- Scope the null-policy to the *terminal* outcome surface only; do not extend it to pre-evaluation surfaces (the binder echo on `bind_echo: true` and the no-params overflow note remain operator-visible regardless of terminal outcome).
+- Do not add a "completed" parity note for subagent slash invocations — that re-opens the deferred aggregation / latency surface intentionally scoped out of V1.
+- The per-mode operator-side null sentences in `slash-invocation.md`, the `spec.md` **Runtime observability** aggregator forward-link, and the V18q test clause are owned by T18b, T18c, and T18d respectively.
+- Do not introduce a new diagnostic code, a new always-log `kind`, or a new `customType` value; the edit is one additive paragraph inside the existing section.
+
+## Success criteria
+
+- The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` contains a paragraph that names the `loom-system-note` channel, asserts the zero-emission predicate on successful terminal outcomes, identifies the driven conversation (prompt mode) and the programmatic return value (every mode) as the success-visible surfaces, and explicitly covers the case where a child loom's `Ok` flows to its `invoke` parent — or wording of equivalent normative force naming the channel, the zero-emission predicate, both per-mode success-visible surfaces, and the `invoke`-parent `Ok` propagation case.
+- The pre-existing always-log-set framing in the same section — the group A / group B partition, the four-excluded-kinds enumeration, the discard-site disposition paragraph, the engine-assumption carve-out, and the `RuntimeEvent` payload shape — remains present and unchanged in normative content.
+- No "completed" parity note for subagent slash invocations is authored, no per-mode operator-side null sentence is authored inside `pi-integration-contract.md` (those remain owned by T18b in `slash-invocation.md`), and no edit is made to `docs/spec.md` or any other topic file under this finding.
+- No new diagnostic-code identifier appears in `docs/spec_topics/diagnostics.md`, no new `customType` value or always-log `kind` appears anywhere, and the always-log-set partitioning by routing channel remains unchanged.
+
+## Relationships
+
+- T18b "Add per-mode operator-side null sentences to slash-invocation.md" — must-precede (the central PIC paragraph must land before the slash-invocation restatement points at it).
+- T18c "Widen spec.md Runtime observability bullet to forward-link the null-policy" — must-precede (the bullet's forward-link target must exist).
+- T18d "Add V18q test asserting zero `loom-system-note` emissions on successful termination" — must-precede (the test asserts against the spec sentence installed here).
+- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — same-cluster (operator-surface gap on the failure side; symmetric to this child's success-side gap; co-resolve siblings T19b/c/d/e also relevant).
+- T06 "Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers" — same-cluster.
+
+---
+
+# T19e — Add real-time sibling emission timing paragraph
 
 **Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface
 **Original section:** docs/spec.md — Orientation > Session model
+**Split from:** "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" (entry 5 of 5, second reshape pass 2026-05-11; chosen Option A's `Spec edits` block)
 **Kind:** error-model
 **Importance:** high
 **Atomicity:** atomic
@@ -1310,39 +1310,39 @@ Add one new lettered clause to the V18q **Tests.** bullet in `docs/plan_topics/v
 
 ## Problem
 
-The `ActiveInvocationRegistry` entry shape declared under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` carries no per-invocation correlation key — its current `Set<{ loomAbort: AbortController; disposeBarrier: Promise<void>; shutdownReason: string | undefined; loom: string }>` shape lets two concurrent sibling invocations of the same loom be indistinguishable on every downstream operator surface that reads from the registry. Sibling T19b adds an `invocation_id` wire field to `RuntimeEvent`, T19c widens the always-log dedup tuple to include it, and T19d populates `details.event.invocation_id` on the per-invocation `cancelled-by-session-shutdown` emission — all three rely on a canonical registry-side source for the id that does not yet exist. Without a per-entry id minted at registry-insertion time, none of the sibling consumers can populate or dedup on a stable per-invocation discriminator, and same-tick sibling fan-out collapses on every operator surface regardless of how the wire shape evolves.
+The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` pins exactly-once-per-origin emission semantics for `loom-system-note` always-log notes and lists Deduplication and lifetime rules, but does not pin emission timing across concurrent sibling invocations. An implementer reading the section could legally batch sibling always-log emissions until the parent's tool-loop round closes — deferring operator-visible failure timing — without violating any existing rule on the page. The omission also leaves V18q's concurrent-sibling emission tests without a normative anchor for whether sibling failures must surface in real time at the originating site.
 
 ## Solution approach
 
-Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` with a required `invocationId: string` member, and pin in the section's contract paragraph that each entry's `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, and `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` before any awaitable work, and is set on entry creation and never mutated thereafter. The exact identifier name, type, derivation primitive, and insertion-site placement are the substance of the change and are pinned as part of the registry-shape extension. Do not edit the `RuntimeEvent` wire shape, the dedup tuple, the `cancelled-by-session-shutdown` details payload, or any sibling-owned surface.
+Append one paragraph to the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` that pins sibling always-log emissions on `loom-system-note` to surface in real time at the originating emission site, forbids batching across the parent's tool-loop round, and names the JavaScript event-loop scheduling order as the interleaving order across concurrent sibling origins. The interleaving-order clause is operator-observable but explicitly non-normative for tests.
 
 ## Solution constraints
 
-- Preserve the existing entry-shape members (`loomAbort: AbortController`, `disposeBarrier: Promise<void>`, `shutdownReason: string | undefined`, `loom: string`) verbatim — same name, type, optionality marker, and order.
-- Do not introduce a parallel id channel and do not re-derive an id at any downstream emission site; T19c's dedup-key widening and T19d's `details.event.invocation_id` population both depend on a single registry-sourced value.
-- The `RuntimeEvent` `invocation_id` wire field, the always-log dedup-tuple widening, the `cancelled-by-session-shutdown` details addition, and the real-time sibling emission-timing paragraph are owned by T19b, T19c, T19d, and T19e respectively.
+- Place the new paragraph alongside the existing exactly-once-per-origin rule and the Deduplication and lifetime rules; do not relocate or reword the existing paragraphs in the section.
+- The interleaving-order clause is non-normative for tests — V18q (and any other test leaf) must not be required to assert a specific sibling interleaving order; only operator-observability of the JavaScript event-loop scheduling order is asserted.
+- The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` `invocation_id` wire field, the dedup-key widening, and the cancelled-by-session-shutdown details change are owned by T19a, T19b, T19c, and T19d respectively.
 - Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
 ## Success criteria
 
-- The `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` includes a required `invocationId: string` member (no `?` marker, no `| undefined` union, type `string`).
-- The previously-declared entry-shape members `loomAbort: AbortController`, `disposeBarrier: Promise<void>`, `shutdownReason: string | undefined`, and `loom: string` remain present in the same `Set<...>` declaration with their original names, types, and optionality markers unchanged.
-- The section under `id="active-invocation-registry"` pins that `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site inside the existing **Dispatch-site setup wrap** `try`/`catch` and is set on entry creation and never mutated thereafter (or wording of equivalent normative force naming the derivation primitive, the insertion-site placement, and the once-and-immutable lifetime).
-- No `RuntimeEvent` wire-field addition, dedup-tuple widening, `cancelled-by-session-shutdown` details change, or sibling timing-rule paragraph appears in this edit (each is owned by a sibling T19b/T19c/T19d/T19e), and no new diagnostic-code identifier is added to `docs/spec_topics/diagnostics.md`.
+- The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` contains exactly one new paragraph that names sibling always-log emissions on `loom-system-note`, asserts real-time emission at the originating site, and forbids deferring sibling emissions across the parent's tool-loop round.
+- The same paragraph names the JavaScript event-loop scheduling order as the interleaving order across concurrent sibling origins, marks that order as operator-observable, and explicitly states the order is non-normative for tests (i.e. tests are not required to assert any specific interleaving).
+- The exactly-once-per-origin clause and the Deduplication and lifetime rules earlier in the same section remain textually unchanged; the timing rule is added without weakening or rewording the emission-count guarantees.
+- No new diagnostic code identifier appears in `docs/spec_topics/diagnostics.md`, and no `invocation_id` wire field, `ActiveInvocationRegistry` shape change, dedup-key change, or cancelled-shutdown details change appears in this edit (each is owned by a sibling T19a–T19d).
 
 ## Relationships
 
+- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve.
 - T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve.
 - T19c "Widen always-log dedup key to include invocation_id" — co-resolve.
 - T19d "Populate cancelled-by-session-shutdown details with invocation_id" — co-resolve.
-- T19e "Add real-time sibling emission timing paragraph" — co-resolve.
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster.
-- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede (any decision to add operator-visibility for successful sibling outcomes will reuse the `invocation_id` field this child installs).
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
 - T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
 
 ---
 
-# T19b — Add invocation_id field to RuntimeEvent payload declaration
+# T19d — Populate cancelled-by-session-shutdown details with invocation_id
 
 **Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface
 **Original section:** docs/spec.md — Orientation > Session model
@@ -1354,30 +1354,31 @@ Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `
 
 ## Problem
 
-The `type RuntimeEvent = { ... }` declaration in the **Runtime event channel** section of `docs/spec_topics/pi-integration-contract.md`, introduced by the sentence pinning the shape as "normative and additive-only", carries no per-invocation correlation field. Sibling T19a sources an `invocationId` from the `ActiveInvocationRegistry` entry, but the wire payload has no destination for that value, so operator-side consumers of the always-log channel cannot distinguish concurrent-sibling emissions from the same loom. T19c's dedup-key widening and T19d's cancelled-by-session-shutdown details population both read this field and require it to be present on the wire shape.
+The `Per-invocation operator visibility (clean-cancel path)` rule under `id="session-shutdown-semantics"` in `docs/spec_topics/pi-integration-contract.md` pins the per-invocation `finally`'s `loom/runtime/cancelled-by-session-shutdown` emission as the teardown-time operator-visibility surface, currently populating `details.event.reason` (read from the registry entry's `shutdownReason`) and `details.event.loom` (read from the registry entry's `loom`). Sibling T19a extends `ActiveInvocationRegistry` entries with an `invocationId` field and sibling T19b adds `invocation_id` to `RuntimeEvent`, but the cleanly-cancelled per-invocation note has no spec rule pinning that `details.event.invocation_id` is populated. Without it, cleanly-cancelled concurrent siblings of the same loom collapse onto the same operator-stream row at teardown even after the registry source and wire field exist. The `loom/runtime/cancelled-by-session-shutdown` row in `docs/spec_topics/diagnostics.md` and the nesting convention under `id="session-shutdown-details-conventions"` in the same file inherit the same gap on the diagnostics-side surface.
 
 ## Solution approach
 
-Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }` declaration in the **Runtime event channel** section of `docs/spec_topics/pi-integration-contract.md`. Rely on the existing "normative and additive-only" sentence above the declaration to characterise the addition; do not re-author that contract note here. Do not edit the surrounding prose, the dedup-tuple statements, or any sibling-owned surface.
+Extend the `Per-invocation operator visibility (clean-cancel path)` rule under `id="session-shutdown-semantics"` in `docs/spec_topics/pi-integration-contract.md` to pin that the per-invocation `finally`'s `cancelled-by-session-shutdown` emission populates `details.event.invocation_id` by reading the registry entry's `invocationId` field (the same channel by which `details.event.loom` is read), not by re-deriving an id at the emission site. Mirror the addition in the `loom/runtime/cancelled-by-session-shutdown` row of `docs/spec_topics/diagnostics.md` and in the nesting-convention paragraph under `id="session-shutdown-details-conventions"` in the same file if and only if those locations enumerate the `details.event` field set; otherwise carry no diagnostics-side enumeration drift.
 
 ## Solution constraints
 
-- Preserve every existing `RuntimeEvent` field (`kind`, `code`, `loom`, `query_site`, `message`, `attempts`, `tokens_used`, `masked`, `occurred_at`) verbatim — same name, type, optionality marker, inline comment, and order.
-- The `ActiveInvocationRegistry` entry-shape change, the dedup-tuple widening, the cancelled-by-session-shutdown details addition, and the sibling timing paragraph are owned by T19a, T19c, T19d, and T19e respectively.
-- Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
+- Source `details.event.invocation_id` from the `ActiveInvocationRegistry` entry's `invocationId` field on the per-invocation `finally` (the same channel by which `details.event.loom` is read); do not re-derive an id at the emission site and do not introduce a parallel id channel.
+- Preserve the existing `details.event.reason` clauses (the `"quit" | "reload" | "new" | "resume" | "fork" | string` type pin, the four captured-value cases under the **Unknown-reason rule**, the `"<unreadable>"` sentinel rules including the post-deadline residual-gap arm) and the `details.event.loom` clause textually unchanged.
+- The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` wire-field addition, the dedup-key widening, and the real-time timing paragraph are owned by T19a, T19b, T19c, and T19e respectively.
+- Do not introduce a new diagnostic code or `details.kind` discriminator.
 
 ## Success criteria
 
-- The `type RuntimeEvent = { ... }` block in `docs/spec_topics/pi-integration-contract.md` declares a required `invocation_id: string` member (no `?` marker, type `string`).
-- Every previously-declared `RuntimeEvent` field (`kind`, `code`, `loom`, `query_site`, `message`, `attempts`, `tokens_used`, `masked`, `occurred_at`) remains present in the same declaration with its original name, type, optionality, and inline comment unchanged.
-- The sentence introducing the `type RuntimeEvent` block as "normative and additive-only" remains present and unchanged in the **Runtime event channel** section.
-- No `ActiveInvocationRegistry` shape change, dedup-tuple widening, cancelled-by-session-shutdown details change, or sibling timing-rule paragraph appears in this edit (each is owned by a sibling T19a/T19c/T19d/T19e), and no new diagnostic-code identifier is added to `docs/spec_topics/diagnostics.md`.
+- The `Per-invocation operator visibility (clean-cancel path)` rule under `id="session-shutdown-semantics"` in `docs/spec_topics/pi-integration-contract.md` names `details.event.invocation_id` and pins it as read from the `ActiveInvocationRegistry` entry's `invocationId` field on the per-invocation `finally`.
+- If the `loom/runtime/cancelled-by-session-shutdown` row in `docs/spec_topics/diagnostics.md` or the nesting-convention paragraph under `id="session-shutdown-details-conventions"` in the same file enumerates the `details.event` field set, the enumeration lists `invocation_id` alongside `reason` and `loom`; if neither location enumerates the field set, neither location is edited.
+- The pre-existing `details.event.reason` clauses (including the closed-set type pin and the `"<unreadable>"` sentinel rules) and the `details.event.loom` clause in the same `Per-invocation operator visibility (clean-cancel path)` rule remain textually unchanged.
+- No new diagnostic-code identifier is added to `docs/spec_topics/diagnostics.md`, no new `details.kind` discriminator appears, and no `ActiveInvocationRegistry` shape change, `RuntimeEvent` wire-field change, dedup-key change, or sibling timing-rule change appears in this edit (each is owned by a sibling T19a–T19e).
 
 ## Relationships
 
-- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve (this child consumes the field T19a sources).
+- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve (this child reads the registry entry T19a defines).
+- T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve.
 - T19c "Widen always-log dedup key to include invocation_id" — co-resolve.
-- T19d "Populate cancelled-by-session-shutdown details with invocation_id" — co-resolve.
 - T19e "Add real-time sibling emission timing paragraph" — co-resolve.
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster.
 - T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
@@ -1430,7 +1431,7 @@ Widen the dedup tuple stated in the **Deduplication and lifetime rules** sub-blo
 
 ---
 
-# T19d — Populate cancelled-by-session-shutdown details with invocation_id
+# T19b — Add invocation_id field to RuntimeEvent payload declaration
 
 **Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface
 **Original section:** docs/spec.md — Orientation > Session model
@@ -1442,31 +1443,30 @@ Widen the dedup tuple stated in the **Deduplication and lifetime rules** sub-blo
 
 ## Problem
 
-The `Per-invocation operator visibility (clean-cancel path)` rule under `id="session-shutdown-semantics"` in `docs/spec_topics/pi-integration-contract.md` pins the per-invocation `finally`'s `loom/runtime/cancelled-by-session-shutdown` emission as the teardown-time operator-visibility surface, currently populating `details.event.reason` (read from the registry entry's `shutdownReason`) and `details.event.loom` (read from the registry entry's `loom`). Sibling T19a extends `ActiveInvocationRegistry` entries with an `invocationId` field and sibling T19b adds `invocation_id` to `RuntimeEvent`, but the cleanly-cancelled per-invocation note has no spec rule pinning that `details.event.invocation_id` is populated. Without it, cleanly-cancelled concurrent siblings of the same loom collapse onto the same operator-stream row at teardown even after the registry source and wire field exist. The `loom/runtime/cancelled-by-session-shutdown` row in `docs/spec_topics/diagnostics.md` and the nesting convention under `id="session-shutdown-details-conventions"` in the same file inherit the same gap on the diagnostics-side surface.
+The `type RuntimeEvent = { ... }` declaration in the **Runtime event channel** section of `docs/spec_topics/pi-integration-contract.md`, introduced by the sentence pinning the shape as "normative and additive-only", carries no per-invocation correlation field. Sibling T19a sources an `invocationId` from the `ActiveInvocationRegistry` entry, but the wire payload has no destination for that value, so operator-side consumers of the always-log channel cannot distinguish concurrent-sibling emissions from the same loom. T19c's dedup-key widening and T19d's cancelled-by-session-shutdown details population both read this field and require it to be present on the wire shape.
 
 ## Solution approach
 
-Extend the `Per-invocation operator visibility (clean-cancel path)` rule under `id="session-shutdown-semantics"` in `docs/spec_topics/pi-integration-contract.md` to pin that the per-invocation `finally`'s `cancelled-by-session-shutdown` emission populates `details.event.invocation_id` by reading the registry entry's `invocationId` field (the same channel by which `details.event.loom` is read), not by re-deriving an id at the emission site. Mirror the addition in the `loom/runtime/cancelled-by-session-shutdown` row of `docs/spec_topics/diagnostics.md` and in the nesting-convention paragraph under `id="session-shutdown-details-conventions"` in the same file if and only if those locations enumerate the `details.event` field set; otherwise carry no diagnostics-side enumeration drift.
+Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }` declaration in the **Runtime event channel** section of `docs/spec_topics/pi-integration-contract.md`. Rely on the existing "normative and additive-only" sentence above the declaration to characterise the addition; do not re-author that contract note here. Do not edit the surrounding prose, the dedup-tuple statements, or any sibling-owned surface.
 
 ## Solution constraints
 
-- Source `details.event.invocation_id` from the `ActiveInvocationRegistry` entry's `invocationId` field on the per-invocation `finally` (the same channel by which `details.event.loom` is read); do not re-derive an id at the emission site and do not introduce a parallel id channel.
-- Preserve the existing `details.event.reason` clauses (the `"quit" | "reload" | "new" | "resume" | "fork" | string` type pin, the four captured-value cases under the **Unknown-reason rule**, the `"<unreadable>"` sentinel rules including the post-deadline residual-gap arm) and the `details.event.loom` clause textually unchanged.
-- The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` wire-field addition, the dedup-key widening, and the real-time timing paragraph are owned by T19a, T19b, T19c, and T19e respectively.
-- Do not introduce a new diagnostic code or `details.kind` discriminator.
+- Preserve every existing `RuntimeEvent` field (`kind`, `code`, `loom`, `query_site`, `message`, `attempts`, `tokens_used`, `masked`, `occurred_at`) verbatim — same name, type, optionality marker, inline comment, and order.
+- The `ActiveInvocationRegistry` entry-shape change, the dedup-tuple widening, the cancelled-by-session-shutdown details addition, and the sibling timing paragraph are owned by T19a, T19c, T19d, and T19e respectively.
+- Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
 ## Success criteria
 
-- The `Per-invocation operator visibility (clean-cancel path)` rule under `id="session-shutdown-semantics"` in `docs/spec_topics/pi-integration-contract.md` names `details.event.invocation_id` and pins it as read from the `ActiveInvocationRegistry` entry's `invocationId` field on the per-invocation `finally`.
-- If the `loom/runtime/cancelled-by-session-shutdown` row in `docs/spec_topics/diagnostics.md` or the nesting-convention paragraph under `id="session-shutdown-details-conventions"` in the same file enumerates the `details.event` field set, the enumeration lists `invocation_id` alongside `reason` and `loom`; if neither location enumerates the field set, neither location is edited.
-- The pre-existing `details.event.reason` clauses (including the closed-set type pin and the `"<unreadable>"` sentinel rules) and the `details.event.loom` clause in the same `Per-invocation operator visibility (clean-cancel path)` rule remain textually unchanged.
-- No new diagnostic-code identifier is added to `docs/spec_topics/diagnostics.md`, no new `details.kind` discriminator appears, and no `ActiveInvocationRegistry` shape change, `RuntimeEvent` wire-field change, dedup-key change, or sibling timing-rule change appears in this edit (each is owned by a sibling T19a–T19e).
+- The `type RuntimeEvent = { ... }` block in `docs/spec_topics/pi-integration-contract.md` declares a required `invocation_id: string` member (no `?` marker, type `string`).
+- Every previously-declared `RuntimeEvent` field (`kind`, `code`, `loom`, `query_site`, `message`, `attempts`, `tokens_used`, `masked`, `occurred_at`) remains present in the same declaration with its original name, type, optionality, and inline comment unchanged.
+- The sentence introducing the `type RuntimeEvent` block as "normative and additive-only" remains present and unchanged in the **Runtime event channel** section.
+- No `ActiveInvocationRegistry` shape change, dedup-tuple widening, cancelled-by-session-shutdown details change, or sibling timing-rule paragraph appears in this edit (each is owned by a sibling T19a/T19c/T19d/T19e), and no new diagnostic-code identifier is added to `docs/spec_topics/diagnostics.md`.
 
 ## Relationships
 
-- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve (this child reads the registry entry T19a defines).
-- T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve.
+- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve (this child consumes the field T19a sources).
 - T19c "Widen always-log dedup key to include invocation_id" — co-resolve.
+- T19d "Populate cancelled-by-session-shutdown details with invocation_id" — co-resolve.
 - T19e "Add real-time sibling emission timing paragraph" — co-resolve.
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster.
 - T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
@@ -1474,11 +1474,10 @@ Extend the `Per-invocation operator visibility (clean-cancel path)` rule under `
 
 ---
 
-# T19e — Add real-time sibling emission timing paragraph
+# T19a — Extend ActiveInvocationRegistry entry shape with invocationId
 
 **Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface
 **Original section:** docs/spec.md — Orientation > Session model
-**Split from:** "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" (entry 5 of 5, second reshape pass 2026-05-11; chosen Option A's `Spec edits` block)
 **Kind:** error-model
 **Importance:** high
 **Atomicity:** atomic
@@ -1487,34 +1486,34 @@ Extend the `Per-invocation operator visibility (clean-cancel path)` rule under `
 
 ## Problem
 
-The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` pins exactly-once-per-origin emission semantics for `loom-system-note` always-log notes and lists Deduplication and lifetime rules, but does not pin emission timing across concurrent sibling invocations. An implementer reading the section could legally batch sibling always-log emissions until the parent's tool-loop round closes — deferring operator-visible failure timing — without violating any existing rule on the page. The omission also leaves V18q's concurrent-sibling emission tests without a normative anchor for whether sibling failures must surface in real time at the originating site.
+The `ActiveInvocationRegistry` entry shape declared under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` carries no per-invocation correlation key — its current `Set<{ loomAbort: AbortController; disposeBarrier: Promise<void>; shutdownReason: string | undefined; loom: string }>` shape lets two concurrent sibling invocations of the same loom be indistinguishable on every downstream operator surface that reads from the registry. Sibling T19b adds an `invocation_id` wire field to `RuntimeEvent`, T19c widens the always-log dedup tuple to include it, and T19d populates `details.event.invocation_id` on the per-invocation `cancelled-by-session-shutdown` emission — all three rely on a canonical registry-side source for the id that does not yet exist. Without a per-entry id minted at registry-insertion time, none of the sibling consumers can populate or dedup on a stable per-invocation discriminator, and same-tick sibling fan-out collapses on every operator surface regardless of how the wire shape evolves.
 
 ## Solution approach
 
-Append one paragraph to the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` that pins sibling always-log emissions on `loom-system-note` to surface in real time at the originating emission site, forbids batching across the parent's tool-loop round, and names the JavaScript event-loop scheduling order as the interleaving order across concurrent sibling origins. The interleaving-order clause is operator-observable but explicitly non-normative for tests.
+Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` with a required `invocationId: string` member, and pin in the section's contract paragraph that each entry's `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, and `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` before any awaitable work, and is set on entry creation and never mutated thereafter. The exact identifier name, type, derivation primitive, and insertion-site placement are the substance of the change and are pinned as part of the registry-shape extension. Do not edit the `RuntimeEvent` wire shape, the dedup tuple, the `cancelled-by-session-shutdown` details payload, or any sibling-owned surface.
 
 ## Solution constraints
 
-- Place the new paragraph alongside the existing exactly-once-per-origin rule and the Deduplication and lifetime rules; do not relocate or reword the existing paragraphs in the section.
-- The interleaving-order clause is non-normative for tests — V18q (and any other test leaf) must not be required to assert a specific sibling interleaving order; only operator-observability of the JavaScript event-loop scheduling order is asserted.
-- The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` `invocation_id` wire field, the dedup-key widening, and the cancelled-by-session-shutdown details change are owned by T19a, T19b, T19c, and T19d respectively.
+- Preserve the existing entry-shape members (`loomAbort: AbortController`, `disposeBarrier: Promise<void>`, `shutdownReason: string | undefined`, `loom: string`) verbatim — same name, type, optionality marker, and order.
+- Do not introduce a parallel id channel and do not re-derive an id at any downstream emission site; T19c's dedup-key widening and T19d's `details.event.invocation_id` population both depend on a single registry-sourced value.
+- The `RuntimeEvent` `invocation_id` wire field, the always-log dedup-tuple widening, the `cancelled-by-session-shutdown` details addition, and the real-time sibling emission-timing paragraph are owned by T19b, T19c, T19d, and T19e respectively.
 - Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
 ## Success criteria
 
-- The **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` contains exactly one new paragraph that names sibling always-log emissions on `loom-system-note`, asserts real-time emission at the originating site, and forbids deferring sibling emissions across the parent's tool-loop round.
-- The same paragraph names the JavaScript event-loop scheduling order as the interleaving order across concurrent sibling origins, marks that order as operator-observable, and explicitly states the order is non-normative for tests (i.e. tests are not required to assert any specific interleaving).
-- The exactly-once-per-origin clause and the Deduplication and lifetime rules earlier in the same section remain textually unchanged; the timing rule is added without weakening or rewording the emission-count guarantees.
-- No new diagnostic code identifier appears in `docs/spec_topics/diagnostics.md`, and no `invocation_id` wire field, `ActiveInvocationRegistry` shape change, dedup-key change, or cancelled-shutdown details change appears in this edit (each is owned by a sibling T19a–T19d).
+- The `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` includes a required `invocationId: string` member (no `?` marker, no `| undefined` union, type `string`).
+- The previously-declared entry-shape members `loomAbort: AbortController`, `disposeBarrier: Promise<void>`, `shutdownReason: string | undefined`, and `loom: string` remain present in the same `Set<...>` declaration with their original names, types, and optionality markers unchanged.
+- The section under `id="active-invocation-registry"` pins that `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site inside the existing **Dispatch-site setup wrap** `try`/`catch` and is set on entry creation and never mutated thereafter (or wording of equivalent normative force naming the derivation primitive, the insertion-site placement, and the once-and-immutable lifetime).
+- No `RuntimeEvent` wire-field addition, dedup-tuple widening, `cancelled-by-session-shutdown` details change, or sibling timing-rule paragraph appears in this edit (each is owned by a sibling T19b/T19c/T19d/T19e), and no new diagnostic-code identifier is added to `docs/spec_topics/diagnostics.md`.
 
 ## Relationships
 
-- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — co-resolve.
 - T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve.
 - T19c "Widen always-log dedup key to include invocation_id" — co-resolve.
 - T19d "Populate cancelled-by-session-shutdown details with invocation_id" — co-resolve.
+- T19e "Add real-time sibling emission timing paragraph" — co-resolve.
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster.
-- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede (any decision to add operator-visibility for successful sibling outcomes will reuse the `invocation_id` field this child installs).
 - T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
 
 ---
