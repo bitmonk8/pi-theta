@@ -37,10 +37,8 @@ Delete the inline per-axis parenthetical from the Overview paragraph and rewrite
 
 ## Solution constraints
 
-- Do not migrate the deleted axis names into `pi-integration-contract.md`; the matrix already owns that enumeration and restating it as PIC prose would introduce a new aggregator/owner duplication.
-- Preserve the existing forward-link target `./spec_topics/pi-integration-contract.md#subagent-state-isolation-matrix` and the `./spec_topics/glossary.md` `callable set` link in the rewritten sentence.
-- Out of scope: the `<a id="terminal-outcomes-aggregator">` paragraph that immediately follows is a separate placement finding (T26) and is not edited here.
-- [default] Edit only the Overview paragraph in `docs/spec.md`; do not modify the matrix, the glossary, or governance GOV-12.
+- Do not migrate the deleted axis names into `pi-integration-contract.md` — the matrix at `#subagent-state-isolation-matrix` is the canonical owner; restating them as PIC prose would re-create the duplication this finding fixes.
+- Out of scope: the `<a id="terminal-outcomes-aggregator">` paragraph that immediately follows is owned by T26.
 
 ## Success criteria
 
@@ -76,14 +74,7 @@ In `docs/plan_topics/h1-scaffold.md`, rewrite the `semver` / `@types/semver` man
 
 ## Solution constraints
 
-- Edit only `docs/plan_topics/h1-scaffold.md` under this finding; do not modify `docs/spec_topics/pi-integration-contract.md`, `docs/spec.md`, or any test source file.
-- The `semver` manifest assertion MUST anchor at PIC's `**Loom-package implementation dependencies (V1).**` sub-paragraph; the `@types/semver` entry MUST be asserted under `devDependencies` (not `dependencies`).
-- The cross-package `engines.node` assertion MUST locate Pi's `package.json` via a path-resolution mechanism that does not hard-code a `node_modules/...` segment (so workspace and pnpm-hoisting layouts both work).
-- The cross-package comparison MUST be specified as literal string equality, not as `semver.subset` / `semver.satisfies` / any range check.
-- The `pi-engines-node` row in `SDK_SURFACE_INVENTORY` (added by T03b) MUST be named as the single source of truth the cross-package assertion consumes; do not introduce a parallel literal in the H1 test description.
-- T03a and T03b are must-precede; this edit MUST NOT land before both (the sub-paragraph and the inventory row this finding's bullet references must already exist).
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
-- [default] Limit edits to the manifest-assertion bullet (re-anchor) and the `engines.node` / `pi-engines-node` test-bullet extension; do not author new MUSTs, restructure unrelated H1 bullets, or revise the `Deps.` / `Ships when.` paragraphs.
+- Consume the `pi-engines-node` `SDK_SURFACE_INVENTORY` row (added by T03b) as the single source of truth for the cross-package assertion; do not introduce a parallel literal in the H1 test description (would silently break the cross-package floor when one side moves).
 
 ## Success criteria
 
@@ -122,14 +113,7 @@ In `docs/spec.md` Orientation > Prerequisites > Host runtime item 1 (the **Node 
 
 ## Solution constraints
 
-- Edit only `docs/spec.md` under this finding; do not modify `docs/plan_topics/h1-scaffold.md`, `docs/spec_topics/pi-integration-contract.md`, or any other spec or plan file.
-- The replacement clause MUST name the audit mechanism as the **H1 SDK surface-inventory test** (the test bullet at `docs/plan_topics/h1-scaffold.md` SDK surface-inventory literal-read test); a different audit name would diverge from the test row T03b installs and the cross-package assertion T03f installs.
-- The Pi package being compared MUST remain `@mariozechner/pi-coding-agent` and its field MUST remain `engines.node` — the rephrase changes only the verb relating the two floors, not either operand.
-- The rest of item 1 (literal `>=20.6.0`, SemVer-comparison parenthetical, `details.kind = "node-floor"` discriminator forward-link, `loom/load/host-incompatible` emission forward-link, PIC Step 0 (a) forward-link, and the Pi version bump procedure forward-link) MUST NOT be edited under this finding.
-- T03b is must-precede — this rephrase MUST NOT land before T03b lands, otherwise the named test has no `pi-engines-node` row to consume.
-- The `pi-engines-node` `SDK_SURFACE_INVENTORY` row, the cross-package equality assertion, and the PIC bump-procedure step 3 narrative are owned by T03b, T03f, and T03d respectively and are out of scope here.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
-- [default] Limit the edit to the single phrase substitution; do not reflow the bullet, reorder the forward-links, or author new MUSTs in the surrounding orientation aggregator.
+- The `pi-engines-node` `SDK_SURFACE_INVENTORY` row, the cross-package equality assertion, and the PIC bump-procedure step 3 narrative are owned by T03b, T03f, and T03d respectively — out of scope here.
 
 ## Success criteria
 
@@ -166,13 +150,8 @@ Rewrite step 3 of `## Pi version bump procedure` so the body reframes the step a
 
 ## Solution constraints
 
-- Edit only step 3 of the `## Pi version bump procedure` section in `docs/spec_topics/pi-integration-contract.md` under this finding; do not modify other steps of the procedure, other sections of PIC, `docs/plan_topics/h1-scaffold.md`, `docs/spec.md`, or any other file.
-- T03b (which adds the `pi-engines-node` `SDK_SURFACE_INVENTORY` row this step's narrative names) is must-precede; this rewrite MUST NOT land before T03b lands, otherwise the narrative references an inventory row that does not exist.
-- T03f (which extends the H1 manifest assertion to the cross-package equality this step's narrative delegates to) is same-cluster; this rewrite MUST land in the same commit as T03f's test extension so the bump procedure and the test do not disagree on which side is authoritative for the upstream-floor floor.
-- The rewritten step MUST continue to enumerate the co-edit closure set the previous prose carried — at minimum the loom `package.json#engines.node` literal, the [Step 0 (a)](#entry-capability-probe) comparator-and-floor reference, the [`spec.md` — Host runtime obligation 1](../spec.md#orientation) sentence, and the H1 assertion — as the sites that must move together when the test fails red.
-- The rewritten step MUST NOT introduce a new step, a new sub-step, a new anchor, or a new spec rule ID; the `pi-version-bump-procedure` heading anchor and the integer step number `3` are preserved.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
-- [default] Limit the edit to step 3's body; do not reflow, restructure, or rewrite steps 1, 2, 4, or 5, and do not author new MUSTs beyond restating the same-commit co-edit obligation on the closure set.
+- Preserve the `id="pi-version-bump-procedure"` heading anchor and the integer step number `3` (inbound links and the procedure's existing step ordering depend on both).
+- Co-resolve with T03f in the same commit; the bump procedure and the test must not disagree on which side is authoritative for the upstream-floor.
 
 ## Success criteria
 
@@ -209,12 +188,7 @@ Delete the dependency-pinning parenthetical "pinned by H1 as a direct production
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md` under this finding; do not modify any other spec or plan file.
-- The deletion is scoped to the dependency-pinning parenthetical; the comparator-contract framing, the worked `semver.satisfies` / `semver.valid` examples, and the "future swap to a different SemVer implementation (or a hand-rolled comparator) is permitted" escape-hatch sentence MUST remain in both paragraphs.
-- T03a (which installs the `**Loom-package implementation dependencies (V1).**` sub-paragraph this finding's deletion delegates to) is must-precede; this trim MUST NOT land before T03a lands, otherwise the dependency obligation has no normative anchor in the corpus.
-- Both paragraphs MUST remain marked `*Recommended recipe (non-normative).*` — this finding does not promote either paragraph to normative status.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
-- [default] Limit edits to the parenthetical deletion; do not reflow, restructure, or rewrite other clauses of either recipe paragraph, and do not author new MUSTs.
+- The dependency-pinning normativity is owned by T03a's `**Loom-package implementation dependencies (V1).**` sub-paragraph; do not re-introduce normative pins in the recipe paragraphs as part of this trim, and do not promote either paragraph out of `*Recommended recipe (non-normative).*` status.
 
 ## Success criteria
 
@@ -250,14 +224,9 @@ Add one new row to the `SDK_SURFACE_INVENTORY` enumeration in `docs/plan_topics/
 
 ## Solution constraints
 
-- Edit only `docs/plan_topics/h1-scaffold.md` under this finding; do not modify the test code, `package.json`, `docs/spec.md`, or any `docs/spec_topics/` file.
-- The new row's `kind` discriminator MUST be the string `pi-engines-node` exactly — T03d, T03e, and T03f all name this surface and a different tag would silently break the must-precede chain.
-- The row's `literal` MUST equal the loom package's `engines.node` floor verbatim at insertion time; a future floor change updates this row in the same commit so the T03f cross-package equality assertion stays meaningful.
-- The row MUST be added to the existing `SDK_SURFACE_INVENTORY` enumeration in the SDK surface-inventory literal-read test bullet — do not introduce a new constant, a new test bullet, or a new H1 sub-leaf for it.
-- The cross-package equality test itself, the PIC bump-procedure narrative, and the `spec.md` Host runtime sentence are owned by T03f, T03d, and T03e respectively and are out of scope here.
-- T03d, T03e, and T03f are must-precede dependents — this row MUST land before any of them, since each names this row by its `kind` tag.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
-- [default] Add only the one row; do not restructure the enumeration, reorder existing rows, change other rows' literals, or author new MUSTs in the surrounding bullet prose.
+- The new row's `kind` discriminator must be the literal string `pi-engines-node` — T03d, T03e, and T03f all consume this surface name as their dedup key; a different tag silently breaks the chain.
+- Add the row to the existing `SDK_SURFACE_INVENTORY` enumeration; do not introduce a parallel constant, a new test bullet, or a new H1 sub-leaf for it.
+- The cross-package equality test, the PIC bump-procedure narrative, and the `spec.md` Host runtime sentence are owned by T03f, T03d, and T03e respectively — out of scope here.
 
 ## Success criteria
 
@@ -295,13 +264,7 @@ Add a new sub-paragraph whose lead bold token is `**Loom-package implementation 
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md` under this finding; do not modify `docs/plan_topics/h1-scaffold.md` or any other plan / spec file.
-- The sub-paragraph MUST place `@types/semver` under `devDependencies`, not `dependencies` — the type-only companion belongs in dev-deps and the H1 manifest assertion checks the correct block for each.
-- The sub-paragraph MUST be framed as implementation-choice rather than normative contract, preserving the comparator-swap escape hatch already stated in the two `*Recommended recipe (non-normative).*` paragraphs.
-- The chosen version range MUST appear as a single literal value in this sub-paragraph so the H1 literal-read manifest assertion has one source of truth to anchor against.
-- T03c (trim dependency-pinning parentheticals from the two `*Recommended recipe (non-normative).*` paragraphs) and T03f (`h1-scaffold.md` manifest assertion targeting this sub-paragraph) are must-precede dependents — this sub-paragraph MUST land before either of them.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
-- [default] Add only the sub-paragraph; do not author new MUSTs beyond what the recipe contracts already imply, and do not restructure the surrounding `**Host prerequisites.**` enumeration or its sibling `**Host prerequisites for the degraded-state branch.**` paragraph.
+- Do not introduce a new MUST about which SemVer implementation contributors must use; the comparator-swap escape hatch already promised by the two `*Recommended recipe (non-normative).*` paragraphs must remain genuine after this sub-paragraph lands.
 
 ## Success criteria
 
@@ -336,13 +299,10 @@ Per the Option A decision (2026-05-08), document the per-surface mapping rather 
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/glossary.md` and `docs/spec_topics/frontmatter.md` under this finding; do not modify wire formats, settings keys, frontmatter field names, diagnostic codes, or prose elsewhere in the corpus.
-- Do not rename `bind_model`, `bind_context`, or `bind_echo` to `binder_model` / `binder_context` / `binder_echo` (Option B was rejected); the resolution is documentary, not a rename.
-- The new `**binder model**` glossary entry MUST be a sibling of, not a replacement for, the existing `**binder**` entry, which refers to the mechanism rather than the model.
-- The `loom/load/binder-model-unresolved` remediation-hint string in `docs/spec_topics/diagnostics.md` is verbatim author-facing and must not be reflowed under this finding; if a `See:` reference is added it must be appended after the hint, not spliced inside.
-- Coordinate root-word references with the sibling rename finding for "Binder LLM model" / "binder model" so the prose-side rename in `docs/spec.md` capability bullet 7 / anchor `sdk-cap-binder-llm-model` in `docs/spec_topics/pi-integration-contract.md` is not duplicated here.
-- Edit budget: roughly one new glossary entry (a few sentences) plus one sentence appended to the *Naming convention* paragraph; do not author new MUSTs.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Do not rename `bind_model`, `bind_context`, or `bind_echo` to `binder_model` / `binder_context` / `binder_echo` — Option B (cross-surface rename) was explicitly rejected; the resolution is documentary.
+- The new `**binder model**` entry must be a sibling of (not a replacement for) the existing `**binder**` glossary entry — the latter refers to the mechanism, not the model.
+- The `loom/load/binder-model-unresolved` remediation-hint string in `docs/spec_topics/diagnostics.md` is verbatim author-facing; if a `See:` reference is added it must be appended after the hint, not spliced inside.
+- Coordinate the root-word framing with the sibling "Binder LLM model" / "binder model" rename finding so the prose-side rename in `docs/spec.md` capability bullet 7 / anchor `sdk-cap-binder-llm-model` in PIC is not duplicated here.
 
 ## Success criteria
 
@@ -376,13 +336,10 @@ Add an HTML anchor to the `operator` entry in `docs/spec_topics/glossary.md` mat
 
 ## Solution constraints
 
-- Edit only `docs/spec.md` and `docs/spec_topics/glossary.md` under this finding; treat `docs/spec_topics/overview.md`, `docs/spec_topics/slash-invocation.md`, `docs/spec_topics/future-considerations.md`, and `docs/spec_topics/pi-integration-contract.md` as read-only.
-- The V1 carve-out belongs in the glossary `operator` entry; the consolidated V1 non-goals list at `docs/spec_topics/future-considerations.md#v1-non-goals` MAY cite the entry but is owned elsewhere and is out of scope under this finding.
-- The new glossary anchor MUST match the HTML-anchor convention sibling entries already use (e.g. `<a id="in-loop"></a>`, `<a id="query-terminating"></a>`); do not invent a new anchor convention.
-- Do not extend the V1 disclaimer to cover Pi's `convertToLlm` LLM-context entry; that surface is owned by the Pi Integration Contract's System notes section and is a property of the channel, not of the operator role.
-- Use the deferred-feature names already in `docs/spec_topics/future-considerations.md` verbatim (`loom test`; non-loom programmatic harness) rather than coining new names.
-- Edit budget: roughly one sentence added to the glossary `operator` entry plus the anchor on that entry; one inline forward-link added on the first `operator` use in `spec.md`. Do not author new MUSTs and do not restructure the glossary or the spec.md Overview.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Use the existing HTML-anchor convention (`<a id="..."></a>`) on the new glossary entry, matching siblings like `<a id="in-loop"></a>` and `<a id="query-terminating"></a>`; do not invent a new anchor scheme.
+- The V1 carve-out lives in the glossary `operator` entry only; the consolidated V1 non-goals list (owned by T38) may cite it but is out of scope here.
+- Do not extend the V1 disclaimer to Pi's `convertToLlm` LLM-context entry — that surface is a property of the channel, not the operator role.
+- Reuse the deferred-feature names already in `docs/spec_topics/future-considerations.md` verbatim (`loom test`; non-loom programmatic harness); do not coin new names.
 
 ## Success criteria
 
@@ -417,12 +374,8 @@ Add a normative rule under the `### Notes` subsection of `## QueryError variants
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/errors-and-results.md` under `## QueryError variants` (the `### Notes` subsection is the natural home); do not edit `docs/spec_topics/cancellation.md` or `docs/spec_topics/diagnostics.md` under this finding.
-- The new rule MUST explicitly preserve the **Panic message string (normative)** rule for `InvokeInfraError.message` when `cause === "panic"`, and MUST NOT weaken or restate the existing panic-template wording.
-- Do not introduce per-variant `message` templates in any form (e.g. a `loom/error/*` code-registry section); this finding's resolution is the blanket non-normativity rule, not Option B.
-- Do not rename, retype, or otherwise modify the `message: string` field declarations on any `QueryError` variant or on `ValidationIssue`.
-- Edit budget: roughly one paragraph of prose; do not author additional MUSTs beyond the single non-normativity rule and its panic carve-out.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Preserve the existing **Panic message string (normative)** rule for `InvokeInfraError.message` when `cause === "panic"` byte-for-byte; the new rule is additive and must not weaken or restate the panic-template wording.
+- Do not introduce per-variant `message` templates in any form (e.g. a `loom/error/*` code-registry section) — the resolution is the blanket non-normativity rule with the panic carve-out, not Option B.
 
 ## Success criteria
 
@@ -458,13 +411,9 @@ Rewrite the user-facing template in the `context_overflow` row of the per-`kind`
 
 ## Solution constraints
 
-- Edit only the `context_overflow` row of the per-`kind` system-note table in `docs/spec_topics/slash-invocation.md`; do not modify any other row, the surrounding normativity paragraphs ("Renderers MUST emit the surrounding template text verbatim" / "Wording changes are spec-versioned breaking changes"), or the chain-attribution machinery.
-- Do not rename the schema name `ContextOverflowError` or the wire `kind` literal `"context_overflow"` anywhere they appear.
-- The `errors-and-results.md` prose sweep is owned by T08b and the `query.md` sweep is owned by T08c; do not touch `docs/spec_topics/errors-and-results.md` or `docs/spec_topics/query.md` under this finding.
-- Treat `docs/spec_topics/binder.md`, `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/hard-ceilings.md`, and `docs/spec_topics/glossary.md` as read-only — they already use the corpus root word.
-- Edit budget: a single table cell of prose; do not author new MUSTs and do not restructure the per-`kind` table.
-- The edit must land before leaf V18i pins the literal in conformance tests; once V18i has shipped, the change becomes a spec-versioned breaking bump under the table's "Wording changes are spec-versioned breaking changes" clause.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Do not rename the schema identifier `ContextOverflowError` or the wire `kind` literal `"context_overflow"`; the change is the user-facing template wording only.
+- The `errors-and-results.md` prose sweep is owned by T08b and the `query.md` sweep by T08c.
+- Land before leaf V18i pins the literal in conformance tests — once V18i ships, this rename becomes a spec-versioned breaking bump under the table's "Wording changes are spec-versioned breaking changes" clause.
 
 ## Success criteria
 
@@ -502,12 +451,8 @@ Rewrite the `ContextOverflowError` variant intro paragraph in the *Query-time va
 
 ## Solution constraints
 
-- Edit only the prose intro paragraph for the `ContextOverflowError` variant in the *Query-time variants* section of `docs/spec_topics/errors-and-results.md`; do not rename the schema name `ContextOverflowError` or the wire `kind` literal `"context_overflow"` anywhere they appear.
-- The slash-invocation system-note row literal is owned by T08a and the `query.md` sweep is owned by T08c; do not touch `docs/spec_topics/slash-invocation.md` or `docs/spec_topics/query.md` under this finding.
-- Treat `docs/spec_topics/binder.md`, `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/hard-ceilings.md`, and `docs/spec_topics/glossary.md` as read-only — they already use the corpus root word.
-- The cross-reference link from this paragraph to *Query — Detection of `ContextOverflowError`* in `docs/spec_topics/query.md` MUST continue to resolve.
-- Edit budget: roughly one sentence of prose; do not author new MUSTs and do not restructure the *Query-time variants* section.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Do not rename the schema identifier `ContextOverflowError` or the wire `kind` literal `"context_overflow"`; the change is the prose root word only.
+- The slash-invocation system-note row is owned by T08a; the `query.md` sweep by T08c.
 
 ## Success criteria
 
@@ -545,12 +490,9 @@ Rewrite the affected sentence in the *Detection of `ContextOverflowError`* secti
 
 ## Solution constraints
 
-- Edit only the prose of the *Detection of `ContextOverflowError`* section in `docs/spec_topics/query.md`; do not rename the schema name `ContextOverflowError` or the wire `kind` literal `"context_overflow"` anywhere they appear.
-- The slash-invocation system-note row literal is owned by T08a and the `errors-and-results.md` sweep is owned by T08b; do not touch `docs/spec_topics/slash-invocation.md` or `docs/spec_topics/errors-and-results.md` under this finding.
-- Treat `docs/spec_topics/binder.md`, `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/hard-ceilings.md`, and `docs/spec_topics/glossary.md` as read-only — they already use the corpus root word.
-- The cross-reference link from this section to *Pi Integration Contract — Provider error mapping* in `docs/spec_topics/pi-integration-contract.md` MUST continue to resolve.
-- Edit budget: roughly one sentence of prose; do not author new MUSTs, do not restructure the *Detection of `ContextOverflowError`* section, and do not introduce a new normative rule about what providers may or must emit.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Do not rename the schema identifier `ContextOverflowError` or the wire `kind` literal `"context_overflow"`.
+- The slash-invocation system-note row is owned by T08a; the `errors-and-results.md` sweep by T08b.
+- Do not introduce a new normative rule about what providers may or must emit — the per-provider signatures remain owned by *Pi Integration Contract — Provider error mapping*.
 
 ## Success criteria
 
@@ -586,11 +528,9 @@ Rewrite the `bind_context: session` bullet so it stops asserting approximate, mi
 
 ## Solution constraints
 
-- Edit only the `bind_context: session` bullet in the *bind_context* value list of `docs/spec_topics/binder.md`; treat the *Session-context truncation (`bind_context: session`)* subsection and the rendered binder system-prompt example line (`Recent session context (most recent 20 turns / 8000 tokens):`) as read-only.
-- The numeric literals `20` and `8000` and the joint / boundary-inclusive rule are owned by the *Session-context truncation* subsection; the bullet either restates them verbatim from that subsection or defers via forward-link, and never paraphrases or re-derives them.
-- Do not introduce a third independent statement of the caps; the only acceptable copies in `binder.md` remain (a) the *Session-context truncation* subsection and (b) the rendered system-prompt example line, both already present.
-- The heading "Session-context truncation (`bind_context: session`)" in `docs/spec_topics/binder.md` MUST remain present and its auto-generated anchor `#session-context-truncation-bind_context-session` MUST continue to resolve, so leaf V16g's *Spec.* cross-reference and the in-file forward-link from this bullet remain live.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Treat the *Session-context truncation* subsection and the rendered binder system-prompt example line (`Recent session context (most recent 20 turns / 8000 tokens):`) as read-only; the bullet either restates the caps verbatim from that subsection or defers via forward-link, and never paraphrases or re-derives.
+- Do not introduce a third independent statement of the caps in `binder.md` — the only acceptable copies remain the *Session-context truncation* subsection and the rendered system-prompt example line, both already present.
+- Preserve the auto-generated anchor `#session-context-truncation-bind_context-session` (leaf V16g's *Spec.* cross-reference and the in-file forward-link both depend on it).
 
 ## Success criteria
 
@@ -624,12 +564,10 @@ Clarify item 2 of *Binder bypass* in `docs/spec_topics/binder.md` to pin the cho
 
 ## Solution constraints
 
-- Edit only item 2 of the *Binder bypass* section (anchor `bypass-cases`) in `docs/spec_topics/binder.md` and the *Adds* / *Tests* lines of leaf V3c ("V3c — Bypass binder (no-params and single-string forms)") in `docs/plan_topics/v3-frontmatter.md`; treat `docs/spec_topics/slash-invocation.md` § *No-params overflow* as read-only.
-- Do not introduce a new diagnostic code, a new failure-mode-template row, or a new system-note template; pi-loom uses no stable spec rule IDs and none may be invented here.
-- Do not change the existing trim semantics: leading and trailing whitespace are stripped, internal whitespace is preserved (e.g. `/foo  hello  ` still binds `"hello"`).
-- Do not change echo policy on the bypass path (echo is auto-suppressed on bypass per V16k and that property MUST continue to hold for the absent / whitespace-only cases).
-- The *No-params overflow* note in `docs/spec_topics/slash-invocation.md` MUST remain gated on `params: {}` / absent; do not extend it to fire on the single-string bypass path.
-- Edits to item 2 of *Binder bypass* should remain within roughly one additional sentence of normative prose; do not author new MUSTs or restructure the *Binder bypass* section beyond the clarification.
+- Do not introduce a new diagnostic code, a new failure-mode-template row, or a new system-note template — the resolution is to clarify the bound value and start condition only.
+- Do not alter the existing trim semantics: leading/trailing whitespace stripped, internal whitespace preserved (e.g. `/foo  hello  ` still binds `"hello"`).
+- Do not change echo policy on the bypass path — echo auto-suppression on bypass per V16k must continue to hold for the absent / whitespace-only cases.
+- The *No-params overflow* note in `docs/spec_topics/slash-invocation.md` must remain gated on `params: {}` / absent; do not extend it to fire on the single-string bypass path.
 
 ## Success criteria
 
@@ -666,12 +604,8 @@ Rewrite the relevant sentences in the *Tool-call loop bound* section of `docs/sp
 
 ## Solution constraints
 
-- Edit only the *Tool-call loop bound* section (anchor `tool-call-loop-bound`) in `docs/spec_topics/query.md` and the `tool_loop` field paragraph in `docs/spec_topics/frontmatter.md`; treat `docs/spec_topics/hard-ceilings.md` (CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence) and `docs/spec_topics/pi-integration-contract.md` (PIC-1 (d) V1 reachable predicate, already worded against the free-phase slot count) as read-only for this finding.
-- The rewritten rule MUST state that the runtime MUST dispatch the forced respond turn on every typed query that reaches CIO-4's terminating branch, explicitly including the `max_rounds: 0` boundary case in which the forced respond turn is the only turn issued.
-- The rewritten rule MUST state that CIO-4's slot-accounting check is not evaluated against the forced respond turn itself (the forced respond turn sits outside the `tool_loop` slot count).
-- The respond-repair follow-up clause already present in both edited paragraphs (each follow-up gets a fresh `tool_loop` budget) MUST remain present, and the exemption MUST be expressed so it re-applies to each follow-up's forced respond turn against that follow-up's fresh budget.
-- Plan-side leaves V6k and V6l in `docs/plan_topics/v6-typed-queries.md` are owned by siblings T11b and T11c and are out of scope for this finding.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- Treat `docs/spec_topics/hard-ceilings.md` (CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence) and PIC-1 (d) in `docs/spec_topics/pi-integration-contract.md` as read-only — they are already aligned with the new rule.
+- Plan leaves V6k and V6l in `docs/plan_topics/v6-typed-queries.md` are owned by T11b and T11c — out of scope here.
 
 ## Success criteria
 
@@ -710,11 +644,9 @@ Rewrite the counting-formula and exhaustion sentences in V6k's *Adds* paragraph 
 
 ## Solution constraints
 
-- Edit only the counting-formula and exhaustion sentences inside V6k's *Adds* paragraph in `docs/plan_topics/v6-typed-queries.md`; do not edit V6k's *Spec*, *Tests*, *Deps*, or *Ships when* lines, do not edit any other plan leaf (in particular leaf V6l's *Adds* / *Tests* lines describing the two-phase driver are read-only for this finding), and do not edit any spec topic file (the *Tool-call loop bound* section in `docs/spec_topics/query.md` is owned by T11a and is read-only here).
-- The rewritten exhaustion clause MUST express the two firing conditions as a disjunction over (free-phase budget exceeded with a free-phase turn next) and (forced respond dispatched but the model did not invoke the respond tool); do not collapse them into a single arithmetic predicate that re-counts the forced respond turn against `max_rounds`.
-- The respond-repair follow-up clause already in the *Adds* paragraph (each follow-up gets a fresh `tool_loop` budget) MUST remain present, and the new exhaustion clause MUST be expressed so it re-applies independently against each follow-up's fresh budget.
-- The `max_rounds: 0` clause already in the *Adds* paragraph (disables model-driven tool calls entirely) MUST remain present; the test-vector that pins the `max_rounds: 0` boundary outcome is owned by T11c and is out of scope for this finding.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- The *Tool-call loop bound* section in `docs/spec_topics/query.md` is owned by T11a — do not edit spec topic files here.
+- Do not collapse the two firing conditions into a single arithmetic predicate that re-counts the forced respond turn against `max_rounds`; that re-introduces the contradiction T11a fixes.
+- The `max_rounds: 0` boundary test vector is owned by T11c, and leaf V6l (the two-phase driver) is independent — both out of scope here.
 
 ## Success criteria
 
@@ -752,11 +684,8 @@ Add a paired normative test vector to V6k's *Tests* line covering the `max_round
 
 ## Solution constraints
 
-- Edit only V6k's *Tests* line in `docs/plan_topics/v6-typed-queries.md`; do not edit V6k's *Spec* / *Adds* / *Deps* / *Ships when* fields, do not edit any other plan leaf, and do not edit any spec topic file (in particular, the *Tool-call loop bound* section and the *Worked example: depth-6 forced respond at `max_rounds`* example in `docs/spec_topics/query.md` are read-only for this finding).
-- The added vector MUST distinguish the two compliant outcomes for the same `max_rounds: 0` typed-query setup — `Ok(validated_value)` when the model emits a respond-tool call, `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })` when it does not — so that the leaf's *Ships when* gate fails on either of the two divergent implementations the finding describes.
-- The vector MUST be scoped to the original typed query and MUST NOT conflate `max_rounds: 0` on the original query with `max_rounds: 0` on a respond-repair follow-up (V13g follow-ups receive a fresh `tool_loop` budget).
-- The existing `max_rounds: 0` empty-`tools`-set assertion already present on V6k's *Tests* line MUST remain asserted (either as a separate row or folded into the new paired vector without losing the empty-tools-delivery assertion).
-- Land after T11a and T11b per Relationships; the spec rule and the V6k *Adds* formula must be in place before the test vector can assert against them.
+- The new vector applies to the original typed query only; do not conflate `max_rounds: 0` on the original query with `max_rounds: 0` on a respond-repair follow-up (V13g follow-ups receive a fresh `tool_loop` budget).
+- Do not edit spec topic files; the *Tool-call loop bound* section in `docs/spec_topics/query.md` is owned by T11a.
 
 ## Success criteria
 
@@ -791,10 +720,8 @@ Clarify the bounded-walk paragraph under "Edge cases" in the "Package discovery"
 
 ## Solution constraints
 
-- Edit only the bounded-walk bullet under "Edge cases" in the "Package discovery" section of `docs/spec_topics/discovery.md`; do not edit the per-read deadline interaction sentences, the `looms.scanPackages: false` clause, the `looms.scanPackages*` schema entries lower in the file, or the `loom/load/discovery-slow` registry entry in `docs/spec_topics/diagnostics.md`.
-- The added rule MUST be expressed as an evaluation-order tie-break at the cap-check site (between candidate reads) and MUST resolve the simultaneous-true case to a single named value drawn from `{looms.scanPackagesMaxFiles, looms.scanPackagesTimeoutMs}`; do not introduce a new `cap` value, a third diagnostic code, or a new `details` field.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
-- Test-vector additions to plan leaf V14m in `docs/plan_topics/v14-tool-calls.md` are out of scope for this finding's spec edit and are tracked under that leaf.
+- Do not introduce a new `cap` value, a third diagnostic code, or a new `details` field — the tie-break must resolve to one of the existing two cap names.
+- Test-vector additions to plan leaf V14m in `docs/plan_topics/v14-tool-calls.md` are out of scope here.
 
 ## Success criteria
 
@@ -828,10 +755,7 @@ Rewrite the enumeration in the introductory paragraph of the "Invocation depth b
 
 ## Solution constraints
 
-- The normative *countable-frame* paragraph in the "Invocation depth bound" subsection of `docs/spec_topics/invocation.md` (already correct) MUST NOT be edited.
-- The edit to the introductory paragraph MUST be confined to the enumeration of countable dispatches; the per-chain/sibling-budget parenthetical, the panic-code reference, the panic-routing cross-link, and the surrounding sentences MUST NOT be modified.
-- The edit to V18n's *Adds.* bullet in `docs/plan_topics/v18-cancellation.md` MUST be confined to the parenthetical that enumerates the depth-cap's countable dispatches; the rest of the bullet (panic-surface narrative, subagent disposal text, dependency lists) MUST NOT be modified.
-- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- The normative *countable-frame* paragraph in the "Invocation depth bound" subsection (already correct) must not be edited — the change is to the introductory enumeration only.
 
 ## Success criteria
 
@@ -865,10 +789,10 @@ Add a fourth premise to the parenthesised support list in the Session-model para
 
 ## Solution constraints
 
-- The added premise MUST forward-link to the Cross-mode semantics section of `docs/spec_topics/invocation.md` and MUST NOT inline, restate, or paraphrase the rule's content beyond the one-clause framing needed to identify which escape it closes.
-- The wording of the existing premises (i)/(ii)/(iii) and of the follow-up "three potential sources of in-session overlap" sentence MUST NOT be modified by this finding.
-- Restructuring the Session-model paragraph (reduction at Orientation level, relocation to a Concurrency-model home, scope-deferral lift) is owned by T15a / T15b / T15c; this finding edits only the support list, and the fourth premise is preserved across whichever sibling lands first per T15b's must-follow on T14.
-- Plan-leaf edits (extending V15g / V15h / V15j test lists with a sequentiality assertion) are out of scope for the spec edit captured by this finding and are tracked under those leaves.
+- The new premise must forward-link the Cross-mode semantics section and must not inline, restate, or paraphrase its content beyond a one-clause framing of which fan-out path is closed — that is the whole point of the finding (avoid aggregator overreach).
+- Do not modify the existing premises (i)/(ii)/(iii) or the follow-up "three potential sources of in-session overlap" sentence.
+- Restructuring of the Session-model paragraph is owned by T15a / T15b / T15c; the fourth premise is carried across whichever sibling lands first per T15b's coordination with this finding.
+- Plan-leaf edits to V15g / V15h / V15j are out of scope here.
 
 ## Success criteria
 
@@ -906,12 +830,9 @@ Rewrite the `<a id="session-model"></a>` paragraph so it carries only four orien
 
 ## Solution constraints
 
-- Edit only the `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prerequisites under this finding; do not edit `docs/spec_topics/pi-integration-contract.md` or any other Orientation, Scope, Trust-boundary, or Prerequisites content.
-- The reduced paragraph MUST continue to anchor `<a id="session-model"></a>` so existing inbound links (including the Overview's terminal-outcomes paragraph and the `[Session model](#session-model)` reference inside the V1 non-goals subsection) do not break.
-- The four retained sentences MUST be Orientation-level forward-linking prose only — no normative restatement of contracts owned by `docs/spec_topics/pi-integration-contract.md` (Session-binding contract, `ActiveInvocationRegistry`, Tool-registration lifetime and visibility, Session-shutdown semantics) or by other topic pages.
-- The forward-link to the new `Concurrency model` subsection (target landmark owned by T15b) MUST be present; do not author the destination subsection itself under this finding.
-- Co-resolve with T15b and T15c in the same commit; do not land this finding in isolation while the relocated architectural clauses or the lifted scope deferrals have nowhere to go.
-- GOV-12 lock-step continues to apply between the reduced paragraph and the owner pages it forward-links.
+- The reduced paragraph must retain the `<a id="session-model"></a>` anchor — inbound links (the Overview's terminal-outcomes paragraph, the `[Session model](#session-model)` reference inside the V1 non-goals subsection) depend on it.
+- The destination `Concurrency model` subsection is owned by T15b — do not author it under this finding.
+- Co-resolve in one commit with T15b and T15c; landing this reduction in isolation drops the architectural clauses and scope deferrals on the floor.
 
 ## Success criteria
 
@@ -952,13 +873,12 @@ Add a new `Concurrency model` subsection in `docs/spec.md` under either `## Exte
 
 ## Solution constraints
 
-- Add the new `Concurrency model` subsection only under `## Extension Architecture` or `## Implementation Notes` in `docs/spec.md`; pick the same home that the rest of the T15 / T16 placement cluster selects for prompt-vs-subagent-mode mechanics, and apply that choice consistently here.
-- The new subsection MUST be an aggregator analogous to the Hard-ceilings bullet: the topic pages `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, and `docs/spec_topics/frontmatter.md` remain the normative owners; do not restate owner-page text beyond what the forward-links require.
-- Every forward-link carried by the migrated clauses in the pre-T15a `<a id="session-model"></a>` paragraph MUST be preserved verbatim in the new subsection — this is a relocation, not a rewrite — with target and count unchanged across the migration.
-- The three prompt-mode-sequentiality premises (i)/(ii)/(iii) MUST be preserved verbatim from the source paragraph; do not extend with a fourth premise under this finding (premise (iv) is owned by T14).
-- Do not edit `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, or `docs/spec_topics/frontmatter.md` under this finding; do not edit the `<a id="session-model"></a>` paragraph (removal is owned by T15a) or any other Orientation, Scope, or Trust-boundary content.
-- Co-resolve with T15a in the same commit; do not land this finding in isolation while the Orientation paragraph still carries the content.
-- GOV-12 lock-step continues to apply between this aggregator and its owner pages.
+- The new subsection's home (under `## Extension Architecture` or `## Implementation Notes`) must match whichever home the rest of the T15 / T16 placement cluster selects for prompt-vs-subagent-mode mechanics — apply the same choice consistently.
+- The new subsection is an aggregator: do not restate owner-page text beyond what the forward-links require.
+- Preserve every forward-link from the migrated clauses verbatim — same targets, same count — across the relocation. This is a relocation, not a rewrite.
+- Preserve the three sequentiality premises (i)/(ii)/(iii) verbatim from the source paragraph; the fourth premise is owned by T14 and added in T14's edit pass, not here.
+- The `<a id="session-model"></a>` paragraph removal is owned by T15a — do not edit it under this finding.
+- Co-resolve with T15a in one commit; the migration cannot land while the Orientation paragraph still carries the content.
 
 ## Success criteria
 
@@ -998,11 +918,10 @@ Verify that both deferrals appear in the V1 non-goals aggregator at anchor `id="
 
 ## Solution constraints
 
-- Edit only the V1 non-goals aggregator at anchor `id="v1-non-goals"` in `docs/spec.md` and/or the normative bullet list at anchor `id="v1-non-goals"` in `docs/spec_topics/future-considerations.md` under this finding; do not edit the `<a id="session-model"></a>` paragraph (that removal is owned by T15a) and do not edit any other Orientation, Scope, or Trust-boundary content.
-- Do not invent a Non-goals home unilaterally; this finding presupposes the V1 non-goals aggregator (owned by T38) and its source bullet list in `docs/spec_topics/future-considerations.md` already exist. If either surface is absent at edit time, gate this finding on T38.
-- The aggregator entry in `docs/spec.md` MUST forward-link to anchor `id="v1-non-goals"` in `docs/spec_topics/future-considerations.md` rather than restating the normative bullet content; the normative content remains owned by the bullet list in `docs/spec_topics/future-considerations.md`.
-- The normative bullet for the parallel-`invoke` deferral in `docs/spec_topics/future-considerations.md` MUST forward-link the Cross-mode semantics section in `docs/spec_topics/invocation.md`; the normative bullet for the concurrent-user-sessions deferral MUST forward-link the Session model paragraph in `docs/spec.md` (anchor `id="session-model"`) for the presupposition framing.
-- [default] Co-resolve with T15a in the same commit; do not land this finding in isolation.
+- This finding presupposes the V1 non-goals aggregator (owned by T38) and its source bullet list in `docs/spec_topics/future-considerations.md` already exist; if either surface is absent at edit time, gate on T38 — do not invent a Non-goals home unilaterally.
+- The aggregator entry in `docs/spec.md` must forward-link `id="v1-non-goals"` in `docs/spec_topics/future-considerations.md` rather than restate the bullet content (the normative content remains owned by the bullet list).
+- The `<a id="session-model"></a>` paragraph removal is owned by T15a — do not edit it under this finding.
+- Co-resolve with T15a in one commit; landing this finding in isolation while the Orientation paragraph still carries the deferrals leaves the corpus inconsistent.
 
 ## Success criteria
 
@@ -1040,13 +959,8 @@ Rewrite the SDK-surface clause of the Trust-boundary bullet so it states only th
 
 ## Solution constraints
 
-- Edit only the SDK-surface clause of the Trust-boundary bullet under Orientation > Scope in `docs/spec.md`; do not edit `docs/spec_topics/pi-integration-contract.md` or any other Trust-boundary clause.
-- The replacement clause MUST NOT inline the literal `~0.72.1` (or any structural variant restating the pin); the literal pin remains owned solely by **Host prerequisites — Pi SDK pin** in `docs/spec_topics/pi-integration-contract.md`.
-- The replacement clause MUST forward-link **Host prerequisites — Pi SDK pin** in `docs/spec_topics/pi-integration-contract.md` in lieu of restating the pin, and MUST retain the existing forward-link to the anchor `id="pi-version-bump-procedure"` in `docs/spec_topics/pi-integration-contract.md` from the build-time SDK surface-inventory assertion sentence.
-- The bullet's first sentence ("V1 looms execute inside the Pi extension-host process at full Node host-process privilege.") and the scope claim ("V1 imposes no loom-level sandbox.") MUST remain verbatim; the "no extra mediation" sentence with its forward-link to `docs/spec_topics/pi-integration-contract.md` MUST remain verbatim.
-- The `bash` / `read` "illustrative" sentence — editorial colour, not scope-bearing — is dropped in this pass.
-- The callable-set paragraph (owned by T16b), the host-side-denial paragraph (owned by T16c), and the closing capability-model sentence (owned by T16d) MUST remain present and unchanged in normative content under this finding.
-- [default] Hard edit budget: at most one paragraph rewritten in `docs/spec.md`; no other edits.
+- Do not inline the literal `~0.72.1` (or any structural variant restating the Pi SDK pin); that pin remains owned solely by **Host prerequisites — Pi SDK pin** in `docs/spec_topics/pi-integration-contract.md`.
+- The callable-set paragraph, the host-side-denial paragraph, and the closing capability-model sentence are owned by T16b, T16c, and T16d respectively — leave them present and untouched here.
 
 ## Success criteria
 
@@ -1087,12 +1001,9 @@ Rewrite the callable-set paragraph in the Trust-boundary bullet so it states onl
 
 ## Solution constraints
 
-- Edit only the callable-set paragraph of the Trust-boundary bullet under Orientation > Scope in `docs/spec.md`; do not edit `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/frontmatter.md`, or any other Trust-boundary clause.
-- The replacement paragraph MUST NOT inline the literal identifiers `customTools`, `createAgentSession`, or `pi.setActiveTools`, and MUST NOT name any other Pi-API symbol used to wire callables for either mode; the SDK-call mechanism remains owned by the **Tool-registration lifetime and visibility** section in `docs/spec_topics/pi-integration-contract.md`.
-- The replacement paragraph MUST forward-link the **Tool-registration lifetime and visibility** section in `docs/spec_topics/pi-integration-contract.md`.
-- The replacement paragraph MUST preserve the *callable set* clarification — that the loom's declared callable set is a configuration knob over the *model's* reachable callable set, NOT a host-process sandbox — and MUST preserve the existing forward-link to [Parameters and Frontmatter — `tools`](./spec_topics/frontmatter.md#tools) for the absent-or-empty `tools:` default rule.
-- The pre-existing Trust-boundary content above and below the callable-set paragraph — the privilege-model description, the SDK-pin / `ExtensionAPI` / `ExtensionContext` reference, the no-extra-mediation forward-link, the host-side-denial paragraph (owned by T16c), and the closing capability-model sentence (owned by T16d) — MUST remain present and unchanged in normative content under this finding.
-- [default] Hard edit budget: at most one paragraph rewritten in `docs/spec.md`; no other edits.
+- Do not inline the Pi-API identifiers `customTools`, `createAgentSession`, or `pi.setActiveTools` (or any other Pi-API symbol that names how callables are wired for either mode); those are owned by **Tool-registration lifetime and visibility** in `docs/spec_topics/pi-integration-contract.md`.
+- Preserve the *callable set* clarification — that the loom's declared callable set is a configuration knob over the *model's* reachable callable set, NOT a host-process sandbox — and its forward-link to [Parameters and Frontmatter — `tools`](./spec_topics/frontmatter.md#tools).
+- The host-side-denial paragraph and the closing capability-model sentence are owned by T16c and T16d respectively — leave them untouched here.
 
 ## Success criteria
 
@@ -1130,12 +1041,9 @@ Rewrite the host-side-denial paragraph in the Trust-boundary bullet so it stops 
 
 ## Solution constraints
 
-- Edit only the host-side-denial paragraph of the Trust-boundary bullet under Orientation > Scope in `docs/spec.md`; do not edit `docs/spec_topics/tool-calls.md`, `docs/spec_topics/pi-integration-contract.md`, or any other Trust-boundary clause.
-- The replacement sentence MUST forward-link both `docs/spec_topics/tool-calls.md` (for the **Failures** section / outcome enumeration) and the anchor `id="tool-execution-from-loom-code"` in `docs/spec_topics/pi-integration-contract.md`.
-- The replacement sentence MUST NOT inline the literal `Err(QueryError { kind: "code_tool", cause: "execution", ... })` (or any structural variant naming the `kind` / `cause` enum members), MUST NOT inline the literal `details.kind = "tool-return-shape"`, and MUST NOT enumerate the non-conforming-return-envelope, non-settling-Promise, or post-cancel-late-settlement dispositions — those belong to the linked sources only.
-- The replacement MUST preserve the silent-success-on-denial prohibition (the rule that host-side denial cannot surface to loom code as success).
-- The pre-existing Trust-boundary content above the host-side-denial paragraph — the privilege-model description, the SDK-pin / `ExtensionAPI` / `ExtensionContext` reference, the no-extra-mediation forward-link, and the callable-set paragraph — and the closing capability-model sentence (owned by T16d) MUST remain present and unchanged in normative content under this finding.
-- [default] Hard edit budget: at most one sentence in `docs/spec.md`; no other edits.
+- Do not inline the literal `Err(QueryError { kind: "code_tool", cause: "execution", ... })` (or any structural variant naming the `kind` / `cause` enum members), the literal `details.kind = "tool-return-shape"`, or any of the dispositions (non-conforming return envelope, non-settling Promise, post-cancel late settlement); those belong to the linked sources only.
+- Preserve the silent-success-on-denial prohibition — host-side denial cannot surface to loom code as success — that is the load-bearing scope claim of this paragraph.
+- The closing capability-model sentence is owned by T16d — leave it untouched.
 
 ## Success criteria
 
@@ -1173,12 +1081,8 @@ Rewrite the closing capability-model sentence of the Trust-boundary bullet so it
 
 ## Solution constraints
 
-- Edit only the closing capability-model sentence of the Trust-boundary bullet under Orientation > Scope in `docs/spec.md`; do not edit any other Scope bullet, the V1 non-goals aggregator paragraph, or `docs/spec_topics/future-considerations.md`.
-- The replacement sentence MUST forward-link the **No per-loom sandbox or capability model** bullet on `docs/spec_topics/future-considerations.md` via the existing anchor `id="v1-non-goals"`.
-- The replacement sentence MUST NOT restate the deferral's content (the "not anticipated by V1" framing or the "would require a migration" framing) — that framing remains owned by the source bullet under [Future Considerations — V1 non-goals](./spec_topics/future-considerations.md#v1-non-goals).
-- Do NOT author a doc-level Non-goals section in `docs/spec.md` under this finding — relocating the disclaimer to such a section is owned by T38.
-- The pre-existing Trust-boundary content above the closing sentence — the privilege-model description, the SDK-pin / `ExtensionAPI` / `ExtensionContext` reference, the no-extra-mediation forward-link, the callable-set paragraph, and the host-side-denial paragraph — MUST remain present and unchanged in normative content.
-- [default] Hard edit budget: at most one sentence in `docs/spec.md`; no other edits.
+- Do not restate the deferral's content (the "not anticipated by V1" framing or the "would require a migration" framing) — that framing remains owned by the **No per-loom sandbox or capability model** bullet under [Future Considerations — V1 non-goals](./spec_topics/future-considerations.md#v1-non-goals).
+- Do not author a doc-level Non-goals section in `docs/spec.md` — that relocation is owned by T38.
 
 ## Success criteria
 
@@ -1215,14 +1119,11 @@ Rewrite the session-model paragraph in `docs/spec.md` so every site naming the t
 
 ## Solution constraints
 
-- Edit only the session-model paragraph in `docs/spec.md` (anchor `id="session-model"` under Orientation > Prerequisites) and the **Diagnostic-emission isolation** rule in `docs/spec_topics/pi-integration-contract.md` (anchor `id="diagnostic-emission-isolation"`); do not edit `docs/spec_topics/diagnostics.md` or any other topic file.
-- The session-model paragraph in `docs/spec.md` MUST NOT name the channel literal `console.error` or the `try`/`catch` control-flow primitive inline; the channel name and the wrap mechanism MUST live only in the **Diagnostic-emission isolation** rule in PIC.
-- Apply the wording reduction at every structurally identical site in the session-model paragraph that names the teardown-handler last-resort sink, not only the first occurrence; each such site MUST forward-link the **Diagnostic-emission isolation** anchor in PIC.
-- The PIC edit MUST be SP-1-compliant: do NOT paraphrase or assert Pi's stdio-capture, suppression, or surfacing policy in spec voice; resolve the citation gap by exactly one of (a) a Pi-side citation to a file path under `@mariozechner/pi-coding-agent` plus a symbol or named section (no line numbers, no byte offsets, no commit hashes), or (b) a best-effort presupposition note pinned to the current SDK pin version, paired with both a re-verify line in PIC's **Pi version bump procedure** editorial-review checklist that references the **Diagnostic-emission isolation** anchor and a separately-filed `loom/host/*` follow-up finding for the verification gap.
-- The PIC edit is additive: leave the existing **Diagnostic-emission isolation** contract — the five enumerated teardown-handler diagnostic codes, the wrapped serialisation-and-emission sequence, the bare-`code` and two-token serialiser-throw fallbacks, the construction-site wrap, and the count-semantics invocation-site framing — intact; only the host-side warrant attaches.
-- If a Path A citation establishes that Pi *does* capture or suppress extension stdio in a way that hides the channel during teardown, swapping the last-resort sink (e.g. to a loom-controlled file under `~/.pi/`) is out of scope for this finding and belongs in a separate follow-up.
-- Do NOT introduce a new diagnostic code, a new always-log `kind`, a new `customType` value, a new MUST in `docs/spec.md`, or any change to acceptance criteria for any current plan leaf.
-- [default] Hard edit budget: at most one paragraph reduced in `docs/spec.md` (no length increase) and, in PIC, at most one additional sentence (Path A) or one presupposition sentence plus one editorial-review-checklist line (Path B); no other edits.
+- In `docs/spec.md`, do not name `console.error` or `try`/`catch` inline at any site that names the teardown-handler last-resort sink; the channel literal and the wrap mechanism live only in the **Diagnostic-emission isolation** rule. Apply the reduction at every such site in the paragraph, not only the first.
+- The PIC edit is SP-1-compliant: do not paraphrase Pi's stdio-capture, suppression, or surfacing policy in spec voice. Resolve the citation gap by exactly one of (a) a Pi-side citation under `@mariozechner/pi-coding-agent` (file path plus symbol or named section, no line numbers, byte offsets, or commit hashes); or (b) a best-effort presupposition note pinned to the current SDK pin version, paired with both a re-verify line in PIC's **Pi version bump procedure** editorial-review checklist referencing the **Diagnostic-emission isolation** anchor AND a separately-filed `loom/host/*` follow-up finding for the verification gap.
+- The PIC edit is additive: leave the existing **Diagnostic-emission isolation** contract intact; only the host-side warrant attaches.
+- If Path A establishes that Pi captures or suppresses extension stdio in a way that hides the channel during teardown, swapping the last-resort sink (e.g. to a loom-controlled file under `~/.pi/`) is out of scope here and belongs in a separate follow-up.
+- Do not introduce a new diagnostic code, a new always-log `kind`, a new `customType` value, or a change to acceptance criteria for any current plan leaf.
 
 ## Success criteria
 
@@ -1257,14 +1158,10 @@ Append one paragraph to the **Runtime event channel** section in `docs/spec_topi
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md`, only inside the **Runtime event channel** section; do not edit `docs/spec.md`, `docs/spec_topics/slash-invocation.md`, `docs/spec_topics/invocation.md`, `docs/spec_topics/glossary.md`, `docs/spec_topics/diagnostics.md`, or any other file under this finding.
-- The new paragraph MUST name the `loom-system-note` channel, MUST assert the zero-emission predicate on successful termination, MUST cover both the standalone success case and the case where a child loom's `Ok` flows to its `invoke` parent, and MUST identify the success-visible surfaces as the driven conversation (prompt mode) and the programmatic return value (every mode).
-- The paragraph MUST scope its null-policy to the *terminal* outcome surface; do NOT extend the null to pre-evaluation surfaces — the binder echo (`bind_echo: true`) and the no-params overflow note remain operator-visible regardless of terminal outcome.
-- Do NOT add a "completed" parity note for subagent slash invocations; doing so re-opens the deferred aggregation / latency surface that is intentionally scoped out of V1.
-- Preserve the existing always-log-set framing — the group A / group B partition, the four-excluded-kinds enumeration (`validation`, `context_overflow`, `cancelled`, `invoke_callee_error`), the discard-site disposition paragraph, the `display: false` durable-context paragraph, the engine-assumption carve-out, and the `RuntimeEvent` payload shape — unchanged in normative content.
-- Do NOT author the per-mode operator-side null sentences in `slash-invocation.md` (owned by T18b), the `spec.md` **Runtime observability** aggregator forward-link (owned by T18c), or the V18q test clause (owned by T18d).
-- Do NOT introduce a new diagnostic code, a new always-log `kind`, a new `customType` value, a new MUST anywhere outside this paragraph, or any other normative obligation; the edit is one additive paragraph.
-- [default] Hard edit budget: roughly one paragraph (three to five sentences) inside the **Runtime event channel** section; no other edits on the page.
+- Scope the null-policy to the *terminal* outcome surface only; do not extend it to pre-evaluation surfaces (the binder echo on `bind_echo: true` and the no-params overflow note remain operator-visible regardless of terminal outcome).
+- Do not add a "completed" parity note for subagent slash invocations — that re-opens the deferred aggregation / latency surface intentionally scoped out of V1.
+- The per-mode operator-side null sentences in `slash-invocation.md`, the `spec.md` **Runtime observability** aggregator forward-link, and the V18q test clause are owned by T18b, T18c, and T18d respectively.
+- Do not introduce a new diagnostic code, a new always-log `kind`, or a new `customType` value; the edit is one additive paragraph inside the existing section.
 
 ## Success criteria
 
@@ -1304,13 +1201,8 @@ Add one per-surface null sentence to each of the **prompt mode** and **subagent 
 
 ## Solution constraints
 
-- Edit only the **prompt mode** and **subagent mode** bullets under *Once a loom is invoked* in `docs/spec_topics/slash-invocation.md`; do not edit `docs/spec.md`, `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/invocation.md`, `docs/spec_topics/diagnostics.md`, `docs/spec_topics/glossary.md`, or any other file under this finding.
-- The new sentence on the prompt-mode bullet MUST name `loom-system-note` and MUST assert the zero-emission predicate on successful termination, naming the driven conversation as the operator-visible surface.
-- The new sentence on the subagent-mode bullet MUST assert that on successful termination the operator sees no terminal note (the subagent transcript is private; the return value reaches only the programmatic caller) and MUST name both the pre-start binder echo and the failure-side top-level `Err` note as the subagent-mode operator-visible surfaces.
-- The pre-existing per-mode framing in both bullets — the prompt-mode current-conversation-driving description and the `Ok`-return-value-not-surfaced-to-user clause; the subagent-mode fresh-isolated-conversation description and the return-value-only-reaches-caller clause — MUST remain present and unchanged in normative content.
-- Do not author the central success-side null-policy paragraph (owned by T18a), the `docs/spec.md` **Runtime observability** aggregator forward-link (owned by T18c), or the V18q success-side test clause (owned by T18d).
-- Do not introduce a new diagnostic code, a new always-log `kind`, a new `customType` value, a new MUST anywhere outside the two bullets, or any other normative obligation; the edit is two additive per-surface sentences only.
-- [default] Hard edit budget: roughly one sentence appended to each of the two bullets under *Once a loom is invoked*; no other edits on the page.
+- Do not modify the pre-existing per-mode framing in either bullet (the prompt-mode current-conversation-driving description and `Ok`-return-value-not-surfaced-to-user clause; the subagent-mode fresh-isolated-conversation description and return-value-only-reaches-caller clause).
+- The central success-side null-policy paragraph (T18a), the `spec.md` aggregator forward-link (T18c), and the V18q test clause (T18d) are owned elsewhere — out of scope here.
 
 ## Success criteria
 
@@ -1347,13 +1239,10 @@ Widen the **Runtime observability** bullet under `### Scope` in `docs/spec.md` b
 
 ## Solution constraints
 
-- Edit only the **Runtime observability** bullet under `### Scope` in `docs/spec.md`; do not edit `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/slash-invocation.md`, `docs/spec_topics/diagnostics.md`, `docs/spec_topics/glossary.md`, `docs/spec_topics/future-considerations.md`, or any other file under this finding.
-- Preserve every existing forward-link in the bullet — to **Glossary** (for *always-log set*), to **Pi Integration Contract — Runtime event channel**, to **Diagnostics**, and to **Future Considerations — Richer runtime-event telemetry** — with link text and link targets unchanged.
-- Preserve the bullet's existing failure-side framing — the *Operator*-facing runtime-failure framing on the `loom-system-note` channel via the *always-log set*, the disjoint `details`-shape sentence about parse / load / type / runtime-panic batches, and the deferred-aggregation sentence — unchanged in normative content.
-- The widening MUST name both forward-link targets: the PIC **Runtime event channel** section as the central success-side null-policy owner, AND the `slash-invocation.md` per-mode operator-surface owner; do not collapse to one link.
-- Do not author the central success-side null-policy paragraph itself (owned by T18a), the per-mode operator-side null sentences (owned by T18b), or the V18q test clause (owned by T18d); the edit is an aggregator-side mention plus forward-links only.
-- Do not introduce a new diagnostic code, a new always-log `kind`, a new `customType` value, a new MUST, or any other normative obligation; the edit is additive forward-linking inside one bullet.
-- [default] Hard edit budget: roughly one to two additional sentences inside the existing **Runtime observability** bullet; no other edits on the page.
+- Preserve every existing forward-link in the bullet (Glossary; PIC Runtime event channel; Diagnostics; Future Considerations — Richer runtime-event telemetry) — link text and targets unchanged.
+- Preserve the bullet's existing failure-side framing (the *always-log set* Operator-facing runtime-failure framing, the disjoint `details`-shape sentence, the deferred-aggregation sentence) unchanged in normative content.
+- The widening must name both forward-link targets (PIC **Runtime event channel** as the central owner, AND `slash-invocation.md` as the per-mode operator-surface owner); do not collapse to one link.
+- The central success-side null-policy paragraph (T18a), the per-mode operator-side null sentences (T18b), and the V18q test clause (T18d) are owned elsewhere.
 
 ## Success criteria
 
@@ -1391,13 +1280,8 @@ Add one new lettered clause to the V18q **Tests.** bullet in `docs/plan_topics/v
 
 ## Solution constraints
 
-- Edit only `docs/plan_topics/v18-cancellation.md`; do not edit `docs/spec.md` or any spec topic file (the central success-side null-policy rule is owned by T18a).
-- Append the new clause to the existing V18q **Tests.** bullet using the next free letter after the existing (a)–(l) items; do not renumber, drop, reword, or reorder the existing clauses.
-- The new clause MUST cover both modes — a successful prompt-mode loom AND a successful slash-invoked subagent-mode loom — and MUST assert zero `loom-system-note` emissions on the always-log channel for each.
-- Do not weaken or reword clause (b)'s four-excluded-kinds enumeration (`validation`, `context_overflow`, `cancelled`, `invoke_callee_error`); the success-side null is additive to those guarantees, not a substitute.
-- Do not edit any other field of V18q (**Spec.**, **Adds.**, **Deps.**, **Ships when.**) and do not edit any other plan leaf under this finding.
-- Do not introduce a new diagnostic code, a new always-log `kind`, a new `customType` value, or any cross-leaf dependency change; the edit is a single Tests-clause append.
-- [default] Hard edit budget: roughly one additional lettered clause inside the V18q **Tests.** bullet; no other edits on the page.
+- Append to V18q's **Tests.** bullet using the next free letter; do not renumber, drop, reword, or reorder existing clauses (a) through (l). In particular, do not weaken clause (b)'s four-excluded-kinds enumeration — the success-side null is additive to those guarantees, not a substitute.
+- Do not edit V18q's **Spec.**, **Adds.**, **Deps.**, or **Ships when.** lines, and do not introduce a new diagnostic code, always-log `kind`, `customType`, or cross-leaf dependency change.
 
 ## Success criteria
 
@@ -1434,14 +1318,10 @@ Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md`; do not edit `docs/spec.md` or any other topic file under this finding.
-- The new entry-shape member MUST be named `invocationId` (camelCase, matching the surrounding `loomAbort` / `disposeBarrier` / `shutdownReason` / `loom` member naming) and typed as `string`; it MUST be required (no `?` optionality marker and no `| undefined` union).
-- The previously-declared entry-shape members (`loomAbort: AbortController`, `disposeBarrier: Promise<void>`, `shutdownReason: string | undefined`, `loom: string`) MUST be preserved verbatim — same name, same type, same optionality marker — and MUST NOT be reordered.
-- The derivation MUST be pinned as `crypto.randomUUID()` evaluated at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` (so a setup-time throw still has an id available for the runtime-defect emission); do not introduce a parallel id channel and do not re-derive an id at any downstream emission site.
-- The `invocationId` field MUST be set on entry creation and never mutated thereafter, matching the lifetime guarantee the section already pins for the `loom` field; uniqueness across registry entries MUST rely on `crypto.randomUUID()` collision-resistance, with no registry-side uniqueness check introduced.
-- Do not introduce the `RuntimeEvent` `invocation_id` wire field, the always-log dedup-tuple widening, the `cancelled-by-session-shutdown` `details.event.invocation_id` population, or the sibling real-time emission-timing paragraph — owned respectively by T19b, T19c, T19d, and T19e.
-- Do not introduce a new diagnostic code, a new `details.kind` discriminator, an aggregation surface, a storm-detection layer, or any cross-sibling demultiplexing surface; the edit is a single-member addition to the registry entry shape plus the corresponding derivation-and-lifetime pin only.
-- [default] Hard edit budget: roughly one additional member in the `Set<...>` declaration plus a few sentences inside the `id="active-invocation-registry"` section pinning derivation, insertion-site placement, and lifetime; no other edits on the page.
+- Preserve the existing entry-shape members (`loomAbort: AbortController`, `disposeBarrier: Promise<void>`, `shutdownReason: string | undefined`, `loom: string`) verbatim — same name, type, optionality marker, and order.
+- Do not introduce a parallel id channel and do not re-derive an id at any downstream emission site; T19c's dedup-key widening and T19d's `details.event.invocation_id` population both depend on a single registry-sourced value.
+- The `RuntimeEvent` `invocation_id` wire field, the always-log dedup-tuple widening, the `cancelled-by-session-shutdown` details addition, and the real-time sibling emission-timing paragraph are owned by T19b, T19c, T19d, and T19e respectively.
+- Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
 ## Success criteria
 
@@ -1482,12 +1362,9 @@ Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md`; do not edit `docs/spec.md` or any other topic file under this finding.
-- The new field MUST be named `invocation_id` (snake_case, matching the rest of the wire shape) and typed as `string`; it MUST be required (no `?` optionality marker).
-- Every existing field of the `RuntimeEvent` declaration (`kind`, `code`, `loom`, `query_site`, `message`, `attempts`, `tokens_used`, `masked`, `occurred_at`) MUST be preserved verbatim — same name, same type, same optionality marker, same inline comment — and MUST NOT be reordered.
-- Do not introduce the `ActiveInvocationRegistry` `invocationId` registry-entry field, the always-log dedup-tuple widening, the cancelled-by-session-shutdown details addition, or the sibling real-time emission-timing paragraph — owned respectively by T19a, T19c, T19d, and T19e.
-- Do not introduce a new diagnostic code, a new `details.kind` discriminator, an aggregation surface, a storm-detection layer, or any cross-sibling demultiplexing surface; the edit is a single-field addition to the wire shape only.
-- Hard edit budget: roughly one additional line inside the `type RuntimeEvent = { ... }` block; no other edits on the page.
+- Preserve every existing `RuntimeEvent` field (`kind`, `code`, `loom`, `query_site`, `message`, `attempts`, `tokens_used`, `masked`, `occurred_at`) verbatim — same name, type, optionality marker, inline comment, and order.
+- The `ActiveInvocationRegistry` entry-shape change, the dedup-tuple widening, the cancelled-by-session-shutdown details addition, and the sibling timing paragraph are owned by T19a, T19c, T19d, and T19e respectively.
+- Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
 ## Success criteria
 
@@ -1528,13 +1405,11 @@ Widen the dedup tuple stated in the **Deduplication and lifetime rules** sub-blo
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md`; do not edit `docs/spec.md` or any other topic file under this finding.
-- Both occurrences of the dedup tuple in the file — the consumer-deduplication clause inside the **Deduplication and lifetime rules** sub-block and the restatement in rule PIC-1 (g) under `id="pic-1"` — MUST be updated together; leaving them divergent is forbidden.
-- The widened tuple MUST place `invocation_id` first (matching the recommendation's ordering) and MUST preserve the existing four field names (`kind`, `query_site`, `message`, `occurred_at`) verbatim and in their existing order; do not rename, drop, or reorder any of the existing four fields.
-- Do not introduce the `ActiveInvocationRegistry` `invocationId` field, the `RuntimeEvent` `invocation_id` wire field, the cancelled-by-session-shutdown details addition, or the sibling real-time emission-timing paragraph — owned respectively by T19a, T19b, T19d, and T19e.
-- Do not introduce a new diagnostic code, a new `details.kind` discriminator, an aggregation surface, a storm-detection layer, or any cross-sibling demultiplexing surface; the edit is a dedup-tuple widening plus a one-sentence wire-flat-vs-dedup-per-invocation pin only.
-- The cascade-twin clause that references the tuple (the rule that two emissions sharing the tuple collapse to one occurrence and that re-emissions copy the originating instance verbatim including `occurred_at`) and the panic-emission `display: false`-not-applicable clause MUST remain textually unchanged apart from the tuple replacement itself.
-- Hard edit budget: roughly two sentences updated in place (one in the dedup sub-block, one in PIC-1 (g)) plus one new sentence pinning the wire-flat / dedup-per-invocation distinction; no other edits on the page.
+- Both occurrences of the dedup tuple in the file (the consumer-deduplication clause inside **Deduplication and lifetime rules**, and the restatement in rule PIC-1 (g) under `id="pic-1"`) must be updated together — leaving them divergent is forbidden.
+- Preserve the existing four field names (`kind`, `query_site`, `message`, `occurred_at`) verbatim and in their existing order; do not rename, drop, or reorder them.
+- Preserve the cascade-twin clause (two emissions sharing the tuple collapse to one occurrence; re-emissions copy the originating instance verbatim including `occurred_at`) and the panic-emission `display: false`-not-applicable clause unchanged apart from the tuple replacement itself.
+- The `ActiveInvocationRegistry` shape change, the `RuntimeEvent` wire-field addition, the cancelled-by-session-shutdown details change, and the real-time timing paragraph are owned by T19a, T19b, T19d, and T19e respectively.
+- Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
 ## Success criteria
 
@@ -1575,12 +1450,10 @@ Extend the `Per-invocation operator visibility (clean-cancel path)` rule under `
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md` and (where the field set is enumerated) `docs/spec_topics/diagnostics.md`; do not edit `docs/spec.md` or any other topic file under this finding.
-- Source `details.event.invocation_id` from the `ActiveInvocationRegistry` entry's `invocationId` field on the per-invocation `finally`; do not re-derive an id at the emission site and do not introduce a parallel id channel.
-- Do not introduce the `invocationId` registry-entry field, the `RuntimeEvent` `invocation_id` wire field, the always-log dedup-key widening, or the sibling real-time emission-timing rule — owned respectively by T19a, T19b, T19c, and T19e.
-- Do not introduce a new diagnostic code, a new `details.kind` discriminator, an aggregation surface, a storm-detection layer, or any cross-sibling demultiplexing surface; the edit is a payload-population pin only.
-- The pre-existing `details.event.reason` clauses (including the `"quit" | "reload" | "new" | "resume" | "fork" | string` type pin, the four captured-value cases under the **Unknown-reason rule**, and the `"<unreadable>"` sentinel rules including the post-deadline residual-gap arm) and the `details.event.loom` clause MUST remain textually unchanged.
-- Hard edit budget: roughly a few sentences inside the `Per-invocation operator visibility (clean-cancel path)` rule, plus a corresponding short addition to the matching `diagnostics.md` row and/or nesting-convention paragraph; no other edits on either page.
+- Source `details.event.invocation_id` from the `ActiveInvocationRegistry` entry's `invocationId` field on the per-invocation `finally` (the same channel by which `details.event.loom` is read); do not re-derive an id at the emission site and do not introduce a parallel id channel.
+- Preserve the existing `details.event.reason` clauses (the `"quit" | "reload" | "new" | "resume" | "fork" | string` type pin, the four captured-value cases under the **Unknown-reason rule**, the `"<unreadable>"` sentinel rules including the post-deadline residual-gap arm) and the `details.event.loom` clause textually unchanged.
+- The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` wire-field addition, the dedup-key widening, and the real-time timing paragraph are owned by T19a, T19b, T19c, and T19e respectively.
+- Do not introduce a new diagnostic code or `details.kind` discriminator.
 
 ## Success criteria
 
@@ -1622,12 +1495,10 @@ Append one paragraph to the **Runtime event channel** section in `docs/spec_topi
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md`; do not edit `docs/spec.md` or any other topic file under this finding.
-- Place the new paragraph inside the **Runtime event channel** section alongside the existing exactly-once-per-origin rule and the Deduplication and lifetime rules; do not relocate or reword the existing paragraphs in that section.
-- The interleaving-order clause MUST be non-normative for tests — V18q (and any other test leaf) must not be required to assert a specific sibling interleaving order; only operator-observability of the JavaScript event-loop scheduling order is asserted.
-- Do not pre-install `invocation_id` wire-field, `ActiveInvocationRegistry` entry-shape, dedup-key widening, or cancelled-by-session-shutdown details changes — those are owned by sibling findings T19a, T19b, T19c, and T19d respectively.
-- Do not introduce a new diagnostic code, a new `details.kind` discriminator, an aggregation surface, a storm-detection layer, or any cross-sibling demultiplexing surface; the edit is a timing-rule pin only.
-- Hard edit budget: roughly one paragraph appended to the **Runtime event channel** section; no other edits on the page.
+- Place the new paragraph alongside the existing exactly-once-per-origin rule and the Deduplication and lifetime rules; do not relocate or reword the existing paragraphs in the section.
+- The interleaving-order clause is non-normative for tests — V18q (and any other test leaf) must not be required to assert a specific sibling interleaving order; only operator-observability of the JavaScript event-loop scheduling order is asserted.
+- The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` `invocation_id` wire field, the dedup-key widening, and the cancelled-by-session-shutdown details change are owned by T19a, T19b, T19c, and T19d respectively.
+- Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
 ## Success criteria
 
@@ -1667,12 +1538,9 @@ Widen the existing resource-unboundedness parenthetical inside the `id="no-invoc
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/implementation-notes.md`; do not edit `docs/spec.md`, `docs/spec_topics/hard-ceilings.md`, `docs/spec_topics/errors-and-results.md`, or `docs/spec_topics/diagnostics.md`.
-- Do not introduce a new diagnostic-code identifier, a new `details.kind` discriminator on `loom/runtime/internal-error`, a new threshold seam, or any cross-sibling aggregation / storm-detection surface — these belong to the rejected option B and are out of scope for this finding.
-- Do not weaken, relocate, or restate the `MUST NOT introduce an admission cap` clause that precedes the parenthetical, and do not introduce any new MUST or SHOULD against the runtime — the edit is a widening of an existing parenthetical disclaimer, not a new normative obligation.
-- The widened parenthetical must explicitly name the absence of aggregation across siblings in V1 for the provider-rate-limit class, so no implementer infers a `loom-system-note` storm-detection layer.
-- Cross-references must use stable landmarks: cite `NOCEIL-3` by identifier, link `loom/runtime/internal-error` and `TransportError` to their existing targets in `docs/spec_topics/errors-and-results.md`, and do not introduce, rename, or relocate any anchor.
-- Hard edit budget: roughly one paragraph (the existing parenthetical replaced in place); no other edits on the page.
+- Do not introduce a new diagnostic-code identifier, a new `details.kind` discriminator on `loom/runtime/internal-error`, a new threshold seam, or any cross-sibling aggregation / storm-detection surface — these belong to the rejected option B.
+- Do not weaken, relocate, or restate the `MUST NOT introduce an admission cap` clause that precedes the parenthetical, and do not introduce any new MUST or SHOULD against the runtime — the edit widens an existing disclaimer, not a normative obligation.
+- Use stable landmarks for cross-references: cite `NOCEIL-3` by identifier; link `loom/runtime/internal-error` and `TransportError` to their existing targets in `docs/spec_topics/errors-and-results.md`; do not introduce, rename, or relocate any anchor.
 
 ## Success criteria
 
@@ -1708,13 +1576,11 @@ In `docs/spec_topics/pi-integration-contract.md`, add one new loom-side consumpt
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md`; no `docs/spec.md` edit is required (the orientation Session model paragraph already forward-links SDK capability inventory item 5).
-- The new paragraph MUST use loom-side voice (e.g. "the runtime presupposes", "this spec consumes", "the loom relies on"); it MUST NOT contain the strings `Pi MUST`, `Pi SHALL`, or `Pi REQUIRED`, and MUST NOT paraphrase Pi behaviour in spec voice (SP-1.1).
-- Resolve the citation slot by exactly one of Path A or Path B; no middle path is permitted. Path A citations name a file path under the SDK pin plus a symbol or named section, with no exact line numbers, no byte offsets, and no commit hashes (SP-1.2). If a fix-loop pass cannot decide between Path A and Path B, prefer Path B (SP-1.4) over speculative paraphrase.
-- If Path B is taken, append exactly one new lettered audit-step item to the editorial-review checklist under `id="pi-version-bump-procedure"`, alongside the existing items, that links to the new paragraph's anchor and instructs the contributor to re-examine whether Path A has become reachable on the next Pi pin bump. Item (f) of that checklist is owned by T22c (must-precede); do not pre-install or relocate it here.
-- Do NOT widen SDK capability inventory item 5 (`id="sdk-cap-cancellation-propagation"`) — or any other capability-inventory item — to add a clause about handler-promise settle time, internal deadline, force-resolve, abandon, or detach. Capability-inventory items enumerate behavioural surfaces the loom probes at entry, not Pi-side guarantees authored by this spec.
-- Out of scope: the `tool.execute(...)` adapter promise lifecycle (governed independently by the *Tool execution from loom code* outcome-routing summary), and any extension of the cancellation chain into `docs/spec_topics/cancellation.md` (the runtime side is already pinned there).
-- Hard edit budget: roughly one paragraph in **Cancellation source**, plus on Path B one lettered checklist item under `id="pi-version-bump-procedure"`.
+- The new paragraph uses loom-side voice (SP-1.1): no `Pi MUST`, `Pi SHALL`, or `Pi REQUIRED`, and no paraphrase of Pi behaviour in spec voice.
+- Resolve the citation slot by exactly one of Path A or Path B (SP-1.2 / SP-1.4) — no middle path. Path A: a Pi-side citation against the `@mariozechner/pi-coding-agent` SDK pin (file path plus symbol or named section, no line numbers, byte offsets, or commit hashes). Path B: a best-effort disclaimer naming the SDK pin version, paired with a corresponding lettered audit-step item appended to the editorial-review checklist under `id="pi-version-bump-procedure"` linking to the new paragraph's anchor. If a fix-loop pass cannot decide between A and B, prefer B over speculative paraphrase.
+- Item (f) of the `id="pi-version-bump-procedure"` editorial-review checklist is owned by T22c — do not pre-install or relocate it here.
+- Do not widen SDK capability inventory item 5 (`id="sdk-cap-cancellation-propagation"`) — or any other capability-inventory item — to add a clause about handler-promise settle time, internal deadline, force-resolve, abandon, or detach. Capability-inventory items enumerate behavioural surfaces the loom probes at entry, not Pi-side guarantees authored by this spec.
+- The `tool.execute(...)` adapter promise lifecycle and any extension of the cancellation chain into `docs/spec_topics/cancellation.md` are out of scope here.
 
 ## Success criteria
 
@@ -1752,12 +1618,10 @@ In `docs/spec_topics/pi-integration-contract.md`, append one new lettered item (
 
 ## Solution constraints
 
-- Edit only `docs/spec_topics/pi-integration-contract.md`; do not edit `docs/spec.md`, `docs/spec_topics/future-considerations.md`, or any other topic file under this finding.
-- The new item (f) is SHOULD-level only; do not introduce a MUST verb, plan-leaf coverage obligation, or test-fixture obligation in V1.
-- The only forward-looking clause permitted in item (f) is the escalation trigger naming a typed Pi session-lifetime contract verifiable by the surface-inventory probe; do not enumerate other hypothetical Pi changes.
-- The `#session-binding-contract` anchor is installed by T22a1 (must-precede); do not introduce, restate, or relocate the anchor under this finding.
-- Forward-links from `docs/spec.md` into `#session-binding-contract` are owned by T22a1; cross-references from `docs/spec_topics/future-considerations.md` are owned by T22b — do not pre-install either here.
-- Hard edit budget: roughly one paragraph appended to the (a)–(e) checklist plus the preamble's lettered-range edit; no other edits on the page.
+- Item (f) is SHOULD-level only; do not introduce a MUST verb, a plan-leaf coverage obligation, or a test-fixture obligation in V1.
+- The only forward-looking clause permitted in (f) is the escalation trigger naming a typed Pi session-lifetime contract verifiable by the surface-inventory probe; do not enumerate other hypothetical Pi changes.
+- The `#session-binding-contract` anchor is installed by T22a1; do not introduce, restate, or relocate the anchor here.
+- Forward-links from `docs/spec.md` into the anchor are owned by T22a1; cross-references from `docs/spec_topics/future-considerations.md` by T22b — do not pre-install either.
 
 ## Success criteria
 
@@ -1794,11 +1658,11 @@ In `docs/spec_topics/future-considerations.md`, augment the existing "No concurr
 
 ## Solution constraints
 
-- Augment the existing "No concurrent user sessions in the same host process" entry under `id="v1-non-goals"` in place; do not add a duplicate or sibling V1 non-goals entry.
+- Augment the existing "No concurrent user sessions in the same host process" entry in place; do not add a duplicate or sibling V1 non-goals entry.
 - The appended disposition is documentation-only — no MUST verbs, no plan-leaf obligations, no test fixtures.
 - The only `docs/spec.md` edit permitted is the closing sentence of the `id="session-model"` paragraph; the opening-sentence forward-link is owned by T22a1.
-- Do not edit `docs/spec_topics/pi-integration-contract.md`; the `#session-binding-contract` anchor is owned by T22a1 and must already exist (must-precede).
-- Do not pre-install the Pi version-bump checklist item over the `#session-binding-contract` anchor; that is owned by T22c.
+- Do not edit `docs/spec_topics/pi-integration-contract.md`; the `#session-binding-contract` anchor is owned by T22a1 and must already exist (consumed via must-precede).
+- Do not pre-install the Pi version-bump checklist item over `#session-binding-contract`; that is owned by T22c.
 
 ## Success criteria
 
@@ -1835,11 +1699,11 @@ Add a new sub-section in `docs/spec_topics/pi-integration-contract.md` under `**
 
 ## Solution constraints
 
-- The new PIC sub-section MUST contain exactly the one paraphrase sentence plus the anchor element; do not add any Pi-source citation, SDK-doc pointer, fallback condition, or normative MUST under this sub-section. Citation-block work is owned by T22a2.
-- Do not pre-install the Future-Considerations contingency cross-link (owned by T22b) or the Pi version-bump checklist item (owned by T22c).
-- Do not modify the closing sentence of the `id="session-model"` paragraph in `docs/spec.md` about concurrent user sessions being out of scope; that is owned by T22b. The only `docs/spec.md` edit permitted under this finding is the opening-sentence forward-link rewrite.
-- Do not edit `docs/spec_topics/pi-integration.md`; cross-check only that session-lifecycle vocabulary is not duplicated there.
-- Do not extend the H1 SDK surface-inventory test (`test/extension/pinned-surface.test.ts`); the single-active-session premise is a Pi-side lifecycle invariant and lives in prose, not in the probe inventory.
+- The new PIC sub-section contains exactly the one paraphrase sentence plus the anchor element — do not add any Pi-source citation, SDK-doc pointer, fallback condition, or normative MUST. Citation-block work is owned by T22a2 (currently parked in `spec-review-needs-reshape.md`).
+- Do not pre-install the Future-Considerations contingency cross-link (T22b) or the Pi version-bump checklist item (T22c).
+- The only `docs/spec.md` edit permitted is the opening-sentence forward-link rewrite; do not modify the closing sentence about concurrent user sessions (owned by T22b).
+- Do not duplicate session-lifecycle vocabulary in `docs/spec_topics/pi-integration.md` — cross-check only.
+- Do not extend the H1 SDK surface-inventory test (`test/extension/pinned-surface.test.ts`); the single-active-session premise is a Pi-side lifecycle invariant that lives in prose, not in the probe inventory.
 
 ## Success criteria
 
