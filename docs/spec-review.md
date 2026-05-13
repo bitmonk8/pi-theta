@@ -24,53 +24,29 @@ _T22a sub-split (2026-05-12, manual): T22a further split into T22a1 (anchor + pa
 **Original section:** docs/spec.md — Overview
 **Kind:** placement
 **Importance:** medium
-
-## Finding
-
-The opening orientation paragraph of `docs/spec.md` (the prose immediately under `## Overview`, before the `<a id="terminal-outcomes-aggregator">` paragraph) embeds a parenthetical enumeration of the subagent-mode state-isolation contract: it lists what the spawned session inherits from the loom's frontmatter, what is forwarded from the caller's `ExtensionCommandContext`, and what is *not* inherited from the caller — naming five specific axes (`transcript`, `system prompt`, `ambient tool set`, `cancellation controller`, caller's `params` and `bindings`).
-
-This enumeration is the canonical content of the **Subagent state-isolation matrix** that already lives at `docs/spec_topics/pi-integration-contract.md#subagent-state-isolation-matrix` — a three-column table whose explicit purpose is "the canonical enumeration of what the spawned session inherits…". The same Overview sentence already forward-links to that matrix. Restating the axes inline duplicates owner-page content in an aggregator (against the convention recorded at `governance.md` GOV-12) and creates a stale-reference risk: any future change to the matrix's column membership (e.g. the `bind_context: session` seam adding a forwarded axis) must be mirrored in two places. The duplication also triggers two adjacent naming-consistency findings on this same paragraph — `ambient tool set` vs the Session model's `tools:` table, and the cancellation-forwarding fan-in vs the Session model's per-invocation framing — that disappear if the parenthetical is removed.
-
-The product description and the mode contrast (prompt mode drives the caller's conversation; subagent mode drives a separate one) are the right level for the orientation paragraph. The five-axis enumeration is not.
-
-## Spec Documents
-
-- `docs/spec.md` — Overview, first paragraph (edited)
-- `docs/spec_topics/pi-integration-contract.md` — `subagent-state-isolation-matrix` section (read-only)
-- `docs/spec_topics/governance.md` — GOV-12 (aggregator-vs-source lock-step) (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal H6.
-
-**Leaves (implementation order):**
-
-- H6 — REQ-ID anchor insertion and coverage-matrix re-pivot — (modified)
-
-H6 already retargets every `spec.md`-introduction link whose target is a non-narrative-page section anchor (the matrix's `#subagent-state-isolation-matrix` is one such anchor) to a `PIC-N` REQ-ID anchor. Deleting the parenthetical removes one of the link sites H6 must rewrite; the leaf's tests are unaffected.
-
-## Consequence
-
-**Severity:** advisory
-
-A reader of the Overview gets a five-axis list that omits at least one axis the PIC matrix carries (the matrix populates three full columns; the parenthetical names five items, not aligned to the column structure), and any future seam that touches the matrix must edit two places to stay synchronized. Implementers can still produce a correct subagent-mode wiring by reading PIC; the cost is documentation drift and extra work for the H6 link-rewrite pass and for every later edit to the matrix.
-
-## Solution Space
-
 **Shape:** single
+**State:** reduced
 
-### Recommendation
+## Problem
 
-In `docs/spec.md`'s Overview first paragraph, delete the parenthetical `— what the spawned session inherits from the loom's frontmatter, what is forwarded from the caller's ExtensionCommandContext, and what is *not* inherited from the caller (transcript, system prompt, ambient tool set, cancellation controller, caller's params and bindings) —` and reduce the surrounding sentence to a one-line orientation pointer:
+The second paragraph of `docs/spec.md`'s `## Overview` section embeds an inline parenthetical enumerating the per-axis subagent state-isolation contract (what the spawned session inherits from the loom's frontmatter, what is forwarded from the caller's `ExtensionCommandContext`, and what is not inherited). The same sentence already forward-links to the **Subagent state-isolation matrix** at `docs/spec_topics/pi-integration-contract.md#subagent-state-isolation-matrix`, which is the canonical owner of that enumeration. Restating the axes in the Overview duplicates owner-page content in an aggregator (against the aggregator-vs-source convention in `docs/spec_topics/governance.md` GOV-12) and creates a stale-reference risk whenever the matrix's column membership changes.
 
-> The state-isolation contract for subagent invocation is enumerated in [Pi Integration Contract — Subagent state-isolation matrix](./spec_topics/pi-integration-contract.md#subagent-state-isolation-matrix); the *callable set* concept that matrix references is defined in [Glossary — `callable set`](./spec_topics/glossary.md).
+## Solution approach
 
-Edge cases for the implementer:
+Delete the inline per-axis parenthetical from the Overview paragraph and rewrite the surrounding sentence as a one-line orientation pointer to the matrix anchor, retaining the existing forward-link to `./spec_topics/glossary.md` for the `callable set` definition the matrix prose depends on. The forward-link target `#subagent-state-isolation-matrix` is preserved unchanged so the H6 REQ-ID anchor-retarget pass still sees a single edit site.
 
-- Keep the existing forward-link target unchanged so the H6 link-retarget pass still has a single edit to make (PIC anchor → `PIC-N` REQ-ID anchor at H6 land time).
-- Do not migrate the deleted axis names into PIC. The matrix already covers them; restating them as PIC prose would introduce a new aggregator/owner duplication on the PIC side.
-- The terminal-outcomes paragraph that immediately follows is a separate placement issue (see related findings) and is not in scope for this fix.
-- The `callable set` glossary pointer is load-bearing for PIC's matrix prose and must be retained.
+## Solution constraints
+
+- Do not migrate the deleted axis names into `pi-integration-contract.md`; the matrix already owns that enumeration and restating it as PIC prose would introduce a new aggregator/owner duplication.
+- Preserve the existing forward-link target `./spec_topics/pi-integration-contract.md#subagent-state-isolation-matrix` and the `./spec_topics/glossary.md` `callable set` link in the rewritten sentence.
+- Out of scope: the `<a id="terminal-outcomes-aggregator">` paragraph that immediately follows is a separate placement finding (T26) and is not edited here.
+- [default] Edit only the Overview paragraph in `docs/spec.md`; do not modify the matrix, the glossary, or governance GOV-12.
+
+## Success criteria
+
+- In `docs/spec.md`'s `## Overview` section, no occurrences remain of the inline per-axis enumeration tokens `transcript`, `system prompt`, `ambient tool set`, `cancellation controller`, or `params` and `bindings` listed as a parenthetical of the subagent state-isolation contract.
+- The Overview paragraph contains exactly one link to `./spec_topics/pi-integration-contract.md#subagent-state-isolation-matrix` and exactly one link to `./spec_topics/glossary.md` for `callable set`.
+- The anchor `id="subagent-state-isolation-matrix"` continues to exist in `docs/spec_topics/pi-integration-contract.md` and the Overview link to it resolves.
 
 ## Relationships
 
@@ -87,44 +63,36 @@ Edge cases for the implementer:
 **Kind:** assumptions, traceability
 **Importance:** medium
 **Atomicity:** atomic
-
-## Finding
-
-H1's `package.json` `dependencies` literal-read assertion currently references the recipe parenthetical in PIC; once T03a installs the dedicated `**Loom-package implementation dependencies (V1).**` sub-paragraph, the assertion's spec anchor must move there and pin the version literal stated in that sub-paragraph (`semver`: `^7.0.0`, `@types/semver` in `devDependencies` not `dependencies`). Separately, T03b adds an `{ kind: "pi-engines-node", literal: ">=20.6.0" }` row to `SDK_SURFACE_INVENTORY` so the four pinned constants the probe consumes plus the cross-package floor share one source of truth — once that row is in place, the `engines.node` literal-read test (or a sibling assertion in `test/extension/pinned-surface.test.ts`) must be extended to import `@mariozechner/pi-coding-agent/package.json` (via `require.resolve(...)` plus `JSON.parse(readFileSync(...))`, or a `with { type: "json" }` import) and assert `pi.engines.node === loom.engines.node` literally.
-
-## Spec Documents
-
-- `docs/plan_topics/h1-scaffold.md` — (edited)
-- `docs/spec_topics/pi-integration-contract.md` — (read-only)
-- `test/extension/pinned-surface.test.ts` — (read-only (referenced))
-
-## Plan Impact
-
-**Phases:** Horizontal H1
-
-**Leaves (implementation order):**
-
-- H1 — Repository scaffold and test framework — (modified)
-
-The H1 leaf already adds `semver` and `@types/semver` and asserts the `dependencies` entry in its manifest test; this finding is one of six children sharing that leaf-touch, with all six landing in coordinated commits (must-precede chain plus same-cluster siblings).
-
-## Consequence
-
-**Severity:** advisory
-
-This finding is one atomic edit in the 6-edit consolidation that resolves the parent T03 (`semver` dependency obligation buried in a non-normative recipe paragraph). The parent's full consequence applies to the cluster as a whole; this child's slice contributes the specific surface listed in **Spec Documents** above.
-
-## Solution Space
-
 **Shape:** single
-**Atomicity:** atomic
+**State:** reduced
 
-**Edit Plan:**
-1. docs/plan_topics/h1-scaffold.md — see **Recommendation** below. (one self-contained edit; 0 new IDs/anchors/sections beyond what is named in the recommendation)
+## Problem
 
-### Recommendation
+In `docs/plan_topics/h1-scaffold.md`, the H1 manifest test bullet that asserts the `semver` / `@types/semver` `package.json` entries currently anchors at the dependency-pinning parenthetical in PIC's two `*Recommended recipe (non-normative).*` paragraphs — a parenthetical that T03c deletes once T03a installs the dedicated `**Loom-package implementation dependencies (V1).**` sub-paragraph in `**Host prerequisites.**`. Separately, the `package.json` `engines.node` literal-read test currently asserts only that the loom literal matches its own pinned string; it does not read `@mariozechner/pi-coding-agent`'s `engines.node` field, so a Pi minor bump that moves the upstream Node floor cannot fail this gate at the bump commit. T03b adds a `pi-engines-node` row to `SDK_SURFACE_INVENTORY` so the cross-package floor and the four already-pinned constants share one source of truth, but no assertion in `test/extension/pinned-surface.test.ts` (or its `engines.node` sibling) yet consumes that row.
 
-Update `docs/plan_topics/h1-scaffold.md` to (a) anchor the `dependencies["semver"]` and `devDependencies["@types/semver"]` manifest assertions at PIC's new `**Loom-package implementation dependencies (V1).**` sub-paragraph (added by T03a), and (b) extend the `engines.node` literal-read test to also import `@mariozechner/pi-coding-agent/package.json` via `require.resolve(...)` (so workspace and pnpm hoisting layouts both work — do NOT hard-code a `node_modules/...` path), parse the JSON, and assert string equality between `pi.engines.node` and the loom literal. Compare strings literally, not via `semver.subset` — the contract is exact-equality, matching H1's existing posture on `engines.node` and `peerDependencies`. The `pi-engines-node` row added to `SDK_SURFACE_INVENTORY` by T03b is the single source of truth the assertion consumes.
+## Solution approach
+
+In `docs/plan_topics/h1-scaffold.md`, rewrite the `semver` / `@types/semver` manifest-assertion bullet so its spec anchor points at PIC's `**Loom-package implementation dependencies (V1).**` sub-paragraph (the sub-paragraph T03a installs) instead of at the recipe parentheticals, and add an extension to the `engines.node` literal-read test bullet (or the SDK surface-inventory bullet, whichever owns the `pi-engines-node` row T03b adds) describing a cross-package equality assertion that reads `@mariozechner/pi-coding-agent`'s `engines.node` and compares it literally against the loom literal. Use stable wording for the path-resolution mechanism — name `require.resolve` (or an equivalent that does not hard-code a `node_modules/...` path) so the assertion works under both workspace and pnpm-hoisting layouts. Frame the comparison as exact string equality, matching H1's existing posture on `engines.node` and `peerDependencies`.
+
+## Solution constraints
+
+- Edit only `docs/plan_topics/h1-scaffold.md` under this finding; do not modify `docs/spec_topics/pi-integration-contract.md`, `docs/spec.md`, or any test source file.
+- The `semver` manifest assertion MUST anchor at PIC's `**Loom-package implementation dependencies (V1).**` sub-paragraph; the `@types/semver` entry MUST be asserted under `devDependencies` (not `dependencies`).
+- The cross-package `engines.node` assertion MUST locate Pi's `package.json` via a path-resolution mechanism that does not hard-code a `node_modules/...` segment (so workspace and pnpm-hoisting layouts both work).
+- The cross-package comparison MUST be specified as literal string equality, not as `semver.subset` / `semver.satisfies` / any range check.
+- The `pi-engines-node` row in `SDK_SURFACE_INVENTORY` (added by T03b) MUST be named as the single source of truth the cross-package assertion consumes; do not introduce a parallel literal in the H1 test description.
+- T03a and T03b are must-precede; this edit MUST NOT land before both (the sub-paragraph and the inventory row this finding's bullet references must already exist).
+- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- [default] Limit edits to the manifest-assertion bullet (re-anchor) and the `engines.node` / `pi-engines-node` test-bullet extension; do not author new MUSTs, restructure unrelated H1 bullets, or revise the `Deps.` / `Ships when.` paragraphs.
+
+## Success criteria
+
+- The `semver` / `@types/semver` manifest-assertion bullet in `docs/plan_topics/h1-scaffold.md` cites `**Loom-package implementation dependencies (V1).**` (or an equivalent reference to that sub-paragraph) as its spec anchor, and contains no link or prose pointing at the Step 0 (a) or Step 0 (d) `*Recommended recipe (non-normative).*` parentheticals as the dependency-pinning anchor.
+- The `@types/semver` assertion in that bullet is described as a `devDependencies` entry (not a `dependencies` entry).
+- The `engines.node` literal-read test bullet (or the sibling SDK surface-inventory bullet that owns the `pi-engines-node` row) in `docs/plan_topics/h1-scaffold.md` describes an assertion that reads `@mariozechner/pi-coding-agent`'s `engines.node` field and compares it literally against the loom literal.
+- That description names `require.resolve` (or an explicitly-named equivalent) as the resolution mechanism and contains no hard-coded `node_modules/...` path segment.
+- The description specifies the comparison as string equality; no occurrence of `semver.subset`, `semver.satisfies`, or any range-comparison verb appears in the cross-package `engines.node` assertion's prose.
+- The cross-package assertion's bullet names the `pi-engines-node` row of `SDK_SURFACE_INVENTORY` as the single source of truth it consumes.
 
 ## Relationships
 
@@ -141,43 +109,34 @@ Update `docs/plan_topics/h1-scaffold.md` to (a) anchor the `dependencies["semver
 **Kind:** consistency, traceability
 **Importance:** medium
 **Atomicity:** atomic
-
-## Finding
-
-`spec.md`'s Orientation > Prerequisites > Host runtime item 1 currently reads "matching `@mariozechner/pi-coding-agent`'s `engines.node` floor". This phrasing implies a manual or coincidental match between the loom package's Node floor and Pi's Node floor with no audit. T03b adds a `pi-engines-node` row to H1's `SDK_SURFACE_INVENTORY` and T03f extends the literal-read test to assert cross-package equality, so the spec sentence should name the test as the audit mechanism rather than asserting bare equivalence in prose.
-
-## Spec Documents
-
-- `docs/spec.md` — (edited)
-- `docs/plan_topics/h1-scaffold.md` — (read-only)
-
-## Plan Impact
-
-**Phases:** Horizontal H1
-
-**Leaves (implementation order):**
-
-- H1 — Repository scaffold and test framework — (modified)
-
-The H1 leaf already adds `semver` and `@types/semver` and asserts the `dependencies` entry in its manifest test; this finding is one of six children sharing that leaf-touch, with all six landing in coordinated commits (must-precede chain plus same-cluster siblings).
-
-## Consequence
-
-**Severity:** advisory
-
-This finding is one atomic edit in the 6-edit consolidation that resolves the parent T03 (`semver` dependency obligation buried in a non-normative recipe paragraph). The parent's full consequence applies to the cluster as a whole; this child's slice contributes the specific surface listed in **Spec Documents** above.
-
-## Solution Space
-
 **Shape:** single
-**Atomicity:** atomic
+**State:** reduced
 
-**Edit Plan:**
-1. docs/spec.md — see **Recommendation** below. (one self-contained edit; 0 new IDs/anchors/sections beyond what is named in the recommendation)
+## Problem
 
-### Recommendation
+`docs/spec.md` Orientation > Prerequisites > Host runtime item 1 (the **Node version floor** bullet) currently asserts that the loom runtime's Node floor matches `@mariozechner/pi-coding-agent`'s `engines.node` floor as a bare prose equivalence, with no named audit mechanism. T03b adds a `pi-engines-node` row to `SDK_SURFACE_INVENTORY` in `docs/plan_topics/h1-scaffold.md`, and T03f extends the H1 SDK surface-inventory literal-read test to assert cross-package equality between the two floors; the spec sentence needs to name that test as the auditor rather than reading like a manual coincidence between two unrelated literals.
 
-In `docs/spec.md` Orientation > Prerequisites > Host runtime item 1, replace the phrase "matching `@mariozechner/pi-coding-agent`'s `engines.node` floor" with "verified equal to `@mariozechner/pi-coding-agent`'s `engines.node` floor by the H1 SDK surface-inventory test." No other change to the orientation aggregator — the rest of item 1 stands.
+## Solution approach
+
+In `docs/spec.md` Orientation > Prerequisites > Host runtime item 1 (the **Node version floor** bullet), rewrite the phrase "matching `@mariozechner/pi-coding-agent`'s `engines.node` floor" to "verified equal to `@mariozechner/pi-coding-agent`'s `engines.node` floor by the H1 SDK surface-inventory test." The rest of item 1 — the literal `>=20.6.0`, the SemVer-comparison parenthetical, the `details.kind = "node-floor"` discriminator forward-link, the `loom/load/host-incompatible` emission contract forward-link, and the bump-procedure forward-link — stands unchanged.
+
+## Solution constraints
+
+- Edit only `docs/spec.md` under this finding; do not modify `docs/plan_topics/h1-scaffold.md`, `docs/spec_topics/pi-integration-contract.md`, or any other spec or plan file.
+- The replacement clause MUST name the audit mechanism as the **H1 SDK surface-inventory test** (the test bullet at `docs/plan_topics/h1-scaffold.md` SDK surface-inventory literal-read test); a different audit name would diverge from the test row T03b installs and the cross-package assertion T03f installs.
+- The Pi package being compared MUST remain `@mariozechner/pi-coding-agent` and its field MUST remain `engines.node` — the rephrase changes only the verb relating the two floors, not either operand.
+- The rest of item 1 (literal `>=20.6.0`, SemVer-comparison parenthetical, `details.kind = "node-floor"` discriminator forward-link, `loom/load/host-incompatible` emission forward-link, PIC Step 0 (a) forward-link, and the Pi version bump procedure forward-link) MUST NOT be edited under this finding.
+- T03b is must-precede — this rephrase MUST NOT land before T03b lands, otherwise the named test has no `pi-engines-node` row to consume.
+- The `pi-engines-node` `SDK_SURFACE_INVENTORY` row, the cross-package equality assertion, and the PIC bump-procedure step 3 narrative are owned by T03b, T03f, and T03d respectively and are out of scope here.
+- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- [default] Limit the edit to the single phrase substitution; do not reflow the bullet, reorder the forward-links, or author new MUSTs in the surrounding orientation aggregator.
+
+## Success criteria
+
+- `docs/spec.md` Orientation > Prerequisites > Host runtime item 1 (the **Node version floor** bullet) contains the phrase "verified equal to `@mariozechner/pi-coding-agent`'s `engines.node` floor by the H1 SDK surface-inventory test".
+- No occurrence of the phrase "matching `@mariozechner/pi-coding-agent`'s `engines.node` floor" remains in `docs/spec.md`.
+- Item 1 of the Host runtime aggregator still carries the literal `>=20.6.0`, the SemVer-comparison parenthetical referencing `semver.satisfies`, the `details.kind = "node-floor"` discriminator forward-link to PIC Step 0 (a), the `loom/load/host-incompatible` emission forward-link, and the forward-link to the PIC Pi version bump procedure.
+- The Host runtime aggregator still enumerates exactly three preconditions and items 2 (`AbortSignal` / `AbortController` shape) and 3 are unchanged by this finding.
 
 ## Relationships
 
@@ -194,42 +153,33 @@ In `docs/spec.md` Orientation > Prerequisites > Host runtime item 1, replace the
 **Kind:** consistency, prescription
 **Importance:** medium
 **Atomicity:** atomic
-
-## Finding
-
-PIC's Pi version-bump procedure step 3 currently instructs the contributor to manually compare loom's Node floor against Pi's `engines.node` field at bump time. Once T03b's `SDK_SURFACE_INVENTORY` row plus T03f's cross-package equality assertion are in place, that manual compare is obviated — H1's test fails red automatically when the upstream floor moves, and the bump-procedure narrative should describe that automatic detection rather than prescribing a manual check that contradicts it.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract.md` — (edited)
-
-## Plan Impact
-
-**Phases:** Horizontal H1
-
-**Leaves (implementation order):**
-
-- H1 — Repository scaffold and test framework — (modified)
-
-The H1 leaf already adds `semver` and `@types/semver` and asserts the `dependencies` entry in its manifest test; this finding is one of six children sharing that leaf-touch, with all six landing in coordinated commits (must-precede chain plus same-cluster siblings).
-
-## Consequence
-
-**Severity:** advisory
-
-This finding is one atomic edit in the 6-edit consolidation that resolves the parent T03 (`semver` dependency obligation buried in a non-normative recipe paragraph). The parent's full consequence applies to the cluster as a whole; this child's slice contributes the specific surface listed in **Spec Documents** above.
-
-## Solution Space
-
 **Shape:** single
-**Atomicity:** atomic
+**State:** reduced
 
-**Edit Plan:**
-1. docs/spec_topics/pi-integration-contract.md — see **Recommendation** below. (one self-contained edit; 0 new IDs/anchors/sections beyond what is named in the recommendation)
+## Problem
 
-### Recommendation
+Step 3 ("Re-confirm the `engines.node` floor") of the `## Pi version bump procedure` (anchor `pi-version-bump-procedure`) in `docs/spec_topics/pi-integration-contract.md` currently instructs the contributor to manually compare `@mariozechner/pi-coding-agent`'s `engines.node` floor at the candidate version against the loom `package.json#engines.node` literal. Once T03b adds the `pi-engines-node` row to `SDK_SURFACE_INVENTORY` in `docs/plan_topics/h1-scaffold.md` and T03f extends the H1 manifest assertion to a cross-package equality check anchored on that row, the manual compare is obviated — the H1 test fails red automatically when the upstream floor moves, and the surviving manual-compare prescription contradicts the automatic detection on which side is authoritative.
 
-In `docs/spec_topics/pi-integration-contract.md` Pi version bump procedure step 3, replace the manual-compare instruction with: "the H1 cross-package `engines.node` test fails red at the bump commit if the upstream floor has moved; update the loom literal, Step 0 (a), and the spec.md sentence in the same edit." The narrative MUST be updated in the same commit as T03f's test extension; otherwise PIC and the test diverge on which side is authoritative.
+## Solution approach
+
+Rewrite step 3 of `## Pi version bump procedure` so the body reframes the step around the cross-package `engines.node` equality test (the H1 assertion T03f extends, sourced from the `pi-engines-node` `SDK_SURFACE_INVENTORY` row T03b adds) as the mechanical detector for upstream-floor movement, rather than a manual compare the contributor performs at bump time. Preserve the step's enumeration of co-edit sites that must move in the same commit when the test fails red — the loom `package.json#engines.node` literal, the [Step 0 (a)](#entry-capability-probe) comparator-and-floor reference, the [`spec.md` — Host runtime obligation 1](../spec.md#orientation) sentence, and the H1 assertion itself — so contributors retain the closure list the manual-compare narrative previously carried.
+
+## Solution constraints
+
+- Edit only step 3 of the `## Pi version bump procedure` section in `docs/spec_topics/pi-integration-contract.md` under this finding; do not modify other steps of the procedure, other sections of PIC, `docs/plan_topics/h1-scaffold.md`, `docs/spec.md`, or any other file.
+- T03b (which adds the `pi-engines-node` `SDK_SURFACE_INVENTORY` row this step's narrative names) is must-precede; this rewrite MUST NOT land before T03b lands, otherwise the narrative references an inventory row that does not exist.
+- T03f (which extends the H1 manifest assertion to the cross-package equality this step's narrative delegates to) is same-cluster; this rewrite MUST land in the same commit as T03f's test extension so the bump procedure and the test do not disagree on which side is authoritative for the upstream-floor floor.
+- The rewritten step MUST continue to enumerate the co-edit closure set the previous prose carried — at minimum the loom `package.json#engines.node` literal, the [Step 0 (a)](#entry-capability-probe) comparator-and-floor reference, the [`spec.md` — Host runtime obligation 1](../spec.md#orientation) sentence, and the H1 assertion — as the sites that must move together when the test fails red.
+- The rewritten step MUST NOT introduce a new step, a new sub-step, a new anchor, or a new spec rule ID; the `pi-version-bump-procedure` heading anchor and the integer step number `3` are preserved.
+- No new spec rule IDs may be introduced — pi-loom uses no stable spec rule IDs.
+- [default] Limit the edit to step 3's body; do not reflow, restructure, or rewrite steps 1, 2, 4, or 5, and do not author new MUSTs beyond restating the same-commit co-edit obligation on the closure set.
+
+## Success criteria
+
+- Step 3 of `## Pi version bump procedure` in `docs/spec_topics/pi-integration-contract.md` no longer contains an instruction prescribing a manual compare of the upstream `engines.node` floor against the loom literal at bump time.
+- Step 3 of that procedure references the cross-package `engines.node` equality assertion (anchored on the `pi-engines-node` `SDK_SURFACE_INVENTORY` row in `docs/plan_topics/h1-scaffold.md`) as the mechanical detector for upstream-floor movement.
+- Step 3 still enumerates the co-edit closure set — the loom `package.json#engines.node` literal, [Step 0 (a)](#entry-capability-probe), [`spec.md` — Host runtime obligation 1](../spec.md#orientation), and the H1 assertion — as the sites that must move in the same commit when the test fails red.
+- The `pi-version-bump-procedure` heading anchor, the integer step numbering of the procedure (steps 1, 2, 4, 5 retained alongside 3), and every other step's body are unchanged by this finding.
 
 ## Relationships
 
