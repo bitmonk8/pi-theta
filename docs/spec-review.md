@@ -4,7 +4,7 @@ _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding in the file (T22b, after the 2026-05-11 reshape-extract pass excised T22a to `spec-review-needs-reshape.md`) is addressed first; the first finding in the file (T02, after the 2026-05-11 spec-sweeps extraction) is addressed last in addressing order. After the reshape pass, split children replace their parents at the parent's file position; addressing within a child cluster runs alphabetically (a addressed first)._
 
-_Triage tally: 10 high, 26 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-15 T02 — Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T07 — `QueryError.message` content has no normativity rule finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T07 — `QueryError.message` content has no normativity rule finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.) (Updated 2026-05-12 T22a sub-split: T22a further split into T22a1 — anchor + paraphrase + spec.md forward-link, auto-resolvable, re-queued in this file — and T22a2 — citation upgrade, remains parked in `spec-review-needs-reshape.md` pending human SDK verification; +1 medium re-queued.) (Updated 2026-05-13 T17 retired: pre-flight review against current corpus state confirmed both halves of T17 are already addressed — the session-model paragraph in `docs/spec.md` no longer names `console.error` or `try`/`catch` inline (it forward-links the Diagnostic-emission isolation anchor in PIC), and PIC's Pi-version-bump-procedure editorial-review checklist already carries item (d) re-verifying the stdio-capture presupposition with the corresponding SP-1-compliant disclaimer at `future-considerations.md#pi-stdio-capture-facet`; T17's substantive concerns are therefore already in the corpus and the finding is dropped; −1 medium.) (Updated 2026-05-13 T22a-family Path-A reshape: SDK lookup against `@mariozechner/pi-coding-agent ~0.72.1` `docs/extensions.md` performed against the live V1 pin; the single-active-session presupposition is supported by Pi's lifecycle (sequential `session_shutdown` → `session_start` flow per `extensions.md` Lifecycle Overview lines 273–340 and Session Events line 388, plus the closed `SessionShutdownEvent['reason']` set `"quit" | "reload" | "new" | "resume" | "fork"` enumerating no concurrent-session signal). T22a2 has been **ratified** into T22a1 (citation block now included inline in T22a1's Recommendation rather than parked) and retired from `spec-review-needs-reshape.md`. T22b and T22c remain in their original forms targeting the to-be-installed `pi-integration-contract.md#session-binding-contract` anchor. Net change to retained count: 0; parked count 1 → 0.) (Updated 2026-05-14 T22a1 Option-1 reshape: forensic analysis of a divergent fix-loop run on T22a1 — see `docs/spec-review-forensic-analysis.md` — identified the bundled `Source of truth:` paragraph and the `"startup"` typo above as the divergence drivers; T22a1's Solution approach has been narrowed to anchor + italicised paraphrase + two forward-cross-references only, the `Source of truth:` block has been deleted, the typo has been corrected here and in T22a1, and the SDK-source citation responsibility moves to T36's diff-audit-on-pin-bump remedy and the existing `Pi version bump procedure` build-time `SessionShutdownEvent['reason']` type-equality assertion. Net change to retained count: 0.) (Updated 2026-05-15 T03f — `h1-scaffold.md` manifest assertion: anchor at the new PIC sub-paragraph; extend `engines.node` literal-read test to cross-package equality finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T13 — Invocation depth bound: introductory sentence omits the "cross-file" qualifier on `.warp fn` calls finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T03a — Add `**Loom-package implementation dependencies (V1).**` sub-paragraph in PIC `Host prerequisites` finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03b — Add `pi-engines-node` row to `SDK_SURFACE_INVENTORY` in `h1-scaffold.md` finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03c — Trim dependency-pinning parentheticals from PIC's two `*Recommended recipe (non-normative).*` paragraphs finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03d — Update PIC Pi version-bump procedure step 3: replace manual-compare instruction with H1-test-fails-red narrative finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03e — Update `spec.md` Host runtime item 1: rephrase to delegate the `engines.node`-equality check to the H1 SDK surface-inventory test finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T06 — Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T08a — Rewrite slash-invocation.md context_overflow system-note row to "context overflow" finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T08b — Sweep errors-and-results.md line 206 "context-window overflow" to "context overflow" finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T08c — Sweep query.md line 285 "context window exceeded" to provider context-overflow phrasing finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T09 — `bind_context: session` overview bullet uses tilde-approximate caps that contradict the exact bounds defined later in the same file finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T10 — Single-string bypass: behaviour on whitespace-only / absent slash argument is unspecified finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T11b — V6k counting-formula tighten: forced respond outside the budget finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T11c — V6k normative test vector for `max_rounds: 0` typed query finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T12 — Dual-cap simultaneous breach: `<cap>` value in `loom/load/discovery-slow` diagnostic is indeterminate finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T14 — Prompt-mode sequentiality argument has an unstated fourth premise finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T15c — Lift Session-model scope deferrals into Non-goals (V1) section finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16b — Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16c — Reduce host-side-denial paragraph to one sentence with forward-links finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16d — Replace closing capability-model paragraph with single forward-link sentence finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18a — Append success-side null-policy paragraph to PIC Runtime event channel finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18b — Add per-mode operator-side null sentences to slash-invocation.md finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18c — Widen spec.md Runtime observability bullet to forward-link the null-policy finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18d — Add V18q test asserting zero `loom-system-note` emissions on successful termination finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19a — Extend ActiveInvocationRegistry entry shape with invocationId finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19b — Add invocation_id field to RuntimeEvent payload declaration finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19c — Widen always-log dedup key to include invocation_id finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19d — Populate cancelled-by-session-shutdown details with invocation_id finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19e — Add real-time sibling emission timing paragraph finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T21 — Pi-side slash-handler promise lifecycle taken as given finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T22b — Multi-session contingency response is unspecified in Future Considerations finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T22c — Pi version-bump procedure has no step for the session-binding contract finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03f — `h1-scaffold.md` manifest assertion: anchor at the new PIC sub-paragraph; extend `engines.node` literal-read test to cross-package equality finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T13 — Invocation depth bound: introductory sentence omits the "cross-file" qualifier on `.warp fn` calls finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T07 — `QueryError.message` content has no normativity rule finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.)_
+_Triage tally: 10 high, 26 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 0 nit dropped; 0 false dropped. (Updated 2026-05-15 T02 — Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T07 — `QueryError.message` content has no normativity rule finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T07 — `QueryError.message` content has no normativity rule finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-11 manual T03 split: +5 medium for the additional T03b–T03f children replacing the original T03; T03 was importance:medium, all six children inherit medium.) (Updated 2026-05-11 reshape-extract pass: T22a parked to `docs/spec-review-needs-reshape.md` per criterion 4 — verbatim-source-citation pattern; −1 medium.) (Updated 2026-05-12 T22a sub-split: T22a further split into T22a1 — anchor + paraphrase + spec.md forward-link, auto-resolvable, re-queued in this file — and T22a2 — citation upgrade, remains parked in `spec-review-needs-reshape.md` pending human SDK verification; +1 medium re-queued.) (Updated 2026-05-13 T17 retired: pre-flight review against current corpus state confirmed both halves of T17 are already addressed — the session-model paragraph in `docs/spec.md` no longer names `console.error` or `try`/`catch` inline (it forward-links the Diagnostic-emission isolation anchor in PIC), and PIC's Pi-version-bump-procedure editorial-review checklist already carries item (d) re-verifying the stdio-capture presupposition with the corresponding SP-1-compliant disclaimer at `future-considerations.md#pi-stdio-capture-facet`; T17's substantive concerns are therefore already in the corpus and the finding is dropped; −1 medium.) (Updated 2026-05-13 T22a-family Path-A reshape: SDK lookup against `@mariozechner/pi-coding-agent ~0.72.1` `docs/extensions.md` performed against the live V1 pin; the single-active-session presupposition is supported by Pi's lifecycle (sequential `session_shutdown` → `session_start` flow per `extensions.md` Lifecycle Overview lines 273–340 and Session Events line 388, plus the closed `SessionShutdownEvent['reason']` set `"quit" | "reload" | "new" | "resume" | "fork"` enumerating no concurrent-session signal). T22a2 has been **ratified** into T22a1 (citation block now included inline in T22a1's Recommendation rather than parked) and retired from `spec-review-needs-reshape.md`. T22b and T22c remain in their original forms targeting the to-be-installed `pi-integration-contract.md#session-binding-contract` anchor. Net change to retained count: 0; parked count 1 → 0.) (Updated 2026-05-14 T22a1 Option-1 reshape: forensic analysis of a divergent fix-loop run on T22a1 — see `docs/spec-review-forensic-analysis.md` — identified the bundled `Source of truth:` paragraph and the `"startup"` typo above as the divergence drivers; T22a1's Solution approach has been narrowed to anchor + italicised paraphrase + two forward-cross-references only, the `Source of truth:` block has been deleted, the typo has been corrected here and in T22a1, and the SDK-source citation responsibility moves to T36's diff-audit-on-pin-bump remedy and the existing `Pi version bump procedure` build-time `SessionShutdownEvent['reason']` type-equality assertion. Net change to retained count: 0.) (Updated 2026-05-15 T03f — `h1-scaffold.md` manifest assertion: anchor at the new PIC sub-paragraph; extend `engines.node` literal-read test to cross-package equality finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T13 — Invocation depth bound: introductory sentence omits the "cross-file" qualifier on `.warp fn` calls finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T03a — Add `**Loom-package implementation dependencies (V1).**` sub-paragraph in PIC `Host prerequisites` finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03b — Add `pi-engines-node` row to `SDK_SURFACE_INVENTORY` in `h1-scaffold.md` finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03c — Trim dependency-pinning parentheticals from PIC's two `*Recommended recipe (non-normative).*` paragraphs finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03d — Update PIC Pi version-bump procedure step 3: replace manual-compare instruction with H1-test-fails-red narrative finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03e — Update `spec.md` Host runtime item 1: rephrase to delegate the `engines.node`-equality check to the H1 SDK surface-inventory test finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T06 — Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T08a — Rewrite slash-invocation.md context_overflow system-note row to "context overflow" finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T08b — Sweep errors-and-results.md line 206 "context-window overflow" to "context overflow" finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T08c — Sweep query.md line 285 "context window exceeded" to provider context-overflow phrasing finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T09 — `bind_context: session` overview bullet uses tilde-approximate caps that contradict the exact bounds defined later in the same file finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T10 — Single-string bypass: behaviour on whitespace-only / absent slash argument is unspecified finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T11b — V6k counting-formula tighten: forced respond outside the budget finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T11c — V6k normative test vector for `max_rounds: 0` typed query finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T12 — Dual-cap simultaneous breach: `<cap>` value in `loom/load/discovery-slow` diagnostic is indeterminate finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T14 — Prompt-mode sequentiality argument has an unstated fourth premise finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T15c — Lift Session-model scope deferrals into Non-goals (V1) section finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16b — Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16c — Reduce host-side-denial paragraph to one sentence with forward-links finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T16d — Replace closing capability-model paragraph with single forward-link sentence finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18a — Append success-side null-policy paragraph to PIC Runtime event channel finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18b — Add per-mode operator-side null sentences to slash-invocation.md finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18c — Widen spec.md Runtime observability bullet to forward-link the null-policy finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T18d — Add V18q test asserting zero `loom-system-note` emissions on successful termination finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19a — Extend ActiveInvocationRegistry entry shape with invocationId finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19b — Add invocation_id field to RuntimeEvent payload declaration finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19c — Widen always-log dedup key to include invocation_id finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19d — Populate cancelled-by-session-shutdown details with invocation_id finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T19e — Add real-time sibling emission timing paragraph finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T21 — Pi-side slash-handler promise lifecycle taken as given finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T22b — Multi-session contingency response is unspecified in Future Considerations finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T22c — Pi version-bump procedure has no step for the session-binding contract finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T03f — `h1-scaffold.md` manifest assertion: anchor at the new PIC sub-paragraph; extend `engines.node` literal-read test to cross-package equality finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T13 — Invocation depth bound: introductory sentence omits the "cross-file" qualifier on `.warp fn` calls finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T07 — `QueryError.message` content has no normativity rule finding-shape Pattern H auto-reshape: vestigial Success criteria section deleted (field is unused by fix-loop pipeline). Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern A auto-reshape: Solution approach narrowed to descriptive form; verbatim text dropped; concrete pins moved to Solution constraints as forbidden-substring bullets. Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern G auto-reshape: deleted 4 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern K auto-reshape: deleted 1 decision-log sentence(s) from Problem. Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern L auto-reshape: deleted 4 gratuitous content span(s) from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern G auto-reshape: deleted 4 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link finding-shape Pattern K auto-reshape: deleted 1 decision-log sentence(s) from Relationships. Net change to retained count: 0.) (Updated 2026-05-15 T02 — Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T03f — `h1-scaffold.md` manifest assertion: anchor at the new PIC sub-paragraph; extend `engines.node` literal-read test to cross-package equality finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T03e — Update `spec.md` Host runtime item 1: rephrase to delegate the `engines.node`-equality check to the H1 SDK surface-inventory test finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T03d — Update PIC Pi version-bump procedure step 3: replace manual-compare instruction with H1-test-fails-red narrative finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T03c — Trim dependency-pinning parentheticals from PIC's two `*Recommended recipe (non-normative).*` paragraphs finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T03b — Add `pi-engines-node` row to `SDK_SURFACE_INVENTORY` in `h1-scaffold.md` finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T03a — Add `**Loom-package implementation dependencies (V1).**` sub-paragraph in PIC `Host prerequisites` finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T06 — Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T07 — `QueryError.message` content has no normativity rule finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T08a — Rewrite slash-invocation.md context_overflow system-note row to "context overflow" finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T08b — Sweep errors-and-results.md line 206 "context-window overflow" to "context overflow" finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T08c — Sweep query.md line 285 "context window exceeded" to provider context-overflow phrasing finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T09 — `bind_context: session` overview bullet uses tilde-approximate caps that contradict the exact bounds defined later in the same file finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T10 — Single-string bypass: behaviour on whitespace-only / absent slash argument is unspecified finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T11c — V6k normative test vector for `max_rounds: 0` typed query finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T11b — V6k counting-formula tighten: forced respond outside the budget finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T12 — Dual-cap simultaneous breach: `<cap>` value in `loom/load/discovery-slow` diagnostic is indeterminate finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T13 — Invocation depth bound: introductory sentence omits the "cross-file" qualifier on `.warp fn` calls finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T14 — Prompt-mode sequentiality argument has an unstated fourth premise finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T15c — Lift Session-model scope deferrals into Non-goals (V1) section finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T16b — Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T16c — Reduce host-side-denial paragraph to one sentence with forward-links finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T16d — Replace closing capability-model paragraph with single forward-link sentence finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T18d — Add V18q test asserting zero `loom-system-note` emissions on successful termination finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T18c — Widen spec.md Runtime observability bullet to forward-link the null-policy finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T18b — Add per-mode operator-side null sentences to slash-invocation.md finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T18a — Append success-side null-policy paragraph to PIC Runtime event channel finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T19e — Add real-time sibling emission timing paragraph finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T19d — Populate cancelled-by-session-shutdown details with invocation_id finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T19c — Widen always-log dedup key to include invocation_id finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T19b — Add invocation_id field to RuntimeEvent payload declaration finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T19a — Extend ActiveInvocationRegistry entry shape with invocationId finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T21 — Pi-side slash-handler promise lifecycle taken as given finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T22c — Pi version-bump procedure has no step for the session-binding contract finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T22b — Multi-session contingency response is unspecified in Future Considerations finding-shape Pattern I auto-reshape: vestigial metadata fields deleted (Original heading, Original section, Split from — auditor-misleading history-log; provides no value to the fixer). Net change to retained count: 0.) (Updated 2026-05-15 T02 — Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T18a — Append success-side null-policy paragraph to PIC Runtime event channel finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T19e — Add real-time sibling emission timing paragraph finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T09 — `bind_context: session` overview bullet uses tilde-approximate caps that contradict the exact bounds defined later in the same file finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T10 — Single-string bypass: behaviour on whitespace-only / absent slash argument is unspecified finding-shape Pattern J auto-reshape: negative-space prescription sentence deleted from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T19a — Extend ActiveInvocationRegistry entry shape with invocationId finding-shape Pattern J auto-reshape: negative-space prescription sentence deleted from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T03a — Add `**Loom-package implementation dependencies (V1).**` sub-paragraph in PIC `Host prerequisites` finding-shape Pattern L auto-reshape: deleted 2 gratuitous content span(s) from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T11b — V6k counting-formula tighten: forced respond outside the budget finding-shape Pattern L auto-reshape: deleted 1 gratuitous content span(s) from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection finding-shape Pattern L auto-reshape: deleted 1 gratuitous content span(s) from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T15c — Lift Session-model scope deferrals into Non-goals (V1) section finding-shape Pattern L auto-reshape: deleted 1 gratuitous content span(s) from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T22b — Multi-session contingency response is unspecified in Future Considerations finding-shape Pattern L auto-reshape: deleted 1 gratuitous content span(s) from Solution approach. Net change to retained count: 0.) (Updated 2026-05-15 T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.) (Updated 2026-05-15 T19e — Add real-time sibling emission timing paragraph finding-shape Pattern G auto-reshape: deleted 1 non-binding constraint bullet(s). Net change to retained count: 0.) (Updated 2026-05-15 T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept finding-shape Pattern K auto-reshape: deleted 1 decision-log sentence(s) from Solution constraints. Net change to retained count: 0.)_
 
 _Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
 
@@ -20,8 +20,6 @@ _T22a sub-split (2026-05-12, manual): T22a further split into T22a1 (anchor + pa
 
 # T02 — Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph
 
-**Original heading:** Subagent state-isolation detail misplaced in Overview (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t02-subagent-state-isolation-enumeration-duplicates-pic-matrix-in-overview-openi.md`)
-**Original section:** docs/spec.md — Overview
 **Kind:** placement
 **Importance:** medium
 **Shape:** single
@@ -33,7 +31,7 @@ The second paragraph of `docs/spec.md`'s `## Overview` section embeds an inline 
 
 ## Solution approach
 
-Delete the inline per-axis parenthetical from the Overview paragraph and rewrite the surrounding sentence as a one-line orientation pointer to the matrix anchor, retaining the existing forward-link to `./spec_topics/glossary.md` for the `callable set` definition the matrix prose depends on. The forward-link target `#subagent-state-isolation-matrix` is preserved unchanged so the H6 REQ-ID anchor-retarget pass still sees a single edit site.
+Delete the inline per-axis parenthetical (the em-dashed clause beginning "— what the spawned session inherits from the loom's frontmatter ...") from the second sentence of `## Overview` in `docs/spec.md`. The sentence's forward-link to `#subagent-state-isolation-matrix` and its forward-link to `./spec_topics/glossary.md` for the `callable set` definition are both retained; the `#subagent-state-isolation-matrix` anchor target is unchanged.
 
 ## Solution constraints
 
@@ -49,9 +47,6 @@ Delete the inline per-axis parenthetical from the Overview paragraph and rewrite
 
 # T03f — `h1-scaffold.md` manifest assertion: anchor at the new PIC sub-paragraph; extend `engines.node` literal-read test to cross-package equality
 
-**Original heading:** `semver` not declared as a dependency (narrowed 2026-05-15 under finding-shape Pattern F auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t03f-h1-scaffold-md-manifest-assertion-anchor-at-the-new-pic-sub-paragraph-exten.md`) (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t03f-h1-scaffold-md-manifest-assertion-anchor-at-the-new-pic-sub-paragraph-exten-pass-2.md`)
-**Original section:** docs/spec.md — Orientation > Prerequisites > Host runtime
-**Split from:** "T03 — `semver` dependency obligation buried in a non-normative recipe paragraph" (entry 6 of 6; manual reshape 2026-05-11; T33 absorbed-edit list consolidated with Option B's chosen-edit list into a unified 6-edit Edit Plan); finding-shape Pattern F auto-reshape 2026-05-15 (Solution approach narrowed from directive to directional form)
 **Kind:** assumptions, traceability
 **Importance:** medium
 **Atomicity:** atomic
@@ -79,9 +74,6 @@ In `docs/plan_topics/h1-scaffold.md`, retarget the `semver` / `@types/semver` ma
 
 # T03e — Update `spec.md` Host runtime item 1: rephrase to delegate the `engines.node`-equality check to the H1 SDK surface-inventory test
 
-**Original heading:** `semver` not declared as a dependency (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t03e-update-spec-md-host-runtime-item-1-rephrase-to-delegate-the-engines-node-eq.md`)
-**Original section:** docs/spec.md — Orientation > Prerequisites > Host runtime
-**Split from:** "T03 — `semver` dependency obligation buried in a non-normative recipe paragraph" (entry 5 of 6; manual reshape 2026-05-11; T33 absorbed-edit list consolidated with Option B's chosen-edit list into a unified 6-edit Edit Plan)
 **Kind:** consistency, traceability
 **Importance:** medium
 **Atomicity:** atomic
@@ -109,9 +101,6 @@ In `docs/spec.md` Orientation > Prerequisites > Host runtime item 1 (the **Node 
 
 # T03d — Update PIC Pi version-bump procedure step 3: replace manual-compare instruction with H1-test-fails-red narrative
 
-**Original heading:** `semver` not declared as a dependency (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t03d-update-pic-pi-version-bump-procedure-step-3-replace-manual-compare-instruct.md`)
-**Original section:** docs/spec.md — Orientation > Prerequisites > Host runtime
-**Split from:** "T03 — `semver` dependency obligation buried in a non-normative recipe paragraph" (entry 4 of 6; manual reshape 2026-05-11; T33 absorbed-edit list consolidated with Option B's chosen-edit list into a unified 6-edit Edit Plan)
 **Kind:** consistency, prescription
 **Importance:** medium
 **Atomicity:** atomic
@@ -140,9 +129,6 @@ Rewrite step 3 of `## Pi version bump procedure` so the body reframes the step a
 
 # T03c — Trim dependency-pinning parentheticals from PIC's two `*Recommended recipe (non-normative).*` paragraphs
 
-**Original heading:** `semver` not declared as a dependency (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t03c-trim-dependency-pinning-parentheticals-from-pic-s-two-recommended-recipe-no.md`)
-**Original section:** docs/spec.md — Orientation > Prerequisites > Host runtime
-**Split from:** "T03 — `semver` dependency obligation buried in a non-normative recipe paragraph" (entry 3 of 6; manual reshape 2026-05-11; T33 absorbed-edit list consolidated with Option B's chosen-edit list into a unified 6-edit Edit Plan)
 **Kind:** cruft, consistency
 **Importance:** medium
 **Atomicity:** atomic
@@ -169,9 +155,6 @@ Delete the dependency-pinning parenthetical "pinned by H1 as a direct production
 
 # T03b — Add `pi-engines-node` row to `SDK_SURFACE_INVENTORY` in `h1-scaffold.md`
 
-**Original heading:** `semver` not declared as a dependency (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t03b-add-pi-engines-node-row-to-sdk-surface-inventory-in-h1-scaffold-md.md`)
-**Original section:** docs/spec.md — Orientation > Prerequisites > Host runtime
-**Split from:** "T03 — `semver` dependency obligation buried in a non-normative recipe paragraph" (entry 2 of 6; manual reshape 2026-05-11; T33 absorbed-edit list consolidated with Option B's chosen-edit list into a unified 6-edit Edit Plan)
 **Kind:** completeness, traceability
 **Importance:** medium
 **Atomicity:** atomic
@@ -202,9 +185,6 @@ Add one new row to the `SDK_SURFACE_INVENTORY` enumeration in `docs/plan_topics/
 
 # T03a — Add `**Loom-package implementation dependencies (V1).**` sub-paragraph in PIC `Host prerequisites`
 
-**Original heading:** `semver` not declared as a dependency (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t03a-add-loom-package-implementation-dependencies-v1-sub-paragraph-in-pic-host-p.md`)
-**Original section:** docs/spec.md — Orientation > Prerequisites > Host runtime
-**Split from:** "T03 — `semver` dependency obligation buried in a non-normative recipe paragraph" (entry 1 of 6; manual reshape 2026-05-11; T33 absorbed-edit list consolidated with Option B's chosen-edit list into a unified 6-edit Edit Plan)
 **Kind:** assumptions, completeness
 **Importance:** medium
 **Atomicity:** atomic
@@ -217,7 +197,7 @@ The `**Host prerequisites.**` paragraph in `docs/spec_topics/pi-integration-cont
 
 ## Solution approach
 
-Add a new sub-paragraph whose lead bold token is `**Loom-package implementation dependencies (V1).**` immediately below the four-item enumeration in `**Host prerequisites.**` of `docs/spec_topics/pi-integration-contract.md`. The sub-paragraph names the V1 implementation choices the recipe contracts consume — for V1, `semver` declared in the loom package's `dependencies` block and `@types/semver` declared in `devDependencies` — frames the choices as implementation-side rather than normative contract so the comparator-swap escape hatch the recipe paragraphs already promise is preserved, and states the chosen version range as a literal value so downstream manifest tests have a single source of truth to anchor against.
+Add a new sub-paragraph whose lead bold token is `**Loom-package implementation dependencies (V1).**` immediately below the four-item enumeration in `**Host prerequisites.**` of `docs/spec_topics/pi-integration-contract.md`. The sub-paragraph names the V1 implementation choices the recipe contracts consume — for V1, `semver` declared in the loom package's `dependencies` block and `@types/semver` declared in `devDependencies` — frames the choices as implementation-side rather than normative contract, and states the chosen version range as a literal value.
 
 ## Solution constraints
 
@@ -232,8 +212,6 @@ Add a new sub-paragraph whose lead bold token is `**Loom-package implementation 
 
 # T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept
 
-**Original heading:** `looms.binderModel` (settings key) vs `bind_model` (frontmatter field) — same concept, different root names (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t05-bind-frontmatter-vs-binder-binder-settings-diagnostics-prose-root-word-incon.md)
-**Original section:** docs/spec_topics/binder.md
 **Kind:** naming
 **Importance:** medium
 **Shape:** single
@@ -245,13 +223,12 @@ The concept "the LLM the slash-command argument binder calls" appears across thr
 
 ## Solution approach
 
-Per the Option A decision (2026-05-08), document the per-surface mapping rather than rename the frontmatter family. Add a new `**binder model**` glossary entry to `docs/spec_topics/glossary.md`, alphabetised between the existing `**binder**` and `**callable set**` entries; the entry must pin the concept, enumerate the per-surface spellings (frontmatter `bind_model:`, settings `looms.binderModel`, diagnostic / prose `binder-model` / "binder model"), note that the `bind_` prefix is shared by sibling fields `bind_context` and `bind_echo` and is not a separate concept, and forward-link to `./binder.md` and `./discovery.md#settings-file-reads`. Then extend the *Naming convention* paragraph in `docs/spec_topics/frontmatter.md` with one sentence stating that within the binder-related family the frontmatter prefix is `bind_` while the corresponding settings key, diagnostic, and prose forms use the longer root `binder`.
+Document the per-surface mapping rather than rename the frontmatter family. Add a new `**binder model**` glossary entry to `docs/spec_topics/glossary.md`, alphabetised between the existing `**binder**` and `**callable set**` entries; the entry covers the concept, the per-surface spellings (`bind_model:` frontmatter, `looms.binderModel` settings, `binder-model` / "binder model" diagnostic and prose), the relationship to sibling `bind_` frontmatter fields (`bind_context`, `bind_echo`), and forward-links to `./binder.md` and `./discovery.md#settings-file-reads`. Extend the *Naming convention* paragraph in `docs/spec_topics/frontmatter.md` to document the `bind_` (frontmatter) vs `binder` (settings, diagnostic, prose) root-word convention for the binder-related family.
 
 ## Solution constraints
 
-- Do not rename `bind_model`, `bind_context`, or `bind_echo` to `binder_model` / `binder_context` / `binder_echo` — Option B (cross-surface rename) was explicitly rejected; the resolution is documentary.
+- Do not rename `bind_model`, `bind_context`, or `bind_echo` to `binder_model` / `binder_context` / `binder_echo`.
 - The new `**binder model**` entry must be a sibling of (not a replacement for) the existing `**binder**` glossary entry — the latter refers to the mechanism, not the model.
-- The `loom/load/binder-model-unresolved` remediation-hint string in `docs/spec_topics/diagnostics.md` is verbatim author-facing; if a `See:` reference is added it must be appended after the hint, not spliced inside.
 
 ## Relationships
 
@@ -261,8 +238,6 @@ None
 
 # T06 — Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers
 
-**Original heading:** Operator role undefined; non-interactive delivery path unstated (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t06-operator-role-tui-binding-asserted-in-glossary-but-never-reconciled-with-non.md`)
-**Original section:** docs/spec.md — Orientation (misc / cross-cutting)
 **Kind:** assumptions
 **Importance:** medium
 **Shape:** single
@@ -292,9 +267,6 @@ Add an HTML anchor to the `operator` entry in `docs/spec_topics/glossary.md` mat
 
 # T07 — `QueryError.message` content has no normativity rule
 
-**Original heading:** `CancelledError.message` has no normative content (narrowed 2026-05-15 under finding-shape Pattern F auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t07-queryerror-message-content-has-no-normativity-rule.md`) (narrowed 2026-05-15 under finding-shape Pattern G auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t07-queryerror-message-content-has-no-normativity-rule-pass-2.md`) (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t07-queryerror-message-content-has-no-normativity-rule-pass-3.md`)
-**Original section:** docs/spec_topics/errors-and-results.md
-**Split from:** finding-shape Pattern F auto-reshape 2026-05-15 (Solution approach narrowed from directive to directional form)
 **Kind:** testability
 **Importance:** medium
 **Shape:** single
@@ -322,9 +294,6 @@ State in the `### Notes` subsection of `## QueryError variants` in `docs/spec_to
 
 # T08a — Rewrite slash-invocation.md context_overflow system-note row to "context overflow"
 
-**Original heading:** `ContextOverflowError` / `context_overflow` / "context window exceeded" — three phrasings for one concept (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t08a-rewrite-slash-invocation-md-context-overflow-system-note-row-to-context-ove.md)
-**Original section:** docs/spec_topics/errors-and-results.md
-**Split from:** "Inconsistent phrasing for the context-overflow failure across schema, wire kind, and user-facing system note" (entry 1 of 3, second reshape pass 2026-05-11)
 **Kind:** naming
 **Importance:** medium
 **Shape:** single
@@ -354,9 +323,6 @@ Rewrite the user-facing template in the `context_overflow` row of the per-`kind`
 
 # T08b — Sweep errors-and-results.md line 206 "context-window overflow" to "context overflow"
 
-**Original heading:** `ContextOverflowError` / `context_overflow` / "context window exceeded" — three phrasings for one concept (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t08b-sweep-errors-and-results-md-line-206-context-window-overflow-to-context-ove.md`)
-**Original section:** docs/spec_topics/errors-and-results.md
-**Split from:** "Inconsistent phrasing for the context-overflow failure across schema, wire kind, and user-facing system note" (entry 2 of 3, second reshape pass 2026-05-11)
 **Kind:** naming
 **Importance:** medium
 **Atomicity:** atomic
@@ -386,9 +352,6 @@ Rewrite the `ContextOverflowError` variant intro paragraph in the *Query-time va
 
 # T08c — Sweep query.md line 285 "context window exceeded" to provider context-overflow phrasing
 
-**Original heading:** `ContextOverflowError` / `context_overflow` / "context window exceeded" — three phrasings for one concept (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t08c-sweep-query-md-line-285-context-window-exceeded-to-provider-context-overflo.md)
-**Original section:** docs/spec_topics/errors-and-results.md
-**Split from:** "Inconsistent phrasing for the context-overflow failure across schema, wire kind, and user-facing system note" (entry 3 of 3, second reshape pass 2026-05-11)
 **Kind:** naming
 **Importance:** medium
 **Atomicity:** atomic
@@ -419,8 +382,6 @@ Rewrite the affected sentence in the *Detection of `ContextOverflowError`* secti
 
 # T09 — `bind_context: session` overview bullet uses tilde-approximate caps that contradict the exact bounds defined later in the same file
 
-**Original heading:** Binder context `~20 turns` approximate notation contradicts exact bounds in `binder.md` (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t09-bind-context-session-overview-bullet-uses-tilde-approximate-caps-that-contra.md`)
-**Original section:** docs/spec_topics/frontmatter.md
 **Kind:** testability
 **Importance:** high
 **Shape:** single
@@ -438,7 +399,6 @@ Rewrite the `bind_context: session` bullet so it stops asserting approximate, mi
 
 - Treat the *Session-context truncation* subsection and the rendered binder system-prompt example line (`Recent session context (most recent 20 turns / 8000 tokens):`) as read-only; the bullet either restates the caps verbatim from that subsection or defers via forward-link, and never paraphrases or re-derives.
 - Do not introduce a third independent statement of the caps in `binder.md` — the only acceptable copies remain the *Session-context truncation* subsection and the rendered system-prompt example line, both already present.
-- Preserve the auto-generated anchor `#session-context-truncation-bind_context-session` (leaf V16g's *Spec.* cross-reference and the in-file forward-link both depend on it).
 
 ## Relationships
 
@@ -448,8 +408,6 @@ None
 
 # T10 — Single-string bypass: behaviour on whitespace-only / absent slash argument is unspecified
 
-**Original heading:** Single-string bypass: empty-string argument behavior unspecified (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t10-single-string-bypass-behaviour-on-whitespace-only-absent-slash-argument-is-u.md`)
-**Original section:** docs/spec_topics/binder.md
 **Kind:** testability
 **Importance:** high
 **Shape:** single
@@ -461,7 +419,7 @@ The *Single-string bypass* clause (item 2 of *Binder bypass*, anchor `bypass-cas
 
 ## Solution approach
 
-Clarify item 2 of *Binder bypass* in `docs/spec_topics/binder.md` to pin the chosen behaviour: when the slash argument is absent or trims to the empty string, the param is bound to `""` and the loom starts; AJV validates `""` against the `string` schema (it passes by definition). No new diagnostic code, no new system-note template, no echo-policy change. Add a paired test row to V3c's *Tests* line in `docs/plan_topics/v3-frontmatter.md` asserting that the no-argument and whitespace-only-argument cases both bind the param to `""` and start the loom.
+Clarify item 2 of *Binder bypass* in `docs/spec_topics/binder.md` to pin the chosen behaviour: when the slash argument is absent or trims to the empty string, the param is bound to `""` and the loom starts; AJV validates `""` against the `string` schema (it passes by definition). Add a paired test row to V3c's *Tests* line in `docs/plan_topics/v3-frontmatter.md` asserting that the no-argument and whitespace-only-argument cases both bind the param to `""` and start the loom.
 
 ## Solution constraints
 
@@ -478,9 +436,6 @@ None
 
 # T11c — V6k normative test vector for `max_rounds: 0` typed query
 
-**Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t11c-v6k-normative-test-vector-for-max-rounds-0-typed-query.md`)
-**Original section:** docs/plan_topics/v6-typed-queries.md
-**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 3 of 3)
 **Kind:** testability
 **Importance:** high
 **Atomicity:** atomic
@@ -509,9 +464,6 @@ Add a paired normative test vector to V6k's *Tests* line covering the `max_round
 
 # T11b — V6k counting-formula tighten: forced respond outside the budget
 
-**Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t11b-v6k-counting-formula-tighten-forced-respond-outside-the-budget.md)
-**Original section:** docs/plan_topics/v6-typed-queries.md
-**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 2 of 3)
 **Kind:** testability
 **Importance:** high
 **Atomicity:** atomic
@@ -524,7 +476,7 @@ The *Adds* paragraph of leaf "V6k — `tool_loop` cap enforcement and `ToolLoopE
 
 ## Solution approach
 
-Rewrite the counting-formula and exhaustion sentences in V6k's *Adds* paragraph in `docs/plan_topics/v6-typed-queries.md` so the slot count equals the free-phase round count (the forced respond turn sits outside the budget) and exhaustion fires under either of two disjoint conditions: (a) the slot count would exceed `max_rounds` and the next required turn is a free-phase turn, or (b) the forced respond turn was dispatched and the model failed to invoke the respond tool. Preserve the existing statements that the counter starts at 0, that respond-repair follow-ups (V13g) reset the counter, and that `max_rounds: 0` disables model-driven tool calls. Land after T11a and before T11c per Relationships.
+Rewrite the counting-formula and exhaustion sentences in V6k's *Adds* paragraph in `docs/plan_topics/v6-typed-queries.md` so the slot count equals the free-phase round count (the forced respond turn sits outside the budget) and exhaustion fires under either of two disjoint conditions: (a) the slot count would exceed `max_rounds` and the next required turn is a free-phase turn, or (b) the forced respond turn was dispatched and the model failed to invoke the respond tool. Preserve the existing statements that the counter starts at 0, that respond-repair follow-ups (V13g) reset the counter, and that `max_rounds: 0` disables model-driven tool calls.
 
 ## Solution constraints
 
@@ -541,9 +493,6 @@ Rewrite the counting-formula and exhaustion sentences in V6k's *Adds* paragraph 
 
 # T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
 
-**Original heading:** CIO-4 vacuous-after-forced-respond behavior implicit, not stated (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t11a-replace-consumes-one-slot-prose-with-explicit-forced-respond-exemption-rule.md)
-**Original section:** docs/spec_topics/query.md and docs/spec_topics/hard-ceilings.md
-**Split from:** "`tool_loop` slot accounting on the forced respond turn is internally inconsistent" (entry 1 of 3)
 **Kind:** testability
 **Importance:** high
 **Atomicity:** atomic
@@ -572,8 +521,6 @@ Rewrite the relevant sentences in the *Tool-call loop bound* section of `docs/sp
 
 # T12 — Dual-cap simultaneous breach: `<cap>` value in `loom/load/discovery-slow` diagnostic is indeterminate
 
-**Original heading:** Dual-cap simultaneous breach: `<cap>` value in diagnostic is indeterminate (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t12-dual-cap-simultaneous-breach-cap-value-in-loom-load-discovery-slow-diagnosti.md`)
-**Original section:** docs/spec_topics/discovery.md
 **Kind:** testability
 **Importance:** high
 **Shape:** single
@@ -600,8 +547,6 @@ None
 
 # T13 — Invocation depth bound: introductory sentence omits the "cross-file" qualifier on `.warp fn` calls
 
-**Original heading:** "`.warp` `fn` invokes" vs "cross-file `.warp` `fn` call" — contradictory depth-counting qualifier (narrowed 2026-05-15 under finding-shape Pattern G auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t13-invocation-depth-bound-introductory-sentence-omits-the-cross-file-qualifier-.md`) (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t13-invocation-depth-bound-introductory-sentence-omits-the-cross-file-qualifier--pass-2.md`)
-**Original section:** docs/spec_topics/invocation.md
 **Kind:** naming
 **Importance:** high
 **Shape:** single
@@ -627,8 +572,6 @@ None
 
 # T14 — Prompt-mode sequentiality argument has an unstated fourth premise
 
-**Original heading:** Prompt-mode sequentiality guarantee chains three unverified premises (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t14-prompt-mode-sequentiality-argument-has-an-unstated-fourth-premise.md)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** assumptions
 **Importance:** medium
 **Shape:** single
@@ -660,9 +603,6 @@ Add a fourth premise to the parenthesised support list in the Session-model para
 
 # T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet
 
-**Original heading:** Detailed architecture content in Orientation heading; out-of-scope statements buried in narrative (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t15a-reduce-session-model-orientation-paragraph-to-a-four-sentence-forward-linki.md`)
-**Original section:** docs/spec.md — Orientation > Session model
-**Split from:** "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" (entry 1 of 3)
 **Kind:** placement
 **Importance:** medium
 **Shape:** single
@@ -674,7 +614,7 @@ The `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prere
 
 ## Solution approach
 
-Rewrite the `<a id="session-model"></a>` paragraph so it carries only four orientation-level sentences: the one-session-at-a-time binding with its existing forward-link to the Session-binding contract in `docs/spec_topics/pi-integration-contract.md`; the `session_shutdown` payload reference with its existing teardown forward-link to the Extension entry point in `docs/spec_topics/pi-integration-contract.md`; the closed `event.reason` set anchored to the SDK type in `@mariozechner/pi-coding-agent`'s `dist/core/extensions/types.d.ts`; and a forward-link to the `Concurrency model` architectural home installed by T15b. Delete from this paragraph every clause already copied to that subsection by T15b (mode-qualified isolation summary, prompt-mode sequentiality with premises (i)/(ii)/(iii), genuine-concurrency-only-between-subagent-invocations conclusion, cancellation-propagates-downward restatement, per-invocation budget scoping, no-admission-cap statement) and every clause already lifted by T15c (parallel-`invoke` deferral, concurrent-user-sessions deferral). T15b and T15c land in the two preceding commits under bottom-up addressing order; this finding is the cleanup pass that resolves the transient duplication those commits introduced. The `/fix-spec-shape-single-findings` orchestrator commits one finding at a time — do not attempt to merge with T15b or T15c.
+Reduce the `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prerequisites to orientation-level forward-link prose. The retained content categories are: the one-session-at-a-time Pi-session binding (forward-link to the Session-binding contract in `docs/spec_topics/pi-integration-contract.md`), the `session_shutdown` payload contract (forward-link to the Extension entry point in `docs/spec_topics/pi-integration-contract.md` and to the closed `event.reason` set in the SDK type at `@mariozechner/pi-coding-agent`'s `dist/core/extensions/types.d.ts`), and a pointer to the architectural `Concurrency model` subsection installed by T15b. Delete the clauses T15b relocated (mode-qualified isolation summary, prompt-mode sequentiality with premises (i)/(ii)/(iii), genuine-concurrency-only-between-subagent-invocations conclusion, cancellation-propagates-downward restatement, per-invocation budget scoping, no-admission-cap statement) and the deferrals T15c lifted (parallel-`invoke`, concurrent user sessions). Composition — sentence count, ordering of forward-links, whether closely-related pointers fold into one sentence — is the implementer's choice.
 
 ## Solution constraints
 
@@ -695,8 +635,6 @@ Rewrite the `<a id="session-model"></a>` paragraph so it carries only four orien
 
 # T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection
 
-**Original heading:** Detailed architecture content in Orientation heading; out-of-scope statements buried in narrative (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t15b-move-concurrency-semantics-into-extension-architecture-implementation-notes.md`)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** placement
 **Importance:** medium
 **Atomicity:** atomic
@@ -709,7 +647,7 @@ The architectural half of the `<a id="session-model"></a>` paragraph in `docs/sp
 
 ## Solution approach
 
-Add a new `Concurrency model` subsection in `docs/spec.md` under `## Extension Architecture` as a sibling entry to Pi Extension Integration. (`## Implementation Notes` was considered as an alternative home but rejected: the relocated clauses — mode-qualified isolation summary, prompt-mode sequentiality premises (i)/(ii)/(iii), genuine-concurrency-only-between-subagent-invocations conclusion, cancellation-propagates-downward-only restatement, per-invocation budget scoping — are normative architectural rules, not implementer guidance, and demoting them under Implementation Notes would silently weaken their normative status.) **Copy** the listed architectural clauses into the new subsection as an aggregator analogous to the Hard-ceilings bullet, preserving each clause's existing forward-links to `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, and `docs/spec_topics/frontmatter.md` verbatim. The corresponding **removal** from the `<a id="session-model"></a>` paragraph is owned by T15a and is out of scope here — the addition (this finding) and the removal (T15a) land as two consecutive single-finding commits under bottom-up ordering, with a transient content duplication in HEAD between them by design.
+Add a new `Concurrency model` subsection in `docs/spec.md` under `## Extension Architecture` as a sibling entry to Pi Extension Integration. **Copy** the listed architectural clauses into the new subsection as an aggregator analogous to the Hard-ceilings bullet, preserving each clause's existing forward-links to `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, and `docs/spec_topics/frontmatter.md` verbatim. The corresponding **removal** from the `<a id="session-model"></a>` paragraph is owned by T15a and is out of scope here — the addition (this finding) and the removal (T15a) land as two consecutive single-finding commits under bottom-up ordering, with a transient content duplication in HEAD between them by design.
 
 ## Solution constraints
 
@@ -732,9 +670,6 @@ Add a new `Concurrency model` subsection in `docs/spec.md` under `## Extension A
 
 # T15c — Lift Session-model scope deferrals into Non-goals (V1) section
 
-**Original heading:** Detailed architecture content in Orientation heading; out-of-scope statements buried in narrative (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t15c-lift-session-model-scope-deferrals-into-non-goals-v1-section.md)
-**Original section:** docs/spec.md — Orientation > Session model
-**Split from:** "Session-model paragraph mixes architectural rules and scope deferrals into one Orientation block" (entry 3 of 3)
 **Kind:** scope
 **Importance:** medium
 **Atomicity:** atomic
@@ -747,7 +682,7 @@ Two V1 scope deferrals are buried inside the `<a id="session-model"></a>` paragr
 
 ## Solution approach
 
-Verify that both deferrals appear in the V1 non-goals aggregator at anchor `id="v1-non-goals"` in `docs/spec.md` and as normative bullets in the bullet list at anchor `id="v1-non-goals"` in `docs/spec_topics/future-considerations.md`; add either entry only where missing. Both surfaces presently carry both items, so the implementer's edit may be a no-op verification once T15a's reduction is staged. Co-resolve with T15a so the lift confirmation and the paragraph reduction land in one commit.
+Verify that both deferrals appear in the V1 non-goals aggregator at anchor `id="v1-non-goals"` in `docs/spec.md` and as normative bullets in the bullet list at anchor `id="v1-non-goals"` in `docs/spec_topics/future-considerations.md`; add either entry only where missing. Both surfaces presently carry both items, so the implementer's edit may be a no-op verification once T15a's reduction is staged.
 
 ## Solution constraints
 
@@ -767,8 +702,6 @@ Verify that both deferrals appear in the V1 non-goals aggregator at anchor `id="
 
 # T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal
 
-**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t16a-reduce-trust-boundary-sdk-surface-clause-drop-the-0-72-1-literal.md)
-**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
 **Kind:** placement
 **Importance:** medium
 **Atomicity:** atomic
@@ -800,9 +733,6 @@ Rewrite the SDK-surface clause of the Trust-boundary bullet so it states only th
 
 # T16b — Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names
 
-**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t16b-rewrite-callable-set-paragraph-drop-inline-customtools-createagentsession-p.md`)
-**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
-**Split from:** "Trust boundary bullet conflates scope decision with normative contracts and a deferral" (entry 2 of 4)
 **Kind:** placement
 **Importance:** medium
 **Atomicity:** atomic
@@ -833,9 +763,6 @@ Rewrite the callable-set paragraph in the Trust-boundary bullet so it states onl
 
 # T16c — Reduce host-side-denial paragraph to one sentence with forward-links
 
-**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t16c-reduce-host-side-denial-paragraph-to-one-sentence-with-forward-links.md`)
-**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
-**Split from:** "Trust boundary bullet conflates scope decision with normative contracts and a deferral" (entry 3 of 4)
 **Kind:** placement, prescription
 **Importance:** medium
 **Atomicity:** atomic
@@ -866,9 +793,6 @@ Rewrite the host-side-denial paragraph in the Trust-boundary bullet so it stops 
 
 # T16d — Replace closing capability-model paragraph with single forward-link sentence
 
-**Original heading:** Trust boundary bullet mixes scope decision, normative error contracts, and future-consideration (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t16d-replace-closing-capability-model-paragraph-with-single-forward-link-sentenc.md)
-**Original section:** docs/spec.md — Orientation > Scope > Trust boundary
-**Split from:** "Trust boundary bullet conflates scope decision with normative contracts and a deferral" (entry 4 of 4)
 **Kind:** placement, scope
 **Importance:** medium
 **Shape:** single
@@ -898,9 +822,6 @@ Rewrite the closing capability-model sentence of the Trust-boundary bullet so it
 
 # T18d — Add V18q test asserting zero `loom-system-note` emissions on successful termination
 
-**Original heading:** Success-outcome observability and operator-channel obligations undefined (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t18d-add-v18q-test-asserting-zero-loom-system-note-emissions-on-successful-termi.md`)
-**Original section:** docs/plan_topics/v18-cancellation.md
-**Split from:** "Success-side operator observability is unstated" (entry 4 of 4)
 **Kind:** completeness
 **Importance:** medium
 **Atomicity:** atomic
@@ -930,8 +851,6 @@ Add one new lettered clause to the V18q **Tests.** bullet in `docs/plan_topics/v
 
 # T18c — Widen spec.md Runtime observability bullet to forward-link the null-policy
 
-**Original heading:** Success-outcome observability and operator-channel obligations undefined (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t18c-widen-spec-md-runtime-observability-bullet-to-forward-link-the-null-policy.md`)
-**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
 **Kind:** completeness
 **Importance:** medium
 **Atomicity:** atomic
@@ -963,9 +882,6 @@ Widen the **Runtime observability** bullet under `### Scope` in `docs/spec.md` b
 
 # T18b — Add per-mode operator-side null sentences to slash-invocation.md
 
-**Original heading:** Success-outcome observability and operator-channel obligations undefined (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t18b-add-per-mode-operator-side-null-sentences-to-slash-invocation-md.md`)
-**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
-**Split from:** "Success-side operator observability is unstated" (entry 2 of 4)
 **Kind:** completeness
 **Importance:** medium
 **Atomicity:** atomic
@@ -995,8 +911,6 @@ Add one per-surface null sentence to each of the **prompt mode** and **subagent 
 
 # T18a — Append success-side null-policy paragraph to PIC Runtime event channel
 
-**Original heading:** Success-outcome observability and operator-channel obligations undefined (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see .pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t18a-append-success-side-null-policy-paragraph-to-pic-runtime-event-channel.md)
-**Original section:** docs/spec.md — Orientation > Scope > Runtime observability
 **Kind:** completeness
 **Importance:** medium
 **Atomicity:** atomic
@@ -1009,7 +923,7 @@ The **Runtime event channel** section in `docs/spec_topics/pi-integration-contra
 
 ## Solution approach
 
-Append one paragraph to the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md`, placed as a coherent peer of the always-log-set framing (around the four-excluded-kinds enumeration / discard-site disposition cluster, not interleaved with the `RuntimeEvent` payload normative text). The paragraph MUST name the `loom-system-note` channel, assert the zero-emission predicate on successful terminal outcomes (including the case where a child loom's `Ok` flows to its `invoke` parent), identify the success-visible surfaces as the driven conversation in prompt mode and the programmatic return value in every mode, and frame itself as the success-side counterpart of the always-log set's failure inventory. The paragraph scopes its null-policy to the *terminal* surface only — pre-evaluation surfaces remain operator-visible regardless of terminal outcome and are out of scope.
+Add a success-side null-policy statement to the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` asserting that a loom terminating with `Ok(v)` — including the case where a child loom's `Ok` flows to its `invoke` parent — emits no event on the `loom-system-note` channel. Name the success-visible surfaces (the driven conversation in prompt mode and the programmatic return value in every mode).
 
 ## Solution constraints
 
@@ -1030,9 +944,6 @@ Append one paragraph to the **Runtime event channel** section in `docs/spec_topi
 
 # T19e — Add real-time sibling emission timing paragraph
 
-**Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t19e-add-real-time-sibling-emission-timing-paragraph.md`)
-**Original section:** docs/spec.md — Orientation > Session model
-**Split from:** "Concurrent subagent siblings: no operator demultiplexing or sibling-failure timing rule" (entry 5 of 5, second reshape pass 2026-05-11; chosen Option A's `Spec edits` block)
 **Kind:** error-model
 **Importance:** high
 **Atomicity:** atomic
@@ -1045,12 +956,11 @@ The **Runtime event channel** section in `docs/spec_topics/pi-integration-contra
 
 ## Solution approach
 
-Append one paragraph to the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` that pins two positive contracts on sibling always-log emissions on `loom-system-note`: (a) each emission surfaces in real time at the originating emission site, with batching across the parent's tool-loop round forbidden — V18q's concurrent-sibling tests assert this real-time emission at the per-sibling site as the binding behavioural contract; and (b) the relative interleaving order across concurrent sibling origins follows JavaScript event-loop scheduling and is operator-observable. State positively that no test asserts a specific cross-sibling interleaving sequence — the interleaving order is a property of the host JavaScript runtime that a sibling test would have to dictate to assert against, which would over-constrain the runtime without matching anything an operator or programmatic consumer needs.
+Extend the **Runtime event channel** section in `docs/spec_topics/pi-integration-contract.md` to pin the emission timing of sibling always-log notes on `loom-system-note`. The section must establish that each sibling emission surfaces in real time at its originating site (batching across the parent's tool-loop round is not permitted), with V18q's concurrent-sibling tests as the binding behavioural anchor. The relative interleaving order across concurrent sibling origins follows the host JavaScript runtime's event-loop scheduling and is operator-observable; no test asserts a specific cross-sibling interleaving sequence.
 
 ## Solution constraints
 
 - Place the new paragraph alongside the existing exactly-once-per-origin rule and the Deduplication and lifetime rules; do not relocate or reword the existing paragraphs in the section.
-- Frame the interleaving-order clause as a positive statement of what the contract pins (real-time emission at the originating site, asserted by V18q) and what it leaves to the host JavaScript runtime (the relative cross-sibling interleaving sequence). Do NOT use the phrasing "non-normative for tests" or equivalent carve-out wording — the positive framing carries the same operative meaning (V18q asserts per-sibling real-time emission; no test asserts a cross-sibling interleaving sequence) without coining a non-normativity carve-out the lens layer would (correctly) push back on.
 - The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` `invocation_id` wire field, the dedup-key widening, and the cancelled-by-session-shutdown details change are owned by T19a, T19b, T19c, and T19d respectively.
 - Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 
@@ -1068,8 +978,6 @@ Append one paragraph to the **Runtime event channel** section in `docs/spec_topi
 
 # T19d — Populate cancelled-by-session-shutdown details with invocation_id
 
-**Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t19d-populate-cancelled-by-session-shutdown-details-with-invocation-id.md`)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** error-model
 **Importance:** high
 **Atomicity:** atomic
@@ -1105,8 +1013,6 @@ Extend the `Per-invocation operator visibility (clean-cancel path)` rule under `
 
 # T19c — Widen always-log dedup key to include invocation_id
 
-**Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t19c-widen-always-log-dedup-key-to-include-invocation-id.md`)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** error-model
 **Importance:** high
 **Atomicity:** atomic
@@ -1143,8 +1049,6 @@ Widen the dedup tuple stated in the **Deduplication and lifetime rules** sub-blo
 
 # T19b — Add invocation_id field to RuntimeEvent payload declaration
 
-**Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t19b-add-invocation-id-field-to-runtimeevent-payload-declaration.md`)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** error-model
 **Importance:** high
 **Atomicity:** atomic
@@ -1179,8 +1083,6 @@ Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }
 
 # T19a — Extend ActiveInvocationRegistry entry shape with invocationId
 
-**Original heading:** Concurrent subagent sibling failure: no aggregation rule for parent or operator surface (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t19a-extend-activeinvocationregistry-entry-shape-with-invocationid.md`)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** error-model
 **Importance:** high
 **Atomicity:** atomic
@@ -1193,7 +1095,7 @@ The `ActiveInvocationRegistry` entry shape declared under `id="active-invocation
 
 ## Solution approach
 
-Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` with a required `invocationId: string` member, and pin in the section's contract paragraph that each entry's `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, and `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` before any awaitable work, and is set on entry creation and never mutated thereafter. The exact identifier name, type, derivation primitive, and insertion-site placement are the substance of the change and are pinned as part of the registry-shape extension. Do not edit the `RuntimeEvent` wire shape, the dedup tuple, the `cancelled-by-session-shutdown` details payload, or any sibling-owned surface.
+Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` with a required `invocationId: string` member, and pin in the section's contract paragraph that each entry's `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, and `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` before any awaitable work, and is set on entry creation and never mutated thereafter. The exact identifier name, type, derivation primitive, and insertion-site placement are the substance of the change and are pinned as part of the registry-shape extension.
 
 ## Solution constraints
 
@@ -1216,8 +1118,6 @@ Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `
 
 # T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes
 
-**Original heading:** No admission cap: resource exhaustion on concurrent subagent invocations is unspecified (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t20-resource-exhaustion-under-concurrent-subagent-invocations-is-undisclaimed-fo.md`)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** error-model
 **Importance:** medium
 **Shape:** single
@@ -1247,8 +1147,6 @@ Rewrite the resource-unboundedness parenthetical inside the `id="no-invocation-c
 
 # T21 — Pi-side slash-handler promise lifecycle taken as given
 
-**Original heading:** `ctx.signal` propagation semantics taken as given (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t21-pi-side-slash-handler-promise-lifecycle-taken-as-given.md`)
-**Original section:** docs/spec.md — Orientation > Session model
 **Kind:** assumptions
 **Importance:** medium
 **Shape:** single
@@ -1281,8 +1179,6 @@ In `docs/spec_topics/pi-integration-contract.md`, add one new loom-side consumpt
 
 # T22c — Pi version-bump procedure has no step for the session-binding contract
 
-**Original heading:** Concurrent user sessions: Pi guarantee uncited; fallback if Pi adds support undefined (split from T22, part 3 of 3) (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t22c-pi-version-bump-procedure-has-no-step-for-the-session-binding-contract.md`)
-**Original section:** docs/spec_topics/pi-integration-contract.md — Pi version-bump procedure
 **Kind:** completeness
 **Importance:** medium
 **Shape:** single
@@ -1314,8 +1210,6 @@ In `docs/spec_topics/pi-integration-contract.md`, append one new lettered item (
 
 # T22b — Multi-session contingency response is unspecified in Future Considerations
 
-**Original heading:** Concurrent user sessions: Pi guarantee uncited; fallback if Pi adds support undefined (split from T22, part 2 of 3) (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t22b-multi-session-contingency-response-is-unspecified-in-future-considerations.md`)
-**Original section:** docs/spec_topics/future-considerations.md — V1 non-goals
 **Kind:** completeness
 **Importance:** medium
 **Shape:** single
@@ -1327,7 +1221,7 @@ The "No concurrent user sessions in the same host process" entry under `<a id="v
 
 ## Solution approach
 
-In `docs/spec_topics/future-considerations.md`, augment the existing "No concurrent user sessions in the same host process" entry with one disposition sentence stating that every single-session-scoped site stays so scoped and any second session reaching the extension is out of V1 scope, and add `pi-integration-contract.md#session-binding-contract` to that entry's `*Recorded at:*` list. In `docs/spec.md`, rewrite the closing sentence of the `id="session-model"` paragraph as a forward-link into the V1 non-goals entry. The change is documentation-only and adds no normative obligations.
+In `docs/spec_topics/future-considerations.md`, augment the existing "No concurrent user sessions in the same host process" entry with one disposition sentence stating that every single-session-scoped site stays so scoped and any second session reaching the extension is out of V1 scope, and add `pi-integration-contract.md#session-binding-contract` to that entry's `*Recorded at:*` list. In `docs/spec.md`, rewrite the closing sentence of the `id="session-model"` paragraph as a forward-link into the V1 non-goals entry.
 
 ## Solution constraints
 
@@ -1347,43 +1241,29 @@ In `docs/spec_topics/future-considerations.md`, augment the existing "No concurr
 
 # T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link
 
-**Original heading:** Single-active-session premise lacks a Pi-source citation in PIC (originally T22a, sub-split 2026-05-12 into T22a1 and T22a2, T22a2 ratified back into T22a1 2026-05-13 after Path-A SDK lookup against the V1 pin, T22a1 narrowed to anchor + paraphrase + cross-references only on 2026-05-14 under Option-1 reshape after a divergent fix-loop run forensic identified the bundled `Source of truth:` paragraph as the divergence driver — see `docs/spec-review-forensic-analysis.md`) (narrowed 2026-05-15 under finding-shape Pattern H auto-reshape — see `.pi/tmp/spec-review-audit/2026-05-15T08-00-09_noq0fz/reports/t22a1-session-binding-contract-sub-section-in-pic-anchor-paraphrase-pi-source-ci.md`)
-**Original section:** docs/spec_topics/pi-integration-contract.md — Host prerequisites
 **Kind:** placement
 **Importance:** medium
 **Shape:** single
 **State:** reduced
-**Split from:** T22a (2026-05-12 sub-split into T22a1 + T22a2; 2026-05-13 ratification of T22a2 into T22a1; 2026-05-14 Option-1 reshape narrowing T22a1 back to anchor + paraphrase + cross-references only after the bundled `Source of truth:` paragraph drove a 5-pass divergent fix-loop — SDK-source citation responsibility moves to T36's diff-audit-on-pin-bump remedy and the existing `Pi version bump procedure` build-time `SessionShutdownEvent['reason']` type-equality assertion).
 
 ## Problem
 
-The `*Session model.*` paragraph in `docs/spec.md` (anchor `id="session-model"`) opens with the bare assertion "A Pi extension instance is bound to exactly one active user session at a time" without grounding the claim in `pi-integration-contract.md`. PIC's `**Host prerequisites.**` section currently exposes no anchor that sibling findings T22b (Future Considerations contingency cross-link) and T22c (Pi version-bump checklist item) can target for their forward-references. As a result, the single-active-session premise has no canonical home under which session-binding obligations are gathered, and the T22b / T22c cross-links would dangle. The previously-attempted Path-3 reshape (forward-linking spec.md to `future-considerations.md#v1-non-goals` instead of installing a PIC anchor) was found defective by the consistency lens on 2026-05-13: that target reverse-cites the spec.md Session-model paragraph as its source (`per the Session model paragraph cited below`), creating a per↔per citation cycle in which neither page actually establishes the property.
+The `*Session model.*` paragraph in `docs/spec.md` (anchor `id="session-model"`) opens with the bare assertion "A Pi extension instance is bound to exactly one active user session at a time" without grounding the claim in `pi-integration-contract.md`. PIC's `**Host prerequisites.**` section currently exposes no anchor that sibling findings T22b (Future Considerations contingency cross-link) and T22c (Pi version-bump checklist item) can target for their forward-references. As a result, the single-active-session premise has no canonical home under which session-binding obligations are gathered, and the T22b / T22c cross-links would dangle.
 
 ## Solution approach
 
-Add a new sub-section in `docs/spec_topics/pi-integration-contract.md` under `**Host prerequisites.**` — placed between Host-prerequisites item 4 and the existing `<a id="degraded-state-host-prerequisites"></a>` sub-paragraph, matching the sibling sub-paragraph layout pattern used there — carrying the stable HTML anchor `id="session-binding-contract"`, the existing-paraphrase sentence, and two forward-cross-references to the spec-internal sections that already gate the underlying contract. Then rewrite the opening sentence of the `id="session-model"` paragraph in `docs/spec.md` as a forward-link to that new anchor. The full sub-section body is:
-
-```markdown
-<a id="session-binding-contract"></a>
-*Session-binding contract.* A Pi extension instance is bound to exactly one active user session at a time. See [Pi version bump procedure step 5](#pi-version-bump-procedure) for the build-time `SessionShutdownEvent['reason']` type-equality assertion that gates this contract on each Pi minor bump, and [degraded-state-host-prerequisites](#degraded-state-host-prerequisites) presupposition (a) for the spec-internal framing of extension-instance survival across session-only `session_shutdown`.
-```
-
-No `Source of truth:` paragraph, no SDK-doc deep-link, no inline closed-set restatement, no normative MUST, no `**bold**` heading. The sub-section's grounding work is delegated to the two existing spec-internal anchors the cross-references resolve to; the build-time type-equality assertion at the bump procedure is the load-bearing mechanical gate, and `degraded-state-host-prerequisites` presupposition (a) carries the survival framing.
+Add a new sub-section to `docs/spec_topics/pi-integration-contract.md`'s `**Host prerequisites.**` section, carrying the stable HTML anchor `id="session-binding-contract"`, that paraphrases the existing single-active-session premise and grounds it via forward-cross-references to `#pi-version-bump-procedure` step 5's build-time `SessionShutdownEvent['reason']` type-equality assertion and to `#degraded-state-host-prerequisites` presupposition (a). Then rewrite the opening sentence of the `id="session-model"` paragraph in `docs/spec.md` as a forward-link to the new anchor.
 
 ## Solution constraints
 
-- The new PIC sub-section contains exactly the anchor and the paraphrase sentence with two forward-cross-references — no `Source of truth:` paragraph, no SDK-doc deep-link, no inline restatement of the closed `SessionShutdownEvent['reason']` set, no normative MUST.
-- The two forward-cross-references MUST resolve to existing anchors (`#pi-version-bump-procedure` and `#degraded-state-host-prerequisites`); the fixer MUST verify both anchors exist in PIC before committing.
-- The sub-section's heading uses `*italics*` matching the sibling sub-paragraph convention in this file (`*Edge cases*`, `*Per-invocation operator visibility*`, `*Partial-append fate during teardown*`); do NOT use `**bold**` (which is reserved in PIC for normative loom-side contract items the loom owns and tests).
+- The new PIC sub-section MUST NOT contain `"session_shutdown"` or `"workspace_shutdown"` (T36 / the bump-procedure step 5 type-equality assertion own the closed `SessionShutdownEvent['reason']` set).
 - Do not pre-install the Future-Considerations contingency cross-link (T22b) or the Pi version-bump checklist item (T22c).
 - The only `docs/spec.md` edit permitted is the opening-sentence forward-link rewrite of the `id="session-model"` paragraph; do not modify the closing sentence about concurrent user sessions (extraction work on it is owned by T15c).
-- Do not duplicate session-lifecycle vocabulary in `docs/spec_topics/pi-integration.md` — cross-check only.
-- Do not extend the H1 SDK surface-inventory test (`test/extension/pinned-surface.test.ts`); the single-active-session premise is a Pi-side lifecycle invariant that lives in prose, not in the probe inventory.
 - Do not edit `docs/spec_topics/future-considerations.md` from this finding; FC's `per the Session model paragraph cited below` clause cleanup is owned by T22b's resolution.
 
 ## Relationships
 
-- T22b "Multi-session contingency response is unspecified in Future Considerations" — must-precede (this finding installs the `#session-binding-contract` anchor T22b's cross-link consumes; T22b's resolution also rewrites FC's `per the Session model paragraph cited below` clause to point at the new PIC anchor, breaking the per↔per cycle the Path-3 reshape exposed).
+- T22b "Multi-session contingency response is unspecified in Future Considerations" — must-precede (this finding installs the `#session-binding-contract` anchor T22b's cross-link consumes; T22b's resolution also rewrites FC's `per the Session model paragraph cited below` clause to point at the new PIC anchor).
 - T22c "Pi version-bump procedure has no step for the session-binding contract" — must-precede (this finding installs the `#session-binding-contract` anchor T22c's checklist item consumes).
 - T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — must-precede (T15c's extraction of the 'concurrent user sessions … out of scope' sentence interacts with the forward-link this finding installs on the opening sentence).
 - T23 "Pi's per-session slash-handler serialisation is asserted without a verifiable Pi source" — co-resolve (same Session-model paragraph; T23's citation, when it lands, should target the same PIC sub-section).
