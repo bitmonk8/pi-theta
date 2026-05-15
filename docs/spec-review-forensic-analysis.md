@@ -328,3 +328,22 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-15T23:22:56Z — T21 — Pi-side slash-handler promise lifecycle taken as given
+
+- **Failure mode:** limit-cycle
+- **Trajectory:** 11,6,13,13,12
+- **Passes:** 5
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t21-pi-side-slash-handler-promise-lifecycle-taken-as-given.md` _(gitignored)_
+- **Parked findings (this run):** `T21 — Pi-side slash-handler promise lifecycle taken as given`
+- **Loop notes:** Limit-cycle detector fired at pass 5 on counts [6,13,13,12]. Trajectory oscillated; same lens family kept re-surfacing fixes that direct opposite resolutions for the same prose plus repeated requests for per-presupposition anchors that crossed the no-invented-ids scope guard four passes in a row. Recommended reshaping: split T21 into a smaller additive paragraph that does not authorise (1)/(2)/(3) as load-bearing, OR grant explicit anchor-allocation permission so the per-item citation defect stops re-firing each pass.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
