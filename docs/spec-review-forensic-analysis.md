@@ -309,3 +309,22 @@ The failure cascade was: a human SDK-lookup mis-transcribed `"quit"` as `"startu
 ---
 
 *End of forensic analysis.*
+
+## 2026-05-15T20:44:34Z — T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link
+
+- **Failure mode:** diverging
+- **Trajectory:** 6,8,4,4,7
+- **Passes:** 5
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t22a1-session-binding-contract-sub-section-in-pic-anchor-paraphrase-pi-source-ci.md` _(gitignored)_
+- **Parked findings (this run):** `T22a1 — Session-binding contract sub-section in PIC: anchor, paraphrase, Pi-source citation, and spec.md forward-link, T22b — Multi-session contingency response is unspecified in Future Considerations, T22c — Pi version-bump procedure has no step for the session-binding contract, T15c — Lift Session-model scope deferrals into Non-goals (V1) section`
+- **Loop notes:** Loop diverged at pass 5 (fix-class count rose from 4 to 7 between pass 3 and pass 4). Pass 4's 7 fixes were not applied (discarded per termination-check ordering). Earlier passes 0–3 applied 22 fixer dispatches across spec.md and pi-integration-contract.md producing the new `Session-binding cardinality presupposition` + `Session-binding mechanism presupposition` paragraph pair (anchored at `#session-binding-cardinality-presupposition` / `#session-binding-mechanism-presupposition`) and a thin pointer in spec.md's session-model paragraph. Pass 4 surfaced a fresh wave of cross-cutting findings. The diverging finding shape is bimodal — a single sub-section change is licensing unbounded prose-rewrite critique because each lens fix opens a new prose-quality surface for sibling lenses to re-attack (mechanism vs cardinality framing parity, anchor/heading vocabulary, presupposition-vs-prerequisite naming, exhaustiveness carve-outs). Recommend reshaping by splitting the cardinality vs mechanism halves into separate findings each with its own scope guards, or demoting the prose-quality lenses for this finding's inner loop.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
