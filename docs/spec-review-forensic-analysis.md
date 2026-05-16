@@ -52,3 +52,26 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-16T23:00:00Z — T19a — Extend ActiveInvocationRegistry entry shape with invocationId
+
+- **Failure mode:** limit-cycle
+- **Trajectory:** 2,3,3,4,3
+- **Score trajectory:** 125,150,55,77,86 vs S=100
+- **Passes:** 5
+- **Stage at exit:** 1 (5 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-16T21-03-03_7ca072`
+- **Poisoned fixes:** spec-lens-completeness:03, spec-lens-traceability:05
+- **Forensic report:** `c:/UnitySrc/pi-loom/.pi/tmp/spec-fix-failure-forensics/2026-05-16T17-52-36_347871/t19a-extend-activeinvocationregistry-entry-shape-with-invocationid.md` _(gitignored)_
+- **Parked findings (this run):** `T19a — Extend ActiveInvocationRegistry entry shape with invocationId`
+- **Loop notes:** Limit-cycle on fixCounts trajectory [2,3,3,4,3] with last-4 window [3,3,4,3] non-monotone and all >0; divergence did not fire. Surface-expansion fired once on the original pass 4, poisoned spec-lens-completeness:03 and spec-lens-traceability:05, backtracked successfully, but pass 4 re-introduced a near-equivalent runtime-validation finding under a different NN slot that the classifier did not mark poisoned; applying it on pass 4 fed the limit-cycle on pass 5 as adjacent lenses (assumptions, completeness, traceability) emitted multiple ~25-score findings about the new validation clause's mechanism/scope/atomicity. Per-pass severity (raised/fixed/deferred/blocked): p1{high:1,medium:1}/{high:1,medium:1}/{}/{}; p2{high:1,medium:2}/{high:1,medium:2}/{}/{}; p3{medium:2,low:1}/{medium:2,low:1}/{}/{}; p4{medium:3,NIT:2}/{medium:2,NIT:1}/{NIT:1}/{}; p5{medium:3,low:2,NIT:1}/{medium:2,low:1}(DISCARDED)/{medium:1,low:1,NIT:1}/{}. Stage trajectory: stage1=5. Recommended human reshaping: narrow the originating T19a edit to omit enforceable MUSTs on the generator's return value (keep only the syntactic `invocationId: string` declaration plus a non-normative-illustrative generator example), or split T19a into smaller pieces.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
