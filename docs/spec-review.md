@@ -172,7 +172,7 @@ Add one new row to the `SDK_SURFACE_INVENTORY` enumeration in `docs/plan_topics/
 ## Solution constraints
 
 - The new row's `kind` discriminator must be the literal string `pi-engines-node` — T03d, T03e, and T03f all consume this surface name as their dedup key; a different tag silently breaks the chain.
-- Add the row to the existing `SDK_SURFACE_INVENTORY` enumeration; do not introduce a parallel constant, a new test bullet, or a new H1 sub-leaf for it.
+- Do not introduce a parallel constant, a new test bullet, or a new H1 sub-leaf for it.
 - The cross-package equality test, the PIC bump-procedure narrative, and the `spec.md` Host runtime sentence are owned by T03f, T03d, and T03e respectively — out of scope here.
 
 ## Relationships
@@ -228,7 +228,6 @@ Document the per-surface mapping rather than rename the frontmatter family. Add 
 ## Solution constraints
 
 - Do not rename `bind_model`, `bind_context`, or `bind_echo` to `binder_model` / `binder_context` / `binder_echo`.
-- The new `**binder model**` entry must be a sibling of (not a replacement for) the existing `**binder**` glossary entry — the latter refers to the mechanism, not the model.
 
 ## Relationships
 
@@ -893,7 +892,7 @@ Extend the **Runtime event channel** section in `docs/spec_topics/pi-integration
 
 ## Solution constraints
 
-- Place the new paragraph alongside the existing exactly-once-per-origin rule and the Deduplication and lifetime rules; do not relocate or reword the existing paragraphs in the section.
+- Do not relocate or reword the existing paragraphs in the section.
 - The `ActiveInvocationRegistry` entry-shape change, the `RuntimeEvent` `invocation_id` wire field, the dedup-key widening, and the cancelled-by-session-shutdown details change are owned by T19a, T19b, T19c, and T19d respectively.
 - Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
 

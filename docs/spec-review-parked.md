@@ -230,7 +230,7 @@ Rewrite the resource-unboundedness parenthetical inside the `id="no-invocation-c
 
 ## Solution constraints
 
-- Frame the rewrite as a positive ownership-boundary statement: the host JavaScript runtime, the host OS, and the LLM provider each own the limits and any aggregation surface for one of the three resource classes; the loom owns only the per-call surfacing routing it already pins. Do NOT use "non-normative" or "the spec is silent" carve-out phrasings — the positive framing carries the same operative meaning (loom commits to no aggregation surface; a future surface is not anticipated by V1) without coining a non-normativity marker.
+- Do NOT use "non-normative" or "the spec is silent" carve-out phrasings — the positive framing carries the same operative meaning (loom commits to no aggregation surface; a future surface is not anticipated by V1) without coining a non-normativity marker.
 - Do not introduce a new diagnostic-code identifier, a new `details.kind` discriminator on `loom/runtime/internal-error`, a new threshold seam, or any cross-sibling aggregation / storm-detection surface — these belong to the rejected option B and are explicitly outside the ownership boundary the rewrite states.
 - Do not weaken, relocate, or restate the `MUST NOT introduce an admission cap` clause that precedes the parenthetical, and do not introduce any new MUST or SHOULD against the runtime — the edit rewrites an existing disclaimer, not a normative obligation.
 - Use stable landmarks for cross-references: cite `NOCEIL-3` by identifier; link `loom/runtime/internal-error` and `TransportError` to their existing targets in `docs/spec_topics/errors-and-results.md`; do not introduce, rename, or relocate any anchor.
@@ -266,8 +266,8 @@ Add a new `Concurrency model` subsection in `docs/spec.md` under `## Extension A
 
 ## Solution constraints
 
-- The new subsection's home is `## Extension Architecture` (sibling to Pi Extension Integration). Do not place it under `## Implementation Notes`.
-- The new subsection is an aggregator: do not restate owner-page text beyond what the forward-links require.
+- Do not place it under `## Implementation Notes`.
+- Do not restate owner-page text beyond what the forward-links require.
 - Preserve every forward-link from the listed clauses verbatim — same targets, same count — across the copy. This is a copy, not a rewrite.
 - Preserve the three sequentiality premises (i)/(ii)/(iii) verbatim from the source paragraph; the fourth premise is owned by T14 and added in T14's edit pass, not here.
 - Do NOT edit the `<a id="session-model"></a>` paragraph under this finding — removal of the now-duplicated clauses from the source paragraph is owned by T15a and lands in the immediately-following commit under bottom-up ordering. A transient content duplication between the new `Concurrency model` subsection and the still-untouched `<a id="session-model"></a>` paragraph is the **expected intermediate state** between this commit and T15a's commit.
