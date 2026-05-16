@@ -423,3 +423,24 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+---
+
+## 2026-05-16T06:30:00Z — T19d — Populate cancelled-by-session-shutdown details with invocation_id
+
+- **Failure mode:** top-level-refused
+- **Trajectory:** n/a
+- **Passes:** n/a
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t19d-populate-cancelled-by-session-shutdown-details-with-invocation-id.md` _(gitignored)_
+- **Parked findings (this run):** `T19d — Populate cancelled-by-session-shutdown details with invocation_id`
+- **Loop notes:** none
+- **Fixer notes:** Parked-prerequisite mismatch. T19d's Solution constraints require sourcing details.event.invocation_id from the ActiveInvocationRegistry's invocationId field, which is owned by parked T19a. The constraints forbid both alternative phrasings (re-derive at emission site; parallel id channel). No recommendation-compliant path exists while T19a remains parked.
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
