@@ -203,3 +203,80 @@ In `docs/spec_topics/pi-integration-contract.md`, add one new loom-side consumpt
 - T22b "Multi-session contingency response is unspecified in Future Considerations" — same-cluster.
 - T22c "Pi version-bump procedure has no step for the session-binding contract" — same-cluster (Path B's bump-procedure audit step joins the (a)–(f) checklist T22c is also extending).
 - T23 "Pi's per-session slash-handler serialisation is asserted without a verifiable Pi source" — same-cluster (sibling SP-1.2 citation gap on Pi-side scheduling).
+
+
+---
+
+## T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes
+
+> **PARKED** — 2026-05-16T01:11:09Z
+> **Reason:** The inner spec-diff-fix-loop diverged: the most recent pass produced more fix-class findings than the previous one. FIXCOUNTS: 4,4,4,6,7. Loop notes: T20 fix-loop diverged at pass 5. Whack-a-mole pattern around the OS-level FD/socket/child-process-handle resource class: oscillation between "routing is missing/unrouted" (expansion) and "routing is duplicated outside its canonical home" (compression). Recommend reshaping by splitting the bimodal ownership-statement + routing-enumeration obligation into two smaller findings, or narrowing the routing-enumeration scope explicitly to a closed list of per-call surfaces.
+> **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t20-resource-exhaustion-under-concurrent-subagent-invocations-is-undisclaimed.md`
+
+# T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes
+
+**Kind:** error-model
+**Importance:** medium
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The paragraph anchored at `id="no-invocation-cap"` in `docs/spec_topics/implementation-notes.md` carries a parenthetical disclaimer stating that the no-admission-cap rule does not promise resource unboundedness, but the parenthetical only addresses one resource class — runtime-value heap — split into the catchable `RangeError` family (routed through `loom/runtime/internal-error`) and uncatchable V8 heap-OOM (host-process termination). Two other classes that scale with concurrent-subagent fan-out are not addressed: OS-level descriptor / port / child-process-slot exhaustion, and provider rate-limit / quota responses. Each class already has an existing surface in the loom contract for what the loom does observe (catchable host throws fall through `loom/runtime/internal-error` per `docs/spec_topics/errors-and-results.md`; per-query 429s surface as `TransportError` on the same page), but the spec doesn't state where the **ownership boundary** sits — i.e. that the limits themselves and any cross-sibling aggregation, throttling, or storm-detection over them are owned by the host OS, the JavaScript runtime, and the LLM provider respectively, not by the loom spec. Without that boundary statement an implementer or operator is left to infer whether the loom is committing to add such surfaces in a future revision or whether they are out of the loom's scope by design.
+
+## Solution approach
+
+Rewrite the resource-unboundedness parenthetical inside the `id="no-invocation-cap"` paragraph in `docs/spec_topics/implementation-notes.md` as a positive ownership-boundary statement: the loom imposes no admission cap, no scheduler, no per-class threshold, and no cross-sibling aggregation, throttling, or storm-detection on the resources concurrent loom invocations consume. Those resources — runtime-value heap (V8), OS-level file descriptors / sockets / child-process slots, and provider-side rate-limit / quota — are owned by the host JavaScript runtime, the host OS, and the LLM provider respectively, and their limits and any aggregation over those limits live in those layers, not in the loom contract. The loom observes only the per-call surfacing of those limits through the existing routing it already pins: catchable host throws (e.g. the V8 `RangeError` family per `NOCEIL-3` in `docs/spec_topics/hard-ceilings.md`, plus catchable OS-level descriptor / port / child-process-slot exhaustion surfaced as throws by the host JavaScript runtime) route through `loom/runtime/internal-error` per `docs/spec_topics/errors-and-results.md`; per-query provider throttles (HTTP 429 and equivalents) surface as `TransportError` on the same page; uncatchable host fatals (V8 heap-OOM, OS process-kill) terminate the host process without any loom-level diagnostic, on the same footing as any other engine fatal. The Session-model paragraph in `docs/spec.md` is not edited; its existing forward-link to the disclaimer carries the rewritten wording.
+
+## Solution constraints
+
+- Frame the rewrite as a positive ownership-boundary statement: the host JavaScript runtime, the host OS, and the LLM provider each own the limits and any aggregation surface for one of the three resource classes; the loom owns only the per-call surfacing routing it already pins. Do NOT use "non-normative" or "the spec is silent" carve-out phrasings — the positive framing carries the same operative meaning (loom commits to no aggregation surface; a future surface is not anticipated by V1) without coining a non-normativity marker.
+- Do not introduce a new diagnostic-code identifier, a new `details.kind` discriminator on `loom/runtime/internal-error`, a new threshold seam, or any cross-sibling aggregation / storm-detection surface — these belong to the rejected option B and are explicitly outside the ownership boundary the rewrite states.
+- Do not weaken, relocate, or restate the `MUST NOT introduce an admission cap` clause that precedes the parenthetical, and do not introduce any new MUST or SHOULD against the runtime — the edit rewrites an existing disclaimer, not a normative obligation.
+- Use stable landmarks for cross-references: cite `NOCEIL-3` by identifier; link `loom/runtime/internal-error` and `TransportError` to their existing targets in `docs/spec_topics/errors-and-results.md`; do not introduce, rename, or relocate any anchor.
+
+## Relationships
+
+- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — same-cluster (same Session-model paragraph; addresses sibling-diagnostic correlation; co-resolve siblings T19b/c/d/e also relevant).
+- T15b "Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection" — same-cluster (the relocated concurrency-model home is the natural surface for the resource-exhaustion disclaimer).
+
+---
+
+## T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection
+
+> **PARKED** — 2026-05-16T01:11:09Z
+> **Reason:** Cascaded from parking of T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes: this finding's ## Relationships block declares an ordering edge (must-precede or must-follow) on the parked finding, so its preconditions are no longer satisfied in spec-review.md.
+> **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t20-resource-exhaustion-under-concurrent-subagent-invocations-is-undisclaimed.md`
+
+# T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection
+
+**Kind:** placement
+**Importance:** medium
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The architectural half of the `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prerequisites — the mode-qualified isolation summary, prompt-mode strict sequentiality with its three supporting premises (i)/(ii)/(iii), the genuine-concurrency-only-between-subagent-invocations conclusion, the cancellation-propagates-downward-only restatement, and per-invocation budget scoping — sits inside an Orientation bullet labelled informative rather than in a normative-architectural home. T15a's reduction of that paragraph removes those clauses from Orientation; with no destination in `## Extension Architecture` or `## Implementation Notes` they are dropped on the floor and the architectural reader has no aggregator to land on. The spec presently has no `Concurrency model` subsection under either home.
+
+## Solution approach
+
+Add a new `Concurrency model` subsection in `docs/spec.md` under `## Extension Architecture` as a sibling entry to Pi Extension Integration. **Copy** the listed architectural clauses into the new subsection as an aggregator analogous to the Hard-ceilings bullet, preserving each clause's existing forward-links to `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, and `docs/spec_topics/frontmatter.md` verbatim. The corresponding **removal** from the `<a id="session-model"></a>` paragraph is owned by T15a and is out of scope here — the addition (this finding) and the removal (T15a) land as two consecutive single-finding commits under bottom-up ordering, with a transient content duplication in HEAD between them by design.
+
+## Solution constraints
+
+- The new subsection's home is `## Extension Architecture` (sibling to Pi Extension Integration). Do not place it under `## Implementation Notes`.
+- The new subsection is an aggregator: do not restate owner-page text beyond what the forward-links require.
+- Preserve every forward-link from the listed clauses verbatim — same targets, same count — across the copy. This is a copy, not a rewrite.
+- Preserve the three sequentiality premises (i)/(ii)/(iii) verbatim from the source paragraph; the fourth premise is owned by T14 and added in T14's edit pass, not here.
+- Do NOT edit the `<a id="session-model"></a>` paragraph under this finding — removal of the now-duplicated clauses from the source paragraph is owned by T15a and lands in the immediately-following commit under bottom-up ordering. A transient content duplication between the new `Concurrency model` subsection and the still-untouched `<a id="session-model"></a>` paragraph is the **expected intermediate state** between this commit and T15a's commit.
+- **Inner-loop guidance for the spec-diff fix loop on this commit:** the diff for this finding intentionally introduces content that duplicates the unchanged `<a id="session-model"></a>` paragraph in `docs/spec.md`. Findings of the form *"the new Concurrency model subsection duplicates the session-model paragraph"*, *"the same forward-link appears in two places"*, or *"premises (i)/(ii)/(iii) are stated twice"* are out of scope for the inner loop on this commit and MUST NOT be acted on by `spec-diff-fixer` — fixing them would either re-add removed content (defeating the finding's purpose) or remove content from the still-canonical session-model paragraph (crossing the scope guard above and pre-empting T15a's commit). Treat any such finding as `ignore — out-of-scope`.
+
+## Relationships
+
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — co-resolve (the reduction at Orientation must land alongside this relocation).
+- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — co-resolve (sibling restructure of the same paragraph).
+- T14 "Prompt-mode sequentiality argument has an unstated fourth premise" — must-follow (the three premises being relocated are the ones T14 needs to extend with the fourth premise; the relocation is the natural moment to add it).
+- T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — must-follow (the admission-cap disposition being relocated is the surface T20 needs the resource-exhaustion answer on).
+- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — same-cluster (lives in the same architectural area being created here; co-resolve siblings T19b/c/d/e also relevant).

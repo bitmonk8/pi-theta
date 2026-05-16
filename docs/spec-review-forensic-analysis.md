@@ -347,3 +347,22 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-16T01:11:09Z — T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes
+
+- **Failure mode:** diverging
+- **Trajectory:** 4,4,4,6,7
+- **Passes:** 5
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t20-resource-exhaustion-under-concurrent-subagent-invocations-is-undisclaimed.md` _(gitignored)_
+- **Parked findings (this run):** `T20 — Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes, T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection`
+- **Loop notes:** T20 fix-loop diverged at pass 5. Whack-a-mole pattern around the OS-level FD/socket/child-process-handle resource class: oscillation between "routing is missing/unrouted" (expansion) and "routing is duplicated outside its canonical home" (compression). Recommend reshaping by splitting the bimodal ownership-statement + routing-enumeration obligation into two smaller findings, or narrowing the routing-enumeration scope explicitly to a closed list of per-call surfaces.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
