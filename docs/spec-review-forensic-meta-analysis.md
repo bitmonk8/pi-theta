@@ -349,6 +349,11 @@ committing compromised diffs.
 
 ## Architectural redesign proposals
 
+> The change proposals in this section and the `Affected agents and
+> commands` tables under it have been extended to also cover the plan
+> and implementation pipelines in `docs/prompt-subagent-changes.md`.
+> This section remains the spec-only, evidence-backed origin.
+
 The tactical recommendations above (recs 1–8) are incremental — they
 patch specific audit and loop gaps without changing the pipeline's
 structure. Three deeper changes, surfaced after writing those recs,
