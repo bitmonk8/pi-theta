@@ -280,3 +280,44 @@ Add a new `Concurrency model` subsection in `docs/spec.md` under `## Extension A
 - T14 "Prompt-mode sequentiality argument has an unstated fourth premise" — must-follow (the three premises being relocated are the ones T14 needs to extend with the fourth premise; the relocation is the natural moment to add it).
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — must-follow (the admission-cap disposition being relocated is the surface T20 needs the resource-exhaustion answer on).
 - T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — same-cluster (lives in the same architectural area being created here; co-resolve siblings T19b/c/d/e also relevant).
+
+---
+
+## T19a — Extend ActiveInvocationRegistry entry shape with invocationId
+
+> **PARKED** — 2026-05-16T03:29:07Z
+> **Reason:** The inner spec-diff-fix-loop limit-cycled: non-monotone non-zero fix-class counts across the last four passes. FIXCOUNTS: 8,13,18,12,10. Loop notes: Loop oscillated; lenses kept critiquing the supporting normative prose around the registry-entry extension. Recommended reshaping: relax [default] scope guard to admit diagnostics.md + errors-and-results.md co-edits, or split the finding into smaller obligations.
+> **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t19a-extend-activeinvocationregistry-entry-shape-with-invocationid.md`
+
+# T19a — Extend ActiveInvocationRegistry entry shape with invocationId
+
+**Kind:** error-model
+**Importance:** high
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The `ActiveInvocationRegistry` entry shape declared under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` carries no per-invocation correlation key — its current `Set<{ loomAbort: AbortController; disposeBarrier: Promise<void>; shutdownReason: string | undefined; loom: string }>` shape lets two concurrent sibling invocations of the same loom be indistinguishable on every downstream operator surface that reads from the registry. Sibling T19b adds an `invocation_id` wire field to `RuntimeEvent`, T19c widens the always-log dedup tuple to include it, and T19d populates `details.event.invocation_id` on the per-invocation `cancelled-by-session-shutdown` emission — all three rely on a canonical registry-side source for the id that does not yet exist. Without a per-entry id minted at registry-insertion time, none of the sibling consumers can populate or dedup on a stable per-invocation discriminator, and same-tick sibling fan-out collapses on every operator surface regardless of how the wire shape evolves.
+
+## Solution approach
+
+Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` with a required `invocationId: string` member, and pin in the section's contract paragraph that each entry's `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, and `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` before any awaitable work, and is set on entry creation and never mutated thereafter. The exact identifier name, type, derivation primitive, and insertion-site placement are the substance of the change and are pinned as part of the registry-shape extension.
+
+## Solution constraints
+
+- Preserve the existing entry-shape members (`loomAbort: AbortController`, `disposeBarrier: Promise<void>`, `shutdownReason: string | undefined`, `loom: string`) verbatim — same name, type, optionality marker, and order.
+- Do not introduce a parallel id channel and do not re-derive an id at any downstream emission site; T19c's dedup-key widening and T19d's `details.event.invocation_id` population both depend on a single registry-sourced value.
+- The `RuntimeEvent` `invocation_id` wire field, the always-log dedup-tuple widening, the `cancelled-by-session-shutdown` details addition, and the real-time sibling emission-timing paragraph are owned by T19b, T19c, T19d, and T19e respectively.
+- Do not introduce a new diagnostic code, `details.kind` discriminator, aggregation surface, or storm-detection layer.
+
+## Relationships
+
+- T19b "Add invocation_id field to RuntimeEvent payload declaration" — co-resolve.
+- T19c "Widen always-log dedup key to include invocation_id" — co-resolve.
+- T19d "Populate cancelled-by-session-shutdown details with invocation_id" — co-resolve.
+- T19e "Add real-time sibling emission timing paragraph" — co-resolve.
+- T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster.
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede (any decision to add operator-visibility for successful sibling outcomes will reuse the `invocation_id` field this child installs).
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.

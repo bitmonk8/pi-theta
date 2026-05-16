@@ -366,3 +366,22 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-16T03:29:07Z — T19a — Extend ActiveInvocationRegistry entry shape with invocationId
+
+- **Failure mode:** limit-cycle
+- **Trajectory:** 8,13,18,12,10
+- **Passes:** 5
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-15T18-46-12_c1e9c1/t19a-extend-activeinvocationregistry-entry-shape-with-invocationid.md` _(gitignored)_
+- **Parked findings (this run):** `T19a — Extend ActiveInvocationRegistry entry shape with invocationId`
+- **Loop notes:** Loop oscillated; lenses kept critiquing the supporting normative prose around the registry-entry extension. Recommended reshaping: relax [default] scope guard to admit diagnostics.md + errors-and-results.md co-edits, or split the finding into smaller obligations.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
