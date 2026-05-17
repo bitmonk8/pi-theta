@@ -2,19 +2,7 @@
 
 _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up — the last finding in the file (T22b, after the 2026-05-11 reshape-extract pass excised T22a to `spec-review-needs-reshape.md`) is addressed first; the first finding in the file (T02, after the 2026-05-11 spec-sweeps extraction) is addressed last in addressing order. After the reshape pass, split children replace their parents at the parent's file position; addressing within a child cluster runs alphabetically (a addressed first)._
-
-_Decision tally (recorded 2026-05-08): all 18 `Shape: multiple` findings resolved to `Shape: single`. 6 findings merged at decision time: T17→T24, T28→T27, T29→T30, T31→T32, T33→T03, T45→T44. See per-finding **Decision** / **STATUS** lines._
-
-_Reshape pass (2026-05-11, mode `reshape-only`, `PreserveIDs: true`): T01 and T04 extracted into [`docs/spec-sweeps.md`](./spec-sweeps.md) as deferred mechanical sweeps that cannot be addressed atomically by the per-finding fix-loop; T03 flagged UNSPLITTABLE (composite-3+ with no enumerable Edit Plan in its Recommendation blocks); T11 split into T11a/b/c (must-precede chain); T15 split into T15a/b/c (co-resolve cluster); T16 split into T16a/b/c/d (co-resolve cluster); T18 split into T18a/b/c/d (T18a must-precede the rest)._
-
-_Second reshape pass (2026-05-11, mode `reshape-only`, `PreserveIDs: true`, re-run with broadened splitter logic): T08 split into T08a/b/c (co-resolve cluster — three per-file prose sweeps via splitter location (v) `(file, verb)` prose pairs); T19 split into T19a/b/c/d/e (co-resolve cluster — five entries from chosen Option A's `Spec edits` block via splitter location (iv)). T03 re-flagged UNSPLITTABLE with refreshed diagnostic — under current splitter logic Option B's `Spec edits` block enumerates 3 bullets (one no-op, one composite-2), and the Decision-block-level *Absorbed T33 Option A spec edits* bullets are not captured by any source location, so a clean mechanical split would strand 3 of the 6 effective edits._
-
-_Manual T03 reshape (2026-05-11): T03 split into T03a/b/c/d/e/f (must-precede chain plus same-cluster siblings). The split consolidates Option B's chosen `**Spec edits.**` bullets and the Decision-block's *Absorbed T33 Option A spec edits* bullets into a unified 6-edit set; pairwise dependencies make T03a (PIC sub-paragraph addition) and T03b (`SDK_SURFACE_INVENTORY` row) the cluster roots, T03c/d/e/f the dependents. The T33 absorption metadata is preserved via the `**Split from:**` field on each child._
-
-_Reshape-extract pass (2026-05-11): T22a excised to [`docs/spec-review-needs-reshape.md`](./spec-review-needs-reshape.md) — divergence criterion 4 (verbatim-source-citation pattern alongside existing paraphrase; confirmed divergence case from divergence-analysis.md). T22b and T22c remain in file but are blocked pending T22a resolution. 1 medium finding parked._
-
-_T22a sub-split (2026-05-12, manual): T22a further split into T22a1 (anchor + paraphrase + spec.md forward-link only — auto-resolvable, re-queued at end-of-file so the picker addresses it before T22b/T22c under bottom-up convention) and T22a2 (Pi-source citation upgrade — remains parked in [`spec-review-needs-reshape.md`](./spec-review-needs-reshape.md), gated on a human inspecting `docs/sdk.md`'s extension-lifecycle section). The criterion-4 divergence trigger is confined to T22a2; T22a1's edit set installs the `#session-binding-contract` anchor that T22b and T22c consume, unblocking both for the auto fix-loop._
+_Process: bottom-up — the last finding in the file is addressed first; the first finding is addressed last._
 
 # T02 — Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph
 
