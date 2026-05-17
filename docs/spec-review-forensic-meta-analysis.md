@@ -165,10 +165,13 @@ mechanics don't touch.
 
 ## 5. Root cause — the binding/directional gap
 
-This section is the document. The earlier revisions of this doc
-treated the failures as "lots of small problems" (paragraph-spending,
-producer/consumer, bimodal, slot-keyed poisoning, class-3 regression).
-Those are real, but they are symptoms of one upstream cause.
+Earlier revisions of this document treated the failures as a list of
+small, heterogenous problems (paragraph-spending, producer/consumer,
+bimodal, slot-keyed poisoning, class-3 regression) and proposed a
+targeted mitigation for each. Those patterns are real, but they are
+symptoms of one upstream cause. The rest of this section walks the
+evidence for that cause; the recommendation set in §7 falls out
+directly from it.
 
 ### 5.1 Problem statements are correct in all 6 failures
 
