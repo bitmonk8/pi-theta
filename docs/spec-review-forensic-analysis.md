@@ -238,3 +238,26 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-18T03:38:23Z — T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet
+
+- **Failure mode:** top-level-refused
+- **Trajectory:** n/a
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (n/a pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `n/a` _(loop did not run)_
+- **Poisoned fixes:** n/a
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-17T16-41-31_b4324e/t15a-reduce-session-model-orientation-paragraph-to-a-four-sentence-forward-linki.md` _(gitignored)_
+- **Parked findings (this run):** `T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet`
+- **Loop notes:** none
+- **Fixer notes:** defer: precondition not met. T15a's Solution constraint requires T15b to land first (so the `Concurrency model` subsection exists as the relocation destination). T15c has landed but T15b is still pending in docs/spec-review.md and no `Concurrency model` subsection exists. Deferred without editing per the finding's explicit defer instruction.
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
