@@ -230,35 +230,3 @@ Rewrite the enumeration in the introductory paragraph of the "Invocation depth b
 ## Relationships
 
 None
-
----
-
-## T12 — Dual-cap simultaneous breach: `<cap>` value in `loom/load/discovery-slow` diagnostic is indeterminate
-
-> **PARKED** — 2026-05-18
-> **Reason:** The inner spec-diff-fix-loop diverged: the most recent pass produced more fix-class findings than the previous one. FIXCOUNTS: 3,3,2,1,0,1,2. Loop notes: Divergence at pass 7 (fixCounts 1→2 between p6 and p7). Pass-6 anchor-split introduced fresh critique surface; pass-7 fixes discarded. Originating T12 was addressed by top-level fixer; divergence is in the loop's own refinement. Reshape: move tie-break sub-rule into a sibling subsection under `## Package discovery`.
-> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-17T16-41-31_b4324e/t12-dual-cap-simultaneous-breach-cap-value-in-loom-load-discovery-slow-diagnosti.md
-
-# T12 — Dual-cap simultaneous breach: `<cap>` value in `loom/load/discovery-slow` diagnostic is indeterminate
-
-**Kind:** testability
-**Importance:** high
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The "Package discovery" → "Edge cases" bounded-walk paragraph in `docs/spec_topics/discovery.md` says the walk stops on `looms.scanPackagesMaxFiles` or `looms.scanPackagesTimeoutMs` "whichever fires first" and emits a single `loom/load/discovery-slow` warning naming "the cap that fired", but both predicates are evaluated against the same observed state at the same cap-check site (before each new candidate-package read). When both predicates first become true on the same iteration — constructible deterministically via the `FakeClock` seam — the spec does not say which is consulted first, so the warning's `cap` payload is indeterminate. Two compliant implementations would emit different `cap` strings for the same input scenario, breaking any test fixture or operator log-analysis that keys on the field. The asymmetric ordering rule already stated later in the same paragraph for the per-read deadline / global timeout interaction shows the authors recognise the need to nail down such overlaps; the dual-cap case at the cap-check site itself was missed.
-
-## Solution approach
-
-Clarify the bounded-walk paragraph under "Edge cases" in the "Package discovery" section of `docs/spec_topics/discovery.md` by adding a tie-breaking rule for the simultaneous-true case at the cap-check site: the file-count predicate is evaluated before the elapsed-time predicate, so when both predicates are true at the same iteration the warning's `cap` field is `looms.scanPackagesMaxFiles`. Leave the per-read deadline / global timeout ordering rule already stated later in the same paragraph unchanged — that race is at a different site and already has its ordering nailed down.
-
-## Solution constraints
-
-- Do not introduce a new `cap` value, a third diagnostic code, or a new `details` field — the tie-break must resolve to one of the existing two cap names.
-- Test-vector additions to plan leaf V14m in `docs/plan_topics/v14-tool-calls.md` are out of scope here.
-
-## Relationships
-
-None
