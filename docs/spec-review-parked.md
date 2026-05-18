@@ -472,3 +472,106 @@ Extend the **Runtime event channel** section in `docs/spec_topics/pi-integration
 - T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — same-cluster.
 - T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — must-precede.
 - T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster.
+
+---
+
+## T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
+
+> **PARKED** — 2026-05-18T21:48:22Z
+> **Reason:** Category 1 (malformed finding — constraints binding surface; the originating finding's Solution constraints fence every viable remediation that the lens admits). The inner spec-diff-fix-loop's severity-weighted triage exited on must-fix-blocked-by-scope-guard (plan §Change A clause 1 escape): a raised lens finding outranked this originating finding in importance, but every viable remediation would violate a class-1 or class-2 scope guard forwarded from the top-level fixer. FIXCOUNTS: 6,8. Loop notes: Classifier exited on `score-budget-exhausted-trust-override-suppressed` (Rec O pass-level shadow-budget gate). S=25, Σ_shadow=211, breach margin=186, multiplier=8.44 (k=3 gate). 9 non-blocker raised findings counted toward shadow budget (all 9 would have been trust-overridden to fix under per-finding rules); 4 additional blocker `must-fix:true` raised findings listed in `_blocked.md` for forensic context but pre-empted by gate. The classifier's `_blocked.md` flags that the origin defaulted to S=25 (medium) because T11a's heading was already removed from `docs/spec-review.md` by the top-level fixer and no git-recovery tool is available in the classifier context; T11a's cluster siblings T11b/T11c are both `Importance: high` / `score:100`, and under a recovered S=100 the shadow-multiplier would be 2.11 (below k=3) and per-finding classification would have proceeded normally — surfacing this as a likely category-1 reshape false-positive that the outer prompt may want to re-dispatch with the recovered score. Pass 3 contributed no fixCount (classifier exited pre-dispatch). severity p1 raised{high:4,medium:3} fixed{high:4,medium:2} deferred{medium:1} blocked{}; p2 raised{blocker:1,high:3,medium:1,low:1,NIT:2} fixed{blocker:1,high:3,medium:1,low:1,NIT:2} deferred{} blocked{}; p3 raised{high:4,medium:7,low:1,NIT:1} fixed{} deferred{} blocked{high:4,medium:7,low:1,NIT:1}. stage1=2 (cumulative all passes ran in stage 1; stage 2/3 never reached). narrowings=0+0+0+0. stage1Touched=9 mode-e-refusals=0. Snapshot refs under `refs/loom/snapshots/2026-05-18T20-40-42_a4d5c3/*` (baseline, baseline-post-top-level, pass-1, pass-2, pass-3) retained for forensics. A human must resolve the guard-vs-severity collision (relax the guard, split this finding so the higher-importance raised finding is no longer downstream of the guard, or accept the trade-off and annotate the raised finding as out-of-scope) before re-introducing this finding.
+> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-18T20-36-39_b9045e/t11a-replace-consumes-one-slot-prose-with-explicit-forced-respond-exemption-rule.md
+
+# T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
+
+**Kind:** testability
+**Importance:** high
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The *Tool-call loop bound* section in `docs/spec_topics/query.md` (anchor `tool-call-loop-bound`) and the `tool_loop` field paragraph in `docs/spec_topics/frontmatter.md` each assert that the forced respond turn for a typed query consumes one `tool_loop` slot. That framing contradicts CIO-4 in `docs/spec_topics/hard-ceilings.md` and its *Depth-6 forced respond at `max_rounds`* worked consequence, which together treat the forced respond turn as the unconditional terminating mechanism CIO-4's `max_rounds`-final branch routes to (slot-accounting is evaluated only against free-phase rounds). At `max_rounds: 0` the contradiction is directly observable: under the "consumes one slot" reading the only available turn is already over budget; under CIO-4 it MUST still be dispatched. The sibling findings T11b and T11c cannot land their V6k changes against the spec until this prose is reconciled.
+
+## Solution approach
+
+Rewrite the relevant sentences in the *Tool-call loop bound* section of `docs/spec_topics/query.md` and in the `tool_loop` field paragraph of `docs/spec_topics/frontmatter.md` to replace the "consumes one slot" framing with an explicit forced-respond-exemption rule: the forced respond turn is the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to; the runtime MUST dispatch it on every typed query that reaches that branch (including the `max_rounds: 0` boundary case, where it is the only turn issued); and CIO-4's slot-accounting check is not evaluated against the forced respond turn itself. Confirm `docs/spec_topics/hard-ceilings.md` CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence remain aligned with the new rule and leave them unedited if they do.
+
+## Solution constraints
+
+- Treat `docs/spec_topics/hard-ceilings.md` (CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence) and PIC-1 (d) in `docs/spec_topics/pi-integration-contract.md` as read-only — they are already aligned with the new rule.
+- Plan leaves V6k and V6l in `docs/plan_topics/v6-typed-queries.md` are owned by T11b and T11c — out of scope here.
+
+## Relationships
+
+- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-precede (the prose rule must land before V6k's formula can be rewritten against it).
+- T11c "V6k normative test vector for `max_rounds: 0` typed query" — must-precede (the prose rule must land before V6k's test can assert against it).
+
+---
+
+## T11c — V6k normative test vector for `max_rounds: 0` typed query
+
+> **PARKED** — 2026-05-18T21:48:22Z
+> **Reason:** Cascaded from parking of T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule: this finding's ## Relationships block declares an ordering edge (must-precede or must-follow) on the parked finding, so its preconditions are no longer satisfied in spec-review.md.
+> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-18T20-36-39_b9045e/t11a-replace-consumes-one-slot-prose-with-explicit-forced-respond-exemption-rule.md
+
+# T11c — V6k normative test vector for `max_rounds: 0` typed query
+
+**Kind:** testability
+**Importance:** high
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The V6k *Tests* line in `docs/plan_topics/v6-typed-queries.md` (leaf "V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError`") currently exercises `max_rounds: 0` only as far as asserting that the model receives an empty `tools` set during the free phase; it does not pin the boundary outcome of a `max_rounds: 0` typed query. Two compliant readings of the spec rule established by T11a and the V6k counting-formula re-stated by T11b — one in which the forced respond turn fires (returning `Ok(validated_value)`) and one in which the loop is treated as already exhausted (returning `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`) — would each pass V6k's existing *Tests* row and *Ships when* gate, so the leaf cannot catch the divergence.
+
+## Solution approach
+
+Add a paired normative test vector to V6k's *Tests* line covering the `max_rounds: 0` typed-query boundary: one row in which the model — invoked once against an empty tool set with forced choice on the respond tool — emits a valid respond-tool call and the query MUST return `Ok(validated_value)`, paired with one row in which the model emits a non-respond `tool_use` block (or text under non-strict providers) and the query MUST return `Err({ kind: "tool_loop_exhausted", rounds: 0, last_tool_name: null })`. The error-payload field values are load-bearing because they are what distinguishes the two compliant readings the finding identifies. Land after T11a (spec rule) and T11b (V6k *Adds* formula) per Relationships.
+
+## Solution constraints
+
+- The new vector applies to the original typed query only; do not conflate `max_rounds: 0` on the original query with `max_rounds: 0` on a respond-repair follow-up (V13g follow-ups receive a fresh `tool_loop` budget).
+- Do not edit spec topic files; the *Tool-call loop bound* section in `docs/spec_topics/query.md` is owned by T11a.
+
+## Relationships
+
+- T11a "Replace 'consumes one slot' prose with explicit forced-respond exemption rule" — must-follow.
+- T11b "V6k counting-formula tighten: forced respond outside the budget" — must-follow.
+
+---
+
+## T11b — V6k counting-formula tighten: forced respond outside the budget
+
+> **PARKED** — 2026-05-18T21:48:22Z
+> **Reason:** Cascaded from parking of T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule: this finding's ## Relationships block declares an ordering edge (must-precede or must-follow) on the parked finding, so its preconditions are no longer satisfied in spec-review.md.
+> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-18T20-36-39_b9045e/t11a-replace-consumes-one-slot-prose-with-explicit-forced-respond-exemption-rule.md
+
+# T11b — V6k counting-formula tighten: forced respond outside the budget
+
+**Kind:** testability
+**Importance:** high
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The *Adds* paragraph of leaf "V6k — `tool_loop` cap enforcement and `ToolLoopExhaustedError`" in `docs/plan_topics/v6-typed-queries.md` defines the per-query slot count as *(free-phase rounds) + (1 if a forced respond turn is issued, else 0)* and pins exhaustion at *total slots would exceed `max_rounds`*. That formula counts the forced respond turn against the budget, which contradicts the *Tool-call loop bound* rule that T11a establishes in `docs/spec_topics/query.md` (the forced respond turn is exempt from CIO-4 slot-accounting). With T11a landed, V6k's *Adds* prose is internally inconsistent with the spec it implements, and the boundary outcome of a `max_rounds: 0` typed query is undefined from the leaf's perspective.
+
+## Solution approach
+
+Rewrite the counting-formula and exhaustion sentences in V6k's *Adds* paragraph in `docs/plan_topics/v6-typed-queries.md` so the slot count equals the free-phase round count (the forced respond turn sits outside the budget) and exhaustion fires under either of two disjoint conditions: (a) the slot count would exceed `max_rounds` and the next required turn is a free-phase turn, or (b) the forced respond turn was dispatched and the model failed to invoke the respond tool. Preserve the existing statements that the counter starts at 0, that respond-repair follow-ups (V13g) reset the counter, and that `max_rounds: 0` disables model-driven tool calls.
+
+## Solution constraints
+
+- The *Tool-call loop bound* section in `docs/spec_topics/query.md` is owned by T11a — do not edit spec topic files here.
+- Do not collapse the two firing conditions into a single arithmetic predicate that re-counts the forced respond turn against `max_rounds`; that re-introduces the contradiction T11a fixes.
+- The `max_rounds: 0` boundary test vector is owned by T11c, and leaf V6l (the two-phase driver) is independent — both out of scope here.
+
+## Relationships
+
+- T11a "Replace 'consumes one slot' prose with explicit forced-respond exemption rule" — must-follow (the spec rule must land first so V6k's formula has something to anchor against).
+- T11c "V6k normative test vector for `max_rounds: 0` typed query" — must-precede (the formula change must land before the test can assert against it).

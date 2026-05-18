@@ -404,3 +404,27 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-18T21:48:22Z — T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
+
+- **Failure mode:** must-fix-blocked
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** 6,8
+- **Score trajectory:** none vs S=25
+- **Passes:** 2
+- **Stage at exit:** 1 (2 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-18T20-40-42_a4d5c3`
+- **Poisoned fixes:** n/a
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-18T20-36-39_b9045e/t11a-replace-consumes-one-slot-prose-with-explicit-forced-respond-exemption-rule.md` _(gitignored)_
+- **Parked findings (this run):** `T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule, T11c — V6k normative test vector for ``max_rounds: 0`` typed query, T11b — V6k counting-formula tighten: forced respond outside the budget`
+- **Loop notes:** Classifier exited on `score-budget-exhausted-trust-override-suppressed` (Rec O pass-level shadow-budget gate). S=25, Σ_shadow=211, breach margin=186, multiplier=8.44 (k=3 gate). 9 non-blocker raised findings counted toward shadow budget (all 9 would have been trust-overridden to fix under per-finding rules); 4 additional blocker `must-fix:true` raised findings listed in `_blocked.md` for forensic context but pre-empted by gate. The classifier's `_blocked.md` flags that the origin defaulted to S=25 (medium) because T11a's heading was already removed from `docs/spec-review.md` by the top-level fixer and no git-recovery tool is available in the classifier context; T11a's cluster siblings T11b/T11c are both `Importance: high` / `score:100`, and under a recovered S=100 the shadow-multiplier would be 2.11 (below k=3) and per-finding classification would have proceeded normally — surfacing this as a likely category-1 reshape false-positive that the outer prompt may want to re-dispatch with the recovered score. Pass 3 contributed no fixCount (classifier exited pre-dispatch). severity p1 raised{high:4,medium:3} fixed{high:4,medium:2} deferred{medium:1} blocked{}; p2 raised{blocker:1,high:3,medium:1,low:1,NIT:2} fixed{blocker:1,high:3,medium:1,low:1,NIT:2} deferred{} blocked{}; p3 raised{high:4,medium:7,low:1,NIT:1} fixed{} deferred{} blocked{high:4,medium:7,low:1,NIT:1}. stage1=2 (cumulative all passes ran in stage 1; stage 2/3 never reached). narrowings=0+0+0+0. stage1Touched=9 mode-e-refusals=0. Snapshot refs under `refs/loom/snapshots/2026-05-18T20-40-42_a4d5c3/*` (baseline, baseline-post-top-level, pass-1, pass-2, pass-3) retained for forensics.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
