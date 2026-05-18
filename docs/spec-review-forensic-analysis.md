@@ -378,3 +378,29 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-18 — MULTI: T19a — Extend ActiveInvocationRegistry entry shape with invocationId; T19b — Add invocation_id field to RuntimeEvent payload declaration; T19d — Populate cancelled-by-session-shutdown details with invocation_id; T19e — Add real-time sibling emission timing paragraph
+
+- **Cluster mode (rec F):** yes
+- **Cluster members:** 4
+- **Failure mode:** must-fix-blocked
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a
+- **Score trajectory:** n/a vs S=25
+- **Passes:** 0
+- **Stage at exit:** 1 (0 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-18T19-24-02_4c2521`
+- **Poisoned fixes:** n/a
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-18T15-13-27_a2e488/multi-t19a-extend-activeinvocationregistry-entry-shape-with-invocationid-t19b-ad.md` _(gitignored)_
+- **Parked findings (this run):** `T19a — Extend ActiveInvocationRegistry entry shape with invocationId, T19b — Add invocation_id field to RuntimeEvent payload declaration, T19d — Populate cancelled-by-session-shutdown details with invocation_id, T19e — Add real-time sibling emission timing paragraph`
+- **Loop notes:** Classifier exited pre-dispatch on Rec O pass-level shadow-budget gate; sub-rationale=score-budget-exhausted-trust-override-suppressed (S=25 from MULTI cluster T19a/T19b/T19d/T19e under rec K heading-absent default — all four members absent from spec-review.md and spec-review-parked.md and not recoverable via available tools, so medium / S=25 / must-fix=false applied; Σ_shadow=150, breach-multiplier=6.0× over S and 2.0× over k×S=75, k=3; 6 raised findings would have classified fix-via-trust-override absent the gate). severity p1 raised{medium:6} fixed{} deferred{} blocked{medium:6}; no spec-diff-fixer dispatched, working tree unchanged from loop entry. stage1=0 (classifier exit predates any pass-completion accounting). narrowings=2+0+0+0 (seeded NarrowedChunks: PIC#diagnostic-emission-isolation + diagnostics.md#session-shutdown-details-conventions; no in-loop additions because no fixer dispatch). stage1Touched=0 mode-e-refusals=0. Snapshot namespace retained for forensics. Reshape options per _blocked.md: split T19e (real-time sibling emission timing paragraph) out as its own top-level fix (AF2+AF4+AF5+AF6 = 100/150 score concentrate there), raise the cluster's authored score/importance (current S=25 is the heading-absent default — recovering original member metadata from git is the prerequisite), or narrow the T19e Solution approach (drop arrival-order claim, defer anchor/split structural fix, restate timing in terms of sendSystemNote chain rather than pi.sendMessage directly).
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
