@@ -96,6 +96,28 @@ GENERATED: 2026-05-18T09:00:00Z
              revised to enumerate the three guard predicates;
              §6.7 summary table and §6.8 priority Tier 4
              updated)
+           revised 2026-05-18T21:00:00Z (rec V shipped to
+             pi-config as commit 8f0ccfe; SP-2 *Solution
+             constraints are advisory, not binding* added to
+             docs/spec-principles.md; refusal mode (f) with
+             three-mode authoring guard ((f-stop-1) /
+             (f-stop-2) / (f-stop-3)) added to
+             spec-diff-fixer; new STATUS code
+             must-fix-blocked-constraint-narrowing-refused
+             added to spec-diff-fix-loop; classifier gains
+             defer-to-debt — constraint-narrowed rationale;
+             1240 insertions / 130 deletions across 7 files
+             (rec J reference: 702/71). Validation canary set
+             unparked in pi-loom as commit 90968cf (T14 +
+             T15b + T15a + T16a back in spec-review.md;
+             dispatch order T15b → T15a → T16a → T14 → T19
+             cluster under bottom-up). Validation pending:
+             requires running /fix-spec-shape-single-findings
+             to observe the four canary outcomes and confirm
+             rec V cures / refuses as predicted. §6.7 summary
+             table Rec V row updated; §6.8 priority Tier 1
+             step 1 and Tier 4 step 10 annotated with shipped
+             /unparked status.)
 ```
 
 ## Sources
@@ -1184,7 +1206,7 @@ upstream lands; no per-cascade reshape.
 
 | Rec | Tier | Title | Coverage | pi-loom | pi-config |
 |---|---|---|:-:|:-:|:-:|
-| **V** | **S** | **Solution constraints as advisory (mirror of rec J on constraints surface; three-mode authoring guard per constraint sweep)** | **T15a + T16a (cures); T14 + T19 cluster + T22a1 cross-finding cases (three-mode guard refuses safely, no boundary violation); T13 partial; T22a1 const #1 + T20 SG1 deferred to rec L** | | **✓** |
+| **V** | **S** | **Solution constraints as advisory (mirror of rec J on constraints surface; three-mode authoring guard per constraint sweep)** | **T15a + T16a (cures); T14 + T19 cluster + T22a1 cross-finding cases (three-mode guard refuses safely, no boundary violation); T13 partial; T22a1 const #1 + T20 SG1 deferred to rec L** | | **✓ (SHIPPED — pi-config 8f0ccfe; pending validation, pi-loom 90968cf unparked canary set)** |
 | **T** | **A** | **Stage-transition structural-growth refusal** | **T12 (1/7 parks)** | | **✓** |
 | **L** | **B** | **Audit-side binding-surface ratification (Problem / constraints / missing-prerequisite)** | **T13/T14/T16a/T16b (4/7 parks)** | | **✓** |
 | M | B | Pre-dispatch precondition staleness | T15a (1/7 parks) | | ✓ |
@@ -1202,9 +1224,18 @@ layer work postponed until rec V validation):
 **Tier 1 — ship now (architectural + fixer-pipeline):**
 
 1. **Rec V** (pi-config) — Solution constraints as advisory.
-   Architectural change; ships first. Re-dispatching the W2
-   parked set is the validation step. T14 is the canary for
-   the authoring-guard's adequacy.
+   **SHIPPED 2026-05-18 as pi-config commit 8f0ccfe (1240
+   insertions / 130 deletions across 7 files). Pending
+   validation:** pi-loom commit 90968cf unparked the canary
+   set (T14 + T15b + T15a + T16a; T19 cluster already
+   unparked at e12ccf9). Next: run
+   `/fix-spec-shape-single-findings` from the pi-loom repo
+   and observe the staged canary outcomes per step 10 below.
+   The dispatch order under bottom-up is T15b → T15a → T16a
+   → T14 → T19 cluster; T15a is the staleness-bypass test,
+   T16a is the over-fencing-narrowing test, T14 is the
+   `(f-stop-1)` canary, the T19 cluster is the `(f-stop-2)`
+   heaviest canary.
 2. **Rec T** (pi-config) — stage-transition refusal. Closes the
    one category-2 capability gap (T12). Can ship alongside or
    shortly after rec V.
@@ -1243,23 +1274,51 @@ layer work postponed until rec V validation):
    dispatch). Under rec V this re-dispatch doubles as the
    step-4 validation canary for the cluster's `(f-stop-2)`
    coverage — see step 10.
-10. **Validate rec V — staged re-dispatch** (pi-loom). Per the
-    revised validation plan in §6.1, dispatch in this fixed
-    order so a failure at any step does not contaminate the
-    later steps' evidence:
-    - **Step 1:** T15a (cures baseline)
-    - **Step 2:** T16a (cures baseline)
-    - **Step 3:** T14 — `(f-stop-1)` canary (Problem-anticipation)
-    - **Step 4:** T19 cluster T19a/b/d/e — `(f-stop-2)` canary
-      (co-resolve recognition). **Heaviest canary;** T19b is
-      the load-bearing single test (W2 forensic names the
-      exact boundary violation the guard must prevent).
+10. **Validate rec V — staged re-dispatch** (pi-loom).
+    **Canary set unparked 2026-05-18 as pi-loom commit
+    90968cf** (T14 + T15b + T15a + T16a re-introduced to
+    `spec-review.md`; T19 cluster already unparked at
+    `e12ccf9`). The unpark file ordering produces the
+    dispatch order below under bottom-up walk. Per the
+    revised validation plan in §6.1, observe outcomes in
+    this order so a failure at any step does not contaminate
+    the later steps' evidence:
+    - **Step 1:** T15a (cures baseline). Dispatched second
+      after T15b lands the Concurrency model subsection;
+      rec V's staleness pre-check finds constraint #3's
+      structural-ordering prediction satisfied and the
+      fixer proceeds.
+    - **Step 2:** T16a (cures baseline). Dispatched third;
+      rec V's over-fencing detection narrows the constraint
+      fencing the orphan-premise re-sourcing site.
+    - **Step 3:** T14 — `(f-stop-1)` canary (Problem-
+      anticipation). Dispatched fourth; expected to
+      guard-refuse safely and re-park under the new
+      `must-fix-blocked-constraint-narrowing-refused`
+      STATUS code.
+    - **Step 4:** T19 cluster T19a/b/d/e — `(f-stop-2)`
+      canary (co-resolve recognition). **Heaviest canary;**
+      T19b is the load-bearing single test (W2 forensic
+      names the exact boundary violation the guard must
+      prevent).
     - **Step 5:** T22a1 if re-dispatched — additional
       `(f-stop-2)` evidence + expected const-#1 lens-finding
       surface (rec L territory).
     Failure at any canary triggers either hardening that mode
     or shipping rec L earlier than planned, before rec V's
     reach extends to additional findings.
+
+    **Note on T15b dispatch (preceding step 1).** T15b is not
+    a rec V canary — it's an independent placement edit that
+    was cascade-parked from T14. It dispatches first under
+    bottom-up because T15a's Solution approach forward-links
+    the Concurrency model subsection T15b creates. T15b
+    landing first is what makes T15a's staleness bypass valid
+    (the constraint's prediction "T15b at second-highest
+    line, addressed second" is satisfied once T15b lands).
+    A failure on T15b is unexpected and would not invalidate
+    rec V validation — it would be a separate finding-shape
+    issue.
 
 **Withdrawn (architectural-cut casualties):**
 
