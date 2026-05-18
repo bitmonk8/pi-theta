@@ -215,3 +215,26 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-18T02:35:33Z — T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal
+
+- **Failure mode:** diverging
+- **Trajectory:** 2,2,2,2,3
+- **Score trajectory:** 125,30,30,10,55 vs S=25
+- **Passes:** 5
+- **Stage at exit:** 1 (5 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-18T02-35-33_baf647`
+- **Poisoned fixes:** none
+- **Forensic report:** `c:/UnitySrc/pi-loom/.pi/tmp/spec-fix-failure-forensics/2026-05-17T16-41-31_b4324e/t16a-reduce-trust-boundary-sdk-surface-clause-drop-the-0-72-1-literal.md` _(gitignored)_
+- **Parked findings (this run):** `T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal`
+- **Loop notes:** Loop diverged at pass 5 after four flat passes (2→3 fix-count). Trust-boundary bullet cycled through whack-a-mole shapes; scope guard forbids re-inlining SDK pin literal; PIC Host prerequisites doesn't own privilege claim. Reshape: split T16a from surviving-prose backing concern, or move privilege-absence claim to a PIC subsection that owns it before deleting inline backing.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---

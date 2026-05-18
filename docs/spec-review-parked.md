@@ -361,3 +361,40 @@ Rewrite the callable-set paragraph in the Trust-boundary bullet so it states onl
 - T16c "Reduce host-side-denial paragraph to one sentence with forward-links" — co-resolve.
 - T16d "Replace closing capability-model paragraph with single forward-link sentence" — co-resolve.
 
+
+---
+
+## T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal
+
+> **PARKED** — 2026-05-18
+> **Reason:** The inner spec-diff-fix-loop diverged: the most recent pass produced more fix-class findings than the previous one. FIXCOUNTS: 2,2,2,2,3. Loop notes: Loop diverged at pass 5 after four flat passes (2→3 fix-count). Trust-boundary bullet cycled through whack-a-mole shapes; scope guard forbids re-inlining SDK pin literal; PIC Host prerequisites doesn't own privilege claim. Reshape: split T16a from surviving-prose backing concern, or move privilege-absence claim to a PIC subsection that owns it before deleting inline backing.
+> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-17T16-41-31_b4324e/t16a-reduce-trust-boundary-sdk-surface-clause-drop-the-0-72-1-literal.md
+
+# T16a — Reduce Trust-boundary SDK-surface clause: drop the `~0.72.1` literal
+
+**Kind:** placement
+**Importance:** medium
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The SDK-surface clause of the Trust-boundary bullet under Orientation > Scope in `docs/spec.md` inlines the literal Pi-SDK pin `@mariozechner/pi-coding-agent ~0.72.1` while restating that Pi's `ExtensionAPI` and `ExtensionContext` surfaces expose no per-extension privilege facet. That literal pin is owned verbatim by **Host prerequisites — Pi SDK pin** in `docs/spec_topics/pi-integration-contract.md`; restating it inside the Trust-boundary bullet creates a second site that the **Pi version bump procedure** in `docs/spec_topics/pi-integration-contract.md` (anchor `id="pi-version-bump-procedure"`) expects to drift on the next bump. The behavioural property the scope decision actually rests on is the no-per-extension-privilege-facet property at the V1 Pi-SDK pin, not the literal version range.
+
+## Solution approach
+
+Rewrite the SDK-surface clause of the Trust-boundary bullet so it states only the behavioural property — that the peer packages expose no per-extension privilege facet at the V1 Pi-SDK pin — and forward-links **Host prerequisites — Pi SDK pin** in `docs/spec_topics/pi-integration-contract.md` in lieu of restating the pin. Drop the inline `~0.72.1` parenthetical entirely. Retain the build-time SDK surface-inventory assertion as a single sentence carrying its forward-link to the anchor `id="pi-version-bump-procedure"` in `docs/spec_topics/pi-integration-contract.md`.
+
+## Solution constraints
+
+- Do not inline the literal `~0.72.1` (or any structural variant restating the Pi SDK pin); that pin remains owned solely by **Host prerequisites — Pi SDK pin** in `docs/spec_topics/pi-integration-contract.md`.
+- The callable-set paragraph, the host-side-denial paragraph, and the closing capability-model sentence are owned by T16b, T16c, and T16d respectively — leave them present and untouched here.
+
+## Relationships
+
+- T16b "Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names" — co-resolve (same Trust-boundary bullet; must land in one commit).
+- T16c "Reduce host-side-denial paragraph to one sentence with forward-links" — co-resolve.
+- T16d "Replace closing capability-model paragraph with single forward-link sentence" — co-resolve.
+- T34 "Trust-boundary 'no privilege facet' claim is asserted but not gated by any audit the spec cites" — same-cluster (same bullet; orthogonal fix — adds an audit citation rather than restructures placement).
+- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — same-cluster (the Session-model paragraph exhibits the same aggregator-overreach pattern).
