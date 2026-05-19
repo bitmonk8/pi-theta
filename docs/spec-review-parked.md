@@ -464,3 +464,41 @@ Add one per-surface null sentence to each of the **prompt mode** and **subagent 
 
 ---
 
+
+## T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet
+
+> **PARKED** — 2026-05-19
+> **Reason:** Category 1 (malformed finding — default attribution for top-level fixer refusals; the fixer's pre-flight typically catches stale preconditions, missing destination subsections, or do-not-touch conflicts — may also be category 2 if the refusal reason is capacity-shaped, see FixerNotes). The top-level spec-review-fixer refused to apply the recommended resolution. Refusal reason: must-fix-blocked-by-deferred-precondition: Solution constraint #3 explicitly directs deferral when the Concurrency model subsection (owned by T15b) is absent from `## Extension Architecture` in `docs/spec.md`. Current state: T15b is unresolved (still present in `docs/spec-review.md` at line 126) and the Concurrency model subsection does not exist (grep for `Concurrency model` returns only the existing Session-model paragraph text itself). The defer-trigger is firing as designed. Narrowing-refused rationale: constraint #3 cannot be narrowed under the three-mode authoring guard. f-stop-2 (co-resolve peer territory): T15b's named edit surface is the relocation of the architectural clauses (mode-qualified isolation, prompt-mode sequentiality premises i/ii/iii, genuine-concurrency conclusion, cancellation-propagates-downward, per-invocation budget scoping, no-admission-cap) into the new Concurrency model subsection. Deleting those clauses from the Session-model paragraph now would consume T15b's source material before T15b authors the destination, crossing T15b's territory. No other remediation site exists for the Problem's residue. Staleness bypass does not apply: the constraint's structural-ordering prediction ("Concurrency model subsection has landed") is unfulfilled, not falsified by re-shaping. The orchestrator should re-dispatch T15a only after T15b resolves.
+> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-19T10-47-33_8360aa/t15a-reduce-session-model-orientation-paragraph-to-a-four-sentence-forward-linki.md
+
+# T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet
+
+**Kind:** placement
+**Importance:** medium
+**Atomicity:** atomic
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prerequisites compresses five distinct content categories — Pi-session binding, `session_shutdown` payload contract, prompt-mode sequentiality argument with its three supporting premises, mode-qualified transcript/tool-table isolation, and admission-cap / per-invocation-budget posture — into one Orientation bullet. The architectural clauses belong in the new `Concurrency model` subsection owned by T15b, and the V1 scope deferrals (parallel-`invoke`, concurrent user sessions) belong at the V1 non-goals surfaces owned by T15c; until this reduction lands, those siblings have no room to relocate content into. The paragraph reads as a single mixed block rather than as Orientation-level forward-linking prose.
+
+## Solution approach
+
+Reduce the `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prerequisites to orientation-level forward-link prose. The retained content categories are: the one-session-at-a-time Pi-session binding (forward-link to the Session-binding contract in `docs/spec_topics/pi-integration-contract.md`), the `session_shutdown` payload contract (forward-link to the Extension entry point in `docs/spec_topics/pi-integration-contract.md` and to the closed `event.reason` set in the SDK type at `@mariozechner/pi-coding-agent`'s `dist/core/extensions/types.d.ts`), and a pointer to the architectural `Concurrency model` subsection installed by T15b. Delete the clauses T15b relocated (mode-qualified isolation summary, prompt-mode sequentiality with premises (i)/(ii)/(iii), genuine-concurrency-only-between-subagent-invocations conclusion, cancellation-propagates-downward restatement, per-invocation budget scoping, no-admission-cap statement) and the deferrals T15c lifted (parallel-`invoke`, concurrent user sessions). Composition — sentence count, ordering of forward-links, whether closely-related pointers fold into one sentence — is the implementer's choice.
+
+## Solution constraints
+
+- The reduced paragraph must retain the `<a id="session-model"></a>` anchor — inbound links (the Overview's terminal-outcomes paragraph, the `[Session model](#session-model)` reference inside the V1 non-goals subsection) depend on it.
+- The destination `Concurrency model` subsection is owned by T15b — do not author it under this finding.
+- If the `Concurrency model` subsection (owned by T15b) is absent from `## Extension Architecture` in `docs/spec.md` at edit time, defer.
+
+## Relationships
+
+- T15b "Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection" — co-resolve (the reduction makes room for the relocated content).
+- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — co-resolve (the reduction makes room for the lifted deferrals).
+- T02 "Subagent state-isolation enumeration duplicates PIC matrix in Overview opening paragraph" — same-cluster (identical placement pattern).
+- T16a "Trust boundary bullet: keep scope claim and drop SDK-pin literal" — same-cluster (sibling Scope bullet exhibiting the same mixing of categories).
+- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — same-cluster (third instance of the pattern, in the Runtime-observability bullet).
+- T24 "Fork-reason watcher closure leaves the extension in an unspecified, silently degraded state" — same-cluster (touches the same Session-model paragraph but addresses content correctness).
+

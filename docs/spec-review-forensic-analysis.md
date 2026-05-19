@@ -620,3 +620,27 @@ human triage) can trace why the listed findings ended up in
 
 ---
 
+
+## 2026-05-19 — T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet
+
+- **Failure mode:** top-level-refused
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a
+- **Score trajectory:** n/a vs S=n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (n/a pass(es) in stage)
+- **Snapshot refs (retained for forensics):** n/a
+- **Poisoned fixes:** n/a
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-19T10-47-33_8360aa/t15a-reduce-session-model-orientation-paragraph-to-a-four-sentence-forward-linki.md` _(gitignored)_
+- **Parked findings (this run):** `T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet`
+- **Loop notes:** none
+- **Fixer notes:** must-fix-blocked-by-deferred-precondition: Solution constraint #3 explicitly directs deferral when the Concurrency model subsection (owned by T15b) is absent from `## Extension Architecture` in `docs/spec.md`. Current state: T15b is unresolved (still present in `docs/spec-review.md` at line 126) and the Concurrency model subsection does not exist (grep for `Concurrency model` returns only the existing Session-model paragraph text itself). The defer-trigger is firing as designed. Narrowing-refused rationale: constraint #3 cannot be narrowed under the three-mode authoring guard. f-stop-2 (co-resolve peer territory): T15b's named edit surface is the relocation of the architectural clauses (mode-qualified isolation, prompt-mode sequentiality premises i/ii/iii, genuine-concurrency conclusion, cancellation-propagates-downward, per-invocation budget scoping, no-admission-cap) into the new Concurrency model subsection. Deleting those clauses from the Session-model paragraph now would consume T15b's source material before T15b authors the destination, crossing T15b's territory. No other remediation site exists for the Problem's residue. Staleness bypass does not apply: the constraint's structural-ordering prediction ("Concurrency model subsection has landed") is unfulfilled, not falsified by re-shaping. The orchestrator should re-dispatch T15a only after T15b resolves.
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
