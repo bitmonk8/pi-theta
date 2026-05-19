@@ -234,47 +234,6 @@ None
 
 ---
 
-## T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection
-
-> **PARKED** — 2026-05-18
-> **Reason:** Category 1 (malformed finding — constraints binding surface; the originating finding's Solution constraints fence every viable remediation that the lens admits). The inner spec-diff-fix-loop's severity-weighted triage exited on must-fix-blocked-by-scope-guard (plan §Change A clause 1 escape): a raised lens finding outranked this originating finding in importance, but every viable remediation would violate a class-1 or class-2 scope guard forwarded from the top-level fixer. FIXCOUNTS: none. Loop notes: Classifier early-exit on `_blocked.md` sub-rationale `score-budget-exhausted-trust-override-suppressed` (Rec O pass-level shadow-budget gate). S=25 (default — top-level fixer already removed T15b from `docs/spec-review.md` so classifier could not recover the originating `**Score:**`; sibling T15a/T14 both medium=25, consistent), Σ=260, breach-margin=235 (Σ/S ≈ 10.4×, well above k=3 multiplier). 6 non-blocker non-cheap raised findings counted toward budget; all 6 would have qualified for trust-override absent the Rec O gate. Breakdown by lens/tier: AF-1 spec-lens-consistency high/100 (same-document duplication — explicitly covered by forwarded scope guard but per Rec O still counts toward Σ_shadow), AF-2 spec-lens-traceability high/100 (8+ obligations under single `#concurrency-model` anchor), AF-3 spec-lens-assumptions+traceability medium/25 (clause (i) mis-pinning + fragmentless link), AF-4 spec-lens-assumptions medium/25 (closed-world "only" claim unexhausted by corpus), AF-5 spec-lens-prescription low/5 (mechanism-anchored top sentence via `pi.setActiveTools`), AF-6 spec-lens-assumptions low/5 (unpinned event-loop assumption). Even excluding AF-1 under scope-guard guidance, residue Σ=160 > 3×S=75 still exceeds gate; reshape — not further inner-loop iteration — is the correct disposition. severity p1 raised{high:2,medium:2,low:2} fixed{} deferred{} blocked{high:2,medium:2,low:2}; stage1=1; narrowings=0+0+0+0; stage1Touched=0 mode-e-refusals=0. Snapshot refs under `refs/loom/snapshots/2026-05-18T16-54-56_4e64a6/*` retained for forensics (baseline, baseline-post-top-level, pass-1). Zero `spec-diff-fixer` dispatches occurred; working tree unchanged from loop entry; outer prompt MUST NOT commit and should route the heading to forensics + parker per the `must-fix-blocked` branch. A human must resolve the guard-vs-severity collision (relax the guard, split this finding so the higher-importance raised finding is no longer downstream of the guard, or accept the trade-off and annotate the raised finding as out-of-scope) before re-introducing this finding.
-> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-18T15-13-27_a2e488/t15b-move-concurrency-semantics-into-extension-architecture-implementation-notes.md
-
-# T15b — Move concurrency semantics into Extension Architecture / Implementation Notes Concurrency-model subsection
-
-**Kind:** placement
-**Importance:** medium
-**Atomicity:** atomic
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The architectural half of the `<a id="session-model"></a>` paragraph in `docs/spec.md` Orientation > Prerequisites — the mode-qualified isolation summary, prompt-mode strict sequentiality with its three supporting premises (i)/(ii)/(iii), the genuine-concurrency-only-between-subagent-invocations conclusion, the cancellation-propagates-downward-only restatement, and per-invocation budget scoping — sits inside an Orientation bullet labelled informative rather than in a normative-architectural home. T15a's reduction of that paragraph removes those clauses from Orientation; with no destination in `## Extension Architecture` or `## Implementation Notes` they are dropped on the floor and the architectural reader has no aggregator to land on. The spec presently has no `Concurrency model` subsection under either home.
-
-## Solution approach
-
-Add a new `Concurrency model` subsection in `docs/spec.md` under `## Extension Architecture` as a sibling entry to Pi Extension Integration. **Copy** the listed architectural clauses into the new subsection as an aggregator analogous to the Hard-ceilings bullet, preserving each clause's existing forward-links to `docs/spec_topics/pi-integration-contract.md`, `docs/spec_topics/implementation-notes.md`, `docs/spec_topics/cancellation.md`, `docs/spec_topics/invocation.md`, and `docs/spec_topics/frontmatter.md` verbatim. The corresponding **removal** from the `<a id="session-model"></a>` paragraph is owned by T15a and is out of scope here — the addition (this finding) and the removal (T15a) land as two consecutive single-finding commits under bottom-up ordering, with a transient content duplication in HEAD between them by design.
-
-## Solution constraints
-
-- Do not place it under `## Implementation Notes`.
-- Do not restate owner-page text beyond what the forward-links require.
-- Preserve every forward-link from the listed clauses verbatim — same targets, same count — across the copy. This is a copy, not a rewrite.
-- Preserve the three sequentiality premises (i)/(ii)/(iii) verbatim from the source paragraph; the fourth premise is owned by T14 and added in T14's edit pass, not here.
-- Do NOT edit the `<a id="session-model"></a>` paragraph under this finding — removal of the now-duplicated clauses from the source paragraph is owned by T15a and lands in the immediately-following commit under bottom-up ordering. A transient content duplication between the new `Concurrency model` subsection and the still-untouched `<a id="session-model"></a>` paragraph is the **expected intermediate state** between this commit and T15a's commit.
-- **Inner-loop guidance for the spec-diff fix loop on this commit:** the diff for this finding intentionally introduces content that duplicates the unchanged `<a id="session-model"></a>` paragraph in `docs/spec.md`. Findings of the form *"the new Concurrency model subsection duplicates the session-model paragraph"*, *"the same forward-link appears in two places"*, or *"premises (i)/(ii)/(iii) are stated twice"* are out of scope for the inner loop on this commit and MUST NOT be acted on by `spec-diff-fixer` — fixing them would either re-add removed content (defeating the finding's purpose) or remove content from the still-canonical session-model paragraph (crossing the scope guard above and pre-empting T15a's commit). Treat any such finding as `ignore — out-of-scope`.
-
-## Relationships
-
-- T15a "Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet" — co-resolve (the reduction at Orientation must land alongside this relocation).
-- T15c "Lift Session-model scope deferrals into Non-goals (V1) section" — co-resolve (sibling restructure of the same paragraph).
-- T14 "Prompt-mode sequentiality argument has an unstated fourth premise" — must-follow (the three premises being relocated are the ones T14 needs to extend with the fourth premise; the relocation is the natural moment to add it).
-- T20 "Resource exhaustion under concurrent subagent invocations is undisclaimed for non-memory classes" — must-follow (the admission-cap disposition being relocated is the surface T20 needs the resource-exhaustion answer on).
-- T19a "Extend ActiveInvocationRegistry entry shape with invocationId" — same-cluster (lives in the same architectural area being created here; co-resolve siblings T19b/c/d/e also relevant).
-
----
-
 ## T15a — Reduce Session-model Orientation paragraph to a four-sentence forward-linking bullet
 
 > **PARKED** — 2026-05-18T17:17:38Z
@@ -412,41 +371,6 @@ Rewrite the `bind_context: session` bullet so it stops asserting approximate, mi
 
 None
 
-
----
-
-## T06 — Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers
-
-> **PARKED** — 2026-05-19
-> **Reason:** Category 1 (malformed finding — constraints binding surface; the originating finding's Solution constraints fence every viable remediation that the lens admits). The inner spec-diff-fix-loop's severity-weighted triage exited on must-fix-blocked-by-scope-guard (plan §Change A clause 1 escape): a raised lens finding outranked this originating finding in importance, but every viable remediation would violate a class-1 or class-2 scope guard forwarded from the top-level fixer. FIXCOUNTS: 3,3. Loop notes: Classifier exited on must-fix-blocked / score-budget-exhausted-trust-override-suppressed (Rec O pass-level shadow-budget gate) at pass 3 with 6 blocked findings. S=25, Σ_shadow=106, k×S=75. Originating finding's defaulted S=25 is structurally insufficient for the residue the Solution approach generates. Reshape options: raise origin score, split T06 into per-axis atoms (glossary-side definition narrowing; overview-side enumeration sync; FC-side anchor coverage), or narrow the Solution approach to drop the cross-page consumer-enumeration sync. A human must resolve the guard-vs-severity collision (relax the guard, split this finding so the higher-importance raised finding is no longer downstream of the guard, or accept the trade-off and annotate the raised finding as out-of-scope) before re-introducing this finding.
-> **Forensic report:** .pi/tmp/spec-fix-failure-forensics/2026-05-18T20-36-39_b9045e/t06-operator-role-tui-binding-asserted-in-glossary-but-never-reconciled-with-non.md
-
-# T06 — Operator role: TUI binding asserted in glossary but never reconciled with non-interactive callers
-
-**Kind:** assumptions
-**Importance:** medium
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `operator` entry in `docs/spec_topics/glossary.md` binds *operator-facing* tightly to the active Pi TUI session via the `loom-system-note` channel, but the rest of the corpus admits non-TUI invocation paths — `invoke` from another loom, "programmatic consumers", a future loom harness, and the deferred `loom test` and non-loom programmatic harness items in `docs/spec_topics/future-considerations.md` — without reconciling them with that binding. The first use of *operator* in `docs/spec.md` (the terminal-outcomes aggregator paragraph at `<a id="terminal-outcomes-aggregator">`, "what the operator observes per channel") does not forward-link to the glossary, and the glossary `operator` entry has no anchor to link to. A reader auditing whether non-interactive callers see an operator-facing surface has no anchored answer, and a future contributor adding a non-slash entry point has no V1 binding to extend.
-
-## Solution approach
-
-Add an HTML anchor to the `operator` entry in `docs/spec_topics/glossary.md` matching the convention sibling glossary entries already use, and append one sentence to that entry pinning the V1 invariant: every loom invocation runs inside an active Pi TUI session (so an operator is always present) and non-interactive invocation paths — including the deferred `loom test` command and the deferred non-loom programmatic harness named in `docs/spec_topics/future-considerations.md` — are out of V1 scope, with the operator-facing channel's behaviour outside a TUI session undefined. Then add an inline forward-link of the form `the operator (per [Glossary](./spec_topics/glossary.md#operator))` on the first use of *operator* in the terminal-outcomes aggregator paragraph (`<a id="terminal-outcomes-aggregator">`) of `docs/spec.md`. The existing generic forward-link to the glossary in the Runtime observability bullet under `Scope` does not need a per-term anchor.
-
-## Solution constraints
-
-- Use the existing HTML-anchor convention (`<a id="..."></a>`) on the new glossary entry, matching siblings like `<a id="in-loop"></a>` and `<a id="query-terminating"></a>`; do not invent a new anchor scheme.
-- The V1 carve-out lives in the glossary `operator` entry only; the consolidated V1 non-goals list (owned by T38) may cite it but is out of scope here.
-- Do not extend the V1 disclaimer to Pi's `convertToLlm` LLM-context entry — that surface is a property of the channel, not the operator role.
-- Reuse the deferred-feature names already in `docs/spec_topics/future-considerations.md` verbatim (`loom test`; non-loom programmatic harness); do not coin new names.
-
-## Relationships
-
-- T18a "Append success-side null-policy paragraph to PIC Runtime event channel" — same-cluster (overlapping scope: what the operator sees on success vs across non-interactive paths).
-- T38 "Non-goals are not consolidated into a single section" — same-cluster (the V1 "no non-interactive delivery path" disclaimer is one of the items the consolidated Non-goals section would cite back to the glossary entry).
 
 ---
 
