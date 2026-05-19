@@ -147,7 +147,7 @@ anticipated by the Problem). The T19 cluster — designed as the
 `(f-stop-2)` heaviest canary — never reached the fixer because
 rec O preempted at pre-pass classifier exit (§3.1). No T20-shape
 findings were dispatched, so `(f-stop-3)` had nothing to fire
-on. Re-validation is queued for after rec X (§4.4) lands.
+on. Re-validation is queued for after rec X (§4.3) lands.
 
 ## 2. The fixer/finding architectural cut
 
@@ -240,7 +240,7 @@ residue.
 "likely category-1 reshape false-positive".** The classifier
 has the diagnostic; it lacks the recovery tool.
 
-**Closes:** rec X (§4.4).
+**Closes:** rec X (§4.3).
 
 ### 3.2 Audit-side misses (first-order, 2 of 11 direct parks)
 
@@ -262,7 +262,7 @@ checks the imagined post-fix paragraph for lens compliance but
 does not enumerate what the fixer would have to author to
 satisfy the Problem.
 
-**Closes:** rec L + rec P (§4.3).
+**Closes:** rec L + rec P (§4.2).
 
 ### 3.3 CATEGORY mis-tagging on surface-expansion-irrecoverable (2 of 11 parks)
 
@@ -297,7 +297,7 @@ transitions. It does not catch *naming* re-cycles within
 stage 3 — re-using a prose-token combination that triggered a
 fix in a previous pass on the same chunk.
 
-**Closes:** rec AA (§4.2).
+**Closes:** rec AA (§4.1).
 
 ### 3.5 Score genuinely insufficient for Problem residue (3 of 11 parks)
 
@@ -315,7 +315,7 @@ correctly; the rec K gap is not involved.
 These three require per-finding reshape (raise score, split
 into per-axis atoms, or narrow the Solution approach). No
 pipeline change addresses them. **Closes via:** Tier E
-reshapes (§4.5). Rec P helps the audit catch the
+reshapes (§4.4). Rec P helps the audit catch the
 multi-axis shape pre-dispatch.
 
 ### 3.6 Genuine fixer-cannot-converge (1 of 11 parks)
@@ -325,23 +325,20 @@ finding. The Solution approach is bimodal (mechanism-vs-effect
 framing) and the W2 forensic's root cause (carried over
 without revision) names the PIC step 2 L213 internal
 contradiction as the missing prerequisite. **Closes via:**
-Tier E reshape (§4.5) + author the missing prerequisite
+Tier E reshape (§4.4) + author the missing prerequisite
 finding.
 
 ## 4. Recommendations
 
-Five active recommendations on pi-config, plus pi-loom finding-
-authoring work. Each rec names exactly one mechanism and the
-parks it closes.
+Five active recommendations on pi-config, plus pi-loom
+finding-authoring work. No Tier S (architectural / finding-
+shape principle) work is outstanding — SP-2's *Solution
+approach is directional* (rec J) and SP-2's *Solution
+constraints are advisory* (rec V) are both in production and
+the current evidence does not call for further binding-surface
+revisions.
 
-### 4.1 Tier S — finding-shape principle changes
-
-None currently outstanding. SP-2's *Solution approach is
-directional* (rec J) and SP-2's *Solution constraints are
-advisory* (rec V) are both in production. The W3 evidence does
-not call for further binding-surface revisions.
-
-### 4.2 Tier A — fixer-capability extensions
+### 4.1 Tier A — fixer-capability extensions
 
 **Rec AA — Stage-3 prose-quality oscillation detector.**
 
@@ -376,7 +373,7 @@ per-chunk working-tree state already exists in `_diff.txt`
 artefacts; the new work is the token-match check + NOTES
 surface + STATUS code.
 
-### 4.3 Tier B — finding-authoring-layer empowerments
+### 4.2 Tier B — finding-authoring-layer empowerments
 
 **Rec L — Audit-side binding-surface ratification.**
 
@@ -439,7 +436,7 @@ rationale `score-insufficient-for-axis-residue`.
 `agents/spec-review-finding-reducer.md`, the auditor.
 ~30 lines.
 
-### 4.4 Tier C — pipeline integration + signal hygiene
+### 4.3 Tier C — pipeline integration + signal hygiene
 
 **Rec X — Classifier git-history metadata recovery. (HIGHEST PRIORITY.)**
 
@@ -528,7 +525,7 @@ two-site / multi-axis finding shape).
 `agents/spec-fix-failure-forensics.md`,
 `agents/spec-review-parker.md`. ~20 lines.
 
-### 4.5 Tier E — finding-authoring work (pi-loom)
+### 4.4 Tier E — finding-authoring work (pi-loom)
 
 Eleven per-finding reshapes + one new spec-review entry + one
 heading-restoration patch. Each W3 forensic at
@@ -561,7 +558,7 @@ side detection on Tier B will catch some of these pre-dispatch;
 the reshape recommendations stay the same but the routing layer
 changes.
 
-### 4.6 Summary table
+### 4.5 Summary table
 
 | Rec | Tier | Title | Closes |
 |---|:-:|---|---|
@@ -573,7 +570,7 @@ changes.
 | Y | C | Loom baseline-snapshot pre-flight delta check | redundant after rec X; optional |
 | Tier E | E | 11 reshapes + 1 new finding + heading restoration | the remaining parks |
 
-### 4.7 Priority order
+### 4.6 Priority order
 
 1. **Rec X** (pi-config) — closes 4 of 11 direct parks. Highest
    leverage single pi-config change.
