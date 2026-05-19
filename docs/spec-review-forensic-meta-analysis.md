@@ -55,20 +55,18 @@ HEADLINE: The shipped pipeline (recs J, F, K, V, T, O, M, W) cures
           stage-3 prose-token re-cycles. T09 burned 7 passes on
           `naming` / `clarity` term cycles before exit.
 
-PRIMARY WORK (in priority order):
-  Tier 1 — closes the dominant failure mode (pi-loom):
-    - Restore T19 cluster member headings + high/S=100 metadata
-      to docs/spec-review.md
-    - Restore T11a heading + high/S=100 metadata to docs/spec-review.md
-    - Reshape T03a and T10 per Tier E (axis split or score raise)
-  Tier 2 — closes the audit-layer gap (pi-config):
-    - rec L — audit-side binding-surface ratification
-    - rec P — Problem-metadata decision-axes
-  Tier 3 — signal hygiene + remaining fixer-capability gap (pi-config):
-    - rec Z — split surface-expansion-irrecoverable CATEGORY
-    - rec AA — stage-3 prose-quality oscillation detector
-  Tier 4 — pi-loom finding-authoring for the remaining parks:
-    - 7 per-finding reshapes + 1 new spec-review entry
+PRIMARY WORK (priority order):
+  1. Manual metadata restoration on T19 cluster + T11a; reshape
+     T03a and T10 per §4.5. Closes the dominant failure mode.
+     (pi-loom)
+  2. rec L — audit-side binding-surface ratification. (pi-config)
+  3. rec P — decision-axes Problem-metadata + score-vs-residue
+     audit. (pi-config)
+  4. rec Z — split surface-expansion-irrecoverable CATEGORY by
+     finding shape. (pi-config)
+  5. rec AA — stage-3 prose-quality oscillation detector.
+     (pi-config)
+  6. Per-finding reshapes for the remaining parks. (pi-loom)
 
 GENERATED: 2026-05-19T19:00:00Z
            Document rewritten from a current-state perspective.
@@ -152,7 +150,7 @@ anticipated by the Problem). The T19 cluster — designed as the
 rec O preempted at pre-pass classifier exit (§3.1). No T20-shape
 findings were dispatched, so `(f-stop-3)` had nothing to fire
 on. Re-validation is queued for after the T19 cluster's metadata
-is restored to `docs/spec-review.md` (see §3.1 and §4.4).
+is restored to `docs/spec-review.md` (see §3.1 and §4.5).
 
 ## 2. The fixer/finding architectural cut
 
@@ -245,14 +243,15 @@ residue.
 "likely category-1 reshape false-positive".** The classifier
 has the diagnostic; it does not have a recovery tool.
 
-**Response.** Manual finding-authoring work, per the Tier E
-entries in §4.4. For T19 cluster and T11a, the fix is to
+**Response.** Manual finding-authoring work, per the per-
+finding reshape entries in §4.5. For T19 cluster and T11a, the
+fix is to
 restore the heading + `**Importance:** high` / `**Score:** 100`
 metadata to `docs/spec-review.md` so the classifier's existing
 heading-lookup succeeds. For T03a and T10, the fix is a real
 reshape — even at the true score the multi-axis residue is
 large enough that a per-axis split or a narrowed Solution
-approach is the right move (see Tier E).
+approach is the right move (see §4.5).
 
 A pipeline-side change (e.g. classifier git-history recovery,
 or preventing the top-level fixer from stripping headings
@@ -282,7 +281,7 @@ checks the imagined post-fix paragraph for lens compliance but
 does not enumerate what the fixer would have to author to
 satisfy the Problem.
 
-**Closes:** rec L + rec P (§4.2).
+**Closes:** rec L (§4.1) + rec P (§4.2).
 
 ### 3.3 CATEGORY mis-tagging on surface-expansion-irrecoverable (2 of 11 parks)
 
@@ -317,7 +316,7 @@ transitions. It does not catch *naming* re-cycles within
 stage 3 — re-using a prose-token combination that triggered a
 fix in a previous pass on the same chunk.
 
-**Closes:** rec AA (§4.1).
+**Closes:** rec AA (§4.4).
 
 ### 3.5 Score genuinely insufficient for Problem residue (3 of 11 parks)
 
@@ -334,8 +333,8 @@ correctly; the rec K gap is not involved.
 
 These three require per-finding reshape (raise score, split
 into per-axis atoms, or narrow the Solution approach). No
-pipeline change addresses them. **Closes via:** Tier E
-reshapes (§4.4). Rec P helps the audit catch the
+pipeline change addresses them. **Closes via:** per-finding
+reshapes (§4.5). Rec P helps the audit catch the
 multi-axis shape pre-dispatch.
 
 ### 3.6 Genuine fixer-cannot-converge (1 of 11 parks)
@@ -345,62 +344,28 @@ finding. The Solution approach is bimodal (mechanism-vs-effect
 framing) and the W2 forensic's root cause (carried over
 without revision) names the PIC step 2 L213 internal
 contradiction as the missing prerequisite. **Closes via:**
-Tier E reshape (§4.4) + author the missing prerequisite
+Per-finding reshape (§4.5) + author the missing prerequisite
 finding.
 
 ## 4. Recommendations
 
-Five active recommendations on pi-config, plus pi-loom
-finding-authoring work. No Tier S (architectural / finding-
-shape principle) work is outstanding — SP-2's *Solution
-approach is directional* (rec J) and SP-2's *Solution
-constraints are advisory* (rec V) are both in production and
-the current evidence does not call for further binding-surface
-revisions.
+Four active pi-config recommendations + pi-loom finding-
+authoring work. No architectural / finding-shape principle
+changes are outstanding — SP-2's *Solution approach is
+directional* (rec J) and SP-2's *Solution constraints are
+advisory* (rec V) are both in production and the current
+evidence does not call for further binding-surface revisions.
 
-### 4.1 Tier A — fixer-capability extensions
+The rec letters (L, P, Z, AA) are stable identifiers that will
+appear in pi-config commit messages once shipped, matching the
+convention of the existing shipped recs (J, F, K, V, T, O, M, W).
 
-**Rec AA — Stage-3 prose-quality oscillation detector.**
-
-Closes §3.4 (T09 directly + T05 cycle component).
-
-**Mechanism:**
-
-- New refusal mode in `agents/spec-diff-fixer.md`: `(g)
-  stage3-naming-cycle`. Fires when:
-  - the current pass is in stage 3; AND
-  - the proposed fix's diff hunk replaces a prose token (any
-    word-shape match excluding code-fenced identifiers, anchor
-    IDs, and link targets) with a variant that appeared in
-    the working-tree state at any of the last 3 passes for
-    the same chunk; AND
-  - the fix's lens of origin is `naming`, `clarity`, `cruft`,
-    or `testability`.
-- Refusal NOTES line: `RefusalMode: (g) stage3-naming-cycle;
-  chunk=<chunk-id>; token=<original>; proposed=<variant>;
-  prev-seen-at=<pass-N-K>`.
-- New classifier defer rationale `defer-to-debt — stage3-
-  naming-cycle`. Originating lens finding routes to debt; loop
-  continues.
-- New STATUS in `agents/spec-diff-fix-loop.md`:
-  `must-fix-blocked-by-stage3-naming-cycle`. CATEGORY by
-  rec Z's discriminator check.
-
-**Files changed (pi-config):** `agents/spec-diff-fixer.md`,
-`agents/spec-diff-fix-classifier.md`,
-`agents/spec-diff-fix-loop.md`. ~40 lines total. The per-pass
-per-chunk working-tree state already exists in `_diff.txt`
-artefacts; the new work is the token-match check + NOTES
-surface + STATUS code.
-
-### 4.2 Tier B — finding-authoring-layer empowerments
-
-**Rec L — Audit-side binding-surface ratification.**
+### 4.1 Rec L — Audit-side binding-surface ratification (pi-config)
 
 Closes §3.2 (T03a + T07). Auditor walks each finding's binding
 surfaces (per §2) and flags malformations the fixer would
-otherwise hit only at fix time. Four ratification checks
-keyed to specific binding surfaces:
+otherwise hit only at fix time. Four ratification checks keyed
+to specific binding surfaces:
 
 - **Problem — cited rule absent from owner page** (T14-shape).
   For each Problem asserting that an owner page contains a
@@ -428,19 +393,18 @@ keyed to specific binding surfaces:
 - **Missing prerequisite finding — cited owner internally
   contradictory** (T16b-shape). For each Problem citing an
   owner section as authoritative, scan for internal
-  contradictions; if found and no `must-precede` edge → rationale
-  `cited-owner-contradictory-no-prerequisite-finding`.
+  contradictions; if found and no `must-precede` edge →
+  rationale `cited-owner-contradictory-no-prerequisite-finding`.
 
 All four rationales route to `HUMAN_REVIEW` or `AUTO_RESHAPE`
 depending on the auditor's confidence. None rewrite findings
 themselves — they route to the finding-authoring layer.
 
-**Files changed (pi-config):** the auditor prompt
-(whichever file in `agents/` or `prompts/` owns per-finding
-lens dispatch). ~40–60 lines for the four rationales + worked
-examples.
+**Files changed (pi-config):** the auditor prompt (whichever
+file in `agents/` or `prompts/` owns per-finding lens dispatch).
+~40–60 lines for the four rationales + worked examples.
 
-**Rec P — Decision-axes Problem-metadata + score-vs-residue audit.**
+### 4.2 Rec P — Decision-axes Problem-metadata + score-vs-residue audit (pi-config)
 
 Closes §3.2 (T03a multi-axis component) + §3.5 (T15b, T06,
 T07 multi-axis residue). When the Problem implicitly requires
@@ -453,17 +417,14 @@ importance exceeds score-budget headroom → `RISK_HIGH` with
 rationale `score-insufficient-for-axis-residue`.
 
 **Files changed (pi-config):**
-`agents/spec-review-finding-reducer.md`, the auditor.
-~30 lines.
+`agents/spec-review-finding-reducer.md`, the auditor. ~30 lines.
 
-### 4.3 Tier C — pipeline rejection-signal hygiene
-
-**Rec Z — Split `surface-expansion-irrecoverable` CATEGORY by finding shape.**
+### 4.3 Rec Z — Split `surface-expansion-irrecoverable` CATEGORY by finding shape (pi-config)
 
 Closes §3.3 (T05, T09 tagging). The current rec W mapping tags
 every `surface-expansion-irrecoverable` exit as Category 2;
-W3 evidence shows the exit is sometimes Category 1 (bimodal /
-two-site / multi-axis finding shape).
+the forensic root causes show the exit is sometimes Category 1
+(bimodal / two-site / multi-axis finding shape).
 
 **Mechanism:**
 
@@ -486,10 +447,43 @@ two-site / multi-axis finding shape).
 `agents/spec-fix-failure-forensics.md`,
 `agents/spec-review-parker.md`. ~20 lines.
 
-### 4.4 Tier E — finding-authoring work (pi-loom)
+### 4.4 Rec AA — Stage-3 prose-quality oscillation detector (pi-config)
+
+Closes §3.4 (T09 directly + T05 cycle component).
+
+**Mechanism:**
+
+- New refusal mode in `agents/spec-diff-fixer.md`: `(g)
+  stage3-naming-cycle`. Fires when:
+  - the current pass is in stage 3; AND
+  - the proposed fix's diff hunk replaces a prose token (any
+    word-shape match excluding code-fenced identifiers,
+    anchor IDs, and link targets) with a variant that
+    appeared in the working-tree state at any of the last 3
+    passes for the same chunk; AND
+  - the fix's lens of origin is `naming`, `clarity`, `cruft`,
+    or `testability`.
+- Refusal NOTES line: `RefusalMode: (g) stage3-naming-cycle;
+  chunk=<chunk-id>; token=<original>; proposed=<variant>;
+  prev-seen-at=<pass-N-K>`.
+- New classifier defer rationale `defer-to-debt —
+  stage3-naming-cycle`. Originating lens finding routes to
+  debt; loop continues.
+- New STATUS in `agents/spec-diff-fix-loop.md`:
+  `must-fix-blocked-by-stage3-naming-cycle`. CATEGORY by
+  rec Z's discriminator check.
+
+**Files changed (pi-config):** `agents/spec-diff-fixer.md`,
+`agents/spec-diff-fix-classifier.md`,
+`agents/spec-diff-fix-loop.md`. ~40 lines total. The per-pass
+per-chunk working-tree state already exists in `_diff.txt`
+artefacts; the new work is the token-match check + NOTES
+surface + STATUS code.
+
+### 4.5 Per-finding reshapes (pi-loom)
 
 Eleven per-finding reshapes + one new spec-review entry + one
-heading-restoration patch. Each W3 forensic at
+cluster metadata-restoration patch. Each W3 forensic at
 `.pi/tmp/spec-fix-failure-forensics/2026-05-18T15-13-27_a2e488/`
 and `.pi/tmp/spec-fix-failure-forensics/2026-05-18T20-36-39_b9045e/`
 includes a `### Immediate (this finding)` subsection with the
@@ -515,27 +509,26 @@ Cascade-parked findings (T03b/c/d/e/f, T11b/c, T18b/c/d) re-
 dispatch when their upstream lands; no per-cascade reshape.
 
 After rec L + rec P ship, re-evaluate this list. Audit-side
-detection on Tier B will catch some of these pre-dispatch; the
-reshape recommendations stay the same but the routing layer
-changes.
+detection will catch some of these pre-dispatch; the reshape
+recommendations stay the same but the routing layer changes.
 
-### 4.5 Summary table
+### 4.6 Summary table
 
-| Rec | Tier | Title | Closes |
-|---|:-:|---|---|
-| **L** | B | Audit-side binding-surface ratification | §3.2 (T03a, T07) |
-| **P** | B | Decision-axes Problem-metadata | §3.2 + §3.5 multi-axis components |
-| **Z** | C | Split surface-expansion-irrecoverable CATEGORY | §3.3 (T05, T09 tagging) |
-| **AA** | A | Stage-3 prose-quality oscillation detector | §3.4 (T09 + T05 cycle component) |
-| Tier E | E | 11 reshapes + 1 new finding + cluster metadata restoration | §3.1 (manual metadata restoration) + the remaining parks |
+| Rec | Title | Closes |
+|---|---|---|
+| **L** | Audit-side binding-surface ratification | §3.2 (T03a, T07) |
+| **P** | Decision-axes Problem-metadata | §3.2 + §3.5 multi-axis components |
+| **Z** | Split surface-expansion-irrecoverable CATEGORY | §3.3 (T05, T09 tagging) |
+| **AA** | Stage-3 prose-quality oscillation detector | §3.4 (T09 + T05 cycle component) |
+| Per-finding reshapes (pi-loom) | 11 reshapes + 1 new finding + cluster metadata restoration | §3.1 (manual metadata restoration) + the remaining parks |
 
-### 4.6 Priority order
+### 4.7 Priority order
 
 1. **Manual metadata restoration** (pi-loom) — unblocks the
    four §3.1 parks. Restore the T19 cluster member headings +
    `**Importance:** high` / `**Score:** 100` to
    `docs/spec-review.md`; restore T11a's heading + same
-   metadata; reshape T03a and T10 per Tier E (axis split or
+   metadata; reshape T03a and T10 per §4.5 (axis split or
    score raise). Highest-leverage immediate work; no pipeline
    change required.
 2. **Rec L + Rec P** (pi-config) — close the audit-layer gap
@@ -543,8 +536,8 @@ changes.
    parks.
 3. **Rec Z + Rec AA** (pi-config) — signal hygiene + remaining
    fixer-capability gap.
-4. **Tier E reshapes** for the remaining parks (pi-loom) —
-   re-evaluate after recs L + P ship; some will be cured
+4. **Per-finding reshapes for the remaining parks** (pi-loom)
+   — re-evaluate after recs L + P ship; some will be cured
    pre-dispatch by audit-side detection.
 
 Validation work after the audit-layer recs ship:
@@ -598,7 +591,7 @@ Validation work after the audit-layer recs ship:
   gate's strictness is what surfaces the rec K metadata gap;
   weakening k weakens trust-override-suppression on
   genuinely-undersized origins. Manual metadata restoration
-  (§3.1, §4.4) addresses the current park set without
+  (§3.1, §4.5) addresses the current park set without
   weakening the gate.
 - **Raising the 17-pass cap.** T09 burned 7 of 17 on stage-3
   oscillation; T11a burned 3 of 17 (pre-emptive gate exit).
