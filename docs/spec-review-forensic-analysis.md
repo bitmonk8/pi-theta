@@ -741,3 +741,27 @@ human triage) can trace why the listed findings ended up in
 `spec-review-parked.md`.
 
 ---
+
+## 2026-05-20T09:11:15Z — T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept
+
+- **Failure mode:** surface-expansion-irrecoverable-bimodal
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** 6,2,3,4,3
+- **Score trajectory:** 161,26,11,26,40 vs S=25
+- **Passes:** 5
+- **Stage at exit:** 1 (5 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-20T08-01-15_fb235c`
+- **Poisoned fixes:** spec-lens-completeness:02, spec-lens-consistency:01
+- **Forensic report:** `c:/UnitySrc/pi-loom/.pi/tmp/spec-fix-failure-forensics/2026-05-20T06-38-04_bf2b2b/t05-bind-frontmatter-vs-binder-binder-settings-diagnostics-prose-root-word-incon.md` _(gitignored)_
+- **Parked findings (this run):** `T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept`
+- **Loop notes:** Surface-expansion-irrecoverable-bimodal at two-strikes — the originating T05 Solution approach pinned a single-canonical-home design (back-reference-only glossary entry pointing at the *Naming convention* paragraph in frontmatter.md) but the pass-1 traceability fix (fix-06) extracted the binder-model rule into a new `<a id="binder-model-root-word-delta">` sub-paragraph, creating a no-canonical-home rule situation between two viable owners of the per-surface mapping; pass-2's consistency fix then committed to the new home by re-pointing the glossary, after which the bimodal approach left the spec with a back-reference target that lenses kept re-critiquing on every subsequent pass. Trust-override classifier on pass-3-rerun kept three pre-refused scope-guard-fenced findings as fix-class even after the poisoned fix was excluded, because the structural ambiguity itself — not the reframe — is the load-bearing defect. stage1=5. Snapshots retained under refs/loom/snapshots/2026-05-20T08-01-15_fb235c/* for forensics. OriginArtefactDir: c:/UnitySrc/pi-loom/.pi/tmp/spec-fix-loop/2026-05-20T07-57-26_a66fd9/_origin. Category: 1.
+- **Fixer notes:** none
+
+The detailed root-cause analysis, audit-vs-actual comparison, and
+ranked Immediate / Pipeline recommendations live in the gitignored
+forensic report cited above. This file records only the durable
+TL;DR pointer so future `/spec-review` regeneration runs (or future
+human triage) can trace why the listed findings ended up in
+`spec-review-parked.md`.
+
+---
