@@ -3,6 +3,8 @@
 _Generated: 2026-05-08T09:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding in the file is addressed first; the first finding is addressed last._
+_(Updated 2026-05-20 T19a — Extend ActiveInvocationRegistry entry shape with invocationId finding-shape Pattern F auto-reshape: Solution approach narrowed from directive to directional form. Net change to retained count: 0.)_
+_(Updated 2026-05-20 T19b — Add invocation_id field to RuntimeEvent payload declaration finding-shape Pattern J auto-reshape: negative-space prescription sentence deleted from Solution approach. Net change to retained count: 0.)_
 ---
 
 # T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule
@@ -20,7 +22,7 @@ The *Tool-call loop bound* section in `docs/spec_topics/query.md` (anchor `tool-
 
 ## Solution approach
 
-Rewrite the relevant sentences in the *Tool-call loop bound* section of `docs/spec_topics/query.md` and in the `tool_loop` field paragraph of `docs/spec_topics/frontmatter.md` to replace the "consumes one slot" framing with an explicit forced-respond-exemption rule: the forced respond turn is the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to; the runtime MUST dispatch it on every typed query that reaches that branch (including the `max_rounds: 0` boundary case, where it is the only turn issued); and CIO-4's slot-accounting check is not evaluated against the forced respond turn itself. Confirm `docs/spec_topics/hard-ceilings.md` CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence remain aligned with the new rule and leave them unedited if they do.
+Rewrite the relevant sentences in the *Tool-call loop bound* and *Typed queries are tool-loop-shaped* sections of `docs/spec_topics/query.md`, in the `tool_loop` field paragraph of `docs/spec_topics/frontmatter.md`, in the *tool-call round slot accounting* entry of `docs/spec_topics/glossary.md`, and in the *Issuing typed queries* bullet of `docs/spec_topics/pi-integration-contract.md` (the sentence beginning "The forced respond turn counts against the same `tool_loop.max_rounds` cap" — this sentence sits in the *Conversation drive* section and is distinct from PIC-1 (d), which remains read-only per the constraint below) to replace the "consumes one slot" framing with an explicit forced-respond-exemption rule: the forced respond turn is the typed-query terminating mechanism CIO-4's `max_rounds`-final branch routes to; the runtime MUST dispatch it on every typed query that reaches that branch (including the `max_rounds: 0` boundary case, where it is the only turn issued); and CIO-4's slot-accounting check is not evaluated against the forced respond turn itself. Confirm `docs/spec_topics/hard-ceilings.md` CIO-4 and the *Depth-6 forced respond at `max_rounds`* worked consequence remain aligned with the new rule and leave them unedited if they do.
 
 ## Solution constraints
 
@@ -324,7 +326,7 @@ The `ActiveInvocationRegistry` entry shape declared under `id="active-invocation
 
 ## Solution approach
 
-Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` with a required `invocationId: string` member, and pin in the section's contract paragraph that each entry's `invocationId` is sourced via `crypto.randomUUID()` at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, and `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` before any awaitable work, and is set on entry creation and never mutated thereafter. The exact identifier name, type, derivation primitive, and insertion-site placement are the substance of the change and are pinned as part of the registry-shape extension.
+Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `id="active-invocation-registry"` in `docs/spec_topics/pi-integration-contract.md` with a required `invocationId: string` member, and pin in the section's contract paragraph that each entry's `invocationId` is established at the registry-insertion site (slash-command handler entry, `tool.execute(...)` adapter entry, and `invoke` spawn-site entry) inside the existing **Dispatch-site setup wrap** `try`/`catch` before any awaitable work, and is set on entry creation and never mutated thereafter. The identifier follows the corpus's existing `<invocation-id>` / `<uuid>` convention (see [Diagnostics — Identifier-, descriptor-, and closed-enum placeholders](./diagnostics.md#7-identifier-descriptor-and-closed-enum-placeholders)); the name, type, and set-once semantics are load-bearing because the co-resolve siblings T19b/c/d depend on a single registry-sourced value.
 
 ## Solution constraints
 
@@ -360,7 +362,7 @@ The `type RuntimeEvent = { ... }` declaration in the **Runtime event channel** s
 
 ## Solution approach
 
-Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }` declaration in the **Runtime event channel** section of `docs/spec_topics/pi-integration-contract.md`. Rely on the existing "normative and additive-only" sentence above the declaration to characterise the addition; do not re-author that contract note here. Do not edit the surrounding prose, the dedup-tuple statements, or any sibling-owned surface.
+Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }` declaration in the **Runtime event channel** section of `docs/spec_topics/pi-integration-contract.md`. Rely on the existing "normative and additive-only" sentence above the declaration to characterise the addition; do not re-author that contract note here.
 
 ## Solution constraints
 
