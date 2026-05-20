@@ -147,6 +147,19 @@ IMPLEMENTATION STATUS (as of 2026-05-20, post-implementation):
   showing the pipeline patches do not close the case; none have
   been performed pre-validation per §5.8's own disposition.
 
+  VALIDATION: The §2.1 park set (17 findings: 7 direct + 10
+  cascade) has been unparked into `docs/spec-review.md` per the
+  §5.9 validation queue's first bullet ("Re-dispatch the §2.1
+  park set"). `docs/spec-review-parked.md` is now empty (preamble
+  only); `docs/spec-review.md` carries the prior 5 active findings
+  + the 17 unparked findings = 22 H1s. The next
+  `/fix-spec-shape-single-findings` run validates BB+HH+CC end-
+  to-end: rec CC's must-precede gate sequences the cascade
+  prerequisites (T13a/T16e/T18a/T18b) before their downstreams
+  (T13b/T16b/T18c); rec BB's artefact surfaces the true scores at
+  the classifier; rec HH+GG keeps the fixer grounded so the T05 /
+  T16b drift shapes do not recur.
+
   Per-rec status markers appear at each §5.x heading below.
   Pi-config commit SHAs for each rec are listed in the Appendix.
 ```
