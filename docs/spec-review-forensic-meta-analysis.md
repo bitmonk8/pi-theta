@@ -152,7 +152,7 @@ GENERATED: 2026-05-20T14:00:00Z
            per-rec ledger is recoverable via this file's git
            log.
 
-IMPLEMENTATION STATUS (as of 2026-05-20T14:00, post-validation):
+IMPLEMENTATION STATUS (as of 2026-05-20T16:00, post-implementation):
   All pi-config recommendations from the prior revision
   (BB, HH, CC, DD, EE, FF, GG) shipped. Validation outcome:
   unambiguous wins on T06 (BB+HH), T13a → T13b (CC); four
@@ -160,14 +160,41 @@ IMPLEMENTATION STATUS (as of 2026-05-20T14:00, post-validation):
   rec is observed to regress.
 
   The new rec set (II, JJ, KK, LL, MM) is the response to
-  the validation evidence. None of the new recs require
-  reverting any shipped rec; they layer on top.
+  the validation evidence. **All five shipped to pi-config
+  main on 2026-05-20** (commit `dae833a` — single commit
+  bundling all five for atomic integration; per-rec SHAs
+  are not split because II + JJ must ship together for
+  the parker / picker / orchestrator contracts to align,
+  and the auditor / classifier additions are independent
+  but small). None of the new recs revert any prior rec;
+  they layer on top.
 
-  The most critical new rec is II (parker contract gap).
-  Without it the outer loop halts on the first
+  The most critical new rec was II (parker contract gap).
+  Without it the outer loop halted on the first
   Rec-CC-routed finding and the visible blast radius of
-  the gap is large — in this run, ten Shape: single
-  findings above T18b were unreachable.
+  the gap was large — in the validation run, ten Shape:
+  single findings above T18b were unreachable.
+
+  VALIDATION (next): the four findings parked in the
+  2026-05-20 validation run (T05, T16e, T16b cascade, T15a)
+  have been unparked into `docs/spec-review.md` so the next
+  `/fix-spec-shape-single-findings` run validates the new
+  rec set end-to-end. Expected behaviour:
+  - Rec II + JJ: T18b dispatches cleanly once T18a lands
+    (the picker's Rec-CC-aware walk skips T18b and surfaces
+    T18a first; the orchestrator does not halt).
+  - Rec KK: T15a is pre-parked as stale-precondition before
+    the top-level fixer dispatches, saving one fixer call.
+  - Rec LL: T05 is flagged Pattern S at audit time;
+    pre-dispatch reshape is recommended. Pending a re-audit
+    pass, T05 may still surface-expand on dispatch — the
+    test is whether Pattern S routes to HUMAN_REVIEW before
+    the dispatch attempt.
+  - Rec MM: T16e's PIC step-2 fix should converge without
+    the anchor-quality tail divergence (Part 1 auto-narrows
+    `frontmatter.md`'s tools chunk on pass 2 when the
+    pass-1 fix mints the cross-reference; Part 2 defers
+    the pass-3 / pass-4 anchor critiques as cooldown).
 ```
 
 ---
@@ -692,7 +719,7 @@ identifiers after HH in the pi-config sequence.
 
 ### 5.1 Rec II — Parker contract handles `dispatch-ordering-blocked` (pi-config)
 
-**Status: NOT YET IMPLEMENTED.**
+**Status: IMPLEMENTED** (pi-config `dae833a`, 2026-05-20).
 
 Closes §4.1 (T18b stuck; outer-loop halt on every
 Rec-CC-routed finding). This is the highest-priority new rec
@@ -749,7 +776,7 @@ iteration cost from 2 → 1 outer loops.
 
 ### 5.2 Rec JJ — Picker is Rec-CC-aware (pi-config)
 
-**Status: NOT YET IMPLEMENTED.**
+**Status: IMPLEMENTED** (pi-config `dae833a`, 2026-05-20).
 
 Closes the two-iteration round-trip cost of §4.1 (T18b
 deferral). Optional but high-value once Rec II ships.
@@ -794,7 +821,7 @@ warranted.
 
 ### 5.3 Rec KK — Rec M matches content-level conditional ordering (pi-config)
 
-**Status: NOT YET IMPLEMENTED.**
+**Status: IMPLEMENTED** (pi-config `dae833a`, 2026-05-20).
 
 Closes §4.2 (T15a top-level-refused round-trips through the
 fixer when Rec M should have pre-parked at the orchestrator).
@@ -828,7 +855,7 @@ captures the case rather than burying it in `failed`.
 
 ### 5.4 Rec LL — Single-canonical-home over multi-obligation target lint (pi-config + auditor)
 
-**Status: NOT YET IMPLEMENTED.**
+**Status: IMPLEMENTED** (pi-config `dae833a`, 2026-05-20).
 
 Closes §4.3 (T05 bimodal surface-expansion). The pattern is
 detectable at authoring/audit time; the fixer side cannot
@@ -880,7 +907,10 @@ layer is the right place to catch it.
 
 ### 5.5 Rec MM — Transitive narrowing + anchor-add cooldown (pi-config)
 
-**Status: NOT YET IMPLEMENTED.**
+**Status: IMPLEMENTED** (pi-config `dae833a`, 2026-05-20). Parts 1
++ 2 shipped; Part 3 (the optional `(g) anchor-topology-restructure`
+fixer mode) NOT shipped — the meta-analysis recommended validating
+Parts 1 + 2 first.
 
 Closes §4.4 (T16e anchor-quality tail divergence). The T16e
 forensic enumerates this as RP-1 + RP-2 (+ RP-3 as an
@@ -1139,27 +1169,39 @@ settings under `git:github.com/bitmonk8/pi-config`, cloned to
   `OriginAlignment: forward` fixes across mode (d)
   reverts).
 
-Pi-config recommendations NOT YET IMPLEMENTED (new rec set
-from this revision):
+Pi-config recommendations from this revision — all
+shipped on 2026-05-20 in commit `dae833a` as one
+atomic integration commit:
 
 - **Rec II** — `agents/spec-review-parker.md` +
-  `commands/fix-spec-shape-single-findings.md`: parker
-  handles `dispatch-ordering-blocked` with a
-  forensic-only branch.
+  `prompts/fix-spec-shape-single-findings.md`: parker
+  handles `dispatch-ordering-blocked` (and `-cycle`
+  variant) with a forensic-only branch; orchestrator's
+  step 3e gains a `PARKED_COUNT==0` commit branch.
 - **Rec JJ** — `agents/spec-review-shape-single-picker.md`
-  (or equivalent selector): picker becomes Rec-CC-aware,
-  falls through to next eligible candidate.
-- **Rec KK** — `commands/fix-spec-shape-single-findings.md`:
+  + `prompts/fix-spec-shape-single-findings.md`: picker
+  bottom-up walk becomes Rec-CC-aware, falls through to
+  next-eligible candidate; emits SKIPPED prefix lines and
+  BLOCKED terminal; orchestrator gains step 2a deadlock
+  routing.
+- **Rec KK** — `prompts/fix-spec-shape-single-findings.md`:
   Rec M trigger grammar extended with content-conditional
-  pattern matcher.
-- **Rec LL** — `agents/spec-review-auditor.md`: new Pattern
-  S detection (single-canonical-home over multi-obligation
-  target).
+  pattern matcher (T15a-class `"If <subsection> is
+  absent ... defer"` shape).
+- **Rec LL** — `agents/spec-review-finding-lens-auditor.md`:
+  new Pattern S (single-canonical-home Solution approach
+  over a multi-obligation target paragraph). HUMAN_REVIEW
+  routing; three candidate reshape branches. Multi-pattern
+  routing order updated.
 - **Rec MM** — `agents/spec-diff-fix-loop.md` +
-  `agents/spec-diff-fix-classifier.md` (+ optional
-  `agents/spec-diff-fixer.md`): transitive narrowing +
-  anchor-add cooldown (+ `(g) anchor-topology-restructure`
-  fixer mode).
+  `agents/spec-diff-fix-classifier.md`: Parts 1 (transitive
+  narrowing via fix-minted cross-references; new loop
+  sub-steps `4-trans` + `4-anchor`) + 2 (anchor-add
+  cooldown; classifier rule `b-octies` with rationale
+  `defer-to-debt — traceability-anchor-cooldown`). Part 3
+  (the optional `(g) anchor-topology-restructure` fixer
+  mode) NOT shipped — conservative: validate Parts 1 + 2
+  on T16e re-dispatch first.
 
 Pi-loom — current state references:
 
