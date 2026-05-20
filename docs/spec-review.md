@@ -484,7 +484,8 @@ Add one per-surface null sentence to each of the **prompt mode** and **subagent 
 # T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (settings, diagnostics, prose) — root-word inconsistency for the binder-model concept
 
 **Kind:** naming
-**Importance:** medium
+**Importance:** high
+**Score:** 200
 **Atomicity:** atomic
 **Shape:** single
 **State:** reduced
