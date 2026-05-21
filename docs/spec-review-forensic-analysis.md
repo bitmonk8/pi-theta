@@ -873,3 +873,20 @@ human triage) can trace why the listed findings ended up in
 - **Fixer notes:** none
 
 ---
+
+## 2026-05-21T01:16:36Z — T18b — Add per-mode operator-side null sentences to slash-invocation.md
+
+- **Failure mode:** must-fix-blocked
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** none
+- **Score trajectory:** none vs S=25
+- **Passes:** 0
+- **Stage at exit:** 1 (0 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-21T01-16-36_396b72`
+- **Poisoned fixes:** none
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-20T16-01-36_59fbed/t18b-add-per-mode-operator-side-null-sentences-to-slash-invocation-md.md` _(gitignored)_
+- **Parked findings (this run):** `T18b — Add per-mode operator-side null sentences to slash-invocation.md`
+- **Loop notes:** Classifier early-exit on stage-1 pass-1 with sub-rationale `score-budget-exhausted-trust-override-suppressed` (Rec O pass-level shadow-budget gate). 5 findings counted; S=25 (medium origin), Sigma_shadow=76, k*S=75, breach margin 51. 1 blocker on must-fix:true error-model defect: the new "operator-visible failure surface" tail clause names a `Top-level Err in prompt mode` template that does not fire when a `mode: subagent` loom is the top-level slash-dispatch entry. 5 findings raised{high:1,medium:3,NIT:1}, all blocked. Reshape: split T18b per-axis (per-mode null sentence vs operator-surface enumeration vs cross-reference-anchor strategy), raise the score, or narrow the Solution approach to author only the null sentence and defer enumeration to the PIC. OriginDir: /c/UnitySrc/pi-loom/.pi/tmp/spec-fix-loop/2026-05-21T01-14-08_7f7723/_origin
+- **Fixer notes:** none
+
+---
