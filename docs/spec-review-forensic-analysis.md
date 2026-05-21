@@ -917,3 +917,28 @@ human triage) can trace why the listed findings ended up in
 - **Follow-up signal (pipeline-side, out of scope for this commit):** the T19e failure surfaced a generic spec-authoring trap the pipeline did not catch — a finding's `MUST NOT` may forbid mechanisms that the same chunk has elsewhere blessed (here: the watcher-note 250 ms debounce explicitly licenses `coalescing` on a sibling channel). A `spec-lens-consistency` rule that checks new `MUST NOT` clauses against the chunk's existing positive licenses would catch this class at audit time. Noted for the next meta-analysis pass.
 
 ---
+
+## 2026-05-21T11:30:00Z — T10 — DELETED (niche edge-case implementer divergence, no live dependencies)
+
+- **Failure mode:** n/a (post-park human review)
+- **Decision:** Delete finding entirely.
+- **Rationale:** Single-string bypass behaviour on whitespace-only / absent slash argument. Both candidate behaviours (bind `""` and start; or system-note and suppress) are individually sensible. The finding documents a niche edge case on the bypass-only path with no runtime correctness risk — the cost of divergence is "different products do different things on this edge case", not data loss or crash. Standalone (`Relationships: None`, no inbound references). Resolution can re-enter the spec via a low-cost direct edit if a product decision is taken.
+
+---
+
+## 2026-05-21T11:31:00Z — T07 — DELETED (implicit convention adequate; no live dependencies)
+
+- **Failure mode:** n/a (post-park human review)
+- **Decision:** Delete finding entirely.
+- **Rationale:** `QueryError.message` normativity — proposed to state explicitly that `message` is human-readable debug prose on the JavaScript `Error.message` convention. The implicit signal (single annotated panic-template exception, every other variant unannotated) is already strong enough for conformance test authors to read; no runtime behaviour depends on the explicit statement. Same-cluster siblings (T08a, T39) shipped without it. Standalone in dependency terms.
+
+---
+
+## 2026-05-21T11:32:00Z — T15a — DELETED (cleanup-after-relocation; no live blocker)
+
+- **Failure mode:** n/a (post-park human review)
+- **Decision:** Delete finding entirely.
+- **Rationale:** Reduction of the `<a id="session-model"></a>` Orientation paragraph in `docs/spec.md` to forward-link prose. Both co-resolve siblings (T15b ed57815, T15c 2ac7092) shipped their relocation destinations; the same-cluster peers (T02, T16a, T18a, T24) all shipped. T15a's reduction work was never performed, so the Session-model paragraph in spec.md retains the full 5-category content while the new homes (Concurrency model subsection, V1 Non-goals section) also carry it. The duplication is a readability/maintainability defect but not a behavioural or coherence defect. Three `same-cluster` (informational) inbound edges from T19a/T19b/T19d pruned. No `must-precede`/`must-follow`/`co-resolve` blocker. Deletion accepts the duplication; if it becomes intolerable a fresh finding can author the reduction directly.
+- **Spec-debt register note:** `.pi/spec-debt-register.md` contains ~15 entries deferred under rule b-ter against chunk-id `docs/spec.md#concurrency-model` with rationale "revisit after T15a lands". With T15a deleted these deferrals are now permanently parked — the deferred concerns (sub-anchor splits, owner-page placements, GOV-12 markers, etc.) cannot be revisited via this route. If any of them matter, they need to be re-authored as fresh top-level findings.
+
+---
