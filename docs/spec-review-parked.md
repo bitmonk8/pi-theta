@@ -16,42 +16,6 @@ unless they have substantive shape problems of their own._
 
 ---
 
-## T16e — PIC step 2 internal contradiction: literal `pi.setActiveTools([...snapshot, ...names])` call shape vs natural-language "exactly the loom's declared callable set"
-
-> **PARKED** — 2026-05-20T17:21:16Z
-> **Reason:** Category 1 (malformed finding — Solution approach binding surface; the approach is bimodal / two-site / multi-axis, licensing the fixer's surface-expansion as a symptom). The inner spec-diff-fix-loop's surface-expansion detector fired on two consecutive backtrack-and-exclude passes without converging, AND LoopNotes contains a Category-1 discriminator (two-site / bimodal / multi-site / multi-axis / no-canonical-home). FIXCOUNTS: 1,0,1,1. SCORESUMS: 100,0,5,25 against S=100. Loop notes: Surface-expansion two-strikes exit (sub-variant surface-expansion-irrecoverable-bimodal, CATEGORY 1). T16e's Solution approach is bimodal ("Either (a) snapshot-union or (b) snapshot-replaced"); the top-level fixer picked shape (b), and every loop iteration that added prose to justify the snapshot-replaced semantics attracted multi-axial lens critique. Trigger trajectory: pass-2 assumptions:01 (no-inheritance rationale) → pass-3 3-finding surface; pass-3 re-run traceability:01 → pass-4 contradiction with Restore-failure protocol; backtrack-and-exclude assumptions:02 + placement:01 → pass-5 re-cascade; backtrack consistency:01 → same surface again. Score-sum 100, 0, 5, 25 against k=1.5. Two consecutive backtrack passes poisoned placement:01 and consistency:01. Side-effect: pass-1 applied a cross-doc edit to docs/plan_topics/v14-tool-calls.md (out-of-loop-scope); reverted before parking. Human action: reshape T16e's Solution approach — pick one shape at authoring time and remove the bimodal "Either (a)... or (b)..." phrasing, OR split T16e per-shape, OR cap the prose-budget. OriginDir: /c/UnitySrc/pi-loom/.pi/tmp/spec-fix-loop/2026-05-20T17-18-09_1d907a/_origin. A human must reshape this finding — declare a canonical home, split into per-site atoms, pick one branch of the bimodal approach, or enumerate the multi-axis dimensions — before re-introducing it.
-> **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-20T16-01-36_59fbed/t16e-pic-step-2-internal-contradiction-literal-pi-setactivetools-snapshot-name.md`
-
-# T16e — PIC step 2 internal contradiction: literal `pi.setActiveTools([...snapshot, ...names])` call shape vs natural-language "exactly the loom's declared callable set"
-
-**Kind:** consistency
-**Importance:** high
-**Score:** 100
-**Atomicity:** atomic
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Step 2 of the `Around each query` enumeration under **Tool-registration lifetime and visibility** in `docs/spec_topics/pi-integration-contract.md` reads: ``Call `pi.setActiveTools([...snapshot, ...loomCallableSetNames, respondToolName?])` — the set the model sees for this turn is exactly the loom's declared callable set, plus the respond tool when the turn is a typed-query response turn.`` The literal call argument `[...snapshot, ...loomCallableSetNames, respondToolName?]` produces the **union** of the user-session snapshot and the loom's declared callable set (plus optionally the respond tool); the natural-language gloss that immediately follows asserts that the set the model sees is **exactly** the loom's declared callable set (plus optionally the respond tool), which excludes the snapshot. The two sentences are mutually exclusive — either the snapshot is part of the model's visible set for the turn or it is not — and a reader cannot determine which shape is normative. T16b's reshape of the `docs/spec.md` Trust-boundary callable-set paragraph depends on PIC owning a single, coherent prompt-mode visibility rule to forward-link to; with both shapes live in the cited owner section, T16b cannot characterise prompt-mode visibility without inheriting the contradiction.
-
-## Solution approach
-
-Resolve the contradiction at the source by picking one shape for prompt-mode query visibility under **Tool-registration lifetime and visibility** in `docs/spec_topics/pi-integration-contract.md`. Either (a) rewrite the natural-language gloss in step 2 to match the literal `[...snapshot, ...loomCallableSetNames, respondToolName?]` call — the set the model sees is the user-session snapshot unioned with the loom's declared callable set (and the respond tool on a typed-query response turn), keeping the snapshot/restore protocol's existing behaviour explicit; or (b) rewrite the literal call to match the natural-language gloss — `pi.setActiveTools([...loomCallableSetNames, respondToolName?])` with no snapshot union — and adjust the surrounding paragraphs (the `If another extension calls pi.setActiveTools` consequence in the same section, and any downstream `spec.md`-side framing of the per-mode callable-set rule) accordingly. Pick whichever shape is intended by the V1 prompt-mode design; do not introduce a third shape and do not preserve both.
-
-## Solution constraints
-
-- Do not widen the V1 prompt-mode callable surface beyond what one of the two existing shapes already authorises; the resolution picks between (a) snapshot-union (current literal call) and (b) snapshot-replaced (current natural-language gloss).
-- Do not introduce a new type, a new SDK call, or a new `details.kind` discriminator; the edit is a prose / call-literal reconciliation inside the existing step 2.
-- Do not touch the subagent-mode `createAgentSession({ customTools, ... })` paragraph; subagent-mode visibility is a separate mechanism unaffected by this contradiction.
-- The `docs/spec.md` Trust-boundary callable-set paragraph is owned by T16b — out of scope here.
-
-## Relationships
-
-- T16b "Rewrite callable-set paragraph: drop inline `customTools` / `createAgentSession` / `pi.setActiveTools` names" — must-precede (T16b's prompt-mode visibility characterisation cannot land until PIC step 2 owns a single coherent rule for it to forward-link to).
-
----
-
 ## T19a — Extend ActiveInvocationRegistry entry shape with invocationId
 
 > **PARKED** — 2026-05-21T00:00:00Z
