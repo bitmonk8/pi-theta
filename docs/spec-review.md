@@ -105,7 +105,7 @@ Resolve the contradiction at the source by picking one shape for prompt-mode que
 **Importance:** high
 **Score:** 100
 **Atomicity:** atomic
-**Shape:** multiple
+**Shape:** single
 **State:** reduced
 
 ## Problem
@@ -139,7 +139,7 @@ Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `
 **Importance:** high
 **Score:** 100
 **Atomicity:** atomic
-**Shape:** multiple
+**Shape:** single
 **State:** reduced
 
 ## Problem
@@ -172,7 +172,7 @@ Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }
 **Importance:** high
 **Score:** 100
 **Atomicity:** atomic
-**Shape:** multiple
+**Shape:** single
 **State:** reduced
 
 ## Problem
