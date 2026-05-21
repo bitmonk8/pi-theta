@@ -942,3 +942,20 @@ human triage) can trace why the listed findings ended up in
 - **Spec-debt register note:** `.pi/spec-debt-register.md` contains ~15 entries deferred under rule b-ter against chunk-id `docs/spec.md#concurrency-model` with rationale "revisit after T15a lands". With T15a deleted these deferrals are now permanently parked — the deferred concerns (sub-anchor splits, owner-page placements, GOV-12 markers, etc.) cannot be revisited via this route. If any of them matter, they need to be re-authored as fresh top-level findings.
 
 ---
+
+## 2026-05-21T22:01:05Z — T03a — Add `**Loom-package implementation dependencies (V1).**` sub-paragraph in PIC `Host prerequisites`
+
+- **Failure mode:** must-fix-blocked
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** 7,3,6,2,0,0
+- **Score trajectory:** 301,280,196,76,200,262 vs S=100
+- **Passes:** 6
+- **Stage at exit:** 3 (0 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-21T19-03-58_c3d654`
+- **Poisoned fixes:** spec-lens-assumptions:01, spec-lens-completeness:02
+- **Forensic report:** `c:/UnitySrc/pi-loom/.pi/tmp/spec-fix-failure-forensics/2026-05-21T15-45-32_04fd18/t03a-add-loom-package-implementation-dependencies-v1-sub-paragraph-in-pic-host-p.md` _(gitignored)_
+- **Parked findings (this run):** `T03a — Add `**Loom-package implementation dependencies (V1).**` sub-paragraph in PIC `Host prerequisites``
+- **Loop notes:** Classifier exited on stage-3 entry (pass 7 attempt) with sub-rationale score-budget-exhausted-trust-override-suppressed (Rec O pass-level shadow-budget gate): S=100, Σ_shadow=339, breach margin Σ_shadow-k×S = 339-300 = 39 (breach multiplier 3.39×). 20 non-blocker raised findings counted; zero would have been classified as trust-override-fix (all 20 would have routed through b-bis approach-narrowed). Stage trajectory stage1=5 stage2=1 stage3=1; one surface-expansion backtrack occurred at original pass-5 (scoreSum 207>1.5×76) restoring to pass-4 snapshot and poisoning fixes spec-lens-assumptions:01/spec-lens-completeness:02. Narrowings narrowings=0+1+0+0 (one approach-narrowed chunk added mid-loop by pass-4 mode-(d) refusal on loom-package-implementation-dependencies; absorbed 31 lens findings across passes 4-rerun→7). Reshape candidates per classifier: (a) raise T03a's score (not available — high is the ceiling); (b) split into per-axis atoms; (c) narrow Solution approach further (demote (i)/(ii) cluster to non-normative); (d) accept as-shipped with 31 deferred findings persisting in debt-register.
+- **Fixer notes:** none
+
+---
