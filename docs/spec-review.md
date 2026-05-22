@@ -16,7 +16,7 @@ _(Updated 2026-05-20 T05 — `bind_*` (frontmatter) vs `binder*` / `binder-*` (s
 **Importance:** high
 **Score:** 100
 **Atomicity:** atomic
-**Shape:** multiple
+**Shape:** single
 **State:** reduced
 
 ## Problem
@@ -50,7 +50,7 @@ Extend the `ActiveInvocationRegistry` entry-shape `Set<...>` declaration under `
 **Importance:** high
 **Score:** 100
 **Atomicity:** atomic
-**Shape:** multiple
+**Shape:** single
 **State:** reduced
 
 ## Problem
@@ -83,7 +83,7 @@ Add a required `invocation_id: string` field to the `type RuntimeEvent = { ... }
 **Importance:** high
 **Score:** 100
 **Atomicity:** atomic
-**Shape:** multiple
+**Shape:** single
 **State:** reduced
 
 ## Problem
