@@ -1027,3 +1027,20 @@ human triage) can trace why the listed findings ended up in
 - **Fixer notes:** none
 
 ---
+
+## 2026-05-24 — T11d-1 — Reword CIO-4 to enumerate selection predicate, branch outcomes, and split into CIO-4a/b/c/d sub-IDs (typed-only loop-entry scoping for the `max_rounds: 0` boundary)
+
+- **Failure mode:** must-fix-blocked
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** none
+- **Score trajectory:** none vs S=100
+- **Passes:** 1
+- **Stage at exit:** 1 (1 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-24T09-47-29_b0208e`
+- **Poisoned fixes:** n/a
+- **Forensic report:** `c:/UnitySrc/pi-loom/.pi/tmp/spec-fix-failure-forensics/2026-05-22T12-50-44_dcff5f/t11d-1-reword-cio-4-to-enumerate-selection-predicate-branch-outcomes-and-split-i.md` _(gitignored)_
+- **Parked findings (this run):** `T11d-1 — Reword CIO-4 to enumerate selection predicate, branch outcomes, and split into CIO-4a/b/c/d sub-IDs (typed-only loop-entry scoping for the max_rounds: 0 boundary), T11a — Replace "consumes one slot" prose with explicit forced-respond exemption rule, T11d-3 — Author the forced-respond non-compliance failure mode in query.md with per-shape sub-items (FRC-1 plain-text, FRC-2 non-respond tool_use) and PIC forward-link, T11d-2 — Extend step (2) of the typed-query numbered list with the max_rounds: 0 elision sentence and stable TQ-0 boundary anchor (role-neutral composition)`
+- **Loop notes:** Classifier exited at step 3e-bis with `_blocked.md`; sub-rationale=must-fix-blocked-by-scope-guard; blocked findings=1 (F1 — middle "Worked consequences" bullet still cites the retired bare `CIO-4` three times in the *Depth-6 forced respond at `max_rounds`* worked-consequence at hard-ceilings.md:79, score=100, must-fix=true). All three remediation paths the classifier enumerated cross class-2 project-policy pins: R1 (substitute `CIO-4` → `CIO-4a`/`CIO-4d` per-sentence on the bullet) crosses the guard "Do not touch the *Depth-6 forced respond at `max_rounds`* worked consequence at `docs/spec_topics/hard-ceilings.md:75` — read-only per T11a's constraint." and the broader "Do not edit the seven prose sites T11a owns."; R2 (keep `CIO-4` live as a non-retired parent forwarding to children) crosses the guard "The GOV-9 retirement note for the parent CIO-4 is REQUIRED (GOV-3 immutability under split + GOV-8 anchor lifecycle); a parent ID cannot be silently replaced."; R3 (forwarding alias in the *Retired REQ-IDs* table without editing the bullet) is a partial mitigation that does not resolve F1's per-sentence CIO-4a-vs-CIO-4d disambiguation. The defect is a coordination/sequencing artefact between T11d-1 (retires CIO-4) and T11a (owns the seven prose sites that still cite it); the originating finding's scope cannot be widened without contradicting the T11a-ownership pin. Forensic-only: four further must-fix highs were raised on the same pass (F2 — CIO-4d bundles a pre-loop check whose order/surface/untyped reconciliation are undefined; F3 — CIO-4d contradicts frontmatter.md's "forced respond turn consumes one slot" rule; F6 — new IDs `CIO-4a` … `CIO-4d` violate the spec's own GOV-16 REQ-ID tail-form grammar; F8 — `query.md` keeps four stale `CIO-4` citations the diff invalidated) but did not contribute to the exit because F1's early exit pre-empted full classification. severity p1 raised{high:5,medium:4,low:1,NIT:2} fixed{} deferred{} blocked{high:1}; stage1=1; narrowings=0+0+0+0; stage1Touched=0 mode-e-refusals=0.
+- **Fixer notes:** none
+
+---
