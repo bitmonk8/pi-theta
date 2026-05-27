@@ -2,21 +2,9 @@
 
 _Generated: 2026-05-27T11:30:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T20) is addressed first; the first surviving finding (T04) is addressed last._
-
-_Working set after manual pruning: 1 blocker (T20) + 4 high (T15, T16, T17, T19) + 2 medium (T04 partial, T18) = 7 findings. 13 mediums (T01-T03, T05-T14) dropped as deferrable - no hard dependency from any blocker/high finding. T04 rewritten to retain only its V1-non-goals-heading + anchor rename portion (co-resolve with T17); other T04 sub-issues (per-item-anchor decomposition, Source-language stability sentence, sm-anchor-scheme-stability paragraph) dropped. References to dropped IDs scrubbed from surviving findings._
-
-_Manual option selection (post-triage): T17 -> Option A (rename V1 -> loom 1.0 in spec corpus); T19 -> Option A (lockstep bump, keep verified-equal contract). Both collapsed from Shape: multiple, State: shaped to Shape: single, State: reduced._
+_Process: bottom-up - the last finding (T20) is addressed first; the first finding (T04) is addressed last._
 
 ---
-
-<!-- T01-T03 dropped: medium, deferrable, no hard edges into the blocker/high working set. Originals preserved in docs/spec-review.md.bak. -->
-
-# T01-DROPPED
-
----
-
-<!-- T04 rewritten in-place: only the V1-non-goals-heading + anchor rename portion (co-resolve with T17) retained. Original three-bundle finding (Source-language stability sentence + sm-anchor-scheme-stability paragraph + V1 non-goals four-option cleanup) preserved in docs/spec-review.md.bak. -->
 
 # T04 - V1 non-goals heading + anchor rename in lock-step with T17
 
@@ -40,17 +28,11 @@ In the same commit that resolves T17, rename the `### V1 non-goals` heading and 
 ## Solution constraints
 
 - The token chosen for the heading and anchor MUST match the token T17 selects; no independent decision on the rename target is made here.
-- Out of scope: the wider Orientation prose cleanup originally bundled in this finding (Source-language stability redundant sentence, `sm-anchor-scheme-stability` paragraph relocation, V1 non-goals per-item-anchor decomposition, V1 non-goals closing governance-prose trim). Those edits were dropped from the working set; revisit by re-opening the finding from the backup if needed.
+- Out of scope: the wider Orientation prose cleanup originally bundled in this finding (Source-language stability redundant sentence, `sm-anchor-scheme-stability` paragraph relocation, V1 non-goals per-item-anchor decomposition, V1 non-goals closing governance-prose trim). Those edits were dropped from the working set.
 
 ## Relationships
 
 - T17 "`V1` denotes two different things across the spec/plan boundary" — co-resolve (the V1 non-goals heading and `#v1-non-goals` anchor must rename in the same commit as T17's V1-rename pass; the token chosen there determines the heading and anchor text here)
-
----
-
-<!-- T05-T14 dropped: medium, deferrable, no hard edges into the blocker/high working set. Originals preserved in docs/spec-review.md.bak. -->
-
-# T05-T14-DROPPED
 
 ---
 
@@ -233,7 +215,7 @@ Rewrite the citation in the paragraph following the `<a id="extensioncontext-int
 
 ## Solution constraints
 
-- Out of scope: extending the symbol-only citation convention to other PIC line-range citations to `pi-coding-agent`'s `dist/` tree — that PIC-wide sweep was tracked by T09 (dropped from the working set; revisit from the backup if a corpus-wide sweep becomes scope).
+- Out of scope: extending the symbol-only citation convention to other PIC line-range citations to `pi-coding-agent`'s `dist/` tree (corpus-wide sweep).
 
 ## Relationships
 
