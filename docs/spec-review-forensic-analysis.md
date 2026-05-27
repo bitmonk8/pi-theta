@@ -44,3 +44,22 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-05-27 — MULTI: T04 - V1 non-goals heading + anchor rename in lock-step with T17; T17 - Rename `V1` -> `loom 1.0` across the spec corpus
+
+- **Cluster mode (rec F):** yes
+- **Cluster members:** 2
+- **Failure mode:** must-fix-blocked
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** 2,1,4,0,2,1,0,4,10,0
+- **Score trajectory:** 125,25,145,1,125,145,35,160,393,360 vs S=125
+- **Passes:** 10
+- **Stage at exit:** 3 (4 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-27T12-59-16_8b4647`
+- **Poisoned fixes:** spec-lens-consistency:01, spec-lens-traceability:01, spec-lens-assumptions:01, spec-lens-assumptions:02, spec-lens-testability:01
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-27T11-51-12_03914b/multi-t04-v1-non-goals-heading-anchor-rename-plus-t17-v1-rename.md` _(gitignored)_
+- **Parked findings (this run):** `T04 - V1 non-goals heading + anchor rename in lock-step with T17, T17 - Rename \`V1\` -> \`loom 1.0\` across the spec corpus`
+- **Loop notes:** Cluster-mode dispatch (MULTI: T04+T17, S=125 via Rec OO sum). Classifier exited on `score-budget-exhausted` at pass 10: Σ=360, S=125, breach margin=235; 1 blocker raised (testability — undecidable MUST in token-sense convention) plus 9 non-cheap non-trust raised findings against two new GOV-15 sub-conventions the rename diff authored. Stage trajectory: stage1=4 stage2=3 stage3=3. Per the classifier's reshape diagnosis (Rec O): the originating cluster authorised a mechanical rename pass (S=125), but the working tree's actual diff authored two net-new normative GOV-15 sub-conventions (token-sense + dual-anchor) plus a `Tooling deferrals` heading anchor — 360 score-units of legitimate critique surface that S=125 cannot absorb. Reshape paths: (1) split "author two new GOV-15 sub-conventions" axis out of T17 into a fresh top-level finding scored high/blocker; (2) narrow T17's Solution approach to forbid net-new normative convention authoring, restricting to the mechanical rename + GOV-8 anchor enumeration only; (3) raise T17 to blocker (insufficient alone).
+- **Fixer notes:** none
+
+---
