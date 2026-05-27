@@ -23,16 +23,15 @@ _Process: bottom-up - the last finding (T20) is addressed first; the first findi
 
 ## Solution approach
 
-In the same commit that resolves T17, rename the `### V1 non-goals` heading and its `<a id="v1-non-goals">` anchor in `docs/spec.md` to the replacement token T17's chosen option selects (under T17 Option A: `### loom 1.0 non-goals` and `<a id="loom-1-0-non-goals">`). Enumerate the anchor redirect in the same commit per GOV-8's anchor-stability convention so inbound `#v1-non-goals` citations from `future-considerations.md` and the surrounding Orientation prose keep resolving.
+Rename the `### V1 non-goals` heading in `docs/spec.md` to `### loom 1.0 non-goals` and its `<a id="v1-non-goals">` anchor to `<a id="loom-1-0-non-goals">`. Enumerate the anchor redirect per GOV-8's anchor-stability convention so inbound `#v1-non-goals` citations from `future-considerations.md` and the surrounding Orientation prose keep resolving.
 
 ## Solution constraints
 
-- The token chosen for the heading and anchor MUST match the token T17 selects; no independent decision on the rename target is made here.
 - Out of scope: the wider Orientation prose cleanup originally bundled in this finding (Source-language stability redundant sentence, `sm-anchor-scheme-stability` paragraph relocation, V1 non-goals per-item-anchor decomposition, V1 non-goals closing governance-prose trim). Those edits were dropped from the working set.
 
 ## Relationships
 
-- T17 "`V1` denotes two different things across the spec/plan boundary" — co-resolve (the V1 non-goals heading and `#v1-non-goals` anchor must rename in the same commit as T17's V1-rename pass; the token chosen there determines the heading and anchor text here)
+- T17 "`V1` denotes two different things across the spec/plan boundary" — co-resolve (this heading + its `#v1-non-goals` anchor are part of the same `V1` → `loom 1.0` rename surface T17 covers; addressing them separately would leave the spec with a mixed-vocabulary heading or a broken inbound `#v1-non-goals` link from `future-considerations.md`)
 
 ---
 
@@ -53,11 +52,13 @@ In the same commit that resolves T17, rename the `### V1 non-goals` heading and 
 
 The plan-side rule already slips: `conventions.md:37` and `:43` write "V1.0 closing gate" (release meaning); `plan.md:11` writes "V1.0 release gate". A contributor reading SM-7d ("V1 no-cap / no-scheduler disposition") cannot tell whether the constraint is a release-line disposition or a leaf-phase scope. `README.md` lines 28–35 park the debt as a "deferred mechanical sweep" pointing at `docs/spec-sweeps.md` — that file does not exist in the tree, so the debt is currently untracked.
 
-The previous fix attempt (2026-05-27, parked) showed that a pure mechanical rename leaves two dangling normative invariants the lens corpus correctly raises: (a) the renamed token `loom 1.0` is overloaded — it names both the 1.0.0 frozen-baseline release (e.g. GOV-15's "loads cleanly under <baseline>", the *Ceiling-set carve-out* "closed at <baseline>", the PIC `Re-validation gate` carve-out) and the design scope of the 1.x line (e.g. "<major-line> targets Node exclusively", the `loom-1-0-non-goals` aggregator); (b) the dual `<a id="loom-1-0-…">` + `<a id="v1-…">` anchor pattern introduced by GOV-8 anchor-stability has no canonicality rule for new citations and no defined lifecycle under future GOV-8 *Split* / *Retire* / *Rename* operations. The constraints below pre-empt those lens findings so the fixer authors against them on pass 1 rather than reactively on pass 4.
+A pure mechanical rename also surfaces two normative invariants the spec corpus does not currently pin: (a) the renamed token `loom 1.0` is overloaded — it names both the 1.0.0 frozen-baseline release (e.g. GOV-15's "loads cleanly under <baseline>", the *Ceiling-set carve-out* "closed at <baseline>", the PIC `Re-validation gate` carve-out) and the design scope of the entire 1.x line (e.g. "<major-line> targets Node exclusively", the `loom-1-0-non-goals` aggregator); a contributor cannot tell from a bare `loom 1.0` callsite which sense binds. (b) The dual `<a id="loom-1-0-…">` + `<a id="v1-…">` anchor pattern introduced by GOV-8 anchor-stability has no canonicality rule for new cross-references and no defined lifecycle under future GOV-8 *Split* / *Retire* / *Rename* operations. Both invariants must be pinned by this fix or the spec is left with new ambiguity in place of the old vocabulary collision.
 
 ## Solution approach
 
-Rename `V1` -> `loom 1.0`, `V1.0` -> `loom 1.0`, `V1.x` -> `loom 1.x` in the spec corpus, per the plan-side phrasing at `conventions.md:9` (which stays in force as the canonical rule for plan-phase IDs). Ship as one coordinated commit; anchor renames and inbound link rewrites land in the same commit per GOV-8.
+Rename `V1` -> `loom 1.0`, `V1.0` -> `loom 1.0`, `V1.x` -> `loom 1.x` in the spec corpus, per the plan-side phrasing at `conventions.md:9` (which stays in force as the canonical rule for plan-phase IDs).
+
+This fix is bundled with two further mechanical sweeps in the same domain so the post-fix spec corpus uses a single uniform release-version naming scheme; they are listed under *Sites — companion mechanical sweep* below.
 
 ### Sites — spec corpus prose
 
@@ -95,7 +96,7 @@ Rename `V1` -> `loom 1.0`, `V1.0` -> `loom 1.0`, `V1.x` -> `loom 1.x` in the spe
 
 ### Sites — HTML anchor renames (10 anchors)
 
-Each `<a id="v1-…">` is rewritten to `<a id="loom-1-0-…">` and enumerated in the commit per GOV-8 anchor-stability convention:
+Each `<a id="v1-…">` is rewritten to `<a id="loom-1-0-…">` per GOV-8 anchor-stability convention:
 
 - `docs/spec.md:97` — `v1-non-goals` -> `loom-1-0-non-goals` (T04 co-resolve)
 - `docs/spec_topics/binder.md:106` — `v1-seam-binder-refinement-loop` -> `loom-1-0-seam-binder-refinement-loop`
@@ -111,7 +112,7 @@ Each `<a id="v1-…">` is rewritten to `<a id="loom-1-0-…">` and enumerated in
 
 ### Sites — inbound fragment-link rewrites
 
-Every `#v1-non-goals` and `#v1-seam-…` fragment-link citation in the spec corpus must repoint to the new anchor in the same commit. Before commit, grep:
+Every `#v1-non-goals` and `#v1-seam-…` fragment-link citation in the spec corpus must repoint to the new anchor. Grep:
 
 ```
 grep -rn '#v1-non-goals\|#v1-seam-' docs/
@@ -131,12 +132,12 @@ and rewrite each hit. The largest concentration is `future-considerations.md` (S
 
 - `README.md` lines 28–35 — Rewrite the parking-pointer paragraph: remove the `"V1" terminology disambiguation across the spec corpus` mention from the deferred-mechanical-sweeps list. If the companion *load-bearing* qualifier rewrite is the only remaining sweep, simplify the paragraph to reference only that. If no remaining sweeps exist, delete the `docs/spec-sweeps.md` link entirely (the file does not exist in the tree and is not created here).
 
-### Sites — companion mechanical sweep folded in (carry-over)
+### Sites — companion mechanical sweep
 
-The 2026-05-27 parked run accumulated two additional mechanical sweeps the lens corpus flagged on pass 1. They are folded into this finding so they land in the same commit:
+Two further mechanical sweeps in the same domain land alongside the `V1` rename so the post-fix spec corpus uses a single uniform release-version naming scheme:
 
-- **`V2` → `loom 2.0` sweep.** `docs/spec_topics/governance.md` §"Ceiling-set carve-out" and §"Operational definitions"; `docs/spec_topics/future-considerations.md` no-formal-migration-mechanism bullet; any other `V2` callsite under `docs/spec_topics/` whose context is loom-release naming (not a Pi SDK or Node version literal). Rewrite to `loom 2.0` for uniformity with the `V1` → `loom 1.0` scheme. The spec corpus uses a single uniform release-version naming scheme post-fix.
-- **`Tooling deferrals` anchor alias.** `docs/spec_topics/future-considerations.md` §"Tooling deferrals (no loom 1.0 impact)" MUST carry an `<a id="tooling-deferrals-no-v1-impact"></a>` alias immediately before the renamed heading so the inbound link from `docs/spec_topics/pi-integration-contract.md:125` keeps resolving. This is the standard GOV-8 alias pattern applied to one further heading the original site enumeration missed.
+- **`V2` → `loom 2.0` sweep.** `docs/spec_topics/governance.md` §"Ceiling-set carve-out" and §"Operational definitions"; `docs/spec_topics/future-considerations.md` no-formal-migration-mechanism bullet; any other `V2` callsite under `docs/spec_topics/` whose context is loom-release naming (not a Pi SDK or Node version literal). Rewrite to `loom 2.0`. No bare `V<N>` token remains as a loom release name anywhere under `docs/spec_topics/`.
+- **`Tooling deferrals` anchor alias.** `docs/spec_topics/future-considerations.md` §"Tooling deferrals (no loom 1.0 impact)" MUST carry an `<a id="tooling-deferrals-no-v1-impact"></a>` alias immediately before the renamed heading so the inbound link from `docs/spec_topics/pi-integration-contract.md:125` keeps resolving (standard GOV-8 alias pattern).
 
 ### Out-of-scope tokens that look like `V1` but stay
 
@@ -148,25 +149,19 @@ The 2026-05-27 parked run accumulated two additional mechanical sweeps the lens 
 
 ## Solution constraints
 
-### Cluster-coordination constraints
-
-- Co-resolve with T04: the `### V1 non-goals` heading and `#v1-non-goals` anchor in `docs/spec.md` rename in the same commit; the token chosen here (`loom 1.0`) dictates T04's rewrite.
-
 ### Mechanical-rename and anchor-stability constraints
 
-- GOV-8 anchor-stability convention: every renamed anchor MUST be enumerated in the same commit so reviewers can trace pre-rename inbound links. Either add aliasing `<a id="v1-…">` stubs at the new sites or document the redirects in a single appendix; do not silently drop the pre-rename anchor.
-- The companion `V2` → `loom 2.0` sweep listed in *Sites — companion mechanical sweep folded in* MUST land in the same commit as the `V1` → `loom 1.0` rename; the post-fix spec corpus MUST use a single uniform release-version naming scheme with no bare `V<N>` token used as a loom release name anywhere under `docs/spec_topics/`.
+- GOV-8 anchor-stability convention: every renamed anchor MUST be enumerated so reviewers can trace pre-rename inbound links. Either add aliasing `<a id="v1-…">` stubs at the new sites or document the redirects in a single appendix; do not silently drop the pre-rename anchor.
+- No bare `V<N>` token remains as a loom release name anywhere under `docs/spec_topics/` after this fix (the `V2` → `loom 2.0` sweep listed under *Sites — companion mechanical sweep* enforces this).
 
-### Critique-anticipation constraints (folded in from the 2026-05-27 parked run's accumulated lens findings)
+### Critique-anticipation constraints
 
-These pre-state what the post-fix spec corpus must satisfy so the fixer authors against them on pass 1 rather than reacting to lens findings against partial work. Each item is sourced from a lens finding raised against the parked run; the citation in parentheses identifies the lens and the accumulated-constraints entry it derives from.
-
-- **Sense disambiguation between the two `loom 1.0` referents (spec-lens-assumptions; C4 + C6).** The spec corpus MUST disambiguate the two senses of the renamed `loom 1.0` token — the 1.0.0 frozen-baseline sense (GOV-15's "loads cleanly under <baseline>", the *Ceiling-set carve-out* "closed at <baseline>" phrasing, the PIC `Re-validation gate` carve-out) versus the design-scope sense of the entire 1.x line (e.g. "<major-line> targets Node exclusively", "out of <major-line> scope", the `loom-1-0-non-goals` aggregator). Disambiguation MUST be lexical: introduce `loom 1.0.0` as the distinct baseline spelling at every callsite that pins the frozen-release sense, leaving bare `loom 1.0` for the design-scope sense. The fixer MUST perform a per-callsite sense audit and apply the lexical distinction site-by-site. No convention paragraph is authored to "delegate disambiguation to surrounding prose" — that path was the parked run's testability blocker (C9) and is forbidden.
-- **Dual-anchor convention placement and shape (spec-lens-assumptions + spec-lens-traceability; C5 + C7 + C10).** If a convention paragraph governing the `loom-1-0-*` / `v1-*` dual-anchor pattern is authored, it MUST be sited under GOV-8 (anchor lifecycle), NOT under GOV-15 (release process). The paragraph MUST: (i) name `loom-1-0-*` as the canonical arm for new cross-references, (ii) state explicitly that `v1-*` is a permanent back-compat alias (not a deprecated arm), (iii) define "dual-anchored heading" intensionally — *any heading where both `<a id="v1-…">` and `<a id="loom-1-0-…">` anchors co-occur in the spec corpus* — and NOT by enumerated page-list, (iv) pin the convention with a stable `<a id>` and give each independently-falsifiable sub-obligation its own per-obligation `<a id>`. Authoring the convention is OPTIONAL — the dangling invariant can also be resolved by leaving the dual-anchor pattern as a pure GOV-8 anchor-stability enumeration and not authoring any convention paragraph at all. If authored, the constraints above bind; if not authored, the fixer MUST verify that GOV-7 *Rename* and GOV-8 *Split* / *Retire* operations as written cover the dual-anchored case without addition.
-- **Mechanically-checkable MUSTs only (spec-lens-testability; C9).** Any `MUST` clause introduced by this fix MUST either name a mechanically-checkable witness predicate (e.g. a grep-able pattern, a build-time literal-read test on the same terms as GOV-3's *Unknown-prefix closure invariant*, or a CI gate criterion) OR be authored as `SHOULD` instead. Undecidable `MUST preserve` clauses (e.g. "MUST preserve sense classification" with no extractor) are forbidden — the parked run's pass-10 testability blocker was raised against exactly this shape and any recurrence will block again.
-- **Per-paragraph and per-sub-obligation anchors on net-new normative prose (spec-lens-traceability; C10).** Any new normative paragraph authored under this fix MUST carry a stable `<a id="...">` so subsequent cross-references can cite it unambiguously. Each independently-falsifiable sub-obligation within a paragraph (e.g. each numbered clause of the dual-anchor convention if authored) MUST also carry its own per-obligation `<a id>`. Anchorless normative paragraphs introduced into `governance.md` are forbidden.
-- **Glossary registration of `loom <version>` token sense (spec-lens-consistency; C3).** `docs/spec_topics/glossary.md` MUST register the `loom <version>` use of the bare token `loom` (where `<version>` is a `loom 1.0` / `loom 1.x` / `loom 1.0.0` / `loom 2.0` form) as a licensed sense alongside the existing file-unit sense, OR document a disambiguation rule that distinguishes the version-suffixed use from the file-unit use. The registration is a one-bullet edit to the glossary's existing sense table; no new section is authored.
-- **Retirement-audit witness for dual-anchor `v1-*` retirement (spec-lens-assumptions; C8).** If clause (iv) of the dual-anchor convention is authored permitting `v1-*` arm retirement, the clause MUST name a concrete witness extractor for the "no inbound `#v1-...` link remains in the spec corpus" predicate (e.g. `grep -r '#v1-' docs/ | wc -l == 0`), OR MUST defer the retirement audit to GOV-7 *Rename* unmodified. A permission predicate without a named discharge instrument is forbidden.
+- **Sense disambiguation between the two `loom 1.0` referents.** The spec corpus MUST disambiguate the two senses of the renamed `loom 1.0` token — the 1.0.0 frozen-baseline sense (GOV-15's "loads cleanly under <baseline>", the *Ceiling-set carve-out* "closed at <baseline>" phrasing, the PIC `Re-validation gate` carve-out) versus the design-scope sense of the entire 1.x line (e.g. "<major-line> targets Node exclusively", "out of <major-line> scope", the `loom-1-0-non-goals` aggregator). Disambiguation MUST be lexical: introduce `loom 1.0.0` as the distinct baseline spelling at every callsite that pins the frozen-release sense, leaving bare `loom 1.0` for the design-scope sense. Perform a per-callsite sense audit and apply the lexical distinction site-by-site. Disambiguation by "surrounding prose" or by a delegated convention paragraph is forbidden — sense classification with no extractor is undecidable and cannot bind as a MUST.
+- **Dual-anchor convention placement and shape.** If a convention paragraph governing the `loom-1-0-*` / `v1-*` dual-anchor pattern is authored, it MUST be sited under GOV-8 (anchor lifecycle), NOT under GOV-15 (release process). The paragraph MUST: (i) name `loom-1-0-*` as the canonical arm for new cross-references, (ii) state explicitly that `v1-*` is a permanent back-compat alias (not a deprecated arm), (iii) define "dual-anchored heading" intensionally — *any heading where both `<a id="v1-…">` and `<a id="loom-1-0-…">` anchors co-occur in the spec corpus* — and NOT by enumerated page-list, (iv) pin the convention with a stable `<a id>` and give each independently-falsifiable sub-obligation its own per-obligation `<a id>`. Authoring the convention is OPTIONAL — the dangling invariant can also be resolved by leaving the dual-anchor pattern as a pure GOV-8 anchor-stability enumeration and not authoring any convention paragraph at all. If authored, the constraints above bind; if not authored, verify that GOV-7 *Rename* and GOV-8 *Split* / *Retire* as written cover the dual-anchored case without addition.
+- **Mechanically-checkable MUSTs only.** Any `MUST` clause introduced by this fix MUST either name a mechanically-checkable witness predicate (e.g. a grep-able pattern, a build-time literal-read test on the same terms as GOV-3's *Unknown-prefix closure invariant*, or a CI gate criterion) OR be authored as `SHOULD` instead. Undecidable `MUST preserve` clauses (e.g. "MUST preserve sense classification" with no extractor) are forbidden.
+- **Per-paragraph and per-sub-obligation anchors on net-new normative prose.** Any new normative paragraph authored under this fix MUST carry a stable `<a id="...">` so subsequent cross-references can cite it unambiguously. Each independently-falsifiable sub-obligation within a paragraph (e.g. each numbered clause of the dual-anchor convention if authored) MUST also carry its own per-obligation `<a id>`. Anchorless normative paragraphs introduced into `governance.md` are forbidden.
+- **Glossary registration of `loom <version>` token sense.** `docs/spec_topics/glossary.md` MUST register the `loom <version>` use of the bare token `loom` (where `<version>` is a `loom 1.0` / `loom 1.x` / `loom 1.0.0` / `loom 2.0` form) as a licensed sense alongside the existing file-unit sense, OR document a disambiguation rule that distinguishes the version-suffixed use from the file-unit use. The registration is a one-bullet edit to the glossary's existing sense table; no new section is authored.
+- **Retirement-audit witness for dual-anchor `v1-*` retirement.** If clause (iv) of the dual-anchor convention is authored permitting `v1-*` arm retirement, the clause MUST name a concrete witness extractor for the "no inbound `#v1-...` link remains in the spec corpus" predicate (e.g. `grep -r '#v1-' docs/ | wc -l == 0`), OR MUST defer the retirement audit to GOV-7 *Rename* unmodified. A permission predicate without a named discharge instrument is forbidden.
 
 ### Cluster-internal out-of-scope constraints
 
@@ -175,4 +170,4 @@ These pre-state what the post-fix spec corpus must satisfy so the fixer authors 
 
 ## Relationships
 
-- T04 "V1 non-goals heading + anchor rename in lock-step with T17" — co-resolve (the V1 non-goals heading and `#v1-non-goals` anchor in `docs/spec.md` must rename in the same commit as this finding's V1-rename pass; the token chosen here (`loom 1.0`) dictates T04's rewrite)
+- T04 "V1 non-goals heading + anchor rename in lock-step with T17" — co-resolve (T04's heading + anchor are part of the same `V1` → `loom 1.0` rename surface this finding covers)
