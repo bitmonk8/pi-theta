@@ -134,3 +134,22 @@ it does not persist across worktree wipes)._
 - **Pipeline-side observations carried forward (not blocking re-dispatch):** the prior run's surface-expansion exit at pass 4 of 17 fired on phantom causality — pass-1-rewind authored a one-line dual-anchor alias edit at `future-considerations.md:18` and pass-2-rewind raised six findings whose Σ overshot the 1.5× threshold, but five of the six cited `glossary.md` (a file the fix did not touch). Forensic report Pipeline recommendations RP-1 (file-overlap pre-check before C2 poisoning) and RP-2 (subtract excluded-domain scores from Σ before applying the 1.5× threshold) remain pending; this reshape addresses the finding-level cause but does not patch the detector. If the next run also surface-expansion-exits without crossing a stage boundary, the detector patches become the binding next step.
 
 ---
+
+## 2026-05-28 — MULTI: T04 - V1 non-goals heading + anchor rename in lock-step with T17; T17 - Rename `V1` -> `loom 1.0` across the spec corpus
+
+- **Cluster mode (rec F):** yes
+- **Cluster members:** 2
+- **Failure mode:** must-fix-blocked
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** none
+- **Score trajectory:** none vs S=125
+- **Passes:** 0
+- **Stage at exit:** 1 (0 pass(es) in stage)
+- **Snapshot refs (retained for forensics):** `refs/loom/snapshots/2026-05-28T03-44-50_a58435`
+- **Poisoned fixes:** none
+- **Forensic report:** `.pi/tmp/spec-fix-failure-forensics/2026-05-27T22-09-09_cc3824/multi-t04-t17-v1-loom-1-0-rename.md` _(gitignored)_
+- **Parked findings (this run):** T04 - V1 non-goals heading + anchor rename in lock-step with T17; T17 - Rename `V1` -> `loom 1.0` across the spec corpus
+- **Loop notes:** Phase 2 re-dispatch attempt 2 (snapshotted prior accumulated-constraints to _accumulated-constraints-attempt-1.md and wiped per Phase 3 wipe contract). Cluster-mode dispatch (T04+T17). Classifier early-exit on pass 1 of stage 1 via `score-budget-exhausted` sub-rationale: S=125 (T04@25 + T17@100 per Rec K/OO aggregation), Σ=190 over 6 non-blocker non-cheap raised findings, breach margin=65; cheap-fix branch admitted 2 findings (D: future-considerations.md back-compat anchor @5; E: spec.md Source-language-stability `loom 1.0`→`loom 1.0.0` @25) out of budget per D-mode clause 2. Pass-level Rec O shadow gate did NOT fire (Σ_shadow=220 ≤ k·S=375). Rec TT within-cluster filter excluded 1/3 scope guards (T04 sibling-ownership); 2 surviving external guards (plan-phase `V1`–`Vn` reservation; README load-bearing rewrite) did not participate in this exit. Six budget-counted findings attach to the GOV-8a/glossary residue authored by T17's widened approach: GOV-8a-3 intensional-definition under-specification along 3 independent axes (Finding A @35), GOV-8a-2/4 alias-permanence vs corpus-local discharge reconciliation gap (B @35), `## Retired anchor aliases` sub-table placement/creation/owner-page gap (C @25), `loom 1.0` vs `loom 1.0.0` discriminator self-violation across ~10 surviving closure callsites including direct contradiction errors-and-results.md:109 vs diagnostics.md:385 (F @35 — Σ crossed S here), glossary entry citing volatile line numbers instead of anchors (G @25), GOV-8a tail-form `8a` and three-part hierarchical sub-IDs unexpressible under GOV-3/GOV-16 grammar (H @35). severity p1 raised{medium:8} fixed{} deferred{} blocked{medium:6,cheap-fix-out-of-budget:2}; stage1=0. accumulatedConstraints=0 malformedBullets=0 (Phase 3 wiped on entry; no fix pass ran to harvest from). Snapshot refs under refs/loom/snapshots/2026-05-28T03-44-50_a58435/* RETAINED for forensics per failure-exit retention rule. Phase 2 generalization: outcome=re-dispatch-changed-status; attempts=1; axes=structural-shape-pin; peak-scoresums-trajectory=296; log=C:/UnitySrc/pi-loom/.pi/tmp/spec-fix-loop/2026-05-27T22-10-38_822843/_origin/_generalization-log.md. Attempt 1 widened T17's GOV-8a `### Sites — dual-anchor convention paragraph (GOV-8)` block into four behavioural obligation axes with shape discretion; re-dispatched inner loop exited via must-fix-blocked classifier early-exit on pass 1 of stage 1 (no fix pass ran), so the widening shifted the failure mode from limit-cycle to must-fix-blocked. The widened approach licensed the surface but the cluster's S=125 budget is insufficient against the ~6 medium-severity findings the GOV-8a / glossary residue surfaces.
+- **Fixer notes:** none
+
+---
