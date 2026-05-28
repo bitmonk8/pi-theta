@@ -28,10 +28,9 @@ no runtime code has been written yet. Track progress against
 Open spec-review work lives in [`docs/spec-review.md`](./docs/spec-review.md)
 (per-finding fixes processed bottom-up by `/fix-spec-shape-single-findings`).
 Deferred mechanical sweeps that span too many files for the per-finding
-fix-loop — currently the `V1` terminology disambiguation across the spec
-corpus and the *load-bearing* qualifier rewrite — are tracked separately in
-[`docs/spec-sweeps.md`](./docs/spec-sweeps.md), each awaiting a scope
-decision before execution.
+fix-loop — currently the *load-bearing* qualifier rewrite — are tracked
+separately in [`docs/spec-sweeps.md`](./docs/spec-sweeps.md), awaiting a
+scope decision before execution.
 
 ## Highlights
 

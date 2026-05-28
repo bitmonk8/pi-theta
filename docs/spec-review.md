@@ -256,36 +256,3 @@ Witness: `grep -nE '\bV2\b' docs/spec.md docs/spec_topics/ | grep -v -E 'V8|peer
 ## Relationships
 
 (none — depends only on commit 4a7afbf, which is landed)
-
----
-
-# T17h - README parking-pointer paragraph removal
-
-**Original heading:** Cross-spec — `V1` terminology collision with the plan corpus
-**Original section:** `docs/spec.md`
-**Kind:** cross-spec-consistency
-**Importance:** low
-**Score:** 5
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`README.md` lines 28–35 carry a parking-pointer paragraph referencing `docs/spec-sweeps.md` as the home for the "V1 terminology disambiguation across the spec corpus" deferred mechanical sweep. The referenced file does not exist in the tree and was never created. With the foundation commit `4a7afbf` and T17a–T17g handling the rename incrementally, the parking pointer is obsolete and should be removed.
-
-## Solution approach
-
-1. Locate the parking-pointer paragraph in `README.md` (currently lines 28–35).
-2. Remove the `"V1" terminology disambiguation across the spec corpus` mention from the deferred-mechanical-sweeps list. If a companion load-bearing-qualifier sweep is still parked there, simplify the paragraph to reference only that. If no other sweep remains, delete the `docs/spec-sweeps.md` link entirely.
-
-Witness: `grep -nE 'V1.*terminology|spec-sweeps\.md' README.md` returns zero hits after the rewrite, OR returns only hits to sweeps other than the V1 rename.
-
-## Solution constraints
-
-- `README.md` is a GOV-17 dependent of the spec corpus per [GOV-17](./spec_topics/governance.md#gov-17); edits to it are not gated by spec-side governance.
-- No spec-corpus files are modified by this finding.
-
-## Relationships
-
-(none — depends only on commit 4a7afbf, which is landed)
