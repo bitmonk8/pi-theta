@@ -26,7 +26,7 @@ Configured via `bind_context:` (`none` | `session`; default `none`).
 
 Declaring `bind_context: session` on a subagent-mode loom is `loom/parse/bind-context-session-on-subagent` (warning, not error) — subagent-mode looms invoked from a slash command have no caller-session context to attach.
 
-> **V1 seam — automatic context escalation.** The binder-invocation path is **re-entrant per loom turn**: V1 issues exactly one binder call per slash invocation (and `bind_context` is therefore observed at most once per invocation), but the path makes no assumption that `bind_context` is set at most once per loom over the loom's lifetime. The binder's input record (parameter table, raw slash text, optional session-context block) and the resolved binder-model handle are constructed afresh on every binder call, with no cached state that would prevent a second call from observing a different `bind_context` snapshot. The seam is what allows the deferred *automatic context escalation* extension in [Future Considerations](./future-considerations.md) to land additively: a future revision in which a binder call returning `needs_info` triggers an automatic retry with `bind_context: session` attached needs no rework of the binder-invocation path.
+> **V1 seam — automatic context escalation.** The binder-invocation path is **re-entrant per loom turn**: the loom 1.0.0 runtime issues exactly one binder call per slash invocation (and `bind_context` is therefore observed at most once per invocation), but the path makes no assumption that `bind_context` is set at most once per loom over the loom's lifetime. The binder's input record (parameter table, raw slash text, optional session-context block) and the resolved binder-model handle are constructed afresh on every binder call, with no cached state that would prevent a second call from observing a different `bind_context` snapshot. The seam is what allows the deferred *automatic context escalation* extension in [Future Considerations](./future-considerations.md) to land additively: a future revision in which a binder call returning `needs_info` triggers an automatic retry with `bind_context: session` attached needs no rework of the binder-invocation path.
 
 <a id="session-context-truncation-bind_context-session"></a>
 ### Session-context truncation (`bind_context: session`)
@@ -326,7 +326,7 @@ The binder participates in cancellation per [Cancellation](./cancellation.md). T
 
 ## Failure modes
 
-Binder failures are runtime-handled and surface as system notes in the user's session, never as `Result` values to loom code. V1 has no `BinderError` variant in the `QueryError` union (it would have nowhere to flow — a failed binder means the loom never starts). Every shape below is rendered through the shared discipline in [System-note rendering](#system-note-rendering); the table gives the pre-discipline templates.
+Binder failures are runtime-handled and surface as system notes in the user's session, never as `Result` values to loom code. loom 1.0.0 has no `BinderError` variant in the `QueryError` union (it would have nowhere to flow — a failed binder means the loom never starts). Every shape below is rendered through the shared discipline in [System-note rendering](#system-note-rendering); the table gives the pre-discipline templates.
 
 <a id="failure-class-taxonomy"></a>
 
