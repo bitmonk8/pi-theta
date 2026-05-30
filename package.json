@@ -32,10 +32,10 @@
     "@types/semver": "^7.5.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "~0.75.5",
-    "@mariozechner/pi-agent-core": "~0.75.5",
-    "@mariozechner/pi-ai": "~0.75.5",
-    "@mariozechner/pi-tui": "~0.75.5",
+    "@earendil-works/pi-coding-agent": "~0.75.5",
+    "@earendil-works/pi-agent-core": "~0.75.5",
+    "@earendil-works/pi-ai": "~0.75.5",
+    "@earendil-works/pi-tui": "~0.75.5",
     "typebox": "*"
   }
 }

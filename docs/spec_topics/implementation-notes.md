@@ -3,7 +3,7 @@
 This page collects the parser, runtime, and orientation notes. Two more focused implementation pages are split out:
 
 - [Runtime Value Model](./runtime-value-model.md) — how Loom values are represented at runtime, equality semantics, wire-name translation.
-- [Pi Integration Contract](./pi-integration-contract.md) — the named SDK surface from `@mariozechner/pi-coding-agent` the runtime depends on.
+- [Pi Integration Contract](./pi-integration-contract.md) — the named SDK surface from `@earendil-works/pi-coding-agent` the runtime depends on.
 
 ## Parser
 

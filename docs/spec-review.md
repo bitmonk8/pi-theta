@@ -2,9 +2,9 @@
 
 _Generated: 2026-05-30T08:30:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T08) is addressed first; the first finding (T01) is addressed last._
+_Process: bottom-up - the last finding (T07) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 2 high, 5 medium retained; 7 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 2 high, 5 medium retained; 7 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 ---
 
@@ -210,25 +210,3 @@ In `spec.md`'s `id="v1-non-goals"` aggregator, update the cardinality cue from "
 ## Relationships
 
 None
-# T08 - Wrong npm scope — spec and manifest pin `@mariozechner/` instead of the published `@earendil-works/`
-
-**Kind:** doc-alignment-broad
-**Importance:** blocker
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Every Pi-SDK package the spec names is scoped to `@mariozechner/` — the host `@mariozechner/pi-coding-agent` and the three lock-step peers `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/pi-tui`. The published, installed source-of-truth scope is `@earendil-works/`: `node_modules/` contains only `@earendil-works/pi-coding-agent`, and Pi's own `docs/packages.md` enumerates the bundled set under `@earendil-works/`. The wrong scope is end-to-end — spec prose, `package.json#peerDependencies`, and every downstream contract pinned to those literal specifiers (the Step 0(c)/(d) probes, the SDK-surface audit's package-qualified matches, the bump-procedure literal-read assertions). As written, `npm install` of the four peers returns E404 and the extension never loads.
-
-## Solution approach
-
-Rename the npm scope from `@mariozechner/` to `@earendil-works/` across the entire spec corpus and `package.json#peerDependencies` in one commit; `typebox` is unscoped and unaffected. The substitution covers the four package specifiers (`pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`) and the collective phrasings ("four `@mariozechner/*` peer packages / entries") wherever they appear in `spec.md` and the topic pages `pi-integration-contract.md`, `binder.md`, `diagnostics.md`, `discovery.md`, `future-considerations.md`, and `implementation-notes.md`. The `~0.75.5` range at PIC `#pi-sdk-pin` is correct and stays; only the scope changes.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T02 "Pi SDK and capabilities — orientation paragraph inlines the `typebox` `"*"` literal and its resolution mechanism" - must-precede (rename the npm scope first so the `typebox`-paragraph rewrite inherits the corrected `@earendil-works/` scope in the PIC anchor labels it cites).
