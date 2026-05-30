@@ -2,9 +2,9 @@
 
 _Generated: 2026-05-30T19:55:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - among retained findings the last (T21) is addressed first; the first (T14) is addressed last._
+_Process: bottom-up - among retained findings the last is addressed first; the first (T14) is addressed last._
 
-_Retained after manual filter: 4 high findings only (T14, T16, T18, T21). All 17 medium findings dropped per request (none is an absolute prerequisite of a high finding)._
+_Retained after manual filter: 3 high findings only (T14, T16, T18). All 17 medium findings dropped per request (none is an absolute prerequisite of a high finding)._
 
 ---
 
@@ -70,43 +70,6 @@ The three forward-compatibility preservation MUSTs under the binder-refinement-l
 ## Solution approach
 
 Rename the three placeholder labels in `docs/spec_topics/binder.md` to sequentially allocated numeric REQ-IDs `BNDR-1`, `BNDR-2`, `BNDR-3` under the already-registered `BNDR` prefix (these are next-available), each rendered in GOV-1 dual-form for body-paragraph context.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None
-
-# T21 - Pre-evaluation failure list lacks per-item `ERR-N` anchors
-
-**Kind:** traceability
-**Importance:** high
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`errors-and-results.md`'s `#terminal-outcomes` section defines a closed
-seven-item list of pre-evaluation failure surfaces, each an independent
-normative obligation that sibling pages cite individually. None of the
-seven items carries a per-item `ERR-N` REQ-ID anchor, though the `ERR`
-prefix is already registered in the page's GOV-1 prefix table. The
-introducing paragraph itself states the anchor pass MUST assign a
-separate `ERR-N` to each item; that pass has not landed. Inbound
-citations — including the same-page self-reference in the trichotomy's
-`Failure` bullet — therefore rely on prose paraphrase and cannot bind to
-the GOV-9 most-specific anchor.
-
-## Solution approach
-
-Mint per-item REQ-ID anchors `ERR-1` through `ERR-7` on the seven
-pre-evaluation failure list items in `#terminal-outcomes`, in their
-existing list order, using the GOV-1 dual-form anchor layout. Repoint
-the same-page self-reference in the trichotomy's `Failure` bullet ("per
-the binder argument-binding failure item …") to the item-5 anchor
-`#err-5`.
 
 ## Solution constraints
 
