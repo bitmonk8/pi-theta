@@ -2,9 +2,9 @@
 
 _Generated: 2026-05-31T15:30:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T25) is addressed first; the first finding (T01) is addressed last._
+_Process: bottom-up - the last finding (T25) is addressed first; the first finding (T17) is addressed last._
 
-_Triage tally: 9 high, 16 medium retained; 12 low discarded; 14 findings merged into 5 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 9 high retained._
 
 ---
 
@@ -170,7 +170,6 @@ Rewrite the `Ok(string)` sentence under **Conversation drive — prompt mode** i
 
 - T24 "Subagent-mode untyped-query `Ok(string)` source is unspecified" - co-resolve (the same extraction rule must be specified symmetrically for `agent_end`; the prompt-mode pin is the model the subagent-mode pin mirrors — they should land together with parallel wording).
 - T22 "Typed-query non-compliance paragraph names a placeholder (`<validator-errors>`) that does not exist" - same-cluster (both in the prompt-mode driver section; resolve independently).
-- T15 "`pi-integration-contract.md` lacks `PIC-N` REQ-IDs at its normative anchor sites" - decision-overlap (once `PIC-N` anchors land, this extraction-mechanism pin should be assigned its own `PIC-N`).
 # T24 - Subagent-mode untyped-query `Ok(string)` source is unspecified
 
 **Kind:** implementability
@@ -217,5 +216,4 @@ The defect is the wording of the test vector. Rewrite the first test vector unde
 
 ## Relationships
 
-- T12 "`loom/runtime/reload-teardown-timeout` misnames a reason-agnostic timeout" - same-cluster (same `diagnostics.md` topic page, independent fix).
-- T10 "Anchorless 'per the rule above' back-references on query.md and diagnostics.md lack citable REQ-IDs" - same-cluster (same page §8 vs §2; both involve test-vector wording but resolve independently).
+None
