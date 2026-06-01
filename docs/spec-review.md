@@ -4,7 +4,7 @@ _Generated: 2026-06-01T20:15:30Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T16) is addressed last._
 
-_Triage tally: 6 high retained; 16 medium removed by request; 10 low discarded; 2 low merged into 1 (removed); 9 nit dropped; 0 false dropped._
+_Triage tally: 5 high retained; 16 medium removed by request; 10 low discarded; 2 low merged into 1 (removed); 9 nit dropped; 0 false dropped._
 
 ---
 
@@ -145,29 +145,3 @@ Rename the deferred field to `bind_temperature` at both occurrences in `future-c
 ## Relationships
 
 None
-
----
-
-# T22 - Failure-mode templates — `<ajv-summary>` rendering pinned to a concrete AJV call
-
-**Kind:** prescription
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`binder.md` §Failure-mode templates (normative) makes the operator-visible `<ajv-summary>` placeholder normative by specifying *how* it is rendered — naming the AJV helper `errorsText(errors, { separator: '; ' })` as the producer of the user-visible string. `query.md` §Schema-validation respond-repair repeats the same prescription in its `<ajv-summary>` Placeholders bullet and cross-references the binder clause as the authority. This contradicts the validator-independence intent `errors-and-results.md` asserts where it models `validation_errors` as `array<ValidationIssue>` "rather than raw AJV objects" so that "a future validator swap is not a breaking change." Naming `errorsText` makes the rendered system-note content semantically owned by the AJV library, so any joiner/data-path divergence in a replacement validator would be operator-observable and therefore a breaking change.
-
-## Solution approach
-
-Rewrite the `<ajv-summary>` rendering clause in `binder.md` §Failure-mode templates (normative) as a validator-neutral observable specification: the in-order concatenation of the failed validation's `ValidationIssue` entries (per `ValidationIssue` in `errors-and-results.md`), each rendered as `<path> <message>` from the issue's `path` and `message` fields, joined by the two-character separator `; `, in `validation_errors` array order. Demote the `errorsText(errors, { separator: '; ' })` reference to a non-normative note. Rewrite `query.md` §Schema-validation respond-repair's `<ajv-summary>` Placeholders bullet to cite the binder clause's observable specification rather than re-asserting the `errorsText(...)` formulation.
-
-## Solution constraints
-
-- Out of scope: the broader concrete-`AJV` library naming reconciled by T15; this finding changes only the `<ajv-summary>` rendering specification.
-- The Depth-walk fast-fail clause in `binder.md` §Failure-mode templates is out of scope — it is already validator-neutral and supplies the canonical single-issue (`maxDepth`) form.
-
-## Relationships
