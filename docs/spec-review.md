@@ -119,29 +119,3 @@ Add an optional `details?` field to the `Diagnostic` shape block in `diagnostics
 
 - T16 "`loom/load/unreadable-source` registry row carries two message formats but only one is in the Message column" — same-cluster (same row origin; that finding's split obviates `details.kind` for the one row, but this broad `Diagnostic.details` gap persists for the other rows; neither blocks the other).
 
----
-
-# T21 - Deferred frontmatter field `binder_temperature` violates the binder-model root-word convention
-
-**Kind:** naming
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`frontmatter.md` pins the normative naming rule at anchor `binder-model-root-word-convention`: the binder-model concept uses the short root `bind_` in frontmatter field names and the long root `binder` only in settings keys, diagnostic codes, anchors, and prose. `future-considerations.md` reserves the deferred field as `binder_temperature` — the long root in a frontmatter field name, the exact combination the convention forbids; the cross-reference further down the same page ("same unknown-key policy as `binder_temperature`") propagates the wrong spelling to a second site. Because deferred names are the source of truth for the `loom/load/deferred-frontmatter-field` allow-list, an implementer coding the reservation literally will allow-list a name no convention-following author would write and reject the conventional `bind_temperature` as an unknown field.
-
-## Solution approach
-
-Rename the deferred field to `bind_temperature` at both occurrences in `future-considerations.md` — the `Per-loom ... knob` Surface-extensions bullet and the `same unknown-key policy as ...` cross-reference. The convention authority at `frontmatter.md` anchor `binder-model-root-word-convention` is the reference for the corrected spelling.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None
