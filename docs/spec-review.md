@@ -4,7 +4,7 @@ _Generated: 2026-05-31T15:30:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T25) is addressed first; the first finding (T17) is addressed last._
 
-_Triage tally: 8 high retained._
+_Triage tally: 6 high retained._
 
 ---
 
@@ -145,51 +145,4 @@ In `pi-integration-contract.md`, rename the `<validator-errors>` placeholder ref
 
 ## Relationships
 
-- T23 "Prompt-mode untyped-query `Ok(string)` extraction is unspecified" - same-cluster (both sit in the prompt-mode driver section of PIC but resolve independently).
-# T23 - Prompt-mode untyped-query `Ok(string)` extraction is unspecified
-
-**Kind:** implementability
-**Importance:** high
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The **Conversation drive — prompt mode** section of `pi-integration-contract.md` pins the *contract* of an untyped query's success value — the accumulated assistant text from the final turn, read from the command context after `waitForIdle()` resolves, is the `Ok(string)` value — but not the *mechanism* that produces it. Three reads are left unbound: which member of the pinned `ReadonlySessionManager` `Pick<>` is the source surface; how "the final turn" is delimited against a long-lived user session that accumulates turns across slash-command invocations; and the per-block assembly rule (which content blocks contribute, in what order, with what separator). With the mechanism unspecified, two conformant implementations produce different `Ok(string)` payloads for the same provider transcript, breaking `?` propagation, `match` arms, and string comparisons over the value.
-
-## Solution approach
-
-Rewrite the `Ok(string)` sentence under **Conversation drive — prompt mode** in `pi-integration-contract.md` to pin the extraction mechanism: name the `ReadonlySessionManager` `Pick<>` member the runtime reads as the source, specify how the runtime delimits "the final turn" against the long-lived user session, and specify the per-block assembly rule for assistant content. Mirror the binder's `#compact-transcript-format-normative` block/role selection and separator handling. Add a forward-link from query.md's *Untyped return type (loom 1.0)* to the new mechanism pin.
-
-## Solution constraints
-
-- Extraction MUST remain downstream of the cancellation (`loomAbort.signal.aborted`) and non-empty-`errorMessage` short-circuit branches already pinned in the section; the mechanism pin must not reorder or bypass them.
-
-## Relationships
-
-- T24 "Subagent-mode untyped-query `Ok(string)` source is unspecified" - co-resolve (the same extraction rule must be specified symmetrically for `agent_end`; the prompt-mode pin is the model the subagent-mode pin mirrors — they should land together with parallel wording).
-- T22 "Typed-query non-compliance paragraph names a placeholder (`<validator-errors>`) that does not exist" - same-cluster (both in the prompt-mode driver section; resolve independently).
-# T24 - Subagent-mode untyped-query `Ok(string)` source is unspecified
-
-**Kind:** implementability
-**Importance:** high
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-In **Conversation drive — subagent mode**, the runtime awaits a subagent query's completion via `session.subscribe(event => { if (event.type === "agent_end") … })`, but the spec never names what is read from that event to produce the query's `Ok(string)` payload. The prompt-mode counterpart in the same file pins this explicitly; the subagent-mode paragraph has no symmetric clause. The `agent_end` event offers multiple plausible read points — the event-delivered `messages: AgentMessage[]` array versus the `AgentSession.messages` getter — and `willRetry: true` is a trap: an `agent_end` fired with `willRetry === true` precedes an automatic SDK retry, so resolving on the first event hands back the failed turn's text. Two conforming implementations therefore disagree on which string crosses the `invoke<T>`/`.loom`-callable boundary for the same provider transcript.
-
-## Solution approach
-
-Clarify the **Conversation drive — subagent mode** section to pin the untyped-query `Ok(string)` source symmetrically with the prompt-mode rule and T23. Specify the source surface read from the `agent_end` event (the event-delivered message array rather than the session-handle getter), the `willRetry === true` filter (such an event precedes an SDK retry and does not resolve the query), and the final-assistant-text extraction rule, mirroring the prompt-mode driver and the binder's compact-transcript role handling.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T23 "Prompt-mode untyped-query `Ok(string)` extraction is unspecified" - co-resolve (symmetric pair; the prompt-mode fix and the subagent-mode fix should land together and use parallel wording so the "same final-assistant-text rule on both sides" invariant is auditable).
+None

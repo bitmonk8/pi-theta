@@ -266,7 +266,7 @@ The `masked: ["ceiling#2"]` is the only non-empty `masked` value reachable in V1
 
 ### Untyped return type (loom 1.0)
 
-The `Ok` payload of an untyped query is a plain `string` containing the assistant's final text. loom 1.0 deliberately keeps it as `string` to minimise surface area; freezing a richer structure before real provider integration would lock in details that real-world use is likely to revise. See [Future Considerations](./future-considerations.md).
+The `Ok` payload of an untyped query is a plain `string` containing the assistant's final text. loom 1.0 deliberately keeps it as `string` to minimise surface area; freezing a richer structure before real provider integration would lock in details that real-world use is likely to revise. See [Future Considerations](./future-considerations.md). The mechanism that produces this `string` from the provider transcript — which session surface is read, how the final turn is delimited against a long-lived session, and how assistant content is assembled — is pinned by [Pi Integration Contract — untyped-query `Ok(string)` extraction](./pi-integration-contract.md#untyped-query-ok-extraction) and is symmetric across prompt mode and subagent mode.
 
 ## Options surface
 
