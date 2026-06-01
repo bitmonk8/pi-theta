@@ -164,6 +164,15 @@ None of these are fatal: the extension proceeds with whatever settings it could 
 
 No other `looms.*` keys are recognised in loom 1.0; unknown keys under the `looms` namespace are ignored without diagnostic (forward-compatibility for later versions).
 
+**Scalar-key validation.** A recognised `looms.*` scalar key whose JSON value fails its declared type or range is treated as **absent** — the key's documented absent-behaviour applies (the built-in default for `scanPackages`, `scanPackagesMaxFiles`, and `scanPackagesTimeoutMs`; the `bind_model:` resolution fallback for `binderModel`, which has no built-in default) — and the extension logs one `loom/load/settings-value-out-of-range` diagnostic (severity `error`, non-fatal) per offending key per file. This mirrors the frontmatter type/range rule `loom/load/frontmatter-value-out-of-range`. The per-key acceptance set, judged on the parsed JSON value:
+
+- `looms.binderModel` — a non-empty string.
+- `looms.scanPackages` — the JSON literal `true` or `false`.
+- `looms.scanPackagesMaxFiles` — an integer ≥ 1.
+- `looms.scanPackagesTimeoutMs` — an integer ≥ 1.
+
+`null` is out of range for every key; integer-ness is judged on the parsed numeric value, not the lexical form (`2000` and `2000.0` are both accepted, `25.5` is not). The `looms` array itself is not a scalar key; a non-string entry inside it is handled by `loom/load/settings-invalid-entry` (see [`looms` entry schema](#looms-entry-schema)).
+
 ### `looms` entry schema
 
 The `looms` array follows the same conventions Pi uses for its sibling resource arrays (`extensions`, `skills`, `prompts`, `themes`) — see the *Resources* section of `@earendil-works/pi-coding-agent/docs/settings.md`. Specifically:
