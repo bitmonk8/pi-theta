@@ -2,9 +2,9 @@
 
 _Generated: 2026-06-02T06:11:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T13) is addressed first; the first finding (T11) is addressed last._
+_Process: bottom-up - the last finding (T12) is addressed first; the first finding (T11) is addressed last._
 
-_Triage tally: 3 high retained (T11-T13). Medium and lower findings (T01-T10) removed by request._
+_Triage tally: 2 high retained (T11-T12). Medium and lower findings (T01-T10) removed by request._
 
 ---
 
@@ -57,27 +57,3 @@ Rewrite the closing sentence of the "no-params bypass vs. single-string bypass" 
 ## Relationships
 
 None
-# T13 - `byte-identical` lacks an encoding / code-unit basis at its owning sites
-
-**Kind:** assumptions
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-GOV-15's observable-(c) equivalence promise and diagnostics.md's *Placeholder rendering (normative)* subsection both define their guarantee in terms of "byte-identical" rendered content, but loom content strings are JavaScript (UTF-16) values and no owning site names which comparison basis "byte-identical" means — UTF-8-byte equality after serialisation, UTF-16 code-unit equality, or Unicode-code-point equality. The three bases agree for valid Unicode but diverge on lone surrogates and intermediate-encoding round-trips, so the gap bites at the two seams the spec already pins: §6's `\u2028` / `\u2029` survival guarantee and §8's prefix/suffix byte-anchoring rule. A conformance test asserting on a "byte-identical" surround cannot be written reproducibly until the basis is named. GOV-15 owns the equivalence promise; diagnostics.md's *Placeholder rendering* subsection owns the rendering rules — the basis must be pinned at one site and inherited by the other.
-
-## Solution approach
-
-Pin a single named comparison basis at GOV-15 (`#gov-15`), rewriting its "byte-identical after normalising …" definition sentence to name the basis explicitly, and cross-reference [Lexical — Encoding](./spec_topics/lexical.md) where it grounds the Unicode substrate. Have diagnostics.md's *Placeholder rendering (normative)* subsection (`#placeholder-rendering-normative`) inherit the basis by forward-link rather than restating it, and replace each "byte-identical" occurrence in GOV-15, in that subsection, and in the spec.md `#source-language-stability` Scope bullet that forward-links GOV-15 with a single consistent term naming the chosen basis.
-
-## Solution constraints
-
-- Naming the basis changes GOV-15's observable-equivalence definition and is a substantive GOV-15 edit governed by GOV-15's own edit conventions, not GOV-8's *Pure rewording* arm.
-
-## Relationships
-
-- T14 "`SchemaValidator` `errors` array ordering is unspecified" — decision-overlap (both bear on the cross-implementation byte-identical / reproducibility contract for rendered content; a basis chosen here and the ordering chosen there must produce a jointly reproducible `<ajv-summary>` and observable-(c) comparison).
