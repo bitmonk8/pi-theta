@@ -2,9 +2,9 @@
 
 _Generated: 2026-06-02T08:55:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T16) is addressed first; the first finding (T10) is addressed last._
+_Process: bottom-up - the last finding (T14) is addressed first; the first finding (T10) is addressed last._
 
-_Triage tally: 7 high retained (T10-T16); 9 medium findings (T01-T09) removed by request._
+_Triage tally: 5 high retained (T10-T14); 9 medium findings (T01-T09) removed by request._
 
 ---
 
@@ -138,56 +138,3 @@ Add a sibling discriminator field to the `"sdk-capability-missing"` failure payl
 
 - T16 "`loom/load/host-incompatible` — `<required>` placeholder rendering is undefined" - decision-overlap (both design the per-kind `details.{observed,required}` contract on the host-incompatible row; the per-kind closed-value table is the natural home for this row — pick a consistent per-kind table).
 - T15 "`host-incompatible` kind `\"abortsignal-shape\"` — observed/required undefined for the `\"in\"` checks" - decision-overlap (parallel `details.<discriminator>` sibling-field design — `details.capability` here mirrors `details.member` there; keep consistent naming across the two host-incompatible kinds).
-# T15 - `host-incompatible` kind `"abortsignal-shape"` — `details.observed` / `details.required` undefined for the two `"in"`-based prototype-property checks
-
-**Kind:** testability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Step 0 (b) of the capability probe (`#entry-capability-probe`) checks the two `prototype-property` members `aborted` and `reason` with `"<name>" in AbortSignal.prototype`, not `typeof === "function"`, because their getters throw when read off the prototype. The `loom/load/host-incompatible` registry row, the message template `host incompatible (<kind>): observed <observed>, required <required>`, and the `"abortsignal-shape"` carve-out only define `details.observed` / `details.required` for the `typeof`-based members (by analogy with `"typebox-shape"`). Neither Step 0 (b) nor the registry row defines what the runtime writes for an `aborted` or `reason` failure, whose check input is the `in`-operator boolean, not a `typeof` string, and no test vector covers either path. Two conformant implementations therefore diverge on the wire payload and the rendered message bytes for the same host defect.
-
-## Solution approach
-
-In `docs/spec_topics/pi-integration-contract.md` Step 0 (b) (`#entry-capability-probe`), pin `details.observed` and `details.required` for the two `prototype-property` members (`aborted`, `reason`) to literal strings naming the absent-property condition, distinct from the `in`-operator boolean. Mirror the same observed/required contract in the `"abortsignal-shape"` carve-out of the `loom/load/host-incompatible` row in `docs/spec_topics/diagnostics.md`. Add a test vector covering a `prototype-property` failure to the **Test vectors.** block following the `loom/load/*` registry.
-
-## Solution constraints
-
-- Out of scope: the §8 Category-4 `<observed>` / `<required>` placeholder reclassification — owned by T16.
-
-## Relationships
-
-- T16 "`loom/load/host-incompatible` — `<required>` placeholder rendering is undefined" - co-resolve (the §8 category-4 reclassification this finding's `"absent"`/`"present"` literals require is owned by that finding, and its per-kind table is the natural site for this `"in"`-check pin; their edits land in the same diagnostics.md sweep).
-- T14 "`host-incompatible` kind `\"sdk-capability-missing\"` — no failing-member discriminator" - decision-overlap (parallel `details.<discriminator>` sibling-field design — `details.member` here mirrors `details.capability` there; consistent naming across the two host-incompatible kinds is desirable).
-- T13 "`loom/runtime/reload-teardown-timeout` — `hint` wire format unspecified" - same-cluster (registry-row payload underspecification; independent fix).
-# T16 - `loom/load/host-incompatible` — `<required>` placeholder rendering is undefined
-
-**Kind:** testability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `loom/load/host-incompatible` registry message renders `<observed>` and `<required>`, but `<required>` is listed under diagnostics.md's `### 4. Numeric placeholders`, whose shortest-decimal rule directly contradicts what this row actually renders for `<required>` — a SemVer range, a tilde pin, or the literal `"function"` — as the single normative test vector (`, required >=22.19.0`) confirms. The companion gap is that per-`kind` `<observed>`/`<required>` values are pinned for only some of the seven `kind` discriminators; for `abortsignal-shape`, `sdk-capability-missing`, and `probe-failed` no enumeration exists, so a conformance-test author cannot determine the expected substring. Category 4 mis-claims ownership of `<required>` for this row and nothing fills the gap it leaves, so the message is unconstrained.
-
-## Solution approach
-
-Narrow the `### 4. Numeric placeholders` rule in diagnostics.md so `<required>`/`<provided>` are numeric only at the arity-diagnostic emitting sites, and require non-numeric usages to be enumerated at their emitting registry row. Add a per-`kind` `<observed>`/`<required>` enumeration to the `loom/load/host-incompatible` registry row covering all seven `kind` discriminators, sourcing values from the Step 0 capability-probe prose in pi-integration-contract.md (`#entry-capability-probe`, `#pi-sdk-pin`). Add normative test vectors for the `kind` discriminators not currently covered.
-
-## Solution constraints
-
-- Out of scope: the `sdk-capability-missing` failing-member discriminator (owned by T14); pin only `<observed>`/`<required>` for that kind.
-
-## Relationships
-
-- T15 "`host-incompatible` kind `\"abortsignal-shape\"` — observed/required undefined for the `\"in\"` checks" - co-resolve (the per-kind table proposed here is the natural site for the `"in"`-checked observed/required pin that finding requests; edits land in the same diagnostics.md sweep).
-- T14 "`host-incompatible` kind `\"sdk-capability-missing\"` — no failing-member discriminator" - decision-overlap (the per-kind table this finding adds is the surface that finding extends; keep the per-kind observed/required design consistent).
-- T13 "`loom/runtime/reload-teardown-timeout` — `hint` wire format unspecified" - same-cluster (sibling category-4 testability gap on a different registry row; resolve independently).
