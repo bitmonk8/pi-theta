@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 17 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 16 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -421,49 +421,3 @@ Add `QRY-N` REQ-ID anchors at each independently verifiable normative obligation
 - T17 "slash-invocation.md carries no SLSH-N REQ-ID anchors" — same-cluster (parallel gap).
 - T18 "`validation-issue-ordering` paragraph carries no ERR-N REQ-ID" — decision-overlap (QRY-21's `<ajv-summary>` placeholder links to `errors-and-results.md#validation-issue-ordering`; once that paragraph gains an `ERR-N`, the QRY-21 cross-link should be updated in the same edit).
 - T32 "Top-level `Err` per-`kind` table — `validation` row collapses the two causes" — decision-overlap (the resolution of that finding will likely cite the new QRY-5 *empty-template short-circuit* anchor; co-ordinate the inbound-link update).
-# T17 - slash-invocation.md carries no SLSH-N REQ-ID anchors
-
-**Kind:** traceability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`governance.md`'s REQ-ID prefix table binds `slash-invocation.md` to the
-`SLSH` prefix, but the page coins zero `SLSH-N` anchors. Multiple defining
-obligation sites carry no co-located REQ-ID — the normative-templates
-verbatim-emission rule, each row of the per-`kind` system-note table, the
-chain-attribution suffix rule for `invoke_callee_error`, the no-params
-overflow emission rule, and the user-visible streaming rules. Because none
-of these sites is anchored, GOV-9's `#prefix-n` cross-link contract is
-unsatisfiable for them: every consumer page reaches the obligations only
-via heading-slug links, and individual per-`kind` table rows cannot be
-cited at all by other pages or by conformance tests.
-
-## Solution approach
-
-Coin `SLSH-N` dual-form anchors at each defining obligation site on
-`slash-invocation.md` per GOV-1 dual-form layout and GOV-22 progressive
-coinage, allocating next-free integers (GOV-3) in source order — covering
-the normative-templates verbatim sentence, each per-`kind` system-note
-table row (one anchor per row, including the catch-all), the
-chain-attribution suffix rule, the no-params overflow emission rule, and
-the user-visible streaming rules. Then rewrite the inbound cross-references
-from `binder.md`, `cancellation.md`, `errors-and-results.md`,
-`frontmatter.md`, `pi-integration-contract.md`, and `glossary.md` to target
-the specific `#slsh-n` fragment each consumes, per GOV-9.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — same-cluster (parallel GOV-22 deficit; same coinage procedure, independent edit).
-- T16 "query.md missing QRY-N REQ-IDs" — same-cluster (parallel page-wide gap).
-- T20 "Tool-call late-settlement discard paragraph needs three CNCL-N sub-anchors" — same-cluster (parallel per-sub-obligation coinage question; resolve the SLSH chain-attribution sub-obligations the same way).
-- T32 "Top-level `Err` per-`kind` table — `validation` row collapses the two causes" — must-follow (splitting the `validation` row changes how many per-row `SLSH-N` anchors the table needs; resolve that row split first, or accept a second coinage pass).
