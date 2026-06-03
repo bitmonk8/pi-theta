@@ -4,7 +4,7 @@ _Generated: 2026-06-03T12:45:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T29) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 7 high, 18 medium retained; 6 low discarded; 11 low findings merged into 7 medium findings (plus two medium+medium and one high+high consolidation merges); 4 nit dropped; 0 false dropped._
+_Triage tally: 1 blocker, 5 high, 18 medium retained; 6 low discarded; 11 low findings merged into 7 medium findings (plus two medium+medium and one high+high consolidation merges); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -523,54 +523,4 @@ discipline, recording the declaring `dist/...` path and that
 
 - T27 "`Model<Api>` and `ModelRegistry` referenced by bare name" — same-cluster (same external-entity pinning-gap pattern on the same page).
 - T13 "Bare-name SDK types lack `.d.ts` pins at their PIC carrier sites" — same-cluster (same `.d.ts`-pin discipline applied to a Pi-supplied symbol).
-# T20 - `respond_repair.methodology` — behaviour for unrecognised value undefined
 
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`respond_repair.methodology` is a closed enum with three recognised values (`validator_error`, `schema_repeat`, `none`) in `frontmatter.md`'s `respond_repair` prose, but the spec does not define what the runtime does when `methodology:` carries any other string or a non-string scalar. No diagnostic in `diagnostics.md` covers this case: `loom/load/frontmatter-value-out-of-range` is scoped to the non-negative-integer fields, `loom/load/unknown-mode-value` is scoped to `mode:`, and `loom/load/unknown-frontmatter-field` does not fire because `methodology` is a recognised key whose value is merely out of set. Implementers would diverge — silent fallback to `validator_error`, fallback to `none`, load-time rejection, or first-query runtime failure — each changing whether and how many respond-repair follow-ups are issued. The `mode:` field already models the correct recognised-key / unrecognised-value shape with a dedicated load-time error.
-
-## Solution approach
-
-Add a load-time error diagnostic to `diagnostics.md`'s catalogue modelled on the `loom/load/unknown-mode-value` row, firing when `respond_repair.methodology:` is present with a value outside the recognised set (non-string scalars included, with no truth-coercion or separate type-mismatch code) and leaving the loom unregistered. Clarify `frontmatter.md`'s `respond_repair` methodology prose to name that diagnostic as the present-but-unrecognised case and to state that an absent `methodology:` is the `validator_error` default.
-
-## Solution constraints
-
-- Out of scope: the `bind_context` and loom `model:` unknown-value gaps owned by T21.
-
-## Relationships
-
-- T21 "`bind_context` and loom `model:` — out-of-set / unresolvable values are undefined" — co-resolve (identical missing-enum-value shape; the `mode:`/`unknown-mode-value` template applies; both land as parallel catalogue rows + field-contract row edits in the same pass).
-# T21 - `bind_context` and loom `model:` — out-of-set / unresolvable values are undefined
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Two recognised frontmatter fields lack a defined behaviour for malformed values. `bind_context:` accepts `none | session` but no diagnostic covers an out-of-set value (`full`, `true`, a bare `~`, a non-string scalar); implementers diverge between rejecting at load, coercing to `none` (silently dropping intended grounding), and coercing to `session` (leaking caller-session content into a binder call the author never sanctioned). Loom `model:` is specified only for absent (inherit Pi's session model, pinned for the loom's lifetime); nothing defines a present-but-unresolvable identifier or a non-string value, so one implementer rejects at load while another defers to a first-query runtime failure that surfaces only after tool side-effects and partial transcript appends. The `mode:` field already models the correct shape — missing → `loom/load/missing-mode`, present-but-invalid → `loom/load/unknown-mode-value`, both load-time errors that prevent registration.
-
-## Solution approach
-
-Add a `loom/load/unknown-bind-context-value` (E, load) row to `diagnostics.md` following the `loom/load/unknown-mode-value` template, and extend the `bind_context` field-contract row in `frontmatter.md` with a present-but-invalid case mirroring the `mode:` row, so any value other than `none` or `session` — including non-string scalars — fires a load-time error and the loom is not registered. Close loom `model:` at load time for the non-string, malformed-identifier, and unresolved-registry cases by analogy to `loom/load/binder-model-unresolved`, reusing the `(provider, modelId)` parse rule defined by T28, and extend the `model` field-contract row in `frontmatter.md` with the present-but-invalid case.
-
-## Solution constraints
-
-- Out of scope: the absent-case contracts — omitted `bind_context` defaults to `none`, and omitted `model:` inherits Pi's session model at invocation time with no load-time registry call.
-- Preserve the existing triggers of `loom/parse/bind-context-session-on-subagent` and `loom/load/typed-query-unsupported-provider` unchanged.
-
-## Relationships
-
-- T20 "`respond_repair.methodology` — behaviour for unrecognised value undefined" — co-resolve (identical missing-enum-value shape on `bind_context`; both fixes land as parallel catalogue rows + field-contract row edits in the same pass).
-- T28 "Binder model — configured-string-to-`(provider, modelId)` parse rule" — must-follow (the loom `model:` identifier parse reuses the `(provider, modelId)` parse rule defined there; resolve that finding first so this one forward-links rather than re-states).
