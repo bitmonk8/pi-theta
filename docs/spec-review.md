@@ -4,7 +4,7 @@ _Generated: 2026-06-03T12:45:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T29) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 10 high, 18 medium retained; 6 low discarded; 11 low findings merged into 7 medium findings (plus two medium+medium and one high+high consolidation merges); 4 nit dropped; 0 false dropped._
+_Triage tally: 1 blocker, 8 high, 18 medium retained; 6 low discarded; 11 low findings merged into 7 medium findings (plus two medium+medium and one high+high consolidation merges); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -624,52 +624,3 @@ In the `~~~loom` source block under `query.md`'s `worked-example-depth-6-forced-
 ## Relationships
 
 None
-# T24 - Parallel model-driven tool batch — mixed-outcome surfacing unspecified
-
-**Kind:** error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-When a single model turn emits N parallel `tool_use` blocks during a query's free phase and a strict subset of those calls fail (`execute()` throws, returns `{ isError: true }`, or hits a routed-off outcome), the spec does not pin the resolution. The only normative statement on parallel dispatch is query.md's `## Tool-call loop bound` paragraph, written in single-result framing and silent on mixed outcomes; tool-calls.md's `<a id="concurrency">` paragraph pins re-entrancy and event-loop yielding but nothing about batch resolution; errors-and-results.md's `ModelToolError` schema carries one `tool_name` and one `tool_call_id` with no batch-aggregation field. Two conformant implementations therefore diverge on whether a failing sibling kills the round, which failure the loom author sees, and whether the model ever sees the successful siblings' outputs.
-
-## Solution approach
-
-Clarify tool-calls.md's `<a id="concurrency">` paragraph to pin the mixed-outcome batch resolution: the runtime awaits all N parallel calls to settle before constructing the next user turn, lowers per-call failures to per-call `{ isError: true }` tool-result blocks fed back alongside the successful siblings' results, and consumes one `tool_loop.max_rounds` slot regardless of the success/failure mix. Rewrite query.md's `## Tool-call loop bound` single-result framing ("executing them all in parallel … feeds the results back") to make the await-all-settled semantics explicit and forward-link to the Concurrency paragraph.
-
-## Solution constraints
-
-- Out of scope: the `ModelToolError` schema and firing-condition enumeration in errors-and-results.md (owned by T25) — this finding adds no batch-aggregation field.
-
-## Relationships
-
-- T25 "`ModelToolError` firing condition is not pinned" — must-follow (the upstream feed-back-vs-terminate decision determines this composition; resolve T25 first). co-resolve (under the feed-back resolution, the parallel-batch rule lands in the same edit).
-# T25 - `ModelToolError` firing condition is not pinned
-
-**Kind:** error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-When a model-invoked tool's `execute()` throws, or returns `{ content, isError: true }`, during a query's tool-call loop, the spec does not pin the runtime behaviour. Two materially different readings are consistent: the error is reflected back to the model as that `tool_use` block's tool-result and the loop continues, or the query terminates immediately with `Err(QueryError { kind: "model_tool", … })`. `errors-and-results.md`'s `ModelToolError` variant block declares the variant without saying which `execute()` outcomes it covers, and `hard-ceilings.md` row 30 establishes the boundary only by exclusion (the runtime-synthesised validation failure "does **not** surface as `ModelToolError`"), leaving the included case unspecified. Two implementers will diverge, observably, in `match`-arm behaviour, conversation history, and `tool_loop.max_rounds` accounting.
-
-## Solution approach
-
-In query.md's `## Tool calls during a query`, clarify that a model-invoked tool whose `execute()` throws or returns `{ isError: true }` has its outcome lowered to a tool-result block and fed back to the model as that `tool_use` block's result, with the round counting against `tool_loop.max_rounds` per CIO-4 and the loop continuing; forward-link the lowering rule at pi-integration-contract.md `id="tool-execution-from-loom-code"`. Narrow the `ModelToolError` variant block in errors-and-results.md so it fires only on non-recoverable adapter conditions — the named tool absent from the resolved callable set, a non-conforming `{ content, isError }` envelope routed through `loom/runtime/internal-error`, or a Pi-adapter/transport failure during feed-back. Restate the `tool-calls.md` `CodeToolError`-vs-`ModelToolError` distinction symmetrically: code-side calls lower the same outcomes to `CodeToolError`, model-side feeds them back with `ModelToolError` reserved for adapter-layer failures.
-
-## Solution constraints
-
-- Cancellation during a model-driven `execute()` MUST continue to surface as `CancelledError`, never fed back as a tool-result.
-
-## Relationships
-
-- T24 "Parallel model-driven tool batch — mixed-outcome surfacing unspecified" — must-precede (this single-call decision determines how the parallel-batch rule composes; resolve this first). co-resolve (the parallel-batch surfacing rule lands in the same edit under the feed-back resolution).

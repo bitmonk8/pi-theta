@@ -199,7 +199,7 @@ schema TransportError {
 }
 ```
 
-Fires when a tool the **model** invoked inside a query's tool-call loop failed (see [Query — Tool calls during a query](./query.md)).
+Fires on a non-recoverable adapter-layer failure of the model's tool-call loop — the named tool is absent from the resolved callable set, or a Pi-adapter / transport failure occurs while feeding a tool-result back to the model (see [Query — Tool calls during a query](./query.md)). An in-loop tool failure the runtime can lower to a tool-result — `execute()` throwing or resolving `{ content, isError: true }` — does **not** fire this variant: it is fed back to the model as that `tool_use` block's result and the loop continues. A non-conforming `{ content, isError }` envelope is routed off this surface through `loom/runtime/internal-error`, symmetric to the code-side rule in [Tool Calls — Failures](./tool-calls.md).
 
 ```loom
 schema ModelToolError {
