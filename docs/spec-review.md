@@ -4,7 +4,7 @@ _Generated: 2026-06-02T08:55:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T11) is addressed first; the first finding (T10) is addressed last._
 
-_Triage tally: 2 high retained (T10-T11); 9 medium findings (T01-T09) removed by request._
+_Triage tally: 1 high retained (T10); 9 medium findings (T01-T09) removed by request._
 
 ---
 
@@ -33,28 +33,3 @@ Rewrite the CLAUDE.md Code Style → Exception Handling bullet to use TypeScript
 
 None
 
-# T11 - Surface extensions → Automatic context escalation — embedded open decision
-
-**Kind:** cruft, placement, scope
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The *Automatic context escalation* bullet under `future-considerations.md`'s *Surface extensions (V1 leaves a seam)* sub-bucket carries a `*Decision required before this item can be scoped:*` marker (operator-only vs. user-visible turn). That sub-bucket is a committed-deferral inventory: per its intro and GOV-12, every bullet pins a settled loom 1.0 seam, and the sub-bucket is the source set for the "13 typed/structural seams" tally on `spec.md` Scope's *Forward-compatibility seams* bullet. An item gated on an undecided question is uncommitted, so its carrier-seam set is open — the currently-pinned `binder.md` *automatic context escalation* re-entrancy seam suffices only for the operator-only future, while a user-visible-turn future also composes with the binder refinement-loop carriers. The GOV-12 integer-count machinery still parses cleanly while one source item is structurally incomplete, and reviewers have no convention signalling that the marker downgrades the bullet's commitment status.
-
-## Solution approach
-
-Move the *Automatic context escalation* bullet out of the committed-seam *Surface extensions (V1 leaves a seam)* inventory into a sibling open-design sub-bucket whose intro states its items carry no forward-compatibility seam commitment and are excluded from the GOV-12 tally, mirroring the existing `id="surface-extensions-no-dedicated-seam"` carve-out. Reconcile the `binder.md` *loom 1.0 seam — automatic context escalation* blockquote and its cross-link to the bullet's new location, or retire it per GOV-7 if it served only this item.
-
-## Solution constraints
-
-- The `spec.md` Scope *Forward-compatibility seams* tally and the GOV-12 single-source-page / integer-count enumerations MUST stay consistent in the same commit as the move.
-
-## Relationships
-
-None
