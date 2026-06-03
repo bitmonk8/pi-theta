@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 12 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 11 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -256,28 +256,3 @@ Add a `chokidar` clause to the existing *Loom-package implementation dependencie
 ## Relationships
 
 - T09 "`ui.notify` inline signature contradicts the pinned SDK declaration" — same-cluster (sibling external-entity / SDK-alignment gap on the same page; resolve independently).
-# T11 - Vestigial "decided separately" pointers in query.md should link to Degenerate rendered templates
-
-**Kind:** clarity, cruft
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Two sites in `docs/spec_topics/query.md` carry a vestigial "decided separately" back-pointer about empty rendered templates: the vector commentary item 6 in the dedent/newline-trim reference table, and the per-slot bullet under "Stringification of interpolated values" → Notes. Both say how an empty rendered template is handled "is decided separately" and send the reader hunting for a separate decision. No separate decision exists — the rule is already fully pinned earlier in the same file under the "Degenerate rendered templates" subsection (parse-time `loom/parse/empty-template` warning plus a runtime short-circuit to `Err(QueryError { … cause: "empty_template", … })`). The phrasings are drafting residue left in after the disposition was settled in-file.
-
-## Solution approach
-
-Rewrite both "decided separately" parentheticals — vector commentary item 6 and the per-slot stringification Notes bullet — as direct in-file cross-references to the "Degenerate rendered templates" subsection, dropping the "decided separately" framing and using the same anchor target at both sites. The subsection heading carries no bespoke anchor, so the implementer establishes or reuses query.md's intra-file fragment convention for the target.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T33 "`max_rounds: 0` user-turn separator disagrees with the Follow-up turn templates it cites" — same-cluster (another `query.md` cross-reference defect; independent fix).
-- T32 "Top-level `Err` per-`kind` table — `validation` row collapses the two causes" — same-cluster (both concern the `empty_template` short-circuit's normative footprint, but resolve in different files).

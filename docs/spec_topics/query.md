@@ -92,6 +92,8 @@ Dedent and newline-trim apply uniformly to every `@`...`` template regardless of
 
 ### Degenerate rendered templates
 
+<a id="degenerate-rendered-templates"></a>
+
 Two layers defend against sending the provider a turn that contains no useful text:
 
 - **Parse-time warning** (`loom/parse/empty-template`, severity *warning*): if a template's *static* body — every literal segment between interpolations, after newline-trim and dedent — is empty or whitespace-only, the parser emits a one-line warning at the template's source location. The loom still loads. Authors who genuinely intend a whitespace-only prompt can suppress the warning by writing an explicit literal escape (`\n`).
@@ -126,7 +128,7 @@ Vector commentary:
 3. Tab-only indentation is stripped exactly when it forms the common prefix.
 4. Mixed tab and space indentation share no literal prefix, so nothing is stripped and the model sees the indentation verbatim.
 5. A single-line template has no internal newlines for newline-trim to act on and exactly one line for dedent to consider, so any leading whitespace inside the backticks is preserved.
-6. A template that consists solely of a single newline becomes the empty string after newline-trim; dedent on the empty string is the empty string. (How the runtime treats an empty rendered template — error, warning, or silent send — is decided separately; see the discussion of empty rendered templates and their downstream handling.)
+6. A template that consists solely of a single newline becomes the empty string after newline-trim; dedent on the empty string is the empty string. How the runtime treats an empty rendered template is pinned earlier in this file under [Degenerate rendered templates](#degenerate-rendered-templates).
 7. Newline-trim removes the leading newline and the newline immediately before the closing backtick, leaving the single line `    only`; dedent then strips the four-space common prefix, yielding `"only"`. This pins the order: newline-trim first, dedent second.
 
 Newline-trim strips a newline only when it sits **immediately** after the opening backtick or **immediately** before the closing backtick. A trailing `\n` followed by whitespace before the closing backtick (e.g. `\n    only\n  `) is not trimmed; the trailing whitespace-only line is then handled by dedent's whitespace-only-line normalisation (it does not contribute to the common prefix and is rendered as an empty line).
@@ -163,7 +165,7 @@ Notes:
 - The `Result` rejection is **static**, resolved from the expression's type, and fires even when the `Result`-valued expression sits behind a function call whose return type the parser can resolve. When the type is unresolvable (e.g. an inferred binding that widens past the parser's view), the runtime renderer falls back to a panic carrying the same `loom/parse/interpolated-result` diagnostic code — the same "static where possible, runtime where not" posture used elsewhere for tool-call argument typing.
 - Wire-name translation for objects and arrays uses the **outbound** translation pass defined in [Runtime Value Model — Wire-name translation](./runtime-value-model.md). There is no second translation map for interpolation: the loom-side names an author writes never appear in the rendered prompt.
 - Stringification runs **after** expression evaluation but **before** newline-trim and dedent, so the multi-line text that an object or array interpolation introduces participates in the dedent computation like any other content. Authors who need a particular layout interpolate a pre-formatted `string`.
-- Whitespace-only and empty renderings get no special treatment at the per-slot level here; the question of whether a *fully-rendered* template is degenerate is decided separately (see the discussion of empty rendered templates in this file's overall handling).
+- Whitespace-only and empty renderings get no special treatment at the per-slot level here; whether a *fully-rendered* template is degenerate is pinned earlier in this file under [Degenerate rendered templates](#degenerate-rendered-templates).
 - Interpolation is the spec's blessed escape hatch for value-to-text conversion: the `+`-operator advice in [Expressions](./expressions.md) ("interpolate inside a string" in place of mixed-type `+`) relies on this rule existing.
 
 ## Discarded query results are a parse error (`loom/parse/discarded-query-result`)
