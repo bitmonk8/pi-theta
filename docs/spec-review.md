@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 3 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 2 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -622,29 +622,3 @@ Rewrite the "Why the transcript bytes are pinned" paragraph in binder.md's "Comp
 ## Relationships
 
 - T03 "Determinism section over-pins FNV-1a as the binder-seed algorithm" — same-cluster (same Determinism section; that finding's rationale clause should reference the narrowed reproducibility-contract wording produced here, but neither blocks the other — sequence the edits to avoid merge churn).
-# T24 - Echo policy — 'first field' rule undefined for anonymous inline-object-typed values
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The Echo policy Object-value bullet (binder.md) renders an object value as `{first-field-value, …}` and defines "first field" only for values with a named `schema` block or a discriminated-union variant — both branches assume a named declaring block to consult. The type system admits inline anonymous object types `{ field: T, ... }` in any type position (type-system.md, Type forms), including transitively under `params:` via array-element and nested-object types, so a value can reach the formatter with no declaring `schema` block and no defined source order for it. Echo output is normatively byte-pinned (the Echo policy Reference renderings table is tagged "conforming implementations MUST reproduce these exactly"), so two conforming implementations can legitimately pick different "first fields" for the same inline-object value and emit divergent normative output.
-
-## Solution approach
-
-Clarify the Object-value bullet in binder.md's Echo policy section so the "first field" definition also covers a value whose static type is an inline anonymous object: the first field is the leftmost field of the inline type expression as written in the loom source. Make the rule apply recursively wherever the existing rule reaches — top-level `params:` fields, array-element types, and nested object-field types. Add a reference-rendering vector to the Echo policy Reference renderings table that exercises an inline-object-typed value.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T01 "Echo policy illustrative example contradicts the quoting predicate" — same-cluster (sits in the same Echo policy bullet list; resolves independently).
-- T26 "Defaulting — fill semantics undefined when the binder supplies a value for a defaulted field" — same-cluster (both touch the Echo policy formatter; resolve independently).
