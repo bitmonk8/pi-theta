@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 5 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 4 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -675,48 +675,3 @@ Rewrite rule 1's collapse and trim sub-steps to enumerate the whitespace set exp
 - T01 "Echo policy illustrative example contradicts the quoting predicate" — same-cluster (touches the same System-note rendering / Echo policy surface but resolves independently).
 - T02 "Failure-mode templates use an undefined `<provider>` placeholder" — same-cluster (another under-specified component of the same MUST-emit-verbatim contract; independent edit).
 - T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — decision-overlap (when BNDR-N IDs are coined, the amended rule 1 should receive its own anchor so the new tab-handling reference rendering can cite it).
-- T17 "slash-invocation.md carries no SLSH-N REQ-ID anchors" — same-cluster (the slash-invocation page's system-note shape table references this rendering discipline; fixing it here does not affect SLSH-N coining).
-# T26 - Defaulting — fill semantics undefined when the binder supplies a value for a defaulted field
-
-**Kind:** testability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `## Defaulting` section of `docs/spec_topics/binder.md` describes the
-runtime default-fill step as happening after the binder returns and before AJV
-validation, but does not state whether the fill is conditional on the field's
-absence from the binder-returned `args` or unconditional. Because
-`<params-schema-with-defaulted-fields-relaxed>` only relaxes defaulted fields
-out of `required` (leaving them in `properties` under
-`additionalProperties: false`), a binder that emits a value for a defaulted
-field produces a structurally valid envelope, so AJV cannot decide which value
-survives. The case is reachable: item 8's no-invent-defaults instruction only
-asks the binder not to invent defaults, yet a hallucinating binder may emit a
-value anyway. Two conforming implementations then diverge on both the merged
-`args` value passed to the loom body and the echo line's `(default)` tag,
-breaking the byte-equivalent echo contract on identical binder responses.
-
-## Solution approach
-
-In `docs/spec_topics/binder.md`'s `## Defaulting` section, clarify the
-runtime default-fill step as fill-if-absent: a defaulted field's wire name
-present in the binder-returned `args` preserves the binder-supplied value
-unchanged, while an absent wire name takes the declared default. Add a
-forward-link from the Echo policy "Defaulted fields tagged `(default)`" bullet
-to `## Defaulting` so the `(default)` tag's firing condition (default-supplied,
-not binder-supplied) is observable to a fixture author.
-
-## Solution constraints
-
-- Out of scope: the `AJV` → `SchemaValidator` rename owned by T08.
-
-## Relationships
-
-- T24 "Echo policy — 'first field' rule undefined for anonymous inline-object-typed values" — same-cluster (both touch the Echo policy formatter; resolve independently).
-- T08 "Runtime bullets name AJV in normative prose despite SchemaValidator being the contract" — same-cluster (both involve the post-default-merge validation step; the rename of "AJV" → "SchemaValidator" is editorial and does not constrain the fill-semantics decision).
