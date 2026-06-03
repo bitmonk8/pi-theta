@@ -2,9 +2,9 @@
 
 _Generated: 2026-06-03T17:33:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T03) is addressed first; the first finding (T01) is addressed last._
+_Process: bottom-up - the last finding (T02) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 high, 3 medium retained; 13 low discarded; 3 low findings merged into 1 medium finding; 4 nit dropped; 0 false dropped._
+_Triage tally: 0 high, 2 medium retained; 13 low discarded; 3 low findings merged into 1 medium finding; 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -144,32 +144,6 @@ Add a Glossary entry in `glossary.md`, in alphabetical order, defining `PIC` as 
 ## Solution constraints
 
 - None.
-
-## Relationships
-
-None
-# T03 - Cross-cutting NFR bullets lack a discoverable home in spec.md
-
-**Kind:** placement
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 4
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Three bullets under `### Scope` in `docs/spec.md` — **Trust boundary**, **Source-language stability**, and **Runtime observability** — are cross-cutting non-functional-requirement aggregators (the loom 1.0 security/trust posture, the loom 1.x source-language-equivalence release goal, and the operator-facing observability contract), not scope-boundary statements. The `### Scope` intro paragraph itself concedes the mismatch, framing the bullets as "five cross-cutting loom 1.0 dispositions that no single topic page enumerates as a unit." spec.md has no Security, Trust, Observability, Compatibility, or Non-Functional Requirements section, and no `spec_topics/` page named for those concerns, so a reviewer with a security, observability, or compatibility mandate scanning the TOC or topic listing has no signpost to these bullets. The dispositions are well-owned by their topic pages, so the cost is reviewer-facing rather than implementation risk.
-
-## Solution approach
-
-Add a discoverable top-level home in `docs/spec.md` for cross-cutting NFR dispositions (the conventional umbrella reviewers look for) and move the Trust boundary, Source-language stability, and Runtime observability bullets out of `### Scope` into it. Rewrite the `### Scope` intro paragraph so its framing and item enumeration reflect the surviving scope bullets (Hard ceilings at `#hard-runtime-ceilings` and Forward-compatibility seams). Repoint the `docs/spec_topics/future-considerations.md` `Recorded at:` lines that currently target `../spec.md#scope` for Trust boundary and Source-language stability at the relocated content.
-
-## Solution constraints
-
-- Per GOV-12, the change to the Scope bullet count MUST update the "five Scope bullets" integer-count literal and the *multi-source-page* registry entry on `docs/spec_topics/governance.md` in the same commit.
-- Inbound citations to the moved bullets MUST keep resolving — re-emit the `source-language-stability` HTML anchor on the relocated content rather than orphaning the inbound links.
 
 ## Relationships
 
