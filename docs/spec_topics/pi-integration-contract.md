@@ -95,10 +95,10 @@ For brevity the probe is described above as five sub-steps `(a)`–`(e)`; `(d)` 
 
 **Probe-wide invariants.**
 
-- The probe MUST NOT use any member it is itself checking. The kind table above is constructed so this rule holds without instance construction.
-- The probe is `typeof`- and `in`-only — no arity sniffing, no return-shape sniffing, no construction.
-- Probes MUST NOT be added beyond the five enumerated checks.
-- The factory MUST NOT throw. Each check is wrapped in a try/catch (see *Self-failure* below).
+- <a id="pic-3"></a> **PIC-3.** The probe MUST NOT use any member it is itself checking. The kind table above is constructed so this rule holds without instance construction.
+- <a id="pic-4"></a> **PIC-4.** The probe is `typeof`- and `in`-only — no arity sniffing, no return-shape sniffing, no construction.
+- <a id="pic-5"></a> **PIC-5.** Probes MUST NOT be added beyond the five enumerated checks.
+- <a id="pic-6"></a> **PIC-6.** The factory MUST NOT throw. Each check is wrapped in a try/catch (see *Self-failure* below).
 
 **On failure: refusal and diagnostic.**
 

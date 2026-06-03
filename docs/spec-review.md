@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 15 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 14 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -367,29 +367,3 @@ Add dual-form `FRNT-N` anchors at each independently-violable defining obligatio
 - T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — same-cluster (parallel GOV-22 gap).
 - T13 "discovery.md carries zero DISC-N REQ-IDs" — same-cluster (parallel GOV-22 gap).
 - T22 "invocation.md carries no INV-N REQ-IDs" — same-cluster (`frontmatter.md` has multiple inbound-to-invocation cross-links; repointings are concurrent but the fixes are independent).
-# T15 - Probe-wide invariants block missing PIC-N REQ-IDs
-
-**Kind:** traceability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The **Probe-wide invariants** block in `pi-integration-contract.md` (immediately after the (a)–(e) probe sub-step enumeration) bundles four independently violable normative obligations — no self-member use, `typeof`/`in`-only checks, no probes beyond the five enumerated, and the factory MUST NOT throw — but none carries a stable `PIC-N` identifier. The `PIC` prefix is registered in governance.md's per-page prefix table and in active use (`PIC-1`, `PIC-2`), so the anchor mechanism is available; these four obligations are simply un-coined. Without per-obligation anchors, conformance tests, diagnostics, and cross-page citations can reference the block only by parent-section heading, collapsing four independently-testable failure modes onto one citation surface and leaving GOV-9's `#prefix-n` cross-link contract unsatisfiable for any caller that needs to pin one obligation. GOV-22 is the rule that admits this gap and prescribes coining a dual-form `PIC-N` anchor at each defining site.
-
-## Solution approach
-
-Add four dual-form `PIC-N` anchors — `PIC-3`, `PIC-4`, `PIC-5`, `PIC-6`, the next free integers after `PIC-1` and `PIC-2` — one per bullet in the Probe-wide invariants block, following the GOV-1 dual-form layout already used at the `pic-1` and `pic-2` anchors.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — same-cluster (same GOV-22 trigger; resolved independently per its own page).
-- T21 "cancellation.md carries no CNCL-N REQ-IDs" — same-cluster (page-wide instance of the same gap).
-- T22 "invocation.md carries no INV-N REQ-IDs" — same-cluster (same page carries inbound-to-invocation cross-links that the INV-N coinage lands alongside).
