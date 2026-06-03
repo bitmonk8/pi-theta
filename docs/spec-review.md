@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 13 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 12 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -941,56 +941,3 @@ Rewrite the `estimateTokens` paragraph in `pi-integration-contract.md` to defer 
 
 - T35 "Session-context truncation — `estimateTokens` callsite spans two unbridged message types" — same-cluster (same paragraph and adjacent binder callsite; resolution must remain compatible but the type-assignability question is independent of the ownership question).
 - T09 "`ui.notify` inline signature contradicts the pinned SDK declaration" — same-cluster (sibling normative-vs-SDK alignment issue on the same page; different remedy class — ownership story vs typo).
-# T35 - Session-context truncation — `estimateTokens` callsite spans two unbridged message types
-
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `estimateTokens` callsite in `pi-integration-contract.md` § *`estimateTokens` (named export)* consumes `AgentMessage`, while `binder.md` § *Session-context truncation* and § *Compact-transcript format* call the `buildSessionContext(...).messages` elements "the `Message` union", and PIC § *`buildSessionContext` (named export)* describes `.messages` only as "the ordered message list" without naming its element type. No section states whether these references denote the same type or whether a conversion runs between the source and the `estimateTokens` parameter. The two callsites also disagree on the assistant tool-call field shape: PIC's formula sums `toolCall.name` / `JSON.stringify(toolCall.arguments)` (singular `toolCall`, field `arguments`), while `binder.md` rule 4 renders from a `toolCalls[]` array with fields `name` / `args`. Because the compact transcript is byte-pinned, the divergence is observable in the determinism contract.
-
-## Solution approach
-
-In `pi-integration-contract.md` § *`buildSessionContext` (named export)*, pin the element type of the returned `SessionContext.messages` and cite its SDK declaration. Rename the `Message`-union phrasing in `binder.md` § *Compact-transcript format* to the same type term so both pages name a single type; if the element type differs from the `estimateTokens` parameter, document the conversion at the binder callsite. Reconcile the assistant tool-call field names so PIC's `estimateTokens` formula and `binder.md` rule 4 read the same container and scalar field, matching the SDK declaration T36 cites.
-
-## Solution constraints
-
-- Out of scope: the `SessionContext` / `AgentMessage` element-type declaration block and per-variant field shapes owned by T36.
-
-## Relationships
-
-- T36 "Compact-transcript renderer references undeclared `SessionContext`/`AgentMessage` fields that do not match the SDK" — co-resolve (the SDK citation requested there is the same edit that pins the element type here; do both in one pass — resolve T36 first and this finding collapses to a one-line cross-reference).
-- T34 "`estimateTokens` — ownership story is incoherent" — same-cluster (both touch the PIC `estimateTokens` block; resolve independently — that finding governs who owns the formula, this one governs which type the formula consumes).
-# T36 - Compact-transcript renderer references undeclared `SessionContext`/`AgentMessage` fields that do not match the SDK
-
-**Kind:** implementability
-**Importance:** blocker
-**Score:** 200
-**Must-fix:** true
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-binder.md's "Compact-transcript format (normative)" sub-section pins byte-exact renderings A–D over the message union returned by `buildSessionContext(...).messages`, reading per-variant fields (`assistant.text`, `assistant.toolCalls[].args`, toolResult "text vs structured" content, and the `custom` fields). pi-integration-contract.md's `buildSessionContext` paragraph cites `.messages` as "the ordered message list" but never declares or cites the `SessionContext` type, the `.messages` element-type union, or the per-variant field shapes — the lone SDK surface the spec consumes without a `dist/**/*.d.ts` citation. The cited field names are also wrong against the SDK pin: `.messages` is `AgentMessage[]`; `AssistantMessage` has no `.text`/`.toolCalls` but a `content: (TextContent | ThinkingContent | ToolCall)[]` array; the tool-call field is `arguments`, not `args`; `ToolResultMessage.content` is always a typed-block array; and `CustomMessage.content` is a `string | (TextContent | ImageContent)[]` union, not a flat string. An implementer cannot produce renderings A–D as written, and divergent accessor guesses void the Determinism reproducibility contract those renderings underwrite.
-
-## Solution approach
-
-Add a `SessionContext` / `AgentMessage` type-declaration block to pi-integration-contract.md's `buildSessionContext` paragraph, alongside the existing `ExtensionContext` inline-shape block, citing `SessionContext` to `dist/core/session-manager.d.ts`, `AgentMessage` to the `@earendil-works/pi-agent-core/dist/types.d.ts` anchor the `estimateTokens` paragraph already uses, the `Message`-arm variants (`UserMessage` / `AssistantMessage` / `ToolResultMessage` and the `TextContent` / `ThinkingContent` / `ToolCall` content-block types) to `@earendil-works/pi-ai/dist/types.d.ts`, and `CustomMessage` to `@earendil-works/pi-coding-agent/dist/core/messages.d.ts`, under the same Pi-minor-bump re-validation obligation the sibling blocks carry. Rewrite binder.md's "Compact-transcript format (normative)" rule 4 to walk the cited shapes: concatenate `TextContent.text` in array order for the `assistant` and `toolResult` bodies, emit one `[tool-call …]` sibling per `ToolCall` using the SDK field name `arguments` (not `args`), and render the `CustomMessage.content` string-vs-array union. Re-state reference renderings A–D against the corrected accessors.
-
-## Solution constraints
-
-- The rendered byte output of reference renderings A–D MUST NOT change; only the prose describing the `assistant` message's `content` array (rendering B) is corrected.
-- Out of scope: the `estimateTokens` paragraph — reuse its existing `@earendil-works/pi-agent-core/dist/types.d.ts` anchor rather than re-citing or editing it.
-
-## Relationships
-
-- T35 "Session-context truncation — `estimateTokens` callsite spans two unbridged message types" — co-resolve (the `args` vs `arguments` reconciliation and the `Message`-union-vs-`AgentMessage` type-relationship statement are subsumed by this finding's declaration block; resolve this finding first and the sibling collapses to a one-line cross-reference).
-- T34 "`estimateTokens` — ownership story is incoherent" — same-cluster (touches the same `pi-integration-contract.md` `AgentMessage`-shape surface but the ownership question for the estimator formula is independent of declaring the message shapes).
