@@ -4,7 +4,7 @@ _Generated: 2026-06-03T12:45:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T29) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 8 high, 18 medium retained; 6 low discarded; 11 low findings merged into 7 medium findings (plus two medium+medium and one high+high consolidation merges); 4 nit dropped; 0 false dropped._
+_Triage tally: 1 blocker, 7 high, 18 medium retained; 6 low discarded; 11 low findings merged into 7 medium findings (plus two medium+medium and one high+high consolidation merges); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -574,28 +574,3 @@ Add a `loom/load/unknown-bind-context-value` (E, load) row to `diagnostics.md` f
 
 - T20 "`respond_repair.methodology` — behaviour for unrecognised value undefined" — co-resolve (identical missing-enum-value shape on `bind_context`; both fixes land as parallel catalogue rows + field-contract row edits in the same pass).
 - T28 "Binder model — configured-string-to-`(provider, modelId)` parse rule" — must-follow (the loom `model:` identifier parse reuses the `(provider, modelId)` parse rule defined there; resolve that finding first so this one forward-links rather than re-states).
-# T22 - Loop-iteration checkpoint does not yield the event loop, so a CPU-bound body is uncancellable
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`cancellation.md`'s **Granularity** rule lists the boundary before each `for`/`while` iteration as a cancellation checkpoint, and PIC's `Checkpoint` seam (`id="checkpoint-seam"`) wires production checkpoints as `await` of an already-resolved promise — a microtask. For a loom body with no genuine `await` between iterations (e.g. `while true { count += 1 }`), the microtask queue drains without ever returning a turn to the event loop, so the Pi event dispatch that flips `ctx.signal.aborted` (a macrotask) never runs and the signal-check at the loop checkpoint reads a value that cannot change. The spec therefore presents the loop boundary as a cancellation point that operationally is not one: Esc (or any path firing `loomAbort.abort(...)`) during a pure compute-bound loom loop cannot land at the checkpoint and the host appears to hang. The other Granularity checkpoints incidentally yield because they precede real async I/O; the defect is specific to the loop-iteration checkpoint.
-
-## Solution approach
-
-Rewrite the production-wiring bullet of PIC's `Checkpoint` seam (`id="checkpoint-seam"`) so the `loop-iter` checkpoint kind yields to a macrotask turn before the signal-check is read, while the other checkpoint kinds may keep their microtask resolution. Add a sentence to `cancellation.md`'s **Granularity** rule guaranteeing that the loop-iteration checkpoint releases the event loop so a Pi-dispatched abort can land before the next iteration's signal-check, with a forward-link to the seam.
-
-## Solution constraints
-
-- Out of scope: adding or removing checkpoints from the Granularity enumeration or the `CheckpointKind` union — the fix changes only how the existing `loop-iter` checkpoint resolves; the Granularity enumeration's REQ-ID anchoring is owned by T02.
-
-## Relationships
-
-- T02 "`cancellation.md` carries no `CNCL-N` REQ-ID anchors" — decision-overlap (the Granularity-enumeration MUST this finding amends is one of the obligations T02 coins a `CNCL-N` for; the new sentence introduced here should land under that `CNCL-N` anchor).
-
