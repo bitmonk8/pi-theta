@@ -2,9 +2,9 @@
 
 _Generated: 2026-06-02T08:55:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T14) is addressed first; the first finding (T10) is addressed last._
+_Process: bottom-up - the last finding (T13) is addressed first; the first finding (T10) is addressed last._
 
-_Triage tally: 5 high retained (T10-T14); 9 medium findings (T01-T09) removed by request._
+_Triage tally: 4 high retained (T10-T13); 9 medium findings (T01-T09) removed by request._
 
 ---
 
@@ -111,30 +111,3 @@ Rewrite the `loom/runtime/reload-teardown-timeout` row in `diagnostics.md` to pi
 - T16 "`loom/load/host-incompatible` — `<required>` placeholder rendering is undefined" - same-cluster (both concern category-4 numeric-rule scope and registry-row testability; resolve independently).
 - T15 "`host-incompatible` kind `\"abortsignal-shape\"` — observed/required undefined for the `\"in\"` checks" - same-cluster (registry-row payload-field underspecification; independent fix).
 - T14 "`host-incompatible` kind `\"sdk-capability-missing\"` — no failing-member discriminator" - same-cluster (registry-row `details` underspecification; independent fix).
-# T14 - `host-incompatible` kind `"sdk-capability-missing"` carries no discriminator identifying which of the ten probed members failed
-
-**Kind:** testability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 4
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Step 0 (c) of the capability probe (`pi-integration-contract.md` `#entry-capability-probe`, the **(c) Factory-probable SDK capabilities** paragraph) probes ten named SDK function members and routes any failure to `loom/load/host-incompatible` with `details.kind = "sdk-capability-missing"`, but the spec never pins what `details.observed` / `details.required` hold for this kind and adds no sibling field naming the failing member — unlike the `"peer-dep-*"` kinds, which carry `details.package`. The iteration order within step (c) is listed in prose but is not declared a normative short-circuit sequence, so a conformance test that removes exactly one of the ten members cannot deterministically predict which payload the runtime emits. The `diagnostics.md` `loom/load/host-incompatible` registry row compounds the gap by stating `"sdk-capability-missing"` covers one of **seven** factory-probable members, while Step 0 (c) lists **ten**. No test vector in `diagnostics.md`'s Message-template determinism block covers this kind.
-
-## Solution approach
-
-Add a sibling discriminator field to the `"sdk-capability-missing"` failure payload naming the failing member, mirroring the `details.package` precedent the peer-dep kinds establish, and add a per-kind contract pinning its `details.observed` / `details.required` values. Pin step (c)'s ten-member iteration as a normative first-failure short-circuit sequence in `pi-integration-contract.md` `#entry-capability-probe`. Reconcile the `diagnostics.md` `loom/load/host-incompatible` registry row's member count to ten. Add a `"sdk-capability-missing"` test vector to `diagnostics.md`'s Message-template determinism block.
-
-## Solution constraints
-
-- Out of scope: the `diagnostics.md` §8 category-4 `<observed>` / `<required>` placeholder reclassification and the per-kind closed-value table — owned by T16.
-- `diagnostics.md` MUST cite the Step 0 (c) pinned-constants anchor for the ten capability paths rather than restating the literal list (single-source-of-truth pattern).
-
-## Relationships
-
-- T16 "`loom/load/host-incompatible` — `<required>` placeholder rendering is undefined" - decision-overlap (both design the per-kind `details.{observed,required}` contract on the host-incompatible row; the per-kind closed-value table is the natural home for this row — pick a consistent per-kind table).
-- T15 "`host-incompatible` kind `\"abortsignal-shape\"` — observed/required undefined for the `\"in\"` checks" - decision-overlap (parallel `details.<discriminator>` sibling-field design — `details.capability` here mirrors `details.member` there; keep consistent naming across the two host-incompatible kinds).
