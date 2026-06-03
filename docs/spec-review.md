@@ -2,9 +2,9 @@
 
 _Generated: 2026-06-03T17:33:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T04) is addressed first; the first finding (T01) is addressed last._
+_Process: bottom-up - the last finding (T03) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 high, 4 medium retained; 13 low discarded; 3 low findings merged into 1 medium finding; 4 nit dropped; 0 false dropped._
+_Triage tally: 0 high, 3 medium retained; 13 low discarded; 3 low findings merged into 1 medium finding; 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -170,46 +170,6 @@ Add a discoverable top-level home in `docs/spec.md` for cross-cutting NFR dispos
 
 - Per GOV-12, the change to the Scope bullet count MUST update the "five Scope bullets" integer-count literal and the *multi-source-page* registry entry on `docs/spec_topics/governance.md` in the same commit.
 - Inbound citations to the moved bullets MUST keep resolving — re-emit the `source-language-stability` HTML anchor on the relocated content rather than orphaning the inbound links.
-
-## Relationships
-
-None
-# T04 - SM-2 mislabels a reproduced external union as "normative"
-
-**Kind:** external-entities, traceability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `SM-2 — Closed session_shutdown reason set` bullet at
-`sm-2-closed-shutdown-reason-set` in `docs/spec.md` reproduces the
-SDK-owned `SessionShutdownEvent['reason']` union inline and qualifies it
-as "the closed **normative** set", while the same parenthetical concedes
-the SDK type is the source of truth for the closed reason set. Labelling a
-reproduced external union "normative" while naming an external source of
-truth is internally contradictory: SM-2 owns the routing partition over
-the reason set (closed-set members vs. unknown reason), not the
-enumeration itself. The PIC `#session-binding-contract` already states the
-closed set matches the SDK union and forwards ownership of the set to the
-`#unknown-reason-rule`, so a reader cannot tell from SM-2 whether the
-bullet or the SDK type is authoritative for the enumeration.
-
-## Solution approach
-
-Rewrite the SM-2 parenthetical at `sm-2-closed-shutdown-reason-set` so the
-word "normative" no longer attaches to the reproduced enumeration: name
-the SDK `SessionShutdownEvent['reason']` type as authoritative for the
-enumeration and reserve the spec-owned obligation for the closed-set
-members vs. unknown-reason routing partition. Forward-link the
-spec-owned partition to the PIC `#unknown-reason-rule`.
-
-## Solution constraints
-
-- None.
 
 ## Relationships
 
