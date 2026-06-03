@@ -40,3 +40,20 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-06-03 — T21 - cancellation.md carries no CNCL-N REQ-IDs
+
+- **Failure mode:** fast-loop-unresolved
+- **Category:** 2 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (n/a pass(es) in stage)
+- **Snapshot refs (retained for forensics):** n/a (loop did not run)
+- **Poisoned fixes:** n/a
+- **Forensic report:** none (fast loop — no forensic report)
+- **Parked findings (this run):** `T21 - cancellation.md carries no CNCL-N REQ-IDs`
+- **Loop notes:** finding not resolved by fast fix — B3 returned FindingResolved=partial; CNCL-1..16 anchors coined and spec.md SM-7a/SM-7e repointed, but the finding's "repoint every inbound cross-reference from depending pages" (binder.md, errors-and-results.md, pi-integration-contract.md, slash-invocation.md, hard-ceilings.md, diagnostics.md) was unmet.
+- **Fixer notes:** none
+
+---
