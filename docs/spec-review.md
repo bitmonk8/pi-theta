@@ -4,7 +4,7 @@ _Generated: 2026-06-03T08:30:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T11) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 2 high, 9 medium retained; 8 low discarded; 9 low findings merged into 2 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 1 high, 9 medium retained; 8 low discarded; 9 low findings merged into 2 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -293,28 +293,4 @@ In `docs/spec.md`, rewrite the alias-arm hrefs to cite the canonical arm. Cross-
 - T03 "Eight loom 1.0 non-goals lack per-item citation anchors" - same-cluster (operates on the same V1-non-goals aggregator paragraph; co-edit avoids merge churn).
 - T01 "Spec-corpus editorial and governance meta-commentary misplaced in implementer-facing orientation" - decision-overlap (T01's V1-non-goals closing-paragraph deletion removes two of the offending hrefs; resolve the remaining-citation scope consistently — preferably land T01's deletion first so this fix does not canonicalise hrefs that get deleted).
 - T02 "Orientation aggregators and Session-Model sub-obligations lack per-item citation anchors" - same-cluster (both touch the Scope / Forward-compatibility-seams surface; orthogonal anchor vs href edits).
-# T11 - Host-runtime umbrella overclaims that Step 0 owns every precondition surface
 
-**Kind:** consistency
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The **Host runtime** orientation paragraph in `spec.md` opens with an absolute claim that all three host preconditions' detection / refusal / discriminator surfaces live entirely in PIC's Step 0 capability probe (`#entry-capability-probe`) and emit `loom/load/host-incompatible`. Precondition 3's own body contradicts this: capability item 7 (binder LLM model) is verified at per-loom load time and surfaces as `loom/load/binder-model-unresolved`, with its operative rule owned by binder.md's `#strict-capability-requirement`, not by Step 0. The companion tag *"Orientation; the operative rule lives in PIC."* on precondition 3 is likewise wrong for item 7. A reader who stops at the umbrella will route the binder-model failure through the Step 0 factory-time path and emit the wrong diagnostic code.
-
-## Solution approach
-
-Rewrite the Host-runtime umbrella sentence in `spec.md` to narrow the Step 0 ownership claim to the factory-probable subset and to admit the item-7 per-loom-load exception inline, ceding item 7's operative rule and surface (`loom/load/binder-model-unresolved`) to binder.md's `#strict-capability-requirement`. Clarify precondition 3's leading orientation tag so it names the binder page as item 7's operative-rule owner and matches its own body.
-
-## Solution constraints
-
-- Item 7's runtime check MUST remain owned by binder.md at per-loom load time; do not broaden PIC Step 0 (`#entry-capability-probe`, factory-time and synchronous) to own it.
-
-## Relationships
-
-- T02 "Orientation aggregators and Session-Model sub-obligations lack per-item citation anchors" - same-cluster (the Host-runtime precondition anchors T02 adds let this narrowed umbrella link `#host-precondition-sdk-capability-surface` rather than re-paraphrase "precondition 3"; land the anchor edit in the same pass that rewords the umbrella).
