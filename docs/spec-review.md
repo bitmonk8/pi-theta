@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 2 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -598,27 +598,3 @@ Add `INV-N` dual-form anchors to `invocation.md` per GOV-1 and GOV-22, one per i
 - T13 "discovery.md carries zero DISC-N REQ-IDs" — same-cluster (same GOV-22 pattern, different page).
 - T14 "frontmatter.md carries no FRNT-N REQ-IDs" — same-cluster (`frontmatter.md` has multiple inbound-to-invocation cross-links; repointings are concurrent but the fixes are independent).
 - T07 "Per-boundary tables use undefined `calling loom` instead of glossary `invoke parent`" — decision-overlap (the new INV-7 anchor on typed return is the natural cross-link target for those tables once the naming finding lands).
-# T23 - Binder Determinism — reproducibility scope overreaches the provider contract
-
-**Kind:** assumptions
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-binder.md's "Compact-transcript format (normative)" section justifies byte-level pinning of the transcript renderer as a "hard reproducibility contract," and the Determinism section states the same loom produces the same seed and the same binder decision "on every run and across processes." This framing rests on an unstated assumption that the provider maps `(prompt-bytes, temperature: 0, seed)` to byte-identical output — a property of the provider stack, not of loom, which controls only deterministic seed derivation and deterministic prompt-byte construction. The Provider seed-field mapping table (`#provider-seed-field-mapping` in pi-integration-contract.md) omits the `seed` field for `anthropic-messages` and `amazon-bedrock` — exactly the transports the binder-model guidance steers authors toward (Claude Haiku) — so loom's cross-run determinism guarantee never reaches those providers, and alias-resolved snapshots can drift between runs. The over-broad output-determinism premise weakens the load-bearing justification for the MUST-reproduce-exactly transcript rendering and invites conformance tests asserting cross-run output equality that flake.
-
-## Solution approach
-
-Rewrite the "Why the transcript bytes are pinned" paragraph in binder.md's "Compact-transcript format (normative)" section to scope the reproducibility claim to what loom controls — byte-identical binder input and a deterministic seed value — and to state that whether the provider maps that input to byte-identical output is provider-dependent, naming the seed-omitted transports per `#provider-seed-field-mapping` and the upstream-API caveat for seed-accepting transports. Add a pointer noting alias-resolved binder models (per `binder-model-parse-rule`) further depend on the resolved concrete model staying stable across runs. Rewrite the Determinism section's closing sentence ("The same loom therefore produces the same seed on every binder call across processes and runs") to scope it to the seed value rather than the binder's sampled output, cross-referencing the seed-field mapping table for the transport-level caveat.
-
-## Solution constraints
-
-- The MUST-reproduce-exactly status of the reference transcript renderings A–D must remain normative; the rewrite re-justifies it on input-reproducibility / cache-stability / audit grounds, it does not weaken the rule.
-
-## Relationships
-
-- T03 "Determinism section over-pins FNV-1a as the binder-seed algorithm" — same-cluster (same Determinism section; that finding's rationale clause should reference the narrowed reproducibility-contract wording produced here, but neither blocks the other — sequence the edits to avoid merge churn).
