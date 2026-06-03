@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 12 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 11 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -916,28 +916,3 @@ Rewrite the `max_rounds: 0` separator clause in `query.md` § *Typed queries are
 
 - T02 "Failure-mode templates use an undefined `<provider>` placeholder" — same-cluster (also a normative template-bytes contract bug, in `binder.md` rather than `query.md`; resolves independently).
 - T11 "Vestigial 'decided separately' pointers in query.md should link to Degenerate rendered templates" — same-cluster (another `query.md` cross-reference defect; independent fix).
-# T34 - `estimateTokens` — ownership story is incoherent
-
-**Kind:** external-entities
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `estimateTokens` (named export) paragraph in `pi-integration-contract.md` frames the function as a Pi-owned import ("Imported from `@earendil-works/pi-coding-agent`") yet authors a normative return-value contract on top of it: a pinned `Math.ceil(chars / 4)` formula, an itemised list of which strings contribute to `chars`, and a MUST reference vector requiring `"😀😀😀"` to estimate to exactly 2 tokens. A consuming spec cannot legitimately mandate the byte-for-byte behaviour of an upstream package's function. The "Pi parity (advisory)" sub-paragraph confirms the incoherence — it asserts the normative requirement is loom's formula rather than Pi parity, which only holds if loom owns the estimator, contradicting the import framing. Pi's actual estimator ceilings `chars` per message-variant branch while the spec sums once over the whole message, so the two disagree for any multi-block message — feeding divergent per-turn totals into the 8000-token truncation cutoff.
-
-## Solution approach
-
-Rewrite the `estimateTokens` paragraph in `pi-integration-contract.md` to defer the algorithm to Pi: keep the import and the `estimateTokens(message: AgentMessage): number` signature, and demote the `Math.ceil(chars / 4)` formula and the `"😀😀😀"` reference vector from normative to a non-normative description of behaviour at the [loom 1.0 Pi-SDK pin](#pi-sdk-pin), attributed to Pi's `core/compaction/compaction.ts`. State loom's observable contract — the returned `number` is the per-message token estimate fed into the truncation walk in binder.md's [session-context truncation](./binder.md#session-context-truncation-bind_context-session). Delete the redundant "Pi parity (advisory)" sub-paragraph.
-
-## Solution constraints
-
-- Out of scope: which type `estimateTokens` consumes (`AgentMessage` vs the binder's `Message`-union callsite) — owned by T35; this resolution must remain compatible with whichever way T35 lands but must not pre-empt it.
-
-## Relationships
-
-- T35 "Session-context truncation — `estimateTokens` callsite spans two unbridged message types" — same-cluster (same paragraph and adjacent binder callsite; resolution must remain compatible but the type-assignability question is independent of the ownership question).
-- T09 "`ui.notify` inline signature contradicts the pinned SDK declaration" — same-cluster (sibling normative-vs-SDK alignment issue on the same page; different remedy class — ownership story vs typo).
