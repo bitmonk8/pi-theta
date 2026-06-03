@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 6 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 5 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -720,28 +720,3 @@ not binder-supplied) is observable to a fixture author.
 
 - T24 "Echo policy — 'first field' rule undefined for anonymous inline-object-typed values" — same-cluster (both touch the Echo policy formatter; resolve independently).
 - T08 "Runtime bullets name AJV in normative prose despite SchemaValidator being the contract" — same-cluster (both involve the post-default-merge validation step; the rename of "AJV" → "SchemaValidator" is editorial and does not constrain the fill-semantics decision).
-# T27 - Importing a non-existent symbol from a `.warp` file is unspecified
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`imports.md` enumerates the static import failure modes (non-`.warp` extension, backslash separator, name collision, top-level statement, import cycle) but does not specify what happens when an `import { ... }` or `export { ... } from` specifier names a symbol that is not a top-level declaration of the resolved `.warp` file. The *Visibility* paragraph states only that every top-level `schema`/`enum`/`fn` is implicitly exported; it does not cover the requested-name-not-present case, and the `diagnostics.md` code registry offers no candidate. `loom/parse/unknown-identifier` is scoped to bare identifiers in expression position, not to import resolution. Two conforming implementations can therefore diverge on the diagnostic code, severity, firing phase, and even whether any separate diagnostic is emitted at all.
-
-## Solution approach
-
-Clarify in `imports.md` (*Visibility* / *Re-exports*) that an `import` or `export ... from` specifier naming a symbol that is not a top-level declaration — or a transitive re-export — of the resolved `.warp` file is a static error, and add the corresponding parse-phase diagnostic to the `diagnostics.md` `loom/parse/*` code registry with its severity and phase. State the firing point relative to the resolved file's own parse and how the error interacts with the existing multi-error batching rule. Cover both the `import { Foo }` and the `export { Foo } from` (including `as`-aliased) forms.
-
-## Solution constraints
-
-- Out of scope: the `loom/parse/unknown-identifier` scope defined in `expressions.md` and `diagnostics.md` must not be broadened to cover import or re-export specifiers.
-
-## Relationships
-
-None

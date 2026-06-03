@@ -32,6 +32,8 @@ export { Author as Reviewer } from "./personas.warp"
 
 A plain `import { Author } from "./personas.warp"` does **not** re-export `Author` from the importing file — only declarations and explicit `export ... from` forms are visible to downstream importers.
 
+**Unknown imported symbol.** An `import { Foo }` or `export { Foo } from` specifier — including the `as`-aliased forms `import { Foo as Bar }` and `export { Foo as Bar } from` — that names a symbol `Foo` which is neither a top-level declaration nor a transitive re-export (`export … from`) of the resolved `.warp` file is a static error `loom/parse/import-unknown-symbol`. The error names the source symbol (`Foo`), not the alias (`Bar`). The check fires after the resolved `.warp` file's own parse completes: the resolved file's set of top-level declarations and `export … from` re-exports must be known before an importing specifier can be matched against it. It participates in the [Diagnostics — Multi-error reporting](./diagnostics.md) batching rule rather than fast-failing — an unknown-symbol error is collected alongside every other parse / type error from the importing file and its transitive `.warp` imports, and all are reported in one batch. This error is distinct from `loom/parse/unknown-identifier`, which is scoped to bare identifiers in expression position and is never raised for `import` or `export … from` specifiers.
+
 **Name collisions.** Two imports bringing in the same symbol name is `loom/parse/import-name-collision`. Resolve with `as`-aliasing:
 
 ```loom
