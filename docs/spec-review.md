@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 21 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -572,29 +572,3 @@ Coin `CNCL-N` dual-form anchors per GOV-1 / GOV-22 on `cancellation.md`, one per
 - T20 "Tool-call late-settlement discard paragraph needs three CNCL-N sub-anchors" — must-precede (the three sub-anchors land inside this fix as `CNCL-15a` / `CNCL-15b` / `CNCL-15c`; resolve this page-wide coinage first so the sub-obligation finding lands on its baseline).
 - T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — same-cluster (identical traceability gap on `binder.md`; inbound links from `cancellation.md` to `binder.md`'s cancelled-binder failure-mode benefit from being repointed in lock-step).
 - T31 "Per-cause caller surfaces table — Cancellation row contradicts cancellation.md surfacing" — decision-overlap (that finding's recommended pointer should target a CNCL-N anchor once these exist; today it targets the section heading).
-# T22 - invocation.md carries no INV-N REQ-IDs
-
-**Kind:** traceability
-**Importance:** medium
-**Score:** 35
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`invocation.md` is registered with REQ-ID prefix `INV` in the governance.md REQ-ID prefix table, but the page carries zero `INV-N` anchor sites despite being normatively dense — the symlink-resolution hardening seam, the named-argument-invocation `style` discriminator, the per-call-timeout open-struct seam, the invoke-chain depth cap, the cross-mode snapshot/restore protocol, static resolution, typed return, argument arity, cycle detection, and the invoke-cause `QueryError` partition, among others. Because no `INV-N` anchors exist, GOV-9's `#prefix-n` cross-link contract is unsatisfiable for every inbound dependency: spec.md's Session Model aggregator plus cancellation.md, diagnostics.md, errors-and-results.md, frontmatter.md, functions.md, future-considerations.md, hard-ceilings.md, implementation-notes.md, pi-integration-contract.md, and tool-calls.md currently link only to section-heading slugs or bespoke `#static-resolution` / `#typed-return` / `#argument-binding` / `#final-value-propagation` / `#cycle-detection` anchors that are not REQ-ID anchors under GOV-1. This is the residue GOV-22 was written to close.
-
-## Solution approach
-
-Add `INV-N` dual-form anchors to `invocation.md` per GOV-1 and GOV-22, one per independently-violable normative obligation on the page, and repoint each inbound consumer's cross-references to the new `#inv-n` fragments in the same commit. Keep the bespoke `#static-resolution`, `#typed-return`, `#argument-binding`, `#final-value-propagation`, and `#cycle-detection` anchors as co-located aliases. Repoint future-considerations.md's symlink-hardening *Anchored at:* link to the `INV-N` anchor owning the single-named-function MUST.
-
-## Solution constraints
-
-- Out of scope: the `calling loom` → `invoke parent` per-boundary-table naming on hard-ceilings.md and tool-calls.md, owned by T07 — repoint only the cross-link targets in those rows, do not edit the surrounding cell wording.
-
-## Relationships
-
-- T13 "discovery.md carries zero DISC-N REQ-IDs" — same-cluster (same GOV-22 pattern, different page).
-- T14 "frontmatter.md carries no FRNT-N REQ-IDs" — same-cluster (`frontmatter.md` has multiple inbound-to-invocation cross-links; repointings are concurrent but the fixes are independent).
-- T07 "Per-boundary tables use undefined `calling loom` instead of glossary `invoke parent`" — decision-overlap (the new INV-7 anchor on typed return is the natural cross-link target for those tables once the naming finding lands).
