@@ -146,3 +146,40 @@ Add dual-form `FRNT-N` anchors at each independently-violable defining obligatio
 - T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — same-cluster (parallel GOV-22 gap).
 - T13 "discovery.md carries zero DISC-N REQ-IDs" — same-cluster (parallel GOV-22 gap).
 - T22 "invocation.md carries no INV-N REQ-IDs" — same-cluster (`frontmatter.md` has multiple inbound-to-invocation cross-links; repointings are concurrent but the fixes are independent).
+
+---
+
+## T12 - binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs
+
+> **PARKED** — 2026-06-03
+> **Reason:** Category 2 (fixer too-hard — fast-loop capability gap; the `/spec-fix-findings-loop` fast loop is single-shot and could not deliver the Solution approach's per-independently-testable-obligation granularity). The fast fix returned FindingResolved=partial: block-level `BNDR-N` anchors were coined cleanly, but the per-obligation granularity and the reference-rendering byte-pinning / per-invocation-retry-budget `BNDR-N` pair were deferred. Loop notes: finding not resolved by fast fix — B3 returned FindingResolved=partial; BNDR-4..7 block-level anchors coined cleanly, but the Solution approach's per-independently-testable-obligation granularity was narrowed to one block-level ID per section, and the reference-rendering byte-pinning lead-ins / per-invocation-retry-budget BNDR-N pair were deferred.
+> **Forensic report:** none (fast loop — no forensic report)
+
+# T12 - binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs
+
+**Kind:** traceability
+**Importance:** medium
+**Score:** 25
+**Must-fix:** false
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+The `BNDR` prefix is registered in `governance.md`, but only `BNDR-1 … BNDR-3` are coined on `binder.md`, all three on the *Binder envelope* sub-section. The page's other dense normative-MUST surfaces — *Compact-transcript format (normative)*, *Session-context truncation (`bind_context: session`)*, *System-prompt structure (normative)*, and *Failure-mode templates (normative)* — carry no `BNDR-N` anchors, even though each rule is independently violable and independently testable. Per `GOV-22`, until these obligations are coined, `GOV-9`'s `#prefix-n` cross-link contract is unsatisfiable for them: inbound references from `spec.md`, `slash-invocation.md`, `frontmatter.md`, and `pi-integration-contract.md` resolve only to section-heading anchors or bespoke per-paragraph anchors, never to a per-obligation stable ID.
+
+## Solution approach
+
+Add dual-form `BNDR-N` anchors at the un-anchored normative obligation sites on `binder.md` — *Session-context truncation*, the *Compact-transcript format* MUST rules, the *System-prompt structure* items, the reference-rendering byte-pinning lead-ins, and the *Failure-mode templates* obligations — allocating numeric tails per `GOV-3` (next free integer starting at `BNDR-4`, no hole-filling) in the `GOV-1` *Dual-form layout*. Coin one ID per independently-testable obligation so each citable MUST resolves to its own `#bndr-n`, rather than a single block-level ID per section. Where a bespoke anchor already exists (e.g. `#per-invocation-retry-budget`), keep it in place and add the `BNDR-N` dual-form pair alongside.
+
+## Solution constraints
+
+- Out of scope: defining the `<provider>` placeholder (owned by T02) and repointing the `<ajv-summary>` cross-link to `#err-n` (owned by T18).
+
+## Relationships
+
+- T13 "cancellation.md carries no CNCL-N REQ-IDs" — same-cluster (same systemic GOV-22 gap on a different topic page; resolved independently).
+- T16 "query.md missing QRY-N REQ-IDs" — same-cluster (parallel GOV-22 gap; independent prefix).
+- T17 "slash-invocation.md carries no SLSH-N REQ-ID anchors" — same-cluster (parallel GOV-22 gap; independent prefix).
+- T18 "`validation-issue-ordering` paragraph carries no ERR-N REQ-ID" — decision-overlap (the `<ajv-summary>` clause on `binder.md` cites the `validation-issue-ordering` paragraph by parent-section anchor; once that paragraph gets its `ERR-N`, the `binder.md` `<ajv-summary>` text should be repointed to `#err-n`).
+- T02 "Failure-mode templates use an undefined `<provider>` placeholder" — decision-overlap (the `<provider>` definition will sit under whichever BNDR-N anchor this coinage assigns to the placeholder paragraph).

@@ -91,3 +91,20 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-06-03 — T12 - binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs
+
+- **Failure mode:** fast-loop-unresolved
+- **Category:** 2 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a (fast loop — no inner-loop trajectory)
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (fast loop — no staged dispatch)
+- **Snapshot refs (retained for forensics):** n/a
+- **Poisoned fixes:** n/a
+- **Forensic report:** none (fast loop — no forensic report)
+- **Parked findings (this run):** `T12 - binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs`
+- **Loop notes:** finding not resolved by fast fix — B3 returned FindingResolved=partial; BNDR-4..7 block-level anchors coined cleanly, but the Solution approach's per-independently-testable-obligation granularity was narrowed to one block-level ID per section, and the reference-rendering byte-pinning lead-ins / per-invocation-retry-budget BNDR-N pair were deferred.
+- **Fixer notes:** none
+
+---
