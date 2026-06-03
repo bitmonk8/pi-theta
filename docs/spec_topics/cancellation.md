@@ -51,6 +51,8 @@ Edge cases:
 - A query or tool call's pre-call checkpoint fires *before* the call is dispatched. An abort observed *during* an in-flight query, tool call, or `invoke` surfaces through the underlying provider's abort path as the corresponding `Err` variant per the **Surfacing** rules below, not through a pre-call checkpoint.
 - The two race rules — no retroactive `Ok(v)` → `Err({kind:"cancelled"})` rewrite, and no top-level synthesis when no further checkpoint executes — are only deterministically testable through a runtime-internal hook that fires synchronously *before* each checkpoint's signal-check. That hook is the `Checkpoint` seam declared in [Pi Integration Contract — `Checkpoint` seam](./pi-integration-contract.md#checkpoint-seam). Production wiring is a no-op (an already-resolved promise per checkpoint); tests use it to land an abort at a chosen checkpoint boundary without depending on JS microtask scheduling. The seam is purely a test surface and imposes no observable behaviour on production code beyond the always-`await`ed no-op.
 
+<a id="surfacing"></a>
+
 **Surfacing.**
 
 - An in-flight query whose signal aborts returns `Err(QueryError { kind: "cancelled", message: "..." })`.

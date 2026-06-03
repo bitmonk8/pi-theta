@@ -76,7 +76,7 @@ An `invoke` parent whose callee fails to load observes a separate evaluation-tim
 | Author-returned `Err` | corresponding `QueryError` variant per [Invocation — Failures](./invocation.md) (wrapped in `InvokeCalleeError`) | per-`kind` row in [Slash-Command Invocation — Top-level `Err`](./slash-invocation.md) | runtime event when `kind` is in the always-log set per [Pi Integration Contract — Runtime event channel](./pi-integration-contract.md) |
 | Panic | `InvokeInfraError { cause: "panic", ... }` per **Runtime panics** below | `"loom /<name> aborted: <message>"` system note per **Runtime panics** below | `loom-system-note` carrying `details: { diagnostics: [Diagnostic] }` (PIC group B) |
 | Hard-ceiling exhaustion | per the per-ceiling routing class named at [`spec.md` — Hard ceilings](../spec.md#hard-runtime-ceilings) | same | same |
-| Cancellation | `Err(QueryError { kind: "cancelled", ... })` per [Cancellation](./cancellation.md) | per [Cancellation — Surfacing](./cancellation.md) | not in the always-log set |
+| Cancellation | per the two-arm `invoke`-parent rule in [Cancellation — Surfacing](./cancellation.md#surfacing) (a child-internal abort wraps `kind: "invoke_callee_error", inner: { kind: "cancelled", ... }`; a parent-own-signal abort surfaces bare `kind: "cancelled"`) | per [Cancellation — Surfacing](./cancellation.md) | not in the always-log set |
 
 <a id="partial-append-contract"></a>
 

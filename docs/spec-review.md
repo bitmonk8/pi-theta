@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 10 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 9 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -819,29 +819,3 @@ Resolve the collision by making `looms` a single object namespace holding the `b
 ## Relationships
 
 - T04 "Settings-watcher debounce window left unpinned" — same-cluster (same *Settings file reads* section, independent issue; the debounce fix touches **Caching and reload**, this one touches **Keys read**).
-# T31 - Per-cause caller surfaces table — Cancellation row contradicts cancellation.md surfacing
-
-**Kind:** cross-spec-consistency-broad
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The *Per-cause caller surfaces* table in `errors-and-results.md` maps the **Cancellation** cause's `invoke` parent cell to a single `Err(QueryError { kind: "cancelled", ... })` surface. That flattens the two-arm rule in `cancellation.md`'s **Surfacing.** section, which distinguishes a child-internal abort (`invoke_callee_error` wrapping `inner: { kind: "cancelled" }`) from a parent-own-signal abort (bare `kind: "cancelled"`). Both pages are normative on `invoke` parent observability, so an implementer reading only the table loses the `invoke_callee_error` envelope that author `match`-arm dispatch relies on to distinguish its own cancellation from its callee's.
-
-## Solution approach
-
-Rewrite the **Cancellation** row's `invoke` parent cell to delegate to `cancellation.md`'s **Surfacing.** rules, following the existing delegation pattern of the *Author-returned `Err`* row, which points at `[Invocation — Failures](./invocation.md)` rather than inlining the envelope. Add a stable anchor on the **Surfacing.** heading in `cancellation.md` so the delegation target resolves precisely.
-
-## Solution constraints
-
-- Out of scope: the *Slash caller* cell of the same **Cancellation** row, which already delegates to `cancellation.md` correctly — do not re-flatten or rewrite it.
-
-## Relationships
-
-- T21 "cancellation.md carries no CNCL-N REQ-IDs" — decision-overlap (the recommended pointer should target a CNCL-N anchor once those exist; today it targets the section heading).
-- T07 "Per-boundary tables use undefined `calling loom` instead of glossary `invoke parent`" — same-cluster (sibling per-boundary-table defect; resolve independently).
-- T32 "Top-level `Err` per-`kind` table — `validation` row collapses the two causes" — same-cluster (analogous "index table flattens a multi-arm reality" defect, different table and cause).
