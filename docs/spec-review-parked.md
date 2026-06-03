@@ -1,6 +1,6 @@
 # pi-loom — Consolidated Spec Review (Parked)
 
-_Parked findings: 2._
+_Parked findings: 3._
 
 ---
 
@@ -72,3 +72,40 @@ Coin `CNCL-N` dual-form anchors per GOV-1 / GOV-22 on `cancellation.md`, one per
 - T20 "Tool-call late-settlement discard paragraph needs three CNCL-N sub-anchors" — must-precede (the three sub-anchors land inside this fix as `CNCL-15a` / `CNCL-15b` / `CNCL-15c`; resolve this page-wide coinage first so the sub-obligation finding lands on its baseline).
 - T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — same-cluster (identical traceability gap on `binder.md`; inbound links from `cancellation.md` to `binder.md`'s cancelled-binder failure-mode benefit from being repointed in lock-step).
 - T31 "Per-cause caller surfaces table — Cancellation row contradicts cancellation.md surfacing" — decision-overlap (that finding's recommended pointer should target a CNCL-N anchor once these exist; today it targets the section heading).
+
+---
+
+## T16 - query.md missing QRY-N REQ-IDs
+
+> **PARKED** — 2026-06-04
+> **Reason:** Category 2 (fixer too-hard — fast-loop capability gap; the fast single-finding fixer partially resolved the finding but could not complete all inbound-link repointings named in the Solution approach). The fast `/spec-fix-findings-loop` fast loop returned FindingResolved=partial — 15 QRY-N anchors were coined and 41 inbound links across 11 pages repointed, but the glossary.md (3 links) and spec.md SM-8 aggregator (1 link) inbound links named in the Solution approach were left at section-heading granularity. Loop notes: finding not resolved by fast fix — B3 returned FindingResolved=partial; 15 QRY-N anchors coined and 41 inbound links across 11 pages repointed, but glossary.md (3 links) and spec.md SM-8 aggregator (1 link) named in the Solution approach were left at section-heading granularity. A human (or a re-run once the QRY-N anchors are confirmed on query.md) must complete the remaining glossary.md and spec.md SM-8 inbound-link repointings before this finding can be marked resolved.
+> **Forensic report:** none (fast loop — no forensic report)
+
+# T16 - query.md missing QRY-N REQ-IDs
+
+**Kind:** traceability
+**Importance:** medium
+**Score:** 25
+**Must-fix:** false
+**Decision axes:** 2
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+`governance.md`'s REQ-ID prefix table registers the `QRY` prefix to `query.md`, but the page carries zero `QRY-N` anchors — neither the GOV-1 *Canonical form* inline `**QRY-N.**` marker nor the *Dual-form layout* `<a id="qry-n">` token — despite hosting many independently verifiable normative obligations. Because no `#qry-n` fragments exist, every inbound cross-link from sibling pages resolves only at section-heading granularity, violating the GOV-9 cross-link contract that requires a `#prefix-n` fragment when the depended-upon page is non-narrative. The GOV-15 "release blocked on uncoined obligations on a registered prefix" condition is currently tripped, and individual obligations cannot be cited by stable id.
+
+## Solution approach
+
+Add `QRY-N` REQ-ID anchors at each independently verifiable normative obligation on `query.md`, following GOV-1 *Canonical form* and *Dual-form layout* and GOV-22's progressive-coinage procedure, with numeric tails allocated per GOV-3. Add forward-links from the inbound cross-references on the sibling pages that cite `query.md` rules (`errors-and-results.md`, `hard-ceilings.md`, `pi-integration-contract.md`, `frontmatter.md`, `glossary.md`, `tool-calls.md`, `schema-subset.md`, and `spec.md`'s SM-8 aggregator) so each repoints to the specific `#qry-n` fragment it depends on.
+
+## Solution constraints
+
+- Preserve the existing bespoke HTML section anchors on `query.md` (`#tool-call-loop-bound`, `#worked-example-depth-6-forced-respond`, `#typed-queries-are-tool-loop-shaped`, `#forced-respond-turn-non-compliance`, and the pre-flight-token-nullability anchors); add the new dual-form `QRY-N` pairs alongside them, not in place of them, so existing inbound links keep resolving.
+
+## Relationships
+
+- T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — same-cluster (parallel un-coined-prefix gap; resolve independently per page).
+- T17 "slash-invocation.md carries no SLSH-N REQ-ID anchors" — same-cluster (parallel gap).
+- T18 "`validation-issue-ordering` paragraph carries no ERR-N REQ-ID" — decision-overlap (QRY-21's `<ajv-summary>` placeholder links to `errors-and-results.md#validation-issue-ordering`; once that paragraph gains an `ERR-N`, the QRY-21 cross-link should be updated in the same edit).
+- T32 "Top-level `Err` per-`kind` table — `validation` row collapses the two causes" — decision-overlap (the resolution of that finding will likely cite the new QRY-5 *empty-template short-circuit* anchor; co-ordinate the inbound-link update).
