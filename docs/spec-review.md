@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 4 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 3 high, 22 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -648,30 +648,3 @@ Clarify the Object-value bullet in binder.md's Echo policy section so the "first
 
 - T01 "Echo policy illustrative example contradicts the quoting predicate" — same-cluster (sits in the same Echo policy bullet list; resolves independently).
 - T26 "Defaulting — fill semantics undefined when the binder supplies a value for a defaulted field" — same-cluster (both touch the Echo policy formatter; resolve independently).
-# T25 - System-note rendering rule 1 — 'whitespace' undefined for collapse and trim
-
-**Kind:** testability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Rule 1 of §System-note rendering (`docs/spec_topics/binder.md`, anchor `id="system-note-rendering"`) is a normative MUST line-discipline. Step 1a (the bullet beginning "**Single line.**") enumerates the characters it replaces explicitly — `\r`, `\n`, `\r\n` → a single U+0020 — but the collapse and trim sub-steps say "Collapse runs of whitespace to one space" and "Trim leading and trailing whitespace" without defining what "whitespace" means. Model-supplied substrings (the `message` field, each `candidates[i]`, the echo's interpolated values) can carry U+0009 and other non-newline whitespace with no upstream guard, so two conforming implementations diverge on an input like `"a\tb"` — one reading "whitespace" as the JavaScript `\s` class collapses the tab, another reading it as U+0020-only preserves it. Both pass the existing reference renderings, undermining the byte-exact conformance basis.
-
-## Solution approach
-
-Rewrite rule 1's collapse and trim sub-steps to enumerate the whitespace set explicitly, matching step 1a's enumeration style. Define the set as the ASCII whitespace code points {U+0009, U+000A, U+000B, U+000C, U+000D, U+0020}, excluding Unicode whitespace such as U+00A0 and the U+2000–U+200A range, rather than the language-dependent regex `\s` class. Add a reference rendering to the failure-mode templates table that exercises a pre-existing tab in `message`, pinning the collapse behaviour for the conformance suite.
-
-## Solution constraints
-
-- Out of scope: coining BNDR-N REQ-ID anchors for the amended rule (owned by T12).
-
-## Relationships
-
-- T01 "Echo policy illustrative example contradicts the quoting predicate" — same-cluster (touches the same System-note rendering / Echo policy surface but resolves independently).
-- T02 "Failure-mode templates use an undefined `<provider>` placeholder" — same-cluster (another under-specified component of the same MUST-emit-verbatim contract; independent edit).
-- T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — decision-overlap (when BNDR-N IDs are coined, the amended rule 1 should receive its own anchor so the new tab-handling reference rendering can cite it).
