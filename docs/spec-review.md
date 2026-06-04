@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 5 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 4 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -58,29 +58,3 @@ Add a fourth placeholder definition for `<provider>` to the paragraph in binder.
 
 - T25 "System-note rendering rule 1 — 'whitespace' undefined for collapse and trim" — same-cluster (both are under-defined-token gaps in the same set of normative renderings; resolved independently).
 - T12 "binder.md — un-anchored normative obligations missing BNDR-N REQ-IDs" — decision-overlap (the placeholder definition edited here will sit under whichever BNDR-N anchor the traceability fix assigns to this paragraph; resolve traceability first if both land together, otherwise independent).
-# T03 - Determinism section over-pins FNV-1a as the binder-seed algorithm
-
-**Kind:** prescription
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`binder.md` §Determinism mandates the exact 32-bit FNV-1a algorithm (offset basis `0x811c9dc5`, prime `0x01000193`), the exact hashed byte sequence, and three frozen reference vectors under "Conforming implementations MUST reproduce these values exactly." The 32-bit seed value is not observable to loom authors or operators, and is omitted from the request payload for the `anthropic-messages` and `amazon-bedrock` transports the recommended binder models use. The strong MUST only purchases an observable property — cross-implementation byte-equivalence of binder provider requests — when the binder model resolves to a seed-supporting provider (`openai-completions` / `mistral`), and the section never states this as its rationale. A maintainer cannot tell which property is load-bearing when a provider deprecates its seed field, a transport is added, or a faster hash is proposed.
-
-## Solution approach
-
-In `binder.md` §Determinism (`#determinism`), keep the existing FNV-1a MUST and the three reference vectors — the gap is the missing rationale, not the algorithm choice — and add a justification clause naming the property the pin purchases: cross-implementation byte-equivalence of binder provider requests for seed-supporting providers. Cross-reference the `#provider-seed-field-mapping` anchor in `pi-integration-contract.md` and the GOV-15 conformance fixture suite (`#gov-15-fixture-suite`).
-
-## Solution constraints
-
-- Out of scope: the reproducibility-contract scope wording in §Determinism owned by T23 — add only the FNV-1a-pin rationale.
-- Reference `#provider-seed-field-mapping` by anchor; do not reproduce its supporting/omitting provider split inline.
-
-## Relationships
-
-- T23 "Binder Determinism — reproducibility scope overreaches the provider contract" — same-cluster (both target binder.md §Determinism and both turn on what loom actually controls vs. what is provider-dependent; resolve independently — the rationale clause added here should reference the narrowed reproducibility-contract wording produced by that finding, but neither blocks the other).
-- T28 "Canonical schema hash, step 2 — numeric serialization underspecified" — same-cluster (both pin a byte-level deterministic recipe whose output is load-bearing for cross-run reproducibility; resolutions are independent — this finding tightens the rationale for a recipe, that one tightens the recipe itself).

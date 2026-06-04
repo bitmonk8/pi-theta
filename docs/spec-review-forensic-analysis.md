@@ -108,3 +108,20 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-06-04 — T03 - Determinism section over-pins FNV-1a as the binder-seed algorithm
+
+- **Failure mode:** fast-loop-unresolved
+- **Category:** 2 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a (fast loop — no inner-loop trajectory)
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (fast loop — no staged dispatch)
+- **Snapshot refs (retained for forensics):** n/a
+- **Poisoned fixes:** n/a
+- **Forensic report:** none (fast loop — no forensic report)
+- **Parked findings (this run):** `T03 - Determinism section over-pins FNV-1a as the binder-seed algorithm`
+- **Loop notes:** finding not resolved by fast fix — B3 returned FindingResolved=partial; the non-normative rationale clause + #provider-seed-field-mapping cross-reference were added (core gap closed), but the Solution approach's required #gov-15-fixture-suite cross-reference was dropped on a false premise (the fixer believed the anchor did not exist; it does exist at governance.md:173).
+- **Fixer notes:** none
+
+---

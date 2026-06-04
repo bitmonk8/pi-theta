@@ -183,3 +183,38 @@ Add dual-form `BNDR-N` anchors at the un-anchored normative obligation sites on 
 - T17 "slash-invocation.md carries no SLSH-N REQ-ID anchors" — same-cluster (parallel GOV-22 gap; independent prefix).
 - T18 "`validation-issue-ordering` paragraph carries no ERR-N REQ-ID" — decision-overlap (the `<ajv-summary>` clause on `binder.md` cites the `validation-issue-ordering` paragraph by parent-section anchor; once that paragraph gets its `ERR-N`, the `binder.md` `<ajv-summary>` text should be repointed to `#err-n`).
 - T02 "Failure-mode templates use an undefined `<provider>` placeholder" — decision-overlap (the `<provider>` definition will sit under whichever BNDR-N anchor this coinage assigns to the placeholder paragraph).
+
+---
+
+## T03 - Determinism section over-pins FNV-1a as the binder-seed algorithm
+
+> **PARKED** — 2026-06-04
+> **Reason:** Category 2 (fixer too-hard — fast-loop capability gap; the `/spec-fix-findings-loop` fast loop is single-shot and delivered only a partial resolution). The fast fix returned FindingResolved=partial: the non-normative rationale clause and the `#provider-seed-field-mapping` cross-reference were added (core gap closed), but the Solution approach's required `#gov-15-fixture-suite` cross-reference was dropped on a false premise — the fixer believed the anchor did not exist, but it does exist at `governance.md:173`. Loop notes: finding not resolved by fast fix — B3 returned FindingResolved=partial; the non-normative rationale clause + #provider-seed-field-mapping cross-reference were added (core gap closed), but the Solution approach's required #gov-15-fixture-suite cross-reference was dropped on a false premise (the fixer believed the anchor did not exist; it does exist at governance.md:173).
+> **Forensic report:** none (fast loop — no forensic report)
+
+# T03 - Determinism section over-pins FNV-1a as the binder-seed algorithm
+
+**Kind:** prescription
+**Importance:** medium
+**Score:** 25
+**Must-fix:** false
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+`binder.md` §Determinism mandates the exact 32-bit FNV-1a algorithm (offset basis `0x811c9dc5`, prime `0x01000193`), the exact hashed byte sequence, and three frozen reference vectors under "Conforming implementations MUST reproduce these values exactly." The 32-bit seed value is not observable to loom authors or operators, and is omitted from the request payload for the `anthropic-messages` and `amazon-bedrock` transports the recommended binder models use. The strong MUST only purchases an observable property — cross-implementation byte-equivalence of binder provider requests — when the binder model resolves to a seed-supporting provider (`openai-completions` / `mistral`), and the section never states this as its rationale. A maintainer cannot tell which property is load-bearing when a provider deprecates its seed field, a transport is added, or a faster hash is proposed.
+
+## Solution approach
+
+In `binder.md` §Determinism (`#determinism`), keep the existing FNV-1a MUST and the three reference vectors — the gap is the missing rationale, not the algorithm choice — and add a justification clause naming the property the pin purchases: cross-implementation byte-equivalence of binder provider requests for seed-supporting providers. Cross-reference the `#provider-seed-field-mapping` anchor in `pi-integration-contract.md` and the GOV-15 conformance fixture suite (`#gov-15-fixture-suite`).
+
+## Solution constraints
+
+- Out of scope: the reproducibility-contract scope wording in §Determinism owned by T23 — add only the FNV-1a-pin rationale.
+- Reference `#provider-seed-field-mapping` by anchor; do not reproduce its supporting/omitting provider split inline.
+
+## Relationships
+
+- T23 "Binder Determinism — reproducibility scope overreaches the provider contract" — same-cluster (both target binder.md §Determinism and both turn on what loom actually controls vs. what is provider-dependent; resolve independently — the rationale clause added here should reference the narrowed reproducibility-contract wording produced by that finding, but neither blocks the other).
+- T28 "Canonical schema hash, step 2 — numeric serialization underspecified" — same-cluster (both pin a byte-level deterministic recipe whose output is load-bearing for cross-run reproducibility; resolutions are independent — this finding tightens the rationale for a recipe, that one tightens the recipe itself).
