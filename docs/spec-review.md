@@ -4,7 +4,7 @@ _Generated: 2026-06-04T03:10:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 10 high, 9 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 9 high, 9 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -504,28 +504,3 @@ Add a `realpath` member to the normative `FileSystem` interface block at `id="fa
 - T18 "`RuntimeEvent.occurred_at` source clock contradicts the `Clock.now()` monotonic pin" - same-cluster (sibling seam-coverage gap on the same page — `Clock.now()` over-specified, here `FileSystem` under-specified; resolve independently but apply the same review when extending either seam).
 - T07 "Several seam/contract blockquotes over-prescribe implementation shape beyond the observable contract" - decision-overlap (that finding argues the symlink "single named function" mandate should be demoted; the body of that function is precisely where `FileSystem.realpath` would be called, so the wording chosen here must survive whichever resolution that finding takes).
 - T05 "Seam-blockquote MUSTs on `errors-and-results.md` and `invocation.md` lack co-located REQ-ID anchors" - same-cluster (touches the same symlink-resolution-hardening blockquote in `invocation.md`; resolve independently).
-# T18 - `RuntimeEvent.occurred_at` source clock contradicts the `Clock.now()` monotonic pin
-
-**Kind:** assumptions, prescription
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`pi-integration-contract.md` carries two normative statements no implementation can simultaneously satisfy. The `RuntimeEvent` payload in `#runtime-event-channel` pins `occurred_at` as Unix epoch ms stamped via `Clock.now()`, while `#clock--fakeclock-interface` defines `Clock.now()` as monotonic milliseconds wired to `performance.now()` (an arbitrary-origin clock) and a build-time grep-test bans `Date.now()` / `Date.prototype.getTime` outside the `WallClock` adapter. `performance.now()` cannot yield epoch ms, and any implementation that produces real epoch ms must call the banned `Date.now()`. `occurred_at` is load-bearing in the dedup tuple `(kind, query_site, message, occurred_at)` (PIC §(g), the *Dedup-key non-inclusion rule*) and the discard-site distinctness clause, so different resolutions of the contradiction produce observably different dedup behaviour.
-
-## Solution approach
-
-Add a distinct wall-clock seam member to the `Clock` interface (`#clock--fakeclock-interface`) defined as Unix epoch ms and wired to `Date.now()` in production, leaving `now()` monotonic. Rewrite the `RuntimeEvent.occurred_at` comment in `#runtime-event-channel` to source from the new wall-clock member instead of `Clock.now()`. Narrow the grep-test ban so `Date.now()` is permitted only inside the new member's `WallClock` implementation. Mirror the new seam member in `implementation-notes.md`'s Clock bullet.
-
-## Solution constraints
-
-- The deadline-math callers of `Clock.now()` (the `SHUTDOWN_AWAIT_CAP_MS` shutdown-await and the `looms.scanPackagesTimeoutMs` package-walk bound) MUST stay on the monotonic `now()` and MUST NOT migrate to the new wall-clock member.
-
-## Relationships
-
-- T17 "`realpath` is required by Resolution but absent from the `FileSystem` seam" - same-cluster (sibling seam-coverage gap on the same page; resolve independently but apply the same review when extending either seam).
-- T01 "Operator-bound MUSTs mis-classified as runtime conformance requirements" - same-cluster (adjacent edit surface in the same **Runtime event channel** section; resolves independently).

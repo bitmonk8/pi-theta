@@ -529,7 +529,7 @@ type RuntimeEvent = {
   attempts?: number;                  // populated for `validation` events on respond-repair exhaustion; absent otherwise
   tokens_used?: number;               // populated for `context_overflow` events when the provider supplies the count; absent otherwise
   masked?: string[];                  // hard-ceiling co-fire enumeration; see "Hard-ceiling co-fire" below
-  occurred_at: number;                // Unix epoch ms, stamped at the originating emission site via Clock.now()
+  occurred_at: number;                // Unix epoch ms, stamped at the originating emission site via Clock.wallNow()
 };
 ```
 
@@ -710,10 +710,11 @@ Rules:
 
 **`Clock` / `FakeClock` interface.** The runtime reads wall-clock time and schedules deferred work exclusively through a `Clock` seam injected at construction time, modelled on the `FileSystem` seam. The interface members called out as load-bearing by other spec sections are:
 
-- `now(): number` — monotonic milliseconds. Used by the **Runtime event channel** above to stamp `RuntimeEvent.occurred_at` at the originating emission site, and by [Discovery — Package walk bound](./discovery.md#disc-6) to read elapsed time for the `looms.scanPackagesTimeoutMs` cap.
+- `now(): number` — monotonic milliseconds. Used for deadline math by the `SHUTDOWN_AWAIT_CAP_MS` shutdown-await (per the **Extension entry point** `session_shutdown` step above) and by [Discovery — Package walk bound](./discovery.md#disc-6) to read elapsed time for the `looms.scanPackagesTimeoutMs` cap. These deadline-math callers MUST stay on the monotonic `now()` and MUST NOT migrate to `wallNow()`.
+- `wallNow(): number` — Unix epoch milliseconds (wall-clock time). Used by the **Runtime event channel** above to stamp `RuntimeEvent.occurred_at` at the originating emission site.
 - `setTimeout(fn: () => void, ms: number): TimerHandle` and `clearTimeout(handle: TimerHandle): void` — the only timer surface the runtime uses. The watcher's 250 ms debounce (step 5 above) and the settings-watcher debounce (per [Discovery — Settings file reads](./discovery.md#settings-file-reads)) both schedule through this seam. The debouncer holds the most recent timer handle and clears it on each new event.
 
-Production wiring uses a `WallClock` adapter that delegates `now()` to `performance.now()` and the timer methods to the global `setTimeout` / `clearTimeout`. Tests use a `FakeClock` whose `advance(ms: number)` synchronously fires every timer whose deadline has elapsed in deadline order; equal-deadline timers fire in registration order, `clearTimeout` is a no-op for already-fired handles, and `now()` returns the fake's accumulated time and is *not* implicitly advanced. `Clock.now()` is monotonic (forbids `Date.now()`-style NTP drift). One `Clock` instance is constructed per runtime instance — never as a module-level global — and lives for the lifetime of that runtime; parallel runtimes get independent clocks. The runtime MUST NOT call `Date.now`, `performance.now`, `Date.prototype.getTime`, or the global `setTimeout` / `clearTimeout` outside the `WallClock` adapter; a build-time grep-test enforces this (parallel to the `process.env.HOME` ban for `homedir()`).
+Production wiring uses a `WallClock` adapter that delegates `now()` to `performance.now()`, `wallNow()` to `Date.now()`, and the timer methods to the global `setTimeout` / `clearTimeout`. Tests use a `FakeClock` whose `advance(ms: number)` synchronously fires every timer whose deadline has elapsed in deadline order; equal-deadline timers fire in registration order, `clearTimeout` is a no-op for already-fired handles, `now()` returns the fake's accumulated time and is *not* implicitly advanced, and `wallNow()` returns a constructor-injected epoch value that is likewise *not* implicitly advanced. `Clock.now()` is monotonic (forbids `Date.now()`-style NTP drift); the grep-test ban below already exempts the `WallClock` adapter, so its `wallNow()` delegation to `Date.now()` is permitted. One `Clock` instance is constructed per runtime instance — never as a module-level global — and lives for the lifetime of that runtime; parallel runtimes get independent clocks. The runtime MUST NOT call `Date.now`, `performance.now`, `Date.prototype.getTime`, or the global `setTimeout` / `clearTimeout` outside the `WallClock` adapter; a build-time grep-test enforces this (parallel to the `process.env.HOME` ban for `homedir()`).
 
 <a id="fakefilesystem--filesystem-interface"></a>
 
