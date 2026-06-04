@@ -71,6 +71,7 @@ LetStmt      ::= "let" "mut"? Pattern (":" Type)? "=" Expr
 Type         ::= PrimitiveType
               | NamedType
               | GenericType
+              | ObjectType
               | Type "|" Type                 // type-union; right-associative
               | LiteralType
 
@@ -78,12 +79,15 @@ PrimitiveType ::= "string" | "number" | "integer" | "boolean" | "null" | "void"
 NamedType     ::= Ident                       // schema or enum name (PascalCase)
 GenericType   ::= "array" "<" Type ">"           // arity 1
                | "Result" "<" Type "," Type ">"  // arity 2
+ObjectType    ::= "{" Field ("," Field)* ","? "}"  // inline anonymous object type; Field per Schema Declarations
 LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
 ```
 
 `Type` annotations appear in `let`, `fn` parameter and return positions, schema field types, `params:` field types, and `invoke<Type>` / type-ascription contexts. The same grammar applies in every position; nullability is written `T | null`.
 
 **Generic-application constructors.** `GenericType` is a closed set in loom 1.0: `array` (arity 1) and `Result` (arity 2). No other identifier is parameterisable; a future release that introduces a new parameterised constructor extends this set. Both constructor heads are reserved keywords (see [Lexical Structure — Reserved keywords](./lexical.md)) and appear here as constructor keywords, not as `NamedType ::= Ident` — this is why `Result` (a reserved keyword) is nonetheless reachable in type position. The `Type` reference inside each `<…>` is recursive, so nested generics such as `Result<array<T>, E>` parse. Applying a constructor with a type-argument count other than its declared arity (e.g. `array<T, U>` or `Result<T>`) is `loom/parse/generic-arity-mismatch`.
+
+**Inline object types.** `ObjectType` admits an anonymous object type `{ field: T, ... }` in any `Type` position. Its fields reuse the same `Field` form as an object-schema body and carry the same field semantics ([Schema Declarations — Object schema](./schemas.md#object-schema)): each field is required by default, optionality is written `T | null`, and a field may attach an optional `as "WireName"` rename ([Wire-name renaming](./schemas.md#wire-name-renaming)) under which the `loom/parse/wire-name-collision` and `loom/parse/redundant-wire-name` diagnostics apply within the one inline object. An empty inline object `{}` is `loom/parse/empty-schema-body`, the same diagnostic an empty named schema body raises. The `Type` reference inside each field is recursive, so nested inline objects and `array<{ ... }>` parse. At lowering, an inline object type is hoisted into `$defs` under a synthesised `__inline_<slug>` name — see [Schema Subset — Lowering Algorithm](./schema-subset.md#lowering-algorithm).
 
 ## Block expressions
 

@@ -2,7 +2,7 @@
 
 _Generated: 2026-06-04T17:12:00Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T23) is addressed first; the first finding (T01) is addressed last._
+_Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
 _Triage tally: 0 blocker + 15 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
 
@@ -586,29 +586,3 @@ Rewrite the `Pet::Cat` row of the BNDR-6 table to a grammar-admitted `NamedObjec
 
 - T23 "Type grammar omits inline anonymous object types" — same-cluster (the row immediately below uses an inline-object value whose type production is itself ungrammatical per that finding; both touch BNDR-6's table but resolve independently)
 - T21 "Enum declarations — duplicate variant names" — same-cluster (also concerns variant-name handling but addresses enums, not discriminated-union object variants; no shared edit)
-# T23 - Type grammar omits inline anonymous object types
-
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The normative `Type` production in `docs/spec_topics/grammar.md` enumerates `PrimitiveType`, `NamedType`, `"array" "<" Type ">"`, type-union, and `LiteralType`, with no inline-object-type alternative. Inline anonymous object types `{ field: T, ... }` are declared legal in any type position by `type-system.md` and are required by normative referents elsewhere: the `Type compatibility` reflexivity row, `schema-subset.md`'s `__inline_<slug>` hoisting pass, and the depth-6 conformance vector in `query/query-tool-loop.md`. The appendix's `BareObjectLit` / `NamedObjectLit` are *value* productions, not type productions, so an inline object *type* cannot be derived from the grammar. The field grammar is also undefined — the applicability of the schema-object field rules (required-by-default, `T | null` optionality, trailing comma, `as "WireName"` renames, wire-name collision detection) to inline object types is unstated.
-
-## Solution approach
-
-Add an inline-object-type alternative to the `Type` production in `docs/spec_topics/grammar.md`, with a recursive field form admitting `Ident`, an optional `as STRING` rename, and `":" Type`, separated by `,` with optional trailing comma. Clarify that inline-object field semantics are the schema-object field rules cross-referenced to `schemas.md`'s `Wire-name renaming` (required-by-default, `T | null` optionality, the `loom/parse/wire-name-collision` and `loom/parse/redundant-wire-name` diagnostics), and that an empty inline object `{}` is `loom/parse/empty-schema-body`. Add a forward-link to `schema-subset.md`'s `__inline_<slug>` hoisting step so the production and the lowering algorithm are visibly linked.
-
-## Solution constraints
-
-- Out of scope: the generic-application alternative to the `Type` production owned by T24.
-
-## Relationships
-
-- T24 "Type grammar admits no generic application beyond `array<T>`" — same-cluster (both close gaps in the `Type` production in the same grammar block; resolve with independent edits but naturally addressed in one pass)
-- T22 "BNDR-6 reference table cell uses `Pet::Cat { ... }` notation" — same-cluster (the BNDR-6 row below the discriminated-union row uses an inline-object value whose type production this finding adds; both touch BNDR-6's table but resolve independently)
