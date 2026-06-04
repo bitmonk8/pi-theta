@@ -4,7 +4,7 @@ _Generated: 2026-06-03T19:20:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T36) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 6 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 5 medium retained; 13 low discarded; 4 low findings merged into 2 medium findings; 0 nit dropped; 0 false dropped._
 
 ---
 
@@ -84,27 +84,3 @@ In `binder.md` §Determinism (`#determinism`), keep the existing FNV-1a MUST and
 
 - T23 "Binder Determinism — reproducibility scope overreaches the provider contract" — same-cluster (both target binder.md §Determinism and both turn on what loom actually controls vs. what is provider-dependent; resolve independently — the rationale clause added here should reference the narrowed reproducibility-contract wording produced by that finding, but neither blocks the other).
 - T28 "Canonical schema hash, step 2 — numeric serialization underspecified" — same-cluster (both pin a byte-level deterministic recipe whose output is load-bearing for cross-run reproducibility; resolutions are independent — this finding tightens the rationale for a recipe, that one tightens the recipe itself).
-# T04 - Settings-watcher debounce window left unpinned
-
-**Kind:** testability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`docs/spec_topics/discovery.md` §Settings file reads → **Caching and reload** says only that "Watcher events are debounced to absorb partial writes from editors-in-progress" — no numeric window is given and the watcher is not tied to the injected `Clock` seam at this site. `pi-integration-contract.md` §`Clock` / `FakeClock` interface cross-references this section for the settings-watcher debounce window, so the reference is circular: it points here for a number this section never provides. A `FakeClock`-driven conformance test cannot pick the `advance(N)` boundary distinguishing "still coalescing" from "reload fired", and two implementers will diverge on reload latency and burst-coalescing behaviour for editor partial writes.
-
-## Solution approach
-
-Rewrite the "Watcher events are debounced…" sentence in `docs/spec_topics/discovery.md` §Settings file reads → **Caching and reload** to pin the settings-watcher debounce window at `250 ms`, measured against the injected `Clock` seam via `Clock.setTimeout` / `Clock.clearTimeout`, with each fresh watcher event resetting the timer (drop-and-reschedule, holding only the most recent handle). Cross-link the `Clock` / `FakeClock` interface section of `docs/spec_topics/pi-integration-contract.md` so the existing back-reference there resolves to a concrete window.
-
-## Solution constraints
-
-- Out of scope: the **Keys read** sub-block of §Settings file reads (owned by T30).
-
-## Relationships
-
-- T30 "`settings.json` shape undetermined: `looms` array collides with `looms.*` namespace" — same-cluster (same §Settings file reads section; resolve independently — the ambiguity fix touches the **Keys read** sub-block, this fix touches **Caching and reload**).
