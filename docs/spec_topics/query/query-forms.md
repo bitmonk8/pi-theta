@@ -25,7 +25,7 @@ Return type: `Result<Schema, QueryError>`, where `Schema` is the inferred respon
 The response schema flows into the query expression from any of the following type contexts, checked in order:
 
 1. The annotated type of the binding being initialised (`let x: T = @`...`?`).
-2. The declared return type of the enclosing function or loom, when the query is in tail-expression or `return`-argument position.
+2. The declared return type of the enclosing function, when the query is in tail-expression or `return`-argument position. A `.loom` file has no declared return type — its return type is itself inferred from its tail expression (see [Functions — Loom return type](../functions.md#loom-return-type)) — so a loom cannot serve as a sink for a query in its own tail or `return` position.
 3. The declared parameter type of the enclosing call site (`f(@`...`?)` where `f`'s parameter has type `T`).
 4. Explicit ascription via the explicit form (below).
 

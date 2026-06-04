@@ -4,7 +4,7 @@ _Generated: 2026-06-04T03:10:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 4 high, 5 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 4 high, 4 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -60,27 +60,3 @@ Treat each of the three presuppositions in the disclosure-plus-bump-checklist sh
 - T22 "Binder inference call — no pi-ai entry point pinned" - same-cluster (the binder call shape may bypass the `agent_end` channel entirely; the liveness presupposition either pins the analogous terminal-signal contract for the chosen entry point or states the binder bypasses the session-event channel).
 - T14 "Transport-class binder retry: no inter-attempt timing contract" - same-cluster (both touch the **Provider error mapping** surface; the overflow-wording disclosure and the retry-timing delegation share that paragraph).
 - T19 "Subagent spawn has no contract when both `model:` and `ctx.model` are absent" - same-cluster (another conversation-drive presupposition gap; resolves independently).
-# T03 - Schema inference rule 2 names a loom return type that loom 1.0 cannot have
-
-**Kind:** clarity
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`query.md` § *Schema inference rules*, item 2, lists "the declared return type of the enclosing function or loom" as a schema sink for queries in tail-expression or `return`-argument position. Per `functions.md` § *Loom return type* (`#loom-return-type`), a `.loom` file has no declared return type — it is inferred from the tail expression, with no frontmatter `returns:` field. Naming the loom case is therefore vacuous and circular (the loom's inferred return type derives from the very query whose sink is being sought). The *Schema inference algorithm* paragraph immediately below already qualifies the loom/function tail with "whose return type is declared", so a reader who stops at item 2 reaches a different conclusion than one who continues into the algorithm.
-
-## Solution approach
-
-Rewrite `query.md` § *Schema inference rules* item 2 so the sink is the enclosing function's *declared* return type, dropping the loom from the same clause. Add a clause noting that a `.loom` file's return type is inferred (forward-link to `functions.md#loom-return-type`) and so cannot serve as a sink for a query in its own tail or `return` position. Keep "declared" load-bearing so the function-with-inferred-return case also correctly falls through.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T13 "Argument shape — Pi-tool code-side argument type-checking timing undefined" - same-cluster (both are about a parse-time type-checking predicate whose domain is under-specified for one callee kind; independent fixes).
