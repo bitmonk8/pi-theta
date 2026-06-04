@@ -4,7 +4,7 @@ _Generated: 2026-06-04T03:10:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 9 high, 9 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 8 high, 9 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -478,29 +478,3 @@ Rename the wire discriminant `"invoke_failure"` to `"invoke_infra_error"` at eve
 - T04 "ERR-14 (`ValidationIssue` ordering) is buried in a `### Notes` section" - decision-overlap (both touch the `## Notes` subsection under `QueryError variants`; the rename deletes one Notes paragraph while ERR-14 relocates another — coordinate the edit so the `### Notes` heading is not left stale if both edits empty the subsection).
 - T05 "Seam-blockquote MUSTs on `errors-and-results.md` and `invocation.md` lack co-located REQ-ID anchors" - same-cluster (both touch the `QueryError variants` section; resolve independently — one is a wire-token rename, the other adds an ERR-N anchor to an adjacent blockquote).
 - T15 "`TransportError.retryable` lacks a population rule outside the unsupported-provider case" - same-cluster (same `### QueryError variants` section; resolves independently).
-# T17 - `realpath` is required by Resolution but absent from the `FileSystem` seam
-
-**Kind:** assumptions
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`invocation.md`'s **Resolution** makes `realpath` symlink normalisation a mandatory load-bearing primitive: the discovery-root containment check that produces `loom/load/invoke-path-escape` runs on the post-`realpath` path, the realpath step is declared mandatory, and the same sequence is rerun at invocation time; the `id="loom-1-0-seam-symlink-resolution-hardening"` seam blockquote further mandates exposing it as a single named function reused by both checks. PIC's `FileSystem` interface (`id="fakefilesystem--filesystem-interface"`) is a normatively closed seam containing only `readText`, `writeText`, `exists`, `homedir`, `readdir`, and `lstat`, with the runtime reading the filesystem exclusively through that seam and no `realpath` member or symlink-resolution carve-out anywhere. Every conformant Resolution must call `realpath`, seam-exclusivity forbids reaching past the seam, and no member performs it, leaving the symlink-farm `FakeFileSystem` test story and the invocation-time re-check unimplementable through the fake.
-
-## Solution approach
-
-Add a `realpath` member to the normative `FileSystem` interface block at `id="fakefilesystem--filesystem-interface"`, describing its rejection `.code` shape (symlink cycle, missing tail, permission failures) in the same form the existing `readText` / `readdir` members use. Name the production `PiFileSystem` adapter's delegation to Node's `realpath` and the `FakeFileSystem` resolution against its in-memory symlink table. Extend the load-bearing-surface bullet enumeration below the block to name invocation.md's **Resolution** and the symlink-resolution-hardening seam as consumers.
-
-## Solution constraints
-
-- Out of scope: editing the `id="loom-1-0-seam-symlink-resolution-hardening"` seam blockquote text in invocation.md (T07 may demote its single-named-function mandate; T05 may anchor it).
-
-## Relationships
-
-- T18 "`RuntimeEvent.occurred_at` source clock contradicts the `Clock.now()` monotonic pin" - same-cluster (sibling seam-coverage gap on the same page — `Clock.now()` over-specified, here `FileSystem` under-specified; resolve independently but apply the same review when extending either seam).
-- T07 "Several seam/contract blockquotes over-prescribe implementation shape beyond the observable contract" - decision-overlap (that finding argues the symlink "single named function" mandate should be demoted; the body of that function is precisely where `FileSystem.realpath` would be called, so the wording chosen here must survive whichever resolution that finding takes).
-- T05 "Seam-blockquote MUSTs on `errors-and-results.md` and `invocation.md` lack co-located REQ-ID anchors" - same-cluster (touches the same symlink-resolution-hardening blockquote in `invocation.md`; resolve independently).

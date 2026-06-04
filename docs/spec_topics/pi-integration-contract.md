@@ -734,12 +734,14 @@ interface FileSystem {
   homedir(): string;                                // production never reads `process.env` directly
   readdir(path: string): Promise<readonly string[]>;// entry names only (no full paths); rejects with the same Node-style `.code` shape as `readText`
   lstat(path: string): Promise<FileStat>;           // does NOT follow symlinks; rejects with the same Node-style `.code` shape as `readText`
+  realpath(path: string): Promise<string>;          // resolves symlinks to a canonical absolute path (DOES follow symlinks, unlike `lstat`); rejects with `"ELOOP"` on a symlink cycle, `"ENOENT"` when a path component (including the final tail) is missing, and `"EACCES"` / `"EPERM"` on permission failures; other I/O failures surface their underlying `.code` unchanged
 }
 ```
 
 - `homedir()` is the single source of truth for the [Home-directory expansion](./discovery.md#disc-1) rule; the production `PiFileSystem` implementation calls Node's `os.homedir()` (resolving to `$HOME` on POSIX and `%USERPROFILE%` on Windows), and the `FakeFileSystem` implementation returns a constructor-injected string. The runtime MUST NOT read `process.env.HOME` or `process.env.USERPROFILE` directly and MUST NOT use any platform-conditional branch.
 - `readText`, `writeText`, and `exists` are the load-bearing surface for [Directory Convention — Settings file reads](./discovery.md#settings-file-reads) and for every other normative file read or write the runtime performs.
 - `readdir` and `lstat` are the load-bearing surface for the *clean leaf-`ENOENT`* ancestor walk defined in [Directory Convention](./discovery.md) (the **Failure modes** paragraph and the bullet that defines *clean leaf-`ENOENT`*) and for the package-discovery walk in [Directory Convention — Package discovery](./discovery.md#package-discovery). Rejected `.code` values map onto the discovery rules verbatim: an `ENOENT` chain that bottoms out cleanly is *missing*; an `EACCES` / `EPERM` / `ENOTDIR` (or any other code) anywhere on the chain is an unreadable-source failure.
+- `realpath` is the load-bearing surface for the `realpath`-then-discovery-root-containment check in [Invocation — Resolution](./invocation.md) — both the load-time check and the invocation-time re-check — and for the single named function the [symlink-resolution-hardening seam](./invocation.md#loom-1-0-seam-symlink-resolution-hardening) places that check behind. The production `PiFileSystem` implementation delegates to Node's `fs.promises.realpath`; the `FakeFileSystem` implementation resolves the path against its constructor-injected in-memory symlink table, applying the same `.code` rejections (`ELOOP` on a cycle in that table, `ENOENT` on a missing component, `EACCES` / `EPERM` on an injected permission failure) so a symlink-farm fixture exercises the same rejection surface through the fake that production reaches through Node.
 
 <a id="filewatcher-interface"></a>
 
