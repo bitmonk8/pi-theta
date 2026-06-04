@@ -753,29 +753,4 @@ Add a `TokenEstimator` DI-seam entry to `host-interfaces-services.md` alongside 
 ## Relationships
 
 - T27 "Hot-reload `looms.binderModel` recovery note is under-specified" - same-cluster (same file, independent fix).
-# T29 - Open-ended "foreseeable shape failure" clause leaves `kind` discriminator under-specified at a wire-asserted boundary
-
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Step 0 (d) of the capability probe (`capability-probe.md`, anchor `#entry-capability-probe`) routes `package.json` read failures during peer-dep version checks to one of two diagnostic `kind`s — `peer-dep-malformed-version` or `probe-failed` — and partitions them on the open-ended phrase "any other foreseeable shape failure of the read". The same open-ended partition recurs in the *Self-failure* clause and in `code-registry-load.md`'s `peer-dep-malformed-version` clause ("or another foreseeable shape failure of the read"). The `kind` value is on the wire: it is emitted in the `loom/load/host-incompatible` payload, enumerated as a closed set consumed by `placeholder-rendering-b.md`, and asserted by the per-`kind` conformance table. Because "foreseeable" is not a deterministic predicate, two conformant implementations can route the same read failure (e.g. `EACCES`, empty-file `JSON.parse`, a non-object top-level JSON value) to different `kind`s, producing divergent wire payloads and divergent operator-triage hints.
-
-## Solution approach
-
-In `capability-probe.md` step (d), rewrite the `peer-dep-malformed-version` partition to a closed enumeration keyed on observable conditions at the read site, replacing the "any other foreseeable shape failure" phrasing, so every currently-named case (invalid-SemVer `version`, missing `version`, `MODULE_NOT_FOUND` on the entry resolution, root-walk exhaustion) and the residual cases the Problem names land deterministically, with residual throws routing to `probe-failed`. Align the *Self-failure* clause to reference the enumerated conditions rather than the "foreseeable" wording. In `code-registry-load.md`, replace "or another foreseeable shape failure of the read" with a forward-link to the closed list at `capability-probe.md#entry-capability-probe`.
-
-## Solution constraints
-
-- The `kind` value set MUST stay closed — do not add a new `kind` literal; the partition resolves into the existing `peer-dep-malformed-version` / `probe-failed` pair.
-
-## Relationships
-
-- T32 "`AgentSession` consumed member surface not pinned" - same-cluster (both concern under-pinned/under-specified boundaries in the Pi integration contract; resolve independently — that one is member-surface pinning, this one is closed `kind` enumeration).
-- T30 "Subagent-spawn satellite types not pinned to a declaration file" - same-cluster (same observation: a boundary the spec treats as authoritative is left under-specified; independent fix).
 
