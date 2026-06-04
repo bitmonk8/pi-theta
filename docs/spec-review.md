@@ -4,7 +4,7 @@ _Generated: 2026-06-04T17:12:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker + 13 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker + 12 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -453,31 +453,3 @@ Rewrite the `## Other arithmetic` paragraph in `docs/spec_topics/expressions.md`
 ## Relationships
 
 - T18 "Ordering operators leave operand domain, string semantics, NaN, and the rejection diagnostic unspecified" — same-cluster (same expressions page, same completeness gap pattern; the diagnostic-registry addition there is a precedent the `-`/`*` fix can mirror but the two fixes do not overlap textually)
-# T18 - Ordering operators leave operand domain, string semantics, NaN, and the rejection diagnostic unspecified
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 4
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The Supported-forms entry for `<`, `<=`, `>`, `>=` in `expressions.md` introduces the ordering operators and the precedence table pins them at level 5 non-associative, but nothing else constrains them. Four cells are left open: which operand types are orderable (numeric, `string`, `boolean`, `null`, enums, unions, objects, arrays); whether and how `string` operands are ordered (code point vs UTF-16 code unit vs locale); what diagnostic rejects non-orderable or mixed pairs such as `1 < "a"` or `null < null` (the `loom/parse/*` registry has no comparison-operand code); and how ordering against `NaN` behaves, given the equality rule fixes `NaN == NaN` as `true`. Two conformant implementations diverge observably on whether `"abc" < "abd"` is accepted, under what substrate it runs, whether `1 < "a"` is a parse error, and whether `NaN < 1` is `false` or panics.
-
-## Solution approach
-
-Add a normative ordering-operators rule to `expressions.md` near the `Other arithmetic` section that pins the accepted operand domain (grounding orderability against the `integer ⊑ number` widening `+` already uses and the type-compatibility relation in `type-system.md`), the string-ordering substrate (grounding the choice against the existing UTF-16 commitment in `lexical.md`), and the NaN-ordering outcome (cross-referencing the equality rule in `runtime-value-model.md` to settle the equality/ordering asymmetry). Add a parse-diagnostic row for non-orderable and mixed-type operand pairs to the `loom/parse/*` table in `code-registry-parse.md`, modelled on `loom/parse/mixed-plus-operands`.
-
-## Solution constraints
-
-- Out of scope: the equality rule's `NaN == NaN` / signed-zero outcome in `runtime-value-model.md` is owned by T19 — cross-reference it, do not redefine it.
-
-## Relationships
-
-- T19 "Equality rule contradicts its own signed-zero example" — must-follow (the NaN-ordering rule cross-references the equality rule's `NaN == NaN` outcome; settle the equality rule first, then state this finding's "asymmetric with equality" framing against the resolved rule)
-- T17 "`-` and `*` lack a result-type rule" — same-cluster (same expressions page, same completeness gap pattern; the diagnostic-registry addition here is a precedent the `-`/`*` fix can mirror but the two fixes do not overlap textually)
-- T20 "Logical and ternary operators leave short-circuit semantics and operand evaluation order unspecified" — same-cluster (same Supported-forms list and completeness lens; resolves separately)
-- T16 "Indexed access on `string` receiver is unspecified" — same-cluster (also pins an undefined `string`-receiver behaviour against the same UTF-16 substrate; resolves independently)

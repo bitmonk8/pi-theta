@@ -15,6 +15,8 @@ Loom values are represented in the interpreter as native JavaScript values, tagg
 
 **Reference encoding (non-normative).** The reference interpreter implements the enum tag as a non-enumerable `__loomEnum` string property on the JS string wrapper, and represents `Result<T, E>` as `{ ok: true, value: T }` for `Ok(v)` and `{ ok: false, error: E }` for `Err(e)`. These shapes are implementation details — neither is reachable from loom code, neither appears in any wire schema, and either may change without a spec revision. If a future host-interop surface ever exposes a live `Result` or enum value to JS (rather than a JSON-serialised projection), this section MUST be revisited before that surface ships.
 
+<a id="equality"></a>
+
 **Equality (`==`).** Structural deep equality:
 
 - Primitives compare by value, with two points fixed explicitly: `NaN == NaN` is `true`, and `+0` and `-0` compare equal (`+0 == -0` is `true`), consistent with the `-0`→`0` normalisation the rendering pipeline applies (e.g. [`integer` rendering](./binder/defaulting-system-note-echo.md#bndr-4)).

@@ -156,3 +156,11 @@ For a discriminated union `schema Animal = Cat | Dog | Lizard`, construct via th
 ## Other arithmetic
 
 `-`, `*`, `/`, `%` accept only numeric operands. `/` always produces `number` (no integer-division operator in loom 1.0; see [Future Considerations](./future-considerations.md)). `%` requires same-typed operands and, for a non-zero divisor, preserves the type. Division by zero produces IEEE-754 `Infinity` / `-Infinity` / `NaN` per JS semantics; it does not panic. Modulo by zero (`n % 0`) likewise produces `NaN` and does not panic; because `NaN` is a `number`, an `integer % 0` result widens to `number` — the same `integer ⊑ number` widening defined in [Type System — Type compatibility](./type-system.md#type-compatibility) (rule 2).
+
+## Ordering comparisons
+
+`<`, `<=`, `>`, `>=` accept either two `number`/`integer` operands or two `string` operands. The `integer ⊑ number` widening defined in [Type System — Type compatibility](./type-system.md#type-compatibility) (rule 2) applies, so a `number` may be compared against an `integer`. Any other operand pairing — for instance a numeric operand against a `string`, or an operand whose type is `boolean`, `null`, an enum, a union, an object schema, or `array<T>` — is `loom/parse/non-orderable-operands`; use `==` / `!=` for value comparison on those types.
+
+Numeric operands order by IEEE-754 magnitude. String operands order lexicographically by UTF-16 code unit — the same code-unit basis as the string [`length` member](#built-in-methods-and-properties) — not by Unicode code point or by locale-aware collation.
+
+Ordering against `NaN` always produces `false` and never panics: `NaN < 1`, `1 < NaN`, `NaN <= NaN`, and the `>` / `>=` forms all evaluate to `false`. This follows IEEE-754 unordered semantics and is deliberately asymmetric with the equality rule, under which `NaN == NaN` is `true` (see [Runtime Value Model — Equality](./runtime-value-model.md#equality)).
