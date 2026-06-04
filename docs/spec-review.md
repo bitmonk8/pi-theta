@@ -4,7 +4,7 @@ _Generated: 2026-06-04T17:12:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker + 15 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker + 14 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -505,31 +505,4 @@ Rewrite the Equality (`==`) primitive-comparison bullet so the rule and its work
 ## Relationships
 
 - T18 "Ordering operators leave operand domain, string semantics, NaN, and the rejection diagnostic unspecified" — must-precede (the ordering finding's NaN-asymmetry framing cross-references this equality outcome; resolve this rule first so the ordering rule can be stated against the settled relation)
-# T20 - Logical and ternary operators leave short-circuit semantics and operand evaluation order unspecified
 
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`docs/spec_topics/expressions.md` lists `&&`, `||`, and `cond ? a : b` as supported forms and pins their precedence, associativity, and boolean operand positions (`## Truthiness`), but never states whether the right operand of `&&` / `||` or the not-taken branch of `?:` is evaluated, nor the order in which operands are evaluated. This is observable behaviour: operands may be `@`-queries, tool calls, or `invoke` children that produce transcript entries, consume tokens, and perform irreversible writes that are never rolled back (per ERR-13 in `errors-and-results/error-model.md`). `cancellation.md`'s `**Granularity.**` rule already presumes a defined operand order (its `let x = f() + g()` example cancels `g` between `f()`'s return and `g()`'s pre-call checkpoint). Two conforming implementations — short-circuiting left-to-right versus evaluating both sides — would produce divergent transcripts, token spend, and cancellation behaviour for the same source.
-
-## Solution approach
-
-Add a normative rule to `docs/spec_topics/expressions.md` following the `## Truthiness` section that fixes operand evaluation as left-to-right and pins short-circuit semantics: `&&` and `||` evaluate the left operand first and skip the right when the result is already determined, and `cond ? a : b` evaluates `cond` first and then evaluates only the taken branch. State that `&&` / `||` always produce `boolean` (no JS last-truthy-operand widening), consistent with `## Truthiness`. Add a forward cross-reference to `cancellation.md`'s `**Granularity.**` rule so the operand-order dependency is discoverable.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T18 "Ordering operators leave operand domain, string semantics, NaN, and the rejection diagnostic unspecified" — same-cluster (sibling gap in the same Supported forms list; resolved by independent edits)
-- T16 "Indexed access on `string` receiver is unspecified" — same-cluster (another Supported forms omission; independent fix)
-- T17 "`-` and `*` lack a result-type rule" — same-cluster (adjacent expressions.md omission; independent fix)
-- T06 "`while` condition wording contradicts itself" — same-cluster (also concerns boolean-position operands; resolves independently)

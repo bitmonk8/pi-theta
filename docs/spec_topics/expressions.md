@@ -57,6 +57,14 @@ No match is `loom/parse/unknown-identifier`. Collisions across (2)–(4) are rej
 
 Only `true` and `false` are accepted in boolean position (`if`, `while`, `&&`, `||`, ternary condition). Using a non-boolean (`if (x)` where `x: string`) is `loom/parse/non-boolean-condition`; write `if (x != "")`, `if (xs.length > 0)`, etc. This avoids the JS empty-string / zero / `null` ambiguity.
 
+## Evaluation order and short-circuiting
+
+Operands evaluate left-to-right, and `&&` / `||` short-circuit. `&&` evaluates its left operand and evaluates the right operand only when the left is `true`; `||` evaluates its left operand and evaluates the right operand only when the left is `false`. A short-circuited right operand is not evaluated: its `@`-queries, tool calls, and `invoke` children do not run, produce no transcript entries, and spend no tokens. Both operators always produce `boolean` — loom has no JS last-truthy-operand widening, because operands are already constrained to boolean position (see [Truthiness](#truthiness)).
+
+`cond ? a : b` evaluates `cond` first, then evaluates only the taken branch; the not-taken branch is not evaluated.
+
+This order is fixed rather than implementation-defined because it is observable: which operands are skipped, and the order in which the evaluated ones run, determines which side effects commit and where cancellation can intervene between them. See [Cancellation — Granularity](./cancellation.md), whose per-sub-expression checkpoint placement depends on this order.
+
 ## Built-in methods and properties
 
 A small stdlib is exposed on the primitive composite types. No user-defined methods; no `this`. loom 1.0 set:
