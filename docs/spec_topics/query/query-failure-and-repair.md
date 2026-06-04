@@ -1,0 +1,74 @@
+# Query failure and repair
+
+## Options surface
+
+> **loom 1.0 seam — per-call timeout / per-query overrides.** The runtime-internal options record passed into the query primitive — the record carrying per-call configuration not surfaced to authors in loom 1.0 (cancellation hookup, provider routing, the typed-query schema slot) — is an **open struct**, not a closed positional record. loom 1.0 reserves the right to add fields in a minor revision without breaking call sites or test fixtures that construct or pattern-match on the struct; consumers MUST tolerate unknown fields rather than enforcing exhaustive shape equality. The seam is what allows the deferred per-call timeout and per-query `model` / `tools` / `system` override extensions in [Future Considerations](../future-considerations.md) to land additively.
+
+## Failure modes
+
+A query never throws. Both forms return a `Result` (see [Errors and Results](../errors-and-results.md)) carrying a `QueryError` on failure. `QueryError` is a discriminated union (`anyOf` over `kind`-tagged variants), exactly the shape the [Schema Subset](../schema-subset.md) blesses for user-defined unions — the canonical example of the pattern, applied to Loom's own runtime type.
+
+The canonical declaration of `QueryError` and every variant it carries lives in [Errors and Results — QueryError variants](../errors-and-results/queryerror-variants.md#queryerror-variants). The six **query-time** variants — `ValidationError`, `TransportError`, `ModelToolError`, `ContextOverflowError`, `CancelledError`, `ToolLoopExhaustedError` — are the ones a query primitive can return on its own; `CodeToolError` (defined for code-side `<name>(args)` failures) and `InvokeInfraError` / `InvokeCalleeError` (defined for invoked callees) round out the union but originate at the call sites covered by [Tool Calls](../tool-calls.md) and [Invocation](../invocation.md).
+
+`ModelToolError` is the model-loop counterpart to `CodeToolError`: it covers a non-recoverable adapter-layer failure of the model's tool-call loop (and carries `tool_call_id` plus a `raw_response`), while `CodeToolError` covers a tool that **loom code** invoked directly. An in-loop tool failure the runtime can lower to a tool-result is fed back to the model rather than raising `ModelToolError` (see **Tool calls during a query** above). The shapes diverge because the contexts diverge.
+
+### Forced respond turn non-compliance
+
+<a id="forced-respond-turn-non-compliance"></a>
+
+When the model fails to invoke `__loom_respond_<slug>` on the forced respond turn — by emitting plain text, or by invoking a tool whose name is not the synthesised respond tool — the runtime synthesises a single `ValidationIssue` and routes the response through the **Schema-validation respond-repair** pipeline below. Terminal exhaustion (or `respond_repair.methodology: none` / `attempts: 0`) surfaces as `Err(QueryError { kind: "validation", cause: "schema_validation", ... })`. The synthesised-issue shape, the field-population rules, and the per-attempt accounting are governed by [Pi Integration Contract — loom 1.0 diagnostic limitation](../pi-integration-contract/conversation-drive.md#pic-typed-query-noncompliance).
+
+Non-compliance does **not** surface as `tool_loop_exhausted`. The forced respond turn is the exempt-routed terminator dispatched by CIO-4's `max_rounds`-final branch (see [Hard Runtime Ceilings — CIO-4](../hard-ceilings/ceilings-3-and-4.md#ceiling-interaction-order)), so CIO-4's slot accounting is not evaluated against it and the `tool_loop_exhausted` cap-trigger is unreachable on that turn.
+
+### Detection of `ContextOverflowError`
+
+The runtime maps recognised provider context overflow error responses to this variant — concretely, payloads matching one of the per-provider signatures listed in [Pi Integration Contract — Provider error mapping](../pi-integration-contract.md). All other 4xx and 5xx responses map to `TransportError`. `tokens_used` and `tokens_limit` are populated when the provider supplies them in the error payload, and `null` otherwise; pre-flight token estimation is out of loom 1.0 scope (see [Future Considerations](../future-considerations.md)). Detection runs at end-of-stream for streamed responses; mid-stream errors are still classified at end-of-stream. A streamed response truncated mid-emission because the *output* hit the context boundary is classified as `context_overflow` (not `validation`), with `raw_response` set to the partial text. A provider that returns the overflow as an HTTP 200 with an error envelope is recognised by inspecting the body, not only the status. Recognised-overflow payloads with no token-count fields surface `tokens_used: null, tokens_limit: null` — that is the documented `null` condition, not a missing implementation.
+
+> **loom 1.0 seam — pre-flight token-count nullability.** <a id="loom-1-0-seam-pre-flight-token-nullability"></a><a id="v1-seam-pre-flight-token-nullability"></a> The `tokens_used` and `tokens_limit` fields on `ContextOverflowError` MUST remain typed as nullable (`tokens_used: number | null`, `tokens_limit: number | null`) and the runtime MUST surface `null` for both whenever the provider does not supply a value — i.e. the seam is the documented `null`-permitted state on those two fields, not a hidden runtime hook. The seam is what lets the deferred pre-flight-token-count extension in [Future Considerations — Surface extensions](../future-considerations/surface-extensions.md#surface-extensions-v1-leaves-a-seam) populate the fields from a local estimate before issuing the user turn, without changing the variant shape or breaking exhaustive consumers; tightening either field's type to `number` (non-null) at any point in the loom 1.0 lifetime is a non-conformant simplification.
+
+## Schema-validation respond-repair
+
+When a typed query's final response fails AJV validation, the runtime attempts **respond-repair via follow-up turns**, not by re-issuing the original query. This distinction matters: a query may have produced tool-call side effects (file writes, API calls, network requests) on the way to its malformed final response. Re-issuing the original user turn would risk firing those side effects a second time. Respond-repair instead appends a *new* user turn to the same conversation — phrased per the loom's `respond_repair.methodology` — and awaits a corrected response. The conversation history, including the malformed response and any tool calls that preceded it, stays intact. The mechanism is configured by the loom's `respond_repair:` frontmatter block (see [Parameters and Frontmatter](../frontmatter.md)).
+
+Respond-repair follow-ups are bounded by `respond_repair.attempts` from frontmatter (default 3). When attempts are exhausted, the typed query returns `Err(QueryError { kind: "validation", cause: "schema_validation", ... })` — terminal exhaustion is always the `schema_validation` arm of `ValidationError` (see [Errors and Results — ValidationError](../errors-and-results.md)). A respond-repair follow-up may itself trigger tool calls; the runtime services those the same way as in the original query, then validates the resulting response. Each follow-up counts as one against `respond_repair.attempts` regardless of how many tool-call rounds it contains.
+
+### Follow-up turn templates (normative)
+
+Each non-`none` respond-repair methodology emits its follow-up as a **user-role turn** appended to the conversation (per the "appends a *new* user turn" rule above — never as a system turn). Renderers MUST emit the surrounding template text verbatim; only the `<…>` placeholders are interpolated. Wording changes — including whitespace inside the template body — are spec-versioned breaking changes.
+
+*Placeholders.*
+
+- `<ajv-summary>` is the validator-neutral observable summary specified in [Binder — Failure-mode templates (normative)](../binder/determinism-cancellation-failure.md#failure-mode-templates-normative): the in-order concatenation of the failed validation's `ValidationIssue` entries rendered as `<path> <message>` and joined by `; ` in the canonical `validation_errors` order (see [Errors and Results — `ValidationIssue` ordering](../errors-and-results/queryerror-variants.md#err-14)). On a multi-attempt sequence (attempts 2, 3, …), each follow-up's `<ajv-summary>` reflects only the **most recent** failed attempt's validation errors — never a cumulative concatenation across attempts.
+- `<schema-json>` is `JSON.stringify(schema, null, 2)` over the **lowered** response schema (the JSON Schema actually handed to AJV per [Schema Subset](../schema-subset.md)), not the source-Loom-type form. The lowered form is canonical because it is the only form the model has seen during the original turn (via the synthesised respond tool's `parameters`); the lowering pipeline emits keys in deterministic order, so the serialisation is reproducible byte-for-byte across runs.
+- `<slug>` is the schema slug of the lowered response schema, identical to the slug used for the synthesised `__loom_respond_<slug>` tool name (see [Schema Subset — Canonical schema hash](../schema-subset.md#canonical-schema-hash)). Tying both sites to the same source-of-truth keeps the follow-up turn's tool reference byte-equal to the tool name actually registered.
+
+*Templates.* One template per non-`none` methodology. The fenced body of each block is the verbatim user-turn text — every character between the opening and closing fence (including the single U+000A line feed shown between the instruction sentence and the `<schema-json>` placeholder, and the literal U+0060 backtick characters around `__loom_respond_<slug>`) is part of the emitted text. The opening and closing fence lines themselves are not emitted.
+
+`validator_error`:
+
+~~~text
+Your previous response did not match the required schema. Validation errors: <ajv-summary>. Return your final answer using the `__loom_respond_<slug>` tool, conforming to this schema:
+<schema-json>
+~~~
+
+`schema_repeat`:
+
+~~~text
+Your previous response did not match the required schema. Return your final answer using the `__loom_respond_<slug>` tool, conforming to this schema:
+<schema-json>
+~~~
+
+`none` is excluded — no follow-up is issued, so there is no template to specify; the `respond_repair.methodology: none` bullet in [Parameters and Frontmatter](../frontmatter.md) carries the full contract for that case.
+
+### Non-validation failures during a respond-repair follow-up
+
+A follow-up turn is a full provider round-trip and can fail for any reason the original turn could fail for — transport, cancellation, tool failure, context overflow, invoke failure, invoke-callee error. The runtime handles such failures uniformly:
+
+- The proximate failure **propagates as the corresponding `QueryError` variant** (`transport`, `cancelled`, `model_tool`, `tool_loop_exhausted`, `context_overflow`, `invoke_infra_error`, `invoke_callee_error`) and **terminates respond-repair immediately**. The query does not return `validation` with the prior attempt count when the actual failure was, say, transport; the proximate cause wins.
+- A follow-up that fails for a non-validation reason **does not consume an `attempts` slot**. `attempts` counts only follow-ups that produced an assistant response which was then re-validated (whether successfully or not). Rationale: `attempts` is the bound on *respond-repair*, not on incidental infrastructure failure; consuming a slot for a transport blip would silently shorten the repair budget on retry.
+- `context_overflow` **short-circuits respond-repair permanently** for the lifetime of that typed query. Once detected on any turn — original or follow-up — the runtime returns `Err({ kind: "context_overflow", ... })` without issuing further follow-ups, because the conversation only grows and subsequent attempts cannot succeed.
+- **Conversation-history cleanup:** the malformed assistant response and any tool-call traffic that preceded it remain in history (consistent with the "history stays intact" rule above). The follow-up user turn that triggered the propagated failure also remains; nothing is rolled back. Subagent-mode looms see the partial transcript via the same conversation handle on their next query.
+
+Edge cases: a follow-up's *own* tool-call loop may fail with `model_tool` mid-loop, before any final assistant text — that is a non-`schema_validation` cause and follows the rule above (propagate, do not consume `attempts`, do not retry). The same rule applies to an empty-template short-circuit observed on a follow-up turn (defensive — the runtime constructs follow-ups, so this should not occur, but if it does the `cause: "empty_template"` follow-up does not consume an `attempts` slot either). `respond_repair.methodology: none` (equivalent to `attempts: 0`) means there is no follow-up to fail and the rule is a no-op. The `ValidationError.attempts` field returned on terminal exhaustion still reflects the number of *re-validated* follow-ups, which under this rule equals `respond_repair.attempts` exactly when exhaustion is the cause.
+
+Non-validation failures on the **original** response (i.e. before any respond-repair follow-up has been issued) are likewise not retried by the query primitive; the loom is responsible for whatever recovery makes sense. Wrapping retries at the loom level via a function plus `match` is the expected pattern.

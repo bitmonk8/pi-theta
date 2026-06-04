@@ -28,7 +28,7 @@ enum Severity {
 /// (See Errors and Results for the canonical QueryError declaration)
 ```
 
-The `QueryError` union and every variant it carries are declared in [Errors and Results — QueryError variants](./errors-and-results.md#queryerror-variants); this page does not restate them, to avoid the drift hazard the consolidation closes.
+The `QueryError` union and every variant it carries are declared in [Errors and Results — QueryError variants](./errors-and-results/queryerror-variants.md#queryerror-variants); this page does not restate them, to avoid the drift hazard the consolidation closes.
 
 Rules:
 

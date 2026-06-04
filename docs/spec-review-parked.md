@@ -57,7 +57,7 @@ Two conforming implementations will differ observably on rate-limited 429 paths:
 
 **Approach.** Add one sentence to the *Transport-class* bullet (or to the per-invocation retry budget paragraph) stating that the binder issues the retry immediately and that inter-attempt timing — including any `Retry-After` honouring, exponential backoff, jitter, or rate-limit-window awareness — is owned by `@earendil-works/pi-ai`. The loom-side retry budget counts *attempts after pi-ai's own delay completes*. If pi-ai itself returns after exhausting its internal retry, that single returned result consumes the binder's transport budget.
 
-**Spec edits.** Single clause in `binder.md` under *Failure-class taxonomy → Transport-class* (or in the per-invocation budget paragraph immediately below). Cross-reference `pi-integration-contract.md`'s [Provider error mapping](./pi-integration-contract.md#provider-error-mapping) as the layer that owns the timing contract.
+**Spec edits.** Single clause in `binder.md` under *Failure-class taxonomy → Transport-class* (or in the per-invocation budget paragraph immediately below). Cross-reference `pi-integration-contract.md`'s [Provider error mapping](./spec_topics/pi-integration-contract/provider-error-mapping.md#provider-error-mapping) as the layer that owns the timing contract.
 
 **Pros.** Smallest spec surface. Consistent with the existing pattern of delegating provider-specific behaviour (overflow detection, seed-field mapping, named-tool forcing) to pi-ai. No new loom-side knob.
 
