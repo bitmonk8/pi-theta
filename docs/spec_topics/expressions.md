@@ -84,7 +84,7 @@ A small stdlib is exposed on the primitive composite types. No user-defined meth
 | `includes(x)` | `(x: T): boolean` | Membership test using loom structural equality |
 | `indexOf(x)` | `(x: T): integer` | First index by structural equality, or `-1` if absent |
 | `slice(start, end?)` | `(start: integer, end?: integer): array<T>` | JS semantics: negative indices count from the end; `end` exclusive; omitted `end` slices to length |
-| `concat(other)` | `(other: array<T>): array<T>` | Returns a new array with `other`'s elements appended; element type must match |
+| `concat(other)` | `(other: array<U>): array<T ⊔ U>` | Returns a new array with `other`'s elements appended. Admissibility and the result element type are routed through `⊑` (see [Type System — Type compatibility](./type-system.md#type-compatibility)), as with the `+` operator: the result element type `T ⊔ U` is the least upper bound of the receiver element type `T` and `other`'s element type `U` under `⊑` — the same LUB the [array-literal rule](#object-construction-array-construction-and-operator-rules) computes — so `array<integer>.concat(array<number>)` widens to `array<number>` in both call directions. Disjoint element types union exactly as the array-literal LUB rule (case 2) computes, so `array<integer>.concat(array<string>)` types as `array<integer | string>`. |
 
 *`object` (any object value, schema-typed or anonymous)*
 

@@ -4,7 +4,7 @@ _Generated: 2026-06-04T03:10:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 5 high, 9 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 4 high, 9 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -272,28 +272,3 @@ Move the `SchemaValidator` normative interface block from `implementation-notes.
 ## Relationships
 
 - T09 "PIC sections beyond \"Probe-wide invariants\" — missing REQ-ID anchors" - must-precede (the migrated `SchemaValidator` MUSTs land in PIC and inherit the PIC-N anchoring obligation; do the move first so the anchoring sweep covers the block in one pass rather than re-touching it twice).
-# T11 - `array<T>.concat(other)` — admissibility and result element type not routed through `⊑`
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `concat(other)` row in [Expressions — Built-in methods](./expressions.md) gives the signature `(other: array<T>): array<T>` with the semantics gloss "element type must match", which does not cite the named `T₁ ⊑ T₂` relation in [Type System — Type compatibility](./type-system.md#type-compatibility). Every other type-position site in the topic — the array-literal LUB rules, the `+` operator — routes admissibility through `⊑`, so `concat` is the lone exception. The gloss admits three incompatible readings of `array<integer>.concat(array<number>)`: strict-identity rejection, `⊑`-widening to `array<number>`, and a literal-signature-preserving reading that types the result `array<integer>` while it holds `number` values (a soundness hole). The same gap recurs in any future array-producing method.
-
-## Solution approach
-
-Rewrite the `concat(other)` row's semantics cell in expressions.md's Built-in methods table to route admissibility and result element type through `⊑` in [Type System — Type compatibility](./type-system.md#type-compatibility), mirroring the `+` row's existing citation. State that the result element type is the least upper bound under `⊑` — the same LUB the array-literal rule computes in [array construction](./expressions.md#object-construction-array-construction-and-operator-rules) — so the `integer`/`number` boundary widens in both call directions. Route the no-`⊑`-compatible-pair rejection through the existing `loom/parse/array-element-type-mismatch` code rather than a concat-specific diagnostic. Reconcile the static signature line so the LUB result type is reflected.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T12 "`string.replace(from, to)` — literal-substitution and empty-`from` behaviour unspecified" - same-cluster (sibling built-in-method semantics gap in the same table; resolves independently).
