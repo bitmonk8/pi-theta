@@ -4,7 +4,7 @@ _Generated: 2026-06-04T17:12:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker + 7 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker + 6 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -274,28 +274,3 @@ In the `tool-return-shape` clause of the `loom/runtime/internal-error` row in `c
 ## Relationships
 
 - T11 "`pi.registerTool` failure during watcher-driven registry swap is undefined" — same-cluster (both touch the runtime-defect surface around tool registration / dispatch; resolve independently)
-# T11 - `pi.registerTool` failure during watcher-driven registry swap is undefined
-
-**Kind:** error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The watcher hot-reload swap (Extension entry point step 5) is a build-aside-then-publish sequence: stage the rebuilt registry and AJV validator cache, then install both into `LoomRegistry` in one atomic publish. The same paragraph then re-registers tools synthesised from prompt-mode `.loom` callables through `pi.registerTool` when the swap produces a new schema slug, sequenced *after* the publish — and `pi.registerTool` can throw. No diagnostic covers that throw: `loom/runtime/registry-swap-failed`'s trigger is scoped to a throw mid-rebuild before publication, and `loom/runtime/internal-error`'s routing is scoped to the slash-command system-note and `invoke`-parent `Err` surfaces, neither of which exists in a chokidar debounced watcher callback. The resulting state is unnamed — the new registry and validators are live but the model-callable tool for the new slug failed to register, with no compensation primitive (Pi exposes no `pi.unregisterTool`) — and the publish-vs-re-registration ordering is itself unpinned.
-
-## Solution approach
-
-Pin the watcher swap's ordering so the build-aside-then-publish all-or-nothing property also covers `pi.registerTool` re-registration: fold the re-registration into the staged rebuild ahead of the atomic publish. Extend the `loom/runtime/registry-swap-failed` trigger in `code-registry-runtime.md` to cover a `pi.registerTool` throw for a newly-distinct schema slug before publish. State on the failure path that the prior `LoomRegistry` snapshot, AJV validator cache, and prompt-mode registration cache all remain live.
-
-## Solution constraints
-
-- MUST NOT assume a `pi.unregisterTool` compensation primitive — Pi exposes none; failure-path rollback is limited to loom-side state (the staged `LoomRegistry` snapshot and the prompt-mode registration cache).
-
-## Relationships
-
-- T10 "`loom/runtime/internal-error` — `tool-return-shape` details discriminator is unpinned" — same-cluster (both touch the runtime-defect surface around tool registration / dispatch; resolve independently)
