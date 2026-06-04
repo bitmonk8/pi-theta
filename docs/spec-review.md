@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 16 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 15 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -778,31 +778,4 @@ In `capability-probe.md` step (d), rewrite the `peer-dep-malformed-version` part
 
 - T32 "`AgentSession` consumed member surface not pinned" - same-cluster (both concern under-pinned/under-specified boundaries in the Pi integration contract; resolve independently — that one is member-surface pinning, this one is closed `kind` enumeration).
 - T30 "Subagent-spawn satellite types not pinned to a declaration file" - same-cluster (same observation: a boundary the spec treats as authoritative is left under-specified; independent fix).
-# T30 - Subagent-spawn satellite types `ResourceLoader` and `SessionManager.inMemory(cwd)` are consumed but not pinned
 
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The subagent-mode spawn block in `provider-error-mapping.md` constructs a `ResourceLoader` adapter literal and passes `SessionManager.inMemory(cwd)` for the `sessionManager` field of `CreateAgentSessionOptions`. Both names are load-bearing for subagent-mode correctness: the loader is the only channel delivering the loom's `system:` into the spawned session (rule 4 — `CreateAgentSessionOptions` exposes no `systemPrompt` field), and `SessionManager.inMemory(cwd)` is what enforces the transcript privacy named by capability item 3 (`#sdk-cap-subagent-isolated-session`). Unlike every other consumed Pi type on this page, neither is pinned: no declaration-file citation, no enumerated member subset, no `SDK_SURFACE_INVENTORY` entry, no step 2(a) literal-read coverage, and no on-bump re-validation. A Pi minor that adds or reshapes a `ResourceLoader` member, or moves `SessionManager.inMemory`, therefore breaks subagent spawn at runtime instead of failing at the build-time surface-inventory gate.
-
-## Solution approach
-
-Pin `ResourceLoader` on the same footing as the other consumed Pi types: add a member-surface block — in `provider-error-mapping.md`, or in `host-interfaces-core.md` with a forward-link from the spawn block — citing the declaration file at the [loom 1.0 Pi-SDK pin](host-prerequisites.md#pi-sdk-pin) and enumerating the load-bearing members the spawn-block adapter implements. Extend capability item 3 (`#sdk-cap-subagent-isolated-session`) with the declaration-file citation and pinned signature for `SessionManager.inMemory`. Add `SDK_SURFACE_INVENTORY` entries for both surfaces and extend step 2(a)'s literal-read assertion and the on-bump re-validation citation list to cover them.
-
-## Solution constraints
-
-- Out of scope: the `AgentSession` member-surface pinning owned by T32.
-- MUST NOT mint a new SDK capability or move step 2(a)'s `CAPABILITY_OBLIGATIONS.length === 7` assertion; both surfaces attach to the existing capability 3.
-
-## Relationships
-
-- T32 "`AgentSession` consumed member surface not pinned" - same-cluster (same class of asymmetric pinning gap on subagent-mode SDK surface; both widen the pinned-type set in the same direction and can land in adjacent edits, but resolve independently because they touch different members).
-- T06 "PIC external-entity citations lack consistent fragility/re-audit framing" - same-cluster (PIC pinning posture for satellite Pi types; resolves independently).
-- T29 "Open-ended 'foreseeable shape failure' clause" - same-cluster (another boundary the spec treats as authoritative is left under-specified; independent fix).
