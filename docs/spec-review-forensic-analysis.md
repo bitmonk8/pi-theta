@@ -142,3 +142,20 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-06-04 — T06 - binder.md normative sections lack per-obligation BNDR-N anchors
+
+- **Failure mode:** fast-loop-unresolved
+- **Category:** 2 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a (fast loop — no inner-loop trajectory)
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (fast loop — no staged dispatch)
+- **Snapshot refs (retained for forensics):** n/a
+- **Poisoned fixes:** n/a
+- **Forensic report:** none (fast loop — no forensic report)
+- **Parked findings (this run):** `T06 - binder.md normative sections lack per-obligation BNDR-N anchors`
+- **Loop notes:** finding not resolved by fast fix (urgent reviewer returned FindingResolved: partial — fixer narrowed to the three echo-policy obligations with a live GOV-9 citer; the full four-sub-section per-obligation sweep and coverage-matrix update were not done).
+- **Fixer notes:** none
+
+---

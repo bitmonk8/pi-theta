@@ -1,6 +1,6 @@
 # pi-loom — Consolidated Spec Review (Parked)
 
-_Parked findings: 1._
+_Parked findings: 2._
 
 ---
 
@@ -86,3 +86,39 @@ Choose **Option A** if an audit of `@earendil-works/pi-ai`'s pinned minor (the l
 - T22 "Binder inference call — no pi-ai entry point pinned" - must-follow (whether transport backoff is owned by pi-ai depends on which entry point that finding pins; if the chosen helper already owns backoff, Option A's delegation falls out, otherwise the binder spec must pin the timing itself — resolve the call-shape finding first).
 - T15 "`TransportError.retryable` lacks a population rule outside the unsupported-provider case" - same-cluster (both expose gaps in the transport-error contract; a coherent edit would touch both in the same pass).
 - T02 "Pi version-bump gate cannot detect three unstated host/provider behavioural presuppositions" - same-cluster (Option A delegates to the **Provider error mapping** surface that finding also touches).
+
+---
+
+## T06 - binder.md normative sections lack per-obligation BNDR-N anchors
+
+> **PARKED** — 2026-06-04
+> **Reason:** Category 2 (fixer too-hard — capability gap; the four-sub-section per-obligation `BNDR-N` coinage sweep plus the `coverage-matrix.md` update exceeds what the single-shot fast fix can complete). The `/spec-fix-findings-loop` fast loop (CascadeOrdering: off, no inner-loop trajectory) attempted a fast fix and the urgent reviewer returned FindingResolved: partial — the fixer narrowed to the three echo-policy obligations with a live GOV-9 citer, but the full four-sub-section per-obligation sweep and the coverage-matrix update were not done. Loop notes: finding not resolved by fast fix (urgent reviewer returned FindingResolved: partial — fixer narrowed to the three echo-policy obligations with a live GOV-9 citer; the full four-sub-section per-obligation sweep and coverage-matrix update were not done). A human (or a full `/spec-fix-findings-loop` run) must complete the remaining work — coin one `BNDR-N` per independently-testable obligation across all four normative sub-sections (*System-prompt structure*, *Compact-transcript format*, *System-note rendering*, *Echo policy* Format rules) and add the new IDs to `coverage-matrix.md` as uncovered — before re-introducing this finding.
+> **Forensic report:** none (fast loop — no forensic report)
+
+# T06 - binder.md normative sections lack per-obligation BNDR-N anchors
+
+**Kind:** traceability
+**Importance:** medium
+**Score:** 25
+**Must-fix:** false
+**Decision axes:** 3
+**Shape:** single
+**State:** reduced
+
+## Problem
+
+Four normative sub-sections of `binder.md` — *System-prompt structure (normative)*, *Compact-transcript format (normative)*, *System-note rendering*, and the *Echo policy* "Format rules" list — enumerate independently-testable RFC-2119 obligations, but none carries a `BNDR-N` REQ-ID anchor. Only `BNDR-1`..`BNDR-3` exist on the page (the binder-refinement-loop seam); the entire normative rendering and system-prompt body is un-coined. GOV-22 requires every individual obligation on a non-narrative page to be coined as a `BNDR-N` defining anchor, and GOV-9 requires cross-page citers to target a `#bndr-n` fragment; both contracts are currently unsatisfiable for these obligations. `schema-subset.md` § *Canonical form* item 2 already depends on the echo-policy `integer`/`number` rendering rules but can only cross-reference the bare `#echo-policy` section anchor.
+
+## Solution approach
+
+Coin one `BNDR-N` per independently-testable obligation across the four sub-sections in a single coordinated sweep, allocating the next free integers after `BNDR-3` in source order (the four sub-sections share one `BNDR` numbering space; verify the high-water mark with `grep -i 'bndr-' docs/spec_topics/binder.md` before assigning, since per GOV-3 numbering never collapses to fill holes). Use GOV-1 dual-form `<a id="bndr-n"></a> **BNDR-N.**` anchors. Repoint `schema-subset.md` § *Canonical form* item 2 from `./binder.md#echo-policy` to the specific new `#bndr-n` fragments for the `integer`, `number`, and reference-rendering rules it relies on. Add the new IDs to `coverage-matrix.md` as uncovered.
+
+## Solution constraints
+
+- Coinage is anchor-only: wrap the existing obligation prose with `BNDR-N` anchors without altering the normative content, preserving the inline edge-case parentheticals (e.g. the `±1e21` switch ban, the `NaN`/`±Infinity` exclusion, the "field order is irrelevant" disclaimer) verbatim.
+
+## Relationships
+
+- T21 "System-note rendering — prefix backticks disagree across normative statements" - must-follow (the backtick byte-form must be pinned first so each newly-coined system-note / echo-policy rule anchor cites the corrected prose).
+- T09 "PIC sections beyond \"Probe-wide invariants\" — missing REQ-ID anchors" - same-cluster (same GOV-22 pattern on `pi-integration-contract.md` under the `PIC` prefix).
+- T05 "Seam-blockquote MUSTs on `errors-and-results.md` and `invocation.md` lack co-located REQ-ID anchors" - same-cluster (same GOV-22 pattern under the `ERR` / `INV` prefixes; resolves independently).

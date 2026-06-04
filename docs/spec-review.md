@@ -4,7 +4,7 @@ _Generated: 2026-06-04T03:10:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 4 high, 7 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 4 high, 6 medium retained; 13 low discarded; 16 low findings merged into 6 medium findings (plus one co-resolve merge of two high findings); 4 nit dropped; 0 false dropped._
 
 ---
 
@@ -138,30 +138,3 @@ Add a dual-form `ERR-15` REQ-ID anchor co-located with the discriminator type-op
 - T06 "binder.md normative sections lack per-obligation BNDR-N anchors" - same-cluster (same defect class on `binder.md` under the `BNDR` prefix).
 - T16 "`InvokeInfraError` wire discriminant `\"invoke_failure\"` is mis-scoped" - same-cluster (both touch the `## QueryError variants` section; the ERR-15 coinage is adjacent to the wire-token rename and resolves independently).
 - T17 "`realpath` is required by Resolution but absent from the `FileSystem` seam" - same-cluster (touches the same symlink-resolution-hardening blockquote on `invocation.md`).
-# T06 - binder.md normative sections lack per-obligation BNDR-N anchors
-
-**Kind:** traceability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Four normative sub-sections of `binder.md` — *System-prompt structure (normative)*, *Compact-transcript format (normative)*, *System-note rendering*, and the *Echo policy* "Format rules" list — enumerate independently-testable RFC-2119 obligations, but none carries a `BNDR-N` REQ-ID anchor. Only `BNDR-1`..`BNDR-3` exist on the page (the binder-refinement-loop seam); the entire normative rendering and system-prompt body is un-coined. GOV-22 requires every individual obligation on a non-narrative page to be coined as a `BNDR-N` defining anchor, and GOV-9 requires cross-page citers to target a `#bndr-n` fragment; both contracts are currently unsatisfiable for these obligations. `schema-subset.md` § *Canonical form* item 2 already depends on the echo-policy `integer`/`number` rendering rules but can only cross-reference the bare `#echo-policy` section anchor.
-
-## Solution approach
-
-Coin one `BNDR-N` per independently-testable obligation across the four sub-sections in a single coordinated sweep, allocating the next free integers after `BNDR-3` in source order (the four sub-sections share one `BNDR` numbering space; verify the high-water mark with `grep -i 'bndr-' docs/spec_topics/binder.md` before assigning, since per GOV-3 numbering never collapses to fill holes). Use GOV-1 dual-form `<a id="bndr-n"></a> **BNDR-N.**` anchors. Repoint `schema-subset.md` § *Canonical form* item 2 from `./binder.md#echo-policy` to the specific new `#bndr-n` fragments for the `integer`, `number`, and reference-rendering rules it relies on. Add the new IDs to `coverage-matrix.md` as uncovered.
-
-## Solution constraints
-
-- Coinage is anchor-only: wrap the existing obligation prose with `BNDR-N` anchors without altering the normative content, preserving the inline edge-case parentheticals (e.g. the `±1e21` switch ban, the `NaN`/`±Infinity` exclusion, the "field order is irrelevant" disclaimer) verbatim.
-
-## Relationships
-
-- T21 "System-note rendering — prefix backticks disagree across normative statements" - must-follow (the backtick byte-form must be pinned first so each newly-coined system-note / echo-policy rule anchor cites the corrected prose).
-- T09 "PIC sections beyond \"Probe-wide invariants\" — missing REQ-ID anchors" - same-cluster (same GOV-22 pattern on `pi-integration-contract.md` under the `PIC` prefix).
-- T05 "Seam-blockquote MUSTs on `errors-and-results.md` and `invocation.md` lack co-located REQ-ID anchors" - same-cluster (same GOV-22 pattern under the `ERR` / `INV` prefixes; resolves independently).
