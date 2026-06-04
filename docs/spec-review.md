@@ -4,7 +4,7 @@ _Generated: 2026-06-04T17:12:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker + 12 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker + 11 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -429,27 +429,3 @@ Narrow the indexed-access bullet in *Supported forms* to restrict the receiver t
 - T17 "`-` and `*` lack a result-type rule" — same-cluster (sibling completeness gap in the same *Supported forms* list; independent fix)
 - T20 "Logical and ternary operators leave short-circuit semantics and operand evaluation order unspecified" — same-cluster (sibling completeness gap in the same list; independent fix)
 - T07 "Built-in methods — `string.replace` row missing conformance vectors" — same-cluster (touches the same `string` stdlib table; independent fix)
-# T17 - `-` and `*` lack a result-type rule
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `## Other arithmetic` section in `docs/spec_topics/expressions.md` pins result types for `/` (always `number`) and `%` (preserves operand type), and the `+` operator paragraph above defines `+` as widening to `number` when either operand is `number`. Subtraction and multiplication get neither rule — their entry says only that they "accept only numeric operands." Whether `integer - integer` and `integer * integer` yield `integer` or `number` is therefore unstated, and the choice is observable: it affects admissibility into `integer`-typed sinks, array-literal LUB inference, and which diagnostic fires when the result flows into an `integer` binding. Two implementers reading the section pick different defaults (by analogy with `+`, `/`, or `%`) and produce divergent parse outcomes on the same source.
-
-## Solution approach
-
-Rewrite the `## Other arithmetic` paragraph in `docs/spec_topics/expressions.md` to state the result-type rule for `-` and `*` by direct analogy with the `+` paragraph above: the result is `integer` when both operands are `integer` and widens to `number` when either operand is `number`, via the `integer ⊑ number` widening in [Type System — Type compatibility](./type-system.md#type-compatibility) (rule 2). State that unary `-` applies the same rule to its single operand.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T18 "Ordering operators leave operand domain, string semantics, NaN, and the rejection diagnostic unspecified" — same-cluster (same expressions page, same completeness gap pattern; the diagnostic-registry addition there is a precedent the `-`/`*` fix can mirror but the two fixes do not overlap textually)
