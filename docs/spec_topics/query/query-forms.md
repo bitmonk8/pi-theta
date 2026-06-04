@@ -22,14 +22,17 @@ Return type: `Result<Schema, QueryError>`, where `Schema` is the inferred respon
 
 ### Schema inference rules
 
-The response schema flows into the query expression from any of the following type contexts, checked in order:
+<a id="explicit-ascription-override"></a>
+
+An explicit `@<Schema>` ascription via the [explicit form](#explicit-form) always supplies the response schema and overrides the inference contexts below, regardless of where the query appears.
+
+Absent an explicit ascription, the response schema flows into the query expression from any of the following type contexts, checked in order:
 
 1. The annotated type of the binding being initialised (`let x: T = @`...`?`).
 2. The declared return type of the enclosing function, when the query is in tail-expression or `return`-argument position. A `.loom` file has no declared return type — its return type is itself inferred from its tail expression (see [Functions — Loom return type](../functions.md#loom-return-type)) — so a loom cannot serve as a sink for a query in its own tail or `return` position.
 3. The declared parameter type of the enclosing call site (`f(@`...`?)` where `f`'s parameter has type `T`).
-4. Explicit ascription via the explicit form (below).
 
-If none apply, the query is untyped (returns `string`).
+If none of these contexts apply and no explicit ascription is present, the query is untyped (returns `string`).
 
 ### Schema inference algorithm
 
@@ -38,7 +41,7 @@ A query expression searches *outward* through its enclosing AST for a "type sink
 - **Crossed (transparent):** parenthesisation `(...)`; the RHS of `let x: T = ...`; function / tool / `invoke` arguments matched to a typed parameter; the tail expression of an enclosing function or loom whose return type is declared; the operand of `return`; the branches of a ternary `cond ? a : b` *if and only if* the ternary itself has a sink; the elements of an array literal `[a, b]` *if and only if* the literal has a sink (binding annotation, parameter type, etc.).
 - **Stopped (opaque):** binary and unary operators (`+`, `==`, `!`, etc.); member access (`a.b`); indexed access (`a[i]`); the scrutinee of `match`; the condition of `if` / `while`; comparison and logical operators on either side. Inside these positions, only an explicit `@<Schema>`...`` ascription supplies a schema.
 
-If the walk reaches a sink, that schema is the query's response type. If the walk reaches a stop without finding a sink, the query is untyped and returns `Result<string, QueryError>`. An explicit `@<Schema>` ascription wins regardless of where it appears.
+If the walk reaches a sink, that schema is the query's response type. If the walk reaches a stop without finding a sink, the query is untyped and returns `Result<string, QueryError>`. An explicit `@<Schema>` ascription overrides the walk regardless of where it appears, per the [override rule](#explicit-ascription-override).
 
 *Worked examples:*
 
@@ -59,7 +62,7 @@ let score = match @<ReviewScore>`Rate the critique 1-5: ${critique}` {
 }
 ```
 
-The explicit form also wins over inference: if both a binding annotation and an explicit `<Schema>` are present, the explicit one is used (with `loom/parse/explicit-schema-mismatch` warning if the explicit `<Schema>` ascription is not compatible with the binding annotation under [Type System — Type compatibility](../type-system.md#type-compatibility) — i.e. `ascription ⋢ annotation`). The check fires in one direction only: a value the explicit form would produce that the binding annotation could not accept is the warned condition; a binding annotation wider than the ascription (a safe widening) is silently allowed. When either side is past the parser's static view (per [Type System — Unresolvable operands](../type-system.md#type-compatibility)), the warning is skipped and the runtime AJV check is the safety net.
+Per the [override rule](#explicit-ascription-override), when both a binding annotation and an explicit `<Schema>` are present, the explicit one is used (with `loom/parse/explicit-schema-mismatch` warning if the explicit `<Schema>` ascription is not compatible with the binding annotation under [Type System — Type compatibility](../type-system.md#type-compatibility) — i.e. `ascription ⋢ annotation`). The check fires in one direction only: a value the explicit form would produce that the binding annotation could not accept is the warned condition; a binding annotation wider than the ascription (a safe widening) is silently allowed. When either side is past the parser's static view (per [Type System — Unresolvable operands](../type-system.md#type-compatibility)), the warning is skipped and the runtime AJV check is the safety net.
 
 *Test vectors (normative).*
 

@@ -4,7 +4,7 @@ _Generated: 2026-06-04T17:12:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker + 10 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker + 9 high, 8 medium retained; 19 low discarded; 13 low findings merged into 3 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -377,27 +377,3 @@ Add a presupposition clause to `host-prerequisites.md`'s `degraded-state-host-pr
 ## Relationships
 
 - T13 "Registration step 1 — factory-time working-directory source unstated" — same-cluster (parallel hidden-assumption pattern about host-side state being ready at a load-time boundary; resolves independently)
-# T15 - Schema inference precedence — explicit ascription listed as last-checked but elsewhere defined as overriding
-
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The "Schema inference rules" subsection in `docs/spec_topics/query/query-forms.md` lists the four type contexts as a numbered list "checked in order", with the explicit `@<Schema>` ascription as item #4 (last). A first-match-wins reading of that ordering makes the binding annotation (item #1) win when both it and an explicit ascription are present. Two other passages contradict this: the "Schema inference algorithm" subsection ends with "An explicit `@<Schema>` ascription wins regardless of where it appears", and the "Explicit form" subsection states the explicit form wins over inference. The two readings select different response schemas for the same query — observable as the structured-output contract sent to the provider, the AJV-validated response type, and whether `loom/parse/explicit-schema-mismatch` fires — and the page's own normative test vectors presuppose the "ascription wins" reading.
-
-## Solution approach
-
-Restructure the "Schema inference rules" ordered list so it enumerates only the inference sinks and states the explicit `@<Schema>` ascription as an override above the list rather than as item #4. Rewrite the "Explicit form" subsection's "wins over inference" wording and the "Schema inference algorithm" subsection's trailing override sentence to cross-reference the single top-of-section override rule rather than independently re-asserting it.
-
-## Solution constraints
-
-- Out of scope: the `loom/parse/explicit-schema-mismatch` warning, its one-directional check, and the four normative test vectors in the "Explicit form" subsection — these remain unchanged.
-
-## Relationships
-
-None
