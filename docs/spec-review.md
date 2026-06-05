@@ -4,7 +4,7 @@ _Generated: 2026-06-05T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 3 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 2 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
 
 ---
 
@@ -440,27 +440,3 @@ Clarify the `replace(from, to)` semantics cell in expressions.md's Built-in meth
 ## Relationships
 
 - T17 "Other arithmetic — integer overflow beyond safe-integer range" - same-cluster (both are GOV-15(a) byte-output unpinning defects on the same page; same surface, resolve independently).
-# T17 - Other arithmetic — integer overflow beyond safe-integer range
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The "Other arithmetic" section of `expressions.md` pins the runtime dispositions for `-`, `*`, `/`, `%` (operand-type widening, `/` always `number`, division/modulo-by-zero producing `Infinity`/`-Infinity`/`NaN` without panicking) but says nothing about an `integer`-typed result whose computed magnitude exceeds the safe-integer bound `2^53 - 1`. `lexical.md`'s Number literals paragraph explicitly defers an out-of-range value reached through arithmetic to "the runtime `number` rules in Expressions" — but no such rule exists, leaving that cross-reference dangling. `error-model.md`'s closed panic list excludes integer overflow without pinning what the runtime does instead. Two reasonable implementers diverge (retain the static `integer` type with silent IEEE-754 precision loss versus widen the dynamic type to `number`), making GOV-15 byte-stable equivalence unenforceable for any program whose arithmetic crosses the boundary.
-
-## Solution approach
-
-Clarify the "Other arithmetic" section of `expressions.md` to pin the runtime disposition for `integer`-typed arithmetic (`-`, `*`, `%`, and unary `-`) whose computed value exceeds the safe-integer bound `2^53 - 1`: the result is computed in IEEE-754 double precision, retains the static `integer` type from the operator's widening rule rather than widening to `number`, and silently loses precision with no overflow panic. Add a forward-link to `error-model.md`'s closed-panic-list integer-overflow exclusion (`#runtime-panics`) to ground the non-panic disposition. `/` already produces `number` and is outside the gap.
-
-## Solution constraints
-
-- Out of scope: `lexical.md`'s parse-time `loom/parse/integer-literal-out-of-range` rule — this disposition is runtime-only and must not alter the parse-time literal boundary.
-
-## Relationships
-
-- T16 "`string.replace(from, to)` — overlapping-match and scan-direction unpinned" - same-cluster (both are GOV-15(a) byte-output unpinning defects on the same page; same surface, resolve independently).
