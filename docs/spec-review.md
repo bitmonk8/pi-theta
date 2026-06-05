@@ -1346,28 +1346,3 @@ Add a build-time cross-check of the §7 closed-enum `<reason>` value table in `p
 ## Relationships
 
 - T54 "§7 GOV-7/GOV-8 co-edit obligation is stated only in step 1" — co-resolve.
-# T56 - Provider/library behaviour is asserted as fact without citation or version pin
-
-**Kind:** assumptions
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Several load-bearing constraints assert external provider/library behaviour as present-tense fact with no citation or version pin: the `depth ≤ 5` nesting ceiling in `schema-subset.md` hard-codes OpenAI's current cap; the JSON-Schema subset is asserted as the intersection of OpenAI/Anthropic strict modes (and Draft 2020-12 "required by Anthropic"); and the typed-query forced-respond terminator depends on pi-ai `complete()` forced tool-choice being honoured by every supported provider adapter. Each silently couples the spec to a live external surface that can drift without any anchored basis or version pin.
-
-## Solution approach
-
-Clarify the `depth ≤ 5` ceiling and the OpenAI/Anthropic-intersection and Draft 2020-12 claims in `schema-subset.md` as either provider-cited against a dated snapshot or as a spec-chosen conservative ceiling decoupled from the live provider caps. For the typed-query forced-respond dependency, add a forward-link to the existing `#complete-forced-tool-presupposition` and to the Pi-SDK pin `#pi-sdk-pin` rather than restating provider behaviour bare. Where the assertion remains version-coupled, follow the presupposition-plus-re-validation-gate pattern already used at `provider-error-mapping.md`'s `#provider-overflow-wording-presupposition`.
-
-## Solution constraints
-
-- Any new defining-obligation site added (e.g. a host-prerequisite or re-validation obligation) MUST carry GOV-22 progressive-coinage under the page's registered prefix.
-
-## Relationships
-
-- T19 "Binder relies on three unpinned `complete()` behaviours" — same-cluster (external-behaviour presuppositions).

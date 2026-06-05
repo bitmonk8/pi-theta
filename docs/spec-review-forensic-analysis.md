@@ -210,3 +210,20 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-06-05 — T56 - Provider/library behaviour is asserted as fact without citation or version pin
+
+- **Failure mode:** fast-loop-unresolved
+- **Category:** 2 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a (fast loop — no inner-loop trajectory)
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (fast loop — no staged dispatch)
+- **Snapshot refs (retained for forensics):** n/a
+- **Poisoned fixes:** n/a
+- **Forensic report:** none (fast loop — no forensic report)
+- **Parked findings (this run):** `T56 - Provider/library behaviour is asserted as fact without citation or version pin`
+- **Loop notes:** finding not resolved by fast fix — schema-subset.md depth/intersection/Draft reframes landed, but the typed-query forced-respond complete() dependency forward-links (#complete-forced-tool-presupposition, #pi-sdk-pin) were not added (excluded by scope guard); reviewer marked partial.
+- **Fixer notes:** none
+
+---
