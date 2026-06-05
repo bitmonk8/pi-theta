@@ -81,7 +81,7 @@ A small stdlib is exposed on the primitive composite types. No user-defined meth
 | `endsWith(s)` | `(s: string): boolean` | JS semantics |
 | `includes(s)` | `(s: string): boolean` | JS semantics |
 | `split(sep)` | `(sep: string): array<string>` | Literal-only (no regex). Empty separator splits into individual code-unit strings |
-| `replace(from, to)` | `(from: string, to: string): string` | Replaces all occurrences. Literal-only (no regex); `$`-sequences in `to` (e.g. `$&`, `$$`, `$n`) are inserted literally, not interpreted as JS replacement patterns. Empty `from` returns the receiver unchanged |
+| `replace(from, to)` | `(from: string, to: string): string` | Replaces all occurrences via a single left-to-right, non-overlapping scan: after each match the next match is sought past the consumed region, with no rewind into the consumed text or the inserted replacement (matching host `String.prototype.replaceAll`). Literal-only (no regex); `$`-sequences in `to` (e.g. `$&`, `$$`, `$n`) are inserted literally, not interpreted as JS replacement patterns. Empty `from` returns the receiver unchanged |
 
 `replace(from, to)` reference vectors (normative; conforming implementations MUST reproduce these exactly):
 
@@ -91,8 +91,9 @@ A small stdlib is exposed on the primitive composite types. No user-defined meth
 | `"100".replace("0", "$$")` | `"1$$$$"` |
 | `"a-b".replace("-", "x$1y")` | `"ax$1yb"` |
 | `"abc".replace("", "X")` | `"abc"` |
+| `"aaaaa".replace("aa", "x")` | `"xxa"` |
 
-The first vector exercises both the "Replaces all occurrences" clause and literal `$&`: a host `String.prototype.replaceAll` interpreting `$&` as the matched substring would yield `"a[X]b[X]c"`. The second vector distinguishes literal `$$` from the host `$$`→`$` escape (which would yield `"1$$"`). The third vector confirms `$n` is inserted literally (no capture-group expansion). The fourth vector exercises the "Empty `from` returns the receiver unchanged" clause.
+The first vector exercises both the "Replaces all occurrences" clause and literal `$&`: a host `String.prototype.replaceAll` interpreting `$&` as the matched substring would yield `"a[X]b[X]c"`. The second vector distinguishes literal `$$` from the host `$$`→`$` escape (which would yield `"1$$"`). The third vector confirms `$n` is inserted literally (no capture-group expansion). The fourth vector exercises the "Empty `from` returns the receiver unchanged" clause. The fifth vector pins the left-to-right, non-overlapping scan: a right-to-left scan would yield `"axx"` and a rewind-after-replacement policy would yield other shapes, so reproducing `"xxa"` discriminates the mandated scan direction.
 
 `string` is not indexable: `s[i]` is `loom/parse/non-indexable-receiver` (loom 1.0 exposes no `charAt` / `codePointAt`; use `s.split(...)` to decompose a string into a code-unit `array<string>`, then index that).
 

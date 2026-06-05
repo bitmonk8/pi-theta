@@ -4,7 +4,7 @@ _Generated: 2026-06-05T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 2 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 1 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
 
 ---
 
@@ -415,28 +415,3 @@ Clarify the `**`for` ... `in`**` paragraph in `control-flow.md` to pin that the 
 ## Relationships
 
 - T22 "Block expressions — no grammar production for statement-form `if` / `for` / `while` bodies" - same-cluster (both touch the under-specified surface of statement-form `for`; the body-production fix and the iterand-cardinality fix are independent edits to adjacent sentences).
-# T16 - `string.replace(from, to)` — overlapping-match and scan-direction unpinned
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `replace(from, to)` semantics cell in expressions.md's Built-in methods (string) table pins three decisions — "replaces all occurrences", literal handling of `$`-sequences in `to`, and the empty-`from` carve-out — and its four reference vectors are normative (conforming implementations MUST reproduce them exactly). None of them constrain behaviour when occurrences of `from` overlap in the receiver. For a self-overlapping needle several "all occurrences" policies produce different byte outputs (`"aaaaa".replace("aa", "x")` yields `"xxa"` under left-to-right non-overlapping scan, `"axx"` under right-to-left, and other shapes under rewind-after-replacement). Because these outputs are part of the GOV-15(a) byte-stable source-language-equivalence contract, the gap lets two compliant loom 1.0.0 implementations diverge on the same input; the sibling `split(sep)` row anchors to JS semantics but `replace` does not, so the gap cannot be closed by appeal to a sibling.
-
-## Solution approach
-
-Clarify the `replace(from, to)` semantics cell in expressions.md's Built-in methods (string) table to pin a single left-to-right non-overlapping scan (matching host `String.prototype.replaceAll`): after a match the next match is sought past the consumed region, with no rewind into the consumed text or the inserted replacement. Add one row to the `replace(from, to)` reference-vector table whose result discriminates that policy from the right-to-left and rewind-after-replacement alternatives (e.g. `"aaaaa".replace("aa", "x")` → `"xxa"`).
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T17 "Other arithmetic — integer overflow beyond safe-integer range" - same-cluster (both are GOV-15(a) byte-output unpinning defects on the same page; same surface, resolve independently).
