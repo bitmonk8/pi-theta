@@ -1689,27 +1689,3 @@ Move the "Conversation drive — subagent mode" spawn content — the `createAge
 ## Relationships
 
 - T68 "Two audit-cluster files have H1 headings inverted" — same-cluster.
-# T70 - §5 test vector contradicts the rule it illustrates
-
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** true
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-In `diagnostics/placeholder-rendering-b.md` §5 "Source-derived placeholders", the `**Test vectors.**` bullet for an unknown frontmatter field renders `unknown field 'wibble'`, dropping the word "frontmatter". The `loom/load/unknown-frontmatter-field` registry Message in `diagnostics/code-registry-load.md` is `unknown frontmatter field '<field>'`, so the illustrative vector contradicts the normative rule it is meant to demonstrate.
-
-## Solution approach
-
-Rewrite the §5 "Source-derived placeholders" unknown-frontmatter-field test-vector bullet so its rendered output reads `unknown frontmatter field 'wibble'`, matching the `loom/load/unknown-frontmatter-field` registry Message in `diagnostics/code-registry-load.md`.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T41 "Diagnostic registry pointers cite the wrong file and overclaim completeness" — same-cluster.
