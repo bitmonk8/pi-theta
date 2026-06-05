@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 8 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 7 high, 7 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -150,31 +150,3 @@ Add two lettered items to the `version-bump-step2.md` editorial-review checklist
 - T04 "Namespace-clearance subsection" - same-cluster (sibling unpinned-host-assumption hygiene).
 - T16 "`always-log set` definition is narrower than its actual membership" - same-cluster (same canonical page `runtime-event-channel.md`; independent defect on a different paragraph).
 - T32 "`AgentSession` consumed member surface not pinned" - same-cluster (another host-surface assumption not in the pinned-surfaces / re-validation set; resolves independently).
-# T06 - PIC external-entity citations lack consistent fragility/re-audit framing
-
-**Kind:** external-entities
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 4
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Three adjacent PIC sites cite Pi-owned or bundled-internal surfaces with the typographic weight of stable contract, diverging from the known-fragile-evidence discipline established on `tool-registration-lifetime.md` (declaration file = source of truth; inline shape = loom-touched subset; bundled `dist/*.js` evidence flagged fragile and routed through the `version-bump-step2.md` editorial-review checklist). `registration-steps.md` step 2 narrates pre-bind extension-runtime semantics via four pointers into Pi's bundled private implementation — the `notInitialized`-tagged action-method slots, `dist/core/extensions/loader.js`, the private `Runner.bindCore()`, and the verbatim throw string — as flat fact with no fragility flag and no bump-checklist hook. The *Re-registration within an extension* and *`customType` ownership and collision rule* bullets under `extension-bootstrap-and-per-loom.md`'s `#renderer-registration` narrate the loader `Map` and the runner's `getMessageRenderer` first-hit iteration as load-bearing background without the same framing, and the *Signature.* block labels the externally-owned `MessageRenderer` declarations "reproduced verbatim from `dist/core/extensions/types.d.ts`" — a posture in which a future Pi rename makes the spec wrong rather than stale. The observable loom-normative rules on all three surfaces do not need the internal-symbol details to be load-bearing; they are illustrative evidence at the loom 1.0 pin treated with the weight of stable contract.
-
-## Solution approach
-
-Apply `tool-registration-lifetime.md`'s known-fragile-evidence framing to `registration-steps.md` step 2 and to the renderer-resolution narration under `extension-bootstrap-and-per-loom.md`'s `#renderer-registration`, keeping the observable rules normative and flagging the bundled-symbol pointers as fragile evidence. Rewrite the *Signature.* block's "reproduced verbatim … normative" claim to mirror the loom-load-bearing-subset / re-validation phrasing used on `host-interfaces-core.md`'s `ExtensionContext` / `SessionContext` blocks. Add a checklist item to `version-bump-step2.md` covering the pre-bind throw-closure evidence and the renderer-resolution behaviour, with its own `<a id>` anchor continuing the existing lettered sequence, and forward-link it from the affected sites by anchor rather than ordinal.
-
-## Solution constraints
-
-- The `MessageRenderer` / `MessageRenderOptions` / `registerMessageRenderer` code block under the *Signature.* heading reproduces an externally-owned declaration; its content is out of scope — change only the surrounding framing prose.
-
-## Relationships
-
-- T05 "Host presuppositions lack version-bump-procedure re-audit hooks" - same-cluster (the `convertToLlm` presupposition lands in the same editorial-review checklist; share the checklist's letter assignment).
-- T04 "Namespace-clearance subsection" - same-cluster (the new flag-collision rule must be phrased observationally rather than anchoring to the bundled loader symbol, per this finding's discipline).
-- T30 "Subagent-spawn satellite types not pinned to a declaration file" - same-cluster (PIC pinning posture for consumed Pi surfaces; resolves independently).
-- T32 "`AgentSession` consumed member surface not pinned" - same-cluster (mirror problem — under-pinned vs over-claimed external surface; same declaration-file/loom-load-bearing-subset/re-validation discipline is the resolution template).
