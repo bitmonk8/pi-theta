@@ -500,29 +500,3 @@ Rewrite the payload in step 3 of the *Mock provider transcript* in `query-tool-l
 ## Relationships
 
 None
-# T19 - `%` operand-typing rule contradicts the `integer ⊑ number` widening pattern of `-`/`*`
-
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-In `docs/spec_topics/expressions.md` § *Other arithmetic*, the `-` and `*` operators pin explicit `integer ⊑ number` widening (both `integer` → `integer`; either `number` → `number`, citing type-compatibility rule 2), but the `%` operator instead says it "requires same-typed operands and, for a non-zero divisor, preserves the type." Read strictly, "same-typed operands" rejects `3 % 2.0`, contradicting the widening pattern of its sibling operators — yet the same sentence later asserts that `integer % 0` widens to `number` "the same `integer ⊑ number` widening," reusing the widening vocabulary for `%`. Two reasonable implementers diverge on whether `3 % 2.0` parses, and the strict reading has no registered diagnostic to name the rejection (`code-registry-parse.md` registers `loom/parse/mixed-plus-operands` and `loom/parse/non-orderable-operands` but no modulo equivalent).
-
-## Solution approach
-
-Rewrite the `%` clause in `docs/spec_topics/expressions.md` § *Other arithmetic* to follow the same `integer ⊑ number` widening rule already stated for `-`/`*`: `integer` operands produce `integer`, any `number` operand widens the result to `number`. Delete the "requires same-typed operands" and "preserves the type" phrasing that sources the contradiction, and keep the existing modulo-by-zero sentence so it reads as a special case of the general widening rather than an exception to a strict rule.
-
-## Solution constraints
-
-- Out of scope: the comparison-operator ordering sentence (owned by T20) and the rule-2 citation anchoring (owned by T11) — both share the `expressions.md` operator-rule block; edit only the `%` clause.
-- Out of scope: `code-registry-parse.md` — the widening direction registers no new diagnostic.
-
-## Relationships
-
-- T11 "Type-compatibility rules cited by positional ordinal with no per-rule anchor" - same-cluster (the `%` clause's "(rule 2)" ordinal reference is one of the citations that finding tracks; the wording fix here is independent of how rule 2 is anchored).
-- T20 "Numeric comparison rule says 'magnitude' where it means 'signed numeric value'" - same-cluster (both live in `expressions.md` and a single editing pass through the arithmetic + ordering paragraphs would naturally address them together, but they resolve independently).
