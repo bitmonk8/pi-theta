@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 10 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 9 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -550,28 +550,3 @@ Rewrite the "Numeric operands order by IEEE-754 magnitude." sentence in `express
 ## Relationships
 
 - T19 "`%` operand-typing rule contradicts the `integer ⊑ number` widening pattern" - same-cluster (same operator-rule prose block in `expressions.md`; resolve independently).
-# T21 - Non-trailing defaulted params produce a binding hazard at `invoke(...)` sites
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`invocation.md`'s *Argument binding* rule ("arguments bind positionally to the callee's `params:` in declaration order") and *Argument arity* rule ("too-few floor is the count of non-defaulted `params:`") together leave undefined how a `params:` list binds when a non-defaulted field follows a defaulted one. The spec never forbids that shape. For `params: { a: string = "x", b: string }`, the call `invoke("./c.loom", "val")` passes both arity gates, yet a strict-positional reader binds `"val"` to `a` and fails the missing required `b` at runtime, while a default-skipping reader fills `b` and defaults `a`, so the call succeeds — both readings respect "declaration order" and no diagnostic names the cause. The hazard is confined to `invoke(...)` and `.loom`-callable calls (the slash binder fills by wire name; Pi tool calls take a single object), but those are first-class loom 1.0 surfaces.
-
-## Solution approach
-
-Eliminate the ambiguous surface by rejecting the offending shape at `params:` parse time. Add a normative rule to the **Defaults.** sub-bullet in `frontmatter-fields-a.md`: no non-defaulted field may follow a defaulted field in `params:` declaration order. Register a new parse-error diagnostic in `code-registry-parse.md` using the standard one-row template (natural code `loom/parse/non-trailing-default`), identifying the first offending non-defaulted field. Add a sentence to `invocation.md`'s *Argument binding* / *Argument arity* noting the structural precondition is enforced upstream at `params:` parse time so positional binding always meets "every defaulted slot is at or after every required slot".
-
-## Solution constraints
-
-- The normative rule lives only at the `params:` **Defaults.** site in `frontmatter-fields-a.md`; the `invocation.md` addition is a non-normative cross-reference, not a restatement of the rule.
-
-## Relationships
-
-None
