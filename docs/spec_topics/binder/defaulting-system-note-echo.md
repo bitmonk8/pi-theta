@@ -43,34 +43,34 @@ Format rules:
 - Defaulted fields tagged `(default)`: `focus_areas=[] (default)`. The tag fires only when the field took its declared default (default-supplied, not binder-supplied); per [Defaulting](#defaulting)'s fill-if-absent rule a binder-supplied value for a defaulted field is rendered untagged.
 - Total line subject to the shared 120-code-point cap defined in [System-note rendering](#system-note-rendering) above, measured over the whole line including the `Running /<name>: ` prefix; overflow truncated with `…`. The line-level cap wins over the array rule's own `…+N more` marker — if truncation falls inside an array, the inner `…+N more` may be cut. The 120-code-point cap is applied *after* per-value rendering, so a quoted string that fits its own predicate may still be truncated at the line level.
 
-<a id="bndr-6"></a> **BNDR-6.** Reference renderings (normative; conforming implementations MUST reproduce these exactly):
+<a id="bndr-6"></a> **BNDR-6.** Reference renderings (normative; conforming implementations MUST reproduce these exactly). Each table row below carries a stable page-local sub-letter anchor (`bndr-6a` … `bndr-6x`, assigned in row order) so a test, coverage-matrix leaf, or failure report can cite a single rendering pair without naming the others. These sub-letter anchors are page-local sub-obligation identifiers, not new REQ-IDs — the same page-local sub-letter anchor scheme that [GOV-23](../governance/anchor-scheme-and-retired.md#gov-23) describes for the `spec.md` Session Model sub-obligations. The `bndr-6` umbrella anchor and the BNDR-6 REQ-ID remain the load-bearing identifiers for inbound links that cite the table as a unit; a later row append takes the next free sub-letter and existing sub-letters are not renumbered.
 
-| Value (declared type) | Renders as |
-| --- | --- |
-| `""` (string) | `""` |
-| `"plain_id-1.2"` (string) | `plain_id-1.2` |
-| `"has space"` (string) | `"has space"` |
-| `"key=value"` (string) | `"key=value"` |
-| `"with \"quote\" and \\slash"` (string) | `"with \"quote\" and \\slash"` |
-| `"café"` (string) | `"café"` |
-| `Cat { name: "Whiskers", color: "red" }` (schema declares `name` first) | `{Whiskers, …}` |
-| `Cat { name: "Whiskers" }` (variant of `schema Animal = Cat \| Dog`; variant `schema Cat { kind: "cat", name: string }` declares `kind` before `name`, supplied implicitly) | `{cat, …}` |
-| `Cat { name: "Whiskers" }` (schema declares only `name`) | `{Whiskers, …}` |
-| `{ name: "Whiskers", color: "red" }` (inline `{ name: string, color: string }`) | `{Whiskers, …}` |
-| `Tagged { tags: ["a", "b c"], name: "x" }` (schema declares `tags` first) | `{[a, "b c"], …}` |
-| `Outer { pet: Cat { name: "Whiskers", color: "red" }, label: "x" }` (schema declares `pet` first; `Cat` declares `name` first) | `{{Whiskers, …}, …}` |
-| `[]` (array) | `[]` |
-| `["a", "b c"]` (array) | `[a, "b c"]` |
-| `42` (integer) | `42` |
-| `-0` (integer or number) | `0` |
-| `3.14` (number) | `3.14` |
-| `1e21` (number) | `1000000000000000000000` |
-| `1e-8` (number) | `0.00000001` |
-| `true` (boolean) | `true` |
-| `false` (boolean) | `false` |
-| `null` (null) | `null` |
-| `Severity.High` (enum, RHS `"High"`) | `High` |
-| `Severity.NeedsReview` (enum, RHS `"needs review"`) | `"needs review"` |
+| ID | Value (declared type) | Renders as |
+| --- | --- | --- |
+| <a id="bndr-6a"></a> **BNDR-6a.** | `""` (string) | `""` |
+| <a id="bndr-6b"></a> **BNDR-6b.** | `"plain_id-1.2"` (string) | `plain_id-1.2` |
+| <a id="bndr-6c"></a> **BNDR-6c.** | `"has space"` (string) | `"has space"` |
+| <a id="bndr-6d"></a> **BNDR-6d.** | `"key=value"` (string) | `"key=value"` |
+| <a id="bndr-6e"></a> **BNDR-6e.** | `"with \"quote\" and \\slash"` (string) | `"with \"quote\" and \\slash"` |
+| <a id="bndr-6f"></a> **BNDR-6f.** | `"café"` (string) | `"café"` |
+| <a id="bndr-6g"></a> **BNDR-6g.** | `Cat { name: "Whiskers", color: "red" }` (schema declares `name` first) | `{Whiskers, …}` |
+| <a id="bndr-6h"></a> **BNDR-6h.** | `Cat { name: "Whiskers" }` (variant of `schema Animal = Cat \| Dog`; variant `schema Cat { kind: "cat", name: string }` declares `kind` before `name`, supplied implicitly) | `{cat, …}` |
+| <a id="bndr-6i"></a> **BNDR-6i.** | `Cat { name: "Whiskers" }` (schema declares only `name`) | `{Whiskers, …}` |
+| <a id="bndr-6j"></a> **BNDR-6j.** | `{ name: "Whiskers", color: "red" }` (inline `{ name: string, color: string }`) | `{Whiskers, …}` |
+| <a id="bndr-6k"></a> **BNDR-6k.** | `Tagged { tags: ["a", "b c"], name: "x" }` (schema declares `tags` first) | `{[a, "b c"], …}` |
+| <a id="bndr-6l"></a> **BNDR-6l.** | `Outer { pet: Cat { name: "Whiskers", color: "red" }, label: "x" }` (schema declares `pet` first; `Cat` declares `name` first) | `{{Whiskers, …}, …}` |
+| <a id="bndr-6m"></a> **BNDR-6m.** | `[]` (array) | `[]` |
+| <a id="bndr-6n"></a> **BNDR-6n.** | `["a", "b c"]` (array) | `[a, "b c"]` |
+| <a id="bndr-6o"></a> **BNDR-6o.** | `42` (integer) | `42` |
+| <a id="bndr-6p"></a> **BNDR-6p.** | `-0` (integer or number) | `0` |
+| <a id="bndr-6q"></a> **BNDR-6q.** | `3.14` (number) | `3.14` |
+| <a id="bndr-6r"></a> **BNDR-6r.** | `1e21` (number) | `1000000000000000000000` |
+| <a id="bndr-6s"></a> **BNDR-6s.** | `1e-8` (number) | `0.00000001` |
+| <a id="bndr-6t"></a> **BNDR-6t.** | `true` (boolean) | `true` |
+| <a id="bndr-6u"></a> **BNDR-6u.** | `false` (boolean) | `false` |
+| <a id="bndr-6v"></a> **BNDR-6v.** | `null` (null) | `null` |
+| <a id="bndr-6w"></a> **BNDR-6w.** | `Severity.High` (enum, RHS `"High"`) | `High` |
+| <a id="bndr-6x"></a> **BNDR-6x.** | `Severity.NeedsReview` (enum, RHS `"needs review"`) | `"needs review"` |
 
 Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is `loom/parse/bind-echo-on-bypass` (warning).
 

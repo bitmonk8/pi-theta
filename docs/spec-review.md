@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 12 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 7 high, 11 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -261,31 +261,3 @@ Give each of the eleven template rows (the ten typed rows plus the catch-all) it
 - T10 "BNDR-6 packs 19 independently testable rendering pairs under one REQ-ID" - same-cluster (identical shape: one parent REQ-ID over N normative table rows; apply the fix mechanism symmetrically).
 - T08 "ERR-5 conflates two distinct pre-evaluation failure surfaces" - same-cluster (same anti-pattern at smaller N).
 - T07 "GOV-21 bundles five independently testable sub-clauses" - same-cluster (same anti-pattern on the governance prefix).
-# T10 - BNDR-6 packs 19 independently testable rendering pairs under one REQ-ID
-
-**Kind:** traceability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`BNDR-6` on `docs/spec_topics/binder/defaulting-system-note-echo.md` is a single REQ-ID whose body is a multi-row normative table of input/output rendering pairs, each an independently failing obligation spanning disjoint type-switch categories (string-quoting, enum round-trip, array elision, object first-field hint, `integer`/`number`/`-0`/`1e21` numeric pins, boolean, null). Citing `BNDR-6` from a test, a coverage-matrix leaf, or a failure report names the whole table indistinguishably — a regression in any one row surfaces only as "BNDR-6 failed", and a leaf cannot signal which obligations it closes. Adjacent `BNDR-4` and `BNDR-5` already carry one obligation per REQ-ID, making `BNDR-6` the only place in the prefix where ~20 distinct claims share an ID.
-
-## Solution approach
-
-Split `BNDR-6` into one sub-ID per table row (`BNDR-6-1` … one per row, numeric tails) in GOV-1 dual-form layout, following the `CIO-4`→`CIO-4a/4b/4c` sub-ID-split precedent in `.pi/project-config.md`. Retain the existing `id="bndr-6"` anchor on the preamble sentence as the umbrella parent MUST. Assign sub-IDs in the table's current row order.
-
-## Solution constraints
-
-- Do not retire `BNDR-6`; the parent preamble MUST stays load-bearing and its `id="bndr-6"` anchor must remain stable so incoming cross-references continue to resolve.
-
-## Relationships
-
-- T09 "SLSH-4 covers 11 independently normative template rows" - same-cluster (identical shape; apply the fix mechanism symmetrically).
-- T08 "ERR-5 conflates two distinct pre-evaluation failure surfaces" - same-cluster (same pattern, smaller cardinality).
-- T07 "GOV-21 bundles five independently testable sub-clauses" - same-cluster (same pattern on the governance prefix).
-- T22 "Echo rendering of an object whose first field is a composite is unspecified" - same-cluster (adds a BNDR-6 row; order so the renumbering lands after the new rows or the new rows take the next sub-IDs).
-- T24 "BNDR-5 scientific-notation prohibition does not cover the sub-1e-7 end" - same-cluster (adds a BNDR-6 row; the added row mints the next sub-ID).
