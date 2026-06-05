@@ -637,27 +637,3 @@ Clarify the normative status of `DefaultResourceLoaderOptions.systemPromptOverri
 ## Relationships
 
 None.
-# T27 - Built-in Pi tool name → `ToolDefinition` resolution names no concrete API
-
-**Kind:** clarity, implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-In `provider-error-mapping.md`'s `**Conversation drive — subagent mode.**` section, rule 1 of the four spawn rules describes built-in Pi tool name → `ToolDefinition` resolution only as "resolved by name from the model registry / extension API". It names no concrete SDK surface, is not enumerated in `SDK_SURFACE_INVENTORY`, and the `/` admits two readings (the model registry versus the extension API).
-
-## Solution approach
-
-In that rule, replace the `model registry / extension API` disjunction with the single concrete built-in-tool resolution surface and add its `SDK_SURFACE_INVENTORY` entry. Reconcile the wording with frontmatter's `**Resolution snapshot.**`.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
