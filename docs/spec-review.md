@@ -588,28 +588,3 @@ Either pin a `details` positions payload for `loom/load/typed-query-unsupported-
 ## Relationships
 
 None.
-# T25 - `pi.registerTool` post-startup support is cited in prose with no version pin
-
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `session-shutdown-semantics.md` step-5 hot-reload registry swap depends on `pi.registerTool` working after startup, asserted in prose as "documented as supported after startup". Unlike PIC's other unpinned host behaviours, the claim is not framed as a presupposition, cites no `#pi-sdk-pin`, and carries no re-validation hook into the version-bump procedure — so a Pi minor that drops post-startup registration support would surface no build-time or editorial signal.
-
-## Solution approach
-
-Rewrite the post-startup-support claim in `session-shutdown-semantics.md` step 5 as an unpinned host presupposition taken on a best-effort basis against `#pi-sdk-pin`, matching the presupposition framing already used in PIC's **Host prerequisites**. Add a forward-link to the *Editorial-review checklist for unpinned host presuppositions* under `#pi-version-bump-procedure` so the claim is re-audited on each Pi minor bump.
-
-## Solution constraints
-
-- Out of scope: the placement/extraction of the step-5 hot-reload content owned by T30; edit the post-startup-support claim's framing in place.
-
-## Relationships
-
-None.
