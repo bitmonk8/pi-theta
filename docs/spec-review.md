@@ -564,27 +564,3 @@ In the **Self-failure** paragraph's `details.step` enumeration, rename the step-
 ## Relationships
 
 None.
-# T24 - `typed-query-unsupported-provider` "listing positions" has no pinned format
-
-**Kind:** testability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The "Provider compatibility for typed queries" paragraph in `pi-integration-contract/conversation-drive.md` says the `loom/load/typed-query-unsupported-provider` warning emitter names the model "and listing the typed-query expression positions". Neither the diagnostic's row in `diagnostics/code-registry-load.md` nor any envelope pins a format or `details` field for those positions — the row's message template carries only `<provider>` and `<model>`. A test cannot assert on the positions output because no format is specified.
-
-## Solution approach
-
-Either pin a `details` positions payload for `loom/load/typed-query-unsupported-provider` on its `diagnostics/code-registry-load.md` row (following the `details: { kind, ... }` convention sibling `loom/load/*` rows use) and align the "Provider compatibility for typed queries" prose in `conversation-drive.md` to it, or delete the "listing the typed-query expression positions" clause from that prose.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
