@@ -4,7 +4,7 @@ _Generated: 2026-06-05T11:52:38Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T83) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 18 high, 61 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 80 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
+_Triage tally: 1 blocker, 18 high, 60 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 79 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
 
 ---
 
@@ -1882,27 +1882,3 @@ Split GOV-12 per GOV-8 *Split* into at least two successor REQ-IDs under the `GO
 ## Relationships
 
 - T76 "GOV-14's two SHOULD-NOTs bind reviewer behaviour" — same-cluster.
-# T78 - GOV-19 closed-enumeration detector mixes an open phrase list with an intensional test
-
-**Kind:** clarity, implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-GOV-19's *closed enumeration* definition pairs an intensional test (membership "asserted to be exhaustive at the publishing moment") with an open extensional list introduced by "detected by surface phrases including …". GOV-20's *closure heuristic* resolves the sense-overloaded `V1` / `V1.0` tokens by consuming "any closure phrase enumerated under GOV-19's *closed enumeration* definition". Because the phrase list is open-ended, a closure-shaped sentence using an unlisted phrase resolves ambiguously between the design-scope (`loom 1.0`) and frozen-baseline (`loom 1.0.0`) senses. Which of the two detectors governs GOV-20's resolution is unstated.
-
-## Solution approach
-
-Clarify the `#gov-19` *closed enumeration* definition so a single detector governs — either close the surface-phrase list as exhaustive, or make the intensional exhaustive-membership test normative and demote the phrase list to non-binding examples. State which detector GOV-20's `#gov-20` *closure heuristic* consumes.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
