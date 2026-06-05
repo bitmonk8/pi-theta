@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 14 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 12 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -653,53 +653,3 @@ Clarify BNDR-5 (`id="bndr-5"`) so its scientific-notation prohibition covers bot
 
 - T23 "Stringification of interpolated values — `number` row omits scientific-notation/`-0` pins" - must-precede (the `number` row's clarification must match whatever scope BNDR-5 lands here; its "cite BNDR-5" recommendation only works once BNDR-5 is unambiguous).
 - T10 "BNDR-6 packs 19 independently testable rendering pairs under one REQ-ID" - same-cluster (this finding adds a row to the BNDR-6 table; once the sub-ID split lands, the new row mints the next sub-ID).
-- T22 "Echo rendering of an object whose first field is a composite is unspecified" - same-cluster (also closed by adding a BNDR-6 row; the two row-additions can land in one edit but the defects are separate).
-# T25 - Empty-template short-circuit — `^\s*$` whitespace set is unpinned
-
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The runtime empty-template short-circuit under `id="degenerate-rendered-templates"` in `query/query-forms.md` tests the fully-rendered text against the bare regex `^\s*$`, but no companion clause names the whitespace set `\s` denotes. Under a JS-Unicode reading `\s` matches non-ASCII whitespace (U+00A0, U+2028, U+1680, …), whereas the spec's only other pinned whitespace set — *System-note rendering* rule 1 in `binder/defaulting-system-note-echo.md` — is ASCII-only and explicitly disclaims `\s`; for a render consisting solely of non-ASCII whitespace the two readings diverge observably (one short-circuits with `cause: "empty_template"` and consumes no provider round-trip, the other issues a turn), propagating into `attempts`, `validation_errors`, `raw_response`, and the system note. The same unpinned "empty or whitespace-only" phrasing recurs at the parse-time `loom/parse/empty-template` warning (`query-forms.md` and `diagnostics/code-registry-parse.md`) and the `cause: "empty_template"` arm in `errors-and-results/queryerror-variants.md`.
-
-## Solution approach
-
-Rewrite the *Runtime short-circuit* bullet under `id="degenerate-rendered-templates"` to pin its predicate to the ASCII whitespace set canonicalised at `id="system-note-rendering"` rule 1, replacing the bare `^\s*$` so non-ASCII whitespace no longer satisfies the predicate. Propagate the same pinned set, by forward-link to that anchor, to the *Parse-time warning* bullet, the `loom/parse/empty-template` row in `diagnostics/code-registry-parse.md`, and the `cause: "empty_template"` arm in `errors-and-results/queryerror-variants.md`, so the parse-time warning and runtime short-circuit test the identical set.
-
-## Solution constraints
-
-- Out of scope: the slash-argument trimming sites in `binder/binder-bypass-and-envelope.md` and `slash-invocation.md`, owned by T26.
-- Do not redefine the ASCII whitespace set at *System-note rendering* rule 1 (`binder/defaulting-system-note-echo.md` `id="system-note-rendering"`); cite it, do not extend or modify it.
-
-## Relationships
-
-- T26 "Whitespace set for slash-argument trimming unspecified" - co-resolve (same root cause — multiple normative trimming/whitespace sites lack a pinned set; the same canonical ASCII-set citation resolves both; resolving in lockstep keeps the corpus on one whitespace vocabulary).
-# T26 - Whitespace set for slash-argument trimming unspecified
-
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Three normative trimming operations on raw slash text use the bare word "whitespace" without naming the character set: the single-string bypass (item 2 under "Binder bypass" in `binder-bypass-and-envelope.md`), SLSH-1's no-params overflow trim in `slash-invocation.md`, and the User-arguments line (System-prompt structure item 5) in `binder-bypass-and-envelope.md`. The sister rule — System-note rendering rule 1 in `defaulting-system-note-echo.md` — pins an exact ASCII-only set `{U+0009, U+000A, U+000B, U+000C, U+000D, U+0020}` and disclaims the language-dependent `\s` regex class. Because the three trim sites do not say which set they mean, two conforming implementations diverge on NBSP-padded input: different bound `args` values, different SLSH-1 note emission, and different bytes delivered to the binder model.
-
-## Solution approach
-
-Define a single canonical "slash-argument whitespace" set anchored in `binder-bypass-and-envelope.md`'s `#bypass-cases` region, citing the ASCII set `{U+0009, U+000A, U+000B, U+000C, U+000D, U+0020}` already pinned by [System-note rendering rule 1](defaulting-system-note-echo.md#system-note-rendering) and disclaiming the `\s` regex class. Rewrite the single-string bypass (item 2) and System-prompt structure item 5 trim phrases to cite that term. Add a cross-reference from `slash-invocation.md` SLSH-1's trim language to the same definition.
-
-## Solution constraints
-
-- The cross-reference imports rule 1's whitespace *set* only, not its collapse-internal-whitespace sub-step; the three slash-argument sites retain leading/trailing-strip-only semantics with no other normalisation.
-
-## Relationships
-
-- T25 "Empty-template short-circuit — `^\s*$` whitespace set unspecified" - co-resolve (same `\s`-vs-pinned-ASCII ambiguity in `query/query-forms.md`; resolves independently but should adopt the same canonical set for consistency).
