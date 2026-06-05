@@ -4,7 +4,7 @@ _Generated: 2026-06-05T11:52:38Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T83) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 16 high, 59 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 76 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
+_Triage tally: 1 blocker, 15 high, 59 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 75 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
 
 ---
 
@@ -1443,29 +1443,3 @@ Reconcile `lexical.md`'s "Statement terminators." continuation-trigger list with
 ## Relationships
 
 None.
-# T60 - Write-back preservation is a Pi-directed, loom-unobservable normative MUST NOT in the wrong place
-
-**Kind:** placement, testability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The write-back preservation presupposition (anchor `id="settings-write-back-preservation-presupposition"` in `discovery/package-and-settings.md`) constrains Pi's serializer and is structurally a host-behaviour presupposition, yet it lives in Discovery rather than alongside the other Pi presuppositions in `host-prerequisites.md`. It is expressed as a normative `MUST NOT` directed at Pi's serializer even though the rule itself acknowledges it is unobservable from the loom-side SDK surface, so no loom-side test can assert it.
-
-## Solution approach
-
-Move the write-back preservation presupposition from `discovery/package-and-settings.md` to `host-prerequisites.md` alongside the `model-registry-population-presupposition` and `degraded-state-host-prerequisites` entries, and demote its `MUST NOT` to the non-normative presupposition framing those sibling entries use. Leave a forward-link at the original Discovery site to the relocated anchor.
-
-## Solution constraints
-
-- The relocated site MUST stay reachable from the inbound cross-reference at `version-bump-step2.md#bump-checklist-settings-write-back-preservation` — preserve the `#settings-write-back-preservation-presupposition` fragment or re-point that consumer.
-
-## Relationships
-
-None.
-

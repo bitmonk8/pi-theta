@@ -36,7 +36,7 @@ The two `Package pi.looms entry` and `Package looms/ directory` rows of the fail
 
 The loom extension owns its own keys in `settings.json` — Pi does not recognise the `loomPaths` array or `looms.binderModel`, does not surface them via `/settings` or schema validation, and does not expose them through `ExtensionContext`. The extension reads them itself from the same two files Pi uses for its own settings, mirroring Pi's precedence and merge rules.
 
-<a id="settings-write-back-preservation-presupposition"></a> **Write-back preservation presupposition.** Because Pi does not recognise the loom-owned keys, the loom presupposes that Pi preserves them when it serialises either settings file back to disk: a Pi-initiated rewrite of the project (`.pi/settings.json`) or global (`~/.pi/agent/settings.json`) file — for example via `/settings` — MUST NOT strip the top-level `loomPaths` array or the `looms.*` namespace as unrecognised keys. This is unobservable from the loom-side SDK surface — the loom reads these keys itself and never sees Pi's serialiser — so it is re-audited only by editorial review on each Pi minor bump per [version-bump editorial-review checklist item (s)](../pi-integration-contract/version-bump-step2.md#bump-checklist-settings-write-back-preservation).
+> The **write-back key preservation** rule for the loom-owned `loomPaths` / `looms.*` keys is a host-behaviour presupposition about Pi's serialiser and now lives alongside the other Pi presuppositions at [Pi Integration Contract — Host prerequisites — Settings write-back key preservation](../pi-integration-contract/host-prerequisites.md#settings-write-back-preservation-presupposition).
 
 **Files (in precedence order, project over global).** Both files are optional.
 
