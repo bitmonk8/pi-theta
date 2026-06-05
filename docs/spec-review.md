@@ -1858,27 +1858,3 @@ Rewrite GOV-14's two SHOULD-NOT clauses as a non-normative editorial note, strip
 ## Relationships
 
 - T77 "GOV-12 bundles ≥3 independently-testable sub-obligations" — same-cluster (governance REQ-ID hygiene).
-# T77 - GOV-12 bundles ≥3 independently-testable sub-obligations under one REQ-ID
-
-**Kind:** scope
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-GOV-12 bundles at least three independently-testable sub-obligations under one REQ-ID anchor (`#gov-12`): the lock-step aggregator MUST, the integer-literal-preservation MUST, and the in-code-constant carve-out exemption. This is the same single-REQ-ID-bundles-many-clauses pattern that drove the GOV-21 retirement, so the per-leaf coverage matrix can cite nothing narrower than the whole of GOV-12.
-
-## Solution approach
-
-Split GOV-12 per GOV-8 *Split* into at least two successor REQ-IDs under the `GOV` prefix, one per independently-testable obligation, and retire the GOV-12 anchor.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T76 "GOV-14's two SHOULD-NOTs bind reviewer behaviour" — same-cluster.
