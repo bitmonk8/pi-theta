@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 9 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 8 high, 15 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -526,27 +526,3 @@ Rewrite the `%` clause in `docs/spec_topics/expressions.md` § *Other arithmetic
 
 - T11 "Type-compatibility rules cited by positional ordinal with no per-rule anchor" - same-cluster (the `%` clause's "(rule 2)" ordinal reference is one of the citations that finding tracks; the wording fix here is independent of how rule 2 is anchored).
 - T20 "Numeric comparison rule says 'magnitude' where it means 'signed numeric value'" - same-cluster (both live in `expressions.md` and a single editing pass through the arithmetic + ordering paragraphs would naturally address them together, but they resolve independently).
-# T20 - Numeric comparison rule says "magnitude" where it means "signed numeric value"
-
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`expressions.md`'s "Ordering comparisons" section states "Numeric operands order by IEEE-754 magnitude." In standard numeric usage "magnitude" denotes absolute value (the magnitude of `-5` is `5`), so a literal reading orders `-5` after `3`; the intended rule is ordinary signed ordering (`-5 < 3`). The follow-on NaN-unordered paragraph is consistent with signed ordering but does not repair the headline sentence, so two implementers diverge on every comparison whose operands straddle zero.
-
-## Solution approach
-
-Rewrite the "Numeric operands order by IEEE-754 magnitude." sentence in `expressions.md`'s "Ordering comparisons" section to specify signed IEEE-754 numeric ordering rather than magnitude (absolute value). Keep the existing NaN-unordered paragraph as the authoritative pin and have the rewritten sentence defer to it rather than restate the NaN semantics.
-
-## Solution constraints
-
-- The rewritten rule MUST NOT specify `totalOrder` semantics — `totalOrder` orders `-0 < +0`, conflicting with the BNDR-4/5 numeric-canonical-form normalisation of `-0`→`0`.
-
-## Relationships
-
-- T19 "`%` operand-typing rule contradicts the `integer ⊑ number` widening pattern" - same-cluster (same operator-rule prose block in `expressions.md`; resolve independently).
