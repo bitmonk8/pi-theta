@@ -953,27 +953,4 @@ Rewrite the `E/W` gloss in `code-registry-parse.md`'s `## Code registry` intro s
 ## Relationships
 
 None.
-# T40 - "exactly six panic sources" references a tag/column that does not exist
 
-**Kind:** clarity
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`code-registry-runtime.md`'s `### loom/runtime/*` section opens "loom 1.0.0 has exactly six **panic sources** (the rows below tagged as panics)", but the table has no panic tag or column, and its *Spec rule* column points panic and non-panic rows alike at `errors-and-results.md`. A reader cannot identify which six of the table's rows are the panic sources from the parenthetical alone.
-
-## Solution approach
-
-Clarify the `### loom/runtime/*` intro's `(the rows below tagged as panics)` parenthetical so the six panic-source rows are identifiable — either tag those rows in the table, or rewrite the parenthetical to enumerate the six codes or forward-link error-model.md's `#runtime-panics` closed list.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
