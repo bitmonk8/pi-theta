@@ -4,7 +4,7 @@ _Generated: 2026-06-05T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 0 high, 2 medium retained, 3 medium parked; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 0 high, 1 medium retained, 3 medium parked; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
 
 ---
 
@@ -33,48 +33,3 @@ Rewrite the lock-step co-edit sentence's backtick literal `the seven below` to `
 ## Relationships
 
 - T14 "Un-anchored normative obligations across `cancellation.md`" - same-cluster (REQ-ID anchor coherence; resolves independently).
-# T02 - `.pi/project-config.md` live/retired GOV snapshot is stale post-GOV-21 split
-
-**Kind:** doc-alignment-broad
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The *Spec rules* opening paragraph of `.pi/project-config.md` carries a
-non-normative snapshot of the governed REQ-ID set reading "currently
-GOV-1, GOV-3, GOV-5–GOV-9, GOV-12, GOV-14–GOV-24, with GOV-2/4/10/11/13
-retired". That snapshot is stale: the *Retired REQ-IDs* sub-table in
-`docs/spec_topics/governance/anchor-scheme-and-retired.md` records GOV-21
-retired (split per GOV-8 into GOV-25 … GOV-29), and GOV-25 … GOV-29 are
-now live and normative in `docs/spec_topics/governance/release-version-naming.md`.
-The snapshot's `GOV-14–GOV-24` range still lists GOV-21 as live and omits
-the five replacement IDs entirely. A contributor or fixer agent using
-`project-config.md` as the entry point can cite a retired GOV-21 anchor,
-miss that GOV-25 … GOV-29 are the dual-anchor-convention citation targets,
-or under-allocate the next free GOV number.
-
-## Solution approach
-
-Rewrite the stale parenthetical in the `Spec rules` opening paragraph of
-`.pi/project-config.md` so the live set reads GOV-1, GOV-3, GOV-5–GOV-9,
-GOV-12, GOV-14–GOV-20, GOV-22–GOV-29 and the retired set reads
-GOV-2/4/10/11/13/21, matching the *Retired REQ-IDs* sub-table in
-`docs/spec_topics/governance/anchor-scheme-and-retired.md`.
-
-## Solution constraints
-
-- Out of scope: the parallel GOV summary in
-  `docs/spec_topics/governance.md` — it is the authoritative side the
-  snapshot defers to, and this finding does not touch it.
-- Do not edit the *REQ-ID prefix table* enumeration (`CEIL`, `CIO`, `GOV`,
-  `PIC`, …) later in the same paragraph — it is prefix-table membership,
-  not REQ-ID number-set membership, and is governed separately.
-
-## Relationships
-
-None
-

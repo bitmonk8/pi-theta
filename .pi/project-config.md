@@ -25,8 +25,9 @@ commitAddPaths:
 pi-loom's spec carries **two governed identifier classes**, both defined and
 gated on `docs/spec_topics/governance.md`:
 
-- **REQ-IDs** (currently GOV-1, GOV-3, GOV-5–GOV-9, GOV-12, GOV-14–GOV-24,
-  with GOV-2/4/10/11/13 retired; this snapshot is not authoritative —
+- **REQ-IDs** (currently GOV-1, GOV-3, GOV-5–GOV-9, GOV-12, GOV-14–GOV-20,
+  GOV-22–GOV-29, with GOV-2/4/10/11/13/21 retired; this snapshot is not
+  authoritative —
   `docs/spec_topics/governance.md` owns the live GOV set). Prefix grammar
   `[A-Z]{2,4}`, numeric tail
   `[1-9][0-9]*`, canonical anchor `**PREFIX-N.**`. Live prefixes are
