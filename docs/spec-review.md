@@ -515,28 +515,3 @@ Add a `pi.on(...)` subscription-failure bullet to the per-call-type granularity 
 ## Relationships
 
 - T63 "Turn-lifecycle subscription surface and `pi.on` are never pinned" — must-follow (the `pi.on` surface must be pinned before its failure granularity can be specified).
-# T22 - `pi.registerFlag`/`pi.getFlag` are pinned to nothing and `getFlag('loom')`'s absent return is unstated
-
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`pi.registerFlag` and `pi.getFlag` are named only in prose as factory-time host-binding calls; they are pinned to no declaration file, are not among the seven capabilities enumerated at `#sdk-capability-inventory` (PIC-15), are not in the Step-0(c) probed-member list, and carry no `SDK_SURFACE_INVENTORY` entry. Separately, `getFlag('loom')`'s return type and its absent-flag (unset) return value are unstated, though step 1's discovery walk and every `resources_discover` re-walk split on it via `pi.getFlag('loom')`.
-
-## Solution approach
-
-Clarify `pi.registerFlag`/`pi.getFlag`'s declaration-file pin against a cited SDK declaration and anchor, alongside their status relative to the seven-capability enumeration and the Step-0 capability probe at `#sdk-capability-inventory`. Clarify `getFlag('loom')`'s return type and absent-flag (unset) return value at the `registration-steps.md` step-1 consumption site. Clarify whether the two surfaces take `SDK_SURFACE_INVENTORY` entries or a declared exemption.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T63 "Turn-lifecycle subscription surface and `pi.on` are never pinned" — same-cluster (SDK surface pinning).
