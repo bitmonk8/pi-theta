@@ -856,28 +856,3 @@ Add acceptance-criteria fixtures for both throwing-`readDrainState` paths to the
 ## Relationships
 
 None.
-# T36 - PIC-9 says the runtime both discards and traps the `abort()` promise
-
-**Kind:** testability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-PIC-9 (`id="pic-9"` in `pi-integration-contract/subagent.md`) says the runtime "discards the returned promise" from `AgentSession.abort()`, yet the same paragraph also says that if "the discarded promise rejects, the runtime traps the error and routes it through `loom/runtime/internal-error`". This contradicts Cancellation's "swallowing-handler attachment on every abandonable Promise" rule, which lists the `AgentSession.abort()` Promise among abandonable Promises whose late rejection is silently absorbed and explicitly forbids promotion to `loom/runtime/internal-error` (it would re-introduce the second-event surface that rule suppresses). The two pages prescribe incompatible dispositions for the same late rejection.
-
-## Solution approach
-
-Rewrite PIC-9's `AgentSession.abort()` paragraph at `id="pic-9"` so the discarded-promise late-rejection disposition agrees with Cancellation's swallowing-handler rule, keeping the uncontested synchronous-throw route to `loom/runtime/internal-error` intact. Add a forward-link from that paragraph to the swallowing-handler rule in `cancellation.md` so the late-rejection disposition is owned in one place.
-
-## Solution constraints
-
-- Out of scope: Cancellation's "swallowing-handler attachment on every abandonable Promise" rule in `cancellation.md` — it owns the discarded-promise late-rejection disposition; reconcile by editing PIC-9 to defer to it.
-
-## Relationships
-
-- T15 "Esc-cancellation correctness assumes the abort flips within a single macrotask" — same-cluster.
-- T32 "PIC-9 relies on `dispose()` being safe mid-`abort()`" — same-cluster.
