@@ -4,7 +4,7 @@ _Generated: 2026-06-05T11:52:38Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T83) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 18 high, 62 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 81 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
+_Triage tally: 1 blocker, 18 high, 61 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 80 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
 
 ---
 
@@ -1898,30 +1898,6 @@ GOV-19's *closed enumeration* definition pairs an intensional test (membership "
 ## Solution approach
 
 Clarify the `#gov-19` *closed enumeration* definition so a single detector governs — either close the surface-phrase list as exhaustive, or make the intensional exhaustive-membership test normative and demote the phrase list to non-binding examples. State which detector GOV-20's `#gov-20` *closure heuristic* consumes.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
-# T79 - GOV-17 corpus glob silently relies on a recursive reading it never states
-
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-GOV-17 (`id="gov-17"` in `governance/corpus-direction-and-scope.md`) defines the spec corpus as `docs/spec.md` and `docs/spec_topics/*.md`, and its operational dependent check tests whether a resolved path "matches `docs/spec_topics/*.md`". Under standard glob semantics the single-star `*.md` matches only files directly under `docs/spec_topics/`, excluding the subdirectory files (e.g. `governance/*.md`) that carry live anchor sites. Sibling rules GOV-3 and GOV-6 use the recursive `**/*.md` spelling and state the recursive reading explicitly; GOV-17 silently relies on a recursive reading it never states.
-
-## Solution approach
-
-Rewrite GOV-17's corpus-definition glob and its dependent-check path-match clause to the recursive `docs/spec_topics/**/*.md` spelling used by sibling GOV-3 and GOV-6, or clarify in-rule that `*.md` denotes a recursive match.
 
 ## Solution constraints
 
