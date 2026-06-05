@@ -4,7 +4,7 @@ _Generated: 2026-06-05T11:52:38Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T83) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 15 high, 53 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 68 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
+_Triage tally: 1 blocker, 15 high, 52 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 67 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
 
 ---
 
@@ -294,30 +294,6 @@ Reconcile the `loom/load/cross-format-collision` code name with the rule's full 
 ## Solution constraints
 
 - Renaming `loom/load/cross-format-collision` is a breaking change to the closed diagnostics contract per `diagnostics/diagnostic-shape.md` rules 2–3 (codes are stable identifiers); treat any rename as a spec-versioned breaking change, not an editorial wording fix.
-
-## Relationships
-
-None.
-# T13 - Automatic context escalation carries an unresolved decision gate yet pins a normative MUST seam
-
-**Kind:** scope
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The "Automatic context escalation" item under `surface-extensions-open-design` in `future-considerations/surface-extensions.md` carries an unresolved `*Decision required*` gate — whether escalation surfaces a user-visible turn or stays operator-only — yet its carrier already commits a normative seam: the re-entrancy invariant at `v1-seam-automatic-context-escalation` in `binder/binder-model-and-context.md`. A committed normative obligation thus exists for a feature whose shape is explicitly not yet settled.
-
-## Solution approach
-
-Either resolve the `*Decision required*` gate on the `surface-extensions-open-design` item so the seam's normative pin matches a settled feature shape, or move the item together with its `v1-seam-automatic-context-escalation` seam blockquote to a design-decision log, leaving a cross-reference on both pages.
-
-## Solution constraints
-
-- None.
 
 ## Relationships
 
