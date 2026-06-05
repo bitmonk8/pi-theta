@@ -4,7 +4,7 @@ _Generated: 2026-06-05T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 5 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 4 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
 
 ---
 
@@ -489,31 +489,3 @@ Add a sentence to the `#per-invocation-retry-budget` paragraph in `determinism-c
 ## Relationships
 
 - T05 "Cancellation forwarding — turn-lifecycle event delivery not in SDK capability inventory" - same-cluster (both touch the binder's pi-ai call surface and the cancellation/`ctx.signal` interaction, but resolve independently).
-
----
-# T19 - Binder `complete()` `context.messages` content undefined
-
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The binder inference call's `context.messages` bullet on `binder-inference.md` says only that it is "the rendered binder input transcript" — a phrase defined nowhere else in the corpus. The normative *System-prompt structure* on `binder-bypass-and-envelope.md` already places every load-bearing binder input (the raw slash-argument line, the truncated session-context block) inside `context.systemPrompt`, so no content remains for `context.messages` to carry without duplicating systemPrompt bytes. The two reasonable implementer readings diverge on the wire: an empty `context.messages` array is rejected by providers that require at least one non-system message, while a synthetic message echoing arguments or transcript duplicates systemPrompt bytes and perturbs the byte-identical binder input that GOV-15 and the determinism pinning depend on.
-
-## Solution approach
-
-In the `context.messages` bullet at `binder-inference.md` `#binder-inference-call`, pin `context.messages` to a fixed single-element array carrying one `user` message whose content is a fixed, non-empty canonical literal string, leaving the *System-prompt structure* and *Compact-transcript format* contracts untouched. Record the fixed string in the Determinism byte-reproducibility footprint at `determinism-cancellation-failure.md` `#determinism` as a fixed constant outside the variable inputs.
-
-## Solution constraints
-
-- Out of scope: the `context.tools` structured-output-tool pin on the same call-site bullet list, owned by T20.
-
-## Relationships
-
-- T20 "Binder structured-output tool — `name` and `label` undefined" - same-cluster (sibling under-specification of the binder `complete()` call site on the same page; both tighten the binder-inference call's per-field obligations).
-- T06 "Per-provider `complete()` forced-tool behaviour has no re-validation gate" - same-cluster (same `complete()` call shape; resolved independently — defining `context.messages` content does not affect whether the per-provider `toolChoice` mapping is gated).
