@@ -1930,27 +1930,3 @@ Rewrite GOV-17's corpus-definition glob and its dependent-check path-match claus
 ## Relationships
 
 None.
-# T80 - GOV-15 *Attribution test* binds the release workflow, which GOV-18 forbids
-
-**Kind:** scope
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The *Attribution test*'s closing clause (`#attribution-test`) makes a collateral diagnostic-code / `loom-system-note` edit landed in the same release as a ceiling-set change a "GOV-15 release-process violation" that the reviewer-inspection step flags and that *blocks the release*. That binds the reviewer-inspection step and the release workflow — a third party outside GOV-18's two arms. GOV-18's binding-prohibition (`#gov-18-binding-prohibition`) forbids the spec corpus from binding CI gates, reviewers, or any party outside arm (a) and arm (b).
-
-## Solution approach
-
-Rewrite the `#attribution-test` release-blocking clause, and the parallel release-blocking wording in GOV-15 (`#gov-15`), so the collateral-edit prohibition reads as an arm-(b) property of the ceiling-set-change release diff rather than an obligation on the reviewer-inspection step or the release process. Drop the third-party binding so the bare corpus-content invariant survives; per GOV-18, take no position on how downstream tooling audits it.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T81 "GOV-15 is buried after a retired-prefix table in a graveyard-named file" — same-cluster (GOV-15 surface).
