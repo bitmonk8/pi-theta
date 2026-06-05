@@ -1810,27 +1810,3 @@ Rewrite the `anthropic-messages` and `openai-completions` rows of the `#provider
 ## Relationships
 
 - T31 "HTTP-200 provider error envelopes map to no `QueryError`" — same-cluster (`provider-error-mapping.md` overflow/error mapping).
-# T75 - "surface-set closure" is a key claim with no glossary entry
-
-**Kind:** naming
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`surface-set closure` is coined inline and used as a key claim on more than one spec page — `spec.md` Orientation/Prerequisites and the Pi Integration Contract *Inventory-closure audit* — but has no entry in `glossary.md`. The glossary's own intro requires an entry for any term the spec coins and reuses across pages.
-
-## Solution approach
-
-Add a `surface-set closure` entry to `glossary.md`, alphabetised among the existing entries, with a `See:` reference to its canonical owner — the *Inventory-closure audit* (`id="sdk-cap-inventory-closure-audit"`) in `pi-integration-contract/inventory-audit-intro.md`.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
