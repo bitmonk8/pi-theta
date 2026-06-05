@@ -4,7 +4,7 @@ _Generated: 2026-06-05T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 1 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 0 high, 14 medium retained; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
 
 ---
 
@@ -390,28 +390,3 @@ Coin `CNCL-N` anchors at each defining obligation site on `cancellation.md`, con
 - T12 "Compact-transcript reference renderings A–D — no per-rendering identifiers" - same-cluster (same GOV-22 defect on `binder-model-and-context.md`).
 - T01 "Pre-evaluation failure list — stale count-pointer and non-contiguous REQ-ID numbering" - same-cluster (same traceability lens, different mechanism — non-contiguous numbering rather than missing anchors).
 - T09 "Diagnostic code-registry *Spec rule* cells bypass GOV-9 `#prefix-n` cross-link form" - must-precede (the cited `code-registry-*.md` rows that depend on cancellation rules cannot be repointed to `#cncl-n` anchors until those anchors exist; coining here unblocks the citation-side fix there).
-# T15 - `for … in` — iterand evaluation cardinality unspecified
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `**`for` ... `in`**` paragraph in `control-flow.md` says the iterand must have type `array<T>` and that the iteration variable is a fresh immutable local per iteration, but never states how many times the iterand expression is evaluated. Two readings are admissible: the iterand is evaluated once at loop entry and the loop iterates that snapshot, or it is re-evaluated at the head of every iteration. The cardinality is observable whenever the iterand carries effects (a function-call iterand, an `@`-query iterand, an `invoke` child iterand, or a `let mut` binding the body reassigns): iteration count and effect-commit count differ between the two readings. `for` is the only iteration construct in the language and inherits none of the per-position evaluation pinning that `expressions.md` §"Evaluation order and short-circuiting" gives operators, so the gap threatens the GOV-15 byte-stable source-language-equivalence contract.
-
-## Solution approach
-
-Clarify the `**`for` ... `in`**` paragraph in `control-flow.md` to pin that the iterand expression is evaluated exactly once, at loop entry, before the first iteration, after which the loop iterates the resulting `array<T>` snapshot. Ensure the clarification resolves the effectful-iterand case (the effect commits once at entry, including when the resulting array is empty) and the body-reassigned `let mut` case (re-binding does not change the iterated sequence).
-
-## Solution constraints
-
-- Out of scope: the statement-form `for` body grammar production owned by T22.
-- Adding the normative cardinality obligation to `control-flow.md`, which carries no co-located REQ-ID anchor, triggers GOV-22 progressive coinage of the next free `CTRL-N` ID in the same commit.
-
-## Relationships
-
-- T22 "Block expressions — no grammar production for statement-form `if` / `for` / `while` bodies" - same-cluster (both touch the under-specified surface of statement-form `for`; the body-production fix and the iterand-cardinality fix are independent edits to adjacent sentences).
