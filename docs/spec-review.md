@@ -1640,27 +1640,3 @@ Ground the teardown-vs-session-swap partition at `session-only-degraded-state.md
 ## Relationships
 
 None.
-# T68 - Two audit-cluster files have H1 headings inverted relative to their content and anchors
-
-**Kind:** naming
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`audit-recognised-shapes.md`'s H1 reads "Audit recognised shapes" but its body is the audit target categories (it carries anchor `audit-target-surface-categories` and the *Target surface categories.* content). `audit-target-categories.md`'s H1 reads "Audit target categories" but its body is the recognised import/access shapes (it carries anchor `audit-recognised-shapes` and the *Recognised import/access shapes.* content). The two files' H1 headings are inverted relative to their anchors and content.
-
-## Solution approach
-
-Rename each file's H1 to match the anchor and subject it actually contains, swapping the two headings.
-
-## Solution constraints
-
-- Out of scope: renaming either file or changing any anchor `id` (GOV-23 anchor stability); only the H1 heading text changes.
-
-## Relationships
-
-- T69 "`provider-error-mapping.md` H1 names only the first third of its content" — same-cluster (audit/PIC heading-vs-content mismatches).
