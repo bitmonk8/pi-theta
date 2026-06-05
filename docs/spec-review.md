@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 6 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 7 high, 5 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -95,30 +95,3 @@ status-table column set, the changelog-entry line format, and the role of
 ## Relationships
 
 None
-# T04 - Namespace-clearance subsection: missing `--loom` flag clearance and dated/editorial chrome
-
-**Kind:** assumptions, cruft
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `### File-extension namespace` subsection of `discovery-sources.md` (anchor `#file-extension-namespace`) is loom's home for Pi-namespace clearance decisions, but it treats its three coined tokens inconsistently and carries time-relative/editorial chrome the rest of the spec avoids. loom 1.0 coins the `.loom`/`.warp` extensions, the `pi.looms` manifest key, and the `--loom` CLI flag name; the first two carry explicit clearance notes while `--loom` gets none, and the silent first-load-wins cross-extension collision behaviour of `pi.registerFlag('loom', …)` is unrecorded. The subsection opens with an undated "At the time of writing" qualifier where the rest of the spec anchors such surveys to the loom 1.0 Pi-SDK pin. It also contains a maintainer-facing aside instructing where a hypothetical future collision should be documented, which constrains no loom 1.0 implementation decision.
-
-## Solution approach
-
-Add a third namespace-clearance paragraph to the `### File-extension namespace` subsection covering the `--loom` flag, scoped to the loom 1.0 Pi-SDK pin, recording that `pi.registerFlag('loom', …)` does not throw on name overlap so a later sibling extension registering `'loom'` is silently shadowed with no diagnostic. Forward-link the new paragraph from `registration-steps.md` step 1's `pi.registerFlag('loom', …)` clause. Re-anchor the opening "At the time of writing" claim to the loom 1.0 Pi-SDK pin. Delete the maintainer-facing aside, retaining the following sentence that records the no-REQ-ID / no-test / no-diagnostic status of the check.
-
-## Solution constraints
-
-- Phrase the flag-collision behaviour observationally, not by citing the bundled `loader.js` resolution symbol as load-bearing (per T06's known-fragile-evidence discipline).
-- Out of scope: introducing a new diagnostic code, REQ-ID, or per-leaf test obligation — the clearance check records the namespace decision only.
-
-## Relationships
-
-- T05 "Host presuppositions lack version-bump-procedure re-audit hooks" - same-cluster (sibling unpinned-host-assumption hygiene; resolve independently).
-- T06 "PIC external-entity citations lack consistent fragility/re-audit framing" - same-cluster (the new flag-collision rule must be phrased observationally rather than by anchoring to the bundled loader symbol, per that finding's discipline).

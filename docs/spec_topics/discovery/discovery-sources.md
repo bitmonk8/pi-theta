@@ -12,11 +12,13 @@ Discovery is **non-recursive** and matches only `*.loom`, mirroring Pi prompt-te
 
 ### File-extension namespace
 
-The `.loom` and `.warp` file extensions are coined by this extension. At the time of writing, no Pi-shipped surface and no other `@earendil-works/pi-coding-agent` extension claims either extension; the framing paragraph above documents the parallel manifest-namespace check (`pi.extensions`, `pi.skills`, `pi.prompts`, `pi.themes`, `pi.video`, `pi.image` are the only Pi-recognised manifest keys, and `pi.looms` is therefore safe to coin).
+The `.loom` and `.warp` file extensions are coined by this extension. Under the [loom 1.0 Pi-SDK pin range](../pi-integration-contract/host-prerequisites.md#pi-sdk-pin), no Pi-shipped surface and no other `@earendil-works/pi-coding-agent` extension claims either extension; the framing paragraph above documents the parallel manifest-namespace check (`pi.extensions`, `pi.skills`, `pi.prompts`, `pi.themes`, `pi.video`, `pi.image` are the only Pi-recognised manifest keys, and `pi.looms` is therefore safe to coin).
+
+<a id="loom-flag-namespace"></a>The `--loom` CLI flag name is likewise coined by this extension; the loom extension registers it via `pi.registerFlag('loom', …)` (see [Registration steps](../pi-integration-contract/registration-steps.md) step 1). Under the [loom 1.0 Pi-SDK pin range](../pi-integration-contract/host-prerequisites.md#pi-sdk-pin), `pi.registerFlag('loom', …)` does not throw on a flag-name overlap: registration is first-load-wins, so a later sibling extension that also registers a `'loom'` flag is silently shadowed with no diagnostic, and loom's own `pi.getFlag('loom')` read still observes loom's registration. There is no `loom/load/...` code for flag-name collision in loom 1.0.
 
 Pi has no central file-extension registry: ownership is established de facto by each extension's discovery walker. Cross-extension collisions on `.loom` or `.warp` files — a hypothetical future extension that also walks `*.loom` — manifest through the existing slash-name collision rule below (see [Slash-name collisions at the same priority](#slash-name-collisions-at-the-same-priority)), not through a separate file-extension rule; there is no `loom/load/extension-claimed-by-other-extension` code in loom 1.0.
 
-This check is a point-in-time observation, not a guarantee. If a future Pi-ecosystem package adopts the same extensions, this section is the place to document the resolution. The check has no REQ-ID, no per-leaf test obligation, and emits no diagnostic; it exists to record the namespace-clearance decision alongside the parallel `pi` manifest-namespace decision in the framing paragraph.
+This check is a point-in-time observation, not a guarantee. The check has no REQ-ID, no per-leaf test obligation, and emits no diagnostic; it exists to record the namespace-clearance decision alongside the parallel `pi` manifest-namespace decision in the framing paragraph.
 
 <a id="discovery-roots"></a>
 
