@@ -4,7 +4,7 @@ _Generated: 2026-06-05T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 0 high, 4 medium retained, 3 medium parked; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 0 high, 3 medium retained, 3 medium parked; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
 
 ---
 
@@ -101,29 +101,4 @@ Rename the `cause` enum literal from `"model_unresolved"` to `"subagent_model_un
 ## Relationships
 
 None
-# T04 - Factory-time `FileSystem.cwd() == project root` premise is unpinned
 
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 15
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The factory-time discovery scan resolves the project-local `.pi/looms/` directory and the project `.pi/settings.json` against the value `FileSystem.cwd()` returns at extension-factory construction. PIC-13 pins the production wiring as `process.cwd()` captured once at construction, and `Settings file reads` resolves project settings against the same seam, but none of the consuming sites pins what Pi guarantees about `process.cwd()` *at factory construction* — the load-bearing claim that the value Pi hands the factory equals the project root. The `resources_discover` path already prefers `event.cwd` so a per-session cwd change is honoured, but the factory-time scan feeding the first `session_start` registration pass has no such correction and no presupposition label. If Pi ever launches the factory with `cwd` set to something other than the project root, project-local looms and project settings resolve against the wrong directory until the first `resources_discover` arrives, with no build-time or load-time signal.
-
-## Solution approach
-
-Add a presupposition to PIC-13's `cwd()` bullet (anchor `pic-13` in `host-interfaces-services.md`), following the existing `<a id="...-presupposition"></a>` pattern used by sibling presupposition paragraphs on the page, naming the factory-time `cwd == project root` premise and citing the Pi-side launch contract loom relies on. Add a new lettered item to the *Editorial-review checklist for unpinned host presuppositions* in `version-bump-step2.md`, cross-linking the new anchor and stating a re-validation recipe against the candidate `@earendil-works/pi-coding-agent` minor.
-
-## Solution constraints
-
-- Both edits — the PIC-13 presupposition paragraph and the `version-bump-step2.md` checklist item — MUST land in the same commit, per the "MUST be added to this checklist in the same edit" rule on `version-bump-step2.md`.
-
-## Relationships
-
-- T05 "Cancellation forwarding — turn-lifecycle event delivery not in SDK capability inventory" - same-cluster (same host-behaviour assumptions section; same fix shape — add a named presupposition with bump-checklist coverage; resolves independently).
-- T06 "Per-provider `complete()` forced-tool behaviour has no re-validation gate" - same-cluster (same section; an unpinned behavioural premise on Pi that wants a re-validation obligation added; resolves independently).
