@@ -4,7 +4,7 @@ _Generated: 2026-06-05T11:52:38Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T83) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 18 high, 60 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 79 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
+_Triage tally: 1 blocker, 18 high, 59 medium retained; ~139 low discarded; ~0 low merged into medium; ~122 nit dropped; 0 false dropped. Source: 344 deduplicated findings across 9 shards + global lenses; 78 retained after triage. Foundational governance/traceability findings (T75–T83) and the standalone blocker (T74) sit at the bottom for first addressing._
 
 ---
 
@@ -1834,27 +1834,3 @@ Add a `surface-set closure` entry to `glossary.md`, alphabetised among the exist
 ## Relationships
 
 None.
-# T76 - GOV-14's two SHOULD-NOTs bind reviewer behaviour and admit no mechanical witness
-
-**Kind:** testability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-GOV-14 (anchor `gov-14` on `req-id-prefix-table-active-b.md`) is built from two SHOULD-NOT clauses that bind reviewer posture — what a review of the corpus SHOULD NOT cite (GOV-8 as a substitute for GOV-15) and SHOULD NOT re-raise (the absent automated equivalence gate). Reviewer PR-comment behaviour is not observable on the corpus or on implementation output, so no corpus-membership test or mechanical witness can produce a pass/fail verdict for the rule.
-
-## Solution approach
-
-Rewrite GOV-14's two SHOULD-NOT clauses as a non-normative editorial note, stripping the RFC-2119 modals so the site no longer asserts a testable obligation.
-
-## Solution constraints
-
-- If the rewrite leaves GOV-14 carrying no normative obligation, apply GOV-8 retirement (retire the anchor, append the registry row) rather than leaving an obligation-less REQ-ID anchor in place.
-
-## Relationships
-
-- T77 "GOV-12 bundles ≥3 independently-testable sub-obligations" — same-cluster (governance REQ-ID hygiene).

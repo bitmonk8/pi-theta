@@ -54,5 +54,5 @@ Implementer-facing notes about the runtime and Pi SDK contract.
 
 - [Glossary](../spec_topics/glossary.md) — alphabetised list of coined terms with pointers to their canonical defining pages.
 - [Grammar Appendix](../spec_topics/grammar.md) — normative productions for the literal sublanguage and the surface-syntax forms no single topic page owns.
-- [Governance](../spec_topics/governance.md) — *spec-corpus governance, not implementation spec.* REQ-ID prefix table, retirement registry, the corpus-direction and binding-scope rules (GOV-17 / GOV-18), and the rules (GOV-1, GOV-3 through GOV-9, GOV-14 through GOV-16, GOV-30, GOV-31; GOV-2, GOV-10, GOV-11, GOV-12, GOV-13 retired) that govern REQ-ID coining, anchoring, and retirement.
+- [Governance](../spec_topics/governance.md) — *spec-corpus governance, not implementation spec.* REQ-ID prefix table, retirement registry, the corpus-direction and binding-scope rules (GOV-17 / GOV-18), and the rules (GOV-1, GOV-3 through GOV-9, GOV-15, GOV-16, GOV-30, GOV-31; GOV-2, GOV-10, GOV-11, GOV-12, GOV-13, GOV-14 retired) that govern REQ-ID coining, anchoring, and retirement.
 - [Related Work](../spec_topics/related-work.md) — orchestration-layer and inference-layer neighbours.

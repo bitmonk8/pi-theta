@@ -37,7 +37,7 @@
 
 *Scope note (non-normative).* GOV-8 is a *bookkeeping* discipline: it pins how a substantive edit is recorded, not whether two loom 1.x releases produce the same output for the same `.loom` / `.warp` source file. The behavioural loom 1.x stability statement (per **GOV-15** at the page tail) is intentionally *not* derived from this rule.
 
-<a id="gov-14"></a> **GOV-14 (review posture on the loom 1.x-equivalence release-process goal).** Reviews of `spec.md` and `spec_topics/*.md` SHOULD NOT cite GOV-8 as a substitute for the loom 1.x source-language equivalence release-process goal recorded at [GOV-15](./source-language-stability.md#gov-15) and SHOULD NOT re-raise the absence of an automated equivalence gate as a loom 1.0 correctness finding. The loom 1.0 release decision treats the absence of an automated equivalence gate as a recorded scope choice, not a defect.
+*Editorial note (non-normative; formerly GOV-14, retired per GOV-8 — see [Retired REQ-IDs](./anchor-scheme-and-retired.md#retired-req-ids)).* GOV-8 is a bookkeeping discipline, not a substitute for the loom 1.x source-language equivalence release-process goal recorded at [GOV-15](./source-language-stability.md#gov-15); the loom 1.0 release decision treats the absence of an automated equivalence gate as a recorded scope choice — not a defect and not a loom 1.0 correctness finding.
 
 - **Split.** When one rule splits into N rules, the original ID retires and N fresh IDs are appended at the page's tail.
 - **Merge.** When N rules merge into one, all N source IDs retire and one fresh ID is appended at the page's tail.
