@@ -322,27 +322,3 @@ Either resolve the `*Decision required*` gate on the `surface-extensions-open-de
 ## Relationships
 
 None.
-# T14 - `ok`-envelope validate-vs-fill ordering contradicts two sibling sections
-
-**Kind:** error-model
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `ok`-envelope bullet in the "Binder envelope" list of `binder-bypass-and-envelope.md` specifies AJV-validate-then-fill, while `defaulting-system-note-echo.md` (the `post-default-merge-ajv-validation` site) and the relaxed-copy paragraph of the same envelope file specify fill-then-validate. The validate-first reading misclassifies omitted-but-defaulted fields into the no-retry AJV-on-`args` failure class.
-
-## Solution approach
-
-Rewrite the `ok`-envelope bullet in the "Binder envelope" list of `binder-bypass-and-envelope.md` to the fill-then-validate ordering used by the `post-default-merge-ajv-validation` site in `defaulting-system-note-echo.md`.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.

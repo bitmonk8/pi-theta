@@ -16,7 +16,7 @@ All other shapes — multiple fields, non-string types, defaults present, option
 
 The binder is asked to return one of three structured outputs (the schema is constructed dynamically by the runtime from the loom's `params:`):
 
-- `{ kind: "ok", args: <typed params object> }` — successful extraction. The runtime AJV-validates `args` against the params schema (safety net for hallucinated field shapes), fills any defaulted fields not present in `args`, and starts the loom.
+- `{ kind: "ok", args: <typed params object> }` — successful extraction. The runtime fills any defaulted fields not present in `args`, then AJV-validates the merged result against the params schema (safety net for hallucinated field shapes), and starts the loom.
 - `{ kind: "needs_info", message: string }` — the binder could not extract one or more required fields. The `message` is shown to the user as a system note; the loom does not run.
 - `{ kind: "ambiguous", message: string, candidates: array<string> | null }` — multiple plausible bindings exist and the binder cannot pick one. The `message` is shown to the user as a system note; the loom does not run.
 
