@@ -4,7 +4,7 @@ _Generated: 2026-06-05T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T22) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 0 high, 5 medium retained, 3 medium parked; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 0 high, 4 medium retained, 3 medium parked; 10 low discarded; 5 low findings merged into 2 medium findings; 12 nit dropped; 0 false dropped._
 
 ---
 
@@ -127,31 +127,3 @@ Add a presupposition to PIC-13's `cwd()` bullet (anchor `pic-13` in `host-interf
 
 - T05 "Cancellation forwarding — turn-lifecycle event delivery not in SDK capability inventory" - same-cluster (same host-behaviour assumptions section; same fix shape — add a named presupposition with bump-checklist coverage; resolves independently).
 - T06 "Per-provider `complete()` forced-tool behaviour has no re-validation gate" - same-cluster (same section; an unpinned behavioural premise on Pi that wants a re-validation obligation added; resolves independently).
-# T05 - Cancellation forwarding — turn-lifecycle event delivery not in SDK capability inventory
-
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The slash-command cancellation-forwarding path wires `loomAbort.abort()` from inside the runtime's `pi.on` handlers for five turn-lifecycle events (`tool_call`, `tool_result`, `message_update`, `turn_end`, `agent_end`). This path presupposes two unpinned Pi behaviours: that Pi delivers each of those five events to a subscribed extension during the active user turn for which `ctx.signal` was minted, and that `ctx.signal.aborted` read from inside each handler reflects the latest abort state. Neither obligation appears in the cancellation-propagation capability inventory entry (`sdk-cap-cancellation-propagation`, which covers only `AbortSignal` supply at the two entry points) nor in the unpinned-host-presupposition checklist in `version-bump-step2.md` — item (j) covers only the terminal `agent_end` turn-liveness presupposition, not the intermediate-event delivery surface this path consumes. If a Pi minor renames, removes, gates, or changes the per-handler `ctx.signal` semantics of any of those events, Esc-during-`@`-query silently becomes a no-op with no build-time SDK-surface assertion or load-time `loom/load/host-incompatible` signal.
-
-## Solution approach
-
-Record a loom-side presupposition naming the five turn-lifecycle events and their two consumption sub-obligations — Pi delivers each event to a subscribed extension during the active user turn, and `ctx.signal.aborted`/`.reason` read inside each handler reflects the latest abort state — at the `id="pi-slash-handler-promise-lifecycle-presupposition"` block in `host-interfaces-core.md`. Add a checklist item (next free letter) to the unpinned-host-presupposition checklist in `version-bump-step2.md`, following the established `<a id="bump-checklist-…">` pattern, cross-linking the new presupposition anchor and carrying a per-bump re-validation recipe.
-
-## Solution constraints
-
-- Out of scope: the Step 0 (c) factory-probable capability list in `capability-probe.md` — do not add a `pi.on` / event-delivery probe entry.
-- The new checklist item MUST be added in the same edit as the presupposition it back-references, per the "added to this checklist in the same edit" obligation in `version-bump-step2.md`.
-
-## Relationships
-
-- T06 "Per-provider `complete()` forced-tool behaviour has no re-validation gate" - same-cluster (sibling finding; both ask for a behavioural Pi-host obligation recorded against a re-validation surface; different consuming surfaces; resolved independently).
-- T04 "Factory-time `FileSystem.cwd() == project root` premise is unpinned" - same-cluster (sibling finding; same fix shape, different surface).
-- T18 "Per-invocation transport-class binder retry — inter-attempt timing unspecified" - same-cluster (both touch the binder's pi-ai call surface and the cancellation/`ctx.signal` interaction; resolve independently).
