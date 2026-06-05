@@ -4,7 +4,7 @@ _Generated: 2026-06-04T21:31:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T34) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 7 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 7 high, 6 medium retained; 12 low discarded; 10 low findings merged into 4 medium findings; 3 nit dropped; 0 false dropped._
 
 ---
 
@@ -122,31 +122,3 @@ Add a third namespace-clearance paragraph to the `### File-extension namespace` 
 
 - T05 "Host presuppositions lack version-bump-procedure re-audit hooks" - same-cluster (sibling unpinned-host-assumption hygiene; resolve independently).
 - T06 "PIC external-entity citations lack consistent fragility/re-audit framing" - same-cluster (the new flag-collision rule must be phrased observationally rather than by anchoring to the bundled loader symbol, per that finding's discipline).
-# T05 - Host presuppositions lack version-bump-procedure re-audit hooks
-
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Two load-bearing host presuppositions about Pi behaviour are asserted as fact in the spec but are absent from the `version-bump-step2.md` editorial-review checklist (items (a)–(l)) that exists to catch silent drift of this class on each Pi minor bump. First, `runtime-event-channel.md`'s *Custom-message channel persistence and LLM-context entry* paragraph asserts that Pi's `convertToLlm` transform converts every `CustomMessage` (including `display: false` notes) to a `{ role: "user", content }` provider-context entry on every subsequent call — underpinning the operator-observability claim, the binder compact-transcript rationale in `binder-model-and-context.md`, and the `error-model.md` pre-evaluation-note citation. Second, the *Settings file reads* section of `package-and-settings.md` states only the read-side fact about loom-owned keys and never the write-side requirement that Pi MUST NOT strip unknown `loomPaths` / `looms.*` keys when it serialises `settings.json` back to disk. Both presuppositions are unobservable from the loom-side SDK surface, so each is enforceable only by editorial audit at the Pi minor bump — the mechanism items (a)–(l) provide and these two lack.
-
-## Solution approach
-
-Add two lettered items to the `version-bump-step2.md` editorial-review checklist after items (a)–(l), each carrying its own stable anchor, and update the preamble item-range phrasing to cover them in the same edit. One item directs a re-audit of `convertToLlm`'s `CustomMessage`-to-LLM-context behaviour against the candidate Pi minor, baselined against the loom-pin snapshot per `#pi-sdk-pin`; the other directs a re-audit of settings write-back key preservation for `loomPaths` and `looms.*` across both the project and global settings files. Add a stable anchor to the *Custom-message channel persistence and LLM-context entry* paragraph in `runtime-event-channel.md` with a back-reference to the convertToLlm checklist item. Add a presupposition paragraph carrying a stable anchor to `package-and-settings.md`'s *Settings file reads* section stating the Pi-side write-back preservation requirement, cross-linked to the settings checklist item.
-
-## Solution constraints
-
-- The `version-bump-step2.md` editorial-review checklist is a shared absorption site with T06; assign the new items' letters so they do not collide with the checklist item(s) T06 appends to the same checklist.
-
-## Relationships
-
-- T06 "PIC external-entity citations lack consistent fragility/re-audit framing" - same-cluster (same `dist/*.js`-evidence fragility against the same Pi minor; shares the editorial-review checklist absorption site).
-- T04 "Namespace-clearance subsection" - same-cluster (sibling unpinned-host-assumption hygiene).
-- T16 "`always-log set` definition is narrower than its actual membership" - same-cluster (same canonical page `runtime-event-channel.md`; independent defect on a different paragraph).
-- T32 "`AgentSession` consumed member surface not pinned" - same-cluster (another host-surface assumption not in the pinned-surfaces / re-validation set; resolves independently).
