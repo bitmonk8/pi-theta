@@ -686,27 +686,3 @@ Add a forward-link from the spawn block to `subagent.md#subagent-pre-spawn-model
 ## Relationships
 
 None.
-# T29 - `invocationId` is a canonical UUID with no injectable id-source seam
-
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `invocationId` field of `ActiveInvocationRegistry` (#active-invocation-registry) is specified as a per-invocation canonical-UUID minted at registry-insertion time, but the spec names no injectable id-source seam for producing it — unlike wall-clock time (`Clock`), schema validation (`SchemaValidator`), and file watching (`FileWatcher`), each of which sits behind a DI seam. A direct global UUID source therefore conflicts with the no-globals DI rule the same section relies on for the `shutdownReason` channel. Tests asserting on the insertion-ordered `<list>` rendering of `loom/runtime/reload-teardown-timeout`, which embeds these ids, have no deterministic way to control the minted values.
-
-## Solution approach
-
-Either add an injectable id-source seam on `host-interfaces-services.md` modelled on the `Clock` seam (#clock--fakeclock-interface) and route the `invocationId` minting at #active-invocation-registry through it, or narrow the no-globals rule to carve out `invocationId` minting. State the test-determinism path for whichever direction is chosen.
-
-## Solution constraints
-
-- If the chosen direction adds a new defining-obligation site on `host-interfaces-services.md`, it must carry a co-located REQ-ID anchor per GOV-22.
-
-## Relationships
-
-None.
