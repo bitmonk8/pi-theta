@@ -1248,27 +1248,3 @@ Clarify Step 3's `engines.node` literal-read test description in `version-bump-s
 ## Relationships
 
 None.
-# T52 - "the four spec sentences cited above" does not resolve to four enumerable sentences
-
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The closing paragraph of `version-bump-triggers.md` lists, among a bump commit's outputs, "the four spec sentences cited above". The page's `spec.md` citations do not resolve to an enumerable set of four sentences — the distinct `spec.md` sentences cited on the page number fewer than four, and the other "above" citations target non-`spec.md` pages. A contributor reconciling the bump commit cannot determine which sentences the count refers to.
-
-## Solution approach
-
-Rewrite the "the four spec sentences cited above" phrase in the closing paragraph of `version-bump-triggers.md` as an explicit enumeration of the specific `spec.md` sentences a bump commit must touch, so the count is derivable from the list rather than asserted as a bare number.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
