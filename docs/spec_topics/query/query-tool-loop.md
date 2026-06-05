@@ -45,7 +45,7 @@ respond_repair: { attempts: 0 }
 
 1. Round 1 — model emits one `tool_use` for `search`; runtime executes it, feeds the result back. Slot count after CIO-4's increment: 1.
 2. Round 2 — model emits one `tool_use` for `search`; runtime executes it, feeds the result back. Slot count after CIO-4's increment: 2 (`= max_rounds`). Per CIO-4, the next turn issued is the forced respond turn (the `max_rounds`-final branch).
-3. Forced respond turn — the synthesised `__loom_respond_<slug>` tool is invoked by the model with a payload that nests six levels of objects, e.g. `{"deeply":{"nested":{"value":{"a":{"b":{"c":{}}}}}}}`. The depth-walk in [Schema Subset — Depth Enforcement](../schema-subset.md) fires *inside* the respond tool's `execute` (per CIO-3) before AJV runs.
+3. Forced respond turn — the synthesised `__loom_respond_<slug>` tool is invoked by the model with a depth-6 payload, e.g. `{"deeply":{"nested":{"value":{"a":{"b":"x"}}}}}` (five nested object levels terminating in a string scalar — depth 6 under the counting algorithm). The depth-walk in [Schema Subset — Depth Enforcement](../schema-subset.md) fires *inside* the respond tool's `execute` (per CIO-3) before AJV runs.
 
 *Expected outcome.* The query returns:
 

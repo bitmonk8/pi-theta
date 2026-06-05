@@ -475,28 +475,3 @@ Restrict `void` to return position and reject it in every other type-annotation 
 ## Relationships
 
 - T11 "Type-compatibility rules cited by positional ordinal with no per-rule anchor" - same-cluster (both touch `type-system.md`; the per-row `TYPE-N` anchors are the natural place to anchor the new "`void` does not participate in `⊑`" note, but neither finding's fix depends on the other).
-# T18 - Worked-example payload labelled "depth-6" actually counts as depth-7
-
-**Kind:** consistency
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The normative worked example in `query-tool-loop.md` (anchor `worked-example-depth-6-forced-respond`) labels its forced-respond payload `{"deeply":{"nested":{"value":{"a":{"b":{"c":{}}}}}}}` as depth-6, but applying the counting algorithm in `schema-subset.md#depth-enforcement` (empty object = depth 1, non-empty object = 1 + max child depth) yields depth-7. The example is declared normative — the `RuntimeEvent`-shape conformance test and the typed-query test suite both cite it — so the literal payload disagrees with the algorithm it is meant to exemplify. An implementer trusting the "depth-6" label builds a fixture the depth-walk does not reject; one trusting the literal payload builds a depth-7 fixture. Two compliant implementations then diverge on whether the published vector triggers the documented `validation` error.
-
-## Solution approach
-
-Rewrite the payload in step 3 of the *Mock provider transcript* in `query-tool-loop.md` so it counts as genuinely depth-6 under `schema-subset.md#depth-enforcement` — terminate the deepest nesting in a scalar rather than an empty object (e.g. `{"deeply":{"nested":{"value":{"a":{"b":"x"}}}}}`). Leave the "depth-6" labels, the `worked-example-depth-6-forced-respond` anchor, the headings, and the `depth-6-co-fire` filename unchanged, since they become accurate once the payload is depth-6.
-
-## Solution constraints
-
-- Out of scope: the label-only citations of this example in `ceiling-invariants-and-audit.md` and `runtime-event-channel.md`; they require no edit once the payload counts as depth-6.
-- Out of scope: the `depth-6-co-fire.loom` *Loom source* response schema; the depth-walk fires before AJV, so the replacement payload requires no schema edit.
-
-## Relationships
-
-None
