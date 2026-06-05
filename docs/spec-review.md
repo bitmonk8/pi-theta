@@ -575,29 +575,3 @@ Eliminate the ambiguous surface by rejecting the offending shape at `params:` pa
 ## Relationships
 
 None
-# T22 - Echo rendering of an object whose first field is a composite is unspecified
-
-**Kind:** completeness
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The `Echo policy` Object rule renders object values as `{first-field-value, …}` but does not specify how that first-field value is rendered when it is itself composite — an array, a nested object, or a discriminated-union variant. The Array rule carries an explicit recursion clause ("Per-element rendering follows the same rules recursively …"), but the Object rule has no symmetric clause, and every BNDR-6 reference rendering for an object value shows a scalar first field. Because BNDR-6 is normative ("conforming implementations MUST reproduce these exactly"), two conforming implementations can diverge on any object value whose first field is composite (e.g. `{[a, b], …}` vs `{[object Array], …}`) across a byte-exact conformance surface.
-
-## Solution approach
-
-In the `Echo policy` Object rule bullet, add a recursion clause mirroring the Array rule's existing one so that a composite first-field value (array, nested object, or discriminated-union variant) is rendered by applying these same formatting rules recursively. Add BNDR-6 reference rows exercising an array-typed first field and an object-typed first field so the recursive behaviour is pinned on the conformance surface.
-
-## Solution constraints
-
-- Out of scope: renumbering or splitting BNDR-6 into sub-IDs — owned by T10.
-
-## Relationships
-
-- T10 "BNDR-6 packs 19 independently testable rendering pairs under one REQ-ID" - same-cluster (this finding adds rows; that finding renumbers them; order so the renumbering lands after the new rows or the new rows take the next sub-IDs).
-- T24 "BNDR-5 scientific-notation prohibition does not cover the sub-1e-7 end" - same-cluster (also closed by adding a BNDR-6 row; the two row-additions can land in one edit but the underlying defects are separate).
