@@ -201,27 +201,3 @@ Either add the injected seam the extension uses to run `npmCommand` to the PIC D
 ## Relationships
 
 None.
-# T09 - Session-context truncation relies on an unstated `.messages` ordering
-
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The binder's session-context truncation walk (`#session-context-truncation-bind_context-session`) consumes the array returned by `buildSessionContext(...).messages` and selects turns by walking from one end, but the spec does not state which end of that array is newest. If the assumed ordering does not hold, the walk includes the wrong turns silently, with no type or SDK-surface signal.
-
-## Solution approach
-
-State the `.messages` ordering the truncation walk relies on, or cross-reference the `#messages-chronological-order-presupposition` pin in `host-interfaces-core.md` that already fixes the oldest-to-newest ordering for `SessionContext.messages`. If Pi guarantees no ordering, impose a deterministic sort before the walk.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
