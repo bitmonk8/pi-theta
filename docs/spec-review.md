@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 34 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 33 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T102 "`bind_context` project-wide-inheritance parenthetical references a settings carrier that does not exist" resolved and removed — the no-params-bypass parenthetical in binder-bypass-and-envelope.md was corrected to state that `bind_model` may inherit from the project-wide `looms.binderModel` setting while `bind_context` has no project-wide carrier and defaults to `none`. No new settings key, diagnostic, or validation row was added.)_
 
@@ -4671,28 +4671,3 @@ In `diagnostic-shape.md`, mark `file` and `range` optional on the `Diagnostic` s
 
 - T026 "`loom/parse/type-alias-cycle` cycle-chain rendering is unspecified" - same-cluster (rendering gap in the same diagnostics surface)
 - T027 "`<key>` rendering for `loom/load/settings-value-out-of-range` is undetermined" - same-cluster (rendering gap in the same diagnostics surface)
-
-# T101 - Renderer-throw during Pi's render invocation has no defined failure mode
-
-**Kind:** error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-PIC's *System notes* fallback chain in `runtime-event-channel.md` is scoped to synchronous throws from the `pi.sendMessage` call site only. The symmetric failure — Pi later invokes the loom-registered `MessageRenderer` to format a queued `loom-system-note` and the renderer body throws during render — has no defined behaviour: neither the *Renderer registration (`pi.registerMessageRenderer`)* block in `extension-bootstrap-and-per-loom.md` nor the *System notes* prose addresses it. Pi exposes no callback by which the loom runtime can observe a render-time renderer throw, so no `loom/runtime/*` diagnostic can surface it. A defensive renderer (wrapping its body in `try`/`catch`) and a naive renderer (letting exceptions propagate) both conform yet diverge on whether a buggy render path corrupts the transcript and whether subsequent `loom-system-note` deliveries survive.
-
-## Solution approach
-
-Add an *Exception safety* clause to the *Renderer registration* block (`id="renderer-registration"`) in `extension-bootstrap-and-per-loom.md`, after the `Component`-return paragraph, pinning the renderer body as exception-safe by construction: it MUST NOT throw out of the `MessageRenderer` invocation and on internal failure MUST return a minimal `Component` rendering the raw `message.content` when `display === true`, or `undefined` when `display === false`. Add a sentence to the *System notes* best-effort paragraph in `runtime-event-channel.md` scoping that fallback chain to `pi.sendMessage` throws only and forward-linking renderer-body throws to the new clause.
-
-## Solution constraints
-
-- The renderer-throw contract is loom-internal: do not introduce a new `loom/runtime/*` diagnostic code, operator signal, or telemetry for a caught render-time failure (Pi exposes no observation callback for it).
-
-## Relationships
-
-- T036 "`registerMessageRenderer` is unordered in the registration sequence; `registerFlag` options parameter is unpinned" - same-cluster (both touch the *Renderer registration* block in `extension-bootstrap-and-per-loom.md` but resolve independently).
