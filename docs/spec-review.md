@@ -2,9 +2,9 @@
 
 _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
-_Process: bottom-up - the last finding (T119) is addressed first; the first finding (T001) is addressed last._
+_Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 52 high, 66 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 51 high, 66 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T066 "README links to a non-existent docs/spec-sweeps.md" resolved and removed — a README/tracking-doc finding outside the spec corpus; the README Status paragraph was rewritten to drop the dangling docs/spec-sweeps.md link.)_
 
@@ -5791,29 +5791,3 @@ Clarify the mutex's runtime contract in the `#snapshot-restore-pi-behavioural-pr
 ## Relationships
 
 - T057 "Item (e) fail predicate: operator-precedence ambiguity, single-sentence packing, and sub-outcomes buried mid-prose" — same-cluster (touches the same item (e) prose but resolves independently).
-
-# T119 - Teardown-side throw on the Ok path: does it promote success to failure?
-
-**Kind:** error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-PIC-9 *Subagent session lifecycle* in `pi-integration-contract/subagent.md` (anchor `pic-9`) pins the disposition of two teardown-side throws — `AgentSession.dispose()` throwing inside the per-invocation `finally`, and the cancellation listener's synchronous `session.abort()` throwing — only by reference to the "original error that triggered teardown" not being masked. But normal return (the loom's tail expression resolving to `Ok`) is the first listed disposal trigger, and on that path there is no original `Err` or panic for the no-mask clause to protect. The spec therefore never states what the parent observes when a teardown throw lands on top of an `Ok`, leaving two conformant readings — log-only (preserve the `Ok`) versus promote-to-failure (`Err` replaces the value) — that diverge observably at the slash-command, `tools:`, and `invoke(...)` surfaces. The `loom/runtime/subagent-dispose-failure` and `loom/runtime/internal-error` rows in `diagnostics/code-registry-runtime.md` repeat the same Ok-silent framing.
-
-## Solution approach
-
-Make PIC-9's no-mask rule bidirectional: on every disposal trigger including normal return, a throw from `AgentSession.dispose()` or from the listener's synchronous `session.abort()` is log-only and does not alter the invocation result. Rewrite PIC-9's `dispose()`-throws and `abort()`-throws sentences to state the Ok-path outcome explicitly — the parent still observes the loom's `Ok` final value and the diagnostic is advisory. Rewrite the `loom/runtime/subagent-dispose-failure` and `loom/runtime/internal-error` rows in `diagnostics/code-registry-runtime.md` to the same "does not alter the invocation result" framing so the registry and PIC-9 read in lock-step.
-
-## Solution constraints
-
-- Out of scope: late rejection of the discarded `abort()` Promise — it remains governed by Cancellation's swallowing-handler rule, not by this clause.
-- Out of scope: `loom/runtime/registry-swap-failed`, `cancelled-by-session-shutdown`, and other teardown-adjacent codes; this rule covers only the two PIC-9 teardown sites named above.
-
-## Relationships
-
-- T041 "Shard-10 hidden assumptions and editorial cruft on the host-prerequisites / host-interfaces-core / host-interfaces-services / registration-steps page set" - same-cluster (pins the upstream Pi-side `abort()`/`dispose()` behaviour this rule depends on; resolved independently in `host-interfaces-core.md`).
