@@ -20,8 +20,11 @@ lives in [`docs/plan.md`](./docs/plan.md).
 
 ## Status
 
-Pre-implementation. The specification and implementation plan are complete;
-no runtime code has been written yet. Track progress against
+Pre-implementation. The specification is complete. The implementation
+plan's infrastructure — phase structure, authoring conventions, and the
+spec coverage matrix — is in place, but plan leaves are authored
+incrementally and none have been written yet. No runtime code has been
+written yet. As leaves are authored, track progress against
 [`docs/plan.md`](./docs/plan.md) and the
 [spec coverage matrix](./docs/plan_topics/coverage-matrix.md).
 
