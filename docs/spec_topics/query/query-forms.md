@@ -121,6 +121,7 @@ The following input → output pairs are normative. `\n` and `\t` denote literal
 | 5 | `` @`  hi` `` | `"  hi"` |
 | 6 | `` @`\n` `` | `""` |
 | 7 | `` @`\n    only\n` `` | `"only"` |
+| 8 | `` @`\n    only\n  ` `` | `"only\n"` |
 
 Vector commentary:
 
@@ -131,5 +132,6 @@ Vector commentary:
 5. A single-line template has no internal newlines for newline-trim to act on and exactly one line for dedent to consider, so any leading whitespace inside the backticks is preserved.
 6. A template that consists solely of a single newline becomes the empty string after newline-trim; dedent on the empty string is the empty string. How the runtime treats an empty rendered template is pinned earlier in this file under [Degenerate rendered templates](#degenerate-rendered-templates).
 7. Newline-trim removes the leading newline and the newline immediately before the closing backtick, leaving the single line `    only`; dedent then strips the four-space common prefix, yielding `"only"`. This pins the order: newline-trim first, dedent second.
+8. The source ends `\n  ` (a newline followed by two trailing spaces), so the character immediately before the closing backtick is a space, not a newline: newline-trim removes the leading newline but leaves the trailing newline in place. Dedent then sees two lines — `    only` and the whitespace-only line `  ` — strips the four-space common prefix from `    only`, and normalises the trailing whitespace-only line to an empty line per rule 1 (it does not contribute to the common prefix). The result is `only` followed by an empty line: the rendered string `"only\n"`.
 
-Newline-trim strips a newline only when it sits **immediately** after the opening backtick or **immediately** before the closing backtick. A trailing `\n` followed by whitespace before the closing backtick (e.g. `\n    only\n  `) is not trimmed; the trailing whitespace-only line is then handled by dedent's whitespace-only-line normalisation (it does not contribute to the common prefix and is rendered as an empty line).
+Newline-trim strips a newline only when it sits **immediately** after the opening backtick or **immediately** before the closing backtick. A trailing `\n` followed by whitespace before the closing backtick (e.g. `\n    only\n  `) is not trimmed; the trailing whitespace-only line is then handled by dedent's whitespace-only-line normalisation (it does not contribute to the common prefix and is rendered as an empty line); vector 8 pins the resulting rendered string.

@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 25 high, 60 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 24 high, 60 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T099 "`loom/load/callee-has-errors` promises codes via `related`" resolved and removed — the `code-registry-load.md` row and the `invocation.md` Static resolution paragraph were walked back so neither promises the callee's diagnostic *codes* via `related`; both now state that `related` carries one entry per underlying error *site* (`{ file, range, message }` per `diagnostic-shape.md`), with the callee's own diagnostics emitted separately. No change to `diagnostic-shape.md` or the closed `related` element shape.)_
 
@@ -3765,61 +3765,3 @@ Clarify the `none` bullet in `frontmatter-fields-b-and-templates.md` so the cont
 ## Relationships
 
 - T088 "Follow-up template terminal-newline and dedent trailing-whitespace-line rendering are unpinned" - same-cluster (sibling testability gap on the same respond-repair template machinery; resolved independently)
-
-# T088 - Follow-up template terminal-newline and dedent trailing-whitespace-line rendering are unpinned
-
-**Original heading:** Follow-up turn templates and dedent trailing-whitespace: terminal-newline / rendered-string ambiguity for byte-exact conformance
-**Original section:** docs/spec_topics/ frontmatter + query
-**Kind:** testability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-
-## Finding
-
-Two byte-exact-conformance gaps sit in adjacent query subtopics; both prevent a conformance suite from asserting on the rendered string.
-
-1. **Respond-repair follow-up template terminal newline.** `query-failure-and-repair.md` §"Follow-up turn templates (normative)" declares that "wording changes — including whitespace inside the template body — are spec-versioned breaking changes," and explicitly accounts for the single U+000A between the instruction sentence and `<schema-json>` and for the literal backticks around `__loom_respond_<slug>`. It is silent on whether the rendered text ends after `<schema-json>` (i.e. the body ends with the closing `>`) or whether the U+000A that the fenced example shows between `<schema-json>` and the closing `~~~` is part of the emitted text. The fence convention "the opening and closing fence lines themselves are not emitted" does not by itself decide whether the newline that *terminates* the `<schema-json>` line counts as part of the body or as part of the (non-emitted) closing-fence line. With a breaking-change clause covering whitespace, the difference between `…<schema-json>` and `…<schema-json>\n` is normative.
-
-2. **Dedent trailing-whitespace-only-line vector.** `query-forms.md` §"Dedent and newline-trim — normative behaviour" describes a trailing whitespace-only line (example `\n    only\n  `) as "rendered as an empty line" in prose, but the seven-row vector table has no row for this case. A reader cannot determine whether the rendered string is `"only\n"`, `"only\n\n"`, or `"only\n"` followed by anything else, and whether the empty line includes a terminating newline.
-
-Both gaps live in the same conformance posture: query-layer rendering is contractually byte-exact, but the rendered byte string at end-of-text is not pinned.
-
-## Spec Documents
-
-- `docs/spec_topics/query/query-failure-and-repair.md` — Follow-up turn templates (normative) (edited)
-- `docs/spec_topics/query/query-forms.md` — Dedent and newline-trim — normative behaviour (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-## Consequence
-
-**Severity:** correctness
-
-A respond-repair conformance test that asserts on the emitted user-turn string will diverge across implementations depending on whether the implementer reads the closing fence as inclusive of its preceding newline. A dedent conformance suite cannot mechanically cover the trailing-whitespace-only-line case the prose calls out, leaving that path verified only by hand-reading. Both are reachable in 1.0 without provider involvement.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Two independent, small edits. Land the terminal-newline pin first (it pins the bytes the model sees), then the dedent vector row on the resulting stable baseline.
-
-### Spec edits
-
-1. **Pin the terminal-newline of respond-repair follow-up templates.** In `query-failure-and-repair.md` §"Follow-up turn templates (normative)", *Templates.* paragraph, add one sentence stating that the emitted body terminates with a U+000A immediately after the `<schema-json>` interpolation — equivalently, the closing-fence line is not emitted, but the newline that ends the last body line is part of the emitted text. The body ends with `<schema-json>\n`. This inclusive convention is chosen because it matches the obvious reading of the fenced example, leaves the trailing newline available for any subsequent provider-side concatenation without a re-emission step, and makes placeholder substitution byte-equivalent whether the renderer treats fences character-wise or line-wise. Optionally restate both templates' rendered forms (`validator_error` and `schema_repeat`) as quoted byte strings to remove all ambiguity. This unblocks byte-exact conformance fixtures for both templates.
-
-2. **Add a normative trailing-whitespace-only-line dedent vector.** In `query-forms.md` §"Dedent and newline-trim — normative behaviour", append vector row 8 (using the table's existing numbering convention) for the trailing-whitespace-only-line case the prose already calls out: `Template: @`​`\n    only\n  `​`` → its rendered string pinned explicitly as a literal (the form the dedent algorithm actually produces — `"only\n"` or `"only"` followed by an empty line; state whichever the algorithm yields). Add one per-vector commentary entry stating that the trailing whitespace-only line is normalised to an empty line per rule 1 and does not contribute to the common prefix. This converts the inline prose claim into a testable fixture row.
-
-### Edge cases
-
-- If the rendered-form quoted byte strings are used in edit 1, escape the literal backticks around `__loom_respond_<slug>` correctly within Markdown — use a fenced or HTML-escaped form so the spec itself does not re-introduce ambiguity.
-- In edit 2, the new row's input column must use the same `\n` / `\t` literal-byte convention the existing table establishes (they are not escape sequences interpreted by the loom parser).
-
-## Relationships
-
-- T090 "Frontmatter / query hidden assumptions: unbacked AJV NaN/±Infinity rejection and unbacked universal `strictCapable` absence" - decision-overlap (the LF/CRLF line-ending contract for source decides which byte sequence the dedent vectors operate on; the dedent vector row must be consistent with whatever that finding resolves)
