@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 49 high, 66 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 48 high, 66 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T066 "README links to a non-existent docs/spec-sweeps.md" resolved and removed — a README/tracking-doc finding outside the spec corpus; the README Status paragraph was rewritten to drop the dangling docs/spec-sweeps.md link.)_
 
@@ -5662,31 +5662,3 @@ Spec edits: reword the catch-all paragraph at line 5 and the parallel sentence i
 - T083 "Stop-reason → `QueryError` variant mapping is undefined" - same-cluster (separate classifier arm, same `QueryError`-population machinery)
 - T084 "`TransportError` catch-all in `query-failure-and-repair.md` is narrower than the PIC contract" - same-cluster (sibling catch-all-completeness gap; the catch-all rewording must not collide with that finding's restatement)
 - T055 "Item (i) leaves the loom-side overflow-signature regex update unspecified, and the SHOULD-item fail disposition is asymmetric across items (f)–(ad)" - co-resolve (fixture-suite shape under `version-bump-step2.md` item (i) must be re-pointed at the new discriminator wording introduced by this finding)
-
----
-
-# T116 - Binder-failure RuntimeEvents have no pinned source for the required `invocation_id` / `loom` fields
-
-**Kind:** error-model, implementability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`runtime-event-channel.md` declares `invocation_id` and `loom` as required (non-optional) fields on every `RuntimeEvent`, and Group A lists binder failures (every row of [Binder — Failure modes]) in the always-log set, but the page never pins where those two fields come from for binder-failure events specifically. The field comment sources `invocation_id` from the `ActiveInvocationRegistry` entry, yet the page's own `query_site` carve-out says the binder "runs before any loom code," and `binder-inference.md` places the binder `complete()` call at loom-load time — before any registry entry exists. `active-invocation-registry.md` instead pins insertion at slash-command handler entry, before any awaitable work, which guarantees the entry exists when the binder runs. The two readings disagree on whether a registry entry exists at binder-failure emission, so one implementer synthesises the entry and another emits empty or placeholder `invocation_id` / `loom`, silently breaking the wire contract.
-
-## Solution approach
-
-Clarify in `runtime-event-channel.md`'s `RuntimeEvent` field-comment block (which already carries the `query_site` "absent for binder failures" carve-out) that for binder failures `invocation_id` and `loom` are read from the slash-command's `ActiveInvocationRegistry` entry — the `invocationId` and `loom` fields per `active-invocation-registry.md`'s `#active-invocation-registry` Registry contract. Ground the rule in the *Insertion* rule's "before any awaitable work" guarantee: the binder call is the slash dispatch's first awaitable, so the entry exists synchronously before any binder-failure event fires. State that the rule applies to every row of Group A's [Binder — Failure modes] enumeration.
-
-## Solution constraints
-
-- Out of scope: `binder-inference.md`'s binder-execution-phase wording (owned by T111).
-
-## Relationships
-
-- T111 "Binder `complete()` call execution phase contradicts its own cancellation/argument wiring" - decision-overlap (resolving when the binder `complete()` call is issued determines whether the registry-entry-exists-at-binder-phase premise of this fix holds; this finding's approach relies on the slash-dispatch reading, which is also what the cancellation and argument wiring already require)
-- T113 "`ActiveInvocationRegistry` entry shape omits the `disposeBarrier` resolver, and several intra-page "below" references now resolve to other files" - same-cluster (both edits touch the registry-entry / RuntimeEvent sourcing surface; resolved independently)

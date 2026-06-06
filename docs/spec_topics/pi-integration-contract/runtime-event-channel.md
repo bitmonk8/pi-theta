@@ -80,6 +80,8 @@ type RuntimeEvent = {
 };
 ```
 
+**Binder-failure sourcing.** Binder-failure events (the group-A [Binder — Failure modes](../binder.md) rows enumerated above) carry no `query_site` — the binder runs before any loom code — so for these events `invocation_id` and `loom` are read from the invocation's [`ActiveInvocationRegistry`](./active-invocation-registry.md#active-invocation-registry) entry: `invocation_id` from the entry's `invocationId` field and `loom` from the entry's `loom` field, per the registry contract's downstream-consumer rule. The runtime inserts that entry at dispatch-site entry before any awaitable work (per [Active invocation registry — Registry contract, *Insertion*](./active-invocation-registry.md#active-invocation-registry)), and the binder runs after that insertion, so the entry is present when a binder-failure `RuntimeEvent` is constructed. This sourcing applies to every row of the group-A [Binder — Failure modes](../binder.md) enumeration.
+
 The channel is operator-facing: events emit with `display: false` when the author handled the `Err` (matched, discarded with `let _ =`, or propagated via `?` to a non-top-level frame that itself handled it), and with `display: true` when the failure cascades out of the slash-command boundary as a top-level `Err` in prompt mode (in which case the `content` carries the normative user-facing template per [Slash-Command Invocation — Top-level `Err` in prompt mode](../slash-invocation.md#slsh-3)). Subagent-mode top-level `Err` cascades likewise emit with `display: false` (the subagent transcript is private; see [Slash-Command Invocation — User-visible streaming](../slash-invocation.md#slsh-2)).
 
 Deduplication and lifetime rules:
