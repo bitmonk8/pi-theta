@@ -4,9 +4,11 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 45 high, 65 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 44 high, 65 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T066 "README links to a non-existent docs/spec-sweeps.md" resolved and removed — a README/tracking-doc finding outside the spec corpus; the README Status paragraph was rewritten to drop the dangling docs/spec-sweeps.md link.)_
+
+_(Updated 2026-06-06: T113 "`ActiveInvocationRegistry` entry shape omits the `disposeBarrier` resolver" resolved and removed — `active-invocation-registry.md` repointed five stale "below" cross-references to their owning pages and pinned the `disposeBarrier` resolver as closure-held with the five-field entry shape unchanged.)_
 
 ---
 
@@ -5327,101 +5329,3 @@ Keep the `complete()` options-population list as is, but pin explicitly that loo
 
 - T111 "Binder `complete()` call execution phase contradicts its own cancellation/argument wiring" - same-cluster (also targets the binder-inference options-population list; co-edit window)
 - T045 "Audit-cluster testability/assumptions: four independent gaps bundled in one finding" - co-resolve (its "unpinned `complete()` retry/cancellation behaviour" item is the same gap viewed from the audit cluster's perspective; pinning the options here discharges that sub-item)
-
----
-
-# T113 - `ActiveInvocationRegistry` entry shape omits the `disposeBarrier` resolver, and several intra-page "below" references now resolve to other files
-
-**Original heading:** `disposeBarrier` resolver storage not reconcilable with the pinned five-field entry shape; "below" references to relocated contracts
-**Original section:** docs/spec_topics/pi-integration-contract/ (inventory/audit cluster, registry, binder-inference, capability probe)
-**Kind:** implementability (shard-11)
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-
-## Finding
-
-`active-invocation-registry.md` pins the registry entry as the five-field
-`Set<{ loomAbort: AbortController; disposeBarrier: Promise<void>; shutdownReason: string | undefined; loom: string; invocationId: string }>`,
-yet the same page repeatedly states that the per-invocation `finally`
-*"settles `disposeBarrier`"* and that "the same per-invocation `finally`
-removes the entry and settles `disposeBarrier`." A `Promise<void>` cannot
-be externally settled without a resolver handle, and no field of the
-pinned entry shape holds one. The spec does not state where the resolver
-lives (insertion-site closure, separate map, sibling field, …), so two
-implementers will diverge on whether the entry must grow a sixth field,
-whether the closure that performs the `Set.add` must capture the resolver,
-or whether the runtime synthesises an outer `Promise.withResolvers()`
-seam — each carrying different test-visibility and lifetime obligations.
-
-Compounding the local incoherence, the page resolves several load-bearing
-cross-references with the word *"below"* even though the cited sections
-now live in other files of the `pi-integration-contract/` directory:
-
-- *"`RuntimeEvent.invocation_id` wire field defined under **Runtime event channel** below"* — owned by `runtime-event-channel.md`.
-- *"`sendSystemNote` fallback chain (the best-effort chain defined under **System notes** below)"* — owned by `runtime-event-channel.md` (the *System notes* H2).
-- *"the per-invocation `finally`'s `loom/runtime/cancelled-by-session-shutdown` emission per the **Per-invocation operator visibility (clean-cancel path)** rule below"* — owned by `session-shutdown-semantics.md`.
-- *"…disposes any subagent session (per **Subagent session lifecycle** below)"* — owned by `subagent.md` (PIC-9).
-- *"Pi's per-session slash-handler serialisation pinned under **Tool-registration lifetime and visibility** below"* — owned by `tool-registration-lifetime.md`.
-
-The "below" form misleads a reader who lands on the registry page in
-isolation; the anchors exist but are not on this page.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/active-invocation-registry.md` — *`ActiveInvocationRegistry`* intro paragraph and *Registry contract* bullets (edited)
-- `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — *Runtime event channel* / *System notes* targets (read-only)
-- `docs/spec_topics/pi-integration-contract/session-shutdown-semantics.md` — *Per-invocation operator visibility (clean-cancel path)* target (read-only)
-- `docs/spec_topics/pi-integration-contract/subagent.md` — *Subagent session lifecycle* (PIC-9) target (read-only)
-- `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md` — *Tool-registration lifetime and visibility* target (read-only)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves (implementation order):** N/A
-
-## Consequence
-
-**Severity:** correctness
-
-Two good-faith implementers diverge on `disposeBarrier`: one grows the
-entry to a sixth resolver field (changing the pinned shape and any test
-that asserts on entry membership), another captures the resolver in the
-insertion-site closure (no entry-shape change but a separate teardown
-ordering rule). Both interpretations satisfy the current prose. The
-"below" anchors that miss their target degrade navigability and let a
-reader infer that the registry page itself defines `RuntimeEvent`, the
-`sendSystemNote` fallback chain, or the clean-cancel emission — none of
-which it does.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Resolve in two steps against `active-invocation-registry.md`. First, the scope-bounding citation fix (pure link-repointing, no normative content shifts). Then, on that stable baseline of correctly-targeted cross-references, add the substantive normative content stating where the `disposeBarrier` resolver is held — so the next review pass sees a smaller, better-isolated diff than a single combined edit.
-
-### Step 1 — Repoint stale "below" references to their owning pages
-Sweep `active-invocation-registry.md` and rewrite each "below" reference whose target now lives in another file so it cites the owning page explicitly. Verify each anchor exists before linking; link to existing `<a id>` anchors rather than title-derived auto-anchors. Five sites are in scope:
-- *"`RuntimeEvent.invocation_id` … under **Runtime event channel** below"* → cite `runtime-event-channel.md` (the existing **Runtime event channel** H2 anchor).
-- *"the best-effort chain defined under **System notes** below"* → cite `runtime-event-channel.md#system-notes` (or the current `<a id>` on that page).
-- *"per the **Per-invocation operator visibility (clean-cancel path)** rule below"* (three occurrences — intro and *Edge cases* bullet) → cite `session-shutdown-semantics.md#session-shutdown-semantics`.
-- *"per **Subagent session lifecycle** below"* → cite `subagent.md#pic-9`.
-- *"pinned under **Tool-registration lifetime and visibility** below"* → cite `tool-registration-lifetime.md#tool-registration-lifetime-and-visibility`.
-
-Spec edits: `active-invocation-registry.md` only; no anchor changes on target pages.
-
-### Step 2 — State where the `disposeBarrier` resolver is held
-Add one normative sentence to the *Registry contract* section stating that the `disposeBarrier` resolver is held at the dispatch-site insertion-site closure (alongside `loomAbort`), captured when the entry is constructed via `Promise.withResolvers()` (or equivalent), and used by the per-invocation `finally` to call `resolve()` after `AgentSession.dispose()` returns (subagent mode) or immediately (prompt mode). State explicitly that the pinned five-field entry shape is **unchanged** — the resolver is closure-scoped, not a registry-entry field — so observers of the entry shape (tests, audit fixtures) see exactly the five members the entry literal pins; the entry-shape literal does not grow.
-
-Spec edit: `active-invocation-registry.md` *Registry contract* block — one new sentence (or short bullet) immediately after the *Dispatch-site setup wrap* bullet that enumerates the setup sequence (`new AbortController()`, `Set.add`, listener attach, `createAgentSession`); fold the resolver-construction step into the enumerated setup sequence so ordering is unambiguous. Keep the phrasing descriptive ("held at the insertion-site closure"), not mechanism-prescriptive, to avoid colliding with the broader "registry over-prescription" finding.
-
-### Edge cases
-- The resolver-storage statement must say the entry-shape literal is **unchanged** (resolver is closure-scoped), or downstream consumers — audit fixtures, tests asserting on entry membership — will split.
-- The *Dispatch-site setup wrap* `try`/`catch` arm's "throw before `Set.add` insertion completes" case must remain coherent: if `Promise.withResolvers()` is part of the setup sequence, state whether it runs before or after `Set.add`. Natural ordering is *before*, so the resolver is captured in scope when the entry is constructed.
-- The `session_shutdown` sub-step 3 `Promise.allSettled` iteration reads `entry.disposeBarrier` (the `Promise<void>`), not the resolver, and continues to do so unchanged — only the per-invocation `finally` calls the closure-held resolver.
-
-## Relationships
-
-None
