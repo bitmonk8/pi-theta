@@ -4,9 +4,11 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 36 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 35 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T105 "BNDR-5 mandates shortest-round-tripping fixed-point digits without a derivation recipe" resolved and removed — a non-normative derivation recipe was appended to BNDR-5 in defaulting-system-note-echo.md, describing how to expand `String(n)`'s exponential output into shortest fixed-point form, with BNDR-6r and BNDR-6s as the worked oracle cases.)_
+
+_(Updated 2026-06-06: T103 "Turn-grouping undefined when `SessionContext.messages` begins with non-`user` messages" resolved and removed — a second Pi behavioural precondition (each `AgentMessage[]` delivering surface is non-empty iff its first element is a `UserMessage`) was pinned alongside the existing chronological-ordering presupposition in host-interfaces-core.md, the binder turn-definition gained a forward reference to it, and version-bump checklist item (ag) was added to re-audit it per Pi minor bump. The turn-grouping rule, truncation walk, and BNDR-7 renderings are unchanged.)_
 
 _(Updated 2026-06-06: T108 "Non-Error throws yield `undefined` (or a TypeError) when the runtime extracts `.message`" and T109 "`session_start` collision pass has no failure contract when `pi.getCommands()` throws" resolved together as a co-resolve cluster and removed — a canonical underlying-error coercion was pinned in placeholder-rendering-b.md §6 and a fifth `pi.getCommands()` read-failure bullet was added to the Extension-bootstrap SDK failures enumeration.)_
 
@@ -4753,61 +4755,3 @@ This is a one-paragraph edit consistent with the existing closed `looms.*` enume
 
 - T032 "Single-string-bypass disposition of `bind_model:` and `bind_context:` is unspecified" - same-cluster (both findings touch the bypass-page treatment of `bind_context` / `bind_model` but resolve independently; this finding fixes the no-params parenthetical, the other fixes the single-string-bypass silence.)
 - T027 "`<key>` rendering for `loom/load/settings-value-out-of-range` is undetermined" - decision-overlap (this finding adds no `looms.bindContext` carrier, so it does not enlarge the key-form question's scope; the two resolve independently.)
-
----
-
-# T103 - Turn-grouping undefined when `SessionContext.messages` begins with non-`user` messages
-
-**Original heading:** Turn-grouping undefined for messages preceding the first `user` message
-**Original section:** docs/spec_topics/binder/ + future-considerations/ + pi-integration index
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-
-## Finding
-
-The compact-transcript walk in `binder-model-and-context.md` defines a turn intensionally: *"a turn is a user message plus all subsequent assistant / toolResult / custom messages up to (but not including) the next user message."* Both the truncation walk and BNDR-7's rendering operate on those turns. The walk's only stated presupposition on the input array — pinned at `host-interfaces-core.md` under the chronological-ordering paragraph — is that `buildSessionContext(...).messages` is ordered oldest-to-newest. Nothing pins that the first element is a `user` message.
-
-If the array ever begins with a run of non-`user` messages (an `assistant` or `toolResult` left over from a prior interrupted turn, a `custom:loom-system-note` emitted before the first user input, or any other arrangement Pi's `SessionManager` may produce), the turn-grouping rule does not cover them: they belong to no turn under the intensional definition. Three plausible behaviours diverge — silently drop the leading non-`user` messages, render them as a partial leading "turn" with no `[user]` head line, or treat the situation as a runtime error — and the spec selects none of them. BNDR-7 pins transcript bytes as MUST-reproduce-exactly, so two conforming implementations cannot both be right.
-
-## Spec Documents
-
-- `docs/spec_topics/binder/binder-model-and-context.md` — *Session-context truncation (`bind_context: session`)* and *Compact-transcript format (normative)* (edited)
-- `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` — *`SessionContext` and the `.messages` element shape* / chronological-ordering presupposition (edited)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(The plan file exists but currently carries no leaves; there is nothing to flag as modified or blocked.)
-
-## Consequence
-
-**Severity:** correctness
-
-The compact transcript is MUST-reproduce-exactly per BNDR-7, and the input-reproducibility contract feeds determinism on the binder call. Independent conformant implementations will disagree on the leading-non-`user`-prefix case — one drops the prefix, another renders it under an invented role tag, a third throws — producing divergent binder prompts and divergent sampled outputs even at `temperature: 0`. The fixture suite cannot be authored until the disposition is fixed.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Pin a Pi-side behavioural guarantee that `SessionContext.messages` (and `agent_end.messages`) always begins with a `user` message, and route re-audit through the version-bump checklist. This keeps the turn-grouping rule, the truncation walk, and the renderer unchanged, and leaves the existing BNDR-7a–BNDR-7d renderings authoritative without renumbering. The precedent is the existing chronological-ordering presupposition, which already pins behavioural preconditions to Pi and re-audits them per minor bump.
-
-### Spec edits
-- `host-interfaces-core.md`: extend the chronological-ordering paragraph at `#messages-chronological-order-presupposition` with a second presupposition — at both delivering surfaces (`SessionContext.messages` and `agent_end.messages`), the array is non-empty iff its first element is a `UserMessage`. Add a sub-anchor so the clause can be cited inbound.
-- `version-bump-step2.md`: add a checklist item parallel to existing item (h) so each Pi minor bump re-audits this guarantee.
-- `binder-model-and-context.md` (*Session-context truncation* and *Compact-transcript format*): add a one-sentence forward reference to the new presupposition so the binder spec stays self-contained.
-
-### Edge cases
-- Empty `messages` (zero-length array): the presupposition is biconditional ("non-empty iff first element is `UserMessage`"), so the empty case is admitted. Spec the empty array as producing no `Recent session context` block — no transcript bytes and no leading blank line — consistent with the *Single oversized turn at the front* worked example's "binder runs with no session-context block" disposition.
-- The guarantee cannot be detected from the `AgentMessage[]` type surface; a regression is only caught by the editorial-review checklist or in production. If a future Pi minor surfaces a `custom`-led or `assistant`-led history (e.g. a "session resumed from snapshot" feature that prepends a `loom-system-note`), loom must react before that minor lands, defining explicit rendering for the leading non-`user` prefix at that point.
-
-## Relationships
-
-- T106 "Compact-transcript assistant interleaving and `<args-json>` key order not pinned for byte-exact reproduction" - same-cluster (both attack BNDR-7 byte-exactness gaps; resolve independently)
-- T034 "Compact-transcript: BNDR-7 reference set omits oracles for several normative Rule-4 cases" - same-cluster (both extend BNDR-7's reference-rendering coverage; this finding leaves the existing BNDR-7a–BNDR-7d renderings authoritative and adds no new rendering, so the two resolve independently)
-- T104 "BNDR-7's "next blank line of the surrounding system prompt" presupposes framing the eight system-prompt blocks neither pin" - same-cluster (both expose unpinned structural preconditions on which BNDR-7's byte-exactness rests; resolve independently)
