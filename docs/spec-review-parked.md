@@ -1,6 +1,6 @@
 # pi-loom — Consolidated Spec Review (Parked)
 
-_Parked findings: 2._
+_Parked findings: 4._
 
 ---
 
@@ -152,4 +152,149 @@ Spec edits: reword the catch-all paragraph at line 5 and the parallel sentence i
 - T083 "Stop-reason → `QueryError` variant mapping is undefined" - same-cluster (separate classifier arm, same `QueryError`-population machinery)
 - T084 "`TransportError` catch-all in `query-failure-and-repair.md` is narrower than the PIC contract" - same-cluster (sibling catch-all-completeness gap; the catch-all rewording must not collide with that finding's restatement)
 - T055 "Item (i) leaves the loom-side overflow-signature regex update unspecified, and the SHOULD-item fail disposition is asymmetric across items (f)–(ad)" - co-resolve (fixture-suite shape under `version-bump-step2.md` item (i) must be re-pointed at the new discriminator wording introduced by this finding)
+
+---
+
+## T045 - Audit-cluster testability/assumptions: four independent gaps bundled in one finding
+
+> **PARKED** — 2026-06-06T16:43:52Z
+> **Reason:** Category 1 (malformed finding — default attribution for top-level fixer refusals; the fixer's pre-flight typically catches stale preconditions, missing destination subsections, or do-not-touch conflicts — may also be category 2 if the refusal reason is capacity-shaped, see FixerNotes). Parked as part of MULTI cluster T045 - Audit-cluster testability/assumptions: four independent gaps bundled in one finding; T112 - Binder `complete()` per-attempt retry / backoff delegated to `StreamOptions` fields loom never populates (rec F). The fast loop (/spec-fix-findings-loop) could not resolve the cluster. Refusal reason: state-mismatch — both co-resolve cluster members are in legacy triage layout (## Finding / ## Solution Space), not the reduced 3-field implementer form; fixer refused. Co-resolve forbids individual dispatch. Discarded this cycle; fresh re-review regenerates in reduced form.
+> **Forensic report:** none (fast loop — no forensic report)
+
+# T045 - Audit-cluster testability/assumptions: four independent gaps bundled in one finding
+
+**Original heading:** Audit-cluster testability/assumptions: probe-seam contract undefined; infra-aborted-run carve-out over-broad; PIC-8 (d) body-succeeded path; complete()/IdSource/tab-free presuppositions
+**Original section:** docs/spec_topics/pi-integration-contract/ (inventory/audit cluster, registry, binder-inference, capability probe)
+**Kind:** testability (shard-11), assumptions (shard-11)
+**Importance:** medium
+**Score:** 25
+**Must-fix:** false
+
+## Finding
+
+The audit/registry cluster carries four independent testability and presupposition gaps that the original finding bundled into one entry. They share no edit surface and resolve independently; they are presented here as separate obligations.
+
+1. **Probe-seam contract is undefined.** `active-invocation-registry.md` (Registry contract → "registry name is internal" bullet) instructs tests to assert on observable side effects "(entry counts via probe seams, ordered `loomAbort.abort()` calls, `disposeBarrier` settlement)" but no "probe seam" is defined anywhere in the cluster — neither as a DI seam in `host-interfaces-services.md` (which enumerates `Clock`, `FileSystem`, `FileWatcher`, `TokenEstimator`, `IdSource`, …) nor as an inspection method on the registry itself. Without a defined contract, "entry counts via probe seams" is unimplementable.
+
+2. **Infra-aborted-run carve-out is keyed in a way that admits silent canary loss.** `audit-wire-and-canary.md` *Infra-aborted-run carve-out* identifies an "infra-aborted run" by **"the presence of one or more infrastructure-failure records"** in the stdout stream, and tells CI parsers to drop the once-per-invocation canary obligation for such runs. The keying is order-blind: a run that emitted its canary record *and then* hit an infrastructure failure produces exactly the same stdout shape (one canary + ≥1 infra record) as a run that failed before reaching the canary computation. CI parsers therefore stop asserting the canary contract on every post-canary infra failure — masking the very class of misconfiguration the canary exists to catch.
+
+3. **PIC-8 (d) is vacuous on the body-succeeded path.** `tool-registration-lifetime.md` PIC-8 step (d) says, on double restore failure, to "propagate the original exception (or terminal `Err`) that the `finally` was protecting." When the protected body succeeded, there is no original exception to propagate. PIC-8 currently has no Then-clause for the (body-succeeded ∧ initial-restore-fails ∧ retry-restore-fails) path: steps (b) and (c) emit a diagnostic and a system note, but the query's nominal success/value disposition under this path is unstated.
+
+4. **`audit-wire-and-canary.md`'s tab-free claim for the `path` field rests on an un-pinned premise.** The *Wire serialisation* paragraph states "the four field values … MUST NOT contain the ASCII tab character … bare identifiers, package-qualified imported names, the literal `<n/a>` sentinel, integer `line` values, and file paths are tab-free by their pinned shapes." File paths are **not** tab-free by any pinned shape in this corpus — POSIX permits ASCII tab in filenames, and no spec page restricts the audit's audited-path shape to exclude it. The tab-free claim therefore rests on an implicit and false premise about the host filesystem.
+
+(The original framing also flagged `complete()` retry/cancellation and `IdSource` synchrony as "unpinned presuppositions." Those are in fact pinned — `complete()` retry/cancellation at `conversation-drive.md` §`complete-retry-and-cancellation-presupposition` and routed to bump-checklist items (aa)/(ab); `IdSource` at `host-interfaces-services.md` PIC-20. Those two sub-claims are not carried forward here.)
+
+## Spec Documents
+
+- `docs/spec_topics/pi-integration-contract/active-invocation-registry.md` — "Registry contract" bullet list (edited, sub-issue 1)
+- `docs/spec_topics/pi-integration-contract/host-interfaces-services.md` — DI-seam section (edited, sub-issue 1)
+- `docs/spec_topics/pi-integration-contract/audit-wire-and-canary.md` — *Infra-aborted-run carve-out* (edited, sub-issue 2)
+- `docs/spec_topics/pi-integration-contract/audit-wire-and-canary.md` — *Wire serialisation* / *Per-family record-shape table* (edited, sub-issue 4)
+- `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md` — PIC-8 (read-only structurally; edited body for new Then-clause, sub-issue 3)
+
+## Plan Impact
+
+**Phases:** N/A
+
+**Leaves (implementation order):** N/A
+
+(The project has no leaves authored under `plan_topics/` yet — `plan.md` lists Horizontal / MVP / Vertical-slice sections, all empty.)
+
+## Consequence
+
+**Severity:** correctness
+
+Sub-issues 1, 2, and 3 each admit two reasonable implementers diverging: (1) tests for registry teardown have no defined inspection surface to bind to; (2) CI parsers built per spec will silently miss post-canary infra failures, defeating the canary's purpose on exactly the runs where the audit reached real work before crashing; (3) implementers will guess differently on whether to mark the query successful, throw a synthetic error, or rethrow the restore error on the body-succeeded double-failure path. Sub-issue 4 is advisory in isolation (the rule still bans tabs in the field) but undermines the spec's stated justification chain.
+
+## Solution Space
+
+**Shape:** single
+**State:** reduced
+
+Resolve four independent gaps in smallest-surface-first order so each lands on a stable predecessor baseline: first drop the false path-tab-free justification; then re-key the infra-aborted-run carve-out; then add the PIC-8 body-succeeded disposition; then define the registry probe seam (the largest surface change) last.
+
+### Spec edits
+
+1. **Drop the path-tab-free justification.** In `audit-wire-and-canary.md` *Wire serialisation*, keep the tab-in-field-values prohibition at MUST but strike the unsupported clause "and file paths are tab-free by their pinned shapes". Add a positive obligation: when an audited path contains an ASCII tab (legal on POSIX), the audit MUST escape or substitute it before emission in a reversible way (e.g. percent-encode the tab as `%09`), and pin the encoding (percent-encoding limited to tab and other prohibited bytes) so two implementations do not diverge and CI parsers can decode it.
+2. **Re-key the infra-aborted-run carve-out on canary presence.** In `audit-wire-and-canary.md`, change the *Infra-aborted-run carve-out* predicate from "identifiable by the presence of one or more infrastructure-failure records" to "identifiable by the absence of a canary record on the run's stdout." Add a complementary sentence: a run that emitted a canary record before terminating with an infra failure MUST satisfy the once-per-invocation canary obligation; the CI parser asserts canary presence/uniqueness on every run that emitted at least one canary record, regardless of whether infra records also appear. Keying on canary-record presence is monotone in audit progress (the canary record is emitted exactly once, near the end, before any infra-failure summary), eliminating the silent-loss path.
+3. **Add a body-succeeded Then-clause to PIC-8 (d).** In `tool-registration-lifetime.md` PIC-8, replace step (d) with a two-armed disposition splitting on whether the protected body produced an exception or a terminal `Err`. *Body threw / produced terminal `Err`*: propagate it unchanged (current behaviour). *Body succeeded*: the query is treated as having failed — the runtime synthesises a terminal error whose surface mirrors the active-set-restore-failed diagnostic (cause: `internal_error`, message references the double restore failure, propagates as the query's outcome) so the caller is never silently told the body succeeded while the runtime is in a known-corrupted active-set state. Add a cross-reference from the per-invocation `finally`'s disposition page (if any) to PIC-8.
+4. **Define the probe-seam contract on the registry.** In `active-invocation-registry.md`, replace the "entry counts via probe seams" phrase with a concrete DI seam `RegistryInspector` (added to `host-interfaces-services.md`) whose method `snapshot(): readonly { invocationId: string; loom: string; shutdownReason: string | undefined }[]` returns the current entries in insertion order. Production wires it to the runtime's registry instance; tests construct a fake or pass the real instance directly. Add a PIC entry in `host-interfaces-services.md` mirroring the `IdSource` shape (interface + production adapter + fake + per-runtime construction rule), consistent with the rest of the DI-seam family.
+
+### Edge cases
+
+- The implementation must order canary emission before any subsequent infra-failure record on partial-evaluation runs so the parser's "canary present ⇒ assert obligation" rule has a single well-defined input. A run that terminates partway through canary-record construction (e.g. counters computed but a crash inside the line formatter) falls under the existing *Pre-emission termination carve-out* ("before any record can be emitted"), which remains the correct landing.
+- The synthesised error on the body-succeeded double-restore-failure path MUST use the same surface shape (terminal `Err` per the existing PIC-8 frame) as the body-threw arm — do not introduce a third surface.
+- The `RegistryInspector` seam is registry-internal, not a Pi surface; ensure the inventory audit's category partition keeps it out of category (1)/(2)/(3).
+
+## Relationships
+
+None
+
+---
+
+## T112 - Binder `complete()` per-attempt retry / backoff delegated to `StreamOptions` fields loom never populates
+
+> **PARKED** — 2026-06-06T16:43:52Z
+> **Reason:** Category 1 (malformed finding — default attribution for top-level fixer refusals; the fixer's pre-flight typically catches stale preconditions, missing destination subsections, or do-not-touch conflicts — may also be category 2 if the refusal reason is capacity-shaped, see FixerNotes). Parked as part of MULTI cluster T045 - Audit-cluster testability/assumptions: four independent gaps bundled in one finding; T112 - Binder `complete()` per-attempt retry / backoff delegated to `StreamOptions` fields loom never populates (rec F). The fast loop (/spec-fix-findings-loop) could not resolve the cluster. Refusal reason: state-mismatch — both co-resolve cluster members are in legacy triage layout (## Finding / ## Solution Space), not the reduced 3-field implementer form; fixer refused. Co-resolve forbids individual dispatch. Discarded this cycle; fresh re-review regenerates in reduced form.
+> **Forensic report:** none (fast loop — no forensic report)
+
+# T112 - Binder `complete()` per-attempt retry / backoff delegated to `StreamOptions` fields loom never populates
+
+**Original heading:** Binder `complete()` within-attempt retry/backoff delegated to `StreamOptions` fields the options list never sets
+**Original section:** docs/spec_topics/pi-integration-contract/ (inventory/audit cluster, registry, binder-inference, capability probe)
+**Kind:** error-model, assumptions
+**Importance:** high
+**Score:** 100
+**Must-fix:** false
+
+## Finding
+
+`binder-inference.md` enumerates exactly what the runtime puts on each binder `complete(model, context, options)` call: `model`, `context.systemPrompt`, `context.messages`, `context.tools`, `options.temperature = 0`, `options.signal = loomAbort.signal`, and — for providers whose `Api` carries a seed field — the seed under that field name. `options.maxRetries` and `options.maxRetryDelayMs` are not in that list, so loom never assigns them.
+
+`determinism-cancellation-failure.md` (`#per-invocation-retry-budget`) and `conversation-drive.md` (`#complete-retry-and-cancellation-presupposition`, checklist item (aa) in `version-bump-step2.md`) nevertheless build the binder's whole within-call retry / backoff / `Retry-After` story on those two fields: "Client-side retry of a *single* underlying attempt — including any backoff and any server-requested wait such as an HTTP `Retry-After` — is owned by `@earendil-works/pi-ai`'s `StreamOptions.maxRetries` and `StreamOptions.maxRetryDelayMs` … loom redefines neither field." Two implementers reading the population list and the presupposition together will diverge on what actually reaches the provider: one will pass nothing and inherit whatever pi-ai's defaults are at the pinned version; another will read "loom redefines neither field" as "explicitly forward pi-ai's documented defaults under their own names"; a third will set `maxRetries: 0` to silence within-call retries entirely so the loom-level per-invocation budget is the sole retry surface. Each is a defensible reading and each yields a different observable inter-attempt latency and a different ceiling on total provider calls per slash invocation.
+
+Whichever disposition is correct, the spec must state it: either pin the values loom places on `options`, or state that loom deliberately omits these fields and name the pi-ai defaults the runtime is inheriting at the pinned version (so the version-bump procedure has a concrete value to diff against).
+
+## Spec Documents
+
+- `docs/spec_topics/pi-integration-contract/binder-inference.md` — `complete(...)` options-population list (edited)
+- `docs/spec_topics/binder/determinism-cancellation-failure.md` — Per-invocation retry budget paragraph, `StreamOptions` delegation sentence (edited)
+- `docs/spec_topics/pi-integration-contract/conversation-drive.md` — `complete-retry-and-cancellation-presupposition` (read-only)
+- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — checklist item (aa) (read-only)
+
+## Plan Impact
+
+**Phases:** N/A
+
+**Leaves (implementation order):** N/A
+
+(The plan currently contains no authored leaves; coverage matrix is empty.)
+
+## Consequence
+
+**Severity:** correctness
+
+Two good-faith implementations diverge on observable behaviour: the number of provider calls per loom-level binder attempt, the per-attempt backoff, and `Retry-After` adherence all depend on values the spec leaves unspecified. The loom-level 3-call ceiling stays intact, but the *real* per-invocation upper bound on provider hits and the inter-attempt latency floor differ across implementations, and the version-bump checklist item (aa) has no concrete value to re-verify against.
+
+## Solution Space
+
+**Shape:** single
+**State:** reduced
+
+Keep the `complete()` options-population list as is, but pin explicitly that loom deliberately omits `maxRetries` / `maxRetryDelayMs` and inherits pi-ai's defaults at the pinned version, naming those defaults inline. This matches the existing "loom redefines neither field" posture and the conversation-drive presupposition (which already holds that pi-ai owns inter-attempt timing including `Retry-After`), and it avoids loom inventing concrete retry numerics outside its expertise. The single new obligation — re-reading two values from pi-ai's type declaration on each Pi bump — slots into the existing editorial-review checklist alongside item (aa).
+
+### Spec edits
+- `binder-inference.md`: insert a sentence after the enumerated population list stating the deliberate omission and the inherited defaults, e.g. "loom omits `options.maxRetries` and `options.maxRetryDelayMs`; the binder call inherits pi-ai's defaults at the pinned version (`maxRetries = <N>`, `maxRetryDelayMs = <M>` at `dist/types.d.ts`)." Read `<N>`/`<M>` from pi-ai's `dist/types.d.ts` at the pinned version.
+- `determinism-cancellation-failure.md#per-invocation-retry-budget`: re-word the `StreamOptions` delegation sentence to point at the named inherited defaults rather than at the unnamed library behaviour.
+- `version-bump-step2.md`: add a checklist item (or extend (aa)) requiring the contributor to re-read those two default values from pi-ai's `dist/types.d.ts` at each Pi minor bump and update the named values in the same edit if they changed.
+
+### Edge cases
+- If pi-ai's `.d.ts` documents the defaults only via prose comments rather than as `?:` defaults inferable from the type, name the implementation-site default instead and accept that drift detection is editorial.
+- A silent pi-ai default change between minor bumps would shift loom's binder retry depth and backoff with no SDK surface-inventory signal until the editorial-review item is run.
+- The typed-query forced respond turn — the other loom call routed through `complete()` — should inherit the same disposition for consistency.
+
+## Relationships
+
+- T111 "Binder `complete()` call execution phase contradicts its own cancellation/argument wiring" - same-cluster (also targets the binder-inference options-population list; co-edit window)
+- T045 "Audit-cluster testability/assumptions: four independent gaps bundled in one finding" - co-resolve (its "unpinned `complete()` retry/cancellation behaviour" item is the same gap viewed from the audit cluster's perspective; pinning the options here discharges that sub-item)
 

@@ -246,3 +246,22 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-06-06T16:43:52Z — MULTI: T045 - Audit-cluster testability/assumptions: four independent gaps bundled in one finding; T112 - Binder `complete()` per-attempt retry / backoff delegated to `StreamOptions` fields loom never populates
+
+- **Cluster mode (rec F):** yes
+- **Cluster members:** 2
+- **Failure mode:** fast-loop-unresolved
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (n/a pass(es) in stage)
+- **Snapshot refs (retained for forensics):** n/a (loop did not run)
+- **Poisoned fixes:** n/a
+- **Forensic report:** none (fast loop — no forensic report)
+- **Parked findings (this run):** `T045 - Audit-cluster testability/assumptions: four independent gaps bundled in one finding, T112 - Binder `complete()` per-attempt retry / backoff delegated to `StreamOptions` fields loom never populates`
+- **Loop notes:** state-mismatch — both co-resolve cluster members are in legacy triage layout (## Finding / ## Solution Space), not the reduced 3-field implementer form; fixer refused. Co-resolve forbids individual dispatch. Discarded this cycle; fresh re-review regenerates in reduced form.
+- **Fixer notes:** none
+
+---
