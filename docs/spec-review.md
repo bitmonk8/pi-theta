@@ -4,9 +4,11 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 33 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 32 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T102 "`bind_context` project-wide-inheritance parenthetical references a settings carrier that does not exist" resolved and removed — the no-params-bypass parenthetical in binder-bypass-and-envelope.md was corrected to state that `bind_model` may inherit from the project-wide `looms.binderModel` setting while `bind_context` has no project-wide carrier and defaults to `none`. No new settings key, diagnostic, or validation row was added.)_
+
+_(Updated 2026-06-06: T100 "`Diagnostic` envelope contract is unsatisfiable for location-less codes" resolved and removed — `file` and `range` were marked optional on the internal `Diagnostic` shape, a **Location-less diagnostics** paragraph enumerated the closed set of eight location-less codes and pinned the omitted-fields wire form, and the **Serialised content format** rule gained a carve-out dropping the `<file>:<line>:<col>:` prefix for those codes. No change to the `related?` element shape or to the DIAG-4 *Message* rows.)_
 
 _(Updated 2026-06-06: T105 "BNDR-5 mandates shortest-round-tripping fixed-point digits without a derivation recipe" resolved and removed — a non-normative derivation recipe was appended to BNDR-5 in defaulting-system-note-echo.md, describing how to expand `String(n)`'s exponential output into shortest fixed-point form, with BNDR-6r and BNDR-6s as the worked oracle cases.)_
 
@@ -4640,34 +4642,3 @@ This is the smallest diff and avoids touching the central diagnostic envelope. A
 ## Relationships
 
 - T026 "`loom/parse/type-alias-cycle` cycle-chain rendering is unspecified" - same-cluster (sibling diagnostics-rendering ambiguity; both expose under-specification in the related-line / message-template rendering surface)
-- T100 "`Diagnostic` envelope contract is unsatisfiable for location-less codes" - same-cluster (same envelope, different field; resolving both touches `diagnostic-shape.md`)
-
----
-
-# T100 - `Diagnostic` envelope contract is unsatisfiable for location-less codes
-
-**Kind:** error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The internal `Diagnostic` shape in `diagnostic-shape.md` pins `file: string` and `range: { start, end }` as required fields, and the **Serialised content format** rule mandates the line template `"<file>:<line>:<col>: <code>: <message>"` for every persistent diagnostic. Eight registered codes have no source location at emission time and their registry rows describe no file or range: `loom/load/host-incompatible`, `loom/load/extension-bootstrap-failed`, `loom/load/discovery-slow`, `loom/load/package-read-timeout`, and the four `loom/host/session-shutdown-*` teardown codes. The wire shape and the serialised `content` string are undefined for these codes, so one implementer fabricates a sentinel `file`/zero `range` while another omits the fields and ships a `Diagnostic` that fails strict envelope validation. Consumers entitled by DIAG-4 (`#diag-4`) to assert on the rendered message cannot derive an expected string for any of the eight.
-
-## Solution approach
-
-In `diagnostic-shape.md`, mark `file` and `range` optional on the `Diagnostic` shape block and pin the omitted-fields wire form as the contract for diagnostics whose emission site carries no source location. Enumerate the closed set of eight location-less codes (`loom/load/host-incompatible`, `loom/load/extension-bootstrap-failed`, `loom/load/discovery-slow`, `loom/load/package-read-timeout`, and the four `loom/host/session-shutdown-*` codes), mirroring the `details.event.*` future-addition obligation already on the page. Add a carve-out to the **Serialised content format** paragraph dropping the `<file>:<line>:<col>:` prefix when `file`/`range` are omitted, and state that renderers MUST NOT synthesise a sentinel `file` or zero-valued `range`.
-
-## Solution constraints
-
-- The `related?` element shape stays `{ file, range, message }` — do not propagate `file`/`range` optionality into `related` entries, which always describe located sites.
-- Out of scope: the DIAG-4 *Message* rows for the eight codes in `code-registry-load.md` and `code-registry-host.md`.
-
-## Relationships
-
-- T026 "`loom/parse/type-alias-cycle` cycle-chain rendering is unspecified" - same-cluster (rendering gap in the same diagnostics surface)
-- T027 "`<key>` rendering for `loom/load/settings-value-out-of-range` is undetermined" - same-cluster (rendering gap in the same diagnostics surface)
