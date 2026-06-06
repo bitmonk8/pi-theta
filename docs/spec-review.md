@@ -56,28 +56,4 @@ Reconcile the two: either extend `commitAddPaths` in `.pi/project-config.md` to 
 ## Relationships
 
 - T01 "README advertises an authored implementation plan that does not exist" — same-cluster.
-# T03 - Glossary "schema slug" name enumeration cannot be complete
-
-**Kind:** naming
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The glossary "schema slug" entry enumerates the `<slug>`-using synthesised names as `__loom_respond_<slug>` and `__loom_callee_<slug>__<post-rename-name>`, while `schema-subset.md` step 5 ("Synthesised names" under "Canonical schema hash") enumerates `__inline_<slug>`, `__loom_respond_<slug>`, and `__loom_bind_<slug>`. Each list omits names the other carries, so neither enumeration is complete and a reader cannot trust either as the full set of slug-using synthesised names.
-
-## Solution approach
-
-Reconcile the glossary "schema slug" entry and `schema-subset.md` step 5 so the slug-using synthesised names agree, covering the full set `__inline_<slug>`, `__loom_respond_<slug>`, `__loom_callee_<slug>__<post-rename-name>`, and `__loom_bind_<slug>` — either by completing both enumerations or by having one delegate to the other as the single source of truth.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-None.
 
