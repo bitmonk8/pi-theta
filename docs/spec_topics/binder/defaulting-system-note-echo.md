@@ -73,7 +73,7 @@ Format rules:
 | <a id="bndr-6w"></a> **BNDR-6w.** | `Severity.High` (enum, RHS `"High"`) | `High` |
 | <a id="bndr-6x"></a> **BNDR-6x.** | `Severity.NeedsReview` (enum, RHS `"needs review"`) | `"needs review"` |
 
-Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring `bind_echo: true` on a bypass-eligible loom is `loom/parse/bind-echo-on-bypass` (warning).
+Setting `bind_echo: false` suppresses the echo. The bypass case (single-string param) auto-suppresses echo regardless of the frontmatter setting (there is nothing to misbind); declaring an explicit `bind_echo: true` on a single-string-bypass loom is `loom/parse/bind-echo-on-bypass` (warning).
 
 The echo channel is also used for the binder's `needs_info` and `ambiguous` outputs, which *replace* execution rather than precede it (both shaped by [System-note rendering](#system-note-rendering)):
 

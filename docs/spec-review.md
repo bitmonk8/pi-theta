@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 24 high, 60 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 23 high, 60 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T099 "`loom/load/callee-has-errors` promises codes via `related`" resolved and removed — the `code-registry-load.md` row and the `invocation.md` Static resolution paragraph were walked back so neither promises the callee's diagnostic *codes* via `related`; both now state that `related` carries one entry per underlying error *site* (`{ file, range, message }` per `diagnostic-shape.md`), with the callee's own diagnostics emitted separately. No change to `diagnostic-shape.md` or the closed `related` element shape.)_
 
@@ -3715,30 +3715,4 @@ Rewrite the hot-reload bullet in `frontmatter-fields-b-and-templates.md`'s Resol
 
 - T107 "Hot-reload recovery note over-promises `/reload` success without a failed-re-reload contract" - same-cluster (also hot-reload contract precision; independent fix)
 - T095 "ERR-7 lacks a defining anchor on the discovery pages, and the payload field carrying shadow/collision paths is unstated" - same-cluster (watcher-time reload failures on a different surface)
-
-# T086 - `bind_echo` no-params diagnostic: trigger condition unpinned and overlaps the single-string-bypass code
-
-**Kind:** testability, clarity
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The load warning `loom/load/bind-echo-without-params` (`diagnostics/code-registry-load.md`) and its three prose mirrors describe the trigger as "`bind_echo: true` on a no-params loom," but `bind_echo` defaults to `true` (the `bind_echo` row of `frontmatter/frontmatter-fields-a.md`), so the text does not distinguish an explicitly-set `bind_echo: true` from a defaulted one — one reading fires on every no-params loom, the other only on explicit true, and both are defensible. Separately, `loom/parse/bind-echo-on-bypass` (`diagnostics/code-registry-parse.md`) is scoped to a "binder-bypass-eligible loom," but per `glossary.md` and `binder/binder-bypass-and-envelope.md` "binder bypass" comprises both the no-params bypass and the single-string bypass, so an explicit `bind_echo: true` on a no-params loom matches both codes across two phases with nothing in the spec breaking the tie. Conformance tests cannot be written against either ambiguity, and the two halves must be pinned together because narrowing one code alone leaves the other admitting the same case.
-
-## Solution approach
-
-Narrow `loom/load/bind-echo-without-params` in `diagnostics/code-registry-load.md` so its condition keys on an explicitly-present `bind_echo: true` together with absent-or-`{}` `params:`, excluding the defaulted value, and propagate the explicit-true qualifier to the three prose mirrors (the `params` row in `frontmatter/frontmatter-fields-a.md`, the no-params-bypass entry in `glossary.md`, and the No-params bypass paragraph in `binder/binder-bypass-and-envelope.md`). Narrow `loom/parse/bind-echo-on-bypass` in `diagnostics/code-registry-parse.md` and its restatement in `binder/defaulting-system-note-echo.md` to the single-string bypass only, so "bypass-eligible" is no longer load-bearing for that code. Add a sentence to the no-params / single-string entry in `glossary.md` stating that the no-params case is owned by `loom/load/bind-echo-without-params` and the single-string case by `loom/parse/bind-echo-on-bypass`, and that the two codes partition bypass-eligibility.
-
-## Solution constraints
-
-- Out of scope: the echo-policy sentence in `slash-invocation.md`, which already correctly scopes the parse warning to the single-string-param bypass — do not edit it.
-
-## Relationships
-
-None
 
