@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 31 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 30 high, 62 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T099 "`loom/load/callee-has-errors` promises codes via `related`" resolved and removed — the `code-registry-load.md` row and the `invocation.md` Static resolution paragraph were walked back so neither promises the callee's diagnostic *codes* via `related`; both now state that `related` carries one entry per underlying error *site* (`{ file, range, message }` per `diagnostic-shape.md`), with the callee's own diagnostics emitted separately. No change to `diagnostic-shape.md` or the closed `related` element shape.)_
 
@@ -27,6 +27,8 @@ _(Updated 2026-06-06: T107 "Hot-reload recovery note over-promises `/reload` suc
 _(Updated 2026-06-06: T113 "`ActiveInvocationRegistry` entry shape omits the `disposeBarrier` resolver" resolved and removed — `active-invocation-registry.md` repointed five stale "below" cross-references to their owning pages and pinned the `disposeBarrier` resolver as closure-held with the five-field entry shape unchanged.)_
 
 _(Updated 2026-06-06: T110 "`CodeToolError` ≡ `QueryError{kind:"code_tool"}` equivalence and `loom-direct:` toolCallId UUID form are both under-specified" resolved and removed — `host-interfaces-core.md` §**Tool execution from loom code** now states the `CodeToolError` ≡ `QueryError{kind:"code_tool"}` equivalence inline at the `isError` lowering paragraph. The `loom-direct:` toolCallId form/uniqueness/minting-path obligation (Step 2) was deferred to the live T096↔T097 co-resolve cluster, which owns that toolCallId-bullet edit surface.)_
+
+_(Updated 2026-06-06: T098 "Three testability gaps in tool-calls / cancellation: pre-eval-throw `<name>` token, missing non-resolvable `.loom` arg-mismatch surface, and unspecified cancelled `message`" resolved and removed — cancellation.md's Surfacing block dropped the literal `message: "..."` for the sibling field-elision `...` form and noted `message` carries no byte-exact constraint; tool-calls.md's pre-evaluation setup-throw bullet pinned `<name>` as the post-`as`/post-hyphen-rewrite callable-set entry (deliberately not the slash-prefixed `/<name>` framing); and the non-statically-resolvable `.loom`-callable input-validation safety net was routed to `Err(InvokeInfraError { cause: "validation", ... })` in both the Argument shape and Failures paragraphs, with the dual-`match`-arm consequence stated. No schema change in queryerror-variants.md.)_
 
 ---
 
@@ -4509,75 +4511,3 @@ The added member is internal DI covered by GOV-18 arm (a)'s non-normative-signat
 ## Relationships
 
 - T096 "`loom-direct:` `toolCallId` shape, uniqueness, and minting source are unspecified" - co-resolve (the same `host-interfaces-core.md` "Tool execution from loom code" bullet edit naming the seam member also pins suffix shape, uniqueness, and canonical UUID form.)
-
----
-
-# T098 - Three testability gaps in tool-calls / cancellation: pre-eval-throw `<name>` token, missing non-resolvable `.loom` arg-mismatch surface, and unspecified cancelled `message`
-
-**Original heading:** Tool-calls/cancellation testability: pre-eval throw `<name>` token undefined; non-statically-resolvable `.loom` arg-mismatch variant unstated; cancelled `message` is `"..."`
-**Original section:** docs/spec_topics/ tool-calls, cancellation, hard-ceilings
-**Kind:** testability (shard-07)
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-
-## Finding
-
-`tool-calls.md` and `cancellation.md` carry three independent testability gaps that block byte-exact / variant-exact conformance fixtures:
-
-1. **`<name>` token in the pre-evaluation setup-throw template is unbound.** `tool-calls.md` Failures pins the `.loom`-callable adapter's pre-evaluation setup-throw translation as `{ isError: true, content: [{ type: "text", text: "loom <name> aborted with internal error: <error.message>" }] }`, but `<name>` is never defined for this site. The spec offers three plausible referents — the post-`as` callable-set identifier (the entry name the caller wrote, after rename and the default hyphen→underscore loom-basename rewrite), the bare `.loom` file basename, or the resolved path — and the surrounding user-facing framings in `errors-and-results/error-model.md` and `pi-integration-contract/runtime-event-channel.md` use `/<name>` (slash-prefixed slash-command name), which is yet a fourth form. A byte-exact fixture for parallel-tool-mode `.loom`-adapter setup-throw cannot be authored without pinning this.
-
-2. **Non-statically-resolvable `.loom`-callable input type-mismatch has no surfacing variant.** `tool-calls.md` Argument shape says "for a `.loom` callable, an argument that does not type-check against the callee's `params:` surfaces as `loom/parse/tool-arg-type-mismatch` when the callee is statically resolvable; otherwise the runtime AJV check is the safety net," but the Failures paragraph names no `QueryError` variant for that runtime safety-net case. Pi-tool input mismatches are explicitly routed to `Err(CodeToolError { cause: "validation", ... })`; `.loom`-callable input mismatches are not routed anywhere. The Failures paragraph's only `.loom`-callable arms are callee-returned `Err` (`InvokeCalleeError`), infra failures around the callee (`InvokeInfraError` with `cause` in `{load_failure, parse_failure, validation, return_validation, panic, internal_error, subagent_model_unresolved}`), and the `unknown_tool` safety net — none of which the prose ties to the non-resolvable arg-mismatch path. Two implementers will pick different variants.
-
-3. **Cancelled query `message` is the literal string `"..."`.** `cancellation.md`'s Surfacing block lists `Err(QueryError { kind: "cancelled", message: "..." })` for the in-flight-query arm, while the sibling tool-call and invoke arms on the same list use the bare `... ` field-elision convention (`{ kind: "code_tool", cause: "cancelled", ... }`). The query arm therefore reads as either (a) a literal three-dot string the runtime must emit, or (b) the same field-elision convention as the siblings with the surrounding quotes incidental — the two are indistinguishable in the source. The `CancelledError` schema in `errors-and-results/queryerror-variants.md` declares `message: string` without further constraint, and no oracle anywhere in the corpus pins the byte content. The same `"..."` form recurs for the swallowing-handler paragraph's `OOMError`-style `.message` reference, which compounds the ambiguity.
-
-## Spec Documents
-
-- `docs/spec_topics/tool-calls.md` — Failures, *Pre-evaluation setup throw* bullet (edited)
-- `docs/spec_topics/tool-calls.md` — Argument shape paragraph; Failures paragraph (edited)
-- `docs/spec_topics/cancellation.md` — Surfacing block (edited)
-- `docs/spec_topics/errors-and-results/queryerror-variants.md` — `CancelledError`, `CodeToolError`, `InvokeInfraError` schemas (read-only)
-- `docs/spec_topics/diagnostics/code-registry-parse.md` — `loom/parse/tool-arg-type-mismatch` row (read-only; cross-reference target)
-- `docs/spec_topics/invocation.md` — Argument binding paragraph (read-only; precedent for the parse-time-vs-runtime split)
-- `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — user-facing framing rows (read-only; precedent for the `/<name>` form)
-- `docs/spec_topics/errors-and-results/error-model.md` — Runtime panics user-facing framing (read-only; precedent for the `/<name>` form)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — `plan.md` has no leaves authored yet (Horizontal, MVP, and Vertical sections all marked _"(No leaves yet — author per the template.)"_), so no leaf is modified or blocked. The three obligations will surface in whichever future leaves close `CodeToolError` / `InvokeInfraError` surfacing, `.loom`-callable adapter wiring, and cancellation-surfacing fixtures; they do not exist today.
-
-## Consequence
-
-**Severity:** correctness
-
-Each of the three gaps independently lets two reasonable implementers produce divergent observable behaviour: differing user-facing setup-throw strings (e.g. `loom summarise aborted ...` vs `loom /summarise aborted ...` vs `loom ./summarise.loom aborted ...`), differing `QueryError` variants for the same non-resolvable `.loom` arg-mismatch input (an author who `match`es `CodeToolError { cause: "validation", ... }` will miss the failure on one implementation and catch it on the other), and differing cancelled-`message` bytes that defeat any byte-exact conformance fixture on the cancellation surface.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Three independent obligations across two pages, with no shared edit surface. Resolve them as three separate fixes in this order: the cancelled-message elision first (different page, lands without affecting the others' baseline), then the `<name>`-token clarification, then the arg-mismatch routing (largest, lands on the already-cleaned baseline so the diff and next-review critique surface stay minimal).
-
-### Spec edits
-
-1. **Replace the literal `"..."` in the cancelled-query Surfacing line with the field-elision form.** In `cancellation.md` Surfacing block, change `Err(QueryError { kind: "cancelled", message: "..." })` to `Err(QueryError { kind: "cancelled", ... })`, matching the sibling tool-call and invoke arms that use `...` for omitted fields. Do not pin the byte content of the message — `queryerror-variants.md` already declares `message: string` with no further constraint, and no other `QueryError` variant pins its `message`. If the intent is to signal that the runtime emits *something* in `message`, add one sentence below the bullet list: *"The `message` field is implementation-defined human-readable text; no byte-exact constraint applies."* Audit the same block's swallowing-handler paragraph for a parallel `"..."`-as-`.message` token and apply the same elision if it reads as a literal.
-
-2. **Pin `<name>` in the pre-evaluation setup-throw template.** In `tool-calls.md` Failures, *Pre-evaluation setup throw* bullet, define `<name>` as the post-`as` callable-set identifier (the entry name in the caller's `tools:` after rename and the default hyphen→underscore loom-basename rewrite — the form `tool-calls.md`'s opening sentence already names "an entry in the loom's *callable set*"). Inline the definition: render the template as `"loom <callable-set-name> aborted with internal error: <error.message>"` with a one-clause gloss *(`<callable-set-name>` is the caller's post-`as`, post-hyphen-rewrite entry in `tools:`)*, or keep `<name>` and add the same gloss in a parenthetical immediately after the template. Add a one-sentence justification at the bullet that this referent differs deliberately from the `/<name>` slash-command framings in `error-model.md` and `runtime-event-channel.md`: this adapter is invoked from a model's parallel-tool batch and has no slash context, so the next reviewer does not "fix" it back to `/<name>`.
-
-3. **Route non-resolvable `.loom` arg-mismatch through `Err(InvokeInfraError { cause: "validation", ... })`.** Treat the runtime safety-net surface for a `.loom`-callable input mismatch as semantically `invoke`-shaped, consistent with `tool-calls.md`'s Relationship-with-`invoke` paragraph ("a `.loom` callable call ... is, semantically, an `invoke`"); the existing `InvokeInfraError.cause: "validation"` member ("args/params failed input-schema validation (input side, like CodeToolError.cause 'validation')") exists for exactly this. In `tool-calls.md` Argument shape, after "otherwise the runtime AJV check is the safety net," append: *"and surfaces as `Err(InvokeInfraError { cause: \"validation\", ... })` per [Invocation — Failures](./invocation.md)."* In the Failures paragraph, add to the existing `.loom`-callable arm: *"input-side validation failure on a `.loom`-callable call (when the callee is not statically resolvable) surfaces as `InvokeInfraError { cause: \"validation\", ... }`, matching the `invoke(...)` arm on the same surface."* No schema change in `queryerror-variants.md`. The Failures paragraph should explicitly note the dual-match-arm consequence so it does not surprise authors.
-
-### Edge cases
-
-- For edit 2, do not silently propagate `<name>` as `/<name>` from the slash-command framings — the adapter site has no slash context; the justification is the model's parallel-tool batch entry point.
-- For edit 3, an author writing a single `match` arm to catch all `<name>(args)` input failures must now match both `CodeToolError { cause: "validation" }` (Pi-tool arm) and `InvokeInfraError { cause: "validation" }` (`.loom`-callable arm); state this explicitly. Keep the new sentence unambiguous about *input-side* validation and do not conflate the `return_validation` / `validation` distinction on `InvokeInfraError.cause`.
-- For edit 1, the swallowing-handler paragraph's `OOMError`-style `.message` reference uses `"..."` in the same suspect way — check whether it is the same placeholder convention and harmonise if so.
-
-## Relationships
-
-- T025 "Shard-07 hidden-host assumptions and stale residue" - same-cluster (hidden-assumptions concern on the same pages)
-
