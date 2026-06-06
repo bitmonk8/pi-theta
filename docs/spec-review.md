@@ -10,6 +10,8 @@ _(Updated 2026-06-06: T066 "README links to a non-existent docs/spec-sweeps.md" 
 
 _(Updated 2026-06-06: T113 "`ActiveInvocationRegistry` entry shape omits the `disposeBarrier` resolver" resolved and removed — `active-invocation-registry.md` repointed five stale "below" cross-references to their owning pages and pinned the `disposeBarrier` resolver as closure-held with the five-field entry shape unchanged.)_
 
+_(Updated 2026-06-06: T110 "`CodeToolError` ≡ `QueryError{kind:"code_tool"}` equivalence and `loom-direct:` toolCallId UUID form are both under-specified" resolved and removed — `host-interfaces-core.md` §**Tool execution from loom code** now states the `CodeToolError` ≡ `QueryError{kind:"code_tool"}` equivalence inline at the `isError` lowering paragraph. The `loom-direct:` toolCallId form/uniqueness/minting-path obligation (Step 2) was deferred to the live T096↔T097 co-resolve cluster, which owns that toolCallId-bullet edit surface.)_
+
 ---
 
 # T001 - `tag-transition predicate` and `diagnostic-emission predicate` are coined, multi-page terms missing from the glossary
@@ -5098,72 +5100,3 @@ Add a fifth bullet to the *Extension-bootstrap SDK failures* enumeration in `ext
 - T108 "Non-Error throws yield `undefined` (or a TypeError) when the runtime extracts `.message`" - co-resolve (the new bullet's `error: <error.message>` field needs the same `String(value)` coercion the sibling bullets adopt; both fixes should land in one editorial pass)
 - T035 "`pi.getFlag` is touched pre-bind but is absent from both the safe-before-bind list and the `notInitialized`-throwing list" - same-cluster (a sibling Pi-read whose failure mode is also unspecified at its call site; resolves independently in step 1 rather than step 3)
 - T067 "Pi behavioural presuppositions lack authoritative behavioural pointers" - same-cluster (cites the `getCommands-completeness` presupposition as one of its examples; concerns completeness of the snapshot, not the throw path)
-
-# T110 - `CodeToolError` ≡ `QueryError{kind:"code_tool"}` equivalence and `loom-direct:` toolCallId UUID form are both under-specified at `host-interfaces-core.md`
-
-**Original heading:** `CodeToolError` ≡ `QueryError{kind:"code_tool"}` equivalence not stated inline; `loom-direct:` UUID form unspecified
-**Original section:** docs/spec_topics/pi-integration-contract/ (host-prerequisites, host-interfaces-core, host-interfaces-services, extension-bootstrap-and-per-loom, registration-steps)
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-
-## Finding
-
-`host-interfaces-core.md` couples two independent under-specifications at the **Tool execution from loom code** boundary, both of which leave an implementer guessing.
-
-First, the lowering prose returns `Err(QueryError { kind: "code_tool", cause: "execution", message: <m>, tool_name, ... })` (the `isError: true` paragraph in §**Tool execution from loom code**), but the immediately-following *Outcome routing summary* rewrites every routing arm as `Err(CodeToolError { cause: ..., ... })` with no inline statement that these are the same value. The equivalence is resolvable only by following the cross-reference into `errors-and-results/queryerror-variants.md`, whose `schema CodeToolError { kind: "code_tool", ... }` block establishes that `CodeToolError` is the name of the `QueryError` variant whose `kind` discriminator is `"code_tool"`. A reader who treats the routing summary as authoritative may reasonably wonder whether two distinct error shapes are in play.
-
-Second, the same paragraph asserts ``toolCallId` is a synthesised UUID prefixed `loom-direct:`'' and never says anything else about the form. The canonical `8-4-4-4-12` lowercase-hex shape is pinned for `invocationId` values minted through PIC-20's `IdSource.newInvocationId()` (`host-interfaces-services.md:152`, with the §7 placeholder convention as the cited authority), but no equivalent pin attaches to the toolCallId: the suffix grammar, the prefix separator character (literal `:` vs something else), and the lowercase-vs-uppercase hex casing are all left implicit. The same gap also drops the uniqueness contract under the re-entrant concurrent `execute()` calls the tool-call seam permits.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` — §**Tool execution from loom code** (edited)
-- `docs/spec_topics/errors-and-results/queryerror-variants.md` — `### Code-side tool-call variant` (read-only; canonical declaration of `CodeToolError`)
-- `docs/spec_topics/pi-integration-contract/host-interfaces-services.md` — PIC-20 / `IdSource` (read-only; canonical UUID-form precedent)
-- `docs/spec_topics/tool-calls.md` — open-struct seam paragraph mentioning the `loom-direct:` toolCallId (edited)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves (implementation order):** N/A
-
-(The plan has no authored leaves yet; `plan.md` MVP / Vertical sections are placeholders.)
-
-## Consequence
-
-**Severity:** correctness
-
-Without an inline equivalence statement two implementers reading the *Outcome routing summary* in isolation may model `CodeToolError` as a distinct error type from `QueryError`, producing divergent destructuring and `match`-arm structures at every loom-side call site. Without a pinned `loom-direct:` form, conformance test fixtures asserting on toolCallId values become guesses, and concurrent re-entrant tool-call paths have no uniqueness contract to satisfy.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Resolve two independent obligations in order. First, the `CodeToolError` ≡ `QueryError{kind:"code_tool"}` equivalence clarification — a one-clause edit with no dependency on any other open finding. Second, the `loom-direct:` toolCallId UUID form, coordinated with the two superseding findings that own the toolCallId form (#672) and the minting-path collision with PIC-20 (#677).
-
-### Step 1 — State the `CodeToolError` equivalence inline
-At the first occurrence of the `Err(QueryError { kind: "code_tool", ... })` shape inside §**Tool execution from loom code** (the `isError: true` paragraph), add a parenthetical equivalence: *"(this value is also referred to as `CodeToolError`; the two names denote the same `QueryError` variant — see [Errors and Results — `CodeToolError`](../errors-and-results/queryerror-variants.md#code-side-tool-call-variant))"*. The *Outcome routing summary* then continues to use the `CodeToolError` short name unchanged. `queryerror-variants.md` remains the single canonical declaration.
-
-Spec edit: `host-interfaces-core.md`, §**Tool execution from loom code**, lowering paragraph — add the equivalence parenthetical at the first `QueryError { kind: "code_tool", ... }` mention.
-
-### Step 2 — Specify the `loom-direct:` toolCallId UUID form and minting path
-Pin the toolCallId form inline at the `host-interfaces-core.md` bullet ``toolCallId` is a synthesised UUID prefixed `loom-direct:`'' as: *"toolCallId is the literal string `loom-direct:` immediately followed by a UUID in the canonical lowercase 8-4-4-4-12 hex form defined under [§7 placeholder convention](../diagnostics/placeholder-rendering-b.md#7-identifier--descriptor--and-closed-enum-placeholders); the runtime MUST mint each toolCallId UUID through the `IdSource` seam (see PIC-20), and the toolCallId values MUST be unique across the lifetime of one runtime instance (including concurrent re-entrant `execute()` calls)."*
-
-Spec edits:
-- `host-interfaces-core.md`, §**Tool execution from loom code**, `toolCallId` bullet: replace with the pinned form above.
-- `host-interfaces-services.md`, PIC-20 `IdSource` interface: settle the minting path by either extending it with `newToolCallId()` or documenting the dual use of `newInvocationId()`.
-- `tool-calls.md`, open-struct-seam paragraph mentioning the `loom-direct:` toolCallId: cross-reference the pinned form rather than re-stating it.
-
-Coordinate Step 2 with #672 (defines the toolCallId form) and #677 (settles the minting-path collision with PIC-20). Order #677 ahead of this work, or batch them, since the chosen minting path may need revision once #677 is settled. Once #672 lands its pinned form, the `host-interfaces-core.md` bullet need only cross-reference it rather than restate it; once #677 lands the seam decision, the minting clause can cite the chosen `IdSource` member by name.
-
-### Edge cases
-- The equivalence clause adds a maintenance obligation: any future rename of either `CodeToolError` or `QueryError{kind:"code_tool"}` must update the clause.
-- The seam-extension (`newToolCallId()`) vs. reuse-`newInvocationId()` sub-choice is an open question that #677 must settle; implementing Step 2 before #677 risks a later revision of the minting path.
-
-## Relationships
-
-- T097 "`loom-direct:` toolCallId has no PIC-20-compliant minting path" - decision-overlap (the minting-path sub-choice — extend `IdSource` vs. reuse `newInvocationId()` — is owned by that finding)
-- T108 "Non-Error throws yield `undefined` (or a TypeError) when the runtime extracts `.message`" - same-cluster (touches the same `CodeToolError.message` field on the same page; resolves independently)
