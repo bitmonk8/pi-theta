@@ -16,6 +16,8 @@ _(Updated 2026-06-07: T078 "SLSH-5 `<parent_path>:<line>` is defined only for `i
 
 _(Updated 2026-06-07: T079 "SLSH-4 template cells and SLSH-5 worked examples disagree on whether inline backticks are emitted" resolved and removed — `slash-invocation.md` SLSH-4 prose now states that the inline backticks in the `System note shape` cells are Markdown code-span formatting and are not part of the emitted string (renderers emit the cell text with the surrounding backticks removed), matching the backtick-free SLSH-5 worked examples; the stripping is scoped to the template text so backticks arriving inside an interpolated placeholder pass through unchanged. No new REQ-ID; the SLSH-4 table rows and SLSH-5 examples were left as-is.)_
 
+_(Updated 2026-06-07: T076 "Language-core hidden assumptions: enum-tag sidecar, AJV-config silence, Markdown-by-providers claim" resolved and removed — three independent edits landed. (1) `descriptions.md`'s `///`-rule "Markdown" bullet was demoted: the normative claim about provider rendering became a `No transformation.` bullet pinning loom's byte-for-byte emission, with the provider-Markdown observation moved to a `*(Non-normative provenance.)*` tail. (2) `schema-subset.md`'s Draft bullet gained a clarifying sentence binding "validates" / "is accepted by the validator" prose to JSON Schema 2020-12 semantics (lowered schemas evaluated under that draft by loom and any conforming validator); phrased without a new RFC-2119 modal to avoid a GOV-22 progressive-coinage trigger on a page that carries no REQ-ID anchors (pre-backfill). (3) A per-position *Named-enum positions* sidecar was added to `schema-subset.md` Lowering Algorithm step 5 (now "Per-schema sidecar" with two maps) and consumed by `runtime-value-model.md`'s inbound Wire-name translation bullet, giving enum-tag reattachment a machine-readable input that distinguishes named-`enum` positions from anonymous string-literal unions. The originating finding's third proposed edit-half — reframing `type-system.md`'s `⊑` operational definition against the PIC-11 `SchemaValidator` seam — was deferred per the finding's own coordination clause: the corpus is uniformly AJV-phrased and the seam reframing must land with the corpus-wide AJV→seam rewrite, which is not queued in this dispatch. No new REQ-ID coined; no RFC-2119 modal was added, so GOV-22 progressive coinage does not trigger.)_
+
 _(Updated 2026-06-06: T085 "Mid-loom Pi-extension hot-reload: held closure invocation has no contracted outcome" resolved and removed — the last Resolution-snapshot consequence bullet in frontmatter-fields-b-and-templates.md was rewritten to replace the "out of loom 1.0 scope" dismissal with a positive contract: the held `execute` closure is dispatched like any other captured Pi-tool callable, and its failures route through the existing surfaces — catchable throws to `CodeToolError { cause: "execution" }`, non-conforming returns to `loom/runtime/internal-error` (both in tool-calls.md), and host-fatal errors to error-model.md's runtime-panics surface. No new diagnostic code, `loom-system-note` shape, or timeout was introduced; the `/reload` author-guidance sentence was retained.)_
 
 _(Updated 2026-06-06: T102 "`bind_context` project-wide-inheritance parenthetical references a settings carrier that does not exist" resolved and removed — the no-params-bypass parenthetical in binder-bypass-and-envelope.md was corrected to state that `bind_model` may inherit from the project-wide `looms.binderModel` setting while `bind_context` has no project-wide carrier and defaults to `none`. No new settings key, diagnostic, or validation row was added.)_
@@ -3374,76 +3376,3 @@ Coin a new lex-phase diagnostic code `loom/parse/stray-backslash` for a backslas
 
 - T072 "`RestOfLine` terminal in `DocComment` production is undefined" - same-cluster (another grammar.md → lexical.md forward-reference where the referent is not actually defined; resolves independently)
 - T009 "Integer-overflow arithmetic has no normative reference vector" - same-cluster (sibling testability gap on the same shard; independent fix)
-
----
-
-# T076 - Language-core hidden assumptions: enum-tag sidecar, AJV-config silence, Markdown-by-providers claim
-
-**Original heading:** Language-core hidden assumptions: enum-tag reattachment sidecar; AJV no-coercion config; bare-object carve-out resolution stage; "treated as Markdown by providers"
-**Original section:** docs/spec_topics/ language core (lexical, grammar, type-system, expressions, runtime-value-model, descriptions, schemas, schema-subset)
-**Kind:** assumptions
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-
-## Finding
-
-Three independent hidden assumptions sit in the language-core pages, each in a different file and each requiring a separately-scoped edit:
-
-1. **Enum-tag reattachment has no machine-readable input.** `runtime-value-model.md`'s Wire-name translation rule says the inbound pass walks the validated JSON and, "at every position the schema annotates as a named enum, reattaches the declaring-enum tag for that position so the resulting value compares equal to a locally constructed variant of the same enum." But the Lowering Algorithm in `schema-subset.md` step 3 emits the same byte-identical fragment — `{ "type": "string", "enum": [...wire values...] }` — for both a named `enum` declaration and an anonymous string-literal union (`"a" | "b" | "c"`). Step 5 captures a wire-name translation sidecar but says nothing about named-enum positions. The runtime therefore has no way to tell, at an inbound validation site, which `enum`-typed positions need a tag reattached and which (anonymous unions) must remain bare strings. Equality semantics (`Severity.High == OtherEnum.High` is `false`; anonymous union arms compare as strings) depend on this distinction.
-
-2. **`⊑` operational definition silently relies on AJV configuration.** `type-system.md` defines `T₁ ⊑ T₂` as "every value statically typed as `T₁` AJV-validates against the lowering of `T₂`." The reading is only well-defined under a specific AJV configuration — no `coerceTypes`, no `useDefaults`, validation against the Draft 2020-12 vocabulary — none of which is stated at this site. `implementation-notes.md` mentions the flags but is non-normative and labelled "Implementation hint"; `pi-integration-contract/host-interfaces-services.md` PIC-11 carries the no-conversion / no-defaults clauses on the `SchemaValidator` seam, but `⊑`'s definition is bound to the literal AJV reading rather than to that seam contract, so the dependency is invisible at the site that needs it.
-
-3. **`descriptions.md` asserts external-provider behaviour as fact.** "Description text is treated as Markdown by providers; no transformation is performed." This is a normative-tone claim about how OpenAI, Anthropic, and other downstream consumers render schema description text. Loom controls only the bytes it ships; how a provider then renders them is outside the spec's authority. The sentence sits in a normative rule list alongside Placement, Multi-line, and Static-text rules that *are* loom's to fix.
-
-(The original finding additionally raised a fourth concern — that the bare-object/`is-literal` carve-out assumes the callee kind is resolvable at parse time. That carve-out is decidable from the `tools:` entry's syntactic shape (bare Pi-tool name vs `./*.loom` path), which is in frontmatter and therefore parsed before any body's `is-literal` check runs; the concern does not stand and is dropped here.)
-
-## Spec Documents
-
-- `docs/spec_topics/schema-subset.md` — Lowering Algorithm (steps 3 and 5), Canonical schema hash (step 5, Synthesised names) (edited)
-- `docs/spec_topics/runtime-value-model.md` — Wire-name translation paragraph (edited)
-- `docs/spec_topics/type-system.md` — Operational definition of `T₁ ⊑ T₂` (edited)
-- `docs/spec_topics/pi-integration-contract/host-interfaces-services.md` — PIC-11 `SchemaValidator` contract (read-only — cited from the revised `⊑` definition)
-- `docs/spec_topics/descriptions.md` — "Markdown" bullet in the `///` description rule list (edited)
-- `docs/spec_topics/implementation-notes.md` — Implementation hint paragraph naming the AJV flags (read-only — basis for what to move into the normative seam contract)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves (implementation order):** N/A
-
-(`docs/plan.md` declares horizontal / MVP / vertical sections all as "_(No leaves yet — author per the template.)_"; there are no leaves to anchor against.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers would diverge on enum-tag handling: one would store an out-of-band per-position named-enum map alongside the lowered schema; another would tag every `enum`-positioned validated string the same way and break anonymous-union equality. The `⊑` AJV-config gap is milder (the reference implementation happens to set the right flags) but leaves a conforming alternate-validator implementation free to enable coercion and silently widen the relation. The Markdown claim is advisory in isolation but normalises out-of-scope provider claims in a normative position.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Land three independent obligations in separate files, in the order below: the single-bullet de-scoping edit first, the operational-definition reframing second (coordinated with the corpus-wide AJV-naming work), and the structural sidecar edit last because it is the only one introducing new spec mechanism and touches two pages in lockstep.
-
-### Spec edits (in landing order)
-
-1. **Demote the Markdown-by-providers claim to a non-normative note — `descriptions.md`.** In the `///` rule list, change the bullet "**Markdown.** Description text is treated as Markdown by providers; no transformation is performed." to "**No transformation.** Loom emits description text byte-for-byte into the lowered schema; no escaping, dedenting, or wrapping is performed beyond the multi-line join and common-leading-whitespace strip defined above." Append: "*(Non-normative.)* OpenAI and Anthropic schema consumers at loom 1.0 authoring time render description text as Markdown; authors writing Markdown can rely on that empirically, but the rendering is the provider's contract, not loom's." This matches the spec's existing non-normative-provenance pattern (e.g. `schema-subset.md`).
-
-2. **State the `⊑` operational definition against the `SchemaValidator` seam contract.** In `type-system.md` **Operational definition**, replace "every value statically typed as `T₁` AJV-validates against the lowering of `T₂`" with "every value statically typed as `T₁` is accepted by the `SchemaValidator` seam ([PIC-11](./pi-integration-contract/host-interfaces-services.md#schemavalidator-interface)) against the lowering of `T₂`. The seam's no-conversion clause is load-bearing here: any validator that performs type coercion before checking would widen the relation." In `schema-subset.md`, in the Subset preamble where Draft 2020-12 is listed, add: "All occurrences of 'validates' / 'is accepted by the validator' in normative prose are against JSON Schema 2020-12 semantics; conforming validators MUST evaluate lowered schemas under that draft." This must land coherently with the corpus-wide AJV→seam rewrite; if that rewrite is queued separately, ship only the `schema-subset.md` Draft-2020-12 anchor sentence now (it is independently useful) and defer the `type-system.md` half.
-
-3. **Add a per-position named-enum sidecar to the Lowering Algorithm.** In `schema-subset.md` Lowering Algorithm step 5, change "**Wire-name translation** is captured in a sidecar map per schema (`{ loom: "first_name", wire: "FirstName" }`)" to "**Per-schema sidecar.** The lowering pass captures, alongside each `$defs` entry, a sidecar with two maps: (1) *Wire-name translation* — `{ loom: "first_name", wire: "FirstName" }` per renamed field, used by both the validation pass (post-decode) and the construction pass (pre-encode); the lowered JSON Schema only ever sees wire names. (2) *Named-enum positions* — a map keyed by JSON Pointer into the lowered schema fragment, valued by the *loom-side* name of the declaring `enum`. A position is included iff its source type was a named `enum` declaration; anonymous string-literal-union positions (`"a" | "b"`) are deliberately absent. The inbound translation pass in [Runtime Value Model — Wire-name translation](./runtime-value-model.md) reads this map to decide which validated string positions get the declaring-enum tag reattached." In `runtime-value-model.md`, replace the Wire-name translation inbound bullet "at every position the schema annotates as a named enum, reattaches the declaring-enum tag for that position" with "at every position the lowering pass's *Named-enum positions* sidecar ([Schema Subset — Lowering Algorithm](./schema-subset.md#lowering-algorithm) step 5) maps to a declaring-enum name, reattaches that enum's tag to the validated string. Anonymous string-literal-union positions are absent from the sidecar and receive no tag — equality follows the string-primitive rule."
-
-### Edge cases
-
-- The reframed `⊑` definition requires a one-hop cross-reference (`type-system.md` → PIC-11); landing it while other pages (`invocation.md`, `binder-bypass-and-envelope.md`, etc.) still say "AJV check" produces inconsistent vocabulary mid-corpus — coordinate with the corpus-wide rewrite.
-- Sidecar JSON Pointers are against each `$defs/<Name>` body, **not** the per-query document built lazily in step 4. The per-query construction copies pointers along with their referenced fragments; restating pointers as document-rooted would break the dedup property in step 2.
-- Discriminator-detection (step 6) operates on the lowered `anyOf` form and must not mutate the sidecar — discriminator fields are `const`-typed strings, not `enum` positions, and stay absent from the *Named-enum positions* map.
-- Loom-side `JSON.stringify` of an enum value yielding the bare wire string is unchanged: the sidecar drives inbound tag reattachment only; outbound construction already strips the tag via the existing non-enumerable-property scheme.
-- The sidecar is outside the canonical-hash input (defined as the lowered JSON Schema fragment), so the lowered bytes stay byte-identical and the hash is unaffected.
-
-## Relationships
-
-None
