@@ -32,28 +32,4 @@ Rewrite the README `## Status` wording so it distinguishes plan infrastructure b
 ## Relationships
 
 - T02 "commitAddPaths omits root files the plan conventions mandate updating" — same-cluster (both are README/project-config alignment defects).
-# T02 - commitAddPaths omits root files the plan conventions mandate updating
-
-**Kind:** doc-alignment
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`conventions.md` mandates updating root-level `README.md`/`CHANGELOG.md`/`notes.md` per leaf, but `.pi/project-config.md` `commitAddPaths` covers only `docs/`, so those files are not auto-staged.
-
-## Solution approach
-
-Reconcile the two: either extend `commitAddPaths` in `.pi/project-config.md` to cover the root files, or amend `conventions.md` to state they are staged manually.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T01 "README advertises an authored implementation plan that does not exist" — same-cluster.
 
