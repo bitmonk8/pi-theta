@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 15 high, 50 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 15 high, 49 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-07: T064 "Ceiling #1 and ceiling #2 positive enforcement obligations carry no REQ-IDs" resolved and removed — GOV-1 dual-form REQ-ID anchors were coined at the three unanchored enforcement sites: `INV-4` on the `**Invocation depth bound.**` paragraph in `invocation.md` (covering ceiling #1 bound + surface), `FRNT-1` on the `tool_loop` field bullet in `frontmatter/frontmatter-fields-b-and-templates.md` (ceiling #2 bound), and `ERR-19` on the `ToolLoopExhaustedError` prose line in `errors-and-results/queryerror-variants.md` (ceiling #2 surface). The ceiling #1 / #2 aggregator entries in `spec/overview-and-orientation.md` were repointed from page-level / heading-slug auto-id links to the new `#inv-4` / `#frnt-1` / `#err-19` anchors, and the first-enforcement-point listing in `hard-ceilings.md` was repointed to `#inv-4` / `#err-19`. The ceiling-set-invariants citation in `hard-ceilings/ceilings-3-and-4.md` was left unchanged — it names the ceilings by routing-class description, not by obligation anchor, and carries no GOV-25-prohibited auto-id, so it is out of the Problem's scope. New IDs allocated under already-registered prefixes per GOV-3 (`INV-4`, `FRNT-1`, `ERR-19`); no new prefix coined.)_
 
@@ -2213,33 +2213,3 @@ The recipe must additionally state:
 ## Relationships
 
 - T057 "Item (e) fail predicate: operator-precedence ambiguity, single-sentence packing, and sub-outcomes buried mid-prose" - same-cluster (both touch item (e); independent resolutions)
-
----
-
-# T053 - Item (e.ii) call-graph reachability audit names no analysis technique and leaves "per-mode entry point" undefined
-
-**Kind:** implementability, assumptions
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-Item (e.ii) at `#bump-checklist-slash-dispatch-serialisation-ii` in `version-bump-step2.md` directs the auditor to enumerate every `session.prompt(...)` call site reachable from the "per-mode entry point" under the `dist/modes/*/*.js` glob, but states the procedure only as a prohibition (do not rely on literal substring grep). It never defines what a `dist/modes/<mode>/*.js` file's per-mode entry point is, and never names an acceptable positive reachability-analysis technique. Because candidate-minor bundles may be minified or re-bundled, two auditors can pick different starting symbols and traversal disciplines and so arrive at different reachable call-site sets. That flips the (e.ii) `pass`/`fail` verdict, which determines whether the defensive per-extension-instance recovery mutex must ship in the same edit as the bump.
-
-## Solution approach
-
-Clarify item (e.ii) at `#bump-checklist-slash-dispatch-serialisation-ii` in `version-bump-step2.md` to define the per-mode entry point of a `dist/modes/<mode>/*.js` file — the mode-runner symbol Pi invokes to start the mode, together with the module-top-level statements evaluated on import, so that a setup-time callback registration such as `Editor.onSubmit` is in scope. Add a positive reachability technique rooted at that entry point and state how the recorded trace survives bundler renaming, replacing the current prohibition-only framing.
-
-## Solution constraints
-
-- Out of scope: recovery-mutex acquisition and teardown semantics, owned by T118.
-
-## Relationships
-
-- T118 "Recovery-mutex acquisition semantics and teardown-budget interaction undefined" - same-cluster (independent gap in the same item (e), no shared edit)
-- T057 "Item (e) fail predicate: operator-precedence ambiguity, single-sentence packing, and sub-outcomes buried mid-prose" - co-resolve (promoting (e.ii) to a surface-level checklist entry is a natural site for the per-mode-entry/analysis-technique pin)
-
