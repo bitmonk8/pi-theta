@@ -10,6 +10,8 @@ _(Updated 2026-06-07: T064 "Ceiling #1 and ceiling #2 positive enforcement oblig
 
 _(Updated 2026-06-07: T052 "Item (e)/(r) `dist/*.js` baseline source unspecified — diff is unperformable after the candidate install" resolved and removed — a *Baseline acquisition* paragraph (anchor `#bump-baseline-acquisition`) was inserted into item (e) of `pi-integration-contract/version-bump-step2.md`, specifying that the contributor materialises the loom 1.0 Pi-SDK pin's `dist/*.js` tree via `npm pack @earendil-works/pi-coding-agent@<pinned-version>` into an ephemeral scratch directory (the canonical "from" side), with the post-step-1 `node_modules` candidate tree as the "to" side, and the ordering constraint that acquisition run before step 1's candidate install (or carry the explicit `@<pinned-version>` specifier if ordered after). Items (e) and (r) now cite the paragraph by anchor instead of restating the baseline source. No REQ-ID coined — the step-2 audit checklist carries no per-item REQ-IDs.)_
 
+_(Updated 2026-06-07: T049 "`diagnostic-emission-isolation.md` opening scope omits the per-invocation surfaces the paragraph actually governs" resolved and removed — the opening sentence of the diagnostic-emission-isolation paragraph in `pi-integration-contract/diagnostic-emission-isolation.md` was rewritten to declare the three teardown-time `console.error` site classes the body actually governs: (a) the five `session_shutdown` teardown-handler codes, (b) the per-invocation `loom/runtime/cancelled-by-session-shutdown` emission from the per-invocation `finally`, and (c) the terminal `console.error` of the per-invocation `sendSystemNote` fallback chain; a closing sentence notes the subsequent clauses apply to all three classes except where a clause explicitly narrows (*Construction-site wrap* → two nested-shape codes; *Pi-side stdio visibility*'s `sendSystemNote` sentence → single site). Body, anchors (`#diagnostic-emission-isolation`, `#pic-emission-swallow`, `#pic-emission-visibility`), and the single MUST budget left unchanged. No REQ-ID coined — this is a non-narrative-prose opening-sentence scope correction, not a new defining obligation site.)_
+
 _(Updated 2026-06-07: T065 "`HC3-a` / `HC3-c` cross-links target the orientation aggregator anchor instead of the inline-label anchor site, violating GOV-16 *Cross-link form*" resolved and removed — dual-form HTML anchors `<a id="hc3-a"></a>`…`<a id="hc3-e"></a>` were added to the `**HC3-a.**`–`**HC3-e.**` bullets in `hard-ceilings/ceilings-3-and-4.md` per GOV-16's *GOV-1 dual-form layout applies* clause, and the three `HC3-a` / `HC3-b` / `HC3-c` cross-links in `binder/determinism-cancellation-failure.md` were repointed from `overview-and-orientation.md#hard-ceiling-3` to `ceilings-3-and-4.md#hc3-a` / `#hc3-b` / `#hc3-c`. The `<a id="hard-ceiling-3"></a>` aggregator anchor on `overview-and-orientation.md` was left unchanged per the out-of-scope constraint. No REQ-ID or inline-label prefix coined.)_
 
 _(Updated 2026-06-06: T099 "`loom/load/callee-has-errors` promises codes via `related`" resolved and removed — the `code-registry-load.md` row and the `invocation.md` Static resolution paragraph were walked back so neither promises the callee's diagnostic *codes* via `related`; both now state that `related` carries one entry per underlying error *site* (`{ file, range, message }` per `diagnostic-shape.md`), with the callee's own diagnostics emitted separately. No change to `diagnostic-shape.md` or the closed `related` element shape.)_
@@ -2000,69 +2002,3 @@ Resolve two independent obligations, the first before the second so the small cr
 - T101 "Renderer-throw during Pi's render invocation has no defined failure mode" - same-cluster (a third gap in the same "best-effort fallback covers …" scope sentence; resolve consistently)
 - T049 "`diagnostic-emission-isolation.md` opening scope omits the per-invocation surfaces the paragraph actually governs" - same-cluster (same `sendSystemNote` fallback chain, scope side)
 
----
-
-# T049 - `diagnostic-emission-isolation.md` opening scope omits the per-invocation surfaces the paragraph actually governs
-
-**Original heading:** diagnostic-emission-isolation.md stated scope (five teardown codes) silently extended to the sendSystemNote fallback and `cancelled-by-session-shutdown` count
-**Original section:** docs/spec_topics/pi-integration-contract/ (audit-resolution, conversation-drive, runtime-event-channel, session-shutdown-semantics, session-only-degraded-state, drain-state-contract)
-**Kind:** scope
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-
-## Finding
-
-The single paragraph that constitutes `diagnostic-emission-isolation.md` opens with a scope statement bounding its rules to "Each `console.error` call inside the `session_shutdown` handler — the five teardown-handler emissions enumerated in the bullet immediately above", and then enumerates those five codes by name (`loom/runtime/reload-teardown-timeout`, `loom/host/session-shutdown-reason-unknown`, `loom/host/session-shutdown-pinned-constant-unreadable`, `loom/host/session-shutdown-teardown-step-failed`, `loom/host/session-shutdown-runtime-degraded`).
-
-Subsequent normative clauses in the same paragraph silently widen that scope along two independent axes:
-
-1. **A sixth diagnostic code emitted from a different site.** The *Two-token fallback for nested-shape codes*, *Hoist obligation*, *Construction-site wrap*, *Construction-site catch-arm self-wrap*, and *Count semantics — invocation-site framing* clauses all bind `loom/runtime/cancelled-by-session-shutdown` — a per-invocation diagnostic emitted from the per-invocation `finally`, **not** from the `session_shutdown` handler the opening sentence names. The per-invocation note inherits the wire-format pin, the two-token / three-token catch-arm forms, the construction-site wrap, and the at-most-once count bound from rules whose stated scope excludes it.
-2. **An additional emission site for the same envelope.** The *Wire format* clause's "The same wire-format pin applies to the terminal `console.error` of the `sendSystemNote` fallback chain", the *Count semantics* clause's parenthetical "(and the terminal `console.error` of the per-invocation `sendSystemNote` fallback chain referenced at the end of this paragraph)", and the *Pi-side stdio visibility* clause's closing "The same isolation MUST be applied to the terminal `console.error` of the `sendSystemNote` fallback chain when that chain is reached from the per-invocation `finally`…" extend the wrap-and-swallow obligation to a sink that lives outside the `session_shutdown` handler and is not one of the five enumerated codes.
-
-A reader scanning the opening sentence to decide whether this page governs a given emission site will conclude (incorrectly) that the per-invocation `finally`'s `cancelled-by-session-shutdown` emission and the per-invocation `sendSystemNote` terminal `console.error` are out of scope — yet the paragraph's mid-body and tail bind both. The stated and actual scope diverge.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/diagnostic-emission-isolation.md` — opening sentence + five-code enumeration (edited)
-- `docs/spec_topics/pi-integration-contract/active-invocation-registry.md` — Per-invocation operator visibility (clean-cancel path) bullet, `sendSystemNote` fallback chain definition, per-invocation `finally` (read-only; sources the extended-scope sites)
-- `docs/spec_topics/diagnostics.md` — row definitions for the five teardown codes plus `loom/runtime/cancelled-by-session-shutdown` (read-only; confirms `cancelled-by-session-shutdown` is the sixth code)
-- `docs/spec_topics/diagnostics/diagnostic-shape.md` — `session-shutdown-details-conventions` anchor cited by the in-scope nested-shape rules (read-only)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(The plan currently has no leaves; coverage-matrix is empty. No leaf is modified or blocked.)
-
-## Consequence
-
-**Severity:** advisory
-
-A careful implementer who reads the whole paragraph will pick up the extended-scope rules and produce a correct emission envelope at both the per-invocation `finally` and the `sendSystemNote` terminal sink. The scope mismatch's risk is navigational: a reader who consults `diagnostic-emission-isolation.md` to answer "what wrap must guard the `cancelled-by-session-shutdown` clean-cancel emission?" or "does the `sendSystemNote` terminal `console.error` need the same try/catch?" can reasonably conclude the page does not govern those sites and fail to apply the wrap, the count framing, or the two/three-token catch-arm forms there. The downstream effect is then concrete (per-invocation note loses its dedup discriminator on serialiser throw, or the `sendSystemNote` terminal throws out of the per-invocation `finally`).
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Rewrite the opening sentence of the diagnostic-emission-isolation paragraph so its declared scope matches the surfaces the body actually governs; leave the body unchanged.
-
-### Spec edits
-
-- Replace the opening clause "Each `console.error` call inside the `session_shutdown` handler — the five teardown-handler emissions enumerated in the bullet immediately above (…)" with one that enumerates the five `session_shutdown` teardown codes **and** explicitly adds the per-invocation `loom/runtime/cancelled-by-session-shutdown` emission from the per-invocation `finally` **and** the terminal `console.error` of the per-invocation `sendSystemNote` fallback chain. Cite the per-invocation `finally` and `active-invocation-registry.md`'s *Per-invocation operator visibility (clean-cancel path)* bullet as the source sites for the two added surfaces.
-- After the enumeration, add one sentence noting that the subsequent clauses apply uniformly to all in-scope sites except where a clause explicitly narrows — e.g. *Construction-site wrap* limits itself to the two nested-shape codes; *Pi-side stdio visibility*'s `sendSystemNote` clause limits itself to one site.
-
-This corrects reader expectation against the body, preserves the single-paragraph structure that other PIC pages cross-reference, and avoids the anchor-breakage and rule-duplication a paragraph split would incur. The paragraph's rules are already organised around a small number of behavioural axes (wire format, serialiser-throw fallback, construction-site fallback, count framing, stdio-visibility caveat); only the opening sentence needs to carry the full scope list.
-
-### Edge cases
-
-- The *Construction-site wrap* and *Construction-site catch-arm self-wrap* clauses already narrow themselves to the two nested-shape codes — the new opening sentence must not contradict that narrowing.
-- The *Pi-side stdio visibility* clause's `sendSystemNote` sentence narrows to one site (the per-invocation `finally` route into the fallback chain) — the new opening must leave room for that narrowing rather than asserting blanket coverage of every `sendSystemNote` invocation.
-- Anchors and cross-references from `active-invocation-registry.md` and `diagnostic-shape.md` target this paragraph by section; the opening-sentence rewrite must not move or rename them, so those links continue to resolve.
-
-## Relationships
-
-None
