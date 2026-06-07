@@ -36,6 +36,7 @@ _(Updated 2026-06-06: T102 "`bind_context` project-wide-inheritance parenthetica
 
 _(Updated 2026-06-07: T075 "Bare-source backslash: no diagnostic code is named" resolved and removed — a new lex-phase diagnostic `loom/parse/stray-backslash` was registered in diagnostics/code-registry-parse.md for a backslash byte at a source position outside any string literal, path literal, or `@`...`` query-template body; lexical.md's Source-files list gained a **Stray backslash** bullet (carrying the stable `#stray-backslash` anchor) stating the rule and noting loom has no line-continuation marker; grammar.md's Newline-continuation note now names `loom/parse/stray-backslash` and links to that anchor instead of the bare "a parse error" phrasing. `illegal-escape` semantics unchanged. No new REQ-ID coined: code-registry rows and lexical.md carry no co-located REQ-ID anchors (pre-backfill) and the `loom/parse/*` code is itself the stable identifier per DIAG-3; the added row satisfies DIAG-2's same-time landing obligation.)_
 
+_(Updated 2026-06-07: T062 "Patch-skew teardown fixtures and `literals-shape-invalid` sub-cases lack per-observable / per-sub-case fixture enumeration" resolved and removed — two fixture-enumeration obligations landed. (1) `unknown-reason-rule.md`'s four-sub-case `literals-shape-invalid` enumeration now requires a conformance suite to cover each of sub-cases (1)–(4) with its own fixture (synthetic snapshot exhibiting exactly that defect, asserting exactly one `loom/host/session-shutdown-pinned-constant-unreadable` with `details.failure === "literals-shape-invalid"` and no `loom/host/session-shutdown-reason-unknown`), reusing the (P-b)/(P-c-1) static-import-preserving substitution mechanic. (2) `patch-skew-degradation.md`'s (P-a)/(P-b-1)/(P-c-1) fixtures now pin that "the full five-sub-step teardown still runs" requires asserting each of the eight `details.call` call sites in the **Per-step isolation** closed set ran (via injected `LoomRegistry`/`chokidar`-watcher/`Clock`/signal-listener spies), plus sub-step 2's per-entry `ActiveInvocationRegistry` iteration and sub-step 3's bounded `Promise.allSettled` await (which carry no `details.call` label), with (P-c-1) using a fresh `LoomRegistry` per case. The optional elevation of the four sub-cases to a fifth *Fixture-obligation categories* category, and the optional per-clause lift of the cross-reference, were not taken (optional-action discipline). No new diagnostic code or REQ-ID coined — both pages are pre-REQ-ID-backfill (zero co-located REQ-ID anchors), so GOV-22 progressive coinage defers to those pages' one-shot backfill pass per the transitional rule; the **Per-step isolation** closed `details.call` set and (P-b-1)'s existing no-`reason-unknown` assertion were left unchanged.)_
 _(Updated 2026-06-07: T082 "`params:` type-side: grammar reference and named-type resolution rule absent from the owning page" resolved and removed — the `params` prose bullet in frontmatter-fields-a.md gained a **Type side** sub-bullet reciprocating the type-grammar pointers to type-system.md and grammar.md#type-grammar, stating that a `params:` `NamedType` resolves whole-file against body-level `schema`/`enum` declarations and imported `.warp` symbols (so a frontmatter-to-body forward reference resolves), and naming the unresolved-name failure; the new parse-time diagnostic `loom/parse/unresolved-named-type` was registered in diagnostics/code-registry-parse.md. type-system.md and grammar.md were left unedited per the finding's out-of-scope constraint.)_
 
 _(Updated 2026-06-06: T100 "`Diagnostic` envelope contract is unsatisfiable for location-less codes" resolved and removed — `file` and `range` were marked optional on the internal `Diagnostic` shape, a **Location-less diagnostics** paragraph enumerated the closed set of eight location-less codes and pinned the omitted-fields wire form, and the **Serialised content format** rule gained a carve-out dropping the `<file>:<line>:<col>:` prefix for those codes. No change to the `related?` element shape or to the DIAG-4 *Message* rows.)_
@@ -2752,66 +2753,3 @@ Resolve the six independent clarity/scope gaps as six separate single-paragraph 
 ## Relationships
 
 - T054 "`peerDependencies` literal-read test assertion shape and `CAPABILITY_OBLIGATIONS` member-anchor list are unstated at the sites that introduce them" - same-cluster (touches the same step-4 paragraph as this finding's "as required" edit; this finding's edit and that finding's edit can be co-resolved if convenient, but they fix different ambiguities and need not be bundled)
-
----
-
-# T062 - Patch-skew teardown fixtures and `literals-shape-invalid` sub-cases lack per-observable / per-sub-case fixture enumeration
-
-**Original heading:** patch-skew teardown fixture obligations and unknown-reason sub-cases lack per-sub-step / per-sub-case observable enumeration
-**Original section:** docs/spec_topics/pi-integration-contract/ (diagnostic-emission, patch-skew, provider-error, unknown-reason, subagent, version-bump-intro/triggers/step2/step2b)
-**Kind:** testability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-
-## Finding
-
-The patch-skew contract in `patch-skew-degradation.md` pins three fixture categories — (P-a) unknown-reason runtime, (P-b) snapshot-only widening, (P-c) narrowing no-regression — and each of (P-a), (P-b-1), and (P-c-1) is required to prove that "the full five-sub-step teardown still runs." That phrase is the entire sufficiency boundary the spec gives the implementer: two reasonable implementations can satisfy it by asserting one observable each (e.g., that `LoomRegistry.drain()` was called) and silently differ on whether sub-step 2's per-entry `loomAbort.abort()` loop, sub-step 3's bounded `Promise.allSettled` await, sub-step 4's three watcher/timer calls, or sub-step 5's three listener-detach calls actually ran. The **Per-step isolation** paragraph in the same file already pins a closed normative set of `(code, details.step, details.call)` labels — `"loomRegistry.drain"`, `"loomRegistry.initDrainStateTag"`, `"discoveryWatcher.close"`, `"settingsWatcher.close"`, `"Clock.clearTimeout(debounce)"`, `"ctx.signal.removeEventListener"`, `"toolSignal.removeEventListener"`, `"parentInvokeSignal.removeEventListener"` — that already constitute a wire-contract enumeration of per-sub-step call sites, but the (P-a)/(P-b-1)/(P-c-1) prose does not cross-reference it as the minimum observable set each fixture must demonstrate ran.
-
-The `literals-shape-invalid` discriminator in `unknown-reason-rule.md` collapses four structurally distinct snapshot-shape failures into a single discriminator string: (1) `literals` is not an array; (2) `literals` is an array but at least one element is not a string; (3) `literals` is the empty array; (4) `literals` is an array of strings but at least one element is `""`. The rule fully specifies the discriminator and the routing-table contract — but does not pin that a conformance test suite must exercise each of the four sub-cases. An implementation whose handler short-circuits on the first sub-case it happens to detect (e.g., `Array.isArray(literals) && literals.length > 0 && literals.every(s => typeof s === "string")` would never reach a per-element empty-string check) can pass a single-fixture suite while leaving sub-case (4) routed somewhere outside the closed `details.failure` discriminator set, violating the conformance claim the rule's closed template-literal union makes.
-
-Both gaps are the same shape: a closed enumeration is pinned in normative prose, but the fixture obligation does not require coverage of every member, so the conformance suite cannot witness the closure.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/patch-skew-degradation.md` — (P-a), (P-b-1), (P-c-1) fixture clauses, and the *Fixture-obligation categories* paragraph (edited)
-- `docs/spec_topics/pi-integration-contract/patch-skew-degradation.md` — **Per-step isolation** paragraph and its closed `details.call` label set (read-only — the source of truth that the new enumeration cross-references)
-- `docs/spec_topics/pi-integration-contract/unknown-reason-rule.md` — *Lookup-failure-to-discriminator routing* and `literals-shape-invalid` four-sub-case enumeration (edited)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves (implementation order):** N/A
-
-(No leaves have been authored under `plan.md` or `plan_topics/` yet; the plan is currently a scaffold with no entries.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two conformant implementations can produce divergent test suites that nominally satisfy the patch-skew fixture obligations while exercising different subsets of the teardown sub-steps and different subsets of the `literals-shape-invalid` sub-cases. A sub-step or sub-case that no fixture exercises is one that the contract pins but cannot witness, so a regression that silently breaks (for example) sub-step 5's listener detachment or sub-case (4)'s empty-string detection ships green on a fully-passing suite.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Resolve two independent fixture-enumeration obligations in two files, in the order below. The unknown-reason discriminator edit is the smaller, file-local one and lands first so the patch-skew edit's larger cross-reference into the **Per-step isolation** label set lands on a baseline where the discriminator-fixture pattern is already settled.
-
-### Spec edits (in landing order)
-
-1. **`literals-shape-invalid` per-sub-case fixture obligation — `unknown-reason-rule.md`.** Append a fixture obligation to the *Lookup-failure-to-discriminator routing* paragraph (or to the four-sub-case enumeration immediately below it) requiring one fixture per sub-case (1)–(4). Each fixture constructs a synthetic snapshot whose `literals` field exhibits exactly that sub-case's structural defect, dispatches a `session_shutdown` event, and asserts the handler emits exactly one `loom/host/session-shutdown-pinned-constant-unreadable` with `details.failure === "literals-shape-invalid"` and that no `loom/host/session-shutdown-reason-unknown` fires. Reuse the same test-only static-import-preserving substitution mechanic that (P-b)/(P-c-1) already establish so the four new fixtures cite an existing mechanism. Optionally cross-reference the new obligation from the *Fixture-obligation categories* paragraph in `patch-skew-degradation.md` so the headline "four categories" count stays in sync if the editor elevates these to a fifth category.
-
-2. **Per-sub-step observable enumeration for (P-a)/(P-b-1)/(P-c-1) — `patch-skew-degradation.md`.** Extend each of the three fixture clauses to require the fixture assert one observable per sub-step, cross-referencing the closed `details.call` label set the **Per-step isolation** paragraph already pins: "the fixture MUST assert that each of the eight call sites enumerated in the **Per-step isolation** closed-set paragraph below was invoked on this teardown (or, for sub-steps 2 and 3, that the per-entry registry iteration and the bounded `Promise.allSettled` await each ran), via spies on the injected `LoomRegistry`, `chokidar`-watcher, `Clock`, and signal-listener seams." Route sub-steps 1, 4, and 5 through the closed `details.call` label-set cross-reference (the cheapest witness, since the labels are already wire contract). Add one sentence to (P-c-1) clarifying that sub-step 3's `Promise.allSettled` await is also an observable obligation: sub-step 3 has no `details.call` label and needs an injected `disposeBarrier` spy or `Clock.setTimeout` spy to witness it. Call out sub-step 2 by name as needing a per-entry registry-iteration spy. Optionally lift the cross-reference once into the *Fixture-obligation categories* paragraph and have the three clauses inherit it, keeping the clauses terse.
-
-### Edge cases
-
-- (P-b-1)'s existing "no `loom/host/session-shutdown-reason-unknown` is emitted" assertion must not be relaxed by the new enumeration.
-- (P-c-1)'s `"fork"`-narrowing case must still witness that sub-step 1's `LoomRegistry.drain` ran even though the registry may have been drained by an earlier shutdown in a longer-running harness — fixtures must use a fresh registry per case.
-- Implementers may need seam-level spies they were not otherwise wiring; the cost is one-time scaffold work in the fixture harness, not production code.
-- Sub-case (4) (per-element empty-string detection) is the one most likely to reveal an existing implementation gap, which is why the obligation is worth pinning.
-
-## Relationships
-
-None
