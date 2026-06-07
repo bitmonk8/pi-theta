@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 15 high, 51 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 15 high, 50 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-07: T064 "Ceiling #1 and ceiling #2 positive enforcement obligations carry no REQ-IDs" resolved and removed — GOV-1 dual-form REQ-ID anchors were coined at the three unanchored enforcement sites: `INV-4` on the `**Invocation depth bound.**` paragraph in `invocation.md` (covering ceiling #1 bound + surface), `FRNT-1` on the `tool_loop` field bullet in `frontmatter/frontmatter-fields-b-and-templates.md` (ceiling #2 bound), and `ERR-19` on the `ToolLoopExhaustedError` prose line in `errors-and-results/queryerror-variants.md` (ceiling #2 surface). The ceiling #1 / #2 aggregator entries in `spec/overview-and-orientation.md` were repointed from page-level / heading-slug auto-id links to the new `#inv-4` / `#frnt-1` / `#err-19` anchors, and the first-enforcement-point listing in `hard-ceilings.md` was repointed to `#inv-4` / `#err-19`. The ceiling-set-invariants citation in `hard-ceilings/ceilings-3-and-4.md` was left unchanged — it names the ceilings by routing-class description, not by obligation anchor, and carries no GOV-25-prohibited auto-id, so it is out of the Problem's scope. New IDs allocated under already-registered prefixes per GOV-3 (`INV-4`, `FRNT-1`, `ERR-19`); no new prefix coined.)_
 
@@ -2243,65 +2243,3 @@ Clarify item (e.ii) at `#bump-checklist-slash-dispatch-serialisation-ii` in `ver
 - T118 "Recovery-mutex acquisition semantics and teardown-budget interaction undefined" - same-cluster (independent gap in the same item (e), no shared edit)
 - T057 "Item (e) fail predicate: operator-precedence ambiguity, single-sentence packing, and sub-outcomes buried mid-prose" - co-resolve (promoting (e.ii) to a surface-level checklist entry is a natural site for the per-mode-entry/analysis-technique pin)
 
----
-
-# T054 - `peerDependencies` literal-read test assertion shape and `CAPABILITY_OBLIGATIONS` member-anchor list are unstated at the sites that introduce them
-
-**Original heading:** Step 4 `peerDependencies` literal-read test assertion shape and `CAPABILITY_OBLIGATIONS` member anchors unstated
-**Original section:** docs/spec_topics/pi-integration-contract/ (diagnostic-emission, patch-skew, provider-error, unknown-reason, subagent, version-bump-intro/triggers/step2/step2b)
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-
-## Finding
-
-Two distinct unstated-contract gaps in the bump procedure for the Pi-SDK pin, each in a different file:
-
-1. **`peerDependencies` literal-read assertion shape.** `version-bump-step2b.md` step 4 names the test only as "the `peerDependencies` literal-read test [that] enforces the joint move" — it does not state the test's operands or its equality kind. The actual contract is implied by `host-prerequisites.md`'s *Manifest lock-step* sub-paragraph ("the four `@earendil-works/*` entries … MUST literally equal the canonical `~0.75.5` range") but step 4 itself does not cite it. A reasonable implementer reading step 4 in isolation could write a four-way mutual-equality assertion (all four entries equal to each other, common minor unconstrained) instead of a four-way equality against the spec literal at `#pi-sdk-pin`; both interpretations satisfy "joint move" but only the second is the lock-step gate `host-prerequisites.md` describes.
-
-2. **`CAPABILITY_OBLIGATIONS` member-anchor list.** `version-bump-step2.md` step 2(a) requires the constant to be "a closed array of the seven anchor IDs [`sdk-cap-slash-command-registration`] … [`sdk-cap-binder-llm-model`]" — only the first and last anchor IDs are stated; the middle five (items 2–6) are elided behind the ellipsis. The full ordered set is the `<a id>`-anchor sequence on items 1–7 of `capability-inventory-items.md`, but step 2(a) does not cite that file as the source of truth for the constant's contents and ordering. An implementer cannot construct `CAPABILITY_OBLIGATIONS` from step 2(a) alone, and there is no stated coupling rule that would catch drift between the constant's member order and the capability-inventory items if a future edit renumbered the items.
-
-The two halves are independent (different files, different sentences, different remedies) and are decomposed below into two options that should be resolved sequentially.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-step2b.md` — step 4 ("Update the version pin in `peerDependencies` …") (edited)
-- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — step 2(a) (positive direction — literal-read) (edited)
-- `docs/spec_topics/pi-integration-contract/host-prerequisites.md` — `#pi-sdk-pin`, `#pi-sdk-pin-manifest-lock-step` (read-only; cited target)
-- `docs/spec_topics/pi-integration-contract/capability-inventory-items.md` — items 1–7 anchor sequence `sdk-cap-slash-command-registration` … `sdk-cap-binder-llm-model` (read-only; cited target)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves (implementation order):** N/A
-
-(The project's `plan.md` and `plan_topics/` carry no leaves yet — only the template, conventions, and an empty coverage matrix.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two implementers reading step 4 of `version-bump-step2b.md` can write different `peerDependencies` literal-read tests (four-way mutual equality vs four-way equality against the spec literal); only the second is the lock-step gate the spec elsewhere relies on, so a wrong choice ships a green test that does not catch divergence between the manifest and the pin anchor. Two implementers populating `CAPABILITY_OBLIGATIONS` from step 2(a) alone cannot reconstruct items 2–6 from the elided range and may order the constant inconsistently with `capability-inventory-items.md`, breaking the implicit anchor-list coupling the seven-cardinality assertion presupposes.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Two independent obligations in two files. Resolve the smaller, scope-bounding one (the anchor-list citation, a single sentence in `version-bump-step2.md`) first, then the assertion-shape obligation in `version-bump-step2b.md`. Each is separately reviewable.
-
-1. **State `CAPABILITY_OBLIGATIONS`'s member anchors by sourcing them from `capability-inventory-items.md` items 1–7.** In `version-bump-step2.md` step 2(a), where the constant is described as "a closed array of the seven anchor IDs [`sdk-cap-slash-command-registration`] … [`sdk-cap-binder-llm-model`]", replace the ellipsis with an explicit normative source-of-truth pointer: the ordered seven anchor IDs are the `<a id>` values on items 1–7 of `capability-inventory-items.md`, in that exact order — `sdk-cap-slash-command-registration`, `sdk-cap-prompt-conversation-drive`, `sdk-cap-subagent-isolated-session`, `sdk-cap-tool-registration-gating`, `sdk-cap-cancellation-propagation`, `sdk-cap-custom-message-renderer`, `sdk-cap-binder-llm-model`. Add a one-clause coupling rule: a re-ordering or renaming of items 1–7 in `capability-inventory-items.md` MUST be co-edited with `CAPABILITY_OBLIGATIONS` in the same commit (this rides on the existing step 2(b) branch (2) catch-all co-edit obligation, which already covers add/remove but not re-ordering). No edit to `capability-inventory-items.md`.
-
-2. **State the `peerDependencies` literal-read assertion's operands and equality kind at step 4.** In `version-bump-step2b.md` step 4, replace the parenthetical "(the `peerDependencies` literal-read test enforces the joint move)" with a two-sentence contract statement plus a back-cite to `host-prerequisites.md#pi-sdk-pin-manifest-lock-step`: the assertion compares each of the four `@earendil-works/*` entries in `package.json#peerDependencies` (`pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`) against the canonical Pi-SDK-pin literal at `host-prerequisites.md#pi-sdk-pin`, using string-equal (byte-equal) comparison; the test passes iff all four entries are byte-equal to that single source-of-truth literal. State explicitly that the `typebox` entry is excluded from this iteration (it is pinned to `"*"` and asserted separately per the `typebox` sub-paragraph). The "joint move" property follows from this shape — any one entry diverging from the pin literal fails the test red — but is not the assertion itself. No edit to `host-prerequisites.md`.
-
-### Edge cases
-
-- In edit 1, if the inline anchor list is chosen over a bare cite, it must stay in the same order as `capability-inventory-items.md` items 1–7 — a list reversal would silently break the constant. Future elaboration of the inventory (splitting or inserting items) must trigger a `CAPABILITY_OBLIGATIONS` re-ordering edit via the coupling rule.
-- In edit 2, the `typebox`-exclusion clause is normative and MUST be retained even if a future Pi minor changes the bundled-package convention; the deliberate-deviation rationale in `host-prerequisites.md` is what makes the four-package iteration the correct scope. If `host-prerequisites.md#pi-sdk-pin-manifest-lock-step` is later revised (package set widened or equality kind loosened), the step-4 restatement must be co-edited under the same lock-step discipline.
-
-## Relationships
-
-- T056 "Branch (2) "promote" co-edit obligation is explicitly non-exhaustive across multiple files (unbounded manual sweep)" - decision-overlap (the coupling rule rides on step 2(b) branch (2)'s catch-all co-edit obligation; if that obligation is replaced by a closed enumeration per that finding's suggested fix, the re-ordering clause must be added to the closed enumeration in the same edit)
-- T060 "Version-bump procedure: four MUST/SHOULD obligations have no verifiable acceptance criterion" - same-cluster (both findings concern testability of the bump procedure's mechanical gates; resolve independently)
