@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 15 high, 52 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 15 high, 51 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-07: T064 "Ceiling #1 and ceiling #2 positive enforcement obligations carry no REQ-IDs" resolved and removed — GOV-1 dual-form REQ-ID anchors were coined at the three unanchored enforcement sites: `INV-4` on the `**Invocation depth bound.**` paragraph in `invocation.md` (covering ceiling #1 bound + surface), `FRNT-1` on the `tool_loop` field bullet in `frontmatter/frontmatter-fields-b-and-templates.md` (ceiling #2 bound), and `ERR-19` on the `ToolLoopExhaustedError` prose line in `errors-and-results/queryerror-variants.md` (ceiling #2 surface). The ceiling #1 / #2 aggregator entries in `spec/overview-and-orientation.md` were repointed from page-level / heading-slug auto-id links to the new `#inv-4` / `#frnt-1` / `#err-19` anchors, and the first-enforcement-point listing in `hard-ceilings.md` was repointed to `#inv-4` / `#err-19`. The ceiling-set-invariants citation in `hard-ceilings/ceilings-3-and-4.md` was left unchanged — it names the ceilings by routing-class description, not by obligation anchor, and carries no GOV-25-prohibited auto-id, so it is out of the Problem's scope. New IDs allocated under already-registered prefixes per GOV-3 (`INV-4`, `FRNT-1`, `ERR-19`); no new prefix coined.)_
 
@@ -2305,70 +2305,3 @@ Two independent obligations in two files. Resolve the smaller, scope-bounding on
 
 - T056 "Branch (2) "promote" co-edit obligation is explicitly non-exhaustive across multiple files (unbounded manual sweep)" - decision-overlap (the coupling rule rides on step 2(b) branch (2)'s catch-all co-edit obligation; if that obligation is replaced by a closed enumeration per that finding's suggested fix, the re-ordering clause must be added to the closed enumeration in the same edit)
 - T060 "Version-bump procedure: four MUST/SHOULD obligations have no verifiable acceptance criterion" - same-cluster (both findings concern testability of the bump procedure's mechanical gates; resolve independently)
-
----
-
-# T056 - Branch (2) "promote" co-edit obligation is explicitly non-exhaustive across multiple files (unbounded manual sweep)
-
-**Original heading:** Branch (2) "promote" co-edit obligation is explicitly non-exhaustive across multiple files (unbounded manual sweep)
-**Original section:** docs/spec_topics/pi-integration-contract/ (diagnostic-emission, patch-skew, provider-error, unknown-reason, subagent, version-bump-intro/triggers/step2/step2b)
-**Kind:** scope, testability, cruft
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-
-## Finding
-
-`version-bump-step2b.md` branch (2) ("Promote the surface to an inventory entry") imposes a co-edit obligation that requires the bump contributor to update **every** natural-language `"seven"` / `"seven-capability"` / `"seven capability obligations"` / `"seven obligations"` cardinality reference appearing in two named sections (the SDK capability inventory and the Inventory-closure audit) plus a third site in `spec.md`. The text then closes with: *"The site enumeration above is illustrative of the loom 1.0 pin and explicitly non-exhaustive: the obligation is on every natural-language 'seven'-cardinality reference in the two sections above, regardless of whether it appears on the loom 1.0-pin enumeration."*
-
-Two coupled defects follow. First, completeness is unverifiable: neither a contributor nor a reviewer can mechanically confirm that "every" such reference has been updated, because the obligation deliberately refuses to commit to a closed list. The only mechanical gate the spec names — step 2(a)'s `CAPABILITY_OBLIGATIONS.length === 7` assertion — guards the integer literal `7`, not natural-language prose; the spec itself flags this gap ("contributor convention rather than … the assertion's inspection"). Second, the quoted "loom 1.0 pin" exemplars (preamble sentence, *seven-capability cardinality claim* paragraph, *Re-validation on `peerDependencies` widening* paragraph, *Target surface categories* paragraph, the `spec.md` Orientation Prerequisites bullet) bake current prose verbatim into a procedure page; they will drift silently as the cited sections are reworded, leaving the page asserting that quoted strings exist at sites where they no longer do.
-
-The combined effect: a bump from 7 → 6 (or 7 → 8) capabilities ships with a procedure that cannot be discharged to completion and an enumeration of phrases that already does not match the current corpus the next time someone edits either section.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-step2b.md` — branch (2) prose and the "non-exhaustive" qualifier (edited)
-- `docs/spec_topics/pi-integration-contract/inventory-audit-intro.md` — PIC-15 "seven named SDK capabilities" preamble; "seven-capability cardinality claim" paragraph; *Target surface categories* "seven capability obligations enumerated below" mention (read-only; cited by branch (2))
-- `docs/spec_topics/pi-integration-contract/capability-inventory-items.md` — *Re-validation on `peerDependencies` widening* "seven obligations above" (read-only; cited by branch (2))
-- `docs/spec/overview-and-orientation.md` — Prerequisites bullet 3 "The seven SDK capabilities the runtime depends on …" (read-only; cited by branch (2))
-- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — `CAPABILITY_OBLIGATIONS.length === 7` mechanical gate (read-only; reference for the existing mechanical anchor)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves (implementation order):** N/A
-
-(The project has a `plan.md` and `plan_topics/` directory, but no leaves are authored yet; no `Spec.` cross-references exist that can be impacted.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reviewers cannot agree on whether a 7→N capability-count bump commit is complete: one accepts updates to the named exemplars, the other demands a wider sweep on the basis of the "every … regardless of whether it appears on the loom 1.0-pin enumeration" clause. The result is either a merged bump that leaves stale `"seven"` prose live against `main` (silent drift between integer literal and prose) or repeated rework cycles per bump. The quoted exemplars will themselves go stale the next time either cited section is reworded, compounding the drift the obligation exists to prevent.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Replace branch (2)'s open-ended "every … non-exhaustive" co-edit obligation with a closed location enumeration plus a build-time assertion that makes completeness mechanically decidable on every CI run. The cardinal genuinely is useful inline at several sites (orientation Prerequisites, the PIC-15 preamble, the *Re-validation* paragraph), so keep it inline and gate drift rather than removing it.
-
-### Spec edits
-
-- In `version-bump-step2b.md` branch (2): replace the parenthetical site enumeration with a typed list of `<file>#<anchor>` references, and add a forward-pointer to the new assertion's name. Delete the verbatim quoted exemplars (anchors are the durable referent; the quoted strings are a stale-drift vector) and delete the "explicitly non-exhaustive" clause. Keep the symmetric removal-case paragraph (7→6) but key it to the same closed list.
-- In `version-bump-step2.md` (or a sibling step-2 page): add a new `"seven"`-token allow-list assertion alongside `CAPABILITY_OBLIGATIONS.length === N`, with the same fail-red posture — a single grep-based test in the existing `*.assert.ts` family. The enumeration *is* the allow-list: the assertion fails when a `"seven"` / `"seven-capability"` / `"seven capability"` / `"seven obligations"` token (or, after a bump, the cardinal word matching `CAPABILITY_OBLIGATIONS.length`) appears in any in-corpus file at a location not on the closed list, surfacing the offending location and pointing at the allow-list. Adding new cardinality prose at a new site then fails the build until the contributor either rewords or extends the enumeration in the same commit.
-
-Branch (2)'s co-edit obligation thereby reduces to a typed list of locations, and completeness is checked on every CI run rather than only at bump time.
-
-### Edge cases
-
-- The recognised-phrase allow-list must be specified in the spec (not left to the test code) so the obligation is auditable from the corpus. The tokeniser must match the canonical cardinality phrasings without over-matching ordinary uses of "seven" — e.g. `"seven"` followed by `capabilit*` / `obligation*` / `SDK` within a small window, or the exact phrase set.
-- The assertion must run over the canonical corpus `docs/spec.md` + `docs/spec_topics/**/*.md` + `docs/spec/**/*.md` (the GOV-17 corpus-glob finding is a prerequisite).
-- The capability-removal (7 → 6) case must still work: key the allow-list to phrase *shapes* (e.g. `"six obligations"` after a bump), formulated as "the cardinal word matching `CAPABILITY_OBLIGATIONS.length` appears at exactly these locations and nowhere else", not to the literal token `seven`.
-
-## Relationships
-
-- T054 "`peerDependencies` literal-read test assertion shape and `CAPABILITY_OBLIGATIONS` member-anchor list are unstated at the sites that introduce them" - same-cluster (same step-2(a)/step-4 assertion family; the unstated member-anchor list is the same omission this finding addresses for prose sites)
-- T060 "Version-bump procedure: four MUST/SHOULD obligations have no verifiable acceptance criterion" - same-cluster (same testability vector across version-bump procedure; the new assertion is the same shape this finding asks for elsewhere on the page)
-- T006 "Orientation pages live outside GOV-17's corpus and are cited under two incompatible paths" - decision-overlap (the new assertion must run over the orientation subtree where one of the cited `"seven"` sites lives; GOV-17's corpus glob must include `docs/spec/**/*.md` for the gate to fire there)
