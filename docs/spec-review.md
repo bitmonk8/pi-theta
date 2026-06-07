@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 15 high, 55 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 15 high, 54 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-07: T064 "Ceiling #1 and ceiling #2 positive enforcement obligations carry no REQ-IDs" resolved and removed — GOV-1 dual-form REQ-ID anchors were coined at the three unanchored enforcement sites: `INV-4` on the `**Invocation depth bound.**` paragraph in `invocation.md` (covering ceiling #1 bound + surface), `FRNT-1` on the `tool_loop` field bullet in `frontmatter/frontmatter-fields-b-and-templates.md` (ceiling #2 bound), and `ERR-19` on the `ToolLoopExhaustedError` prose line in `errors-and-results/queryerror-variants.md` (ceiling #2 surface). The ceiling #1 / #2 aggregator entries in `spec/overview-and-orientation.md` were repointed from page-level / heading-slug auto-id links to the new `#inv-4` / `#frnt-1` / `#err-19` anchors, and the first-enforcement-point listing in `hard-ceilings.md` was repointed to `#inv-4` / `#err-19`. The ceiling-set-invariants citation in `hard-ceilings/ceilings-3-and-4.md` was left unchanged — it names the ceilings by routing-class description, not by obligation anchor, and carries no GOV-25-prohibited auto-id, so it is out of the Problem's scope. New IDs allocated under already-registered prefixes per GOV-3 (`INV-4`, `FRNT-1`, `ERR-19`); no new prefix coined.)_
 
@@ -2588,79 +2588,3 @@ Two independent edits to item (e) and its surrounding step-2 material, applied a
 
 - T057 "Item (e) fail predicate: operator-precedence ambiguity, single-sentence packing, and sub-outcomes buried mid-prose" - same-cluster (also restructures item (e)'s prose; the outcome-recording extraction is compatible with that finding's promotion of (e.i)/(e.ii) to surface-level sub-bullets, and the two should be sequenced so the extraction lands first)
 - T060 "Version-bump procedure: four MUST/SHOULD obligations have no verifiable acceptance criterion" - decision-overlap (the recovery-clause rewrite renames the remediation; that finding's "post-mutex re-audit `pass` criterion" must be re-keyed to the property-language wording rather than to "mutex")
-
----
-
-# T060 - Version-bump procedure: four MUST/SHOULD obligations have no verifiable acceptance criterion
-
-**Original heading:** Version-bump testability: "cannot positively demonstrate" pass threshold undefined; mutex remediation has no post-add acceptance criterion; "re-justified"/grep MUSTs unverifiable
-**Original section:** docs/spec_topics/pi-integration-contract/ (diagnostic-emission, patch-skew, provider-error, unknown-reason, subagent, version-bump-intro/triggers/step2/step2b)
-**Kind:** testability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-
-## Finding
-
-The Pi-version-bump procedure carries four normative obligations whose acceptance criteria are stated only on the negative side, leaving no mechanically- or editorially-checkable predicate for *satisfaction*:
-
-1. **`version-bump-step2.md` item (e) — *conservative-posture rule*.** The rule states that "if the auditor cannot positively demonstrate the non-overlap property holds against the candidate minor … the audit outcome MUST be recorded as `fail`, never `N/A`." No corresponding evidential standard defines what *does* constitute a positive demonstration of `pass`. The surrounding prose enumerates fail-trigger patterns and an `N/A` carve-out (a named Pi-side dispatch-lock surface), but the `pass` arm is left to contributor judgement. Two contributors reading the same diff can reasonably record different verdicts.
-
-2. **`version-bump-step2.md` item (e) — fail-recovery mutex.** A fail outcome on (e.i) or (e.ii) "requires adding a defensive per-extension-instance runtime mutex … in the same edit as the bump." No post-add acceptance predicate is specified that confirms the added mutex actually re-establishes the snapshot/restore non-overlap property and therefore restores the audit to `pass`. A contributor who lands any mutex satisfies the textual obligation; whether the mutex is correctly placed, keyed, or scoped to the snapshot→swap→body→restore window is not separately gated.
-
-3. **`version-bump-step2b.md` step 4 — *Deliberate deviation* re-justification.** The step states the deviation paragraph "MUST be re-justified at this step if the candidate Pi minor changes the lock-step expectation `packages.md` prescribes" and lists two triggering changes (packages.md drops the `"*"`-range pinning of the four `@earendil-works/*` packages, or `pi-mono` stops guaranteeing single-minor lock-step). The trigger is concrete; the content criterion for a satisfying re-justification is not. A cosmetic word-swap, or a re-justification that fails to name which of the two triggering changes fired, would textually satisfy the MUST.
-
-4. **`version-bump-triggers.md` step 5 — inbound-reference grep.** The text says "the contributor MUST run a grep across the layout-invariant superset `src/`, `test/`, and `docs/` …" and "a positive result-delta against the documented enumeration that is not reconciled in the same edit is non-conformant." The grep itself is a process step with no artefact: there is no bump-commit evidence (a recorded grep output, a build-time audit that re-runs the grep and fails red, a checked-in expected-hits manifest) that a reviewer or CI can use to confirm the grep was run. The same paragraph notes the implementation MAY additionally implement a build-time audit; without it, "MUST run a grep" reduces to contributor discipline indistinguishable from omission.
-
-In each case the obligation describes the action a contributor takes, not an observable the bump commit MUST carry. The downstream consumers — audit `pass/fail` recording, the snapshot/restore non-overlap invariant, the deviation rationale, the closed inbound-reference enumeration — all degrade silently when an obligation is performed but the result is wrong, or skipped entirely.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — item (e) *Per-session slash-command dispatch serialisation* (edited)
-- `docs/spec_topics/pi-integration-contract/version-bump-step2b.md` — step 4 *Update the version pin in `peerDependencies`* (edited)
-- `docs/spec_topics/pi-integration-contract/version-bump-triggers.md` — step 5 *Update the capability-probe pinned constants*, inbound-reference sweep paragraph (edited)
-- `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md` — snapshot/restore Pi behavioural preconditions (read-only; defines the property the mutex must re-establish)
-- `docs/spec_topics/pi-integration-contract/host-prerequisites.md` — *Deliberate deviation from Pi's bundled-package convention* sub-paragraph (read-only)
-- `docs/spec_topics/pi-integration-contract/patch-skew-degradation.md` — patch-skew degradation contract (read-only; mentions build-time gate the grep could attach to)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves:** N/A
-
-(`plan.md` contains no authored leaves under any phase; the version-bump procedure has no closing leaf yet.)
-
-## Consequence
-
-**Severity:** correctness
-
-The four sites jointly govern whether a Pi-version bump records the correct audit verdict, whether a fail-triggered runtime mutex actually restores the snapshot/restore invariant the precondition depends on, whether the deliberate-deviation rationale stays load-bearing, and whether the inbound-reference enumeration stays closed. With each obligation's satisfaction predicate undefined, two reasonable contributors performing the same bump diverge on what they record and what they ship, and a silently-skipped grep or a textually-satisfying-but-substantively-empty re-justification produces a green bump commit that hides real drift.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Four independent obligations at three sites, each fixed by a localised edit. Land them in the order below so the pass-evidence vocabulary defined first is reusable by the second edit; the four surfaces do not otherwise interact.
-
-1. **Define the positive-demonstration predicate for item (e)'s `pass` verdict.** In `version-bump-step2.md` item (e), after the existing "conservative-posture rule" sentence, add a `**pass-evidence rule:**` clause stating what the auditor's rationale slot MUST cite to record `pass` on (e.i) and (e.ii) — the dual of the existing fail-trigger list. A `pass` MUST cite a `<file>:<line>` (or call-graph path) reference for each of (e.i) and (e.ii): for (e.i), the specific `dist/core/agent-session.js` lines establishing the `prompt` → `_tryExecuteExtensionCommand` → `await command.handler(args, ctx)` cooperative-`await` chain in the candidate minor (or the equivalent reachable site under the textual-locatability carve-out); for (e.ii), the call-graph path from each enumerated `dist/modes/*/*.js` entry point to its reachable `session.prompt(...)` site. A `pass` rationale that names no specific code site is invalid and the auditor MUST re-record as `fail` per the conservative-posture rule.
-
-2. **Add a post-mutex re-audit `pass` criterion for the fail-recovery path.** In the same item, after the existing mutex-recovery sentence, add: "After adding the mutex, the contributor MUST re-run (e.i)/(e.ii) against the loom-side source (the mutex implementation and the snapshot/restore call site it wraps) and record a second-pass outcome alongside the original `fail`; the bump MAY merge only when the second-pass outcome is `pass` under the pass-evidence rule above." The mutex's placement, keying (factory-captured `pi: ExtensionAPI` reference, per the existing keying-granularity prose), and scope (snapshot → swap → body → restore window) are the second-pass evidence. This closes the silent-no-op mode where any mutex discharges the obligation.
-
-3. **Specify the content criterion for the *Deliberate deviation* re-justification.** In `version-bump-step2b.md` step 4, replace "MUST be re-justified at this step if the candidate Pi minor changes …" with "MUST be re-written at this step to (a) name which of the two triggering changes (`packages.md` `\"*\"`-range removal of the four `@earendil-works/*` packages, or `pi-mono` single-minor lock-step weakening) fired and cite the candidate-minor source for that change, and (b) state whether the deviation rationale stands as written or is invalidated and replaced." Keep the existing no-edit-if-unchanged clause.
-
-4. **Demote the inbound-reference grep MUST to a build-time gate.** In `version-bump-triggers.md` step 5, convert the existing "MAY additionally implement a build-time audit pass over the same three grep targets" to a MUST: "The implementation MUST implement a build-time audit pass over the same three grep targets (`src/`, `test/`, `docs/`) that fails `npm test` red on any result-delta against the documented enumeration; the contributor-side grep is then a debugging aid for the failing audit rather than the primary obligation." Update the surrounding text so the contributor MUST is on *reconciling the audit's red*, not on running the grep manually.
-
-### Edge cases
-
-- A `<file>:<line>` citation is a weak proxy for "the cited site establishes the property"; the existing fail-trigger list is what catches obviously-wrong sites, so retain it.
-- For edit 3, both triggering changes live in the same paragraph; if a third triggering change emerges later, the closed (a)/(b) list must be extended on the same footing as the checklist's catch-all obligations.
-- For edit 4, the build-time audit owns its own failure-discriminator and message wording on the same footing as the other implementation-owned literal strings under step 5's groupings (i)–(iii), and must implement the same documented-enumeration exclusion list as the contributor-side grep recipe (so transiently-stale `docs/` paragraphs the carve-out classifies are not false positives). If the implementation cost of the build-time gate is judged out of scope at fix time, the fallback is to require the grep's literal output (the line-level co-occurrence set, in stable sort order) to be attached to the bump-commit message under a named heading `inbound-reference-sweep:` for byte-for-byte reviewer comparison against the documented enumeration — but do not leave the grep as an un-gated MUST.
-
-## Relationships
-
-- T059 "Item (e) recovery over-prescribes "mutex"; N/A definition and outcome-recording conventions buried mid-paragraph" - same-cluster (the mutex acceptance criterion lands on the same paragraph the prescription/placement finding rewrites; co-resolve in the same item-(e) edit pass)
-- T057 "Item (e) fail predicate: operator-precedence ambiguity, single-sentence packing, and sub-outcomes buried mid-prose" - same-cluster (the pass-evidence and mutex-acceptance edits both add prose to the same item-(e) checklist; an enumerated-list restructure makes both edits cleaner)
-- T056 "Branch (2) "promote" co-edit obligation is explicitly non-exhaustive across multiple files (unbounded manual sweep)" - same-cluster (a parallel testability gap in step2b.md branch (2): the catch-all "every natural-language 'seven'-cardinality reference" obligation has the same un-verifiable shape this finding addresses for step 5's grep; both are candidates for a build-time grep-with-allow-list mechanical gate)
-- T061 "Version-bump procedure carries six independent clarity / scope gaps across step 2 preamble, step 2(b) tie-breaks, and step 4" - same-cluster (the content criterion for the *Deliberate deviation* re-justification overlaps with that finding's "or its candidate-minor equivalent" demand for an observable-behaviour definition; co-resolve the equivalence-test edit on the same step-4 paragraph)
