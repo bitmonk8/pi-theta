@@ -67,6 +67,8 @@ _(Updated 2026-06-06: T092 "Glob `!`/`+`/`-` precedence and matcher engine unspe
 
 _(Updated 2026-06-06: T098 "Three testability gaps in tool-calls / cancellation: pre-eval-throw `<name>` token, missing non-resolvable `.loom` arg-mismatch surface, and unspecified cancelled `message`" resolved and removed — cancellation.md's Surfacing block dropped the literal `message: "..."` for the sibling field-elision `...` form and noted `message` carries no byte-exact constraint; tool-calls.md's pre-evaluation setup-throw bullet pinned `<name>` as the post-`as`/post-hyphen-rewrite callable-set entry (deliberately not the slash-prefixed `/<name>` framing); and the non-statically-resolvable `.loom`-callable input-validation safety net was routed to `Err(InvokeInfraError { cause: "validation", ... })` in both the Argument shape and Failures paragraphs, with the dual-`match`-arm consequence stated. No schema change in queryerror-variants.md.)_
 
+_(Updated 2026-06-07: T059 "Item (e) recovery over-prescribes \"mutex\"; N/A definition and outcome-recording conventions buried mid-paragraph" resolved and removed — two independent edits to item (e) in version-bump-step2.md. (A) The fail-outcome recovery clause no longer mandates a "mutex" as the construct: it now requires a per-extension-instance serialisation of the snapshot → swap → body → restore window, names the per-extension-instance mutex as the loom 1.0 reference construct, and states that any synchronisation construct establishing the precondition (b) non-overlap property (async-aware lock, single-consumer awaited queue, channel, or equivalent of the pass-arm variants) is equally conformant; the keying-granularity prose and the recovery-serialisation runtime-contract cross-reference were preserved (the sibling tool-registration-lifetime.md, read-only here, retains the "recovery-mutex runtime contract" anchor and naming). (B) Item (e)'s `N/A` definition and the two-sub-outcome recording convention were lifted out of item (e)'s fail-trigger wall-of-prose into a discoverable anchored "Outcome recording conventions" block (`#bump-step-2-outcome-recording-conventions`) carrying the relocated (e.i)/(e.ii) anchors; item (e) now forward-references that block. No new REQ-ID coined.)_
+
 _(Updated 2026-06-07: T083 "Stop-reason → `QueryError` variant mapping is undefined" resolved and removed — provider-error-mapping.md gained a **Stop-reason classification** subsection (anchor `stop-reason-classification`) mapping a successful HTTP-200 response's non-terminal stop reason by `AssistantMessage.stopReason`: an output-boundary terminator (`stopReason: "length"`) → `ContextOverflowError` with both token fields `null`, and any other non-terminal stop reason (incl. content-filter) → `TransportError` with `retryable: false`. The ambiguous "surface as `transport` or `context_overflow` per the existing classification rules" clause in query-tool-loop.md's "Typed queries are tool-loop-shaped" section was replaced with a forward-reference to that subsection, and query-failure-and-repair.md's "Detection of `ContextOverflowError`" co-located the clean-`length` terminator beside the mid-stream output-boundary rule. The T084 4xx/5xx `TransportError` catch-all rewrite was left out of scope.)_
 
 ---
@@ -2519,72 +2521,3 @@ The per-page edit cost is bounded by the small number of `branch (N)` citations 
 ## Relationships
 
 None
-
----
-
-# T059 - Item (e) recovery over-prescribes "mutex"; N/A definition and outcome-recording conventions buried mid-paragraph
-
-**Original heading:** Item (e) recovery prescribes a "mutex" where serialisation is the property; N/A definition and outcome-recording conventions buried in item (e)
-**Original section:** docs/spec_topics/pi-integration-contract/ (diagnostic-emission, patch-skew, provider-error, unknown-reason, subagent, version-bump-intro/triggers/step2/step2b)
-**Kind:** prescription, placement
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-
-## Finding
-
-Item (e) of the version-bump checklist (`version-bump-step2.md`) carries two independent defects that happen to share the same physical paragraph.
-
-**Defect A — recovery is prescribed as a "mutex" though the property is serialisation.** Item (e)'s pass-side prose enumerates several mechanism-preserving variants that satisfy precondition (b)'s snapshot/restore non-overlap property: "an explicit per-session lock wrapping the handler-body await chain, a single-consumer channel that dequeues each handler with `await` before pulling the next, and a microtask-deferred handler chain whose bodies still serialise." The cooperative-`await` chain it diffs from is itself not a mutex. But on a fail outcome the same item mandates one specific construct — "a defensive per-extension-instance runtime **mutex** (wrapping the snapshot → swap → body → restore sequence and keyed on the factory-captured `pi: ExtensionAPI` reference…)". A contributor reaching this branch is told to build a mutex even when an `async`-aware lock, a single-consumer awaited queue, or a channel would equally establish the non-overlap property the precondition actually asks for — and indeed those are the constructs more idiomatic to the JS/TS host where there is no kernel mutex primitive. The keying granularity (per-extension-instance, keyed on the `pi` reference) and the wrapped window (snapshot → swap → body → restore) are the load-bearing parts of the recovery; the choice of synchronisation construct is not.
-
-**Defect B — N/A definition and outcome-recording conventions are buried in ~2,000 words of fail-predicate prose.** Two organisational rules govern how item (e)'s audit outcomes get recorded:
-
-1. The formal definition of an `N/A` verdict for item (e) — "the candidate Pi minor has surfaced an explicit per-session dispatch-lock mechanism … recorded as `N/A — superseded by <named Pi mechanism>`."
-2. The two-sub-outcome recording convention — that the item's rationale slot MUST carry two atomic verdicts, one for (e.i) and one for (e.ii), each with its own pass/fail/N/A and one-line rationale.
-
-Both rules live mid- and tail-paragraph inside an item whose body is dominated by the fail predicate, the conservative-posture rule, and the recovery prescription. A contributor consulting item (e) to record an outcome cannot find either rule by scanning section headings — they exist only as unannounced sentences embedded in the same wall of prose that defines the fail trigger. The recording conventions are also not specific to item (e)'s subject (slash-dispatch serialisation); they would equally apply if a future item carried sub-outcomes.
-
-The two defects are independent: fixing the mutex prescription does not improve discoverability of the N/A/recording conventions, and extracting those conventions does not loosen the recovery prescription. They are bundled here only because the source-review author noticed both while reading the same paragraph.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — item (e), recovery clause (edited)
-- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — item (e), N/A clause and trailing sub-outcome recording paragraph (edited)
-- `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md` — snapshot/restore Pi behavioural preconditions, precondition (b) (read-only; defines the non-overlap property that anchors the rewording)
-- `docs/spec_topics/pi-integration-contract/conversation-drive.md` — mid-loom user-session replacement seam (read-only; per-`pi`-per-extension-instance lifetime cited by the keying granularity)
-- `docs/spec_topics/future-considerations/model-changes-and-non-goals.md` — single-active-user-session presupposition (read-only; the other keying-granularity invariant)
-
-## Plan Impact
-
-**Phases:** N/A
-
-**Leaves (implementation order):** N/A
-
-(The project's `docs/plan.md` declares no leaves yet; only the template, conventions, and coverage-matrix stubs exist under `docs/plan_topics/`.)
-
-## Consequence
-
-**Severity:** correctness
-
-Under Defect A, a contributor reaching the fail-recovery branch builds a kernel-style mutex where the spec elsewhere already concedes that an awaited per-session lock, single-consumer channel, or microtask-serialised handler chain would establish the same non-overlap property — i.e. the spec mandates one specific construct while admitting in adjacent prose that several are equivalent. Two reasonable implementers reading item (e) will diverge: one builds the mandated mutex, another builds an idiomatic awaited lock and is technically non-conformant with the recovery clause despite satisfying its load-bearing invariant. Under Defect B, contributors recording bump outcomes can miss the N/A definition or the two-sub-outcome convention and record a single combined verdict, causing rationale-slot drift and losing audit signal for partial-outcome cases (one sub-check passes, the other fails).
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Two independent edits to item (e) and its surrounding step-2 material, applied as separate commits in order so a prescription change is not conflated with an organisational change.
-
-1. **Rewrite the recovery clause to specify the serialisation property instead of the "mutex" mechanism.** In `version-bump-step2.md` item (e), edit the sentence beginning "requires adding a defensive per-extension-instance runtime **mutex** (wrapping the snapshot → swap → body → restore sequence and keyed on the factory-captured `pi: ExtensionAPI` reference…)" to replace the noun "mutex" with a behavioural property: "a per-extension-instance serialisation of the snapshot → swap → body → restore window." Retain the keying-granularity prose verbatim (the `pi`-reference keying, the dual invariant on one-`pi`-per-extension-instance + one-active-user-session-per-extension-instance, and the revisitation obligation when either invariant weakens). Add one sentence stating that any synchronisation construct that establishes the non-overlap property — `async`-aware lock, single-consumer awaited queue, channel, or equivalent — satisfies the recovery, mirroring the pass-side enumeration already in the same item, and keep an explicit "establishes the non-overlap property" gate referencing the pass-side fail-predicate examples so the looser wording cannot be read as admitting non-serialising constructs. No anchor IDs change.
-
-2. **Extract the N/A definition and outcome-recording conventions into a dedicated subsection.** Add a new "Outcome recording conventions" subsection (sibling to item (e), or under a step-2 preamble heading) that hoists: (a) the pass/fail/N/A recording shape (one-line rationale per item); (b) item (e)'s specific N/A definition and `N/A — superseded by <named Pi mechanism>` recording shape; and (c) the two-sub-outcome convention for items carrying sub-checks, with item (e)'s (e.i)/(e.ii) as the worked example. Delete from item (e)'s body the embedded N/A-definition paragraph and the trailing two-sub-outcome paragraph, and insert a one-sentence forward-reference to the new subsection. Update the existing step-2 preamble sentence ("MUST record the per-item audit outcome … item (e) requires two sub-outcomes — see (e.i) and (e.ii) below") so the convention is stated in exactly one place.
-
-### Edge cases
-
-- Edit 1 must keep the keying-granularity prose intact (per-`pi`-per-extension-instance, the dual-invariant gate, the revisitation obligation); only the construct name changes, not the keying.
-- Edit 2's new subsection must not weaken item (e)'s `N/A — superseded by <named Pi mechanism>` literal recording shape — it is a load-bearing convention for any downstream commit-message parser. Use item (e) as the subsection's worked example so the extracted N/A definition stays explicitly linked to item (e)'s superseded-by mechanism and does not silently drift from it.
-
-## Relationships
-
-- T057 "Item (e) fail predicate: operator-precedence ambiguity, single-sentence packing, and sub-outcomes buried mid-prose" - same-cluster (also restructures item (e)'s prose; the outcome-recording extraction is compatible with that finding's promotion of (e.i)/(e.ii) to surface-level sub-bullets, and the two should be sequenced so the extraction lands first)
-- T060 "Version-bump procedure: four MUST/SHOULD obligations have no verifiable acceptance criterion" - decision-overlap (the recovery-clause rewrite renames the remediation; that finding's "post-mutex re-audit `pass` criterion" must be re-keyed to the property-language wording rather than to "mutex")
