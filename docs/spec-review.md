@@ -16,6 +16,8 @@ _(Updated 2026-06-07: T065 "`HC3-a` / `HC3-c` cross-links target the orientation
 
 _(Updated 2026-06-06: T099 "`loom/load/callee-has-errors` promises codes via `related`" resolved and removed — the `code-registry-load.md` row and the `invocation.md` Static resolution paragraph were walked back so neither promises the callee's diagnostic *codes* via `related`; both now state that `related` carries one entry per underlying error *site* (`{ file, range, message }` per `diagnostic-shape.md`), with the callee's own diagnostics emitted separately. No change to `diagnostic-shape.md` or the closed `related` element shape.)_
 
+_(Updated 2026-06-07: T048 "Always-log event construction and `ctx.ui.notify` fallback are unpinned at the runtime-event-channel fallback site" resolved and removed — the best-effort-fallback paragraph in `pi-integration-contract/runtime-event-channel.md` now names the full group-A emission sequence it guards (`Clock.wallNow()` during `occurred_at` stamping, the dedup-map insertion, and the `pi.sendMessage` call; for non-group-A note shapes only the `pi.sendMessage` call), so a `Clock.wallNow()` throw routes through the fallback chain instead of silently dropping the always-log event; on that throw the `RuntimeEvent` is never constructed and carries no `occurred_at` (omit story — the runtime MUST NOT re-invoke `Clock.wallNow()`, no retry/sentinel), the step-2 `loom/runtime/system-note-delivery-failed` `Diagnostic` accounts for the occurrence, and step 1's `ctx.ui.notify` keeps its `display`-gating. PIC-12 and the engine-assumptions section were left untouched. `ctx.ui.notify`'s call site in step 1 was cross-linked to a new `<a id="ui-notify"></a>` anchor on the `ExtensionContext` block in `host-interfaces-core.md` (no behavioural change). No REQ-ID coined — non-narrative-prose scope correction plus one cross-link anchor; one new MUST mirrors the existing `pi.sendMessage` re-entry guard.)_
+
 _(Updated 2026-06-07: T081 "Filesystem case-sensitivity is unspecified for `.warp` import basenames and for the `invoke` / `tools:` discovery-root containment check" resolved and removed — `imports.md` IMP-1 now pins `.warp` import resolution to a byte-for-byte (UTF-8, case-sensitive) match of the path literal's final segment against `readdir` output on every host, composed with the byte-exact extension check, with `loom/load/unresolvable-warp-path` covering the case-variant-entry case (registry row tightened to match); `invocation.md` *Resolution* now pins the discovery-root containment comparison to byte-exact `FileSystem.realpath` output for both callee and roots with no independent case-folding, governed by the existing INV-1 MUST across the load-time and runtime-open checks. The case-folding clause attaches to the existing "lie within the union of discovery roots" language and composes with (does not define) the still-pending T080 segment-boundary predicate. No new diagnostic code or REQ-ID; `loom/load/invoke-path-escape` left unchanged.)_
 
 _(Updated 2026-06-07: T077 "Top-level loom return-type inference does not reconcile early-`return` operand types with the tail-expression type" resolved and removed — `functions.md` `#loom-return-type` now infers the return type as the least upper bound (under type-system.md `#type-compatibility` `⊑`) of the tail-expression type and every reachable early-`return` operand type, with the implicit `Result<T, QueryError>` wrapping triggered when any `?` appears or any contributing operand is `Result`-typed and `T` reconciled over the contributing operands' success payloads; the same rule governs annotation-less `fn` bodies. `return.md`'s `return expr` bullet now forwards to that rule for the no-declared-return-type case, and a sibling diagnostic `loom/parse/return-no-common-type` was added to `code-registry-parse.md` alongside `loom/parse/array-no-common-type`. The existing `⊑` rules for `match` arms, ternary branches, and array literals were not modified. No new REQ-ID coined: the edit adds no RFC-2119 normative-modal token, so GOV-22 progressive coinage does not trigger.)_
@@ -1941,64 +1943,3 @@ Add anchor `id="waitforidle-settlement-presupposition"` to `conversation-drive.m
 ## Relationships
 
 - T067 "Pi behavioural presuppositions lack authoritative behavioural pointers" - same-cluster (this finding adds one more entry to the unanchored-presupposition family that the related finding identifies as a structural gap).
-
-# T048 - Always-log event construction and `ctx.ui.notify` fallback are unpinned at the runtime-event-channel fallback site
-
-**Original heading:** Always-log event construction (`Clock.wallNow()`) and `ctx.ui.notify` signature unbounded/unpinned at the fallback site
-**Original section:** docs/spec_topics/pi-integration-contract/ (audit-resolution, conversation-drive, runtime-event-channel, session-shutdown-semantics, session-only-degraded-state, drain-state-contract)
-**Kind:** error-model, implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-
-## Finding
-
-`runtime-event-channel.md`'s best-effort fallback paragraph says the chain "covers synchronous throws only" of `pi.sendMessage`. The `RuntimeEvent` construction that runs immediately before that call is outside the guard. `RuntimeEvent.occurred_at` is stamped via `Clock.wallNow()` (per the inline `// stamped at the originating emission site via Clock.wallNow()` comment on the payload type), and `PIC-12` in `host-interfaces-services.md` pins `wallNow(): number` with no "MUST NOT throw" obligation — a custom `Clock` adapter (or even a `WallClock` whose `Date.now()` was monkeypatched out of the engine-assumption set) could throw synchronously. A throw at that point silently violates the "exactly once per occurrence" always-log contract: the event is neither emitted nor accounted for in the dedup map, and no diagnostic is produced. The existing *Engine-assumption carve-out* covers `Map`/`Set`/`JSON.stringify`/IEEE-754 corruption, not a `Clock` adapter throw.
-
-Separately, the same fallback paragraph calls `ctx.ui.notify(content, "error")` without anchoring the receiver. `ctx.ui.notify` is declared one file over in `host-interfaces-core.md` (within the `ExtensionContext` shape: `ui.notify(message: string, type?: "info" | "warning" | "error"): void` (synchronous, may throw)). The fallback paragraph reads in isolation: implementers cannot tell from the call site that `"error"` is one of three accepted severities, that the call is synchronous, or that "may throw" is the documented reason for the wrap-in-try/catch instruction the very next sentence gives.
-
-These are two independent obligations — one closes a silent-drop gap in the always-log contract, the other adds a missing cross-link — and they should be resolved in that order so the second edit lands on a stable always-log baseline.
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — best-effort fallback paragraph; `RuntimeEvent` type block (edited)
-- `docs/spec_topics/pi-integration-contract/host-interfaces-services.md` — PIC-12 `Clock`/`FakeClock` interface (read-only)
-- `docs/spec_topics/runtime-value-model.md` — JavaScript engine assumptions (read-only)
-- `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` — `ctx.ui.notify` declaration on the `ExtensionContext` shape (read-only; cross-link target for Obligation B)
-
-## Plan Impact
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-(The plan exists but currently contains no leaves; no acceptance criteria are affected and no leaf is blocked.)
-
-## Consequence
-
-**Severity:** correctness
-
-A `Clock.wallNow()` throw during always-log event construction silently drops the event and skips the diagnostic fallback that the same paragraph guarantees for `pi.sendMessage` throws, producing two implementer-reasonable behaviours (some implementers will fold the construction into the guard, others will not). The `ctx.ui.notify` half is advisory in isolation, but combined the finding is correctness-level because it sits on the always-log contract.
-
-## Solution Space
-
-**Shape:** single
-**State:** reduced
-
-Resolve two independent obligations, the first before the second so the small cross-link lands on a stable baseline. First, fold the full `RuntimeEvent` emission sequence into the existing best-effort guard so a throw at any step routes through the fallback chain rather than dropping the always-log event silently. The seam is explicitly DI-shaped (PIC-12 admits a `FakeClock` and any conforming `Clock`), so a "wallNow() never throws" engine-assumption would stretch the IEEE-754/native-collections carve-out and export a silent-drop surface across every adapter; folding construction into the guard mirrors the pattern the paragraph already applies to `ctx.ui.notify` and keeps the always-log contract observable. Second, cross-link `ctx.ui.notify`'s signature and severity set at the fallback site.
-
-### Spec edits
-
-1. **Fold construction into the best-effort guard.** In `runtime-event-channel.md`, replace "The best-effort fallback below covers synchronous throws only" with wording naming the guarded scope explicitly: "covers synchronous throws from `Clock.wallNow()` (during `occurred_at` stamping), the dedup-map insertion, and the `pi.sendMessage` call." State that on a `Clock.wallNow()` throw the fallback's step-2 `system-note-delivery-failed` diagnostic is emitted with `occurred_at` handled by a single stated story (omit / second-call retry / sentinel — pick one and state it), and step 1's `ctx.ui.notify` is unaffected. Leave PIC-12 and the engine-assumptions section untouched.
-2. **Cross-link `ctx.ui.notify`.** Add or repurpose an anchor on the `ui.notify(message: string, type?: "info" | "warning" | "error"): void` line in `host-interfaces-core.md` (e.g. `<a id="ui-notify"></a>`). In `runtime-event-channel.md` step 1 of the fallback, change `` `ctx.ui.notify(content, "error")` `` to a Markdown link to that anchor, optionally adding inline "(`type` is one of `"info" | "warning" | "error"`; `"error"` selected here for cascade visibility)". No behavioural change.
-
-### Edge cases
-
-- The `occurred_at` field on the `system-note-delivery-failed` diagnostic emitted when `Clock.wallNow()` itself was the thrower needs one definite wording; if the retry path (a second `wallNow()` inside the catch) is chosen, it must terminate the recursion explicitly because that second call could also throw.
-- Do the cross-link second so the construction-folding edit does not have to be re-flowed around a newly-added anchor link.
-
-## Relationships
-
-- T101 "Renderer-throw during Pi's render invocation has no defined failure mode" - same-cluster (a third gap in the same "best-effort fallback covers …" scope sentence; resolve consistently)
-- T049 "`diagnostic-emission-isolation.md` opening scope omits the per-invocation surfaces the paragraph actually governs" - same-cluster (same `sendSystemNote` fallback chain, scope side)
-
