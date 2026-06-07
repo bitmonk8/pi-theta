@@ -4,7 +4,7 @@ _Generated: 2026-06-06T13:23:32Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T118) is addressed first; the first finding (T001) is addressed last._
 
-_Triage tally: 0 blockers, 18 high, 60 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
+_Triage tally: 0 blockers, 17 high, 60 medium retained; 91 low discarded; 0 low findings merged into 0 medium findings; 17 nit dropped; 0 false dropped._
 
 _(Updated 2026-06-06: T099 "`loom/load/callee-has-errors` promises codes via `related`" resolved and removed — the `code-registry-load.md` row and the `invocation.md` Static resolution paragraph were walked back so neither promises the callee's diagnostic *codes* via `related`; both now state that `related` carries one entry per underlying error *site* (`{ file, range, message }` per `diagnostic-shape.md`), with the callee's own diagnostics emitted separately. No change to `diagnostic-shape.md` or the closed `related` element shape.)_
 
@@ -3056,31 +3056,3 @@ Clarify the indexed-access bullet in `expressions.md`'s *Supported forms* to pin
 - T008 "Indexed-access runtime disposition not cross-referenced from `expressions.md`" - co-resolve (the runtime side is in fact already specified in `error-model.md` / `code-registry-runtime.md`; once this finding's edit cross-references those, the sibling finding largely closes)
 - T074 "TYPE-8 field-wise compatibility scope (named schema vs inline object type) is ambiguous" - same-cluster (both touch how object types behave under static rules; resolve independently)
 - T073 "Cross-type `==` / `!=` disposition is unspecified" - same-cluster (same pattern: an operator silent on a corner of its type domain)
-
-# T070 - Schema-slug collision posture is pinned only for the `pi.registerTool` cache, leaving the `$defs` hoist and the validator cache silent
-
-**Kind:** completeness, error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The schema slug (16-hex SHA-256 truncation, a 64-bit value with non-zero collision probability) is reused as a content-addressed key at three sites: the `__inline_<slug>` `$defs` dedup in `schema-subset.md`'s *Lowering Algorithm* step 2, the prompt-mode `pi.registerTool` registration cache in `pi-integration-contract/tool-registration-lifetime.md`, and the AJV compiled-validator cache. Only the registration cache has a defined collision posture — a byte-equality check on a slug hit, with a `loom/runtime/registration-cache-collision` diagnostic and counter-suffixed disambiguation. The `$defs` hoist states one-entry deduplication as a property rather than a check and is silent on non-byte-identical fragments that collide, while the validator-cache rule exists only as a non-normative *Implementation hint*, so the normative `SchemaValidator` contract (PIC-11) owns no collision rule. A conformant runtime can therefore silently merge two distinct inline schemas into one `$defs` entry or serve a wrong compiled validator with no surfacing diagnostic.
-
-## Solution approach
-
-Add a normative invariant to `schema-subset.md`'s *Canonical schema hash* section after the `synthesised-names` step requiring any slug-keyed cache or dedup table to byte-verify the new entry's canonical-form bytes against the cached bytes on a slug match before treating them as the same fragment, and to surface a diagnostic rather than silently dedup or reuse on mismatch. Rewrite the *Lowering Algorithm* step 2 byte-identical-fragment sentence so the one-`$defs`-entry property follows from that byte-equality check, with a collision at lowering time raising a load-time error. Promote the validator-cache collision rule out of `implementation-notes.md`'s non-normative *Implementation hint* into the normative `SchemaValidator` contract at PIC-11 in `pi-integration-contract/host-interfaces-services.md`. Keep the load-time `$defs`-hoist diagnostic distinct from the runtime validator-cache and registration-cache diagnostics.
-
-## Solution constraints
-
-- Out of scope: the *Canonical form* bullet's numeric-keyword serialisation list in `schema-subset.md`'s *Canonical schema hash* section — owned by T071.
-- The existing prompt-mode byte-equality and counter-suffixed-disambiguation rule in `tool-registration-lifetime.md` must remain intact as the runtime-event application of the general rule; do not weaken or relocate it.
-
-## Relationships
-
-None
-
