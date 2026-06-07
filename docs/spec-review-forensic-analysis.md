@@ -301,3 +301,20 @@ it does not persist across worktree wipes)._
 - **Fixer notes:** none
 
 ---
+
+## 2026-06-07 — T050 - Audit / drain-state / runtime-event / provider-error cluster — naming and clarity drift
+
+- **Failure mode:** fast-loop-unresolved
+- **Category:** 1 _(Rec W: 1 = malformed finding — reshape `spec-review.md`; 2 = fixer too-hard — file pi-config issue)_
+- **Trajectory:** n/a
+- **Score trajectory:** n/a
+- **Passes:** n/a
+- **Stage at exit:** n/a (n/a pass(es) in stage)
+- **Snapshot refs (retained for forensics):** n/a (loop did not run)
+- **Poisoned fixes:** n/a
+- **Forensic report:** none (fast loop — no forensic report)
+- **Parked findings (this run):** `T050 - Audit / drain-state / runtime-event / provider-error cluster — naming and clarity drift`
+- **Loop notes:** finding not resolved by fast fix — fast pass resolved 6 of 7 sub-issues (Group casing, tie-break basis, numeric-run grammar already present, drainStateTag/tag rationale relocation, setter first/last-write-wins signalling, family↔category identity) but sub-issue F ("arm" overload reservation) is infeasible-clean within the fast loop: "arm" is corpus-wide vocabulary bound to stable anchors (#gov-18-arm-a, #substep-1-shutting-down-arm) and normative acceptance-criteria usage in session-only-degraded-state.md, requiring a coordinated corpus-spanning anchor-retagging sweep. urgent-review returned FindingResolved: partial (FloorRegressionCount 0). Recommend the fresh Stage C re-review re-file the "arm"-reservation sub-issue as a standalone, fully-enumerated rename finding.
+- **Fixer notes:** none
+
+---

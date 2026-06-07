@@ -529,3 +529,92 @@ The per-page edit cost is bounded by the small number of `branch (N)` citations 
 ## Relationships
 
 None
+
+---
+
+## T050 - Audit / drain-state / runtime-event / provider-error cluster — naming and clarity drift
+
+> **PARKED** — 2026-06-07T11:49:02Z
+> **Reason:** Category 1 (malformed finding — over-bundled; the finding packs seven naming/clarity sub-issues, one of which — sub-issue F, "arm" overload reservation — is a corpus-spanning rename that does not belong with the six local PIC-cluster tweaks). The fast loop (/spec-fix-findings-loop) resolved 6 of 7 sub-issues (Group casing, tie-break basis, numeric-run grammar, drainStateTag/tag rationale relocation, setter first/last-write-wins signalling, family↔category identity) but sub-issue F is infeasible-clean within the fast loop: "arm" is corpus-wide vocabulary bound to stable anchors (#gov-18-arm-a, #substep-1-shutting-down-arm) and normative acceptance-criteria usage in session-only-degraded-state.md, requiring a coordinated corpus-spanning anchor-retagging sweep. urgent-review returned FindingResolved: partial (FloorRegressionCount 0). A human must re-file the "arm"-reservation sub-issue as a standalone, fully-enumerated rename finding (enumerating every anchor and acceptance-criteria site) so the fresh Stage C re-review can route it; the other six sub-issues are already resolved and need not be re-filed.
+> **Forensic report:** none (fast loop — no forensic report)
+
+# T050 - Audit / drain-state / runtime-event / provider-error cluster — naming and clarity drift
+
+**Original heading:** audit-resolution naming/clarity: family vs category ordinals; "arm" overloaded; drainStateTag vs tag; init vs mark setter prefixes; Group A capitalisation; numeric-run grammar; tie-break comparison basis
+**Original section:** docs/spec_topics/pi-integration-contract/ (audit-resolution, conversation-drive, runtime-event-channel, session-shutdown-semantics, session-only-degraded-state, drain-state-contract)
+**Kind:** naming, clarity, assumptions, implementability
+**Importance:** medium
+**Score:** 25
+**Must-fix:** false
+
+## Finding
+
+Four pages in the PIC subtree carry naming/clarity defects that survive a single read but accumulate into mis-implementations on the second:
+
+- **audit-resolution.md.** The audit's *failure families* `(1)..(5)` and its *target surface categories* `(1)..(3)` are both labelled with bare parenthesised ordinals, and (1)/(2)/(3) refer to **the same surfaces in both numberings** (family (1) ↔ category (1) = `pi.<member>`, family (2) ↔ category (2) = peer-package named imports, family (3) ↔ category (3) = canonical-`ctx` member access). The page never states the identity, never reserves one numbering as canonical, and switches between "family (N)" and "category (N)" within adjacent paragraphs; a reader treating them as independent enumerations is consistent with the text.
+- **audit-resolution.md.** The `readDrainState` snapshot's tie-break for legal multi-segment matches reports "the entry with the lexicographically-smallest `path`" without pinning the comparison basis (Unicode codepoint order vs locale-aware collation vs UTF-16 code-unit order). Two conforming implementations can disagree on the `proposed-resolution` field for entries whose `path` fields differ only above the ASCII range.
+- **drain-state-contract.md.** The word "arm" denotes at least four distinct concepts on the page: (i) a member of the closed `drainStateTag` value set (`"shutting-down"` / `"degraded-needs-reload"` "arms"), (ii) a `readDrainState` dispatch branch (a/b/c), (iii) a `try`/`catch` "catch arm", and (iv) a "predicate arm" in the predicate-split clause. The terms are spatially adjacent and an implementer chasing "arm (c)" through cross-references repeatedly has to disambiguate by surrounding context rather than by name.
+- **drain-state-contract.md.** The same field is named `drainStateTag` (internal write/read) and `tag` (snapshot key). The page explains the rename ("snapshot keys kept short for dispatch-site concision") but the burden is paid at every cross-reference — and the explanation references the longer name in three sibling sites (`initDrainStateTag`, `readDrainState`, the `loomRegistry.initDrainStateTag` `details.call` label) that would all have to move under any future unification.
+- **drain-state-contract.md.** Two setters for the same field use mismatched prefixes: `initDrainStateTag` (idempotent write iff undefined → `"shutting-down"`) and `markRuntimeDegraded` (unconditional → `"degraded-needs-reload"`). The behavioural asymmetry is real, but the prefix choice ("init" vs "mark") encodes neither side of it consistently — an `initRuntimeDegraded` / `markDrainStateTag` swap would convey the opposite semantics with equal text. The names do not signal "first-write-wins vs last-write-wins" to a reader.
+- **runtime-event-channel.md.** The always-log routing partition is introduced as "**group A**" / "**group B**" (lowercased, line 40) and then referenced as "Group A —" / "Group B —" section labels (lines 46, 55) and "group A only … group B" in the dedup-key sentence (line 57). Three capitalisations of two named partitions on one page.
+- **provider-error-mapping.md.** The *numeric run* definition for overflow-token extraction reads "a maximal substring of decimal digits that may contain `,` or `_` digit-group separators (the separators are stripped before the run is parsed as a base-10 integer)". The grammar is under-specified at three edges: (a) whether a separator may lead or trail a run (`,123` / `123,`), (b) whether adjacent separators are admitted within a run (`1,,234`), and (c) whether two runs joined by a non-separator non-digit character (e.g. `1,000-2,000`) count as one or two. The rule is normative (it determines whether `tokens_used`/`tokens_limit` populate or fall back to `null`) and the "two conforming implementations produce identical values" guarantee in the same paragraph fails if any of the three edges diverges.
+
+Each defect is small in isolation; together they constitute the naming/clarity surface every reader of this PIC cluster pays on entry.
+
+## Spec Documents
+
+- `docs/spec_topics/pi-integration-contract/audit-resolution.md` — *Target surface categories* cross-reference, *Category-(1)/(3) inventory join key* tie-break (edited)
+- `docs/spec_topics/pi-integration-contract/drain-state-contract.md` — *Handler control-flow ordering*, *`LoomRegistry` drain-state contract* Fields/Methods, *Read-failure fallback* (edited)
+- `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — **Runtime event channel** partition intro, Group A / Group B section labels (edited)
+- `docs/spec_topics/pi-integration-contract/provider-error-mapping.md` — *Overflow token-count extraction* (edited)
+- `docs/spec_topics/pi-integration-contract/audit-failures.md` — Family ordinals consume `audit-resolution.md`'s family numbering; any renumbering sweeps here too (read-only)
+- `docs/spec_topics/pi-integration-contract/audit-recognised-shapes.md` / `audit-target-categories.md` — Category numbering origin (read-only)
+- `docs/spec_topics/pi-integration-contract/patch-skew-degradation.md` — *Per-step isolation* references `drainStateTag` / `tag` and uses "arm" (edited)
+- `docs/spec_topics/pi-integration-contract/session-only-degraded-state.md` — *Predicate split* references the same predicate "arms" and the `drainStateTag` field name (edited)
+
+## Plan Impact
+
+**Phases:** N/A
+
+**Leaves (implementation order):** N/A
+
+(`docs/plan.md` carries no leaves yet — all three phase sections read "No leaves yet." Naming changes here will surface as plan-side citations once leaves are authored against these PIC pages; they do not currently block or modify any leaf.)
+
+## Consequence
+
+**Severity:** correctness
+
+The numeric-run grammar (sub-issue F) and the lexicographic tie-break basis (sub-issue G) both control conformance-observable outputs: `tokens_used`/`tokens_limit` population and the `proposed-resolution` field respectively. Two conforming implementations diverge silently at the under-specified edges, despite the same paragraphs claiming determinism. The remaining sub-issues (A–E) are advisory in isolation — readers pay an extra disambiguation step at every cross-reference — but compound the implementer-error rate against the rest of the PIC cluster where these terms are load-bearing.
+
+## Solution Space
+
+**Shape:** single
+**State:** reduced
+
+Resolve the seven sub-issues as seven ordered edits, smallest scope-bounding first so the larger renames land on a stable baseline.
+
+1. **Standardise Group capitalisation in `runtime-event-channel.md`.** The section labels at lines 46 and 55 already title-case ("Group A —", "Group B —"); standardise the prose at line 40 to "members in **Group A**" / "**Group B**" and the dedup-key sentence at line 57 to "apply to Group A only" / "no analogue for Group B". Three substitutions, no semantic change.
+
+2. **Pin the lexicographic tie-break basis in `audit-resolution.md`.** Append one clause to the *Category-(2) inventory join key* tie-break sentence stating the comparison basis: "lexicographically-smallest by Unicode codepoint order (equivalently: `<` on the JavaScript string primitive, which compares UTF-16 code units; for inventory `path` fields restricted to the BMP this is identical to codepoint order)."
+
+3. **Pin the numeric-run grammar in `provider-error-mapping.md`.** In the *Overflow token-count extraction* paragraph, replace the prose parenthetical with the regex `[0-9]+(?:[,_][0-9]+)*` (one-or-more digits, optionally followed by separator-bounded digit groups) plus an explicit boundary statement: "Two adjacent matches of the regex above are distinct numeric runs; the scan yields all non-overlapping leftmost-longest matches in source order." This closes the leading/trailing-separator, doubled-separator, and non-separator-joined edges. Add one or two worked examples, e.g. `"prompt is too long: 12,345 tokens (max 8,192)"` → two runs `12345` / `8192`; `"got 1,,234"` → two runs `1` / `234`.
+
+4. **Move the `drainStateTag`/`tag` rationale to a footnote in `drain-state-contract.md`.** Keep the two names distinct (the spec already rationalises them on snapshot-key concision grounds), but relocate the ~150-word explanatory paragraph out of the normative Methods enumeration into a one-line footnote/aside near the first mention of `tag`, and add a glossary cross-reference. This removes the cognitive interrupt mid-enumeration without a rename sweep.
+
+5. **Align the setter prefixes in `drain-state-contract.md`.** Keep `markRuntimeDegraded` and rename `initDrainStateTag` → `markRuntimeShuttingDown`, so the two methods symmetrically describe the runtime state they transition to. Apply the rename to the Methods bullets, the *Per-step isolation* `details.call` labels in `patch-skew-degradation.md`, the *Handler control-flow ordering* references at steps (III)/(V)/(VI), and the all-three-throw corner-case enumeration in the *idempotent* clause.
+
+6. **Reserve "arm" for the `readDrainState` dispatch branches (a)/(b)/(c) in `drain-state-contract.md`.** Rename the other three usages: "two-arm tag set" → "two-value tag set" (individual values are "the `\"shutting-down\"` value" / "the `\"degraded-needs-reload\"` value"); "catch arm" → "catch branch"; "predicate arm" → "predicate case". Edit *Handler control-flow ordering*, *Read-failure fallback*, and the `LoomRegistry` drain-state contract Fields and Methods bullets, then sweep `patch-skew-degradation.md` (*Per-step isolation*, *unset tag fallback*) and `session-only-degraded-state.md` (*Predicate split*).
+
+7. **State the family↔category identity in `audit-resolution.md`, keeping both numberings.** Add an identity statement to the *Target surface categories* preamble: "family (N) for N ∈ {1, 2, 3} names the violation discriminator for category (N) above; families (4) and (5) have no category analogue (out-of-shape / stale-marker)." Replace bare "family (N)" references at *Exemption mechanism* and *Stale-marker discriminator* with anchor references. Defer any renumber of families to letters unless the upstream "step-2b branch (4)/(5) route to each other's inverse family" finding adopts a compatible renumbering, in which case fold both renames into one sweep.
+
+### Edge cases
+
+- In step 6, the *unset tag fallback* clause in `patch-skew-degradation.md` uses "two-arm" to mean both "the closed value set sub-step 1 pins" and "the dispatch-branch enumeration". Preserve the first meaning under the new term ("two-value tag set") even as the second migrates to keep "arm".
+- In step 5, the rendered system-note string `"loom /<name>: extension shutting down"` (the arm-(b) note) is operator-visible and is **not** changed by the method rename; verify no reviewer assumes the rename propagates to the note text.
+- In step 3, apply the regex with leftmost-longest, non-overlapping matching so that "exactly two numeric runs" is deterministic; check the provider-message corpus against the chosen separator set (`,`/`_`) — any production message using a different thousands separator either needs the grammar widened or moves to the `null` fallback.
+
+## Relationships
+
+- T044 "Family-(5) malformed-marker per-clause `<symptom>` token requirement is asserted derivatively but never normatively pinned" - same-cluster (both touch family-(5) discriminator semantics; resolve independently)
+- T058 "Step-2(b) family→branch correspondence inverts at the family-distinctive arms" - decision-overlap (any family-numbering change here cascades into the branch numbering in step-2b; resolve the family numbering first)
+- T117 "Runtime-event channel: undefined "occurrence" vs "origin"; PIC-1 pure-read MUST has no observable projection; per-site mask-domain table split from CIO" - same-cluster (sibling `runtime-event-channel.md` clarity issue; resolve independently)
