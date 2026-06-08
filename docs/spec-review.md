@@ -4,7 +4,7 @@ _Generated: 2026-06-07T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 4 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 3 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
 
 ---
 
@@ -100,34 +100,4 @@ Reconcile the schema to the detection prose. Add a `raw_response: string | null`
 ## Relationships
 
 None
-# T07 - Subagent transcript-discard presupposition is stated but not routed to the bump checklist
 
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 35
-**Must-fix:** false
-**Decision axes:** 2
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The subagent-mode privacy guarantee — that the in-memory session's transcript stays private to the loom and is discarded when the loom returns — is a load-bearing presupposition on Pi's `SessionManager.inMemory(cwd)` behaviour, and the loom asserts no independent behavioural check on it. Capability item 3 (`#sdk-cap-subagent-isolated-session` in `capability-inventory-items.md`) records this as an "accepted risk … on the same footing as the others audited under item (o)", but item (o) of the `version-bump-step2.md` editorial-review checklist confirms only the `inMemory` factory signature, not the no-persistence behaviour. Unlike every other unpinned host presupposition, the transcript-non-retention property has no dedicated `(a)`–`(ai)` checklist row, so a Pi minor that preserved the signature while persisting the transcript would go uncaught at bump time. The page's closing meta-rule — any presupposition routing its detection to editorial review MUST be added to the checklist in the same edit — is therefore violated, and the "same footing" claim is not literally true.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 252acda — pi-loom spec: resolve "SessionManager.inMemory transcript-privacy guarantee is unverified" (2026-06-05, Thomas Andersen)
-**History:** 252acda authored capability item 3's transcript-privacy paragraph, recording the no-persistence presupposition as an "accepted risk … on the same footing as the others audited under item (o)" and routing its detection to editorial review. The same commit added no dedicated `(a)`–`(ai)` checklist row to `version-bump-step2.md` for the no-persistence behaviour, so the page's routing-to-checklist meta-rule was left violated from the moment the paragraph landed.
-
-## Solution approach
-
-Add a new editorial-review checklist item to `version-bump-step2.md` covering the transcript-non-retention behavioural property of `SessionManager.inMemory(cwd)`, alongside item (o)'s `#bump-checklist-subagent-spawn-satellite-types` signature audit, describing a SHOULD-level audit task that reads the in-memory branch's JS body against the `#bump-baseline-acquisition` extract to confirm transcript discard rather than persistence, with the same `pass`/`fail`/`N/A`/`not-performed` recording semantics the other `(f)`–`(ai)` rows use. Add a forward-link from item (o) to the new row and forward-anchor capability item 3 from it. Rewrite capability item 3's trailing accepted-risk sentences in `capability-inventory-items.md` to forward-link the new checklist row instead of recording an unrouted accepted risk. Update the intro paragraph's `items (a)–(e)` and `items (f) through (ai)` range literals to reflect the added item.
-
-## Solution constraints
-
-- The detection routing is editorial review at bump time only — do not add a runtime behavioural probe or any loom-side independent check of in-memory transcript persistence.
-
-## Relationships
-
-None
