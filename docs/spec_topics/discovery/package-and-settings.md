@@ -8,7 +8,7 @@
 
 1. `.pi/npm/` — project-scope npm packages installed via `pi install` (see `packages.md` §npm).
 2. `.pi/git/<host>/<path>/` — project-scope git packages cloned via `pi install` (see `packages.md` §git).
-3. `node_modules/` — project-local npm dependencies brought in via the project's own `package.json` rather than `pi install`.
+3. `node_modules/` — project-local npm dependencies brought in via the project's own `package.json` rather than `pi install`. Entries here are classified by the same `lstat`-based immediate-child rule used for the other roots (see the candidate-enumeration paragraph below); because `lstat` does not follow symlinks (per [PIC-13](../pi-integration-contract/host-interfaces-services.md#pic-13)), an entry that is a symlink rather than a real directory reports `isSymbolicLink()` true and `isDirectory()` false and is filtered out silently — it is neither a candidate package nor a scope directory. pnpm's default isolated node-linker writes top-level `node_modules/<pkg>` entries as symlinks into `node_modules/.pnpm/…`, so looms shipped by pnpm-isolated dependencies are out of scope for this root; such projects install loom packages via `pi install` (roots 1 or 4) or switch pnpm to its hoisted node-linker mode.
 4. `~/.pi/agent/npm/` — global npm packages installed via `pi install -g`. When `npmCommand` is configured (per `packages.md` §npm), Pi resolves the global root and the extension reads that already-resolved root instead of the literal path; the extension does not itself invoke `npmCommand`.
 5. `~/.pi/agent/git/<host>/<path>/` — global git packages cloned via `pi install`.
 
