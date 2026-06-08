@@ -4,7 +4,7 @@ _Generated: 2026-06-07T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 8 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 6 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
 
 ---
 
@@ -187,71 +187,3 @@ In § *Lowering Algorithm* step 3, extend the loom-source-declaration-order rule
 ## Solution constraints
 
 - None.
-
-## Relationships
-
-- T16 "`Result<T, E>` admissible in lowered-schema positions with no lowering rule and no rejection" — same-cluster (another lowering-algorithm gap in the same canonical-hash input contract; resolves independently)
-# T15 - `Result` in wire-positions has neither a lowering nor a rejection
-
-**Kind:** assumptions, implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The grammar's `**Generic-application constructors.**` paragraph admits `Result<T, E>` in every `Type` position as part of the closed `{array, Result}` constructor set, including schema field types, `params:` field types, and `array<T>` element types. Two downstream surfaces fail to dispose of this admissibility: the Lowering Algorithm in `schema-subset.md` (step 3) enumerates an emission rule for every other type form but has no `Result` case, and `code-registry-parse.md` registers no diagnostic rejecting `Result` in a schema-feeding position (unlike `loom/parse/void-in-non-return-position` for `void`). The `Result<T, E>` row of `runtime-value-model.md` asserts that `Result` values "cross the wire only via schema-driven encodings defined by the relevant call site," but no such call-site encoding is defined anywhere in the corpus. An implementer cannot tell whether `schema R { outcome: Result<integer, string> }` is a parse error, a lowering obligation, or silently accepted with implementation-defined wire bytes — and the resulting schema-slug divergence corrupts every content-addressed surface keyed by the canonical schema hash.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 1c552ff — pi-loom spec: resolve "Type grammar admits no generic application beyond array<T>" (2026-06-04, Thomas Andersen)
-**History:** 1c552ff widened grammar.md's closed `GenericType` constructor set from `array` alone to `{array, Result}`, making `Result<T, E>` admissible in every `Type` position, including schema-feeding ones. The same commit added only the `loom/parse/generic-arity-mismatch` diagnostic, registering no rejection of `Result` in a schema position and adding no `schema-subset.md` Lowering-Algorithm case, so the unresolved disposition entered with that single edit.
-
-## Solution approach
-
-Register a new parse diagnostic `loom/parse/result-in-schema-position` in `code-registry-parse.md`, modelled on the `loom/parse/void-in-non-return-position` row, rejecting `Result` in schema field types, `params:` field types, and any type reachable transitively from them (including `array<T>` element types and union arms). Add a position-restriction sentence to grammar.md's `**Generic-application constructors.**` paragraph, parallel to the existing `void` restriction, naming the rejecting diagnostic. Rewrite the `Result<T, E>` row of `runtime-value-model.md` to drop the unbacked "schema-driven encodings defined by the relevant call site" clause and state instead that `Result` values are observed only by loom code and never appear in a lowered schema.
-
-## Solution constraints
-
-- Resolve by parse-time rejection: do not add a `Result` emission case to `schema-subset.md`'s Lowering Algorithm step 3.
-
-## Relationships
-
-- T16 "`Result<T, E>` admissible in lowered-schema positions with no lowering rule and no rejection" — co-resolve (the same gap surfaced from `schema-subset.md`; one edit closes both)
-# T16 - `Result<T, E>` admissible in lowered-schema positions with no lowering rule and no rejection
-
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Decision axes:** 3
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`grammar.md`'s type grammar admits `Result<T, E>` in every `Type` position, including schema field types, `params:` field types, `array<T>` element types, and union arms — positions that feed `schema-subset.md`'s Lowering Algorithm step 3. Step 3 enumerates an emission rule for every other type form but has no case for `Result`, and no parse-time diagnostic rejects `Result` when it appears in a lowered-schema position (e.g. `schema Foo { x: Result<integer, QueryError> }`). An implementer cannot decide whether such a source is a parse error or a lowering bug, and `runtime-value-model.md` already disclaims any direct wire shape for `Result`. The divergence corrupts content-addressed schema-slug identity (it feeds `__inline_<slug>`, `__loom_respond_<slug>`, and the validator cache), not just the immediate validation result.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 1c552ff — pi-loom spec: resolve "Type grammar admits no generic application beyond array<T>" (2026-06-04, Thomas Andersen)
-**History:** 1c552ff added `Result` to grammar.md's closed `{array, Result}` generic-application set, admitting `Result<T, E>` in lowered-schema positions including schema field and `params:` types. It registered no parse-time rejection and added no `schema-subset.md` Lowering-Algorithm emission case for `Result`, so a `Result` in a lowered-schema position has had neither a lowering nor a rejection since that commit.
-
-## Solution approach
-
-Extend `grammar.md`'s `void`-exclusion paragraph (alongside the `Generic-application constructors` note pinning the closed `{array, Result}` set) with a parallel rule that rejects `Result` wherever it appears, directly or transitively, in a lowered-schema position — schema field types, `params:` field types, and any type reachable from those, including `array<T>` element types and union arms. Add a sentence to `schema-subset.md`'s Lowering Algorithm step 3 stating that `Result<T, E>` is not a lowerable type form and is rejected before the lowering pass. Register a new `loom/parse/*` diagnostic in `docs/spec_topics/diagnostics/code-registry-parse.md` for the rejected positions.
-
-## Solution constraints
-
-- `Result` MUST remain admissible in its language-surface positions (`fn` parameter and return types, `let` annotations, generic arguments outside lowered-schema positions, `invoke<Type>` / type-ascription contexts, and `@`-query result observation); only lowered-schema positions are rejected.
-
-## Relationships
-
-- T15 "`Result` in wire-positions has neither a lowering nor a rejection" — co-resolve (the same gap surfaced from `runtime-value-model.md`; one edit closes both)
-- T14 "Lowered JSON array element order is unpinned and breaks schema-slug determinism" — same-cluster (another lowering-algorithm gap; resolves independently)
-- T17 "`<ctor>` placeholder is unenumerated in the closed rendering surface" — same-cluster (both turn on the closed `GenericType` constructor set `{array, Result}`; independent fix)
