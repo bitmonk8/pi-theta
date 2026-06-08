@@ -4,7 +4,7 @@ _Generated: 2026-06-07T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 0 high, 8 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 8 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
 
 ---
 
@@ -255,33 +255,3 @@ Extend `grammar.md`'s `void`-exclusion paragraph (alongside the `Generic-applica
 - T15 "`Result` in wire-positions has neither a lowering nor a rejection" — co-resolve (the same gap surfaced from `runtime-value-model.md`; one edit closes both)
 - T14 "Lowered JSON array element order is unpinned and breaks schema-slug determinism" — same-cluster (another lowering-algorithm gap; resolves independently)
 - T17 "`<ctor>` placeholder is unenumerated in the closed rendering surface" — same-cluster (both turn on the closed `GenericType` constructor set `{array, Result}`; independent fix)
-# T17 - `<ctor>` placeholder is unenumerated in the closed rendering surface
-
-**Kind:** implementability
-**Importance:** blocker
-**Score:** 200
-**Must-fix:** true
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The closed placeholder-rendering surface defined by the **Closure** clause in `docs/spec_topics/diagnostics/placeholder-rendering-a.md` admits only placeholders enumerated in categories 1–7, §8 placeholders, or four explicitly-named carve-outs, and enforces this at build time. The `<ctor>` token in the `loom/parse/generic-arity-mismatch` row of `docs/spec_topics/diagnostics/code-registry-parse.md` is enumerated in none of those categories and is not a carve-out, so the build-time closure check rejects the row. The token also carries no defined rendering rule, leaving the byte-identicality contract over the row undefined and free for two conformant implementations to disagree.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 1c552ff — pi-loom spec: resolve "Type grammar admits no generic application beyond array<T>" (2026-06-04, Thomas Andersen)
-**History:** The closed placeholder-rendering surface, enforced at build time, predates this finding (it was established by the 2026-05-26 closure-clause work on the placeholder-rendering pages). 1c552ff then added the `loom/parse/generic-arity-mismatch` registry row carrying the `<ctor>` placeholder, which is enumerated in none of the closure categories and is not a carve-out. The unenumerated placeholder entered the registry with that single commit.
-
-## Solution approach
-
-Enumerate `<ctor>` in category 7 (*Identifier-, descriptor-, and closed-enum placeholders*) of `docs/spec_topics/diagnostics/placeholder-rendering-b.md`, adding it to the section's **Placeholders** list and to the **Closed-enum** sub-list with the closed value set `{array, Result}`. Cross-reference grammar.md's *Generic-application constructors* paragraph as the source of truth for that set so its existing GOV-7/GOV-8 closed-enum versioning posture governs future widening.
-
-## Solution constraints
-
-- None.
-
-## Relationships
-
-- T16 "`Result<T, E>` admissible in lowered-schema positions with no lowering rule and no rejection" — same-cluster (both reference the closed `GenericType` constructor set `{array, Result}`; independent fix)
