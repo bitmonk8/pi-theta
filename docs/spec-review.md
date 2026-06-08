@@ -4,7 +4,7 @@ _Generated: 2026-06-07T00:00:00Z_
 _Spec: docs/spec.md_
 _Process: bottom-up - the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 6 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 5 medium, 0 low retained; 197 low discarded; 0 low findings merged into 0 medium findings; 91 nit dropped; 0 false dropped._
 
 ---
 
@@ -161,29 +161,3 @@ Reconcile the two rule sets so DIAG-2/3/4-class registry edits have a defined GO
 ## Relationships
 
 None
-# T14 - Lowered JSON array element order is unpinned and breaks schema-slug determinism
-
-**Kind:** prescription
-**Importance:** medium
-**Score:** 25
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-`schema-subset.md` § *Canonical schema hash* step 2 (Canonical form) pins object-key ordering and numeric-literal rendering for the byte sequence the schema slug is hashed from, but says nothing about the element order of arrays inside the lowered fragment. Several subset-admissible keywords carry array values that feed the SHA-256 input directly: the `{"type": [...]}` primitive-union form, `enum`, object `required`, and `anyOf`. Two conforming implementations that emit the same JSON Schema with different array orderings therefore produce different schema slugs — and so different `__inline_<slug>`, `__loom_respond_<slug>`, `__loom_callee_<slug>__…`, and `__loom_bind_<slug>` names and AJV cache keys — silently breaking step 2's contract that fragments which lower identically produce the same slug. The Object emission rule in § *Lowering Algorithm* step 3 pins property order to loom-source declaration order, but no parallel rule covers these array-valued positions.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** e21449b — pi-loom spec: resolve "__inline_<hash> hash function is not pinned" (2026-05-04, Thomas Andersen)
-**History:** e21449b introduced the `Canonical schema hash` section, whose step 2 (Canonical form) pins object-key sort order but says nothing about the element order of arrays in the lowered fragment. The array-valued emission positions (`{"type":[…]}`, `enum`, `required`, `anyOf`) have been unpinned since that section was authored; the companion Lowering-Algorithm property-order rule covers only object properties and was never extended to arrays.
-
-## Solution approach
-
-In § *Lowering Algorithm* step 3, extend the loom-source-declaration-order rule that currently governs object `properties` to fix the element order of every array-valued emission position the subset admits — the `{"type": [...]}` primitive-union form (with `null` last when the union includes it), `enum`, `required`, and `anyOf`. In § *Canonical schema hash* step 2, add a canonical-form bullet stating that array elements are preserved in the order fixed by the Lowering Algorithm and are not reordered by the canonical-form recipe, mirroring the existing note that key sorting is independent of emitted property order.
-
-## Solution constraints
-
-- None.
