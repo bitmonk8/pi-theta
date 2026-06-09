@@ -4,7 +4,7 @@ _Generated: 2026-06-09T12:30:00Z_
 _Spec: docs/spec.md_
 _Ordered by importance (least→most important, top→bottom); processed bottom-up. IDs preserved from the prior triage (so they are not monotonic top-to-bottom)._
 
-_Triage tally: 3 high retained in-document (3 findings); all medium and lower findings removed in a post-recalibration prune._
+_Triage tally: 2 high retained in-document (2 findings); all medium and lower findings removed in a post-recalibration prune._
 
 ---
 
@@ -72,44 +72,3 @@ Rewrite the cross-type trigger in `runtime-value-model.md` `id="equality"` to a 
 ## Relationships
 
 None
-
----
-
-# T26 - Direct slash-invocation of a subagent-mode loom returning top-level `Err` is unsurfaced
-
-**Kind:** error-model
-**Importance:** high
-**Score:** 100
-**Must-fix:** false
-**Shape:** single
-**State:** reduced
-
-## Problem
-
-The user-facing surfacing rule SLSH-3 (`#slsh-3` in `slash-invocation.md`) is scoped in both its title and its trigger to *prompt mode* — it fires only when a prompt-mode loom returns `Err(QueryError)` to the user's session. The page enumerates two slash-dispatch execution modes (prompt and subagent) but supplies no parallel surfacing rule for the subagent case. A user who directly slash-invokes a subagent-mode loom that terminates in `Err` therefore has no specified observable: success is silent per the runtime-event-channel `#success-side-null-policy`, and the only `loom-system-note` the runtime issues for the failure routes `display: false` into the spawned subagent's private in-memory transcript, which PIC-9's disposal `finally` destroys before any consumer can read it. The hole sits between two adjacent rules — SLSH-3's prompt-mode scope and the runtime-event-channel cascade rule's privacy default — neither of which addresses the subagent-mode + top-level + slash-entry configuration.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** `53f5831` (2026-05-03), `b3bc4ce` (2026-05-04), `4498b31` (2026-05-06)
-**History:** The hole opened across three commits that each correctly handled their own scope:
-
-- `53f5831` — "spec: rewrite query primitive, system prompts, and schema syntax" — introduced the *Top-level `Err` in prompt mode* paragraph (later promoted to SLSH-3) scoped from inception to "When a prompt-mode loom returns `Err(QueryError)` to its caller (the user's session)". Subagent mode was deliberately out of scope at the time the rule was authored.
-- `b3bc4ce` — "spec: pin failure-observability surface (Cluster A, Option C)" — added the operator-facing runtime event channel and chose `display: false` for "Subagent-mode top-level `Err` cascades", justifying it with "the subagent transcript is private". The justification is correct for the cascade-from-invoke case but silently inherits the directly-slash-invoked-subagent case as well.
-- `4498b31` — "loom-system-note display:false delivery and empty content not contracted" — pinned the Delivery surface, including the rule that subagent-mode `display: false` cascades route through `pi.sendMessage` *against the spawned `AgentSession`* (i.e. into the soon-to-be-disposed private transcript). This made the unobservability concrete: the note now has a well-defined destination, but that destination is unreachable to any consumer after `dispose()` runs.
-
-No single commit "introduced" the defect; each correctly handled the cascade-from-parent case it had in scope. The defect is the cumulative interaction between SLSH-3's prompt-mode scoping and the cascade-rule's privacy default, neither of which addresses the third configuration (subagent-mode + top-level + slash entry).
-
-## Solution approach
-
-Rewrite SLSH-3 in `slash-invocation.md` so its trigger fires for any loom at the slash-dispatch boundary that terminates with `Err(QueryError)`, regardless of mode, and add a forward-link from the *Once a loom is invoked* subagent-mode bullet to SLSH-3. Rewrite the runtime-event-channel Delivery-surface and `display:` rules so a directly slash-invoked top-level cascade emits `display: true`, while subagent-mode cascades reached from inside another loom via `invoke(...)` / `.loom`-callable retain `display: false` and the spawned-session delivery. Clarify the discriminator using the glossary's *caller* terminology — a direct slash invocation is a chain root with a slash caller and no invoke parent — so the prompt → prompt `invoke(...)` cascade is not misclassified. The error-model Panics table's *Slash-command / prompt-mode invocation* surface is the existing routing template for this path.
-
-## Solution constraints
-
-- SLSH-3's anchor `id="slsh-3"` is a governed identifier; this is a prose/scope edit and must not rename or re-allocate the anchor.
-
-## Relationships
-
-None
-
-
