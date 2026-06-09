@@ -4,6 +4,8 @@ Copy this file when authoring a new leaf. Replace the `<…>` placeholders, dele
 
 The leaf ID convention is `<group><letter>` where `<group>` is one of `H1`–`Hn` (horizontal), `M` (MVP), or `V1`–`Vn` (vertical slice) and `<letter>` is `a`, `b`, `c`, … for the leaves within that group. Group IDs are editorial; leaves are the unit of work. See [`conventions.md`](./conventions.md) for the phase categories, the TDD ritual, and the cross-cutting rules every leaf inherits.
 
+MVP and vertical features are authored as **two paired leaves** (TDD as two separate tasks per [`conventions.md`](./conventions.md)): a **tests task** with ID `<id>-T` and an **implementation task** with ID `<id>`. Copy this template once per leaf in the pair. The tests task's **Ships when** is the red-state condition ("the tests below exist, compile, and fail for the intended reason"); the implementation task's **Ships when** is the externally observable change, and it lists `<id>-T` in **Deps.** Horizontal leaves are single (no `-T` pair).
+
 ---
 
 # `<id>` — `<short title>`
@@ -22,4 +24,4 @@ _(One bullet per REQ-ID this leaf claims to close. A leaf MAY close part of a RE
 
 _(Cite specific leaf IDs (`V4b`, `V9a–V9e`); never a bare group token (`V4`). Use ranges where contiguous, comma-separated lists where not.)_
 
-**Ships when.** _A concrete, externally observable change — e.g. "`npm test` includes a passing assertion that …", "running `pi /<name> …` in a real Pi session produces …", "`<file>` exists with `<header>` and the architectural test for it passes"._
+**Ships when.** _For an implementation task or a horizontal leaf: a concrete, externally observable change — e.g. "`npm test` includes a passing assertion that …", "running `pi /<name> …` in a real Pi session produces …", "`<file>` exists with `<header>` and the architectural test for it passes". For a tests task (`<id>-T`): "the tests above exist, compile, and fail red for the intended reason."_

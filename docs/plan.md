@@ -7,8 +7,16 @@ Companion to [`spec.md`](./spec.md). The plan is a set of per-phase leaf pages u
 1. Read [`plan_topics/conventions.md`](./plan_topics/conventions.md) once — it covers the three phase categories (horizontal / MVP / vertical), the per-phase TDD ritual, the leaf format, and the project-wide cross-cutting rules.
 2. Author new leaves by copying [`plan_topics/leaf-template.md`](./plan_topics/leaf-template.md) and saving under `plan_topics/<id>-<short-name>.md`. Link the new leaf into the appropriate section below.
 3. Pick the next leaf whose **Deps** are satisfied. Open that leaf's page; read only the leaf and the spec topic(s) listed under its **Spec** field.
-4. Follow the TDD ritual; tag the commit `<id>-complete` when the **Ships when** condition is observable.
+4. Follow the per-phase TDD ritual. MVP and vertical features are two paired tasks — land the tests task `<id>-T` first (tag `<id>-T-complete`), then the implementation task `<id>` (tag `<id>-complete` when its **Ships when** condition is observable). Horizontal leaves are a single task tagged `<id>-complete`.
 5. Maintain [`plan_topics/coverage-matrix.md`](./plan_topics/coverage-matrix.md) so every executable spec REQ-ID has at least one closing leaf by the loom 1.0 release gate.
+
+---
+
+## Scope
+
+**In scope.** This plan implements loom 1.0 as defined by [`spec.md`](./spec.md) and its topics. Every leaf traces to a spec REQ-ID, or — for horizontal leaves — to a [`conventions.md`](./plan_topics/conventions.md) section.
+
+**Out of scope.** The loom 1.0 non-goals and deferred forward-compatibility seams are owned by the spec, not this plan: see [`spec.md` — Scope](./spec/overview-and-orientation.md#scope) and [Future Considerations — loom 1.0 non-goals](./spec_topics/future-considerations/model-changes-and-non-goals.md#v1-non-goals). No leaf implements a non-goal or a deferred seam; a step that appears to require one is scope creep — fix the spec first (per the **Spec drift** rule in [`conventions.md`](./plan_topics/conventions.md)) before planning it. Post-loom-1.0 surface extensions and model-level changes are likewise out of scope.
 
 ---
 

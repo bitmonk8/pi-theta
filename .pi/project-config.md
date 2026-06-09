@@ -95,7 +95,12 @@ fragment identifiers and do not interact with `idAllocationPolicy`.
 Plan-leaf IDs follow `H1`–`H4` (horizontal phases), `M` (MVP), and
 `V<N><letter>` (vertical-slice leaves, e.g. `V4b`, `V18o`). When picking a
 new leaf ID, use the next free letter in the target phase; never reuse a
-retired ID.
+retired ID. MVP and vertical features are authored as two paired leaves
+(TDD as two separate tasks): a tests task with a `-T` suffix (`V4b-T`,
+`M-T`) and an implementation task with the bare ID (`V4b`, `M`); the
+implementation task lists its `-T` tests task in `Deps.` Horizontal
+leaves are single (no `-T` pair). See
+`docs/plan_topics/conventions.md` for the binding ritual.
 
 The plan has cross-cutting files at `docs/plan_topics/conventions.md` (leaf
 format / authoring conventions) and `docs/plan_topics/coverage-matrix.md`

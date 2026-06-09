@@ -6,20 +6,29 @@ Three kinds of phase:
 2. **MVP phase.** The smallest end-to-end `.loom` that runs as a Pi slash command — a single narrow vertical proving the pipeline before slice work begins.
 3. **Vertical slices.** Each slice is a coherent feature area (lexer, expressions, schemas, queries, …). Each leaf inside a slice is the smallest feature that can ship and be tested independently. Slices are roughly ordered by their dependency DAG; non-linear deps are stated in each leaf's **Deps** field. Reorder freely as long as the deps DAG is respected.
 
-Leaves are the unit of work; slice grouping is editorial. Leaf IDs follow `<group><letter>` (e.g. `V4b`). The IDs `H1`–`Hn`, `M`, and `V1`–`Vn` (with their leaf forms) are reserved for plan phases — when plan prose needs to refer to the initial release of the loom language, write "loom 1.0" or "the initial release"; never reuse a plan ID for that meaning.
+Leaves are the unit of work; slice grouping is editorial. Leaf IDs follow `<group><letter>` (e.g. `V4b`); MVP and vertical features additionally carry a paired **tests-task** leaf whose ID is the feature ID with a `-T` suffix (e.g. `V4b-T`, `M-T`). The IDs `H1`–`Hn`, `M`, and `V1`–`Vn` (with their leaf and `-T` forms) are reserved for plan phases — when plan prose needs to refer to the initial release of the loom language, write "loom 1.0" or "the initial release"; never reuse a plan ID for that meaning.
 
 ## Per-phase TDD ritual (mandatory)
 
-Every leaf runs the same loop:
+TDD is expressed as **two separate tasks** for every MVP and vertical feature; horizontal infrastructure leaves run a single-task ritual.
 
-1. **Tests first.** Write the failing tests for *every* spec rule the leaf introduces. One assertion per rule where practical. A test that would pass when prerequisites are missing is a defect — fix it before writing code.
-2. **Implement.** Write the smallest correct increment that turns the red tests green. Correctness is the goal; tests are the evidence. Do not under-implement to game a thin test, and do not add speculative APIs (unused exports, public hooks no test in this leaf or its declared downstream consumers exercises).
-3. **Run.** All tests green; type-check clean; lint clean.
-4. **Self-review.** Re-read the spec section, the diff, the test list. Check: any rule unverified? any silent skip? any broad `catch` that should be a specific type? any global / static / singleton creeping in?
-5. **Fix review issues.** Iterate from step 3 until the review is clean.
-6. **Phase exit gate.** "Ships when" criterion observable; tag commit `<id>-complete`.
+### MVP and vertical features — tests-task → implementation-task pairing
 
-A leaf is **not** complete until its exit gate is met. No "we'll fix it next slice" carry-overs.
+Each feature is an ordered pair of leaves, each landing as its own commit:
+
+1. **Tests task** — leaf ID `<id>-T` (e.g. `V4b-T`). Write the failing tests for *every* spec REQ-ID the feature introduces. One assertion per rule where practical. A test that would pass when prerequisites are missing is a defect — fix it before the implementation task. The tests task adds no production code beyond the minimum needed for the tests to compile and fail for the intended reason. **Ships when** the tests exist, compile, and fail red for the intended reason; tag the commit `<id>-T-complete`.
+2. **Implementation task** — leaf ID `<id>` (e.g. `V4b`). Lists `<id>-T` in its **Deps.** Then run the loop:
+   1. **Implement.** Write the smallest correct increment that turns the red tests green. Correctness is the goal; tests are the evidence. Do not under-implement to game a thin test, and do not add speculative APIs (unused exports, public hooks no test in this leaf or its declared downstream consumers exercises).
+   2. **Run.** All `<id>-T` tests green; type-check clean; lint clean.
+   3. **Self-review.** Re-read the spec section, the diff, the test list. Check: any rule unverified? any silent skip? any broad `catch` that should be a specific type? any global / static / singleton creeping in?
+   4. **Fix review issues.** Iterate from step 2 until the review is clean.
+   5. **Phase exit gate.** "Ships when" criterion observable; tag commit `<id>-complete`.
+
+A feature is **not** complete until the implementation task's exit gate is met. No "we'll fix it next slice" carry-overs.
+
+### Horizontal leaves — single task
+
+Infrastructure leaves are **not** test-paired (no `-T` leaf): they carry inline tests where they hold logic (architectural tests, lint-rule wiring, harness self-checks). A horizontal leaf runs the **Implement → Run → Self-review → Fix → exit gate** loop above in one task and ships when its "Ships when" condition is observable; tag the commit `<id>-complete`.
 
 ## Leaf format
 
@@ -28,7 +37,9 @@ Each leaf has the same fields, in the same order. The blank skeleton lives in [`
 - **Spec.** Page(s) under [`../spec_topics/`](../spec_topics/) the leaf implements (an implementer MAY restrict their reading to these pages), *or* **Convention.** Section(s) of this page the leaf operationalises (used by horizontal phases, which derive from project-level conventions rather than spec rules). The **Spec** field MUST be closed under normative cross-link: closure runs from each listed topic outbound, applies transitively to a fixed point, and excludes narrative cross-links per [`governance.md` GOV-3](../spec_topics/governance.md).
 - **Adds.** One sentence — what the leaf introduces.
 - **Tests.** Bullet list — one bullet per **REQ-ID** the leaf claims to implement; cite the ID inline (e.g. `BNDR-7: ...`). Where a leaf implements only part of a rule, each Tests bullet still cites its REQ-ID; the coverage matrix's REQ-ID-to-leaf mapping is many-to-many. The REQ-ID prefix table lives in [`../spec_topics/governance.md`](../spec_topics/governance.md). Pure-narrative pages — those whose row in the prefix table carries the `(no IDs — narrative)` cell per [`governance.md` GOV-3](../spec_topics/governance.md) — carry no IDs and need no leaf citation.
-- **Deps.** Other leaf IDs that must be complete first. Listed `-` if none. Cite specific leaf IDs (`V4b`, `V9a–V9e`); never a bare group token (`V4`) — group IDs are editorial only and a bare `VN` in `Deps.` is ambiguous between "every leaf" and "some subset". Use ranges where contiguous and comma-separated lists where not.
+- **Deps.** Other leaf IDs that must be complete first. Listed `-` if none. Cite specific leaf IDs (`V4b`, `V9a–V9e`); never a bare group token (`V4`) — group IDs are editorial only and a bare `VN` in `Deps.` is ambiguous between "every leaf" and "some subset". Use ranges where contiguous and comma-separated lists where not. An implementation task MUST list its paired `<id>-T` tests task here.
+
+  In the **coverage matrix**, each spec REQ-ID maps to the **implementation** leaf (`<id>`) that closes it (its green tests are the closure evidence); the paired `<id>-T` tests task is not listed separately.
 - **Ships when.** A concrete, externally observable change.
 
 ## Cross-cutting rules (every leaf)
