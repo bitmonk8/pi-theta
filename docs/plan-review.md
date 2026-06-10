@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 5 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 4 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1547,71 +1547,3 @@ Declare a dedicated YAML-parser dependency, following the established single-sou
 
 - T08 "Diagnostic-behaviour Tests bullets omit the registry code in V6a / V6b / V5d" — same-cluster (also targets V6a, but resolves independently — that one is about Tests-bullet code anchoring, not a missing dependency declaration).
 - T07 "H1a omits the `engines.node` field that downstream gates presuppose" — same-cluster (also edits H1a's `package.json` manifest authoring; resolves independently).
-
----
-
-# T23 — V11d uses the `SchemaValidator` (V8a) seam without declaring V8a in its dependency closure
-
-**Original heading:** Uses the SchemaValidator seam (V8a) outside its dependency closure
-**Original section:** V11d — system-prompt builder, defaulting, echo
-**Kind:** ordering
-**Importance:** high
-**Score:** 90
-**MustFix:** false
-
-## Finding
-
-Both paired leaves `V11d` and `V11d-T` assert the fill-then-revalidate path by calling `SchemaValidator.validate()` — the AJV-wrapper seam owned by `V8a` (PIC-11). Neither leaf's `Deps` field reaches `V8a`: `V11d` declares `V11d-T`, `V11a`, `V2a`, `V2d`, `V5d` and `V11d-T` declares `V11a`, `V2a`, `V2d`, `V5d`. The transitive closure of those deps (`V11a → V9b → {V9a, V10a, V8b}`; `V2a → V1a`; `V5d → {V5a, V5b, V2d}`) never includes `V8a`.
-
-Because the build order is dep-driven (How-to-use step 3), `V11d`/`V11d-T` become eligible before `V8a` has been built. An implementer picking up the leaf at that point finds the `SchemaValidator` seam unresolved, so the fill-then-revalidate test cannot compile or run as written.
-
-The sibling leaf `V11c`, which also consumes the same seam (the relaxed envelope copy validated against `SchemaValidator`), correctly lists `V8a` in its `Deps`. `V11d` is the inconsistent member of the pair.
-
-## Plan Documents
-
-- `docs/plan_topics/V11d-defaulting-echo.md` — `Deps.` field (edited)
-- `docs/plan_topics/V11d-T-defaulting-echo.md` — `Deps.` field (edited)
-- `docs/plan_topics/V8a-checkpoint-validator-seams.md` — `SchemaValidator` seam owner (read-only)
-- `docs/plan_topics/V11c-bypass-envelope.md` — sibling precedent that declares `V8a` (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V11 — Binder)
-
-**Leaves (implementation order):**
-
-- V11d-T — System-prompt builder, defaulting, and echo (tests) — (modified)
-- V11d — System-prompt builder, defaulting, and echo — (modified)
-
-## Consequence
-
-**Severity:** blocking
-
-When `V11d`/`V11d-T` are reached in DAG order their declared `Deps` are satisfiable before `V8a` exists, so the `SchemaValidator.validate()` reference in the fill-then-revalidate test is unresolved at build time. The leaf cannot be implemented or its red tests authored as written until `V8a` lands, and nothing in the leaf's deps forces that ordering.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e (2026-06-10) — initial plan build for spec.md
-**History:** The `V11d`/`V11d-T` `Deps` lines have read `V11d-T, V11a, V2a, V2d, V5d` / `V11a, V2a, V2d, V5d` (omitting `V8a`) since the leaf pages were first authored in c6a664e, where the fill-then-revalidate Tests bullet already relied on AJV re-validation. A later edit, b7e0181, rewrote the bullet to name `SchemaValidator.validate()` explicitly in both paired files but did not add `V8a` to either `Deps` list; it sharpened the seam reference without correcting the dependency.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add `V8a` to the `Deps` field of both paired leaves, mirroring the sibling `V11c`.
-
-- In `docs/plan_topics/V11d-defaulting-echo.md`, change the `Deps.` line to `**Deps.** \`V11d-T\`, \`V11a\`, \`V2a\`, \`V2d\`, \`V5d\`, \`V8a\``.
-- In `docs/plan_topics/V11d-T-defaulting-echo.md`, change the `Deps.` line to `**Deps.** \`V11a\`, \`V2a\`, \`V2d\`, \`V5d\`, \`V8a\``.
-
-Edge case: if `V11d` is later split, the `V8a` dependency belongs on whichever sub-leaf retains the fill-then-revalidate / post-merge AJV-validation test, not on the pure builder/echo sub-leaf.
-
-## Relationships
-
-None
