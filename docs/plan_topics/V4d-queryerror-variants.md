@@ -7,7 +7,7 @@
 **Tests.**
 - `ERR-14`: `validation_errors` are emitted in stable ascending order on (path, schema_keyword, message) by code point.
 - `ERR-15`: `QueryError.kind` is typed `string` (open seam), not a closed enum.
-- `ERR-17`: forced-respond non-compliance injects one synthesised `ValidationIssue` (path `""`, keyword `"required"`, branch-specific message) into respond-repair.
+- `ERR-17`: forced-respond non-compliance produces one synthesised `ValidationIssue` (path `""`, keyword `"required"`, branch-specific two-arm message).
 - `ERR-19`: `ToolLoopExhaustedError` fires when the per-query tool-call round cap is reached with no terminating turn.
 
 **Deps.** `V4d-T`, `V5d`

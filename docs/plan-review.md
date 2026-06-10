@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 10 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 9 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -673,76 +673,4 @@ Scope `V4d`'s ERR-19 to the **variant shape** and leave the firing assertion to 
 ## Relationships
 
 - T10 "V4d's ERR-17 test asserts respond-repair consumption it cannot observe" — same-cluster (identical shape-vs-behaviour split defect in the same `V4d` leaf; resolved by the same scope-down-and-relocate technique, independently).
-
----
-
-# T10 — V4d's ERR-17 test asserts respond-repair consumption it cannot observe
-
-**Original heading:** ERR-17 asserts injection into the respond-repair pipeline (V13d/V6e) absent from scope
-**Original section:** V4d — QueryError variants
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V4d`'s ERR-17 Tests bullet (and its paired `V4d-T`) asserts that forced-respond non-compliance "injects one synthesised `ValidationIssue` (path `""`, keyword `"required"`, branch-specific message) **into respond-repair**." The respond-repair loop is owned by `V13d` (configured by the `V6e` frontmatter fields), but `V4d`'s Spec set is `queryerror-variants.md` + `error-model.md` and its Deps are `V4d-T, V5d` — neither reaches `V13d`. `V4d` can construct the synthesised-issue *shape*, but it has no in-scope seam through which to observe that issue being *consumed* by the repair loop.
-
-In DAG order `V4d` is eligible long before `V13d` exists. An implementer authoring the ERR-17 test red against `V4d` alone must either fabricate a stand-in respond-repair consumer to witness the injection — diverging from `V13d`'s actual loop — or cannot author the consumption half red at all. The coverage matrix compounds the gap: ERR-17 maps to `V4d` only, so the genuine consumption assertion has no gated home, while the matrix's ERR-19 row (`V4d, V13c`) already models the correct shape/firing split for the sibling defect.
-
-## Plan Documents
-
-- `docs/plan_topics/V4d-queryerror-variants.md` — ERR-17 Tests bullet, Ships when (edited)
-- `docs/plan_topics/V4d-T-queryerror-variants.md` — ERR-17 Tests bullet (edited)
-- `docs/plan_topics/V13d-query-failure-repair.md` — Tests (edited)
-- `docs/plan_topics/V13d-T-query-failure-repair.md` — Tests (edited)
-- `docs/plan_topics/coverage-matrix.md` — ERR-17 row (edited)
-- `docs/plan_topics/V6e-respond-repair-tool-loop.md` — respond_repair / tool_loop frontmatter context (read-only)
-- `docs/plan.md` — slice listing (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slices
-
-**Leaves (implementation order):**
-
-- `V4d` — `QueryError` variant schema — (modified)
-- `V4d-T` — `QueryError` variant schema (tests) — (modified)
-- `V13d` — Query failure and respond-repair — (modified)
-- `V13d-T` — Query failure and respond-repair (tests) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-`V4d`'s dependency closure (`V4d-T`, `V5d`) does not reach the respond-repair pipeline (`V13d`, built later), so an implementer driving the ERR-17 test red against `V4d` must fabricate a stand-in repair consumer to observe injection — diverging from `V13d`'s real loop — or cannot author the consumption assertion red at all. The genuine "feeds respond-repair" assertion currently has no leaf that can both depend on the repair loop and gate it.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `docs/plan_topics/V4d-queryerror-variants.md` was added in c6a664e, and the ERR-17 Tests bullet with the "into respond-repair" consumption clause is present verbatim in that first and only commit touching the file. The defect entered with the leaf's creation.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Re-scope ERR-17 so the synthesised-issue *shape* is asserted by `V4d` and the *consumption* by `V13d`:
-
-- In `V4d` and the paired `V4d-T`, rewrite the ERR-17 Tests bullet to assert only the synthesised-issue shape — forced-respond non-compliance produces one `ValidationIssue` with `path: ""`, `schema_keyword: "required"`, and the branch-specific (two-arm) message — and strike the trailing "into respond-repair" consumption clause. The `V4d` Adds entry "the forced-respond non-compliance synthesised issue" already scopes the shape correctly and stays.
-- In `V13d` and the paired `V13d-T`, add a Tests assertion that forced-respond non-compliance injects that synthesised `ValidationIssue` into the respond-repair loop, cited as ERR-17. `V13d` already lists `V4d` in Deps and owns "the forced-respond non-compliance handling".
-- In `coverage-matrix.md`, change the ERR-17 row from `V4d` to `V4d, V13d`, mirroring the ERR-19 → `V4d, V13c` row.
-
-Edge case: the NOCEIL-2 closure note in `coverage-matrix.md` references "ERR-14/15/17" against `V4d`; keep that reference intact — `V4d` still closes the ERR-17 shape.
-
-## Relationships
-
-- T09 "ERR-19 firing-at-the-cap assertion is out of scope for V4d's dependency closure" — same-cluster (identical shape-vs-behaviour split defect in the same `V4d` leaf; resolved by the same technique, independently).
 
