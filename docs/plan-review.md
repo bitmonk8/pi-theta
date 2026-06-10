@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 31 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 31 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2228,69 +2228,3 @@ Keep the smoke manual (loom 1.0 has no mechanical real-host gate) and leave `V18
 - T36 "Session double's model / tool / binder-response scripting surface is undefined" — same-cluster (both extend the `H4a` fidelity contract; resolve independently)
 - T32 "H7a Tests bullets 1–2 leave 'expected appended turns' / 'expected diagnostics' without a defined referent" — same-cluster (its fix likewise calls for a named fixture with enumerated expected appended turns / `loom-system-note` codes, but for the H7a terminal gate; resolves independently)
 
----
-
-# T32 — H7a Tests bullets 1–2 leave "expected appended turns" / "expected diagnostics" without a defined referent
-
-**Original heading:** `### `"expected appended turns" / "expected diagnostics" lack a defined reference
-**Original section:** docs/plan_topics/H7a-integration-acceptance.md
-**Kind:** clarity
-**Importance:** high
-**Score:** 90
-**MustFix:** false
-
-## Finding
-
-`H7a`'s integration-acceptance gate asserts in Tests bullet 1 that "the run produces the expected appended turns" and in Tests bullet 2 that "the same run emits the expected `loom-system-note` diagnostics for the integrated path." Neither bullet states what "expected" denotes. For the appended turns there is no committed golden transcript, no enumerated turn sequence, and no turn count to compare against — an implementer cannot tell whether the assertion checks a single appended turn, a fixed ordered sequence, or merely a non-empty result. For the diagnostics, bullet 2 pins *how* a match is checked (against the diagnostics-registry *Message* strings) but never names *which* `loom/...` codes the integrated path is expected to emit, so the expected code set is left to the implementer.
-
-This stands in sharp contrast to Tests bullet 3 of the same leaf, which is fully pinned. Bullets 1–2 carry the load-bearing pass/fail criterion of the terminal cross-slice gate, yet are the two least-specified assertions in the leaf.
-
-Because `H7a` runs the integrated pipeline (typed query → tool loop → code-tool invoke → schema lowering/validation → binder → cancellation) through the `H4a` session double, the set of turns and diagnostics the composition produces is non-trivial and not derivable from any single per-leaf gate. Two test authors would commit different golden expectations, and the gate would assert different things in each case.
-
-## Plan Documents
-
-- `docs/plan_topics/H7a-integration-acceptance.md` — Tests bullets 1–2 (edited)
-- `docs/plan_topics/coverage-matrix.md` — REQ-ID / `loom-system-note` code references for the integrated path (read-only)
-- `docs/plan_topics/conventions.md` — *Diagnostic message anchors* (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H7a` — Terminal integration-acceptance run (cross-slice end-to-end gate) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers pick up `H7a` and commit different golden expectations — one asserting a single appended turn, another a full ordered transcript; one asserting a small `loom/...` code subset, another the full integrated set. The terminal cross-slice gate then verifies different compositions depending on who wrote it, and a regression in the integrated pipeline can pass `npm test` against a too-loose expectation.
-
-## Issue introduction
-
-**Verdict:** present-since-inception (of the `H7a` leaf)
-**Introducing commits:** `e7e51cc` — "resolve \"Plan has no terminal end-to-end integration-acceptance leaf\"" (2026-06-10, Thomas Andersen)
-**History:** The `H7a` leaf file was created by `e7e51cc`; both Tests bullets 1 and 2 carried the un-referenced "expected appended turns" / "expected `loom-system-note` diagnostics" phrasing verbatim from that initial revision. The later commit `b73a11a` added Tests bullet 3 and extended the Ships-when sentence but did not touch the vague phrasing in bullets 1–2. The defect has been present since the leaf's inception.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit the two Tests bullets in `docs/plan_topics/H7a-integration-acceptance.md` so "expected" resolves to a concrete, committed referent:
-
-- **Bullet 1 (appended turns).** Replace "the run produces the expected appended turns" with a reference to the fixture's committed golden transcript — the enumerated, ordered turn sequence checked in alongside the representative multi-feature fixture `.loom`. State that the assertion compares the run's appended turns against that committed golden sequence (turn order and count).
-- **Bullet 2 (diagnostics).** Replace "the expected `loom-system-note` diagnostics for the integrated path" with the explicit set of `loom/...` diagnostic codes the integrated fixture's path emits, enumerated inline (or referenced to a committed golden diagnostics list). Keep the existing clause anchoring the *how* (matched against the diagnostics-registry *Message* strings).
-
-Mirror the same referents in the **Ships when** sentence so the gate's pass condition and the Tests bullets stay in lockstep. Derive the emitted code set from the codes the pipeline slices in `H7a`'s **Deps** register; do not invent codes that no slice in the composition emits.
-
-## Relationships
-
-- T36 "Session double's model / tool / binder-response scripting surface is undefined" — decision-dependency (what the `H4a` harness lets a test script as model turns / tool results / injections constrains what "expected appended turns" can observably assert — this one must follow it)
-- T31 "Real-host fidelity of the session double has no reproducible detection point" — same-cluster (its fix likewise calls for a named fixture with enumerated expected appended turns / `loom-system-note` codes, but for the `H4a`/`V18c` manual real-host smoke; resolves independently)
