@@ -12,7 +12,7 @@ MVP and vertical features are authored as **two paired leaves** (TDD as two sepa
 
 **Spec.** `<page-1.md>`, `<page-2.md>` — the `spec_topics/*.md` files this leaf implements. An implementer MAY restrict their reading to these pages. The field MUST be closed under normative cross-link: if a listed page cites a normative rule on another page, that other page is also listed. _(Use **Convention.** instead of **Spec.** for infrastructure leaves that operationalise [`conventions.md`](./conventions.md) rather than a spec page; cite the section by anchor.)_
 
-**Adds.** _One sentence describing what the leaf introduces — the new module, the new parser surface, the new diagnostic, etc._
+**Adds.** _One sentence describing what the leaf introduces — the new module, the new parser surface, the new diagnostic, etc. `Adds.` is descriptive by default; a named mechanism binds only if it carries a cited REQ-ID or is a cross-leaf seam another leaf's **Deps.** relies on — see [`conventions.md`](./conventions.md) *Leaf format*._
 
 **Tests.**
 - `<REQ-ID>`: _what the test asserts, in one line._

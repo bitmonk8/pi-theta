@@ -24,7 +24,11 @@ Companion to [`spec.md`](./spec.md). The plan is a set of per-phase leaf pages u
 
 Project scaffold, dependency-injection skeleton, diagnostics primitive, Pi-extension shell, end-to-end harness. Horizontal phases are infrastructure work — they operationalise [`conventions.md`](./plan_topics/conventions.md) rather than implement spec rules directly, so their leaves cite a **Convention.** field instead of a **Spec.** field.
 
-_(No leaves yet — author per the template.)_
+- [`H1a` — Project scaffold and toolchain](./plan_topics/H1a-scaffold-and-toolchain.md)
+- [`H2a` — Cross-cutting lint and architectural gates](./plan_topics/H2a-cross-cutting-gates.md)
+- [`H3a` — Dependency-injection seam skeleton](./plan_topics/H3a-di-seam-skeleton.md)
+- [`H4a` — Extension factory shell and end-to-end harness](./plan_topics/H4a-factory-shell-and-harness.md)
+- [`H5a` — REQ-ID / diagnostic-code closing-gate automation](./plan_topics/H5a-closing-gate-automation.md)
 
 ---
 
@@ -32,15 +36,132 @@ _(No leaves yet — author per the template.)_
 
 The smallest end-to-end `.loom` that runs as a Pi slash command. One narrow vertical, end-to-end, to prove the pipeline before slice work begins.
 
-_(No leaves yet — author per the template.)_
+- [`M-T` — Minimal end-to-end `.loom` slash command (tests)](./plan_topics/M-T-minimal-slash-command.md)
+- [`M` — Minimal end-to-end `.loom` slash command](./plan_topics/M-minimal-slash-command.md)
 
 ---
 
 ## Vertical slices
 
-Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries). Each leaf inside a slice is the smallest feature that can ship and be tested independently; slice grouping is editorial only. Leaves carry IDs like `V4b`. Order slices by their dependency DAG; non-linear deps are stated in each leaf's **Deps** field.
+Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries). Each leaf inside a slice is the smallest feature that can ship and be tested independently; slice grouping is editorial only. Leaves carry IDs like `V4b`. Order slices by their dependency DAG; non-linear deps are stated in each leaf's **Deps** field. Each feature below is a paired `<id>-T` tests task and `<id>` implementation task; only the implementation leaf is linked, and its page lists its `-T` partner in **Deps**.
 
-_(No leaves yet — author per the template.)_
+### V1 — Lexer and literals
+
+- [`V1a` — Lexer core](./plan_topics/V1a-lexer-core.md)
+- [`V1b` — String, number, and path literals](./plan_topics/V1b-literals-and-paths.md)
+
+### V2 — Type system and values
+
+- [`V2a` — Type grammar and loom literal sublanguage](./plan_topics/V2a-type-grammar.md)
+- [`V2b` — Type-compatibility engine (`⊑`)](./plan_topics/V2b-type-compat-engine.md)
+- [`V2c` — Runtime value model, equality, and wire-name translation](./plan_topics/V2c-value-model.md)
+- [`V2d` — Canonical integer/number renderer](./plan_topics/V2d-number-rendering.md)
+
+### V3 — Expressions, bindings, control flow, functions
+
+- [`V3a` — Expression evaluator and stdlib](./plan_topics/V3a-expression-evaluator.md)
+- [`V3b` — Bindings and mutability](./plan_topics/V3b-bindings.md)
+- [`V3c` — Control flow](./plan_topics/V3c-control-flow.md)
+- [`V3d` — Functions and return](./plan_topics/V3d-functions-and-return.md)
+
+### V4 — Errors and results
+
+- [`V4a` — `match`, `?`, and `Result`](./plan_topics/V4a-match-result.md)
+- [`V4b` — Runtime panics](./plan_topics/V4b-runtime-panics.md)
+- [`V4c` — Terminal outcomes, partial-append, and no-rollback](./plan_topics/V4c-terminal-outcomes.md)
+- [`V4d` — `QueryError` variant schema](./plan_topics/V4d-queryerror-variants.md)
+- [`V4e` — Pre-evaluation failures](./plan_topics/V4e-pre-evaluation-failures.md)
+
+### V5 — Schemas, descriptions, schema-subset
+
+- [`V5a` — Schema declarations (object / alias / enum)](./plan_topics/V5a-schema-decls.md)
+- [`V5b` — Discriminated unions, recursion, and cycle detection](./plan_topics/V5b-disc-unions-recursion.md)
+- [`V5c` — Descriptions (`///`)](./plan_topics/V5c-descriptions.md)
+- [`V5d` — Schema-subset gate, lowering, and canonical hash](./plan_topics/V5d-subset-lowering.md)
+- [`V5e` — JSON document depth enforcement (hard ceiling #4)](./plan_topics/V5e-depth-enforcement.md)
+
+### V6 — Frontmatter
+
+- [`V6a` — Frontmatter field contract](./plan_topics/V6a-frontmatter-contract.md)
+- [`V6b` — `params` and defaults](./plan_topics/V6b-params-defaults.md)
+- [`V6c` — `tools` callable set and resolution snapshot](./plan_topics/V6c-tools-set.md)
+- [`V6d` — `system` template interpolation](./plan_topics/V6d-system-interpolation.md)
+- [`V6e` — `respond_repair` and `tool_loop`](./plan_topics/V6e-respond-repair-tool-loop.md)
+
+### V7 — Diagnostics
+
+- [`V7a` — Diagnostics primitive and `loom-system-note` channel](./plan_topics/V7a-diagnostics-primitive.md)
+- [`V7b` — Diagnostic code registry and closing gate](./plan_topics/V7b-code-registry.md)
+- [`V7c` — Placeholder rendering](./plan_topics/V7c-placeholder-rendering.md)
+
+### V8 — Pi host seams
+
+- [`V8a` — `Checkpoint` and `SchemaValidator` seams](./plan_topics/V8a-checkpoint-validator-seams.md)
+- [`V8b` — `Clock`, `FileSystem`, `IdSource`, `FileWatcher`, `TokenEstimator` seams](./plan_topics/V8b-clock-fs-id-watch-token-seams.md)
+
+### V9 — Extension host integration
+
+- [`V9a` — Capability probe (Step 0)](./plan_topics/V9a-capability-probe.md)
+- [`V9b` — Registration steps and drain-state contract](./plan_topics/V9b-registration-drain-state.md)
+- [`V9c` — Prompt-mode conversation drive and active-set gating](./plan_topics/V9c-conversation-drive.md)
+- [`V9d` — Runtime-event channel and `masked` co-fire](./plan_topics/V9d-runtime-event-channel.md)
+- [`V9e` — `ActiveInvocationRegistry`](./plan_topics/V9e-active-invocation-registry.md)
+- [`V9f` — Tool-registration lifetime and visibility](./plan_topics/V9f-tool-registration-lifetime.md)
+- [`V9g` — Session-shutdown teardown and emission isolation](./plan_topics/V9g-session-shutdown.md)
+- [`V9h` — Session-only degraded state and unknown-reason rule](./plan_topics/V9h-degraded-unknown-reason.md)
+- [`V9i` — Subagent-mode session isolation and lifecycle](./plan_topics/V9i-subagent-isolation.md)
+- [`V9j` — Binder inference call and provider-error mapping](./plan_topics/V9j-binder-inference-provider-mapping.md)
+
+### V10 — Discovery and settings
+
+- [`V10a` — Discovery walk, sources, and collisions](./plan_topics/V10a-discovery-walk.md)
+- [`V10b` — Package discovery (bounded walk)](./plan_topics/V10b-package-discovery.md)
+- [`V10c` — Settings reads and merge](./plan_topics/V10c-settings-merge.md)
+
+### V11 — Binder
+
+- [`V11a` — Binder-model resolution and strict-capability probe](./plan_topics/V11a-binder-model-resolution.md)
+- [`V11b` — Bind context, truncation, and transcript renderer](./plan_topics/V11b-bind-context-transcript.md)
+- [`V11c` — Binder bypass and envelope schema](./plan_topics/V11c-bypass-envelope.md)
+- [`V11d` — System-prompt builder, defaulting, and echo](./plan_topics/V11d-defaulting-echo.md)
+- [`V11e` — Binder system-note rendering and determinism](./plan_topics/V11e-system-note-determinism.md)
+- [`V11f` — Binder cancellation, per-class retry budget, and failure taxonomy](./plan_topics/V11f-binder-retry-taxonomy.md)
+
+### V12 — Slash invocation
+
+- [`V12a` — Slash dispatch, overflow, and streaming](./plan_topics/V12a-slash-dispatch.md)
+- [`V12b` — Top-level `Err` formatting and chain attribution](./plan_topics/V12b-top-level-err-chain.md)
+
+### V13 — Query
+
+- [`V13a` — Query render and escapes](./plan_topics/V13a-query-render.md)
+- [`V13b` — Query schema inference](./plan_topics/V13b-query-schema-inference.md)
+- [`V13c` — Query tool loop and typed two-phase](./plan_topics/V13c-query-tool-loop.md)
+- [`V13d` — Query failure and respond-repair](./plan_topics/V13d-query-failure-repair.md)
+
+### V14 — Tool calls
+
+- [`V14a` — Tool calls (code-side) and `CodeToolError`](./plan_topics/V14a-tool-calls.md)
+
+### V15 — Invocation and imports
+
+- [`V15a` — Invocation core](./plan_topics/V15a-invocation-core.md)
+- [`V15b` — Invoke depth bound and cycle detection](./plan_topics/V15b-invoke-depth-cycle.md)
+- [`V15c` — Imports (`.warp` library files)](./plan_topics/V15c-imports.md)
+
+### V16 — Hard ceilings
+
+- [`V16a` — Hard-ceiling interaction order and `masked` co-fire](./plan_topics/V16a-ceiling-order-masked.md)
+
+### V17 — Cancellation
+
+- [`V17a` — Cancellation core](./plan_topics/V17a-cancellation-core.md)
+
+### V18 — Build-time SDK gates
+
+- [`V18a` — SDK capability inventory](./plan_topics/V18a-capability-inventory.md)
+- [`V18b` — Inventory-closure audit gate](./plan_topics/V18b-inventory-audit.md)
+- [`V18c` — Pi version-bump procedure and gates](./plan_topics/V18c-version-bump-checklist.md)
 
 ---
 
