@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T32) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 3 high, 19 medium retained; 18 low discarded; 3 low findings merged into 1 medium finding; 5 NIT dropped; 0 false dropped. One verbatim duplicate (a re-pasted V6b finding under the V11d section) was de-duplicated into T12._
+_Triage tally: 0 blockers, 2 high, 19 medium retained; 18 low discarded; 3 low findings merged into 1 medium finding; 5 NIT dropped; 0 false dropped. One verbatim duplicate (a re-pasted V6b finding under the V11d section) was de-duplicated into T12._
 
 ---
 
@@ -1423,71 +1423,3 @@ Edge case the implementer must watch: a true conformance check against the real 
 
 - T19 "Plan has no terminal end-to-end integration-acceptance leaf" — decision-overlap (a release-gate real-host end-to-end leaf would double as the fidelity backstop this finding needs).
 - T17 "Version-bump acceptance is build-time surface checks only — no runtime-evidence gate or revert path" — same-cluster (both want runtime evidence against the pinned/real SDK rather than static/surface gates).
-
----
-
-# T21 — Asserted diagnostic code `loom/parse/empty-enum-body` is absent from the parse registry
-
-**Original heading:** Asserted code `loom/parse/empty-enum-body` absent from registry
-**Original section:** V5a — Schema declarations
-**Kind:** consistency
-**Importance:** high
-**Score:** 90
-**MustFix:** false
-
-## Finding
-
-Both `V5a` and its paired tests leaf `V5a-T` carry the `Tests.` bullet ``loom/parse/empty-schema-body`, `loom/parse/empty-enum-body`: empty bodies fire.`` The first code is registered; the second is not. `code-registry-parse.md` registers `loom/parse/empty-schema-body` (the empty object-body diagnostic) but contains no row for `loom/parse/empty-enum-body`.
-
-The code is named in normative spec prose: `schemas.md` §Enum declarations states *"An `enum X { }` declaration with no variants is `loom/parse/empty-enum-body`: `'<X>' has no variants; an empty enum cannot be validated.`"* with a full message string and an AJV-rejection justification. So the disagreement is between `schemas.md` prose (which treats the code as real and fully specified) and the parse registry (which omits it). The plan leaves faithfully assert the prose code; the gap is upstream in the spec corpus.
-
-The `H5a` closing gate reconciles test-asserted diagnostic codes against the registry and fails on "a test asserts a diagnostic code absent from the registry." A test asserting `loom/parse/empty-enum-body` therefore drives the closing gate red until the registry and the asserting leaf agree.
-
-## Plan Documents
-
-- `docs/plan_topics/V5a-schema-decls.md` — Tests (read-only)
-- `docs/plan_topics/V5a-T-schema-decls.md` — Tests (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/diagnostics/code-registry-parse.md` — `loom/parse/*` table (edited)
-- `docs/spec_topics/schemas.md` — §Enum declarations (read-only — authoritative source of the message string)
-
-## Affected Leaves
-
-**Phases:** Vertical slice V5 — Schemas, descriptions, schema-subset
-
-**Leaves (implementation order):**
-
-- `V5a-T` — Schema declarations (object / alias / enum) (tests) — (modified)
-- `V5a` — Schema declarations (object / alias / enum) — (modified)
-
-## Consequence
-
-**Severity:** blocking
-
-A test asserting `loom/parse/empty-enum-body` references a code with no registry row, so the `H5a` closing gate fails on the "asserted code absent from the registry" arm. The plan as written cannot reach a green closing gate until the registry and the asserting leaves agree, and `V5a`'s `Ships when` (each listed code fires) cannot be reconciled against a registry that lacks the row.
-
-## Issue introduction
-
-**Verdict:** single-commit
-
-**Introducing commit:** `de05433` (2026-05-04) — *pi-loom spec: resolve "Schema declarations: empty bodies, alias cycles, and discriminator literal type unspecified"*
-
-**History:** `de05433` added the `loom/parse/empty-enum-body` prose to `spec_topics/schemas.md` (alongside `loom/parse/empty-schema-body`) with a complete message string. Its diffstat touched only `schemas.md` and a review doc — no registry file — so the enum-body code entered normative prose without a matching `code-registry-parse.md` row. `git log -S "loom/parse/empty-enum-body" --all -- "*registry*"` returns no commits: the code has never appeared in any registry file. `empty-schema-body`, by contrast, was subsequently added to the registry, leaving the asymmetry. The `V5a` / `V5a-T` plan leaves that assert the code are untracked (not yet committed) and only propagate the spec prose; the durable defect is the spec-side drift introduced in `de05433`.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Treat the code as real and close the spec drift in `code-registry-parse.md`. Add a `loom/parse/empty-enum-body` row to the `loom/parse/*` table, mirroring the existing `loom/parse/empty-schema-body` row: severity `E`, phase `parse`, trigger ``enum X { }`` declaration with no variants, spec rule pointing to [Schemas — Enum declarations](../schemas.md), no hint, and the message string from `schemas.md` verbatim — `'<X>' has no variants; an empty enum cannot be validated.` Once the row exists, the `V5a` / `V5a-T` citations are already correct and need no edit; the registry and the asserting leaves agree, and the `H5a` gate reconciles green.
-
-Edge case: if a reviewer instead determines the code is not real (no `enum X {}` diagnostic is wanted), the registry must not gain the row — in that case the citation must be struck from both `V5a` and `V5a-T` and the `schemas.md` §Enum declarations reference reconciled to the registered code. The invariant either way is that the registry and every asserting leaf name the same code; the prose's full message string and AJV justification make the add-the-row branch the expected resolution.
-
-## Relationships
-
-- T04 "Truncated diagnostic code: `V5b` cites `loom/parse/duplicate-discriminator`, registry has `loom/parse/duplicate-discriminator-value`" — same-cluster (same `H5a` asserted-code-vs-registry failure mode; resolves independently).
-- T13 "`V6e`/`V6e-T` assert a non-existent `loom/parse/...` diagnostic code instead of the registered `loom/load/frontmatter-value-out-of-range`" — same-cluster (same registry-reconciliation failure on a `parse` vs `load` phantom code; resolves independently).
-- T05 "Bare diagnostic code `binder-model-strict-capability-unknown` missing `loom/load/` prefix" — same-cluster (bare-form code absent from registry; same gate arm, resolves independently).
