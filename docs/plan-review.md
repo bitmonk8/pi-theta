@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 7 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 6 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -500,67 +500,3 @@ that the mapping to the `(i)` / `(ii)` / "any other" enumeration be explicit.
 ## Relationships
 
 - T33 "'fail red for the intended reason' is the tests-task gate but is never defined" — same-cluster (parallel "term used as a gate but never defined" clarity gap in `conventions.md`; resolves independently)
-
----
-
-# T07 — Singleton architectural test defines its non-detection set but never its positive detection set
-
-**Original heading:** Singleton architectural test specifies only what it does NOT detect
-**Original section:** docs/plan_topics/H2a-cross-cutting-gates.md
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H2a`'s **Adds** field describes the `src/**` architectural test as one "that fails on a module-level global / static / mutable singleton binding (closure-captured, lazy module-cache, and DI-container singletons are not mechanically detected …)." It enumerates the forms the test does **not** flag, but never states the positive detection set — which concrete module-scope binding form(s) actually constitute a "module-level mutable singleton" that the test rejects. The phrase "module-level mutable singleton" is the only positive anchor, and it is not resolved to observable constructs (e.g. a module-top-level `let`/`var`, or a `const` bound to a mutable object/array reused across calls, declared outside any class or function).
-
-The `H2a` **Tests** bullet inherits the same gap: "a fixture introducing a module-level mutable singleton fails the architectural test" does not pin which construct the fixture instantiates, so the fixture and the detector are free to target different patterns.
-
-The sibling `H3a` ambient-access scan demonstrates the contract this leaf is missing: it states its positive detection set explicitly ("`src/**` module *directly references* `process.env`, `process.cwd`, `crypto.randomUUID`, `Date.now`, or `setTimeout`") and only then enumerates the indirect forms it does not catch. `H2a`'s singleton test carries only the second half of that pattern.
-
-## Plan Documents
-
-- `docs/plan_topics/H2a-cross-cutting-gates.md` — Adds + third Tests bullet (edited)
-- `docs/plan_topics/H3a-di-seam-skeleton.md` — ambient-access scan detection-set enumeration (read-only; model for the fix)
-- `docs/plan_topics/conventions.md` — *No globals, statics, singletons* cross-cutting rule (read-only)
-
-## Spec Documents
-
-None — the gate derives from the `CLAUDE.md` / `conventions.md` *No globals, statics, singletons* rule, not from a spec REQ-ID; the fix is internal to plan files.
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H2a` — Cross-cutting lint and architectural gates — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Without a defined positive detection set, two reasonable implementers pick different module-scope binding patterns to flag, so real module-level mutable singletons slip through while legitimate module-level constants may be rejected; the unpinned fixture lets the detector and its own test target divergent constructs, making the gate's green a contestable signal rather than a witness that the *No globals, statics, singletons* rule is enforced.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen); 07555ea — pi-loom plan: resolve "completeness overclaims over partial-coverage mechanisms" (2026-06-10, Thomas Andersen)
-**History:** The leaf's first commit (c6a664e) already left the fixture-construct facet under-pinned. Commit 07555ea replaced the prior over-claim with the present negative-space enumeration, correcting the overclaim but introducing the asymmetry the finding flags: it added the non-detection list without ever stating the positive detection set.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H2a-cross-cutting-gates.md`, add the positive detection set to the **Adds** field so the leaf states which observable module-scope construct(s) the architectural test flags, mirroring the way `H3a`'s ambient-access scan enumerates its own direct-reference detection set before listing the forms it cannot catch. Concretely, extend the parenthetical in Adds to name the flagged forms — for example: "fails on a module-level mutable binding in `src/**` (a top-level `let`/`var`, or a top-level `const` bound to a mutable object/array shared across calls, declared outside any class or function); closure-captured, lazy module-cache, and DI-container singletons are not mechanically detected and are enforced by contributor discipline / review."
-
-Then align the third **Tests** bullet so its fixture instantiates that named construct rather than the unqualified "module-level mutable singleton," so the fixture and the detector target the same defined pattern. The exact construct list is the implementer's to finalise against the chosen detector; the requirement is that the leaf names an observable detection set and that the fixture exercises a member of it. The spec is read-only for this fix.
-
-## Relationships
-
-- T05 "conventions.md No-globals rule mis-attributes the gates' owning leaf and overstates the architectural test's reach" — same-cluster (both concern the singleton architectural test's mechanical reach; that one softens the convention prose, this one defines the positive detection set; resolve independently)
-- T08 "Architectural / ambient-access scan blind spots have no named compensating review gate" — same-cluster (same architectural test; that finding tracks the review-only blind spots via a named checklist, this one pins the mechanically-detected set)
