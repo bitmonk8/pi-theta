@@ -5,7 +5,7 @@
 **Adds.** The ESLint rules (`no-broad-catch`, the `no-restricted-syntax` sequential-by-default allow-list) and the `src/**` architectural test that fails on a module-level global / static / mutable singleton binding (closure-captured, lazy module-cache, and DI-container singletons are not mechanically detected and are enforced by contributor discipline / review), wired into `npm test`.
 
 **Tests.**
-- `Convention:` (*Specific exception types only*) a fixture file containing `catch (e: unknown)` with no `// allow-broad-catch:` comment fails lint; an allow-listed exempt site passes.
+- `Convention:` (*Specific exception types only*) a fixture file containing `catch (e: unknown)` with no `// allow-broad-catch:` comment fails lint; an allow-listed exempt site whose comment cites any token the widened gate predicate admits — a coverage-matrix REQ-ID, an enumerated *Code-keyed obligation areas* entry, a `loom/...` registry code, or the structural `pi-sdk-boundary` token — passes.
 - `Convention:` (*Sequential by default*) a fixture using `Promise.all` in `src/**` without an allow comment fails lint; `**/*.test.ts` is unrestricted.
 - `Convention:` (*No globals, statics, singletons*) a fixture introducing a module-level mutable singleton fails the architectural test.
 
