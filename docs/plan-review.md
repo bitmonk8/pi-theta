@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 4 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 3 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -232,78 +232,3 @@ Edge cases: state the citing-test recogniser's text-scan limit inline rather tha
 
 - T01 "Un-anchored-MUST closing-gate recogniser claims exact precision and recall over free-form prose" — same-cluster (sibling closing-gate surface under the same *REQ-ID discipline* rule; its best-effort framing is the model for this fix's recogniser-limit caveat).
 - T12 "CNCL-4 session-shutdown reason facet is asserted in V9g but never authored red in V9g-T or gated by Ships-when" — same-cluster (a concrete instance of the mapped-but-unasserted REQ-ID class this gate-extension would catch mechanically).
-
----
-
-# T04 — NOCEIL-2 and NOCEIL-4 closing leaves carry no trace annotation their siblings (NOCEIL-1/NOCEIL-3) have
-
-**Original headings:**
-
-- NOCEIL-2 has no trace annotation in its closing leaf
-- NOCEIL-4 has no trace annotation in its closing leaf
-
-**Original section:** V4d — QueryError variants; V15b — invoke depth bound and cycle detection
-**Kind:** traceability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-The coverage matrix distributes the four NOCEIL non-existence claims to per-leaf closures: "NOCEIL-2 → `V4d`'s `ContextOverflowError` / ERR-14/15/17" and "NOCEIL-4 → `V15b`'s `INV-4` invoke-depth bound". Neither `V4d`/`V4d-T` nor `V15b`/`V15b-T` carries a NOCEIL label in its Tests field. This breaks the leaf-level trace pattern the other two NOCEIL seams establish: `V6a` tags its bullet `(NOCEIL-1 seam)` and `V4b` tags its bullet `(NOCEIL-3 uncatchable carve-out)`, each in both the impl leaf and its `-T` partner.
-
-NOCEIL closure is a GOV-15 release-time corpus-review obligation, not a mechanical gate. An auditor following the matrix to `V4d` (for NOCEIL-2) or `V15b` (for NOCEIL-4) then finds no marker in the leaf to confirm closure against — leaving NOCEIL-2 and NOCEIL-4 the two outliers of the four-claim set with a one-directional trace.
-
-## Plan Documents
-
-- `docs/plan_topics/V4d-queryerror-variants.md` — Tests (edited)
-- `docs/plan_topics/V4d-T-queryerror-variants.md` — Tests (edited)
-- `docs/plan_topics/V15b-invoke-depth-cycle.md` — Tests (edited)
-- `docs/plan_topics/V15b-T-invoke-depth-cycle.md` — Tests (edited)
-- `docs/plan_topics/coverage-matrix.md` — GOV NOCEIL paragraph (read-only)
-- `docs/plan_topics/V6a-frontmatter-contract.md` — Tests, NOCEIL-1 annotation pattern (read-only)
-- `docs/plan_topics/V4b-runtime-panics.md` — Tests, NOCEIL-3 annotation pattern (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V4, V15)
-
-**Leaves (implementation order):**
-
-- V4d-T — `QueryError` variant schema (tests) — (modified)
-- V4d — `QueryError` variant schema — (modified)
-- V15b-T — Invoke depth bound and cycle detection (tests) — (modified)
-- V15b — Invoke depth bound and cycle detection — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-The behavioural closures exist (the `ContextOverflowError` / ERR-14/15/17 surface and the `INV-4` depth-bound test do enforce what NOCEIL-2 and NOCEIL-4 assert) and the H5a/H6a gate — which checks row existence, not the leaf label — still passes. The cost is to the GOV-15 release-time auditor, who cannot confirm NOCEIL-2 or NOCEIL-4 closure from the leaf the way they can from the annotated `V6a` / `V4b`, leaving two of the four NOCEIL claims with a one-directional trace.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen); 2565ddd — pi-loom plan: resolve "V16a NOCEIL Adds. claim with no backing Tests" (2026-06-10, Thomas Andersen)
-**History:** c6a664e authored `V4d`/`V4d-T` (ERR-14/15/17/19, no NOCEIL-2 label) and `V15b`/`V15b-T` (`INV-4`, `loom/load/invocation-cycle`, no NOCEIL-4 label) while giving `V6a` and `V4b` explicit NOCEIL-1/NOCEIL-3 annotations; the matrix at that point attributed NOCEIL content to `V16a`/`V11f`. 2565ddd rewrote the matrix NOCEIL paragraph to distribute NOCEIL-1…4 to `V6a`/`V4d`/`V4b`/`V15b`, introducing the NOCEIL-2 → V4d and NOCEIL-4 → V15b mappings, but touched only `coverage-matrix.md` and did not backfill the matching annotations into `V4d`/`V4d-T` or `V15b`/`V15b-T`. The matrix-claims-vs-leaf-carries divergence is the product of the two commits in both cases.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add the missing inline NOCEIL markers, mirroring the `V6a` (`(NOCEIL-1 seam)`) and `V4b` (`(NOCEIL-3 uncatchable carve-out)`) form, in both the impl leaf and its `-T` partner so the pairs stay aligned:
-
-- `V4d` / `V4d-T`: attach a `(NOCEIL-2 seam)` marker to the Tests bullet that asserts the `ContextOverflowError` / ERR-14/15/17 surface (the surface the matrix says NOCEIL-2 closes at).
-- `V15b` / `V15b-T`: attach a `(NOCEIL-4 frame-depth seam)` marker to the `INV-4` Tests bullet (the 32-frame invoke-depth bound the matrix says NOCEIL-4 closes at).
-
-The matrix paragraph already names both leaves and needs no change.
-
-## Relationships
-
-None
