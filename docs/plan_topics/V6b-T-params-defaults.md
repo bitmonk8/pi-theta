@@ -5,8 +5,8 @@
 **Adds.** Failing tests for the paired `V6b` implementation leaf.
 
 **Tests.**
-- A non-defaulted param after a defaulted one fires its parse code.
-- A default that is not a loom literal fires `default-not-literal`.
+- A non-defaulted param after a defaulted one fires `loom/parse/non-trailing-default`.
+- A default that is not a loom literal fires `loom/parse/default-not-literal`.
 - `params` are validated through AJV against their lowered schema.
 
 **Deps.** `V6a`, `V5d`, `V8a`

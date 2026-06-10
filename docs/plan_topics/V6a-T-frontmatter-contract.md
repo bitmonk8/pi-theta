@@ -5,8 +5,8 @@
 **Adds.** Failing tests for the paired `V6a` implementation leaf.
 
 **Tests.**
-- A missing `mode:` fires its load-phase code; a valid `mode:` resolves.
-- An unknown frontmatter key emits a warning and is tolerated.
+- A missing `mode:` fires `loom/load/missing-mode`; a valid `mode:` resolves.
+- An unknown frontmatter key fires `loom/load/unknown-frontmatter-field` (severity `W`) and is tolerated.
 - `loom/parse/timeout-field-rejected`: a per-call timeout field is rejected (NOCEIL-1 seam).
 
 **Deps.** `V1a`, `V5a`

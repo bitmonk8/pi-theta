@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 8 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 7 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -523,85 +523,3 @@ In `docs/plan_topics/H1a-scaffold-and-toolchain.md`, extend the `Adds.` enumerat
 
 None
 
----
-
-# T08 — Diagnostic-behaviour Tests bullets omit the registry code in V6a / V6b / V5d
-
-**Original heading:** Tests bullets name a diagnostic behaviour without naming the code (V6a, also V6b, V5d)
-**Original section:** V6a — frontmatter contract
-**Kind:** implementability, validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-Several **Tests** bullets in the frontmatter and schema-subset leaves describe a diagnostic firing without citing the specific `loom/...` registry code that fires. The `conventions.md` *Diagnostic message anchors* rule makes the diagnostics registry the single source of truth for every author-visible message and requires a code anchor; the *Leaf format* convention treats a cited `loom/...` diagnostic-registry code as a binding obligation. Sibling bullets in these same leaves already cite codes inline (`loom/parse/timeout-field-rejected` in V6a, `loom/load/schema-slug-collision` in V5d), so the un-coded bullets are inconsistent with the leaf's own established practice.
-
-The offending bullets are:
-
-- **V6a** — "A missing `mode:` fires *its load-phase code*; a valid `mode:` resolves." and "An unknown frontmatter key *emits a warning* and is tolerated." Neither names a code.
-- **V6b** — "A non-defaulted param after a defaulted one fires *its parse code*." (un-coded); a second bullet cites the bare token `default-not-literal` rather than the fully-qualified `loom/parse/default-not-literal`.
-- **V5d** — "The reject gate fires *the subset-violation codes* for each rejected keyword and accepts the permitted subset." names no code.
-
-The implementer must reverse-engineer which registry entry each bullet means. The registry does contain the intended codes, so a wrong guess produces a test that asserts a code the registry does not key — exactly the mismatch the closing gate treats as a CI failure (an asserted code not in the registry, or a registry code with no asserting test).
-
-## Plan Documents
-
-- `docs/plan_topics/V6a-frontmatter-contract.md` — Tests (edited)
-- `docs/plan_topics/V6a-T-frontmatter-contract.md` — Tests (edited)
-- `docs/plan_topics/V6b-params-defaults.md` — Tests (edited)
-- `docs/plan_topics/V6b-T-params-defaults.md` — Tests (edited)
-- `docs/plan_topics/V5d-subset-lowering.md` — Tests (edited)
-- `docs/plan_topics/V5d-T-subset-lowering.md` — Tests (edited)
-- `docs/plan_topics/conventions.md` — Diagnostic message anchors / Leaf format (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/diagnostics/code-registry-load.md` — load-phase registry (read-only; source of the literal codes)
-- `docs/spec_topics/diagnostics/code-registry-parse.md` — parse-phase registry (read-only; source of the literal codes)
-
-## Affected Leaves
-
-**Phases:** V5 (Schemas, descriptions, schema-subset), V6 (Frontmatter)
-
-**Leaves (implementation order):**
-
-- V5d-T — Schema-subset gate, lowering, and canonical hash (tests) — (modified)
-- V5d — Schema-subset gate, lowering, and canonical hash — (modified)
-- V6a-T — Frontmatter field contract (tests) — (modified)
-- V6a — Frontmatter field contract — (modified)
-- V6b-T — `params` and defaults (tests) — (modified)
-- V6b — `params` and defaults — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers will pick different codes for the same bullet, or assert against a code string that does not match the registry entry — silently weakening the message-anchor contract. A wrong-code assertion either fails the closing gate (asserted code absent from registry) or leaves the intended registry code with no asserting test, so the gate can fire on a mismatch or pass while the wrong behaviour is verified.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** The V6a, V6b, and V5d leaf files (and their `-T` partners) were all created in commit c6a664e, and the un-coded Tests bullets ("its load-phase code", "emits a warning", "fires its parse code", "the subset-violation codes") were present verbatim in that first commit. The later commits 450ec77 (V6b) and ba7da00 (V5d) resolved unrelated findings and never named the missing codes.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In each cited **Tests** bullet, replace the indirect phrasing with the fully-qualified registry code, sourcing the literal string from the diagnostics registry. Apply the same edit to each implementation leaf and its paired `-T` tests task:
-
-- **V6a / V6a-T** bullet 1 — name `loom/load/missing-mode` for the missing-`mode:` case.
-- **V6a / V6a-T** bullet 2 — name `loom/load/unknown-frontmatter-field` for the tolerated-unknown-key warning (registry severity `W`).
-- **V6b / V6b-T** bullet 1 — name `loom/parse/non-trailing-default` for the non-defaulted-after-defaulted case.
-- **V6b / V6b-T** bullet 2 — qualify the existing bare `default-not-literal` to `loom/parse/default-not-literal`.
-- **V5d / V5d-T** reject-gate bullet — enumerate the subset-rejection codes inline rather than "the subset-violation codes"; the confirmed registry entries are `loom/parse/unsupported-feature` (rejected JSON-Schema keywords) and `loom/parse/result-in-schema-position` (`Result` in a schema-feeding position). Source any additional rejected-keyword codes from `code-registry-parse.md`.
-
-The registry remains read-only; cite the codes exactly as they appear there and do not add or rename registry entries.
-
-## Relationships
-
-- T27 "V9b asserts `loom/host/loom-registry-read-failed`, a diagnostic the spec defers out of loom 1.0 and never registers" — same-cluster (same diagnostic-code-citation discipline; that finding cites a non-existent code, this one under-cites — resolve independently).

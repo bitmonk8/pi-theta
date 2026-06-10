@@ -5,7 +5,7 @@
 **Adds.** Failing tests for the paired `V5d` implementation leaf.
 
 **Tests.**
-- The reject gate fires the subset-violation codes for each rejected keyword and accepts the permitted subset.
+- The reject gate fires `loom/parse/unsupported-feature` for each rejected JSON-Schema keyword and `loom/parse/result-in-schema-position` for a `Result` in a schema-feeding position, and accepts the permitted subset.
 - `loom/load/schema-slug-collision`: two non-byte-identical inline schemas hashing to the same slug fire; byte-identical ones dedup silently.
 - The canonical hash is SHA-256 over the keys-sorted, whitespace-free, binder-number-rendered canonical form; the slug is its first 16 hex.
 - `Result` in schema position is rejected; array element order is preserved.
