@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/discovery/package-and-settings.md`](../spec_topics/discovery/package-and-settings.md).
 
-**Adds.** The settings-source reads (the five keys), the deep-merge precedence (project over global; deep-merge objects, replace arrays/scalars), validation, and the reload debounce feeding the `ERR-7` watcher-reload failure path.
+**Adds.** The settings-source reads (the five keys), the deep-merge precedence (project over global; deep-merge objects, replace arrays/scalars), validation, and the reload debounce; the `ERR-7` watcher-reload failure surface this debounce feeds is asserted by `V4e`.
 
 **Tests.**
 - `DISC-7`: objects deep-merge, arrays/scalars are replaced, and project settings override global.

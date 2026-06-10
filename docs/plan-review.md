@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 20 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 19 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1402,71 +1402,3 @@ Keep the two leaves' bullets identical. Severity stays in the registry's `W` col
 ## Relationships
 
 - T18 "V11b session-context truncation boundary (8000-token / 20-turn) has no asserting test" — same-cluster (same `V11b` Tests list; resolves independently)
-
----
-
-# T20 — ERR-7 watcher-reload assertion has no in-leaf test and no declared producer→owner dependency
-
-**Original heading:** `ERR-7` watcher-reload failure path implemented but not asserted in-leaf or cross-referenced
-**Original section:** docs/plan_topics/V10c-settings-merge.md
-**Kind:** validation, ordering
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V10c` Adds enumerates "the reload debounce feeding the `ERR-7` watcher-reload failure path," but `V10c` neither asserts `ERR-7` nor forward-points to the leaf that does. Its Tests bullets cover only `DISC-7` deep-merge precedence, the `loom/load/settings-invalid-json` diagnostic, and the 250 ms debounce coalescing; its Ships-when covers only deep-merge precedence and the malformed-settings diagnostic. So the leaf names the `ERR-7` surface as part of its scope while leaving it unverified and unattributed.
-
-`ERR-7` is owned for closing purposes by `V4e`: `coverage-matrix.md` maps the `ERR-1 … ERR-7` row to `V4e`, and `V4e`'s Tests carry "`ERR-7`: watcher-reload failure routes pre-eval." But `V4e`'s Deps name neither `V10c` (the settings-watcher re-merge producer) nor `V9b` (whose registration step 5 builds the watcher + the `LoomRegistry` build-aside-publish swap, the source of the `loom/runtime/registry-swap-failed` arm). The plan never states whether `V4e`'s `ERR-7` test drives a real watcher reload through those producers or injects a synthetic failure at the channel seam.
-
-The two readings diverge materially. If synthetic, no producer dependency is needed and `V10c`'s Adds over-claims. If a real watcher-reload failure, then `V10c` and the `V9b` swap are its producers and must precede it — but they are not declared as Deps, so the test would be scheduled before the mechanism it exercises.
-
-## Plan Documents
-
-- `docs/plan_topics/V10c-settings-merge.md` — Adds / Tests / Ships when (edited)
-- `docs/plan_topics/V4e-pre-evaluation-failures.md` — Tests (`ERR-7`) / Deps (option-dependent)
-- `docs/plan_topics/coverage-matrix.md` — `ERR-1 … ERR-7` row (read-only)
-- `docs/plan_topics/V9b-registration-drain-state.md` — registration step 5 watcher + build-aside-publish swap (read-only)
-
-## Spec Documents
-
-None — `ERR-7`, its channel contract, and both failure arms are fully defined in `spec_topics/discovery/package-and-settings.md#watcher-time-reload-failures` and `spec_topics/errors-and-results/error-model.md#err-7`. The fix is internal to plan files.
-
-## Affected Leaves
-
-**Phases:** Vertical (slices V4, V9, V10)
-
-**Leaves (implementation order):**
-
-- `V4e` — Pre-evaluation failures — (both)
-- `V9b` — Registration steps and drain-state contract — (option-dependent)
-- `V10c` — Settings reads and merge — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge: one writes `V4e`'s `ERR-7` test with a synthetic injected failure (ships green, dep-light) while another drives a real `V10c` settings-watcher / `V9b` registry-swap reload, which is then scheduled ahead of its undeclared producers and cannot run as ordered. Meanwhile `V10c`'s Adds advertises an `ERR-7` responsibility it does not assert or hand off.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** `c6a664e` ("pi-loom plan: build/update plan for spec.md + review", 2026-06-10)
-**History:** `V10c` and `V4e` were both first added in `c6a664e`; `git show c6a664e:docs/plan_topics/V10c-settings-merge.md` already carries the Adds "reload debounce feeding the `ERR-7` watcher-reload failure path" clause and a Ships-when that omits `ERR-7`, and `git show c6a664e:docs/plan_topics/V4e-pre-evaluation-failures.md` already carries the `ERR-7` test bullet with a Deps list that excludes `V10c`. The only later commit touching `V10c` (`3a02fc7`) addressed a different concern. The defect has existed unchanged since the corpus was authored.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-`V4e`'s `ERR-7` test injects a synthetic watcher-rebuild failure at the `ERR-7` channel seam, asserting the `loom-system-note` / `triggerTurn:false` routing without standing up a live `V10c`/`V9b` watcher. The synthetic injection must drive both `ERR-7` arms — the re-parse/re-merge diagnostic arm and the `loom/runtime/registry-swap-failed` registry-swap arm. `V4e`'s Deps stay unchanged: `coverage-matrix.md` already pins `ERR-7` to `V4e`, so this keeps `V4e` aligned with the matrix and with the other pre-eval routing tests while avoiding any ordering inversion.
-
-In `V10c` Adds, reword the trailing clause so it stops claiming closure of `ERR-7` and instead forward-points to `V4e` (e.g. "…and the reload debounce; the `ERR-7` watcher-reload failure surface this debounce feeds is asserted by `V4e`").
-
-## Relationships
-
-- T21 "Reload-debounce test does not bind to the injected Clock seam" — same-cluster (same `V10c` reload-debounce mechanism; resolves independently of the `ERR-7` assertion question)
-- T04 "Coverage-matrix `…` range notation is never defined" — decision-dependency (the `ERR-1 … ERR-7` coverage-matrix row this finding relies on is the one whose range notation that finding flags as ambiguous)
-
