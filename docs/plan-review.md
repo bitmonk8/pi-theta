@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1282,73 +1282,3 @@ In both `docs/plan_topics/V11b-bind-context-transcript.md` and `docs/plan_topics
 ## Relationships
 
 None
-
----
-
-# T19 — Binder system-note and determinism un-anchored MUSTs have no code-keyed coverage-matrix row
-
-**Original heading:** Binder defaulting/determinism un-anchored MUSTs absent from coverage-matrix code-keyed table
-**Original section:** docs/plan_topics/coverage-matrix.md and projection index
-**Kind:** traceability
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-`coverage-matrix.md`'s *Code-keyed obligation areas* table carries a third closing-gate surface: every normative MUST/MUST-NOT on a non-narrative `spec_topics/**` page that has no numbered `PREFIX-N` REQ-ID, no `loom/...` registry code, and is not a named cross-leaf seam — the GOV-22 un-anchored-obligation residue — must appear as one rule-driven row with a named closing leaf. The table's preamble states the `H5a` closing gate fails on any such MUST absent from this table once it reaches its live-corpus footing at `H6a`.
-
-Two un-anchored MUST clusters owned by `V11e` are not enumerated in that table. `binder/defaulting-system-note-echo.md` §System-note rendering pins the single-line collapse and the 120-codepoint truncation-with-`…` discipline. `binder/determinism-cancellation-failure.md` §Determinism pins `temperature: 0` on every binder call and the FNV-1a seed derivation ("Conforming implementations MUST reproduce these values exactly"). Neither cluster carries a numbered BNDR ID (the numbered table's BNDR-1…9 cover the bypass envelope, number rendering, the echo reference renderings, and the transcript renderer — not the shared line discipline or the determinism contract) nor a `loom/...` code. `V11e` is the closing leaf for both: its Spec field is exactly these two pages and its Tests assert the 120-codepoint cap and the deterministic FNV-1a seed.
-
-Because neither page appears in the code-keyed table, the gate's enumeration of un-anchored MUSTs treats both clusters as un-enumerated residue with no recorded closing leaf, even though `V11e` closes them.
-
-## Plan Documents
-
-- `docs/plan_topics/coverage-matrix.md` — *Code-keyed obligation areas* (un-anchored-obligation rows) (edited)
-- `docs/plan_topics/V11e-system-note-determinism.md` — closing leaf (read-only)
-- `docs/plan_topics/H5a-closing-gate-automation.md` — un-anchored-MUST enumeration gate (read-only)
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/binder/defaulting-system-note-echo.md` — §System-note rendering (read-only)
-- `docs/spec_topics/binder/determinism-cancellation-failure.md` — §Determinism (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slice V11 (Binder); Release gate (horizontal)
-
-**Leaves (implementation order):**
-
-- `V11e` — Binder system-note rendering and determinism — (blocked) (its release-gate closure recognition is blocked until the rows exist; the leaf itself ships unchanged)
-- `H6a` — Live-corpus closing-gate activation (loom 1.0 release gate) — (blocked) (the activated gate flags the two clusters as un-enumerated and reds the release)
-
-## Consequence
-
-**Severity:** blocking
-
-When `H6a` flips the `H5a` closing gate to its live-corpus footing, the gate's un-anchored-MUST enumeration finds the binder system-note and determinism MUSTs with no code-keyed row and fails CI — a false-red on obligations that `V11e` actually closes. The release gate cannot go green until the matrix records `V11e` as their closing leaf.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 0603eb4 — pi-loom plan: resolve "un-anchored normative MUSTs invisible to closing gate" (2026-06-10, Thomas Andersen)
-**History:** The *Code-keyed obligation areas* table was created with the plan build (c6a664e, 2026-06-10), which also created `V11e`, carrying only prefix-keyed rows. Commit 0603eb4 added the third closing-gate surface — the rule that every un-anchored MUST gets a named row — and seeded it with rows for the conversation-drive, version-bump-triggers, and host-prerequisites residues, but never the binder system-note / determinism residue. Git pickaxe over `coverage-matrix.md` returns no commit mentioning `defaulting-system-note-echo` or `determinism-cancellation`, confirming the two pages have never been enumerated there.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add two rows to the *Code-keyed obligation areas* un-anchored-obligation row group in `docs/plan_topics/coverage-matrix.md`, each naming `V11e` as the closing leaf, mirroring the existing three un-anchored rows (the `<spec page> — <obligation> (un-anchored; GOV-22 residue) | <leaf>` form):
-
-- `binder/defaulting-system-note-echo.md` §System-note rendering — single-line collapse + 120-codepoint truncation-with-`…` MUSTs (un-anchored; GOV-22 residue) → `V11e`
-- `binder/determinism-cancellation-failure.md` §Determinism — `temperature: 0` + FNV-1a seed-derivation MUSTs (un-anchored; GOV-22 residue) → `V11e`
-
-The fix is confined to `coverage-matrix.md`; `V11e` and the spec pages are read-only. Watch that the row descriptors point at the System-note rendering / Determinism MUSTs specifically and do not collide with the already-numbered BNDR-4/5/6 echo-rendering obligations on the same `defaulting-system-note-echo.md` page (those are closed via the numbered table by `V2d`/`V11d` and must not be re-keyed as un-anchored).
-
-## Relationships
-
-- T20 "`Sequential by default` carve-out admits only a numbered REQ-ID, but spec-mandated concurrency sites are anchored as code-keyed obligations" — same-cluster (sibling code-keyed-table / un-anchored-machinery concern; resolves with its own independent edit).
-- T01 "Un-anchored-MUST closing-gate recogniser claims exact precision and recall over free-form prose" — same-cluster (both concern the un-anchored-MUST closing surface; that finding bounds what the recogniser can detect, this one fills a row it would have to enumerate).
