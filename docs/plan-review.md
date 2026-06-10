@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T32) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 12 high, 19 medium retained; 18 low discarded; 3 low findings merged into 1 medium finding; 5 NIT dropped; 0 false dropped. One verbatim duplicate (a re-pasted V6b finding under the V11d section) was de-duplicated into T12._
+_Triage tally: 1 blocker, 11 high, 19 medium retained; 18 low discarded; 3 low findings merged into 1 medium finding; 5 NIT dropped; 0 false dropped. One verbatim duplicate (a re-pasted V6b finding under the V11d section) was de-duplicated into T12._
 
 ---
 
@@ -2294,77 +2294,3 @@ Apply the matching wording to the `leaf-template.md` `Adds.` gloss so the templa
 
 - T32 "Adds. binding clause (i) cannot bind code-keyed obligations" — same-cluster (sibling clause in the same `Adds.` rule; resolves independently).
 - T25 "`V5d` lowering-pass outputs are named only in descriptive `Adds.`, bound by no `Tests.` bullet" — must-precede (the `V5d` sidecar's binding status turns on this clause's test; settle the clause wording before deciding the sidecar's coverage route).
-
----
-
-# T32 — Adds. binding clause (i) cannot bind code-keyed obligations
-
-**Original heading:** Leaf format — Adds. clause (i): code-keyed obligations unbindable
-**Original section:** conventions.md
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**MustFix:** false
-
-## Finding
-
-The `Adds.` binding rule in `conventions.md` makes `Adds.` prose descriptive by default and elevates a named mechanism to binding only when it is either (i) "an observable behaviour carrying a cited REQ-ID," or (ii) a named cross-leaf seam another leaf's `Deps.` relies on. Clause (i)'s only binding hook is a numbered `PREFIX-N` REQ-ID.
-
-The plan, however, recognises an entire class of pages that own their obligations through diagnostic codes or named normative spec steps rather than numbered REQ-IDs. `coverage-matrix.md` enumerates these explicitly under "Code-keyed obligation areas (no numbered REQ-IDs)" — `lexical.md` (LEX), `grammar.md` (GRAM), `runtime-value-model.md` (RVM), `expressions.md` (EXPR), `schema-subset.md` (SUBS), `query/` (QRY), `tool-calls.md` (TOOL) — and the leaves closing them cite `loom/...` diagnostic codes or named normative steps in their `Tests.` bullets, never a `PREFIX-N` ID (these are a standing spec residue under `governance.md` GOV-22).
-
-For these pages, a mechanism whose only Class-1 surface is a code-keyed behavioural assertion can never satisfy clause (i) — there is no REQ-ID to cite. Unless the mechanism happens to be a cross-leaf seam (clause (ii)), it falls into the closing "illustrative — authorises no … mandate absent a REQ-ID or a `Deps.` consumer" residue, even when the cited spec page makes the behaviour normative. The (i)/(ii) classification an author must apply to each named mechanism is therefore undecidable (or silently under-binds) for every code-keyed obligation page.
-
-## Plan Documents
-
-- `docs/plan_topics/conventions.md` — `Adds.` rule binding clause (edited)
-- `docs/plan_topics/coverage-matrix.md` — "Code-keyed obligation areas (no numbered REQ-IDs)" table (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** None
-
-**Leaves (implementation order):** None
-
-The defect is confined to the cross-cutting `Adds.` rule in `conventions.md`. The recommended clarification does not change any leaf's `Tests.` / `Ships when` criteria: the code-keyed implementation leaves (e.g. `V1a`, `V1b`, `V2a`, `V2c`, `V3a`, `V5d`, `V5e`, `V13a`–`V13d`, `V14a`) already cite diagnostic codes / named spec steps in their `Tests.` bullets, and the fix only brings the binding rule's vocabulary into line with what those leaves already do.
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable authors classifying an `Adds.`-named mechanism on a code-keyed page diverge: one reads clause (i) literally (no REQ-ID ⇒ illustrative / non-binding), the other treats the normative spec step as binding. The literal reading silently drops normative obligations on LEX/GRAM/RVM/EXPR/SUBS/QRY/TOOL pages into the non-binding bucket, so a mechanism the spec mandates can ship unimplemented while the leaf still passes its declared gate.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** none committed — the `Adds.` binding clause is an uncommitted working-tree edit to `docs/plan_topics/conventions.md`; the clause is absent at HEAD (`f9c5354`, 2026-06-09, Thomas Andersen), where the `Adds.` bullet reads only "One sentence — what the leaf introduces."
-**History:** The defect is git-tracked corpus but lives in an as-yet-uncommitted change. `git diff HEAD -- docs/plan_topics/conventions.md` shows the entire descriptive-by-default `Adds.` binding rule — including the REQ-ID-only clause (i), clause (ii), and the "illustrative / no Class-3 mandate" residue — was added wholesale by the current working-tree edit. The pickaxe (`git log -S 'cited REQ-ID' -- conventions.md`) returns no commit, confirming the clause has never been committed; the defect entered with this single in-progress edit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/conventions.md`, broaden the binding surface of clause (i) of the `Adds.` rule (the bullet beginning "**Adds.** One sentence — what the leaf introduces.") from a cited REQ-ID alone to any observable behaviour traced to a normative spec obligation, so that the code-keyed anchor forms the plan already uses bind on the same footing.
-
-Concretely, replace the current clause-(i) text:
-
-> (i) an observable behaviour carrying a cited REQ-ID (e.g. the concurrency construct the *Sequential by default* rule requires `Adds.` to name alongside its mandating REQ-ID)
-
-with wording admitting the three anchor forms the corpus already relies on — a cited numbered `PREFIX-N` REQ-ID, a cited `loom/...` diagnostic-registry code, or a named normative step on a code-keyed obligation page per `coverage-matrix.md` "Code-keyed obligation areas (no numbered REQ-IDs)". For example:
-
-> (i) an observable behaviour traced to a normative spec obligation — a cited `PREFIX-N` REQ-ID, a cited `loom/...` diagnostic-registry code, or a named normative step on a code-keyed obligation page per [`coverage-matrix.md`](./coverage-matrix.md) (e.g. the concurrency construct the *Sequential by default* rule requires `Adds.` to name alongside its mandating REQ-ID)
-
-Keep clause (ii) (the cross-leaf seam) unchanged, and restate the closing residue sentence so the only non-binding `Adds.` mechanism is one that is neither a Class-1 observable behaviour (REQ-ID- or code-keyed) nor a Class-2 seam.
-
-Edge case for the implementer: this must stay consistent with the binding-taxonomy definition — if Class 1 is defined as "constraint traced to a spec REQ-ID," widen that definition in the same edit to cover code-keyed obligation surfaces, otherwise the two changes reintroduce the same gap from opposite ends.
-
-## Relationships
-
-- T31 "Adds. clause (ii) seam-binding test is undecidable from the `Deps.` field" — same-cluster (sibling clause in the same `Adds.` rule; resolves independently).
-- T25 "`V5d` lowering-pass outputs are named only in descriptive `Adds.`, bound by no `Tests.` bullet" — same-cluster (a concrete instance on the SUBS code-keyed page where `Adds.`-only mechanisms bind to nothing).
-- T30 "Un-anchored normative MUSTs are invisible to the closing gate by construction" — same-cluster (the broader symptom of obligations without a numbered REQ-ID escaping binding; resolves independently).
