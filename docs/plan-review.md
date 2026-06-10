@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 30 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 29 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2079,75 +2079,3 @@ Edge cases: (1) the reworded `-T` assertion must still fail red on the gate's ab
 
 - T22 "V3d-T over-asserts final-value propagation against invoke/subagent caller surfaces built in later slices" — same-cluster (same ordering pattern: a `-T` leaf's failing test references features not yet built; resolves independently)
 - T36 "Session double's model / tool / binder-response scripting surface is undefined" — decision-dependency (Option B's feature-free harness double depends on the `H4a` harness scripting surface being defined — this one must follow it)
-
----
-
-# T30 — M's happy-path discovery read has no defined source under the ambient-access ban
-
-**Original heading:** `M` single-source discovery declares no FileSystem-seam dependency
-**Original section:** docs/plan_topics/M-minimal-slash-command.md / M-T-minimal-slash-command.md
-**Kind:** ordering
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-`M`'s `Adds.` introduces "a fixed single-source discovery" that reads a fixture `.loom` file, but the leaf never states *how* that read is performed. The project-wide *No globals, statics, singletons* rule (and the PIC-13 ambient-access ban it operationalises) forbids any `src/**` module from reading the filesystem directly: a real file read must route through the `FileSystem` seam, whose behaviour is owned by `V8b`. `M` declares `Deps. M-T, H4a` only — neither `V8b` nor any FileSystem seam is a dependency, and `V8b` is sequenced far later, so the seam does not yet exist when `M` is implemented.
-
-The alternative source — supplying the fixture in memory through the `H4a` end-to-end harness — is also unstated: `H4a`'s session-double fidelity contract enumerates only four axes and names no FileSystem double or in-memory fixture supply. Consequently the origin of the `.loom` source `M`'s discovery reads is undefined in both candidate locations.
-
-Two reasonable implementers therefore diverge: one supplies the fixture to the in-process harness in memory; another wires a direct filesystem read into `src/**` (which the `H3a` identifier-keyed ambient-access scan would flag, and for which no seam exists to route through at `M` time). The MVP — whose purpose is to prove the end-to-end pipeline — would be built inconsistently.
-
-## Plan Documents
-
-- `docs/plan_topics/M-minimal-slash-command.md` — `Adds.` / `Deps.` (edited)
-- `docs/plan_topics/M-T-minimal-slash-command.md` — `Adds.` / `Tests.` (edited)
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — session-double / harness contract (option-dependent)
-- `docs/plan_topics/V8b-clock-fs-id-watch-token-seams.md` — `FileSystem` seam owner (read-only)
-- `docs/plan_topics/V10a-discovery-walk.md` — full discovery walk that deepens `M`'s happy path (read-only)
-- `docs/plan_topics/H3a-di-seam-skeleton.md` — identifier-keyed ambient-access scan (read-only)
-- `docs/plan_topics/conventions.md` — *No globals, statics, singletons* / ambient-access rule (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal phases, MVP phase
-
-**Leaves (implementation order):**
-
-- `H4a` — Extension factory shell and end-to-end harness — (modified)
-- `M-T` — Minimal end-to-end `.loom` slash command (tests) — (modified)
-- `M` — Minimal end-to-end `.loom` slash command — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge on how `M`'s single-source discovery obtains its fixture: an in-memory harness supply versus a direct `src/**` filesystem read that violates the ambient-access ban and has no `FileSystem` seam to route through (`V8b` is built much later). The MVP pipeline proof — the whole point of the `M` leaf — is built inconsistently, and the divergent variant may redden the `H3a` ambient-access scan.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** Both `M-minimal-slash-command.md` and `M-T-minimal-slash-command.md` were created in the plan's initial build commit `c6a664e` and have no later edits; the `Adds.` "fixed single-source discovery" phrasing and the `Deps. M-T, H4a` line carrying the gap have been present unchanged since that first commit. `H4a`'s four-axis fidelity contract was authored in the same `c6a664e` commit and refined by later edits that did not add an in-memory fixture-supply mechanism.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Supply the fixture `.loom` in memory to the in-process `H4a` harness, so `M`'s single-source discovery reads from the harness-provided source rather than the real filesystem. This requires no `FileSystem` seam dependency and no `V8b` dependency, keeps `M`'s `Deps.` intact, introduces no throwaway adapter, and sidesteps the ambient-access ban.
-
-Add a clause to `M`'s `Adds.` stating the fixture `.loom` is supplied in-memory by the `H4a` harness. Add a matching in-memory fixture-supply statement to `H4a`'s harness description so the mechanism is defined where the harness is owned. Mirror the wording in `M-T`'s `Adds.`.
-
-Ensure the harness-supplied source is the only source `M`'s discovery reads — no ambient filesystem fallback — so the `H3a` ambient-access scan stays clean. Note that `M`'s harness-supplied discovery path diverges from the production `V10a` filesystem-backed discovery.
-
-## Relationships
-
-- T36 "Session double's model / tool / binder-response scripting surface is undefined" — same-cluster (both extend `H4a`'s harness / session-double contract; the in-memory fixture supply lands in the same H4a contract — this one must follow it)
-
