@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 13 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 12 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -933,68 +933,3 @@ Scope the bullet to the population-time check `H1a` owns: a comparison of the ma
 - T11 "Lint engine and custom-rule mechanism are consumed but never provisioned" — same-cluster (touches `H1a`'s manifest; resolves independently)
 - T34 "Test runner and assertion API are never named; the panic fail-loudly token is non-JS" — same-cluster (touches `H1a`'s manifest; resolves independently)
 - T13 "Checked-in package.json omits the yaml runtime dependency H1a mandates" — same-cluster (same `H1a` manifest, distinct field; resolves independently)
-
----
-
-# T13 — Checked-in package.json omits the yaml runtime dependency H1a mandates
-
-**Original heading:** `yaml` runtime dependency absent from the checked-in `package.json`
-**Original section:** docs/plan_topics/H1a-scaffold-and-toolchain.md
-**Kind:** codebase-grounding-broad
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-`H1a` is the initial-population owner of `package.json` and its **Adds** field enumerates loom's own runtime `dependencies` as `ajv`/`semver`/`chokidar`/`yaml`. `V6a`'s frontmatter parser consumes `yaml` directly ("parsing YAML via the `yaml` dependency declared in `H1a`'s manifest"), and `spec_topics/implementation-notes.md` §"Loom-package implementation dependencies (loom 1.0)" likewise declares `yaml` in the `dependencies` block on the same footing as `semver` and `chokidar`. The plan and spec therefore agree that `yaml` is a declared runtime dependency.
-
-The checked-in manifest does not match. `package.json#dependencies` is `{ajv, ajv-formats, chokidar, semver}` — `yaml` is not present. The manifest is already partially authored, so it reads as complete. An implementer picking up `H1a` and treating the existing manifest as authored — rather than re-deriving it from the Adds field — will not notice the omission. `H1a`'s **Ships when** ("a fresh checkout runs `npm install && npm run build && npm test` green with zero production source files") passes without `yaml`, so the gap ships green. The failure surfaces only later, when `V6a`'s `import` of `yaml` cannot resolve — far from the leaf that owns the manifest.
-
-The remediation lives in the codebase manifest, not in the plan or spec: `H1a`, `V6a`, and `implementation-notes.md` already state the obligation correctly.
-
-## Plan Documents
-
-- `docs/plan_topics/H1a-scaffold-and-toolchain.md` — Adds (manifest owner) (read-only)
-- `docs/plan_topics/V6a-frontmatter-contract.md` — Adds (`yaml` consumer) (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/implementation-notes.md` — §"Loom-package implementation dependencies (loom 1.0)" (read-only)
-
-## Affected Leaves
-
-**Phases:** Horizontal, Vertical (V6)
-
-**Leaves (implementation order):**
-
-- `H1a` — Project scaffold and toolchain — (modified)
-- `V6a` — Frontmatter field contract — (blocked)
-
-## Consequence
-
-**Severity:** correctness
-
-The deliverable artefact `H1a` owns (the checked-in `package.json`) diverges from `H1a`'s own Adds field. Two reasonable implementers diverge: one re-derives the manifest from Adds and adds `yaml`; one trusts the already-authored manifest and leaves it out. In the latter case `H1a` ships green while wrong, and `V6a`'s `yaml` import fails at build/test time far from the cause.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commit:** `1064946` — "pi-loom plan: resolve 'YAML frontmatter parsing mechanism is never declared as a dependency'" (2026-06-10).
-**History:** Earlier runtime-dependency findings were resolved end-to-end across both the docs and the manifest — `semver` was added to `package.json#dependencies` in `cb6cf60`, and `ajv`/`ajv-formats`/`chokidar` in `d511337`. Commit `1064946` resolved the YAML-parsing-mechanism finding by adding `yaml` to `H1a`'s Adds, `V6a`'s Adds, and `implementation-notes.md`, but did not carry the change through to `package.json#dependencies`. `git log -S'yaml' -- package.json` returns no commits. The defect is the doc-only half of an otherwise-complete dependency resolution.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a `yaml` entry to `package.json#dependencies`, alongside `ajv`/`ajv-formats`/`chokidar`/`semver`, pinned to a `2.x` line — e.g. `"yaml": "^2.9.0"` (the version the Pi SDK already bundles). `yaml` ships its own TypeScript bindings, so no `@types/yaml` entry in `devDependencies` is required (per `implementation-notes.md`).
-
-The fix is confined to the checked-in manifest. No plan or spec edit is required: `H1a`'s Adds, `V6a`'s Adds, and `implementation-notes.md` already declare `yaml` correctly, and those files are read-only for this fix. This completes the doc-only resolution made in commit `1064946`; do not revert that commit — the doc side was correct, only the manifest update was missed.
-
-## Relationships
-
-- T11 "Lint engine and custom-rule mechanism are consumed but never provisioned" — same-cluster (checked-in `package.json` missing tooling the plan assumes; resolves independently)
-- T34 "Test runner and assertion API are never named; the panic fail-loudly token is non-JS" — same-cluster (same manifest-provisioning theme; resolves independently)
-- T12 "engines.node is populated but its value is never asserted in H1a" — same-cluster (same `H1a` manifest, distinct field; resolves independently)
