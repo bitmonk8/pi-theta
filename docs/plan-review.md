@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 6 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 5 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1611,75 +1611,6 @@ Add `V8a` to the `Deps` field of both paired leaves, mirroring the sibling `V11c
 - In `docs/plan_topics/V11d-T-defaulting-echo.md`, change the `Deps.` line to `**Deps.** \`V11a\`, \`V2a\`, \`V2d\`, \`V5d\`, \`V8a\``.
 
 Edge case: if `V11d` is later split, the `V8a` dependency belongs on whichever sub-leaf retains the fill-then-revalidate / post-merge AJV-validation test, not on the pure builder/echo sub-leaf.
-
-## Relationships
-
-None
-
----
-
-# T24 — V18c's version-bump runtime-evidence gate under-declares its feature dependencies (unschedulable in DAG order)
-
-**Original heading:** V18c under-declares the integrated feature set it runs against (non-executable in DAG order)
-**Original section:** V18c — Pi version-bump procedure and gates
-**Kind:** ordering
-**Importance:** high
-**Score:** 90
-**MustFix:** false
-
-## Finding
-
-`V18c` carries a runtime-evidence acceptance gate whose **Tests** and **Ships when** require the `H4a` end-to-end harness to run a *representative integrated `.loom`* — "typed query + tool loop + invoke + schema validation + binder + cancellation" — against the bumped Pi-SDK pin and pass. That fixture exercises features produced by other leaves: the query tool loop (`V13c`), code-tool invoke (`V14a`, which transitively pulls invocation core `V15a`), schema-subset lowering/validation (`V5d`), the binder failure taxonomy (`V11f`), and cancellation (`V17a`).
-
-`V18c`'s declared **Deps** are only `V18c-T, V18a, V18b, H4a` — none of the feature-producing leaves. The plan sequences by satisfied **Deps**, not slice number. Once `V18c-T`, `V18a`, `V18b`, and `H4a` are complete, `V18c` becomes eligible to pick up even though the integrated pipeline it must run does not yet exist, so its runtime-evidence gate cannot pass — the leaf is unschedulable as written.
-
-The sibling leaf `H7a` runs the same representative multi-feature fixture class and declares the feature set explicitly (`Deps: H4a, V5d, V8a, V11f, V13c, V14a, V17a`). `V18c`'s gate is the real-host backstop counterpart to `H7a`'s cross-slice gate, yet `V18c` omits the equivalent dependency edges.
-
-## Plan Documents
-
-- `docs/plan_topics/V18c-version-bump-checklist.md` — **Deps** field (edited)
-- `docs/plan_topics/H7a-integration-acceptance.md` — Deps / Adds (read-only; the dependency template and fixture-class reference)
-- `docs/plan_topics/V13c-query-tool-loop.md` — Adds (read-only)
-- `docs/plan_topics/V14a-tool-calls.md` — Deps/Adds (read-only)
-- `docs/plan_topics/V5d-subset-lowering.md` — Adds (read-only)
-- `docs/plan_topics/V11f-binder-retry-taxonomy.md` — Adds (read-only)
-- `docs/plan_topics/V17a-cancellation-core.md` — Adds (read-only)
-- `docs/plan.md` — V9 interleave note (read-only)
-- `docs/plan_topics/conventions.md` — §3 (read-only)
-
-## Spec Documents
-
-None — the fix is internal to plan-leaf **Deps** fields; no spec edit is required.
-
-## Affected Leaves
-
-**Phases:** Vertical slices — V9 (Extension host integration), V18 (Build-time SDK gates)
-
-**Leaves (implementation order):**
-
-- `V9g` — Session-shutdown teardown and emission isolation — (blocked) — depends on `V9h`→`V18c`; its earliest pick-up moves later when `V18c` is resequenced
-- `V9h` — Session-only degraded state and unknown-reason rule — (blocked) — depends on `V18c`; resequenced later
-- `V18c` — Pi version-bump procedure and gates — (both) — **Deps** edited to add the feature leaves; consequently resequenced after them in DAG order
-
-## Consequence
-
-**Severity:** blocking
-
-An implementer following the canonical "next leaf whose Deps are satisfied" rule can pick up `V18c` before the integrated pipeline exists; its runtime-evidence acceptance gate (and therefore its **Ships when**) cannot fire green, so the leaf cannot be completed when scheduled. The defect also propagates: `V9h` (and transitively `V9g`) depend on `V18c`, so the contradiction blocks that cluster too.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 81ab342 — pi-loom plan: resolve "version-bump runtime-evidence acceptance gate and revert path" (2026-06-10, Thomas Andersen)
-**History:** The leaf was created at `c6a664e` with `Deps: V18c-T, V18a, V18b` and no integrated runtime-evidence gate. Commit `81ab342` added the runtime-evidence acceptance gate requiring a representative integrated `.loom` (typed query + tool loop + invoke + schema validation + binder + cancellation) and appended only `H4a` to **Deps**, omitting the feature-producing leaves — introducing the under-declaration in that single commit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Declare the feature-producing leaves directly on `V18c`. Extend `V18c`'s **Deps** line from `` `V18c-T`, `V18a`, `V18b`, `H4a` `` to additionally include `V5d`, `V11f`, `V13c`, `V14a`, and `V17a` (mirroring the set `H7a` already declares for the same fixture class; `V8a` and `V15a` arrive transitively via `V17a`/`V14a`, so naming them is optional). `V14a` covers the "invoke" surface (code-tool invoke, pulling `V15a`); if the fixture also drives the standalone `invoke(...)` core, add `V15a` explicitly. This is the surgical fix — it makes `V18c` schedulable only after the pipeline its gate runs exists, keeps `V18c`'s dependency contract explicit, and avoids coupling the version-bump procedure to the terminal `H7a` gate's late sequencing. None of `V5d`/`V11f`/`V13c`/`V14a`/`V17a` has `V18c` (or `V9h`/`V9g`) in its transitive closure, so the new edges introduce no dependency cycle (verify this still holds if `V15a` is added). Keep `V18c`'s feature-dep list and `H7a`'s in sync if either fixture's feature span later changes.
 
 ## Relationships
 
