@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/hard-ceilings.md`](../spec_topics/hard-ceilings.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md), [`../spec_topics/hard-ceilings/ceiling-invariants-and-audit.md`](../spec_topics/hard-ceilings/ceiling-invariants-and-audit.md).
 
-**Adds.** Failing tests for the paired `V16a` implementation leaf.
+**Adds.** Failing tests for the paired `V16a` implementation leaf: synthesised ceiling-candidates driven through the cross-ceiling arbitration seam, asserting its `{ surfaced, masked }` output in CIO-1 … CIO-6 order.
 
 **Tests.**
 - `CIO-1`: ceiling #3 (binder retry) is evaluated at slash-load before any runtime-class ceiling; the slash-load `params` arm of #4 is load-time and routed by #3 templates.

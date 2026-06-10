@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/schema-subset.md`](../spec_topics/schema-subset.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md).
 
-**Adds.** The loom-owned recursive JSON-depth walk (ceiling = 5; scalar/empty = 1; non-empty = 1 + max child; `anyOf` arms are not levels) run before AJV at the five enforcement sites, emitting the `maxDepth` error with the per-boundary routing.
+**Adds.** The loom-owned recursive JSON-depth walk (ceiling = 5; scalar/empty = 1; non-empty = 1 + max child; `anyOf` arms are not levels) run before AJV at the five enforcement sites, emitting the `maxDepth` error with the per-boundary routing. At its ceiling-#4 first-enforcement point this leaf **consults** `V16a`'s cross-ceiling arbitration seam to obtain the cross-ceiling surfacing precedence and to populate the surface's `masked` field — the seam it binds via its `Deps` on `V16a`.
 
 **Tests.**
 - A materialised value of depth 6 fires `schema_keyword:"maxDepth"`, message `"JSON document depth exceeds 5"`, `cause:"schema_validation"`, at each of the five sites (typed-query response, model-driven tool args, code-driven tool args, `params`, `invoke<T>` return).

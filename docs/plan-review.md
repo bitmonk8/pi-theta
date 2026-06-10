@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 6 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1684,86 +1684,3 @@ Declare the feature-producing leaves directly on `V18c`. Extend `V18c`'s **Deps*
 ## Relationships
 
 None
-
----
-
-# T25 — V16a posits an isolated cross-ceiling unit whose interface is undefined and whose authority over the live breach sites is never established
-
-**Original heading:** Isolated cross-ceiling unit: interface/data shape undefined and its runtime authority over live sites never established
-**Original section:** V16a — cross-ceiling order and `masked`
-**Kind:** implementability, assumptions
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-`V16a` requires CIO-1 … CIO-6 to be exercised by "driving synthesised ceiling-candidate events through the unit that computes the cross-ceiling order in isolation," with the live breach sites (`V5e`, `V11f`, `V13c`, `V15b`) absent because they are built by downstream leaves. This posits two things the spec never defines: a single arbitration *component* that computes the cross-ceiling order, and a *ceiling-candidate event* type that feeds it. The owning spec page (`hard-ceilings.md`) pins a deliberately **distributed** model — "Each per-ceiling rule's *first* enforcement point still lives on the topic page that owns the breach surface," and the interaction rule is a control-flow property ("the first ceiling reached along an event's control-flow path that finds its precondition satisfied fires and ends the event"), not a centralized arbiter receiving events. The spec defines no inputs, no outputs, and no `{surfaced ceiling, masked}` return contract for any such unit.
-
-Because the shape is undefined, an implementer must invent both the event vocabulary and the arbitration signature, and two reasonable implementers can factor it incompatibly. The leaf's own Adds is internally tensioned: it simultaneously claims a "unit that computes the cross-ceiling order" and states that "each ceiling's bound/breach surface is implemented by its feature leaf … at that ceiling's own first-enforcement point, per `hard-ceilings.md`'s distributed model."
-
-The second, independent defect is that the leaf never states whether the live enforcement sites **consult** `V16a`'s unit at runtime or independently **re-derive** the CIO order. The five downstream leaves (`V4e`, `V5e`, `V11f`, `V13c`, `V15b`) all list `V16a` in their `Deps`, so a binding relationship is intended — yet `V16a` Adds names no seam for them to bind to, so by the *Leaf format* seam rule the relationship is non-binding. If the live sites re-derive the order, the isolated synthesised-event tests prove nothing about live arbitration, the unit may be dead or divergent, and CIO-1 … CIO-6 (mapped in `coverage-matrix.md` exclusively to `V16a`) closes vacuously while live behaviour is unverified.
-
-## Plan Documents
-
-- `docs/plan_topics/V16a-ceiling-order-masked.md` — V16a Adds / Tests / Ships when (edited)
-- `docs/plan_topics/V16a-T-ceiling-order-masked.md` — V16a-T Tests (edited)
-- `docs/plan_topics/V5e-depth-enforcement.md` — V5e Deps / Adds (option-dependent)
-- `docs/plan_topics/V11f-binder-retry-taxonomy.md` — V11f Deps / Adds (option-dependent)
-- `docs/plan_topics/V13c-query-tool-loop.md` — V13c Deps / Tests (option-dependent)
-- `docs/plan_topics/V15b-invoke-depth-cycle.md` — V15b Deps / Adds (option-dependent)
-- `docs/plan_topics/V4e-pre-evaluation-failures.md` — V4e Deps (option-dependent)
-- `docs/plan_topics/coverage-matrix.md` — `CIO-1 … CIO-6 | V16a` row (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/hard-ceilings.md` — distributed-model intro + cross-ceiling ownership (read-only)
-- `docs/spec_topics/hard-ceilings/ceilings-3-and-4.md` — "Interaction between ceilings" (CIO-1 … CIO-6) + `masked` field (option-dependent — an option that points the leaf at a fixed spec contract may need a stable anchor here)
-- `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — PIC-1 per-site reachable mask domain (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices
-
-**Leaves (implementation order):**
-
-- V4e — Pre-evaluation failures — (modified)
-- V5e — JSON document depth enforcement (hard ceiling #4) — (modified)
-- V11f — Binder cancellation, per-class retry budget, and failure taxonomy — (modified)
-- V13c — Query tool loop and typed two-phase — (modified)
-- V15b — Invoke depth bound and cycle detection — (modified)
-- V16a — Hard-ceiling interaction order and `masked` co-fire — (modified)
-- V16a-T — Hard-ceiling interaction order and `masked` co-fire (tests) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge: one builds a central arbiter the live sites call into; another builds a test-only unit and lets each live site re-derive the order. In the re-derive factoring, `V16a`'s unit is dead or divergent code, its synthesised-event tests stay green regardless of live behaviour, and the CIO-1 … CIO-6 closure (mapped solely to `V16a` in the coverage matrix) passes vacuously — the cross-ceiling ordering the gate exists to certify is never exercised end-to-end.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** The leaf `docs/plan_topics/V16a-ceiling-order-masked.md` was created in commit c6a664e, the initial plan build; the defect tokens "unit that computes the cross-ceiling order" and "synthesised ceiling-candidate events," together with the undefined seam interface and the unstated consult-vs-re-derive relationship, are all present in that first revision. The only later commit touching the file, 2565ddd, resolved an unrelated NOCEIL Adds/Tests issue and did not address this defect.
-
-## Solution Space
-
-**Shape:** single
-
-This finding carries two independent obligations that must be discharged in order: first define the cross-ceiling unit's interface/data shape, then establish its runtime authority over the live breach sites against that fixed baseline.
-
-### Recommendation
-
-Fix the interface/data shape first — it is the scope-bounding obligation — then establish runtime authority against the fixed seam.
-
-**Interface/data shape.** Make `V16a` Adds define the cross-ceiling arbitration as a consumer-bound seam: name the input event vocabulary (the "ceiling-candidate" shape with the field that tags which check site / ceiling-class it carries) and the `{surfaced ceiling, masked}` return contract, with the closed `masked` identifier set (`"ceiling#1"`…`"ceiling#4"`) and the omit-when-empty rule already pinned in `ceilings-3-and-4.md#masked-field`. Describe the seam fully plan-side against the existing `masked` anchors; if the leaf is instead pointed at a spec-owned contract and no such anchor exists, add one new stable anchor to `ceilings-3-and-4.md` "Interaction between ceilings." Align the leaf's Tests/Ships-when wording to the named seam, and mirror any vocabulary change into `V16a-T` Tests. A fixed interface that is defined but never consulted is still dead code, which is why runtime authority must be established below.
-
-**Runtime authority.** State explicitly, in `V16a` Adds and in each consuming leaf's card, whether `V5e`/`V11f`/`V13c`/`V15b` (and the load-time `V4e` cross-route) **consult** `V16a`'s seam at their first-enforcement point or **re-derive** the CIO order locally. If consult: the consumers' `Deps` on `V16a` become seam-binding and name the bound seam. If re-derive: reframe `V16a` so its synthesised-event tests are scoped as ordering-spec fixtures, re-justify each consumer's `Deps`, and route live-arbitration verification to an integration assertion in the owning downstream leaf. Reconcile the `Deps` of `V4e`/`V5e`/`V11f`/`V13c`/`V15b` to the chosen relationship. The distributed model in `hard-ceilings.md` is read-only context the statement must agree with; no spec edit is expected for this obligation.
-
-Edge case: the slash-load `params` arm of ceiling #4 cross-routes through ceiling #3 (CIO-1) at load time rather than runtime, so `V4e`'s binding to the seam differs in kind from the four runtime sites.
-
-## Relationships
-
-- T15 "CIO-5 cross-ceiling arbitration verified only in isolation — no live-site integration assertion" — co-resolve (its requested live-site integration assertion is Obligation B's verification).
-- T16 "V16a-T CIO-3 asserts ceiling ordering at live AJV boundaries the leaf cannot reach, contradicting its paired impl leaf" — same-cluster (V16a/V16a-T wording; resolves independently).

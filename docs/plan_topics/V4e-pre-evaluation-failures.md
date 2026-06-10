@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/errors-and-results/error-model.md`](../spec_topics/errors-and-results/error-model.md).
 
-**Adds.** The closed pre-evaluation failure set surfaced on the `loom-system-note` channel with `triggerTurn:false`, never becoming evaluation outcomes.
+**Adds.** The closed pre-evaluation failure set surfaced on the `loom-system-note` channel with `triggerTurn:false`, never becoming evaluation outcomes. The slash-load `params` arm of ceiling #4 (`ERR-16`) **consults** `V16a`'s cross-ceiling arbitration seam at slash-load per CIO-1 — a load-time cross-route that differs in kind from the four runtime first-enforcement sites — binding the seam via its `Deps` on `V16a`.
 
 **Tests.**
 - `ERR-1`: host-incompatible pre-eval failure routes without firing a turn.

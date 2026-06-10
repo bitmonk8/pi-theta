@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/binder/determinism-cancellation-failure.md`](../spec_topics/binder/determinism-cancellation-failure.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md).
 
-**Adds.** The binder per-class retry budget (hard ceiling #3), the four-class failure taxonomy with its six verbatim failure-mode templates, the cancellation forwarding into the binder call, and the surfaced most-recent-failure note.
+**Adds.** The binder per-class retry budget (hard ceiling #3), the four-class failure taxonomy with its six verbatim failure-mode templates, the cancellation forwarding into the binder call, and the surfaced most-recent-failure note. At its ceiling-#3 first-enforcement point (slash-load) this leaf **consults** `V16a`'s cross-ceiling arbitration seam for the cross-ceiling surfacing precedence and `masked` enumeration — the seam it binds via its `Deps` on `V16a`.
 
 **Tests.**
 - `HC3-a`: at most one transport-class retry.

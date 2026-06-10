@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/query/query-tool-loop.md`](../spec_topics/query/query-tool-loop.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md).
 
-**Adds.** The model tool-call loop (free phase), the typed two-phase `complete()` with the `__loom_respond_<slug>` forced-respond turn (verbatim templates), the `max_rounds:0` boundary, and the ceiling-#2 evaluation at the round boundary.
+**Adds.** The model tool-call loop (free phase), the typed two-phase `complete()` with the `__loom_respond_<slug>` forced-respond turn (verbatim templates), the `max_rounds:0` boundary, and the ceiling-#2 evaluation at the round boundary. At its ceiling-#2 first-enforcement point (the round boundary) this leaf **consults** `V16a`'s cross-ceiling arbitration seam for the cross-ceiling surfacing precedence and `masked` enumeration — the seam it binds via its `Deps` on `V16a`.
 
 **Tests.**
 - `CIO-4` (query-tool-loop.md — free phase): the free phase advances rounds; a parallel batch counts as one slot; the forced-respond turn is exempt from the round count (CIO-4 final branch).
