@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 16 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 15 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1126,69 +1126,3 @@ Edge cases the implementer must watch: the negative path — a `params:` named t
 
 - T35 "model/bind_* resolution hooks named in V6a Adds with no closing assertion" — same-cluster (sibling `V6a` frontmatter leaf with the identical Adds-claims-behaviour / no-asserting-test gap; resolves independently)
 - T14 "Stdlib members beyond replace/concat have no named assertion" — same-cluster (same Adds-names-a-set / Tests-assert-a-subset pattern; resolves independently)
-
----
-
-# T16 — system: interpolation per-type stringification not witnessed through the system: surface
-
-**Original heading:** `system` stringification table asserted only generically
-**Original section:** docs/plan_topics/V6d-system-interpolation.md
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V6d` reuses the canonical interpolation-stringification table for the `system:` field's bare-path `${param}` / `${param.field}` form. The leaf's coverage of this is the single Tests bullet *"a Path-only `${…}` resolves and stringifies per the table"*, which exercises exactly one resolution and does not name which static-type rows the `system:` path drives. `V6d`'s own logic — resolving a `Path` against the validated `params` object, determining the resolved value's Loom static type, and feeding it into the shared renderer — is per-type behaviour that a single generic assertion does not witness.
-
-The table has a `system:`-specific reachability profile the spec calls out explicitly: the `Result<T, E>` row cannot fire here (`params:` types never include `Result`), while the `number` row's non-finite cases (`NaN` / `±Infinity`) *are* reachable through the non-slash argument arms (`invoke(...)` / `.loom`-callable), and `null` must render as the literal text `null` rather than the empty string. None of these `system:`-surface distinctions is asserted. A param of an untested type (object → compact JSON, enum → wire value, integer, boolean, the non-finite `number` cases) could resolve and stringify incorrectly through the `system:` entry point and still pass `npm test`.
-
-Row-level rendering correctness is owned by `V13a`, so this is not a request to re-derive the table. It is the gap that `V6d`'s resolve-then-stringify path is not observed feeding each distinct param-resolvable type into the shared renderer.
-
-## Plan Documents
-
-- `docs/plan_topics/V6d-T-system-interpolation.md` — Tests (edited)
-- `docs/plan_topics/V6d-system-interpolation.md` — Tests / Ships when (edited)
-- `docs/plan_topics/V13a-query-render.md` — Stringification table (canonical row-correctness owner) (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slice V6 (Frontmatter)
-
-**Leaves (implementation order):**
-
-- `V6d-T` — `system` template interpolation (tests) — (modified)
-- `V6d` — `system` template interpolation — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A `params` type the `system:` resolution mishandles (object/array compact JSON, enum wire value, `null` literal, or a non-finite `number` reaching the slot through the non-slash arms) can ship green because no `system:`-surface vector exercises it; the model would silently see a corrupted system prompt. The implementation can still be written correctly by routing through the shared renderer, so this is a test-coverage gap rather than a blocker.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — "pi-loom plan: build/update plan for spec.md + review" (2026-06-10, Thomas Andersen)
-**History:** The `V6d` and `V6d-T` leaf files were both created in commit c6a664e and the generic *"a Path-only `${…}` resolves and stringifies per the table"* Tests bullet has been present verbatim since. `git log --follow` on each returns only c6a664e. The gap is original.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Strengthen the `system:` stringification coverage in `V6d-T` (and mirror it in `V6d`'s Tests bullet) so the `system:` resolve-then-stringify path is observed for each distinct param-resolvable Loom static type, rather than a single unnamed Path resolution. Replace the bullet with assertions that drive a reference vector through the `system:` surface for: `string`, `integer`, `number` (including the non-finite `NaN` / `Infinity` / `-Infinity` cases, which reach the slot only through the non-slash `invoke(...)` / `.loom`-callable arms), `boolean`, `null` (renders the literal text `null`, not the empty string), an enum variant (renders its wire value), an `array<T>`, and a schema-typed object (compact `JSON.stringify` with wire-name translation). Also assert that the `Result<T, E>` row does not arise from this surface.
-
-Anchor the expected renderings to the canonical table in `query/query-escapes-stringification.md` and let `V13a` retain ownership of row-level correctness. The `Deps` already include `V6a`, `V3a`, `V13a`, so no dependency change is needed. Update `V6d`'s **Ships when** to reference that the per-type `system:` vectors pass alongside the four `system-interp-*` codes and `\${` handling.
-
-## Relationships
-
-- T14 "Stdlib members beyond replace/concat have no named assertion" — same-cluster (same plan-lens-validation pattern: an enumerated/tabular behaviour asserted only generically; resolves independently in `V3a`)
-- T17 "V11e names five system-note rules but asserts only two" — same-cluster (boundary/row asserted generically; resolves independently)
-- T15 "Forward-reference params type RHS claimed in V6b Adds but never asserted" — same-cluster (V6b adds-without-asserting; resolves independently)
