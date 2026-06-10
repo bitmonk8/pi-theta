@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 3 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 2 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -161,74 +161,3 @@ Keep paired `-T` bullets byte-identical to their impl counterparts in the same e
 
 - T01 "Un-anchored-MUST closing-gate recogniser claims exact precision and recall over free-form prose" — same-cluster (same overclaim / caveat-discipline pattern).
 - T17 "V17a's `Ships when` gate observes only a subset of the cancellation obligations its Tests enumerate" — same-cluster (same V17a leaf; under a split the checkpoint bullet moves to the checkpoint sub-leaf).
-
----
-
-# T03 — Closing gate checks numbered-REQ-ID matrix mapping exists, but not that any test asserts the REQ-ID
-
-**Original heading:** Closing gate verifies numbered-REQ-ID mapping existence, not that a test asserts the REQ-ID
-**Original section:** docs/plan_topics/conventions.md
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-The loom 1.0 closing gate covers two sibling traceability surfaces with asymmetric strength. For **diagnostic codes** the gate reconciles the diagnostics registry against the *asserting tests* in both directions: a registry code with no asserting test fails CI, and an asserted code absent from the registry fails CI (`conventions.md` *REQ-ID discipline* final paragraph; `H5a` Tests bullet 2; `V7b` Tests `DIAG-2`). For **numbered REQ-IDs** (`TYPE-*`, `ERR-*`, `PIC-*`, `BNDR-*`, …) the gate only checks that a `coverage-matrix.md` *row* exists — "a spec REQ-ID without a coverage-matrix mapping … as a CI failure" (`conventions.md` *REQ-ID discipline*; `H5a` Tests bullet 1; `coverage-matrix.md` header). The coverage matrix maps each REQ-ID to a closing leaf and asserts "its green tests are the closure evidence", but nothing mechanically verifies that the closing leaf actually contains a test that asserts that REQ-ID.
-
-Consequently a leaf can land with one of its claimed REQ-ID's tests omitted while the manually-maintained matrix row keeps the row present and CI green. Numbered-REQ-ID coverage therefore rests on TDD discipline plus manual coverage-matrix bookkeeping, not on a gate — unlike the diagnostic-code surface, where the same omission reddens CI.
-
-This asymmetry sits on the loom 1.0 release-gate path (`plan.md` item 5, activated by `H6a`), so the class the numbered-REQ-ID surface can miss — a mapped-but-unasserted REQ-ID — is exactly the class the gate exists to certify on the live corpus.
-
-## Plan Documents
-
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* (edited)
-- `docs/plan_topics/H5a-closing-gate-automation.md` — Adds. / Tests. / Ships when. (edited)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Adds. / Tests. (edited)
-- `docs/plan_topics/coverage-matrix.md` — *Numbered REQ-IDs (runtime obligations)* table (read-only)
-- `docs/plan.md` — item 5 / `## Release gate` (read-only)
-
-## Spec Documents
-
-None — the numbered REQ-IDs already exist in the spec corpus; the fix is internal to the plan's gate machinery and conventions.
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H5a — REQ-ID / diagnostic-code closing-gate automation — (modified)
-- H6a — Live-corpus closing-gate activation (loom 1.0 release gate) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A numbered REQ-ID can ship with its asserting test omitted while a manually-kept coverage-matrix row keeps CI green; the gate's numbered-REQ-ID surface then passes vacuously for that REQ-ID. The release-gate guarantee in `plan.md` item 5 ("every executable spec REQ-ID has at least one closing leaf … whose green tests are the closure evidence") is enforced for diagnostic codes but only assumed for numbered REQ-IDs.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** c1e5d64 — spec: REQ-ID infrastructure + Phase 12a heading promotion on five named pages (2026-05-05, Thomas Andersen); 3968bda — pi-loom plan: resolve "V18o closing gate ignores the diagnostic-code registry" (2026-05-05, Thomas Andersen)
-**History:** c1e5d64 established the numbered-REQ-ID closing-gate surface as a coverage-matrix mapping-existence check ("a spec REQ-ID without a coverage-matrix mapping"). The same-day commit 3968bda then added the diagnostic-code surface with a stronger registry↔asserting-test reconciliation ("a registry code without an asserting test") but did not retrofit the numbered-REQ-ID surface to the same test-level strength. The resulting asymmetry has been carried verbatim through the 2026-05-25 scaffold reset and every subsequent `conventions.md` / `H5a` / `H6a` edit to today.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Bring the numbered-REQ-ID surface to parity with the diagnostic-code surface. Add a numbered-REQ-ID citation discipline mirroring the existing *Diagnostic message anchors* rule: a test asserting a numbered REQ-ID carries an inline citation of that REQ-ID in the test source, and the closing gate fails when a `coverage-matrix.md`-mapped REQ-ID has no citing test in the test corpus.
-
-- `conventions.md` *REQ-ID discipline*: add that a test asserting a numbered REQ-ID cites that REQ-ID inline in the test source, and that the closing gate treats a coverage-matrix-mapped REQ-ID with no citing test as a CI failure (parallel to the registry-code↔asserting-test clause already present for diagnostic codes).
-- `H5a` Adds. / Tests. / Ships when.: extend the gate to reconcile coverage-matrix numbered-REQ-ID mappings against citing tests, and add a seeded fixture pair — a no-violation fixture where every mapped REQ-ID has a citing test, and a violation fixture where a mapped REQ-ID's citing test is absent — so the new failure mode is exercised at `H5a` on the same seeded footing as the existing surfaces.
-- `H6a` Adds. / Tests.: extend the live-corpus activation so the numbered-REQ-ID citing-test reconciliation flips to the live corpus alongside the existing unmapped-REQ-ID and un-anchored-MUST modes.
-
-Edge cases: state the citing-test recogniser's text-scan limit inline rather than claiming exact recall (mirror the H3a/H4a caveat discipline), and keep `H6a`'s `Deps.` transitively complete so the live-corpus citing-test mode does not activate against still-landing coverage.
-
-## Relationships
-
-- T01 "Un-anchored-MUST closing-gate recogniser claims exact precision and recall over free-form prose" — same-cluster (sibling closing-gate surface under the same *REQ-ID discipline* rule; its best-effort framing is the model for this fix's recogniser-limit caveat).
-- T12 "CNCL-4 session-shutdown reason facet is asserted in V9g but never authored red in V9g-T or gated by Ships-when" — same-cluster (a concrete instance of the mapped-but-unasserted REQ-ID class this gate-extension would catch mechanically).
