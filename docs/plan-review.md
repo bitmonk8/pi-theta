@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T32) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blockers, 0 high, 10 medium retained; 18 low discarded; 3 low findings merged into 1 medium finding; 5 NIT dropped; 0 false dropped. One verbatim duplicate (a re-pasted V6b finding under the V11d section) was de-duplicated into T12._
+_Triage tally: 0 blockers, 0 high, 9 medium retained; 18 low discarded; 3 low findings merged into 1 medium finding; 5 NIT dropped; 0 false dropped. One verbatim duplicate (a re-pasted V6b finding under the V11d section) was de-duplicated into T12._
 
 ---
 
@@ -541,77 +541,4 @@ Edge cases for the implementer: the assertion must fail both when `typebox` is g
 
 - T32 "Adds. binding clause (i) cannot bind code-keyed obligations" — same-cluster (this is a concrete instance of the undefined `Adds.` binding-class rule; the general fix governs how clauses like this one are classified).
 - T30 "Un-anchored normative MUSTs are invisible to the closing gate by construction" — same-cluster (the collapse prohibition is exactly an un-anchored normative MUST invisible to the closing gate; a general rule fix would catch it categorically).
-
----
-
-# T09 — V1b escape-sequence Tests bullet merges error-detection and decoding without citing any code or anchor
-
-**Original heading:** Second Tests bullet merges two behaviors with no code
-**Original section:** V1b — Literals and paths
-**Kind:** traceability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V1b`'s second `Tests.` bullet reads: "String escape errors fire at the offending span; `\u{…}` decodes correctly." This single bullet conflates two independent behaviours that fail independently: a set of parse-phase escape diagnostics, and the happy-path decoding of a `\u{…}` escape to its Unicode scalar value. Neither half cites a verbatim diagnostic code or a stable spec anchor, so neither sub-behaviour is individually referenceable. The identical bullet appears in the paired tests leaf `V1b-T`.
-
-`lexical.md` §*String literals* defines two distinct escape error codes — `loom/parse/illegal-escape` (a backslash followed by an unrecognised character) and `loom/parse/invalid-unicode-escape` (a recognised `\u{…}` whose value exceeds `U+10FFFF` or names a surrogate) — both registered in `diagnostics/code-registry-parse.md`. The merged prose "String escape errors fire" cites neither verbatim, and the decode happy-path carries no citation at all.
-
-This collides with two `conventions.md` cross-cutting rules: the *Tests.* leaf-format rule ("one bullet per REQ-ID … cite the ID inline") and the *REQ-ID discipline* closing gate, which reconciles registry diagnostic codes against asserting tests by verbatim code match (a registry code with no asserting test is a CI failure). Because `V1b`/`V1b-T` is the only place these two escape codes would be closed (the only other mention, in `V13a`, is the query-template body, a separate site), the merged bullet leaves both `loom/parse/illegal-escape` and `loom/parse/invalid-unicode-escape` without a verbatim-cited asserting test.
-
-## Plan Documents
-
-- `docs/plan_topics/V1b-literals-and-paths.md` — Tests (edited)
-- `docs/plan_topics/V1b-T-literals-and-paths.md` — Tests (edited)
-- `docs/plan_topics/coverage-matrix.md` — `lexical.md` (LEX) row (read-only)
-- `docs/plan_topics/conventions.md` — *Tests.* leaf-format rule, *Diagnostic message anchors*, *REQ-ID discipline* (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/lexical.md` — String literals section (edited only if the decode happy-path cites a new anchor added here rather than reusing an existing stable identifier)
-- `docs/spec_topics/diagnostics/code-registry-parse.md` — `loom/parse/illegal-escape`, `loom/parse/invalid-unicode-escape` rows (read-only — codes already registered)
-
-## Affected Leaves
-
-**Phases:** Vertical slice V1 — Lexer and literals
-
-**Leaves (implementation order):**
-
-- `V1b-T` — String, number, and path literals (tests) — (modified)
-- `V1b` — String, number, and path literals — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The merged, un-cited bullet leaves both `loom/parse/illegal-escape` and `loom/parse/invalid-unicode-escape` without a verbatim-cited asserting test, so the `H5a` closing gate (which reconciles registry codes against asserting tests by exact code match) flags both codes as uncovered and fails CI at the terminal gate. Before that, two reasonable implementers diverge on which escape errors and which decode behaviour to assert — a single "string escape errors fire" assertion can pass while one code's path or the `\u{…}` decode is untested.
-
-## Issue introduction
-
-**Verdict:** indeterminate
-**Introducing commits:** none identified
-**History:** The cited leaf files `docs/plan_topics/V1b-literals-and-paths.md` and `docs/plan_topics/V1b-T-literals-and-paths.md` are untracked in the git work tree (`git status` reports `??`; only `conventions.md`, `coverage-matrix.md`, `leaf-template.md`, and `plan.md` are committed under the plan corpus). With no commit history for the files carrying the defect, the introducing change cannot be localised.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In both `V1b` and `V1b-T`, replace the merged second `Tests.` bullet with separate, individually-referenceable bullets so each escape behaviour is traceable:
-
-- An error bullet citing `loom/parse/illegal-escape` verbatim: a backslash followed by an unrecognised character inside a string literal fires at the offending span.
-- An error bullet citing `loom/parse/invalid-unicode-escape` verbatim: a recognised `\u{…}` escape whose value exceeds `U+10FFFF` or names a surrogate fires at the offending span.
-- A happy-path bullet asserting `\u{…}` decodes to the correct Unicode scalar value, carrying a stable citation into `lexical.md` §*String literals*.
-
-The two error codes are already in `code-registry-parse.md`, so those bullets are pure plan edits. The decode happy-path currently has no stable target: `lexical.md` §*String literals* carries no `<a id>` anchor. The implementer must give the decode bullet a stable spec citation — either by adding a stable anchor / GOV-16 inline label at that section in `lexical.md` and citing it, or by citing an existing stable identifier covering the decode rule. Keep the two leaves mirror-consistent: apply the identical split to `V1b` and `V1b-T`.
-
-## Relationships
-
-- T10 "V3b — first three `Tests.` bullets cite no registry code" — same-cluster (same merged-bullet / traceability pattern; resolves independently).
-- T11 "`V4a` third Tests bullet conflates three match behaviours with no cited identifier" — same-cluster (same pattern; resolves independently).
-- T14 "V10c second Tests bullet conflates a malformed-settings diagnostic with debounce coalescence and cites a wildcard code" — same-cluster (same pattern; resolves independently).
-- T15 "V11d second `Tests.` bullet conflates AJV revalidation and `(default)` annotation with no spec identifier" — same-cluster (same pattern; resolves independently).
 
