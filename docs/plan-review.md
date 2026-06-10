@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 4 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 3 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1484,66 +1484,3 @@ Retain the never-throw + per-call `try`/`catch` framing — it is correct and lo
 ## Relationships
 
 - T05 "Real-host verification gap — every end-to-end and release gate runs only against the H4a session double" — same-cluster (same `H4a` leaf / harness; a corrected boundary still runs against the double, but resolves independently).
-
----
-
-# T22 — YAML frontmatter parsing mechanism is never declared as a dependency
-
-**Original heading:** YAML frontmatter parsing mechanism never enumerated as a dependency
-**Original section:** V6a — frontmatter contract
-**Kind:** assumptions
-**Importance:** high
-**Score:** 100
-**MustFix:** false
-
-## Finding
-
-`V6a`'s `Adds.` field names "the YAML frontmatter parser" as a loom-owned component, and its `Ships when` gate requires `npm test` to parse frontmatter. Frontmatter is YAML (spec topics `frontmatter.md`, `frontmatter-fields-a.md`, and `frontmatter-fields-b-and-templates.md` describe YAML scalars, block scalars, and the two `tools:` YAML spellings), so V6a must reach for some YAML-parsing mechanism — yet no plan or spec document names one.
-
-The single source for loom's runtime dependencies is `implementation-notes.md` §"Loom-package implementation dependencies (loom 1.0)", which enumerates exactly `ajv` (validator), `semver` (capability probe), and `chokidar` (FileWatcher adapter). `H1a` mirrors that list verbatim into its `package.json` `Adds.` manifest. Neither enumeration names a YAML library, and the Pi-integration-contract pages document Pi parsing *its own* prompt-template frontmatter but never expose a frontmatter/YAML parser to extensions.
-
-An implementer reaching V6a therefore has three materially divergent paths with no guidance to choose between them: hand-roll a YAML parser, add an undeclared npm dependency (e.g. `yaml` / `js-yaml`), or reuse some assumed Pi-SDK surface. The second path additionally collides with H1a's single-source dependency enumeration and its `package.json` architectural test, which would reject a dependency H1a never declared.
-
-## Plan Documents
-
-- `docs/plan_topics/V6a-frontmatter-contract.md` — `Adds.` field (edited)
-- `docs/plan_topics/H1a-scaffold-and-toolchain.md` — `Adds.` dependency manifest (edited)
-
-## Spec Documents
-
-- `docs/spec_topics/implementation-notes.md` — §"Loom-package implementation dependencies (loom 1.0)" (edited)
-- `docs/spec_topics/frontmatter.md` — frontmatter contract (read-only)
-
-## Affected Leaves
-
-**Phases:** Horizontal, Vertical V6 (Frontmatter)
-
-**Leaves (implementation order):**
-
-- `H1a` — Project scaffold and toolchain — (modified)
-- `V6a` — Frontmatter field contract — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The implementer of V6a must guess the YAML-parsing mechanism — hand-rolled parser, an undeclared npm dependency, or an assumed Pi-SDK surface — and two reasonable implementers will diverge. An undeclared dependency path also breaks H1a's single-source dependency enumeration and would not survive H1a's `package.json` architectural test without a coordinated H1a edit that nothing currently directs.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e (2026-06-10, "pi-loom plan: build/update plan for spec.md + review")
-**History:** The plan corpus's leaf files were authored in a single build commit, c6a664e. `git show c6a664e:docs/plan_topics/V6a-frontmatter-contract.md` already carries the "YAML frontmatter parser" phrase in `Adds.`, and `git show c6a664e:docs/plan_topics/H1a-scaffold-and-toolchain.md` already enumerates only `ajv`/`semver`/`chokidar` with no YAML library. The spec-side enumeration predates the plan (`implementation-notes.md` traces to 2026-05-04, commit fecb504) and `git log -S"yaml"` against that file returns no commits. No later commit introduced or removed the defect; it is an enumeration gap carried since the corpus was first authored.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Declare a dedicated YAML-parser dependency, following the established single-source pattern for `ajv`/`semver`/`chokidar`. Add the chosen YAML-parsing library to `docs/spec_topics/implementation-notes.md` §"Loom-package implementation dependencies (loom 1.0)" as a loom-owned runtime `dependencies` entry, on the same footing as `semver` and `chokidar`; mirror it into `docs/plan_topics/H1a-scaffold-and-toolchain.md`'s `Adds.` manifest alongside `ajv`/`semver`/`chokidar`; and change V6a's `Adds.` so "the YAML frontmatter parser" cites the declared mechanism by name (or by the implementation-notes enumeration anchor) instead of naming an undeclared component. (The alternative of reusing a Pi-SDK YAML surface is not viable: no spec page documents a Pi-exposed frontmatter/YAML parser at the pin.) Edge cases the fixer must watch: H1a's `package.json` architectural test must stay green after the new dependency lands, and the library — not being an `@earendil-works` peer — requires no SDK-surface exemption marker, matching `chokidar`'s carve-out.
-
-## Relationships
-
-- T08 "Diagnostic-behaviour Tests bullets omit the registry code in V6a / V6b / V5d" — same-cluster (also targets V6a, but resolves independently — that one is about Tests-bullet code anchoring, not a missing dependency declaration).
-- T07 "H1a omits the `engines.node` field that downstream gates presuppose" — same-cluster (also edits H1a's `package.json` manifest authoring; resolves independently).

@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/frontmatter.md`](../spec_topics/frontmatter.md), [`../spec_topics/frontmatter/frontmatter-fields-a.md`](../spec_topics/frontmatter/frontmatter-fields-a.md), [`../spec_topics/frontmatter/frontmatter-fields-b-and-templates.md`](../spec_topics/frontmatter/frontmatter-fields-b-and-templates.md).
 
-**Adds.** The YAML frontmatter parser with defaults, required `mode:`, model/`bind_*` resolution hooks, and unknown-key tolerance emitted as a warning (forward-compat seam).
+**Adds.** The frontmatter parser — parsing YAML via the `yaml` dependency declared in [`H1a`](./H1a-scaffold-and-toolchain.md)'s manifest per [`implementation-notes.md` §"Loom-package implementation dependencies (loom 1.0)"](../spec_topics/implementation-notes.md#loom-package-implementation-dependencies-loom-1-0) — with defaults, required `mode:`, model/`bind_*` resolution hooks, and unknown-key tolerance emitted as a warning (forward-compat seam).
 
 **Tests.**
 - A missing `mode:` fires its load-phase code; a valid `mode:` resolves.
