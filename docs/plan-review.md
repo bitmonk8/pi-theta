@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 19 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 18 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1334,71 +1334,3 @@ Express the expected included-turn set / count per vector; do not couple to Pi's
 ## Relationships
 
 - T19 "V11b diagnostic-code citation is truncated and carries an undefined (W) severity suffix" — same-cluster (same `V11b`/`V11b-T` leaf; resolves independently)
-
----
-
-# T19 — V11b diagnostic-code citation is truncated and carries an undefined (W) severity suffix
-
-**Original heading:** `bind-context-session-on-subagent` diagnostic code truncated; undefined `(W)` annotation
-**Original section:** docs/plan_topics/V11b-bind-context-transcript.md
-**Kind:** doc-alignment-broad
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-The canonical diagnostic code registered for declaring `bind_context: session` on a `mode: subagent` loom is `loom/parse/bind-context-session-on-subagent` (severity `W`), per the parse code registry (`docs/spec_topics/diagnostics/code-registry-parse.md`) and the owning rule in `docs/spec_topics/binder/binder-model-and-context.md`.
-
-Both the `V11b` and `V11b-T` leaves cite this code as `bind-context-session-on-subagent` (W) in their fourth Tests bullet — dropping the `loom/parse/` prefix and appending a parenthetical `(W)` severity marker. Every other diagnostic-code citation across the plan corpus uses the full `loom/<area>/<name>` form with no severity suffix. The `(W)` notation is not defined anywhere in `conventions.md`; severity is a column of the spec registry table, not a citation annotation.
-
-The `H5a` closing gate reconciles the diagnostics code registry against the asserting tests, scanning for `loom/...` registry-code citations. A test bullet that asserts the bare `bind-context-session-on-subagent` token is not recognisable as a citation of the registered code, so the registry code reads as having no asserting test while the asserted token reads as a code absent from the registry — both `H5a` failure conditions.
-
-## Plan Documents
-
-- `docs/plan_topics/V11b-bind-context-transcript.md` — Tests (fourth bullet) (edited)
-- `docs/plan_topics/V11b-T-bind-context-transcript.md` — Tests (fourth bullet) (edited)
-- `docs/plan_topics/H5a-closing-gate-automation.md` — closing-gate registry reconciliation (read-only)
-- `docs/plan_topics/conventions.md` — *Diagnostic message anchors* (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/diagnostics/code-registry-parse.md` — `loom/parse/bind-context-session-on-subagent` registry row (read-only)
-- `docs/spec_topics/binder/binder-model-and-context.md` — the owning parse rule (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical (V11 — Binder)
-
-**Leaves (implementation order):**
-
-- `V11b-T` — Bind context, truncation, and transcript renderer (tests) — (modified)
-- `V11b` — Bind context, truncation, and transcript renderer — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer writing the test against the literal bullet text asserts a token that does not match any registry code, so the registry's `loom/parse/bind-context-session-on-subagent` row goes unasserted and the asserted token is unrecognised — exactly the registry↔test mismatch the `H5a` closing gate is built to fail on, surfacing as a gate failure when activated at `H6a`. The undefined `(W)` suffix additionally invites divergent reader interpretations of the citation form.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** Both `V11b-bind-context-transcript.md` and `V11b-T-bind-context-transcript.md` were created in c6a664e, and the truncated `bind-context-session-on-subagent` (W) citation was present in that authoring commit. The later fe694dd touched only the BNDR-9 bullet. The defect has been present since the leaves were first authored.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In the fourth Tests bullet of both `docs/plan_topics/V11b-bind-context-transcript.md` and `docs/plan_topics/V11b-T-bind-context-transcript.md`, replace the truncated citation with the full registry code and remove the `(W)` suffix:
-
-`loom/parse/bind-context-session-on-subagent`: fires for `bind_context: session` on a `mode: subagent` loom.
-
-Keep the two leaves' bullets identical. Severity stays in the registry's `W` column; do not reintroduce a severity annotation on the citation.
-
-## Relationships
-
-- T18 "V11b session-context truncation boundary (8000-token / 20-turn) has no asserting test" — same-cluster (same `V11b` Tests list; resolves independently)
