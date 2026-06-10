@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 8 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 7 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1767,77 +1767,3 @@ Edge case: the slash-load `params` arm of ceiling #4 cross-routes through ceilin
 
 - T15 "CIO-5 cross-ceiling arbitration verified only in isolation — no live-site integration assertion" — co-resolve (its requested live-site integration assertion is Obligation B's verification).
 - T16 "V16a-T CIO-3 asserts ceiling ordering at live AJV boundaries the leaf cannot reach, contradicting its paired impl leaf" — same-cluster (V16a/V16a-T wording; resolves independently).
-
----
-
-# T26 — Session-only degraded-state presupposition (a) contradicts Pi's documented teardown-and-rebind extension lifecycle
-
-**Original heading:** Presupposition (a) in `host-prerequisites.md` contradicts Pi's documented extension lifecycle
-**Original section:** docs/spec_topics (spec-side, surfaced during plan review)
-**Kind:** doc-alignment-broad
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-The session-only degraded-state branch in `host-prerequisites.md` rests on presupposition (a): *Extension-instance survival across session-only `session_shutdown`*. It assumes that when `event.reason ∈ {"new", "resume", "fork"}`, Pi keeps the **same** extension instance loaded against the swapped-in session after the `session_shutdown` handler returns, and continues to route slash invocations to that same instance — so the closed-over `LoomRegistry` handle the slash-command `handler` registered in registration step 3 consults (including its `drained` flag and `drainStateTag`) is the very registry the prior handler invocation drained and tag-transitioned. That surviving registry is what makes the post-handler `"degraded-needs-reload"` slash note observable to the operator, and it is the load-bearing premise of the SM-4 / SM-5 / SM-6 (and SM-3b) degraded-state contract.
-
-Pi's published extension lifecycle documents the opposite at the loom 1.0 pin. `extensions.md` states that on `/new`, `/resume`, and `/fork`, Pi fires `session_shutdown` for the old extension instance, then **reloads and rebinds extensions for the new session**, then fires `session_start { reason: … }` followed by `resources_discover`, and directs extensions to "do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`." The "Session replacement lifecycle and footguns" section is explicit that "the old runtime has been torn down, the replacement session has been rebound, and the new extension instance has already received `session_start`," and that "captured old `pi` / old command `ctx` session-bound objects are stale after replacement and will throw if used." The CHANGELOG records the same contract.
-
-Under the documented behaviour, the closed-over `LoomRegistry` in the old instance does not survive a session-only swap: the new instance starts with a fresh, non-drained registry and dispatches normally — exactly the failure mode presupposition (a) names. The defect is that the spec frames that scenario as a *future Pi-minor risk* deferred to version-bump editorial review, while Pi's documentation describes it as the *current, documented* behaviour at the pin. The CLAUDE.md no-globals/statics/singletons rule and the spec's DI/closure routing rule out a process-global `LoomRegistry` that could survive the rebind, so there is no escape hatch. Presupposition (a) is contradicted now, not merely unpinned.
-
-## Plan Documents
-
-- `docs/plan_topics/V9h-degraded-unknown-reason.md` — Adds / Ships when (session-only degraded state, `markRuntimeDegraded`, recovery-until-`/reload`) (option-dependent)
-- `docs/plan_topics/V9b-registration-drain-state.md` — Adds / Tests (`LoomRegistry` drained-flag, three-arm `readDrainState`, `degraded-needs-reload` arm) (option-dependent)
-- `docs/plan_topics/V9g-session-shutdown.md` — Adds (five-sub-step teardown sequence) (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/host-prerequisites.md` — degraded-state presupposition block, clause (a) (edited)
-- `docs/spec_topics/pi-integration-contract/session-only-degraded-state.md` — `reason: "new" | "resume" | "fork"` edge-case bullet (SM-4/5/6 mechanism) (option-dependent)
-- `docs/spec_topics/pi-integration-contract/version-bump-intro.md` — version-bump editorial-review checklist (the item that tracks presupposition (a)) (option-dependent)
-- `docs/spec/session-model-and-appendix.md` — SM-4 / SM-5 / SM-6 / SM-3b definitions (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V9 — Extension host integration)
-
-**Leaves (implementation order):**
-
-- V9b — Registration steps and drain-state contract — (blocked)
-- V9g — Session-shutdown teardown and emission isolation — (blocked)
-- V9h — Session-only degraded state and unknown-reason rule — (blocked)
-
-(Each leaf is authored as a paired `-T` tests task — `V9b-T`, `V9g-T`, `V9h-T` — which carry the same dependency on the resolution.)
-
-## Consequence
-
-**Severity:** correctness
-
-If the plan ships with presupposition (a) unresolved, an implementer builds the session-only degraded-state mechanism (SM-4/5/6: `markRuntimeDegraded`, the `degraded-needs-reload` dispatch arm, the `loom/host/session-shutdown-runtime-degraded` note that fronts subsequent slash invocations until `/reload`) against a premise Pi's documentation contradicts at the pin. Against a real host the drained registry is discarded on the session swap and the new instance dispatches normally, so the degraded state can never trigger and its operator-facing recovery note is dead — yet V9h's `Ships when` degraded path passes against the H4a session double if the double models instance survival, leaving the divergence undetected until run against real Pi. The contradiction gates implementability of the SM-4/5/6 obligations.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 52b9101 — pi-loom spec: resolve "T24 — Fork-reason watcher closure leaves the extension in an unspecified, silently degraded state" (2026-05-11, Thomas Andersen)
-**History:** 52b9101 introduced the session-only degraded-state premise — that on `new`/`resume`/`fork` the runtime "remains live afterwards in a deterministically degraded state until operator-issued `/reload`," consulting the same drained `LoomRegistry`. Later commits reframed it as an explicit unpinned "presupposition" with editorial-review detection (bfef26e, 2026-06-05) and added behavioural pointers (803106d, 2026-06-07), but none reconciled the premise against Pi's documented teardown-and-rebind lifecycle, so the contradiction persisted from inception of the degraded-state mechanism.
-
-## Solution Space
-
-**Shape:** single
-
-The fix must make `host-prerequisites.md` stop asserting (a) as a behaviour confirmable only by a future-minor editorial check, and instead record that Pi's published lifecycle documents teardown-and-rebind on the session-only reasons at the pin, then resolve the contradiction.
-
-### Recommendation
-
-Rewrite presupposition (a) in `host-prerequisites.md` to state that Pi's `extensions.md` documents the opposite of instance survival on `{"new","resume","fork"}` — the old runtime is torn down, extensions are reloaded and rebound, the new instance receives `session_start`, and captured old `pi`/`ctx` go stale and throw — and that this is the documented behaviour at the loom 1.0 pin, not a hypothetical future minor. Require that the conflict be resolved (an authoritative determination of whether loom's package-loaded `extensions/index.ts` is governed by that documented lifecycle, or differs) before SM-4/5/6 are implemented, and surface the open question on the version-bump editorial-review checklist item in `version-bump-intro.md` that already tracks (a).
-
-The V9 leaves remain blocked on the spec resolution; no plan edits are required. Spec edits are confined to `host-prerequisites.md` clause (a) text and the version-bump checklist item in `version-bump-intro.md`. Edge case to watch: a determination that distinguishes auto-discovered/hot-reloadable placement from `pi install`-distributed package placement, since loom ships as a package — confirm the swap behaviour for the package-loaded path specifically.
-
-## Relationships
-
-- T05 "Real-host verification gap — every end-to-end and release gate runs only against the H4a session double" — decision-overlap (a real-host smoke or accepted post-merge detection surface is the mechanism that would catch this presupposition being false; resolve the detection footing consistently).
-- T27 "V9b asserts `loom/host/loom-registry-read-failed`, a diagnostic the spec defers out of loom 1.0 and never registers" — same-cluster (both touch the V9b drain-state `degraded-needs-reload` arm; resolve independently).
-
