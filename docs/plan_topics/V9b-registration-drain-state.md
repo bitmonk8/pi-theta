@@ -7,7 +7,7 @@
 **Tests.**
 - [registration-steps.md — registry swap](../spec_topics/pi-integration-contract/registration-steps.md) (PIC area): looms discovered are registered; the swap is atomic (build-aside, then publish); a failed swap fires `loom/runtime/registry-swap-failed`.
 - [drain-state-contract.md — three-arm dispatch](../spec_topics/pi-integration-contract/drain-state-contract.md) (PIC area): the drain-state three-arm dispatch routes (dispatch / shutting-down / degraded-needs-reload); the predicate `drained === true || tag !== undefined` is idempotent.
-- `loom/host/loom-registry-read-failed`, `loom/host/session-shutdown-runtime-degraded`: a `readDrainState` read-failure fails safe (slash → degraded arm; handler-entry → steady-state full teardown).
+- `loom/host/session-shutdown-runtime-degraded`: a `readDrainState` read-failure fails safe (slash → degraded arm; handler-entry → steady-state full teardown).
 
 **Deps.** `V9b-T`, `V9a`, `V10a`, `V8b`
 

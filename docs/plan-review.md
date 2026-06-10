@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 8 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 8 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1840,71 +1840,4 @@ The V9 leaves remain blocked on the spec resolution; no plan edits are required.
 
 - T05 "Real-host verification gap — every end-to-end and release gate runs only against the H4a session double" — decision-overlap (a real-host smoke or accepted post-merge detection surface is the mechanism that would catch this presupposition being false; resolve the detection footing consistently).
 - T27 "V9b asserts `loom/host/loom-registry-read-failed`, a diagnostic the spec defers out of loom 1.0 and never registers" — same-cluster (both touch the V9b drain-state `degraded-needs-reload` arm; resolve independently).
-
----
-
-# T27 — V9b asserts `loom/host/loom-registry-read-failed`, a diagnostic the spec defers out of loom 1.0 and never registers
-
-**Original heading:** Cites `loom/host/loom-registry-read-failed`, a code the spec marks out-of-scope and absent from the registry
-**Original section:** V9b — registration steps and drain-state contract
-**Kind:** implementability
-**Importance:** blocker
-**Score:** 200
-**MustFix:** true
-
-## Finding
-
-The third Tests bullet in both `V9b` and `V9b-T` cites `loom/host/loom-registry-read-failed` as a code the `readDrainState` read-failure path emits. That code does not exist in the host diagnostic registry: `spec_topics/diagnostics/code-registry-host.md` enumerates only `loom/host/session-shutdown-reason-unknown`, `loom/host/session-shutdown-pinned-constant-unreadable`, `loom/host/session-shutdown-runtime-degraded`, and `loom/host/session-shutdown-teardown-step-failed`. The owning spec page (`drain-state-contract.md`, *Read-failure fallback* clause) explicitly forbids the code in 1.0: "No dedicated `readDrainState`-throw diagnostic is emitted from either catch arm in loom 1.0," and names `loom/host/loom-registry-read-failed` only as a *future* possibility — "A future edit MAY add a dedicated diagnostic … but doing so requires a parallel edit to Diagnostics and is out of scope for loom 1.0."
-
-The plan thus transcribed an illustrative future-code example into a present test obligation. This collides head-on with the closing-gate contract: `V7b` DIAG-2 states "a code asserted by a test with no registry row fails the gate." Either way the implementer goes, the leaf is wrong-by-construction. Authoring the asserted test as written makes the H5a/DIAG-2 reconciliation gate fail (the asserted code has no registry row); adding the code to the registry to satisfy the gate implements a deferred forward-compatibility seam, which the plan's own Scope section forbids ("No leaf implements a non-goal or a deferred seam").
-
-The behavioural assertion the bullet carries is itself sound and in-scope: a `readDrainState` read-failure fails safe (slash dispatch → degraded arm; `session_shutdown` handler-entry → steady-state full teardown), and on the re-entry path the spec does emit `loom/host/session-shutdown-runtime-degraded` — a code that *is* in the registry. Only the `loom/host/loom-registry-read-failed` token is the defect.
-
-## Plan Documents
-
-- `docs/plan_topics/V9b-registration-drain-state.md` — third Tests bullet (edited)
-- `docs/plan_topics/V9b-T-registration-drain-state.md` — third Tests bullet (edited)
-- `docs/plan_topics/V7b-code-registry.md` — DIAG-2 closing-gate rule (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slice V9 (Extension host integration)
-
-**Leaves (implementation order):**
-
-- V9b-T — Registration steps and drain-state contract (tests) — (modified)
-- V9b — Registration steps and drain-state contract — (modified)
-
-## Consequence
-
-**Severity:** blocking
-
-`V9b` cannot ship green: the asserted `loom/host/loom-registry-read-failed` has no registry row, so the H5a/DIAG-2 closing gate fails on it; registering the code instead implements a spec-deferred seam the plan's Scope section bans. The leaf is un-shippable until the spurious citation is removed.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** Both `V9b-registration-drain-state.md` and its `-T` partner were created in commit c6a664e, the plan-build commit, and `git log -S 'loom/host/loom-registry-read-failed'` shows the token first appears in that same commit; `git log --follow` reports a single commit on each file. The defect was present in the leaf's first authored version — the plan lifted `drain-state-contract.md`'s explicitly future-scoped example code into a test obligation at authoring time.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Strike the `loom/host/loom-registry-read-failed` token from the third Tests bullet in both `docs/plan_topics/V9b-registration-drain-state.md` and `docs/plan_topics/V9b-T-registration-drain-state.md`. Retain the in-registry code `loom/host/session-shutdown-runtime-degraded` and the behavioural assertions (slash dispatch → degraded arm; handler-entry → steady-state full teardown), anchored to the *Read-failure fallback* clause of `drain-state-contract.md`. The edited bullet reads, in each file:
-
-`- `loom/host/session-shutdown-runtime-degraded`: a `readDrainState` read-failure fails safe (slash → degraded arm; handler-entry → steady-state full teardown).`
-
-This is a plan-side-only edit; the spec is read-only for this fix (it already correctly marks the code out-of-scope). Do not add `loom/host/loom-registry-read-failed` to `code-registry-host.md` — that would implement a deferred seam the plan's Scope section bans. Edge case: the `session_shutdown` handler-entry catch arm emits *no* diagnostic at all (it fails safe into the full teardown), so the retained `session-shutdown-runtime-degraded` code is observable only on the slash-dispatch / re-entry path the spec describes — do not assert an emission on the handler-entry first-entry fail-safe.
-
-## Relationships
-
-- T26 "Session-only degraded-state presupposition (a) contradicts Pi's documented teardown-and-rebind extension lifecycle" — same-cluster (both touch the V9b drain-state `degraded-needs-reload` arm; resolve independently).
-- T08 "Diagnostic-behaviour Tests bullets omit the registry code in V6a / V6b / V5d" — same-cluster (same diagnostic-code-citation discipline; that finding under-cites, this one cites a non-existent code — resolve independently).
 
