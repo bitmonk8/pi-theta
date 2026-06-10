@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 31 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 30 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2150,81 +2150,4 @@ Ensure the harness-supplied source is the only source `M`'s discovery reads — 
 ## Relationships
 
 - T36 "Session double's model / tool / binder-response scripting surface is undefined" — same-cluster (both extend `H4a`'s harness / session-double contract; the in-memory fixture supply lands in the same H4a contract — this one must follow it)
-
----
-
-# T31 — Real-host fidelity of the session double has no reproducible detection point
-
-**Original heading:** Session-double fidelity is a presupposition with no mechanical real-host detection
-**Original section:** docs/plan_topics/H4a-factory-shell-and-harness.md
-**Kind:** risk, validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-Every mechanical end-to-end assertion in the plan runs against the in-process Pi session double introduced in `H4a`. The `H4a` fidelity-contract self-check validates the double's four axes *as modelled by the double itself* — it is circular by construction and cannot fail on a double-vs-real divergence. `V18c`'s runtime-evidence acceptance gate runs against the same double and is explicitly not real-host coverage. Nothing mechanical confirms the integrated pipeline against a real Pi host before ship.
-
-The only divergence detector is a **manual real-host smoke run**, and as written it is under-specified on three independent axes. (1) It is described by feature list only with no named fixture `.loom`, no enumerated expected observable outcomes, and no explicit pass/fail — two reviewers would diverge on what counts as a pass. (2) It is pinned to Pi version bumps only, so a divergence introduced by a loom change rather than a Pi bump has no scheduled detection point. (3) The terminal release gate `H6a` carries no checklist item confirming the smoke was executed and passed for the shipping Pi-SDK pin, so the loom 1.0 release gate passes without any real-host fidelity evidence.
-
-The double's fidelity to real Pi is legitimately a host-behaviour presupposition; the gap is that its single compensating manual control is neither reproducible, triggered on the right events, nor recorded at the release gate.
-
-## Plan Documents
-
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — Tests (session-double fidelity-contract bullet) / Adds (edited)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — runtime-evidence gate / revert path (option-dependent)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — release-gate Tests / checklist (edited)
-- `docs/plan_topics/conventions.md` — cross-cutting rules (option-dependent)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-intro.md` — Pi version bump procedure (read-only)
-- `docs/spec_topics/pi-integration-contract/version-bump-triggers.md` — trigger ownership (option-dependent)
-- `docs/spec_topics/pi-integration-contract/host-prerequisites.md` — presupposition enumeration (read-only)
-
-## Affected Leaves
-
-**Phases:** Horizontal, Vertical slice V18, Release gate
-
-**Leaves (implementation order):**
-
-- `H4a` — Extension factory shell and end-to-end harness — (modified)
-- `V18c` — Pi version-bump procedure and gates — (both)
-- `H6a` — Live-corpus closing-gate activation (loom 1.0 release gate) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A real-host divergence introduced by a loom change ships undetected because no mechanical gate covers it and the manual smoke fires only at Pi bumps. Where the smoke does run, its feature-list-only definition gives two reviewers no common pass/fail criterion, so the sole compensating control for the double-vs-real presupposition is non-reproducible, and the loom 1.0 release gate (`H6a`) clears with no recorded real-host evidence at all.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** `07403da` ("resolve T20 (Branch A) — H4a double fidelity is an editorial-review presupposition", 2026-06-10), `328ba4d` ("resolve real-host verification gap", 2026-06-10)
-**History:** At inception (`c6a664e`) `H4a` had only a harness + session double. `07403da` resolved the fidelity framing by authoring the four-axis self-check and the "presupposition" framing, establishing the circular self-check without a fully-specified detection mechanism. `328ba4d` then added the manual real-host smoke run and the `V18c` revert trigger as the detection mechanism, but introduced it feature-list-only, Pi-bump-triggered, and with no `H6a` release-gate record. The defect arises from the interaction of the presupposition/self-check and the incompletely-specified smoke.
-
-## Solution Space
-
-**Shape:** single
-
-This finding bundles three independent obligations; all three land, in the stated order.
-
-### Recommendation
-
-Make the manual real-host smoke reproducible, correctly triggered, and recorded at the release gate by applying three corrections in order.
-
-First, pin the smoke to a named fixture `.loom` with an enumerated expected-outcome set — expected appended turns and the `loom-system-note` / `loom/...` codes the integrated path emits — plus an explicit pass/fail criterion, replacing the feature-list-only description. The fixture and outcome enumeration may be stated in `H4a` or owned by `V18c` and cross-linked. Cross-link the smoke fixture to `H7a`'s golden transcript so the two do not diverge into separate fixtures.
-
-Then add an acceptance/checklist item to `H6a` confirming the manual real-host smoke was executed and passed against the shipping Pi-SDK pin, referencing that named fixture artefact.
-
-Finally, state that any change touching the double's four fidelity axes is an acceptance trigger for the manual real-host smoke — not only a Pi version bump — with an observable definition of "touches the four axes".
-
-Keep the smoke manual (loom 1.0 has no mechanical real-host gate) and leave `V18c` as the sole owner of the pin-revert path.
-
-## Relationships
-
-- T36 "Session double's model / tool / binder-response scripting surface is undefined" — same-cluster (both extend the `H4a` fidelity contract; resolve independently)
-- T32 "H7a Tests bullets 1–2 leave 'expected appended turns' / 'expected diagnostics' without a defined referent" — same-cluster (its fix likewise calls for a named fixture with enumerated expected appended turns / `loom-system-note` codes, but for the H7a terminal gate; resolves independently)
 
