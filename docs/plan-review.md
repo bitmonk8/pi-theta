@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 3 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 2 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1420,67 +1420,3 @@ Edge cases: once the carve-out admits code-keyed obligations, `V9e` and `V13c` m
 - T19 "Binder system-note and determinism un-anchored MUSTs have no code-keyed coverage-matrix row" — same-cluster (another un-anchored code-keyed obligation enumerated under the same matrix section; resolves independently — the `disposeBarrier` row is the named area the broadened carve-out keys against).
 - T01 "Un-anchored-MUST closing-gate recogniser claims exact precision and recall over free-form prose" — same-cluster (same `conventions.md` REQ-ID-discipline / un-anchored-obligation machinery; resolves independently).
 
----
-
-# T21 — H4a frames the factory as returning an extension object; the SDK factory returns `void | Promise<void>` and registers by side effect
-
-**Original heading:** Factory framed as "returns an extension object"; SDK factory returns `void | Promise<void>` and registers by side effect
-**Original section:** H4a — factory shell and harness
-**Kind:** codebase-grounding-broad
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-H4a's `Adds` describes "The Pi extension factory entry point (returns an extension object without throwing)" and its first `Tests` bullet asserts "the factory returns an extension object and never throws." Neither the pinned SDK nor the plan's own spec corpus models the factory this way. The pinned `@earendil-works/pi-coding-agent` declares `export type ExtensionFactory = (pi: ExtensionAPI) => void | Promise<void>` (`dist/core/extensions/types.d.ts:1003`): the factory returns nothing meaningful and establishes the extension purely by side-effect registration calls on the injected `pi` handle (`pi.registerMessageRenderer`, `pi.registerCommand`, `pi.registerFlag`, `pi.registerTool`, `pi.on`).
-
-The spec corpus agrees with the SDK, not with H4a. `pi-integration-contract/extension-bootstrap-and-per-loom.md` repeatedly frames the entry point as `default function (pi: ExtensionAPI)` and states "The factory MUST NOT throw out of `default function (pi: ExtensionAPI)`; per-call `try`/`catch` around each step keeps the failure local," with every step expressed as a registration/subscription call rather than the construction of a returned object.
-
-Because H4a is the leaf that establishes the factory boundary and the harness self-check, an implementer working from it would shape the factory contract and the harness assertion around a return value the Pi loader ignores — checking for or constructing an "extension object" instead of asserting that the side-effect registrations completed and dispatch is observable. The never-throw + per-call `try`/`catch` framing in H4a is itself correct; only the return-value framing is wrong.
-
-## Plan Documents
-
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — Adds, Tests (first bullet), Ships when (edited)
-
-## Spec Documents
-
-None. The spec corpus (`pi-integration-contract/extension-bootstrap-and-per-loom.md`) already matches the SDK; the fix is internal to the plan.
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H4a` — Extension factory shell and end-to-end harness — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer reading H4a would build the factory contract and harness self-check against a return value the Pi loader discards, producing a factory/harness that is wrong-by-construction relative to the pinned SDK and the plan's own spec corpus. Two reasonable implementers — one trusting H4a, one trusting the SDK/spec — would diverge on the factory's observable contract.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `docs/plan_topics/H4a-factory-shell-and-harness.md` has a single commit in its history, the plan-build commit c6a664e. The "returns an extension object" phrasing in both the `Adds` and the first `Tests` bullet is present in that first commit; the defect was authored with the leaf and never introduced by a later edit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Edit `docs/plan_topics/H4a-factory-shell-and-harness.md` to express the factory boundary against the SDK's side-effect registration contract rather than a return value:
-
-- **Adds.** Replace the parenthetical "(returns an extension object without throwing)" with framing that the entry point is the standard `default function (pi: ExtensionAPI)` factory returning `void | Promise<void>`, which establishes the extension by registration calls on the injected `pi` handle (`pi.registerMessageRenderer`, `pi.registerCommand`, `pi.registerFlag`, `pi.registerTool`, `pi.on`) under per-call `try`/`catch`, and MUST NOT throw out of the factory body. This mirrors `extension-bootstrap-and-per-loom.md` and the pinned `ExtensionFactory = (pi: ExtensionAPI) => void | Promise<void>`.
-- **Tests (first bullet).** Replace "the factory returns an extension object and never throws even when a host seam is absent" with an assertion keyed to the registration/dispatch outcome — the factory completes its side-effect registrations and never throws even when a host seam is absent (each host-binding call `try`/`catch`-wrapped per the exempt-broad-catch sites in `conventions.md`).
-- **Ships when.** Confirm the condition is stated against registration/dispatch outcome (it already requires loading the extension through the harness and dispatching a command end-to-end); ensure no clause depends on a factory return value.
-
-Retain the never-throw + per-call `try`/`catch` framing — it is correct and load-bearing.
-
-## Relationships
-
-- T05 "Real-host verification gap — every end-to-end and release gate runs only against the H4a session double" — same-cluster (same `H4a` leaf / harness; a corrected boundary still runs against the double, but resolves independently).
