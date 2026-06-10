@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 26 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 25 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1818,73 +1818,6 @@ Relocate both notes from the Tests bullets into `V4d`'s `Adds` field, applying t
 - **ERR-19.** Strike the trailing clause `; the at-the-cap firing path is asserted by V13c` from the `ERR-19` Tests bullet, leaving it to assert only the `ToolLoopExhaustedError` shape, and relocate the ownership note to `Adds` (e.g. noting the at-the-cap firing path is owned and asserted by `V13c`).
 
 The spec is read-only — NOCEIL-2 is already defined; reference it, do not restate. Keep `V4d` and `V4d-T` consistent. `V13c` is read-only for this fix.
-
-## Relationships
-
-None
-
----
-
-# T26 — V17a substrate-level suppression test claims four-site coverage it cannot directly verify
-
-**Original heading:** Substrate-level suppression test claimed to cover all four sites
-**Original section:** docs/plan_topics/V17a-cancellation-core.md / V17a-T
-**Kind:** overclaim
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V17a`'s *Swallowing-handler side-channel suppression* Tests bullet (and the mirrored `V17a-T` bullet) lands a single late-settlement assertion at the `Checkpoint`-seam substrate (`V8a`) and instructs: "Keep this assertion at the `Checkpoint`-seam substrate covering all four abandonable-Promise sites (code-side `execute()`, `@`-query provider, `invoke` child top-level, subagent `AgentSession.abort()`) rather than per-site." The Ships-when field repeats the claim.
-
-One substrate-level assertion can prove the substrate suppresses the three side channels (no `unhandledRejection`, no second `RuntimeEvent`, no diagnostic). It cannot prove that each of the four named sites actually routes its abandonable Promise *through* that substrate — that is a per-site routing property. Three of the four sites are built by leaves downstream of `V17a`: `@`-query provider (`V13c`), code-side `execute()` (`V14a`), `invoke` child top-level (`V15a`), and subagent `AgentSession.abort()` (`V9i`). None of those leaves exists at `V17a`'s position, and none carries any acceptance criterion obligating its abandonable Promise to attach at the `Checkpoint` substrate. The "covering all four sites" claim therefore rests on an unstated routing assumption that no test observes.
-
-## Plan Documents
-
-- `docs/plan_topics/V17a-cancellation-core.md` — *Swallowing-handler side-channel suppression* Tests bullet + Ships when (edited)
-- `docs/plan_topics/V17a-T-cancellation-core.md` — mirrored suppression Tests bullet (edited)
-- `docs/plan_topics/V13c-query-tool-loop.md` — `@`-query provider site (option-dependent)
-- `docs/plan_topics/V14a-tool-calls.md` — code-side `execute()` site (option-dependent)
-- `docs/plan_topics/V15a-invocation-core.md` — `invoke` child top-level site (option-dependent)
-- `docs/plan_topics/V9i-subagent-isolation.md` — subagent `AgentSession.abort()` site (option-dependent)
-- `docs/plan_topics/V8a-checkpoint-validator-seams.md` — `Checkpoint` seam (substrate) (read-only)
-
-## Spec Documents
-
-None. The suppression rule already exists in `cancellation.md` (*Race semantics — swallowing-handler attachment on every abandonable Promise*); the fix is internal to the plan leaves.
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V9, V13, V14, V15, V17)
-
-**Leaves (implementation order):**
-
-- `V9i` — Subagent-mode session isolation and lifecycle — (modified)
-- `V13c` — Query tool loop and typed two-phase — (modified)
-- `V14a` — Tool calls (code-side) and `CodeToolError` — (modified)
-- `V15a` — Invocation core — (modified)
-- `V17a` — Cancellation core — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The plan asserts that suppression is covered at all four sites, but only the substrate is exercised; the per-site routing it depends on is unverified. If a later implementer builds one of the three downstream sites so its abandonable Promise bypasses the `Checkpoint` substrate (e.g. a directly-attached `.catch`), the side channel reopens and no test in the corpus catches it — `npm test` ships green while one of the four named sites leaks `unhandledRejection`/`RuntimeEvent`/diagnostic noise on a late settlement.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** `52a6819` ("pi-loom plan: resolve \"cancellation test bullet conflates four obligations\"", 2026-06-10)
-**History:** At inception (`c6a664e`) the suppression obligation was a single conflated Tests bullet with no enumeration of sites and no four-site coverage claim. Commit `52a6819` split that conflated bullet into properly-anchored Tests bullets and, in the suppression bullet, introduced the "covering all four abandonable-Promise sites … rather than per-site" framing. The single substrate-level assertion now claims coverage of four named sites, three built downstream. `git log -S "all four abandonable-Promise sites"` resolves to `52a6819` only.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Keep the substrate-level suppression test in `V17a`, but reword the `V17a` (and `V17a-T`) suppression Tests bullet and Ships-when so the assertion claims only what it observes: suppression is verified at the `Checkpoint`-seam substrate, and per-site coverage holds only insofar as each site routes its abandonable Promise through that substrate. Then close the routing gap by adding to each of the four owning leaves (`V9i`, `V13c`, `V14a`, `V15a`) an acceptance criterion that the site's abandonable Promise attaches its swallowing handler at the `Checkpoint` substrate, so a site that bypasses the substrate reddens its own leaf's tests. The four leaves each already declare the `Checkpoint` seam (`V8a`) as the routing target — the new criterion asserts attachment at that seam, not a fresh per-leaf handler convention.
 
 ## Relationships
 
