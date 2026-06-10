@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 18 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 17 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1220,65 +1220,3 @@ Extend `V17a`'s `Ships when` field so the phase-exit gate observes the obligatio
 - T02 "Architectural- and test-bullet completeness overclaims over partial-coverage mechanisms" — same-cluster (same V17a leaf; the checkpoint-exhaustivity overclaim is one of the obligations this gate must observe).
 - T13 "Cancel-forwarding couples V9c to the `loomAbort` controller (V17a) without a declared dependency" — decision-dependency (a V17a split changes which sub-leaf owns `loomAbort` / the forwarding target V9c must depend on).
 - T12 "CNCL-4 session-shutdown reason facet is asserted in V9g but never authored red in V9g-T or gated by Ships-when" — same-cluster (CNCL-4 is split between V17a and V9g; both are gating gaps in the same cancellation contract).
-
----
-
-# T18 — BNDR-9 forbidden-character enumeration is ambiguous about the colon-space token
-
-**Original heading:** BNDR-9 unsafe-character list — trailing space inside backticks reads ambiguously
-**Original section:** V11b — bind context, truncation, transcript renderer
-**Kind:** clarity
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-The `BNDR-9` Tests bullet in both `V11b` and `V11b-T` enumerates the non-transcript-safe characters as `` (containing `\n`/`\r`/`]`/`: `) ``. The fourth member is rendered as `` `: ` `` — a colon followed by a space inside backticks. A reader cannot tell whether the forbidden token is a bare colon `:` or the two-character sequence `: ` (colon then space). The trailing space inside the backticks reads as either significant or as incidental padding.
-
-The spec is unambiguous: `binder-model-and-context.md` §BNDR-9 defines transcript-safety as containing none of U+000A (`\n`), U+000D (`\r`), `]` (U+005D), **or the two-byte sequence `: ` (U+003A U+0020)** — explicitly the colon-space pair, because that is the role-tag separator in the `[custom:<type>]: ` rendering. A bare colon is safe; only the colon-space pair breaks the BNDR-7 reproduce-exactly contract.
-
-The leaf is the failing-test definition the `-T` author works from. An implementer relying on the bullet rather than the spec page could write the transcript-safety check (and its red fixture) against a bare colon, which over-rejects every `customType` containing `:` — behaviour that contradicts the spec. The two paired leaves carry the identical ambiguous rendering.
-
-## Plan Documents
-
-- `docs/plan_topics/V11b-bind-context-transcript.md` — Tests, `BNDR-9` bullet (edited)
-- `docs/plan_topics/V11b-T-bind-context-transcript.md` — Tests, `BNDR-9` bullet (edited)
-- `docs/plan_topics/coverage-matrix.md` — `BNDR-7, BNDR-8, BNDR-9 → V11b` row (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/binder/binder-model-and-context.md` — §BNDR-9 (read-only; authoritative unambiguous definition the fix mirrors — no spec edit)
-
-## Affected Leaves
-
-**Phases:** Vertical (slice V11 — Binder)
-
-**Leaves (implementation order):**
-
-- `V11b-T` — Bind context, truncation, and transcript renderer (tests) — (modified)
-- `V11b` — Bind context, truncation, and transcript renderer — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A test author reading the `BNDR-9` bullet without consulting the spec page may implement the transcript-safety guard against a bare colon rather than the colon-space pair, over-rejecting valid `customType` values that contain `:`. Two reasonable implementers diverge, and the bare-colon reading produces a guard that does not match BNDR-9.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e ("pi-loom plan: build/update plan for spec.md + review")
-**History:** The `V11b` and `V11b-T` leaves were created in the plan-build commit c6a664e. The `BNDR-9` Tests bullet carried the ambiguous `` `: ` `` rendering from that first commit; none of the subsequent plan-resolve commits touched the line.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In both `docs/plan_topics/V11b-bind-context-transcript.md` and `docs/plan_topics/V11b-T-bind-context-transcript.md`, rewrite the `BNDR-9` Tests bullet so the fourth forbidden member is unmistakably the two-character colon-space sequence, matching `binder-model-and-context.md` §BNDR-9. For example, replace the parenthetical `` (containing `\n`/`\r`/`]`/`: `) `` with text such as `` (containing any of `\n`, `\r`, `]`, or the two-byte sequence `": "` (U+003A U+0020)) ``. Apply the identical wording to both paired leaves in one edit. The other three members (`\n`, `\r`, `]`) are already unambiguous.
-
-## Relationships
-
-None
