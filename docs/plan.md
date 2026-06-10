@@ -8,7 +8,7 @@ Companion to [`spec.md`](./spec.md). The plan is a set of per-phase leaf pages u
 2. Author new leaves by copying [`plan_topics/leaf-template.md`](./plan_topics/leaf-template.md) and saving under `plan_topics/<id>-<short-name>.md`. Link the new leaf into the appropriate section below.
 3. Pick the next leaf whose **Deps** are satisfied. Open that leaf's page; read only the leaf and the spec topic(s) listed under its **Spec** field.
 4. Follow the per-phase TDD ritual. MVP and vertical features are two paired tasks — land the tests task `<id>-T` first (tag `<id>-T-complete`), then the implementation task `<id>` (tag `<id>-complete` when its **Ships when** condition is observable). Horizontal leaves are a single task tagged `<id>-complete`.
-5. Maintain [`plan_topics/coverage-matrix.md`](./plan_topics/coverage-matrix.md) so every executable spec REQ-ID has at least one closing leaf by the loom 1.0 release gate.
+5. Maintain [`plan_topics/coverage-matrix.md`](./plan_topics/coverage-matrix.md) so every executable spec REQ-ID has at least one closing leaf by the loom 1.0 release gate, whose non-gating→gating activation is owned by the terminal [`H6a`](./plan_topics/H6a-live-corpus-activation.md) leaf.
 
 ---
 
@@ -162,6 +162,14 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V18a` — SDK capability inventory](./plan_topics/V18a-capability-inventory.md)
 - [`V18b` — Inventory-closure audit gate](./plan_topics/V18b-inventory-audit.md)
 - [`V18c` — Pi version-bump procedure and gates](./plan_topics/V18c-version-bump-checklist.md)
+
+---
+
+## Release gate
+
+The terminal step that flips the [`H5a`](./plan_topics/H5a-closing-gate-automation.md) closing gate from its seeded-fixture footing to its live-corpus footing. Sequenced after every coverage-producing leaf (its **Deps** name the complete set), it activates the loom 1.0 release gate referenced in item 5 above and in [`coverage-matrix.md`](./plan_topics/coverage-matrix.md).
+
+- [`H6a` — Live-corpus closing-gate activation (loom 1.0 release gate)](./plan_topics/H6a-live-corpus-activation.md)
 
 ---
 
