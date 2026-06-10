@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T28) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 11 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 10 medium retained; 20 low discarded; 5 low findings merged into 2 medium findings; 27 NIT dropped; 0 false dropped._
 
 ---
 
@@ -745,69 +745,4 @@ Edge case: the NOCEIL-2 closure note in `coverage-matrix.md` references "ERR-14/
 ## Relationships
 
 - T09 "ERR-19 firing-at-the-cap assertion is out of scope for V4d's dependency closure" — same-cluster (identical shape-vs-behaviour split defect in the same `V4d` leaf; resolved by the same technique, independently).
-
----
-
-# T11 — `SHUTDOWN_AWAIT_CAP_MS` has no declaring owner leaf
-
-**Original heading:** `SHUTDOWN_AWAIT_CAP_MS` referenced by two leaves with no declaring owner
-**Original section:** V9g / V9i — shutdown await cap
-**Kind:** ordering
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-The runtime constant `SHUTDOWN_AWAIT_CAP_MS` (`= 2000`, per `patch-skew-degradation.md`) is referenced by two independent leaves but is declared by neither:
-
-- `V9g` (session-shutdown teardown) names it in **Adds** — the `session_shutdown` handler's bounded "abort-and-await within `SHUTDOWN_AWAIT_CAP_MS`" — and in **Ships when** (the await cap).
-- `V9i` (subagent isolation) names it in a `PIC-9` **Tests** bullet — "`SHUTDOWN_AWAIT_CAP_MS` covers disposal".
-
-`V9g` Deps are `V9g-T, V9e, V9h, V17a`; `V9i` Deps are `V9i-T, V9a, V17a, V11a`. Neither leaf depends on the other, and no leaf in the plan is declared the constant's source. Because the two leaves are unordered with respect to each other in the dependency DAG, whichever is built second references a symbol the build has not yet established, and two implementers working the leaves independently will each define a private copy that can later drift.
-
-## Plan Documents
-
-- `docs/plan_topics/V9g-session-shutdown.md` — Adds / Ships when (edited)
-- `docs/plan_topics/V9i-subagent-isolation.md` — PIC-9 Tests bullet (edited)
-- `docs/plan_topics/V17a-cancellation-core.md` — Adds / Deps (edited)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/patch-skew-degradation.md` — defines `SHUTDOWN_AWAIT_CAP_MS = 2000` (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V9, V17)
-
-**Leaves (implementation order):**
-
-- V9g — Session-shutdown teardown and emission isolation — (modified)
-- V9i — Subagent-mode session isolation and lifecycle — (modified)
-- V17a — Cancellation core — (modified: owner)
-
-## Consequence
-
-**Severity:** correctness
-
-In dependency order the second-built of `V9g` / `V9i` references a constant no completed leaf has introduced, so two reasonable implementers each declare a private `SHUTDOWN_AWAIT_CAP_MS`; the duplicated literal can drift (the cap is also cross-referenced from the `loom/runtime/reload-teardown-timeout` and `cancelled-by-session-shutdown` diagnostic contracts, which assume one value). The teardown timeout window then differs between the prompt-mode and subagent-mode disposal paths.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** Both `V9g-session-shutdown.md` and `V9i-subagent-isolation.md` were first added in commit c6a664e, and a `git log -S 'SHUTDOWN_AWAIT_CAP_MS' -- docs/plan_topics/` pickaxe finds that same commit as the only one to introduce the token in the plan corpus. The two unowned references were present together from the leaves' first commit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Declare `SHUTDOWN_AWAIT_CAP_MS = 2000` (value sourced from `patch-skew-degradation.md`) as a loom-owned cancellation-runtime constant in `V17a`'s Adds — the shared ancestor both `V9g` and `V9i` already list directly in their Deps — and make no Deps changes. Both references then resolve immediately with no new DAG edge. The alternative of declaring it on the `session_shutdown` handler owner (`V9g`) and adding `V9g` to `V9i`'s Deps would pull `V9i` behind `V9g`'s `V18c`-tethered dependency chain, needlessly delaying an otherwise-early leaf. Watch that the single declared value stays consistent with the `2000`ms figure the `loom/runtime/reload-teardown-timeout` and `cancelled-by-session-shutdown` diagnostic contracts cite.
-
-## Relationships
-
-- T12 "CNCL-4 session-shutdown reason facet is asserted in V9g but never authored red in V9g-T or gated by Ships-when" — same-cluster (also touches V9g; resolves independently).
-- T13 "Cancel-forwarding couples V9c to the `loomAbort` controller (V17a) without a declared dependency" — same-cluster (sibling undeclared-dependency / shared-artefact-ownership defect against V17a; resolves independently).
 

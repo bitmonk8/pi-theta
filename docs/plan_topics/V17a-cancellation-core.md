@@ -1,8 +1,8 @@
 # `V17a` — Cancellation core
 
-**Spec.** [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md), [`../spec_topics/pi-integration-contract/host-interfaces-core.md`](../spec_topics/pi-integration-contract/host-interfaces-core.md).
+**Spec.** [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md), [`../spec_topics/pi-integration-contract/host-interfaces-core.md`](../spec_topics/pi-integration-contract/host-interfaces-core.md), [`../spec_topics/pi-integration-contract/patch-skew-degradation.md`](../spec_topics/pi-integration-contract/patch-skew-degradation.md).
 
-**Adds.** The `loomAbort` controller and the cancellation contract: forwarding Pi's per-handler `ctx.signal`, the tool-exposed `signal`, and parent-`invoke` signals into `loomAbort` (never `ctx.signal` directly); abort-reason propagation (synthesised for `agent_end` and `session_shutdown`); downward-only propagation; the fixed checkpoint set (including pre-binder); and the late-settlement discard rules.
+**Adds.** The `loomAbort` controller and the cancellation contract: forwarding Pi's per-handler `ctx.signal`, the tool-exposed `signal`, and parent-`invoke` signals into `loomAbort` (never `ctx.signal` directly); abort-reason propagation (synthesised for `agent_end` and `session_shutdown`); downward-only propagation; the fixed checkpoint set (including pre-binder); the late-settlement discard rules; and the single loom-owned cancellation-runtime constant `SHUTDOWN_AWAIT_CAP_MS = 2000` (value sourced from [`patch-skew-degradation.md`](../spec_topics/pi-integration-contract/patch-skew-degradation.md)), the one declared source that `V9g`'s session-shutdown await cap and `V9i`'s subagent-disposal bound both consume — neither leaf redeclares it.
 
 **Tests.**
 - `CNCL-1`: a late tool-call value does not rebind its call site.
