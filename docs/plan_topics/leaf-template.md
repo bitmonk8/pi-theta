@@ -24,4 +24,4 @@ _(One bullet per REQ-ID this leaf claims to close. A leaf MAY close part of a RE
 
 _(Cite specific leaf IDs (`V4b`, `V9a–V9e`); never a bare group token (`V4`). Use ranges where contiguous, comma-separated lists where not.)_
 
-**Ships when.** _For an implementation task or a horizontal leaf: a concrete, externally observable change — e.g. "`npm test` includes a passing assertion that …", "running `pi /<name> …` in a real Pi session produces …", "`<file>` exists with `<header>` and the architectural test for it passes". For a tests task (`<id>-T`): "the tests above exist, compile, and fail red for the intended reason."_
+**Ships when.** _For an implementation task or a horizontal leaf: a concrete, externally observable change — e.g. "`npm test` includes a passing assertion that …", "running `pi /<name> …` in a real Pi session produces …", "`<file>` exists with `<header>` and the architectural test for it passes". For a tests task (`<id>-T`): "the tests above exist, compile, and fail red for the intended reason" — *fail red for the intended reason* is defined in [`conventions.md`](./conventions.md) §Per-phase TDD ritual._

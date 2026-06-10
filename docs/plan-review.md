@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 2 high, 31 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 31 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2294,69 +2294,3 @@ Mirror the same referents in the **Ships when** sentence so the gate's pass cond
 
 - T36 "Session double's model / tool / binder-response scripting surface is undefined" — decision-dependency (what the `H4a` harness lets a test script as model turns / tool results / injections constrains what "expected appended turns" can observably assert — this one must follow it)
 - T31 "Real-host fidelity of the session double has no reproducible detection point" — same-cluster (its fix likewise calls for a named fixture with enumerated expected appended turns / `loom-system-note` codes, but for the `H4a`/`V18c` manual real-host smoke; resolves independently)
-
----
-
-# T33 — "fail red for the intended reason" is the tests-task gate but is never defined
-
-**Original heading:** `### "fail red for the intended reason" unspecified`
-**Original section:** docs/plan_topics/conventions.md
-**Kind:** clarity
-**Importance:** high
-**Score:** 95
-**MustFix:** false
-
-## Finding
-
-The per-phase TDD ritual in `conventions.md` makes "fail red for the intended reason" the **Ships when** condition for every tests-task (`<id>-T`) leaf: a tests task ships when "the tests exist, compile, and fail red for the intended reason." The same phrase is restated in `leaf-template.md` and copied verbatim into the **Ships when** field of all 60+ `<id>-T` leaves (plus the impl-side companion phrasing "fail for the intended reason"). It is the gate that authorizes the `<id>-T-complete` tag.
-
-The phrase is never defined anywhere in the corpus. "The intended reason" can be read at least three incompatible ways: (a) the test goes red because the asserted behaviour is absent; (b) the test goes red on its *primary assertion* rather than on a compile error, missing fixture, or harness/setup throw; or (c) the test goes red because a deliberately-withheld prerequisite is missing. A tests task whose suite reds out on a TypeScript compile error or an unconfigured fixture satisfies a literal reading of (a-as-stated) but violates (b). Two reviewers evaluating the same red suite can therefore disagree on whether the `<id>-T-complete` gate is met.
-
-The neighbouring sentence ("a test that would pass when prerequisites are missing is a defect") constrains the *green*-side failure mode but says nothing about which *red* cause is the legitimate one, so it does not close the gap.
-
-## Plan Documents
-
-- `docs/plan_topics/conventions.md` — §Per-phase TDD ritual (Tests-task bullet; Horizontal single-task paragraph) (edited)
-- `docs/plan_topics/leaf-template.md` — Ships-when guidance for tests tasks (option-dependent)
-- All `<id>-T` tests-task leaves (`M-T`, `V1a-T` … `V18c-T`) — Ships-when field that cites the phrase (read-only; they inherit the definition once it lands in `conventions.md`)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — the defect lives in a cross-cutting convention; the fix is a one-time definition in `conventions.md` (and an optional pointer from `leaf-template.md`). No individual leaf's acceptance criteria text changes; every `<id>-T` leaf inherits the clarified gate without edit.
-
-## Consequence
-
-**Severity:** correctness
-
-The phrase is the acceptance gate for the red half of every TDD pair. Undefined, two reasonable implementers/reviewers diverge on whether a suite that reds out on a compile error, an unconfigured fixture, or an unrelated throw satisfies the gate — so `<id>-T-complete` can be tagged on a suite that is red for the wrong reason, defeating the "tests fail because the behaviour is absent" intent the ritual exists to enforce.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** f9c5354 — pi-loom plan: add scope section + two-task TDD pairing convention (2026-06-09, Thomas Andersen)
-**History:** `conventions.md` predates the phrase (the file was relocated into `docs/` at 31ff060 with a single-task ritual). Commit f9c5354 authored the two-task TDD pairing and introduced "fail red for the intended reason" as the tests-task **Ships when** gate, simultaneously seeding the verbatim restatement in `leaf-template.md`. The phrase was never accompanied by a definition in that commit and no later commit has added one.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a one-time definition of "fail red for the intended reason" to `conventions.md` §Per-phase TDD ritual, placed at or before its first use in the *Tests task* bullet, so every citing leaf inherits a single resolved meaning. Define it as: the suite **compiles and runs**, and each test reds out **on its own primary assertion because the implementation under test is absent or incomplete** — not on a TypeScript/compile error, a missing or unconfigured fixture, a harness/setup throw, or an unrelated exception. State that a suite red for any of those non-behavioural reasons does **not** satisfy the gate and must be fixed before tagging `<id>-T-complete`.
-
-Have the gate phrasing in the *Tests task* bullet and the *Horizontal leaves — single task* paragraph reference that definition rather than restating the bare phrase. Optionally update the `leaf-template.md` Ships-when guidance to point at the definition.
-
-Edge case for the implementer: a tests task legitimately may not compile if it references a not-yet-existing production symbol. Decide explicitly whether "compiles" means the test file type-checks against stubbed/declared seams (recommended, since the ritual already permits "the minimum production code needed for the tests to compile and fail") or whether a compile-time red is acceptable; the definition must say which.
-
-## Relationships
-
-- T06 "Class-1/2/3 taxonomy referenced by the Adds binding rule but never defined" — same-cluster (parallel "term used as a gate but never defined" clarity gap in `conventions.md`; resolves independently)
-

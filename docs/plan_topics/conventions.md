@@ -12,11 +12,18 @@ Leaves are the unit of work; slice grouping is editorial. Leaf IDs follow `<grou
 
 TDD is expressed as **two separate tasks** for every MVP and vertical feature; horizontal infrastructure leaves run a single-task ritual.
 
+**"Fail red for the intended reason" (defined).** A tests-task suite *fails red for the intended reason* when both hold:
+
+1. **It compiles and runs.** The test files type-check against the stubbed or declared seams the tests task is permitted to add (the ritual permits "the minimum production code needed for the tests to compile and fail"). A suite that cannot type-check — a TypeScript/compile error, e.g. a reference to a not-yet-declared production symbol — is a **compile-time red** and does **not** satisfy the gate; declare or stub the seam so the suite compiles.
+2. **Each test reds out on its own primary assertion because the implementation under test is absent or incomplete** — not on a missing or unconfigured fixture, a harness/setup throw, or an unrelated exception.
+
+A suite red for any non-behavioural reason (compile error, missing/unconfigured fixture, harness/setup throw, unrelated exception) does **not** satisfy the gate and must be fixed before tagging `<id>-T-complete`. The companion impl-side phrasing "fail for the intended reason" carries the same meaning.
+
 ### MVP and vertical features — tests-task → implementation-task pairing
 
 Each feature is an ordered pair of leaves, each landing as its own commit:
 
-1. **Tests task** — leaf ID `<id>-T` (e.g. `V4b-T`). Write the failing tests for *every* spec REQ-ID the feature introduces. One assertion per rule where practical. A test that would pass when prerequisites are missing is a defect — fix it before the implementation task. The tests task adds no production code beyond the minimum needed for the tests to compile and fail for the intended reason. **Ships when** the tests exist, compile, and fail red for the intended reason; tag the commit `<id>-T-complete`.
+1. **Tests task** — leaf ID `<id>-T` (e.g. `V4b-T`). Write the failing tests for *every* spec REQ-ID the feature introduces. One assertion per rule where practical. A test that would pass when prerequisites are missing is a defect — fix it before the implementation task. The tests task adds no production code beyond the minimum needed for the tests to compile and *fail red for the intended reason* (defined above). **Ships when** the tests exist, compile, and *fail red for the intended reason* as defined above; tag the commit `<id>-T-complete`.
 2. **Implementation task** — leaf ID `<id>` (e.g. `V4b`). Lists `<id>-T` in its **Deps.** Then run the loop:
    1. **Implement.** Write the smallest correct increment that turns the red tests green. Correctness is the goal; tests are the evidence. Do not under-implement to game a thin test, and do not add speculative APIs (unused exports, public hooks no test in this leaf or its declared downstream consumers exercises).
    2. **Run.** All `<id>-T` tests green; type-check clean; lint clean.
