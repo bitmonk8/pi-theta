@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 29 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 28 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2013,69 +2013,3 @@ Edge case: the wording should make both failure paths (`?`-propagated `Err` and 
 ## Relationships
 
 None
-
----
-
-# T29 — V18c-T runtime-evidence test exercises integrated features its Deps do not satisfy
-
-**Original heading:** `V18c-T` omits the integrated-feature leaves its runtime-evidence test exercises
-**Original section:** docs/plan_topics/V18c-version-bump-checklist.md / V18c-T
-**Kind:** ordering
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V18c-T`'s runtime-evidence acceptance-gate Tests bullet asserts that the `H4a` end-to-end harness "is driven against the bumped pin," and its **Ships when** commits the test to "fail red for the intended reason, including the runtime-evidence acceptance-gate test." That bullet is the failing-test partner of `V18c`'s impl bullet, which drives a "representative integrated `.loom` (typed query + tool loop + invoke + schema validation + binder + cancellation)" against the bumped pin. The features in that `.loom` are owned by `V5d`, `V11f`, `V13c`, `V14a`, `V17a`, and `V15a`.
-
-`V18c` (impl) declares all five feature leaves plus `H4a` in its `Deps`. `V18c-T` declares only `V18a, V18b, H4a`. Because a tests-task is picked up as soon as its `Deps` are satisfied, `V18c-T` becomes buildable once `V18a`, `V18b`, and `H4a` land — well before the integrated-feature leaves exist. If the `-T` runtime-evidence test drives the integrated `.loom` the impl partner describes, that `.loom` cannot parse or run, so the test fails on a setup/missing-feature error rather than on the asserted gate behaviour — violating the tests-task's "fail red for the intended reason" exit gate.
-
-Two readings diverge: one reads the `-T` bullet as driving the same integrated `.loom` as the impl (and is blocked / fails red for the wrong reason), the other reads it as a feature-free composition check against an `H4a` harness double.
-
-## Plan Documents
-
-- `docs/plan_topics/V18c-T-version-bump-checklist.md` — Deps + runtime-evidence Tests bullet / Ships when (edited)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Deps + runtime-evidence Tests bullet (read-only reference)
-- `docs/plan_topics/conventions.md` — TDD ritual: "fail red for the intended reason" (read-only)
-- `docs/plan_topics/V5d-subset-lowering.md` / `V11f-binder-retry-taxonomy.md` / `V13c-query-tool-loop.md` / `V14a-tool-calls.md` / `V17a-cancellation-core.md` / `V15a-invocation-core.md` — integrated features (option-dependent)
-
-## Spec Documents
-
-None — the fix is internal to plan-file dependency wiring and test framing.
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V5, V11, V13, V14, V15, V17, V18); Horizontal (`H4a`, already a declared dep)
-
-**Leaves (implementation order):**
-
-- `V5d`, `V11f`, `V13c`, `V14a`, `V15a`, `V17a` — (blocked, under Option A only)
-- `V18c-T` — Pi version-bump procedure and gates (tests) — (both)
-
-## Consequence
-
-**Severity:** correctness
-
-If shipped unfixed, `V18c-T` can be picked up after `V18a`/`V18b`/`H4a` yet before the integrated-feature leaves exist; an implementer who reads the runtime-evidence test as driving the integrated `.loom` produces a test that fails on missing features (a wrong-reason red), which the tests-task exit gate is meant to forbid. The two readings yield materially different `-T` test code and diverging pickup ordering.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** `81ab342` (2026-06-10) "resolve version-bump runtime-evidence acceptance gate and revert path"; `c42f13d` (2026-06-10) "resolve V18c version-bump gate under-declares feature deps"
-**History:** At plan creation (`c6a664e`) `V18c-T` carried `Deps. V18a, V18b` and had no runtime-evidence bullet. `81ab342` added the runtime-evidence acceptance gate to both leaves and added `H4a` (only) to both `Deps`. `c42f13d` then resolved the impl's under-declaration by adding `V5d, V11f, V13c, V14a, V17a` to `V18c`'s `Deps`, but did not propagate the fix to the `V18c-T` partner. The asymmetry was finalized by that asymmetric second fix.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Restate `V18c-T`'s runtime-evidence Tests bullet as a feature-free gate-composition check: scope the `-T` runtime-evidence test to assert only that the gate is composed correctly — the `H4a` harness must be driven against the bumped pin and a green surface-inventory run alone does not satisfy acceptance — using a feature-free `H4a` harness double rather than an integrated `.loom`. Leave `V18c-T`'s `Deps` at `V18a, V18b, H4a`, which keeps the tests-task early and decoupled so it fails red precisely because the gate is unwired. The integrated `.loom` belongs to the impl-time acceptance run on `V18c`, which retains it.
-
-Edge cases: (1) the reworded `-T` assertion must still fail red on the gate's absence, not pass vacuously; (2) confirm whether the impl's integrated `.loom` truly exercises `invoke` — if so, `V15a` is a missing dep on `V18c` (impl) and should be added there.
-
-## Relationships
-
-- T22 "V3d-T over-asserts final-value propagation against invoke/subagent caller surfaces built in later slices" — same-cluster (same ordering pattern: a `-T` leaf's failing test references features not yet built; resolves independently)
-- T36 "Session double's model / tool / binder-response scripting surface is undefined" — decision-dependency (Option B's feature-free harness double depends on the `H4a` harness scripting surface being defined — this one must follow it)

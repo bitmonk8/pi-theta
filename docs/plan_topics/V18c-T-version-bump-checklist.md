@@ -8,7 +8,7 @@
 - Step 2(a): the positive surface-inventory test asserts each `SDK_SURFACE_INVENTORY` member is present on the pinned SDK.
 - Step 2(b): the promote/co-edit obligation fires when a capability is added/removed.
 - The `engines.node` literal-read test equals the SDK floor; the `peerDependencies` tilde line is asserted; the `loom/typecheck/session-shutdown-reason-snapshot` brand-string gate detects a reason-set skew.
-- Runtime-evidence acceptance gate (output (c) of [`version-bump-triggers.md`](../spec_topics/pi-integration-contract/version-bump-triggers.md)): a failing test asserts the [`H4a`](./H4a-factory-shell-and-harness.md) end-to-end harness is driven against the bumped pin and that a surface-inventory green alone does not satisfy acceptance; the assertion's coverage is bounded by the `H4a` double's fidelity to the bumped pin.
+- Runtime-evidence acceptance gate (output (c) of [`version-bump-triggers.md`](../spec_topics/pi-integration-contract/version-bump-triggers.md)): a failing test asserts the gate is composed correctly — that the [`H4a`](./H4a-factory-shell-and-harness.md) end-to-end harness is driven against the bumped pin and that a green surface-inventory run alone does not satisfy acceptance — exercised against a feature-free `H4a` harness double rather than an integrated `.loom`. The test fails red precisely because the gate is unwired, not because any integrated feature is missing; the integrated `.loom` (typed query + tool loop + invoke + schema validation + binder + cancellation) belongs to the impl-time acceptance run on [`V18c`](./V18c-version-bump-checklist.md). The assertion's coverage is bounded by the `H4a` double's fidelity to the bumped pin.
 
 **Deps.** `V18a`, `V18b`, `H4a`
 
