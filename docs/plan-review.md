@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 47 medium retained (54 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 6 high, 47 medium retained (53 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -3641,64 +3641,3 @@ Edge cases the fixer must watch:
 - T54 "V11a binder-model obligations have no coverage-matrix closing row" — same-cluster (identical pattern; distinct independent row)
 - T02 "Code-keyed obligation rows have no machine-matchable key, yet three closing-gate arms match cited tokens against them" — decision-overlap (how the new V18b row is keyed depends on whether that finding introduces a stable per-row match key)
 - T47 "V18b's Adds omits the broader-inventory population, entry-kind taxonomy, and land-green `src/` sweep" — same-cluster (both touch V18b but resolve independently — this is coverage-matrix traceability, that is Adds scope)
-
----
-
-# T54 — V11a binder-model obligations have no coverage-matrix closing row
-
-**Original heading:** No coverage-matrix entry (untraceable leaf) — V11a
-**Original section:** V11a — Binder model resolution
-**Kind:** traceability
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-`coverage-matrix.md` lists no row — numbered or code-keyed — naming `V11a` as a closing leaf. `V11a` closes the binder-model resolution and strict-capability obligations on `spec_topics/binder/binder-model-and-context.md` (§Binder model, §Strict-capability requirement): the three load-time diagnostic codes `loom/load/binder-model-unresolved`, `loom/load/binder-model-not-strict-capable`, and `loom/load/binder-model-strict-capability-unknown`, plus the informational hot-reload recovery `loom-system-note`. These are GOV-22 residue — non-narrative spec MUSTs carried by `loom/load/*` codes with no numbered `PREFIX-N` REQ-ID — exactly the class the code-keyed obligation-area table exists to enumerate.
-
-Because that page is unmapped, the loom 1.0 closing gate (H5a recogniser, on the H6a live-corpus footing) has no closing-leaf record for these obligations: either the un-anchored-MUST / code-keyed scan reddens against an obligation absent from the table, or V11a's closure is simply not traceable from the matrix. The sibling binder pages are all mapped (`binder-bypass-and-envelope.md`→`V11d`, `defaulting-system-note-echo.md`/`determinism-cancellation-failure.md`→`V11e`, BNDR ranges→`V11b`/`V11c`/`V11d`), which makes the `V11a` page the lone gap in the binder cluster.
-
-## Plan Documents
-
-- `docs/plan_topics/coverage-matrix.md` — Code-keyed obligation areas table (edited)
-- `docs/plan_topics/V11a-binder-model-resolution.md` — Tests / Adds (read-only)
-- `docs/plan_topics/conventions.md` — REQ-ID discipline / closing-gate rules (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/binder/binder-model-and-context.md` — §Binder model, §Strict-capability requirement, #binder-model-hot-reload (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices
-
-**Leaves (implementation order):**
-
-- `V11a` — Binder model resolution — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A spec page owning three executable load-time obligations has no closing-leaf record, so the closing gate cannot confirm V11a closes them — the obligations can silently ship unverified, or the live-corpus gate reddens against an obligation it cannot trace to a leaf. The matrix also misrepresents itself as the complete closing-leaf map while omitting a live binder obligation set.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** `c6a664e` (pi-loom plan: build/update plan for spec.md + review)
-**History:** The plan corpus is git-tracked. `coverage-matrix.md`'s code-keyed obligation-area table and `V11a` (with its three `loom/load/binder-model-*` codes) were both authored in the rebuild commit `c6a664e`; no row mapping `binder/binder-model-and-context.md` to `V11a` was included then (`git log -S 'binder-model-and-context' -- docs/plan_topics/coverage-matrix.md` returns no commit — the string has never appeared in the matrix). Subsequent gap-closing passes added analogous binder code-keyed rows for sibling leaves (`12f7933` → `V11e` system-note/determinism rows; `ed70da3` → `V11d` system-prompt row) but never added the `V11a` row, so the omission has persisted since the code-keyed table was introduced.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add one row to the **Code-keyed obligation areas** table in `docs/plan_topics/coverage-matrix.md` with closing leaf `V11a`. The Spec-area cell maps `binder/binder-model-and-context.md` §Binder model + §Strict-capability requirement, listing the three load codes it closes — `loom/load/binder-model-unresolved`, `loom/load/binder-model-not-strict-capable`, `loom/load/binder-model-strict-capability-unknown` — and marking it GOV-22 residue, consistent with the existing binder rows' wording. Fold the hot-reload recovery note (`#binder-model-hot-reload`) into the same row's prose, noting it is informational (no `loom/load/*` code) so the gate does not expect a registered code for it. The fix is internal to the matrix; do not edit the spec page (read-only here) and do not alter V11a's leaf fields. Match the existing leaf-ID scheme and GOV-22-residue annotation form already used by the sibling binder rows.
-
-## Relationships
-
-- T55 "V9j has no coverage-matrix row — its un-anchored binder/provider MUSTs are untraceable" — same-cluster (identical untraceable-leaf pattern; adds its own code-keyed rows to the same table, resolves independently)
-- T53 "V18b audit-methodology obligations have no coverage-matrix closing-leaf row" — same-cluster (identical pattern; separate audit-methodology rows)
-- T15 "V4e ERR-4: binder-model-resolution failure producer (V11a) not enumerated as an explicit dependency" — same-cluster (both concern V11a's `loom/load/binder-model-unresolved` obligation; the V4e Deps fix resolves independently)
