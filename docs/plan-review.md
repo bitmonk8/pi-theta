@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 6 high, 11 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 6 high, 10 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1140,68 +1140,3 @@ The assertions must pin the codes' behavioural edge cases: arity is checked **be
 
 - T18 "`implementation-notes.md` (IMPL) is unmapped in the coverage matrix, leaving its static-resolution obligations unverified" — decision-overlap (both add code-keyed rows that name `V15a` and bind static-resolution / `loom/load/callee-has-errors` coverage; the closing-leaf assignment chosen here constrains that finding's `V15a` citation)
 - T13 "V9h's two `pi-integration-contract` pages have no coverage-matrix closing rows" — same-cluster (independent spec pages, same code-keyed-row mechanism and H5a closing-gate footing)
-
----
-
-# T17 — V7a Multi-error test never asserts the `(file, line, col)` cross-file diagnostic ordering
-
-**Original heading:** Cross-file (file, line, col) diagnostic ordering across transitive .warp modules not verified
-**Original section:** docs/plan_topics/coverage-matrix.md
-**Kind:** spec-coverage
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V7a`'s and `V7a-T`'s Multi-error Tests bullet exercises a `.loom` file carrying several parse errors plus transitive `.warp` import errors and asserts that the runtime emits exactly one `sendMessage` carrying the full batch in `content` and `Diagnostic[]` in `details.diagnostics`, with no fast-fail and no per-error fan-out. The bullet pins batch *cardinality* and the no-fan-out shape but never pins batch *order*.
-
-The batch order is a normative requirement. `implementation-notes.md` §Static-resolution load pass states the pass "aggregates each visited file's diagnostics into the entry loom's drain (sorted by `(file, line, col)` per [Diagnostics — Multi-error reporting])". No leaf asserts this sort key. A correctly-sized batch that lists the right diagnostics in the wrong order — e.g. interleaving an entry-`.loom` error after a transitively-imported `.warp` error, or sorting by emission time rather than `(file, line, col)` — passes V7a's Multi-error test unchanged.
-
-This is the only diagnostic-ordering surface for the scan-time multi-error path, so the gap leaves the cross-file sort entirely unverified at the leaf that owns multi-error batching.
-
-## Plan Documents
-
-- `docs/plan_topics/V7a-diagnostics-primitive.md` — Tests / Multi-error bullet (edited)
-- `docs/plan_topics/V7a-T-diagnostics-primitive.md` — Tests / Multi-error bullet (edited)
-- `docs/plan_topics/coverage-matrix.md` — DIAG / V7a rows (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/implementation-notes.md` — §Static-resolution load pass (read-only; pins the `(file, line, col)` sort key)
-- `docs/spec_topics/diagnostics/diagnostic-shape.md` — §Multi-error reporting (read-only; the ordering's cited home)
-
-## Affected Leaves
-
-**Phases:** Vertical slice V7 — Diagnostics
-
-**Leaves (implementation order):**
-
-- `V7a-T` — Diagnostics primitive and `loom-system-note` channel (tests) — (modified)
-- `V7a` — Diagnostics primitive and `loom-system-note` channel — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers could batch the same diagnostics in different orders — one honouring the `(file, line, col)` sort, one emitting in discovery/emission order — and both pass V7a's Multi-error test green. The spec mandates a single deterministic order across the entry `.loom` and its transitive `.warp` imports; with no asserting check, a mis-ordered batch ships unnoticed and downstream consumers (renderer line order, LSP integrations reading `details.diagnostics`) observe non-deterministic output.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e ("pi-loom plan: build/update plan for spec.md + review", 2026-06-10)
-**History:** Both `V7a-diagnostics-primitive.md` and `V7a-T-diagnostics-primitive.md` were authored in c6a664e, the plan's initial build commit (`git log --follow` shows no earlier revision for either file). The Multi-error Tests bullet has carried its current wording verbatim since that commit (`git show c6a664e:docs/plan_topics/V7a-diagnostics-primitive.md` confirms the bullet already lacked any ordering clause) and never asserted batch order. The only later commit touching either file, af2ec83, added the PIC-21 renderer-exception bullet and left the Multi-error bullet unchanged. The cross-file ordering assertion was therefore absent from the leaf's inception.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend the Multi-error Tests bullet in both `docs/plan_topics/V7a-T-diagnostics-primitive.md` and `docs/plan_topics/V7a-diagnostics-primitive.md` (kept in sync as the `-T`/impl pair) so it additionally asserts that the emitted `Diagnostic[]` in `details.diagnostics` is ordered by `(file, line, col)` across an entry `.loom` and ≥2 transitively-imported `.warp` modules — i.e. the fixture must produce errors whose source-order differs from `(file, line, col)` order, and the test must assert the batch comes back in `(file, line, col)` order rather than emission/discovery order. Cite the ordering source `implementation-notes.md` §Static-resolution load pass (the `(file, line, col)` sort clause) in the bullet so the assertion traces to the normative requirement.
-
-Edge case for the implementer: the entry `.loom`'s own errors and each `.warp` module's errors must be distinguishable by `file`, and at least one `.warp` must sort before the entry `.loom` under the `(file, line, col)` key, so the test fails if the implementation emits in walk order instead of sorted order.
-
-## Relationships
-
-- T18 "`implementation-notes.md` (IMPL) is unmapped in the coverage matrix, leaving its static-resolution obligations unverified" — co-resolve (the same `V7a` Multi-error cross-file `(file, line, col)` ordering assertion closes both; author it once)
