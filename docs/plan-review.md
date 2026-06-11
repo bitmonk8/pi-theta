@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 2 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2506,71 +2506,3 @@ Relocate the "reused across calls" intent to non-normative rationale (a parenthe
 ## Relationships
 
 None
-
----
-
-# T37 — Seeded gate fixtures may collide with the live-corpus scan roots
-
-**Original heading:** Seeded gate fixtures assumed excluded from the live-corpus scan roots
-**Original section:** Consolidated Plan Review — plan
-**Kind:** assumptions
-**Importance:** high
-**Score:** 100
-**MustFix:** false
-
-## Finding
-
-H5a evaluates the closing gate against a set of seeded violation fixtures — a fixture spec page carrying a `PREFIX-N`-less, registry-code-less, non-seam normative MUST mapped to no closing leaf (the "un-enumerated-MUST fixture page"), a fixture spec REQ-ID with no `coverage-matrix.md` row, a fixture coverage-matrix mapping whose numbered REQ-ID has no citing test, and `// allow-broad-catch:` violation fixtures. H6a then flips the same gate to reconcile the **live** spec REQ-ID set, the live `spec_topics/**` normative-MUST set, and the live test corpus against the live `coverage-matrix.md`; H5b runs the identical machinery in warn-only mode over the same live surfaces immediately before the flip.
-
-Neither H5a nor H6a states where these seeded fixtures physically live, nor that the gate's live-mode path selection excludes them. The seeded fixtures are deliberately constructed to fail every gate arm. If the un-enumerated-MUST fixture page (which is spec-page-shaped) lands under `docs/spec_topics/**`, or a fixture REQ-ID/mapping lands in the live test corpus, the live-corpus footing reconciles them as real coverage gaps and reddens `npm test` on `main`. Because the seeded violations are permanent by design, the gate could never go green after the H6a flip, and H5b's warn-only pre-flight would emit permanent spurious findings.
-
-The plan gives an implementer no instruction on fixture placement, so the collision is not a remote edge case: a reasonable implementer authoring the un-enumerated-MUST fixture page may file it alongside the spec topics it imitates, directly inside the live-corpus scan root.
-
-## Plan Documents
-
-- `docs/plan_topics/H5a-closing-gate-automation.md` — Adds / Ships when (edited)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Adds / Ships when (read-only)
-- `docs/plan_topics/H5b-warn-only-canary.md` — Adds / Tests (read-only)
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* (option-dependent)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal phases; Release gate
-
-**Leaves (implementation order):**
-
-- H5a — REQ-ID / diagnostic-code closing-gate automation — (modified)
-- H5b — Warn-only live-corpus canary (pre-activation pre-flight) — (blocked)
-- H6a — Live-corpus closing-gate activation (loom 1.0 release gate) — (blocked)
-
-## Consequence
-
-**Severity:** blocking
-
-If a seeded gate fixture — most plausibly the un-enumerated-MUST fixture page — resides inside the live-corpus scan roots (`docs/spec_topics/**` or the live test corpus), the H6a flip reds `main` permanently and its `Ships when` gate can never go green, while H5b's warn-only pre-flight emits permanent spurious findings. Absent a stated fixture location or exclusion rule, two implementers diverge on where fixtures live, and the safe choice is undocumented.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen); 0603eb4 — pi-loom plan: resolve "un-anchored normative MUSTs invisible to closing gate" (2026-06-10, Thomas Andersen); 5353dd7 — pi-loom plan: resolve "Release-gate activation has no owning leaf" (2026-06-10, Thomas Andersen)
-**History:** c6a664e introduced H5a's seeded violation fixtures and 0603eb4 added the spec-page-shaped un-enumerated-MUST fixture, but no scan-root collision was possible while the gate ran only against fixtures. 5353dd7 created H6a and added the live-corpus footing that reconciles the live `spec_topics/**` corpus and live test corpus, introducing the collision risk, yet shipped no statement excluding the seeded fixtures from those roots. The token `scan root` appears in no commit, confirming the exclusion property has never been authored; the defect is the interaction of the fixture-page commits with the live-corpus-flip commit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add to `H5a` (which already enumerates the seeded fixtures in its `Ships when` field) an explicit statement that the seeded gate fixtures — the un-enumerated-MUST fixture page, the fixture spec REQ-ID with no `coverage-matrix.md` row, the fixture coverage-matrix mapping whose numbered REQ-ID has no citing test, and the `// allow-broad-catch:` violation fixtures — reside in a dedicated test-fixtures root that is outside `docs/spec_topics/**` and outside the live test corpus, and that the gate's live-mode path selection reconciles the live corpus exclusive of that fixtures root. State it in `H5a`'s `Adds.` so it travels with the gate-machinery description, e.g. a clause that the seeded fixtures live under a fixtures root the live-corpus footing never scans.
-
-Add a one-line reliance note to `H6a`'s `Adds.` (and `H5b`'s `Adds.`) that the live-corpus footing — and the warn-only pre-flight — reconcile the live spec/test corpus exclusive of that fixtures root, so the flip cannot permanently red `main` on a seeded violation. No spec edit is required; if the live MUST-scan's page-selection mechanism is documented in `conventions.md` *REQ-ID discipline*, the fixtures-root exclusion may instead be pinned there with `H5a`/`H6a` citing it. The implementer must ensure the fixtures-root exclusion covers all four fixture kinds, not only the spec-page MUST fixture.
-
-## Relationships
-
-- T34 "Un-anchored-MUST recogniser: narrative/non-narrative page classification source unstated" — decision-dependency (both pin the live MUST-scan's input set; defining the scan's path/page selection bears on which pages — including fixtures — are scanned).
-- T38 "Live-host smoke pass criterion assumes a non-deterministic LLM reproduces a transcript recorded against the in-process double" — same-cluster (same H6a leaf, resolves independently).
-- T32 "H6a release-gate green criterion over-claims un-anchored-MUST scan completeness" — same-cluster (same gate's live-corpus footing, resolves independently).
