@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 42 medium retained (43 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 41 medium retained (42 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2823,77 +2823,6 @@ The asserting test's structural shape (fixture layout, number of bullets) is the
 
 - T40 "V18c strict-capability probe gate is named in Adds but has no asserting test" — same-cluster (parallel untested-gate gap in the same leaf; resolved by the same kind of edit but an independent assertion)
 - T44 "V18c bundles mechanically-gated build-time tests with non-testable editorial obligations under one Ships-when" — must-follow (its Ships-when entry for the `Api`-coverage gate depends on this finding authoring the test)
-
----
-
-# T42 — `engines.node` floor gate described two-way in V18c, three-way in the spec and V18d
-
-**Original heading:** `engines.node` gate described as two-way in its owning leaf, three-way everywhere else
-**Original section:** V18c — Version-bump static gates
-**Kind:** clarity, assumptions
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-`V18c` owns the build-time `engines.node` floor gate, but both its **Adds** ("the `engines.node` floor literal-read") and its **Tests** bullet ("The `engines.node` literal-read test equals the SDK floor") describe a **two-operand** comparison: the loom `package.json#engines.node` literal against a single "SDK floor". The spec that V18c cites — [`version-bump-step2b.md` step 3](../spec_topics/pi-integration-contract/version-bump-step2b.md) — mandates a **three-way equality** across (i) the loom `package.json#engines.node` literal, (ii) the in-repo pinned floor recorded in the `pi-engines-node` row of `SDK_SURFACE_INVENTORY`, and (iii) the floor read live at build time from the installed `@earendil-works/pi-coding-agent` `package.json` under `node_modules`. Operand (iii) is the only live read and is what makes the gate fail red on a Pi minor bump that moves the upstream floor.
-
-The two-way framing drops operand (ii) entirely and collapses (iii) into an undefined "SDK floor", so an agent implementing the gate from V18c builds a behaviourally different artefact than the spec and the rest of the corpus describe. `V18d`'s revert path explicitly names "the `engines.node` three-way equality gate", and `H1a` (the `package.json#engines.node` initial-population owner) explicitly defers operands (ii) and (iii) to "`V18c`'s three-way `engines.node` equality gate". V18c is the lone surface that under-describes the gate it owns.
-
-The paired tests leaf `V18c-T` carries the identical two-way phrasing in its Tests bullet and must be corrected in lockstep, or the red-test specification will encode the wrong gate shape.
-
-## Plan Documents
-
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Adds + Tests (edited)
-- `docs/plan_topics/V18c-T-version-bump-checklist.md` — Tests (edited)
-- `docs/plan_topics/V18d-version-bump-acceptance.md` — revert-path gate list (read-only; already three-way, the alignment target)
-- `docs/plan_topics/H1a-scaffold-and-toolchain.md` — Adds / population-time check (read-only; already references V18c's three-way gate and owns operand (i))
-- `docs/plan_topics/V18a-capability-inventory.md` — `SDK_SURFACE_INVENTORY` owner (option-dependent; operand (ii) is the `pi-engines-node` row, whose owning leaf is the subject of a related finding)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-step2b.md` — step 3, `engines.node` floor re-confirmation (read-only; the authoritative three-way definition the fix aligns to)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V18 — Build-time SDK gates)
-
-**Leaves (implementation order):**
-
-- V18c-T — Pi version-bump static gates (tests) — (modified)
-- V18c — Pi version-bump static gates — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer working from V18c builds a two-operand `engines.node` gate that omits the in-repo pinned `pi-engines-node` floor (operand (ii)) and the live installed-SDK read (operand (iii)). That gate cannot detect the upstream-floor-move case the spec designed it to catch, and it silently contradicts the gate V18d's revert path re-runs and H1a defers to — leaving the corpus with two different definitions of the same gate.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e
-**History:** The plan corpus is git-tracked. `git log --follow` on `docs/plan_topics/V18c-version-bump-checklist.md` shows the file was created in `c6a664e` (2026-06-10, "pi-loom plan: build/update plan for spec.md + review"), the plan's first build. `git log -S 'equals the SDK floor'` confirms the two-way "equals the SDK floor" Tests phrasing entered in that same inception commit and has never been revised across the six later V18c-touching commits. The spec's three-way requirement predates the plan: `git log -S 'three-way equality'` on `version-bump-step2b.md` places it in spec commit `6798428` (2026-06-05), and `git show c6a664e:docs/spec_topics/pi-integration-contract/version-bump-step2b.md` confirms the three-way text was present when V18c was authored — so V18c under-described an already-three-way spec from its first commit. The internal plan inconsistency widened later when `V18d` was split out (`8af3204`, 2026-06-11) and its "three-way equality gate" reference was added (`eed7975`, 2026-06-11), but those edits only made the pre-existing divergence visible; the root defect dates to inception.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite V18c to describe the three-way `engines.node` equality the spec and V18d already define.
-
-- In `V18c-version-bump-checklist.md` **Adds**, replace "the `engines.node` floor literal-read" with a description of the three-way equality gate across the three operands: (i) the loom `package.json#engines.node` literal, (ii) the in-repo pinned floor in the `pi-engines-node` row of `SDK_SURFACE_INVENTORY`, (iii) the floor read live at build time from the installed `@earendil-works/pi-coding-agent` `package.json`.
-- In `V18c-version-bump-checklist.md` **Tests**, replace "The `engines.node` literal-read test equals the SDK floor" with a bullet asserting the three-operand equality, naming operand (iii) as the only live read (the operand that reddens when the upstream floor moves while (i) and (ii) stay pinned), citing `version-bump-step2b.md` step 3.
-- In `V18c-T-version-bump-checklist.md` **Tests**, apply the same correction so the red-test specification asserts the three-way equality rather than the two-way "equals the SDK floor".
-
-Cite `version-bump-step2b.md` step 3 as the operand definition and keep the phrasing consistent with V18d's "three-way equality gate" and H1a's existing reference.
-
-## Relationships
-
-- T48 "Non-capability `SDK_SURFACE_INVENTORY` rows have no owning leaf" — must-follow (operand (ii) of this three-way gate is the `pi-engines-node` row; that finding decides which leaf populates it, so the row must exist for this gate's operand (ii) to resolve)
-- T45 "Reason-snapshot type-equality gate named under `npm test` but exercised only under `npm run typecheck`" — same-cluster (edits the same V18c Tests/Ships-when bullets; resolves independently)
 
 ---
 
