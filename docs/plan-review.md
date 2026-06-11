@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 2 medium retained (3 findings)._
+_Triage tally: 0 blocker, 0 high, 2 medium retained (2 findings)._
 
 ---
 # T06 — H6a Deps-note parenthetical restates the coverage-producing set as `(H5a, M, V1a–V18d)`, omitting the coverage-producing leaf H1a
@@ -140,74 +140,5 @@ Edge cases the implementer must handle: contiguous-range expansion on both the c
 
 - T08 "H1a missing from H5b's Deps, and the completeness claim that scopes the coverage-producing set to MVP/vertical leaves only" — must-follow (concrete instance this gate arm would catch; that fix must land for this check to pass green, so address it first)
 - T03 "\"CI failure\" enforcement vocabulary presumes a CI execution surface no leaf provisions" — decision-overlap (this arm's "fail CI on omission" remedy presupposes the CI surface that finding flags as unprovisioned)
-
----
-# T08 — H1a missing from H5b's Deps, and the completeness claim that scopes the coverage-producing set to MVP/vertical leaves only
-
-**Original heading:** H1a absent from H5b's Deps despite being a coverage-producing leaf; completeness claim excludes horizontal leaves
-**Original section:** docs/plan_topics/conventions.md (H5b / H6a — Canary and live-corpus activation)
-**Kind:** doc-alignment-broad
-**Importance:** high
-**Score:** 90
-**MustFix:** false
-
-## Finding
-
-`coverage-matrix.md` lists `H1a` as the closing leaf for the un-anchored `typebox "*"` MUST-NOT obligation (`pi-integration-contract/host-prerequisites.md` §`pi-sdk-pin` — "`typebox` `"*"` MUST NOT be collapsed into the four-entry tilde-pinned `peerDependencies` group"). That obligation is one of the three closing-gate surfaces the canary reconciles, so `H1a` is a coverage-producing leaf in the precise sense `conventions.md` §REQ-ID discipline uses.
-
-The *Transitive-completeness plan-maintenance* clause in `conventions.md` is unconditional: any leaf that can introduce an executable REQ-ID, a citing test that closes a coverage-matrix-mapped numbered REQ-ID, or an un-anchored normative MUST "MUST be added to `H5b`'s `Deps.`". It grants no horizontal-leaf exception. `H1a` closes an un-anchored normative MUST-NOT, yet it is absent from `H5b`'s `Deps` (which begins `H5a, M, V1a–V1b, …`).
-
-The omission is reinforced by `H5b`'s coverage-producing-set parenthetical, which frames completeness as "every MVP and vertical implementation leaf (`V1a`–`V18d`)". That framing scopes the set to MVP and vertical leaves only and silently excludes the horizontal closing leaf `H1a` (and is itself the wrong frame for the rule, which is keyed on coverage production, not phase). The parenthetical therefore asserts the set is "the complete coverage-producing set" while it is not. The same stale framing recurs in `H6a`'s parenthetical (which restates the set as "`H5a`, `M`, `V1a`–`V18d`"), tracked as a separate finding.
-
-## Plan Documents
-
-- `docs/plan_topics/H5b-warn-only-canary.md` — Deps field + coverage-producing-set parenthetical (edited)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — coverage-producing-set parenthetical (option-dependent — same omission, resolved by its own finding)
-- `docs/plan_topics/conventions.md` — §REQ-ID discipline, *Transitive-completeness plan-maintenance* (read-only)
-- `docs/plan_topics/coverage-matrix.md` — Code-keyed obligation areas, `typebox "*"` row naming `H1a` (read-only)
-- `docs/plan.md` — Release gate section ("The canary's Deps name the complete coverage-producing set") (read-only)
-
-## Spec Documents
-
-None. The `typebox "*"` MUST-NOT already exists in `pi-integration-contract/host-prerequisites.md` §`pi-sdk-pin`; the fix is internal to the plan files.
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H5b` — Warn-only live-corpus canary — (modified — `H1a` added to Deps; parenthetical revised)
-- `H6a` — Live-corpus closing-gate activation — (modified — parenthetical restates the same set excluding `H1a`; co-resolves via its own finding)
-
-## Consequence
-
-**Severity:** correctness
-
-The plan contradicts its own *Transitive-completeness plan-maintenance* rule and presents `H5b`'s `Deps` as "the complete coverage-producing set" when it omits `H1a`. The "every MVP and vertical implementation leaf" framing entrenches a phase-based exclusion the rule never grants, so a future horizontal coverage-producing leaf would be omitted by the same precedent; and the mechanical matrix↔Deps reconciliation proposed in a sibling finding would redden on `H1a`'s absence. (The live gate does not actually misfire today, because `H1a` is the root leaf with `Deps: -` and is always built first — but the documented invariant and completeness claim are wrong.)
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** 83c25b9 — pi-loom plan: resolve "typebox MUST NOT be collapsed obligation in H1a" (2026-06-10, Thomas Andersen); ea6b1da — pi-loom plan: resolve "Live-corpus gate activation has no documented rollback" (2026-06-11, Thomas Andersen)
-**History:** `83c25b9` added the `typebox "*"` MUST-NOT row to `coverage-matrix.md` naming `H1a` as its closing leaf, making `H1a` a coverage-producing leaf. The next day `ea6b1da` created `H5b-warn-only-canary.md`, and its first commit already carried the completeness parenthetical scoping the coverage-producing set to "every MVP and vertical implementation leaf (`V1a`–`V18c`)", excluding the already-coverage-producing `H1a`. The defect is the divergence between the producer commit and the later consumer-leaf authoring.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H5b-warn-only-canary.md`:
-
-- Add `H1a` to the **Deps.** field. `H1a` closes the un-anchored `typebox "*"` MUST-NOT obligation per `coverage-matrix.md`, so the *Transitive-completeness plan-maintenance* clause requires its presence. Add it as a discrete leading entry (e.g. alongside `H5a`); do not fold it into a `V…` range — the Deps list keeps horizontal and `V`-range entries distinct.
-- Revise the coverage-producing-set parenthetical so its completeness claim is keyed on coverage production rather than phase: the set is the closing-leaf set named in `coverage-matrix.md`, which includes the horizontal leaf `H1a` (its `typebox "*"` MUST-NOT closure) and `H5a`, not only MVP and vertical leaves. Drop the "every MVP and vertical implementation leaf (`V1a`–`V18d`)" framing as the sole basis for completeness.
-
-Do **not** add `H7a` to `H5b`'s Deps: `H7a` closes no new spec REQ-ID and is pinned directly on `H6a`, by design. The matching parenthetical correction in `H6a` (set restated as "`H5a`, `M`, `V1a`–`V18d`") is owned by its own finding and must land in agreement with this edit.
-
-## Relationships
-
-- T06 "H6a Deps-note parenthetical restates the coverage-producing set as `(H5a, M, V1a–V18d)`, omitting the coverage-producing leaf H1a" — must-precede (this fix establishes `H1a` as coverage-producing; the H6a parenthetical correction must agree with — and follows — it)
-- T07 "H5b's coverage-producing `Deps` completeness has no mechanical backstop" — must-precede (its proposed mechanical matrix↔Deps reconciliation would redden on `H1a`'s absence; this fix must land for that check to pass)
 
 ---
