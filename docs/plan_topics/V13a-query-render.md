@@ -9,6 +9,6 @@
 - Each loom type stringifies per the table; `interpolated-result` and `discarded-query-result` (with its runtime event) fire.
 - A degenerate (empty) template emits the `empty-template` warning and short-circuits to `ValidationError{empty_template, attempts:0}` — not respond-repair.
 
-**Deps.** `V13a-T`, `V11d`, `V2c`
+**Deps.** `V13a-T`, `V11d`, `V2c`, `V4d`
 
 **Ships when.** `npm test` renders the eight dedent vectors and short-circuits the empty template.
