@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 20 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 19 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1266,74 +1266,6 @@ Suggested replacement clause text (adjust prose to match the leaf's bullet style
 ## Relationships
 
 - T17 "DISC-4 tests bullet: "the superseded entry is dispatched" contradicts "loom loses" (V10a-T mirror)" — co-resolve (the identical bullet in the `V10a-T` tests leaf; the same disambiguation must land in both).
-
----
-
-# T19 — V13c-T exhaustion test bullet omits the surfaced ceiling for the depth-6 co-fire vector
-
-**Original heading:** Exhaustion bullet — same under-specification (V13c-T mirror)
-**Original section:** Consolidated Plan Review — plan
-**Kind:** clarity
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-V13c-T's exhaustion Tests bullet reads: "an untyped exhaustion produces `ToolLoopExhaustedError`; the depth-6 co-fire vector sets `masked:["ceiling#2"]` (ceiling #2, `CIO-4`) on the typed-query response." It is a verbatim mirror of the same bullet in the paired implementation leaf V13c. The bullet conflates two distinct scenarios and, for the depth-6 co-fire vector, states only the `masked` content while never naming the `surfaced` ceiling.
-
-Per the spec these are two separate events. An untyped exhaustion surfaces ceiling #2 — `ToolLoopExhaustedError` — at the tool-call-round boundary (CIO-4), and that surface omits `masked` (its reachable mask domain is empty, `ceilings-3-and-4.md#pic-1` row "Tool-call-round boundary"). The depth-6 co-fire vector is a different event: per PIC-1 the only non-empty reachable mask `["ceiling#2"]` is reachable solely on the `validation` event at the typed-query response sub-row of the CIO-3 AJV boundary, where the `surfaced` ceiling is **ceiling #4** (`cause: "schema_validation"`, `schema_keyword: "maxDepth"`). The arbitration seam's contract is `arbitrate(candidate) → { surfaced, masked? }`, so a co-fire vector is only fully specified once both fields are pinned.
-
-As written, the bullet pairs "produces `ToolLoopExhaustedError`" (a ceiling #2 surface) with `masked:["ceiling#2"]` (ceiling #2 enumerated as masked), leaving a test author unable to tell whether ceiling #2 surfaced or was masked for the depth-6 vector, and with no stated `surfaced` ceiling to assert against.
-
-## Plan Documents
-
-- `docs/plan_topics/V13c-T-query-tool-loop.md` — Tests, exhaustion bullet (edited)
-- `docs/plan_topics/V13c-query-tool-loop.md` — Tests, exhaustion bullet (edited)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — PIC-1, per-site reachable mask domain + V1 reachable predicate (read-only)
-- `docs/spec_topics/hard-ceilings/ceilings-3-and-4.md` — CIO-3 / CIO-4 / `masked` field (read-only)
-
-## Affected Leaves
-
-**Phases:** V13 — Query (vertical slice)
-
-**Leaves (implementation order):**
-
-- V13c-T — Query tool loop and typed two-phase (tests) — (modified)
-- V13c — Query tool loop and typed two-phase — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The exhaustion bullet defines what V13c-T's failing tests must assert. With the `surfaced` ceiling unstated and two scenarios merged into one clause, two reasonable test authors diverge: one asserts the ceiling #2 `ToolLoopExhaustedError` surface, the other the ceiling #4 `validation` surface that actually carries `masked:["ceiling#2"]`. A test that asserts the wrong surface would let a non-conforming implementation pass the co-fire gate while still going red, defeating the leaf's purpose.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** The exhaustion bullet entered V13c-T — and its V13c implementation twin — in the plan's first commit and has carried the same under-specification verbatim ever since: `masked:["ceiling#2"]` paired with `ToolLoopExhaustedError` on the typed-query response, with no `surfaced` identifier and the untyped-exhaustion and depth-6 co-fire scenarios merged into one clause. A pickaxe walk (`git log -S 'masked:["ceiling#2"]'` and `git log -S 'depth-6 co-fire'`) localises the phrasing to that single commit in both files; no later edit touched it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In both `docs/plan_topics/V13c-T-query-tool-loop.md` and `docs/plan_topics/V13c-query-tool-loop.md`, rewrite the exhaustion Tests bullet so the two events are stated separately and the depth-6 co-fire vector names its `surfaced` ceiling:
-
-- The untyped exhaustion event surfaces ceiling #2 — `ToolLoopExhaustedError` — at the tool-call-round boundary (CIO-4), with `masked` omitted.
-- The depth-6 co-fire vector on the typed-query response surfaces ceiling #4 — a `validation` event with `cause: "schema_validation"` / `schema_keyword: "maxDepth"` (CIO-3) — and carries `masked:["ceiling#2"]`.
-
-Express the depth-6 vector as `surfaced:"ceiling#4", masked:["ceiling#2"]` so both fields of the arbitration output are pinned. The `surfaced` value is read directly off PIC-1's per-site reachable mask-domain table (typed-query response row) — confirm it against `runtime-event-channel.md#pic-1` rather than inferring it. Apply the identical disambiguation to both leaves so the implementation leaf and its tests stay in lockstep.
-
-## Relationships
-
-- T20 "V13c/V13c-T exhaustion bullet leaves the depth-6 co-fire vector's surfaced ceiling unstated" — co-resolve (the V13c twin of this exact bullet; the same disambiguation fixes both).
-- T21 "V13c `Spec` field omits `tool-calls.md`..." — same-cluster (same V13c/V13c-T leaf pair; resolves independently).
 
 ---
 
