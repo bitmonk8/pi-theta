@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 39 medium retained (40 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 38 medium retained (39 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2614,78 +2614,6 @@ Drive the injection through the entry-point harness so the throw is raised insid
 ## Relationships
 
 - T37 "`V17a` / `V17a-T` omit `H4a` from Deps despite requiring its harness and response-programming surface" — must-follow (the throw-injection test must be driven through H4a's response-programming surface; resolving the Deps gap supplies the wiring this test needs)
-
----
-
-# T39 — `SHUTDOWN_AWAIT_CAP_MS` physical home contradicts the spec's pinned-constants-block placement
-
-**Original heading:** `SHUTDOWN_AWAIT_CAP_MS` ownership contradicts the spec's pinned-constants-block placement
-**Original section:** V17a — Cancellation core
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-`V17a` (Cancellation core) declares `SHUTDOWN_AWAIT_CAP_MS = 2000` in its **Adds** as "the single loom-owned cancellation-runtime constant … the one declared source that `V9g`'s session-shutdown await cap and `V9i`'s subagent-disposal bound both consume — neither leaf redeclares it." That framing names the cancellation module as the constant's physical declaration site.
-
-The spec contradicts this. `patch-skew-degradation.md` §`session_shutdown` sub-step 3 states: "The `SHUTDOWN_AWAIT_CAP_MS` constant lives in the same source-of-truth pinned-constants block as the Step 0 capability-probe constants so the build-time literal-read assertions can assert it." That pinned-constants block is the one `V9a` establishes (its **Adds** describes "the extension module's single source-of-truth pinned-constants block") and that `V18c` reaches with its build-time literal-read assertions. `V17a`'s **Deps** are `V17a-T, V8a, V4d` — they omit the block owner (`V9a`/`V18`) entirely.
-
-So the plan and spec disagree on where the constant physically lives: `V17a` claims the cancellation module is "the one declared source," while the spec requires it in the capability-probe pinned-constants block precisely so the build-time literal-read assertion can read it. An implementer following `V17a` would place the literal in the cancellation module, out of reach of the spec-mandated literal-read assertion, or would declare it in two places.
-
-## Plan Documents
-
-- `docs/plan_topics/V17a-cancellation-core.md` — Adds (the `SHUTDOWN_AWAIT_CAP_MS` clause) + Deps (edited)
-- `docs/plan_topics/V9a-capability-probe.md` — Adds (the single source-of-truth pinned-constants block) (option-dependent)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Adds / Tests (the build-time literal-read assertion set) (option-dependent)
-- `docs/plan_topics/coverage-matrix.md` — `session_shutdown` sub-step-3 settle-all row (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/patch-skew-degradation.md` — §`session_shutdown` sub-step 3 (read-only)
-- `docs/spec_topics/pi-integration-contract/capability-probe.md` — Step-0 pinned-constants placement (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V9, V17, V18)
-
-**Leaves (implementation order):**
-
-- `V9a` — Capability probe (Step 0) — (modified)
-- `V17a` — Cancellation core — (modified)
-- `V18c` — Pi version-bump static gates — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge on the constant's physical home: one follows `V17a` and declares it in the cancellation module ("the one declared source"), the other follows the spec and places it in the capability-probe pinned-constants block. The spec-mandated build-time literal-read assertion can only reach the latter, so the `V17a`-directed placement leaves the assertion unable to read the literal (or forces a duplicate declaration), defeating the very gate the spec attaches to the constant.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 7ef443c — pi-loom plan: resolve "SHUTDOWN_AWAIT_CAP_MS has no declaring owner leaf" (2026-06-10, Thomas Andersen)
-**History:** The spec's pinned-constants-block placement requirement has been present in `patch-skew-degradation.md` since the spec set's current form (f5e89f4, 2026-06-04). The contradicting plan framing entered later: commit 7ef443c (2026-06-10), itself a fix for a prior review finding that the constant had no declaring owner, assigned the constant a home in `V17a`'s Adds as "the single loom-owned cancellation-runtime constant / the one declared source" — choosing the cancellation module rather than the pinned-constants block the spec already mandated, and not adding a Deps edge to the block owner. (`V9a`'s plan-side description of the pinned-constants block was sharpened still later, in b9de3ee on 2026-06-11.)
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Reconcile `V17a`'s ownership prose with the spec's placement requirement; the fix is internal to the plan (the spec already pins the placement and is read-only here).
-
-- In `docs/plan_topics/V17a-cancellation-core.md` **Adds**, strike the phrasing that makes the cancellation module the declaration site ("the single loom-owned cancellation-runtime constant … the one declared source that `V9g`'s … and `V9i`'s … both consume — neither leaf redeclares it") and replace it with text stating that `V17a` defines the cancellation-runtime *semantics* of `SHUTDOWN_AWAIT_CAP_MS = 2000` (value sourced from `patch-skew-degradation.md`) as a conceptual consumer, while the constant *physically resides* in the single source-of-truth pinned-constants block established by `V9a` (per `patch-skew-degradation.md` §`session_shutdown` sub-step 3), so `V18c`'s build-time literal-read assertion can reach it; `V9g` and `V9i` consume the same block constant and no leaf redeclares it.
-- Add `V9a` to `V17a`'s **Deps** (currently `V17a-T, V8a, V4d`) as the pinned-constants-block owner the reframed Adds now references.
-- In `docs/plan_topics/V9a-capability-probe.md` **Adds**, record that the cancellation-runtime constant `SHUTDOWN_AWAIT_CAP_MS` resides in the same source-of-truth pinned-constants block alongside the probe constants, so the block has a single explicit physical owner.
-- In `docs/plan_topics/V18c-version-bump-checklist.md`, include `SHUTDOWN_AWAIT_CAP_MS` in the pinned-constants literal-read assertion the leaf already runs over the block, matching the spec's "the build-time literal-read assertions can assert it."
-
-Edge cases the implementer must watch: keep `V9g`'s and `V9i`'s existing references to `SHUTDOWN_AWAIT_CAP_MS` as consumers — they already consume the declared constant and must not be turned into redeclaration sites; the value `2000` and its `patch-skew-degradation.md` provenance remain the single source of the literal.
-
-## Relationships
-
-None
 
 ---
 
