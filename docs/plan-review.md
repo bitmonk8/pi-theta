@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 3 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 2 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -144,80 +144,6 @@ Pin the seam to a declared producer without forcing a forward Deps edge from `V6
 - Name the leaf that constructs the concrete matcher and injects it into the parser at the load pass. The natural owner is the registration/load-pass leaf that invokes the parser (`V9b`); `V11a` is the alternative if the concrete resolver is constructed there. Record the chosen owner on that leaf so the production wiring point is assigned.
 
 The `frontmatter-fields-a.md §model` coverage-matrix row already names `V6a` as the closing leaf for `loom/load/model-unresolved`; it needs no change.
-
-## Relationships
-
-None
-
----
-
-# T03 — V18a's partition assertion imports a `V9a` probe constant that `V9a` never declares
-
-**Original heading:** V18a reconciles against "V9a's probe constant" but V9a declares no named/importable constant
-**Original section:** docs/plan_topics/V18a-capability-inventory.md
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V18a`'s build-time partition assertion is specified to reconcile each `CAPABILITY_OBLIGATIONS` entry's factory-probed/verified-otherwise flag against "the Step-0 factory-probable capability set derived from `V9a`'s probe constant (not a literal re-listed here)" (`V18a` and `V18a-T`, PIC-15 bullet; echoed in `V18a` Adds and Ships-when). The clause requires importing a named symbol owned by `V9a`.
-
-`V9a` declares no such symbol. Its Adds describes "the single load-bearing capability probe … Node-floor check, `AbortSignal`/`AbortController` shape check, SDK named-member check, peer-dep lock-step check, and the `typebox` `Type.Unsafe` callable check," and PIC-5 asserts "there are exactly five checks" — all prose. Neither `V9a` nor `V9a-T` exposes an importable constant enumerating the factory-probable capability set.
-
-The build-time partition assertion therefore has no resolvable import target. An implementer must either invent a symbol name and location for the probe set (so `V18a` and `V18a-T` may bind to a different symbol than `V18c`'s gate, which separately consumes "the capability-probe constants"), or re-list the set as a literal — which the PIC-15 bullet explicitly forbids ("not a literal re-listed here").
-
-## Plan Documents
-
-- `docs/plan_topics/V9a-capability-probe.md` — Adds / Tests (edited)
-- `docs/plan_topics/V9a-T-capability-probe.md` — Tests (edited)
-- `docs/plan_topics/V18a-capability-inventory.md` — Adds / Tests / Ships when (edited)
-- `docs/plan_topics/V18a-T-capability-inventory.md` — Tests (edited)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Adds (option-dependent)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/capability-probe.md` — Step-0 probe definition (read-only)
-- `docs/spec_topics/pi-integration-contract/capability-inventory-items.md` — seven named SDK capabilities (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V9 (Extension host integration), Vertical V18 (Build-time SDK gates)
-
-**Leaves (implementation order):**
-
-- V9a — Capability probe (Step 0) — (modified)
-- V9a-T — Capability probe (Step 0) (tests) — (modified)
-- V18a — SDK capability inventory — (both)
-- V18a-T — SDK capability inventory (tests) — (both)
-- V18c — Pi version-bump static gates — (blocked)
-
-## Consequence
-
-**Severity:** correctness
-
-`V18a`'s build-time partition assertion names an import target (`V9a`'s probe constant) that does not exist, and the leaf forbids the only fallback (re-listing the set as a literal). Two reasonable implementers would invent divergent symbol names/locations for the probe set, and `V18c`'s "capability-probe constants" gate could bind to a different symbol than `V18a`, so the cross-leaf reconciliation the assertion is meant to guarantee silently fails to be a single source of truth.
-
-## Issue introduction
-
-**Verdict:** single-commit introduction (regression from a prior plan-review fix)
-**Introducing commit:** `235fdfe` — "pi-loom plan: resolve \"V18a Ships-when claims partition verification with no backing mechanism\"" (2026-06-11)
-**History:** The plan corpus is git-tracked. `V9a-capability-probe.md` and `V18a-capability-inventory.md` both first appeared at `c6a664e`; at that point `V18a`'s Adds/Tests/Ships-when described "the factory-probable/non-probable partition" with no cross-reference to `V9a`, and `V9a` has never declared an importable probe constant (its file history is the single commit `c6a664e`, untouched since). Commit `235fdfe` rewrote `V18a` and `V18a-T` to reconcile the partition "against `V9a`'s Step-0 factory-probable capability set … derived from `V9a`'s probe constant (not a literal re-listed here)" while leaving `V9a` unchanged, introducing the dangling cross-reference. `git log -S "probe constant" -- docs/plan_topics/` confirms `235fdfe` as the commit that first introduced the phrase into the leaf files.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Give the factory-probable capability set a named, importable home in `V9a`, then have the existing consumers reference that symbol instead of the prose "`V9a`'s probe constant":
-
-- In `V9a`'s **Adds**, declare a named exported constant enumerating the Step-0 factory-probable capability identifiers — the subset of the seven inventory capabilities the five probe checks cover (items 1/2/3/4/6 per `V18a`'s PIC-15). Add a corresponding `V9a-T` **Tests** bullet pinning that constant so the seam is verified at its owning leaf.
-- In `V18a` and `V18a-T`, change the PIC-15 bullet (and `V18a`'s Adds and Ships-when) to name that `V9a`-owned symbol as the import source for the partition assertion, replacing the prose phrase "`V9a`'s probe constant."
-- Ensure `V18c`'s "capability-probe constants" gate (Adds) consumes the same `V9a`-owned symbol, so `V18a` and `V18c` reconcile against one source of truth.
-
-The spec pages (`capability-probe.md`, `capability-inventory-items.md`) are read-only for this fix — they ground what the constant enumerates but require no edit; naming the constant is internal to the plan leaf files.
 
 ## Relationships
 
