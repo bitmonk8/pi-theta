@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 11 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 6 high, 11 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1205,90 +1205,3 @@ Edge case for the implementer: the entry `.loom`'s own errors and each `.warp` m
 ## Relationships
 
 - T18 "`implementation-notes.md` (IMPL) is unmapped in the coverage matrix, leaving its static-resolution obligations unverified" — co-resolve (the same `V7a` Multi-error cross-file `(file, line, col)` ordering assertion closes both; author it once)
-
----
-
-# T18 — `implementation-notes.md` (IMPL) is unmapped in the coverage matrix, leaving its static-resolution obligations unverified
-
-**Original heading:** implementation-notes.md (prefix IMPL) absent from coverage matrix
-**Original section:** docs/plan_topics/coverage-matrix.md
-**Kind:** spec-coverage
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-`docs/spec_topics/implementation-notes.md` is a non-narrative page — it carries the registry prefix `IMPL` (per `spec_topics/governance/req-id-prefix-table-active-b.md`: `implementation-notes.md` → `IMPL`) and owns normative MUST-equivalent behaviour through prose rather than narrative REQ-IDs. It appears in **neither** table of `docs/plan_topics/coverage-matrix.md`: not the numbered-REQ-ID table and not the code-keyed obligation-area table. Under the plan's closing-gate discipline (`conventions.md` §REQ-ID discipline; the second paragraph of the matrix's code-keyed section), every normative MUST/MUST-NOT on a non-narrative `spec_topics/**` page that carries no numbered `PREFIX-N` REQ-ID and no `loom/...` registry code must be one rule-driven matrix row naming a closing leaf. `implementation-notes.md` has no such row.
-
-Several of the page's obligations are in fact closed elsewhere — multi-error batching by `V7a`, the ambient-access ban by `H3a`, the runtime dependency declarations by `H1a` — so they could be classified as back-references to their owning leaves. But three obligations on the §Runtime *Static-resolution load pass* bullet are asserted by **no** leaf:
-
-1. The transitive static-resolution parse-cache walk — walking transitively from the entry loom across literal `invoke` paths and `.loom` `tools:` entries, parsing and lowering each visited file exactly once into a shared per-pass cache. `V15a` Adds names "the static-resolution parse cache" but no `V15a` Test bullet asserts the transitive walk or the parse-once-per-pass property.
-2. The hot-reload re-walk — the in-process re-parse path dropping the per-pass cache entry for the changed file *and every transitive `.warp` importer* as part of the `LoomRegistry` swap. No leaf asserts the transitive-importer drop.
-3. The cross-file `(file, line, col)` diagnostic aggregation order — each visited file's diagnostics aggregated into the entry loom's drain sorted by `(file, line, col)` across an entry `.loom` and its transitively-imported `.warp` modules. `V7a`'s Multi-error test asserts batching and no fast-fail but not the cross-file sort key.
-
-So the matrix omission masks a real coverage gap: the page is invisible to the `H5a` un-anchored-MUST arm, and the three behaviours above have no closing test.
-
-## Plan Documents
-
-- `docs/plan_topics/coverage-matrix.md` — Code-keyed obligation areas table (edited)
-- `docs/plan_topics/V15a-invocation-core.md` — Adds / Tests; static-resolution transitive walk (edited)
-- `docs/plan_topics/V9b-registration-drain-state.md` — Tests; hot-reload re-parse cache drop on `LoomRegistry` swap (edited)
-- `docs/plan_topics/V7a-diagnostics-primitive.md` — Tests; Multi-error cross-file ordering (edited)
-- `docs/plan_topics/conventions.md` — §REQ-ID discipline / un-anchored-MUST recogniser (read-only)
-
-(Tests-bullet edits to `V15a`/`V9b`/`V7a` are mirrored into their paired `-T` leaves per the plan's `<id>-T` / `<id>` pairing.)
-
-## Spec Documents
-
-- `docs/spec_topics/implementation-notes.md` — §Runtime *Static-resolution load pass*, §Parser (read-only)
-- `docs/spec_topics/invocation.md` — §Static resolution (read-only)
-- `docs/spec_topics/diagnostics.md` — Multi-error reporting (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical (slices V7, V9, V15)
-
-**Leaves (implementation order):**
-
-- `V7a` — Diagnostics primitive and `loom-system-note` channel — (modified)
-- `V9b` — Registration steps and drain-state contract — (modified)
-- `V15a` — Invocation core — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The transitive static-resolution parse-cache walk, the hot-reload re-parse drop of the changed file plus its transitive `.warp` importers, and the cross-file `(file, line, col)` diagnostic aggregation order are normative behaviours on the IMPL page with no asserting test, so a non-transitive walk, a stale-cache-after-reload, or a mis-ordered cross-file batch ships green. Because the page is absent from the matrix entirely, the `H5a` un-anchored-MUST arm cannot resolve a closing leaf for it at the live-corpus footing the `H6a` activation establishes.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `coverage-matrix.md` was first split out at `fecb504` and, in its early form (e.g. `15f69aa`), carried a page-coverage table with explicit `Implementation Notes — Parser` and `Implementation Notes — Runtime` rows mapped to leaves. The plan rebuild at `c6a664e` introduced the current matrix structure (numbered-REQ-ID table + code-keyed obligation-area table; pickaxe on `Code-keyed obligation areas` localises the heading's birth to `c6a664e`) and did not carry `implementation-notes.md` into either new table. Subsequent commits incrementally populated the code-keyed table for other pages found missing during review (`adb521f`, `ed70da3`, `db4ef95`, `1064946`, `011dd45`) but never added the IMPL page, so the gap has persisted in the current structure since `c6a664e`.
-
-## Solution Space
-
-**Shape:** single
-
-This finding carries two coupled obligations — pinning the uncovered runtime behaviours with asserting tests, and recording the IMPL page in the coverage matrix. They span the matrix file plus three leaf files; the test obligations are established first so that every closing-leaf citation in the matrix row resolves to a real green test.
-
-### Recommendation
-
-Pin the three uncovered `implementation-notes.md` §Runtime behaviours with asserting tests, then record the IMPL page in the coverage matrix on that baseline.
-
-Add the asserting Test bullets to the existing closing leaves (mirrored into their paired `-T` leaves per the plan's `<id>-T` / `<id>` pairing):
-
-- `V15a`: add a Test asserting the static-resolution pass walks transitively from the entry loom across literal `invoke` paths and `.loom` `tools:` entries, parsing/lowering each visited file exactly once into the shared per-pass cache.
-- `V9b`: add a Test asserting the in-process re-parse path drops the per-pass cache entry for the changed file and every transitive `.warp` importer as part of the `LoomRegistry` swap.
-- `V7a`: extend the Multi-error Test to assert the `Diagnostic[]` is ordered by `(file, line, col)` across an entry `.loom` and ≥2 transitively-imported `.warp` modules. Author this `(file, line, col)` assertion once, coordinating with the related cross-file-ordering concern (T17) so it is not duplicated.
-
-Then add a code-keyed `implementation-notes.md (IMPL)` row to the code-keyed obligation-area table in `coverage-matrix.md`, naming the closing leaves for the three behaviours (static-resolution walk + hot-reload re-walk → `V15a`, `V9b`; cross-file `(file, line, col)` aggregation order → `V7a`). For each IMPL MUST that is a pure back-reference to an owning leaf (multi-error → `V7a`, ambient ban → `H3a`, runtime deps → `H1a`), record that classification in the row note so the `H5a` un-anchored-MUST arm resolves rather than reddening. Author the matrix row after the tests exist so its closing-leaf citations are not vacuous.
-
-No spec edits are required; the obligations already exist on `implementation-notes.md` §Runtime, `invocation.md` §Static resolution, and `diagnostics.md`.
-
-## Relationships
-
-- T17 "V7a Multi-error test never asserts the `(file, line, col)` cross-file diagnostic ordering" — co-resolve (the same `V7a` Multi-error cross-file `(file, line, col)` ordering assertion closes both)
-- T16 "Six `invoke` parse/load diagnostic codes have no asserting leaf and no coverage-matrix row" — decision-overlap (both add coverage-matrix rows and `V15a` assertions around invocation/static-resolution obligations; the closing-leaf assignment chosen there constrains this finding's `V15a` citation)
-
