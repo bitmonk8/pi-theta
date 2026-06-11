@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T37) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 2 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 1 medium retained; 34 low discarded; 4 low/duplicate findings merged into 4 cluster findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -85,63 +85,3 @@ Do the relabeling first (it is the smaller, scope-bounded edit that lands the po
 
 None
 
----
-
-# T02 — H6a transitive-completeness governance rule is parked in H6a's Deps, not the authoring conventions
-
-**Original heading:** `H6a` Deps-completeness governance rule placed in `H6a`, not conventions
-**Original section:** docs/plan_topics/conventions.md
-**Kind:** placement
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H6a`'s `Deps.` field carries an explanatory parenthetical that ends with a cross-cutting plan-maintenance obligation: *"The set MUST stay transitively complete — any future leaf that can introduce an executable REQ-ID, a numbered-REQ-ID citing test, or an un-anchored MUST is a new dependency of this leaf, otherwise the gate can activate against incomplete coverage."* This is not a fact about `H6a`'s current dependency list; it is a standing rule directed at whoever later adds a new coverage-producing leaf to the plan.
-
-A plan author adding a leaf follows the authoring path the plan advertises: `plan.md` "How to use this plan" (copy `leaf-template.md`, link the leaf into a section, maintain `coverage-matrix.md`) and the cross-cutting rules in `conventions.md`. None of those entry points mentions the transitive-completeness obligation, and there is no reason for a leaf author to read the dependency parenthetical of a terminal release-gate leaf they are not editing. The obligation is correct and well-stated; it is simply located where the person who must act on it will not encounter it.
-
-## Plan Documents
-
-- `docs/plan_topics/H6a-live-corpus-activation.md` — `Deps.` parenthetical (edited)
-- `docs/plan_topics/conventions.md` — `## Cross-cutting rules (every leaf)`, *REQ-ID discipline* (edited)
-- `docs/plan.md` — "How to use this plan" (read-only; the authoring entry point a plan author actually consults, used to confirm the rule is absent from the advertised path)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Release gate
-
-**Leaves (implementation order):**
-
-- `H6a` — Live-corpus closing-gate activation (loom 1.0 release gate) — (modified)
-
-(`conventions.md` is a cross-cutting plan file, not a leaf. The rule concerns hypothetical future leaves generically; the fix relocates prose and adds no new leaf and changes no existing leaf's `Tests.`/`Ships when`.)
-
-## Consequence
-
-**Severity:** advisory
-
-A plan author adding a future coverage-producing leaf consults `plan.md`'s authoring steps and `conventions.md`, not `H6a`'s dependency parenthetical, so the transitive-completeness obligation can go unseen. The new leaf is then omitted from `H6a`'s `Deps.`, letting the release gate be sequenced (and activated) before that leaf lands — reconciling the closing gate against incomplete coverage. The rule itself is present and correct, so this is a discoverability gap, not a defect in the rule.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** 5353dd7 ("pi-loom plan: resolve \"Release-gate activation has no owning leaf\"", 2026-06-10)
-**History:** The `H6a-live-corpus-activation.md` leaf was created by commit 5353dd7 (`git log --follow` shows it as the leaf's oldest commit; the commit's diffstat adds the file with +15 lines and no deletions). The `Deps.` parenthetical containing "The set MUST stay transitively complete … is a new dependency of this leaf" was part of that initial authoring — `git log -S "stay transitively complete" -- docs/plan_topics/H6a-live-corpus-activation.md` returns only 5353dd7, confirming the phrase entered at the leaf's inception and has not been edited since (the one later commit touching the file, 953e3fa, did not alter it). The placement defect therefore dates from the moment the leaf was authored rather than being introduced by a subsequent edit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Relocate the standing plan-maintenance obligation from `H6a`'s `Deps.` parenthetical into the *REQ-ID discipline* cross-cutting rule in `docs/plan_topics/conventions.md`, where leaf authors look for authoring rules.
-
-In `docs/plan_topics/conventions.md`, *REQ-ID discipline*, append a plan-maintenance sentence stating that whenever a new leaf is added that can introduce an executable REQ-ID, a numbered-REQ-ID citing test, or an un-anchored normative MUST, that leaf MUST be added to `H6a`'s `Deps.` so the release gate stays sequenced after every coverage-producing leaf — citing `H6a` by ID and linking `H6a-live-corpus-activation.md`.
-
-In `docs/plan_topics/H6a-live-corpus-activation.md`, strike the sentence beginning "The set MUST stay transitively complete —" from the `Deps.` parenthetical. The parenthetical's preceding sentences (which explain that the current set is the complete coverage-producing set) stay; optionally replace the struck sentence with a back-pointer such as "see *REQ-ID discipline* in `conventions.md` for the obligation to keep this set complete as leaves are added." The relocated text must preserve the consequence clause ("otherwise the gate can activate against incomplete coverage") so the maintenance rule still states why it matters at its new home.
