@@ -7,7 +7,7 @@
 **Tests.**
 - `Convention:` (*REQ-ID discipline* — warn-only canary) the canary reconciles the live spec REQ-ID set, the live `spec_topics/**` normative-MUST set, and the live test corpus against the live [`coverage-matrix.md`](./coverage-matrix.md) and emits a finding for each gap kind — an unmapped executable REQ-ID, a coverage-matrix-mapped numbered REQ-ID with no citing test, and an un-enumerated un-anchored MUST — while `npm test` stays green (asserted by seeding one gap of each kind, confirming the canary reports it, and confirming the run's exit status stays green, then restoring the seed).
 
-**Deps.** `H5a`, `M`, `V1a`–`V18d`
+**Deps.** `H5a`, `M`, `V1a`–`V1b`, `V2a`–`V2d`, `V3a`–`V3d`, `V4a`–`V4e`, `V5a`–`V5e`, `V6a`–`V6e`, `V7a`–`V7c`, `V8a`–`V8b`, `V9a`–`V9j`, `V10a`–`V10c`, `V11a`–`V11f`, `V12a`–`V12b`, `V13a`–`V13d`, `V14a`, `V15a`–`V15c`, `V16a`, `V17a`, `V18a`–`V18d`
 
 _(The dependency set is the complete coverage-producing set: [`H5a`](./H5a-closing-gate-automation.md) supplies the gate machinery including its warn-only mode, and every MVP and vertical implementation leaf (`V1a`–`V18d`) can introduce an executable REQ-ID, a numbered-REQ-ID citing test, or an un-anchored normative MUST. Keeping this set transitively complete as new coverage-producing leaves are added is the standing plan-maintenance obligation stated in *REQ-ID discipline* on [`conventions.md`](./conventions.md); [`H6a`](./H6a-live-corpus-activation.md) inherits this set by depending on this leaf rather than restating it, so the warn-only and hard-fail footings cover an identical set of leaves.)_
 
