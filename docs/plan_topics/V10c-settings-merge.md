@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/discovery/package-and-settings.md`](../spec_topics/discovery/package-and-settings.md).
 
-**Adds.** The settings-source reads (the five keys), the deep-merge precedence (project over global; deep-merge objects, replace arrays/scalars), validation, and the reload debounce; the settings-re-merge sub-arm of the **watcher-rebuild failure-injection seam** is owned here — the named test interface through which a synthetic settings-re-merge failure this debounce feeds is fed to the `loom-system-note` surfacing path; `V4e` binds it via `Deps` to exercise the `ERR-7` watcher-reload failure surface.
+**Adds.** The settings-source reads (the five keys), the deep-merge precedence (project over global; deep-merge objects, replace arrays/scalars), validation, and the reload debounce; the settings-re-merge sub-arm of the **watcher-time reload failure-injection seam** is owned here — the named test interface through which a synthetic settings-re-merge failure this debounce feeds is fed to the `loom-system-note` surfacing path; `V4e` binds it via `Deps` to exercise the `ERR-7` watcher-time reload failure surface.
 
 **Tests.**
 - `DISC-7`: objects deep-merge, arrays/scalars are replaced, and project settings override global.

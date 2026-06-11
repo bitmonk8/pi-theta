@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 15 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 14 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -922,72 +922,6 @@ Edge cases for the implementer:
 ## Relationships
 
 None
-
----
-
-# T14 — ERR-7 test bullet states different normative content in the paired V4e leaves
-
-**Original heading:** ERR-7 described two ways across the paired leaves
-**Original section:** Consolidated Plan Review — plan
-**Kind:** clarity
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-The `ERR-7` Tests bullet diverges between the paired pre-evaluation-failure leaves. The implementation leaf `V4e` reads: "a synthetic *watcher-rebuild* failure injected at the `ERR-7` channel seam — exercising **both arms**, the re-parse/re-merge diagnostic arm and the `loom/runtime/registry-swap-failed` registry-swap arm — routes pre-eval …". The paired tests-task leaf `V4e-T` reads only: "*watcher-reload* failure routes pre-eval." Two normative properties differ:
-
-1. **Terminology.** The same watcher event is called "watcher-rebuild" in `V4e` and "watcher-reload" in `V4e-T`. The spec's canonical name is "watcher-time reload failures" (`errors-and-results/error-model.md` §ERR-7, anchor `err-7`; `discovery/package-and-settings.md` §"Watcher-time reload failures"); neither leaf uses it verbatim and the two leaves disagree with each other.
-
-2. **Two-arm scope.** `V4e`'s bullet mandates that the test exercise *both* ERR-7 failure outcomes the spec enumerates — the re-parse/re-merge diagnostic arm and the `loom/runtime/registry-swap-failed` registry-swap arm. `V4e-T`'s one-line bullet names neither arm, so it does not state that two arms must be covered.
-
-Because the tests task lands first under the per-phase TDD ritual, an implementer authoring `V4e-T` from its own bullet would write a single watcher-event test covering one arm. The impl leaf's stronger "both arms" requirement then has no matching red test, and the paired bullets describe the same REQ-ID with different obligations.
-
-## Plan Documents
-
-- `docs/plan_topics/V4e-pre-evaluation-failures.md` — ERR-7 Tests bullet (edited)
-- `docs/plan_topics/V4e-T-pre-evaluation-failures.md` — ERR-7 Tests bullet (edited)
-
-## Spec Documents
-
-- `docs/spec_topics/errors-and-results/error-model.md` — §ERR-7 (read-only)
-- `docs/spec_topics/discovery/package-and-settings.md` — §"Watcher-time reload failures" (read-only)
-
-## Affected Leaves
-
-**Phases:** V4 (vertical slice)
-
-**Leaves (implementation order):**
-
-- `V4e-T` — Pre-evaluation failures (tests) — (modified)
-- `V4e` — Pre-evaluation failures — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge: one writing `V4e-T` from its bullet covers a single watcher arm, while `V4e` requires both arms, so the tests-first artefact under-tests the obligation the implementation claims to satisfy. The mismatched term ("rebuild" vs "reload") for one event also obscures that the two bullets address the same ERR-7 surface.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 49e3837 — pi-loom plan: resolve "ERR-7 watcher-reload assertion has no in-leaf test" (2026-06-11, Thomas Andersen)
-**History:** Both leaves agreed at inception (c6a664e, 2026-06-10): each `ERR-7` bullet read "watcher-reload failure routes pre-eval." Commit 49e3837 rewrote only `V4e-pre-evaluation-failures.md`'s bullet — changing the term to "watcher-rebuild" and adding the explicit two-arm requirement — without touching the paired `V4e-T` bullet, so the divergence in both term and scope entered with that single one-file edit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Rewrite `V4e-T`'s `ERR-7` Tests bullet so it states the same normative content as `V4e`'s bullet: use one shared term for the watcher event and name both arms — the re-parse/re-merge diagnostic arm and the `loom/runtime/registry-swap-failed` registry-swap arm. Converge both leaves on the spec's canonical term "watcher-time reload" (`error-model.md` §ERR-7), adjusting `V4e`'s "watcher-rebuild" wording to match, so plan and spec use one name for the event.
-
-Watch: the term chosen here should agree with the resolution of the sibling ERR-7 finding about the injection seam (it touches the same bullet); pick the term once and apply it to both leaves' bullets in the same pass.
-
-## Relationships
-
-- T15 "ERR-7 test injects at an undefined "channel seam" and omits the two-arm owners from `Deps`" — decision-dependency (touches the same V4e `ERR-7` Tests bullet; the canonical term and two-arm naming chosen there should match this fix).
 
 ---
 
