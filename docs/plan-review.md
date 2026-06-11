@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 32 medium retained (33 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 31 medium retained (32 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2129,72 +2129,6 @@ Add asserting Tests bullets to `V13d-T` (red, per the paired-task ritual) and th
 - On a 2-attempt sequence, the second follow-up's `<ajv-summary>` reflects only the most-recent failed attempt's `ValidationIssue` entries, not a cumulative concatenation across both attempts.
 
 Source the expected `<ajv-summary>` ordering from the canonical `validation_errors` order (ERR-14) so the rendered-summary assertion stays consistent with the binder's `<ajv-summary>` rendering already pinned on `V11f`. Edge cases the implementer must watch: the `none` / `attempts: 0` case emits no follow-up (no template to assert); the synthesised-`ValidationIssue` path of forced-respond non-compliance (`ERR-17`) routes through the same template pipeline, so its rendered follow-up body is covered by the same template assertion.
-
-## Relationships
-
-None
-
----
-
-# T32 — Code-side return-type mapping is named but never positively asserted in V14a
-
-**Original heading:** Code-side return-type table positive mapping unasserted
-**Original section:** V14a — Tool calls (code-side) and `CodeToolError`
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V14a` **Adds** lists "the return-type table" as one of the leaf's deliverables. The spec table it implements (`tool-calls.md` §*Return type*) has two rows: a Pi tool returns `Result<string, QueryError>`, and a registered subagent-mode `.loom` callable returns `Result<T, QueryError>` where `T` is the callee's inferred return type (same inference rule as `invoke<T>(...)`).
-
-The leaf's **Tests** bullets, however, exercise only the *failure* arm of that mapping — the off-surface-outcomes bullet asserts that a non-conforming return routes to `internal-error{tool-return-shape}`. No bullet asserts the *positive* path: that a conforming Pi-tool return lowers to a `string`-typed loom value, and that a conforming subagent-mode `.loom` return lowers to its inferred-`T` typed value. `V14a-T` (the paired tests leaf) carries the identical Tests list, so the gap is present in the leaf that is supposed to land the red tests first, and `V14a` **Ships when** likewise names only the argument codes, the closed enum, the off-surface outcomes, the denial mapping, and the swallowing-handler suppression — not the return-type lowering.
-
-A leaf can therefore satisfy every `npm test` assertion while implementing the return-type table incorrectly for accepted returns, because nothing observes the accepted-return → loom-value lowering.
-
-## Plan Documents
-
-- `docs/plan_topics/V14a-tool-calls.md` — Tests, Ships when (edited)
-- `docs/plan_topics/V14a-T-tool-calls.md` — Tests (edited)
-
-## Spec Documents
-
-- `docs/spec_topics/tool-calls.md` — §Return type (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical (V14 — Tool calls)
-
-**Leaves (implementation order):**
-
-- `V14a-T` — Tool calls (code-side) and `CodeToolError` (tests) — (modified)
-- `V14a` — Tool calls (code-side) and `CodeToolError` — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A thin implementation that fires `internal-error{tool-return-shape}` on malformed returns but mis-lowers accepted returns (wrong typed loom value for the Pi-tool `string` row or the subagent-mode inferred-`T` row) passes the whole V14a gate green. Two implementers can diverge on the accepted-return mapping with no test to catch it, shipping a leaf that does not match the spec's return-type table.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `git log --follow` over `docs/plan_topics/V14a-tool-calls.md` shows the leaf was authored in a single commit (c6a664e), the file's first and only commit. A pickaxe on `return-type table` and `tool-return-shape` confirms both the Adds mention and the failure-only Tests bullet entered in that same commit; the positive-mapping assertion was never present.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a positive return-type assertion to `V14a-T`'s **Tests** (and mirror it in `V14a`'s **Tests**), enumerating the two `tool-calls.md` §*Return type* rows and asserting each conforming return lowers to its specified loom value:
-
-- a conforming **Pi tool** return lowers to a `Result<string, QueryError>` `Ok` carrying the tool's final output as a single `string`;
-- a conforming **registered subagent-mode `.loom` callable** return lowers to a `Result<T, QueryError>` `Ok` whose payload is the callee's inferred return type `T` (statically-resolved inference per `invoke<T>(...)`; runtime AJV-enforced when not statically resolvable).
-
-Extend `V14a` **Ships when** to name this positive-mapping assertion alongside the existing argument-code, enum, off-surface-outcome, denial-mapping, and swallowing-handler clauses, so the gate observes the accepted-return path and not only the `internal-error{tool-return-shape}` reject path.
 
 ## Relationships
 
