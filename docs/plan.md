@@ -173,6 +173,8 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ## Release gate
 
+This section is an editorial sub-grouping of the Horizontal phases above, not a fourth phase category: the release-gate leaves (`H5b`, `H6a`) are horizontal leaves in every respect — they cite a **Convention.** field and carry the `H<n><letter>` ID form — gathered here only because they run at release time.
+
 A warn-only live-corpus canary ([`H5b`](./plan_topics/H5b-warn-only-canary.md)) runs the [`H5a`](./plan_topics/H5a-closing-gate-automation.md) closing gate over the live corpus without reddening CI, immediately before the terminal step ([`H6a`](./plan_topics/H6a-live-corpus-activation.md)) flips that gate from its seeded-fixture footing to its live-corpus footing. The canary's **Deps** name the complete coverage-producing set and carry the single statement of the transitive-completeness obligation; `H6a` sequences immediately after the canary (its **Deps** name `H5b`) and activates the loom 1.0 release gate referenced in item 5 above and in [`coverage-matrix.md`](./plan_topics/coverage-matrix.md). Reverting the `H6a` activation commit returns the gate to its `H5a` seeded-fixture footing.
 
 - [`H5b` — Warn-only live-corpus canary (pre-activation pre-flight)](./plan_topics/H5b-warn-only-canary.md)

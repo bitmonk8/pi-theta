@@ -6,6 +6,8 @@ Three kinds of phase:
 2. **MVP phase.** The smallest end-to-end `.loom` that runs as a Pi slash command — a single narrow vertical proving the pipeline before slice work begins.
 3. **Vertical slices.** Each slice is a coherent feature area (lexer, expressions, schemas, queries, …). Each leaf inside a slice is the smallest feature that can ship and be tested independently. Slices are roughly ordered by their dependency DAG; non-linear deps are stated in each leaf's **Deps** field. Reorder freely as long as the deps DAG is respected.
 
+Horizontal leaves may be presented under an editorial sub-heading (such as a release-gate grouping) without forming a new category: such a sub-grouping creates no new leaf-ID prefix and no new **Convention.**/**Spec.** rule — the grouped leaves remain horizontal leaves in every other respect.
+
 Leaves are the unit of work; slice grouping is editorial. Leaf IDs follow `<group><letter>` (e.g. `V4b`); MVP and vertical features additionally carry a paired **tests-task** leaf whose ID is the feature ID with a `-T` suffix (e.g. `V4b-T`, `M-T`). The IDs `H1`–`Hn`, `M`, and `V1`–`Vn` (with their leaf and `-T` forms) are reserved for plan phases — when plan prose needs to refer to the initial release of the loom language, write "loom 1.0" or "the initial release"; never reuse a plan ID for that meaning.
 
 ## Per-phase TDD ritual (mandatory)
