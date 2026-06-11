@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 40 medium retained (41 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 39 medium retained (40 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2686,77 +2686,6 @@ Edge cases the implementer must watch: keep `V9g`'s and `V9i`'s existing referen
 ## Relationships
 
 None
-
----
-
-# T40 — V18c strict-capability probe gate is named in Adds but has no asserting test
-
-**Original heading:** Strict-capability probe added with no asserting test
-**Original section:** V18c — Version-bump static gates
-**Kind:** validation
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-`V18c` lists "the strict-capability probe" among the build-time static gates it adds (`Adds.` bullet), but neither `V18c`'s `Tests.` bullets nor its `Ships when.` condition name a test for it. The four asserted gates are step 2(a)/2(b) surface-inventory, the `engines.node` literal-read, the `peerDependencies` pin, and the `loom/typecheck/session-shutdown-reason-snapshot` brand string. The strict-capability probe gate is absent from both the tests task `V18c-T` and the impl leaf's `Ships when.`
-
-The spec gives this gate a precise behavioural contract with two arms. Bump-procedure step 7 ([`version-bump-triggers.md`](docs/spec_topics/pi-integration-contract/version-bump-triggers.md)) owns the rename-detection arm: the SDK surface-inventory assertion "catches a strict-capability indicator present on the `Model<Api>` namespace but not under the probed name `strictCapable`" and is the mechanical gate that fails until the probe constant is renamed in the same bump. The `strict-capability-absence-pin` ([`audit-recognised-shapes.md`](docs/spec_topics/pi-integration-contract/audit-recognised-shapes.md)) owns the complementary arm: the existing `strict-capability-probe` literal-read assertion "MUST additionally fail if any reachable `Model<Api>` declaration exposes a `strictCapable` member under the probed name."
-
-Neither arm is exercised. The generic step 2(a) test V18c does name ("each `SDK_SURFACE_INVENTORY` member is present on the pinned SDK") asserts positive presence of inventory members; it does not assert that the strict-capability gate reddens on a renamed indicator or on a member present under the probed name. The gate the spec calls "the mechanical gate that fails until step 7 has been completed" therefore has no test proving it reddens.
-
-## Plan Documents
-
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Adds / Tests / Ships when (edited)
-- `docs/plan_topics/V18c-T-version-bump-checklist.md` — Tests (edited)
-- `docs/plan_topics/V18a-capability-inventory.md` — SDK_SURFACE_INVENTORY / `strict-capability-probe` entry (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-triggers.md` — step 7 (rename-detection arm) (read-only)
-- `docs/spec_topics/pi-integration-contract/audit-recognised-shapes.md` — `strict-capability-absence-pin` (absence-under-the-probed-name arm) (read-only)
-- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — step 2(a) literal-read assertion (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical (V18 — Build-time SDK gates)
-
-**Leaves (implementation order):**
-
-- V18c-T — Pi version-bump static gates (tests) — (modified)
-- V18c — Pi version-bump static gates — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The spec frames the strict-capability gate as a mechanical gate that must redden until the probe constant is reconciled, yet with no asserting test an implementer can ship a no-op gate that stays CI-green; the rename-detection and absence-under-the-probed-name obligations then ship unverified. Two reasonable implementers diverge — one assumes the generic step 2(a) presence test covers it, another adds dedicated negative fixtures — so the leaf can ship without the gate the spec requires.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `V18c` and its tests task `V18c-T` were both created in c6a664e, the initial plan build. From that first commit the `Adds.` bullet named "the strict-capability probe" among the build-time gates while the `Tests.` bullets and `Ships when.` covered only step 2(a)/2(b), `engines.node`, `peerDependencies`, and the reason-snapshot brand string. A pickaxe walk (`git log -S 'strictCapable' -- V18c-T-version-bump-checklist.md`, `git log -S 'absence-under-the-probed-name'`) confirms no later commit ever added a strict-capability test; subsequent commits to the leaf touched other concerns only.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add the strict-capability gate to `V18c`'s test surface and acceptance condition:
-
-- In `docs/plan_topics/V18c-T-version-bump-checklist.md`, add a failing `Tests.` bullet asserting the `strict-capability-probe` surface-inventory gate reddens in both spec-defined scenarios: (1) the rename-detection arm — a reachable `Model<Api>` declaration exposes a strict-capability indicator under a name other than the probed `strictCapable` (indicator present on the namespace, absent under the probed name), per [`version-bump-triggers.md` step 7](docs/spec_topics/pi-integration-contract/version-bump-triggers.md); (2) the absence-under-the-probed-name arm — a reachable `Model<Api>` declaration exposes a `strictCapable` member under the probed name, per the `strict-capability-absence-pin` in [`audit-recognised-shapes.md`](docs/spec_topics/pi-integration-contract/audit-recognised-shapes.md). One negative fixture per arm.
-- Mirror the bullet into `docs/plan_topics/V18c-version-bump-checklist.md`'s `Tests.` so the impl leaf carries the same assertion.
-- Extend `V18c`'s `Ships when.` to name the strict-capability gate alongside the step-2(a)/2(b), `engines.node`, peer-dep, and reason-snapshot gates.
-
-The gate consumes the existing `strict-capability-probe` entry's `probedName` payload from `SDK_SURFACE_INVENTORY` (V18a); no spec edit is required — both arms are already pinned in the cited spec sites.
-
-## Relationships
-
-- T41 "Provider seed-field table shipped without its `Api`-coverage assertion in V18c's Tests/Ships-when" — same-cluster (sibling V18c gate with the identical Tests/Ships-when validation gap; resolves independently with the same kind of edit)
-- T44 "V18c bundles mechanically-gated build-time tests with non-testable editorial obligations under one Ships-when" — must-follow (its recommendation extends V18c Ships-when to include the strict-capability gate; whichever leaf retains the gate is where this test must land)
 
 ---
 
