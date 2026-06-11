@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 43 medium retained (44 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 42 medium retained (43 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2894,74 +2894,6 @@ Cite `version-bump-step2b.md` step 3 as the operand definition and keep the phra
 
 - T48 "Non-capability `SDK_SURFACE_INVENTORY` rows have no owning leaf" — must-follow (operand (ii) of this three-way gate is the `pi-engines-node` row; that finding decides which leaf populates it, so the row must exist for this gate's operand (ii) to resolve)
 - T45 "Reason-snapshot type-equality gate named under `npm test` but exercised only under `npm run typecheck`" — same-cluster (edits the same V18c Tests/Ships-when bullets; resolves independently)
-
----
-
-# T43 — V18c mislabels the manual editorial-review checklist as a static build-time gate, leaving it with no done condition
-
-**Original heading:** Editorial-review checklist items added with no verification step / mislabeled as static build-time gates
-**Original section:** V18c — Version-bump static gates
-**Kind:** validation, clarity
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V18c` Adds enumerates "the editorial-review checklist items" as one item in its list of "static build-time gates", grammatically equal to the SDK surface-inventory tests, the `engines.node` literal-read, the `peerDependencies` assertion, and the reason-snapshot brand-string gate. But those checklist items — `(a)`–`(aj)` in `version-bump-step2.md` — are not build-time gates. The spec routes their detection to **editorial review**: the contributor MUST (for `(a)`–`(e)`) and SHOULD (for `(f)`–`(aj)`) audit each presupposition against the candidate Pi minor and record a per-item outcome (`pass` / `fail` / `N/A` / `not-performed` + rationale, with item `(e)`'s two sub-outcomes) **in the bump commit message**. None of that is exercisable by `npm test`.
-
-The mislabel propagates into a verification gap. `V18c`'s Tests and Ships-when name only the four genuinely build-time gates (step 2(a)/2(b), `engines.node`, peer-dep, reason-snapshot); neither mentions the checklist. So "add the editorial-review checklist items" carries no done condition — a reviewer who passes `V18c`'s Ships-when cannot tell whether the checklist obligation was satisfied, and the leaf provides no mechanism (not even a commit-message presence check) confirming the per-item outcomes the spec mandates were recorded.
-
-The spec already supplies the natural done condition: the mandatory per-item commit-message recording. The plan leaf neither cites that as the checklist's acceptance basis nor distinguishes the manual obligation from the four mechanical gates it sits beside.
-
-## Plan Documents
-
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Adds, Tests, Ships-when (edited)
-- `docs/plan_topics/V18c-T-version-bump-checklist.md` — Tests, Ships-when (option-dependent)
-- `docs/plan.md` — `### V18 — Build-time SDK gates` slice listing (read-only)
-- `docs/plan_topics/V18d-version-bump-acceptance.md` — Adds / Ships-when references to V18c's static gates (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — editorial-review checklist `(a)`–`(aj)` and the per-item commit-message recording obligation (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slice V18 — Build-time SDK gates
-
-**Leaves (implementation order):**
-
-- `V18c` — Pi version-bump static gates — (modified)
-- `V18c-T` — Pi version-bump static gates (tests) — (modified)
-
-(A `<new>` documentation leaf may absorb the checklist if this is co-resolved with the sibling "Leaf too large" finding; that leaf is option-dependent and not asserted here.)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge: one reads "static build-time gate" literally and tries to automate manual host-presupposition audits the spec deliberately routes to editorial review (some of which, e.g. items `(a)` and `(e)`, are MUST-level and require human source-diffing of Pi's `dist/*.js`); another, finding the checklist absent from Tests and Ships-when, drops it silently and ships `V18c` green without ensuring any bump-time recording mechanism exists. Either outcome leaves the spec's mandatory per-item commit-message recording unenforced and unowned at bump time.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** `c6a664e` (plan inception) — established the verification gap; `8af3204` ("resolve V18c bundles static gates with runtime-evidence acceptance gate") — sharpened the mislabel.
-**History:** The plan corpus is git-tracked. `V18c`'s Adds named "the editorial-review checklist items" with no asserting Test or Ships-when entry from the first plan commit `c6a664e`, where the Adds read "…the contributor version-bump checklist and its build-time gates: … — plus the editorial-review checklist items." The verification gap is therefore present since inception. The specific "static build-time gates" mislabel was introduced at `8af3204`, the bundle-split resolution, which reworded the Adds to fold the editorial checklist grammatically into the comma-separated "static build-time gates" enumeration rather than appending it with "plus". No later commit (`ce32225`, `328ba4d`, `c42f13d`, `81ab342`, `b9de3ee`) touched the editorial-checklist framing.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Reclassify the checklist as a manual editorial obligation with the spec's commit-message recording as its done condition. In `V18c` Adds, separate the four mechanical gates (surface-inventory, `engines.node`, peer-dep, reason-snapshot) from the editorial-review checklist, and state that the checklist items are the contributor's manual per-bump audit whose done condition is the per-item outcome recording in the bump commit message that `version-bump-step2.md` mandates (`pass` / `fail` / `N/A` / `not-performed` + rationale; item `(e)` records two sub-outcomes). Add a Ships-when clause pointing the checklist's acceptance to that recording rather than to `npm test`.
-
-The spec already owns the done condition; the defect is purely that `V18c` mislabels the obligation and omits the pointer. Edge cases the implementer must watch: item `(e)` records two sub-outcomes `(e.i)`/`(e.ii)`, and items `(a)`–`(e)` are MUST-level while `(f)`–`(aj)` are SHOULD-level-audit-but-MUST-record — the relabelling must not flatten that distinction. If the sibling "Leaf too large" finding is resolved by moving the editorial checklist to a separate documentation leaf, fold this relabelling into that move rather than editing `V18c` twice.
-
-## Relationships
-
-- T44 "V18c bundles mechanically-gated build-time tests with non-testable editorial obligations under one Ships-when" — co-resolve (its proposed split moves the editorial checklist to a documentation/template leaf with a human-review done condition, which would absorb this fix)
-- T45 "Reason-snapshot type-equality gate named under `npm test` but exercised only under `npm run typecheck`" — same-cluster (same leaf's Ships-when accuracy; resolves independently)
 
 ---
 
