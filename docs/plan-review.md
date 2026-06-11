@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 4 high, 10 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 3 high, 10 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -907,76 +907,4 @@ The spec pages are read-only for this fix: do not re-anchor any of these MUSTs a
 ## Relationships
 
 - T12 "Un-anchored-MUST recogniser names two different diagnostics-registry scopes across `conventions.md` and `coverage-matrix.md`" — same-cluster (both bear on which un-anchored MUSTs the gate flags on pi-integration-contract pages; resolves independently)
-
----
-
-# T14 — V4a omits a Deps edge on V4d despite consuming the V4d-owned `QueryError` type
-
-**Original heading:** V4a uses the `QueryError` type but does not depend on V4d (ordering)
-**Original section:** docs/plan_topics/V4a-match-result.md (+ V4a-T)
-**Kind:** ordering
-**Importance:** high
-**Score:** 100
-**MustFix:** false
-
-## Finding
-
-`V4a` and `V4a-T` close ERR-18: a `?` whose operand is not statically `Result<_, QueryError>` fires `question-on-non-result` (type phase). That assertion requires the `QueryError` type to be resolvable at the time the leaf is built. `QueryError` is owned by `V4d` — `V4d`'s Adds introduces the nine-variant `QueryError` union and its wire forms; it is not a primordial built-in registered elsewhere.
-
-`V4a`'s Deps are `V4a-T`, `V2b`, `V3a`, and `V4a-T`'s Deps are `V2b`, `V3a`. Neither edge — nor anything in their transitive closure (`V2b`, `V3a`, `V3a`'s chain) — introduces `QueryError`. Following the plan's "pick the next leaf whose Deps are satisfied" build order, `V4a-T`/`V4a` therefore become buildable before `V4d`, at which point the ERR-18 test references an unknown type and the suite reds on "unknown type `QueryError`" instead of the intended `question-on-non-result` reason.
-
-Every other leaf that consumes `QueryError` in a type-phase assertion declares the dependency explicitly (`V12b`, `V14a`, `V17a`, `V9j` all list `V4d` in Deps); `V4a` is the outlier. The defect also propagates one hop: `V3d` and `V3d-T` Dep on `V4a` and inherit the broken closure, so correcting `V4a`'s edge resolves them transitively without a separate edit.
-
-## Plan Documents
-
-- `docs/plan_topics/V4a-match-result.md` — Deps field (edited)
-- `docs/plan_topics/V4a-T-match-result.md` — Deps field (edited)
-- `docs/plan_topics/V4d-queryerror-variants.md` — QueryError owner, consulted to confirm ownership (read-only)
-- `docs/plan_topics/V3d-functions-and-return.md` — transitive consumer (read-only)
-- `docs/plan_topics/V3d-T-functions-and-return.md` — transitive consumer (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical (slices V3, V4)
-
-**Leaves (implementation order):**
-
-- `V3d-T` — Functions and return (tests) — (blocked)
-- `V3d` — Functions and return — (blocked)
-- `V4a-T` — `match`, `?`, and `Result` (tests) — (both)
-- `V4a` — `match`, `?`, and `Result` — (both)
-
-## Consequence
-
-**Severity:** blocking
-
-An implementer building in Deps-satisfied order can pick up `V4a-T`/`V4a` before `V4d` exists, so the ERR-18 type-phase assertion reds on "unknown type `QueryError`" rather than the intended `question-on-non-result`. `V4a-T`'s Ships-when ("the tests above exist, compile, and fail red for the intended reason") cannot be satisfied honestly, and `V3d`/`V3d-T` inherit the same broken-closure red transitively.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e (2026-06-10)
-**History:** `V4a`'s ERR-18 test and its `QueryError` reference, and `V4d`'s `QueryError` ownership, were all authored in the initial plan-build commit `c6a664e` (`git log -S 'ERR-18'`/`-S 'QueryError'` on V4a/V4a-T resolve to `c6a664e`; `V4d` was created in the same commit). `git log -G 'V4d'` over `V4a-match-result.md` and `V4a-T-match-result.md` returns no commits, so the Deps edge has never been present. The two later edits (516fd86, 22f762c) reworked V4a's match-exhaustiveness wording but did not add the edge. The missing dependency has existed since the leaf was first authored.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add `V4d` to the **Deps.** field of both `docs/plan_topics/V4a-match-result.md` (alongside the existing `V4a-T`, `V2b`, `V3a`) and `docs/plan_topics/V4a-T-match-result.md` (alongside `V2b`, `V3a`).
-
-Edge cases for the implementer:
-- The edge is acyclic: `V4d`'s closure is `V4d → V4d-T, V5d → {V5a, V5b, V2d} → V2a`, which never reaches `V4a`.
-- `V4d` is listed after `V4a` in the V4 TOC of `docs/plan.md`; the new Deps edge makes `V4d` a build-time prerequisite of `V4a` despite the later listing. Build order is governed by the Deps DAG, not TOC appearance, so this is permitted and needs no TOC change.
-- `QueryError` is not a primordial built-in (`V4d`'s Adds owns the union), so the "name the registering leaf instead" alternative does not apply.
-- No edit to `V3d`/`V3d-T` is needed; their Dep on `V4a` picks up the corrected closure once `V4a` declares `V4d`.
-
-## Relationships
-
-- T07 "V5e references V4d-owned `ValidationIssue` / `ValidationError` without declaring a `V4d` dependency" — same-cluster (same missing-`V4d`-Deps-edge pattern; resolves independently)
 
