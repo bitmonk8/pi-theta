@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 4 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 3 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -223,63 +223,3 @@ The spec pages (`capability-probe.md`, `capability-inventory-items.md`) are read
 
 None
 
----
-
-# T04 — V16a's Adds gives two divergent ceiling-#2 enforcement leaf sets
-
-**Original heading:** V16a names two different ceiling-#2 enforcement leaf sets in the same section
-**Original section:** docs/plan_topics/V16a-ceiling-order-masked.md (Adds)
-**Kind:** consistency
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V16a`'s **Adds** enumerates the set of feature leaves that own per-ceiling breach detection and consult the cross-ceiling arbitration seam — but it does so twice with different membership. The "Enforcement stays distributed" sentence lists `(`V5e`, `V6e`/`V13c`, `V11f`, `V15b`)`, including `V6e`. The two later passages — the "All CIO bullets are exercised…" sentence and the implicit binding rule — list only `V5e`, `V11f`, `V13c`, `V15b`, with no `V6e`.
-
-`V6e` does not belong in the enforcement set. `V6e` owns the `respond_repair` / `tool_loop.max_rounds` **frontmatter fields** (range validation and defaults); its Deps are `V6e-T`, `V6a`, `V13c`, `V13d` — it carries no Dep on `V16a` and consults no seam. Ceiling-#2 first-enforcement (the round-boundary `tool_loop.max_rounds` check) is owned by `V13c`, which consults `V16a` at the round boundary and declares `V16a` in its Deps.
-
-The first enumeration therefore also contradicts the same section's own rule, "Each downstream leaf's `Deps` on `V16a` binds the seam it consults": `V6e` has no `V16a` Dep, so by that rule it cannot be a consulting leaf. The canonical consulting set is the one the two later passages already use.
-
-## Plan Documents
-
-- `docs/plan_topics/V16a-ceiling-order-masked.md` — Adds (edited)
-- `docs/plan_topics/V13c-query-tool-loop.md` — Adds / Deps (read-only)
-- `docs/plan_topics/V6e-respond-repair-tool-loop.md` — Adds / Deps (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** V16 — Hard ceilings
-
-**Leaves (implementation order):**
-
-- `V16a` — Hard-ceiling interaction order and `masked` co-fire — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer reading the first enumeration would treat `V6e` as a ceiling-#2 enforcement leaf and could wire it to consult the arbitration seam (adding a spurious `V16a` Dep), duplicating the ceiling-#2 first-enforcement that `V13c` already owns at the round boundary. A second implementer following the later set would not, so the two diverge on which leaf enforces ceiling #2 and on `V6e`'s dependency edges.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** `c6a664e` (2026-06-10, "pi-loom plan: build/update plan for spec.md + review")
-**History:** The plan corpus is git-tracked. `git show` over the three commits touching this file shows both enumerations co-existed from the file's creation in `c6a664e`: the "feature leaf" sentence has always read `(`V5e`, `V6e`/`V13c`, `V11f`, `V15b`)` while the "downstream leaves" sentence has always read `(`V5e`, `V11f`, `V13c`, `V15b`)`. The divergence is original, not regression-introduced. The later edit `e2b7e81` (2026-06-10, "resolve isolated cross-ceiling unit interface/authority undefined") added the "Each downstream leaf's `Deps` on `V16a` binds the seam it consults" rule, which made the `V6e` inclusion additionally inconsistent with an explicit rule but did not introduce the underlying two-set defect.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/V16a-ceiling-order-masked.md`, in the **Adds** "Enforcement stays distributed" sentence, strike `V6e` from the feature-leaf enumeration so it reads `(`V5e`, `V11f`, `V13c`, `V15b`)` — matching the two later enumerations and the section's "Each downstream leaf's `Deps` on `V16a` binds the seam it consults" rule. Replace the literal `(`V5e`, `V6e`/`V13c`, `V11f`, `V15b`)` with `(`V5e`, `V11f`, `V13c`, `V15b`)`. Leave `V6e` untouched: it owns the `tool_loop.max_rounds` frontmatter field, not ceiling-#2 enforcement, and correctly carries no `V16a` Dep.
-
-## Relationships
-
-- T07 "V5e references V4d-owned `ValidationIssue` / `ValidationError` without declaring a `V4d` dependency" — same-cluster (V5e is in the ceiling-consulting set; resolves independently)
