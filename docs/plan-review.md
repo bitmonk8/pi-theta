@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 31 medium retained (32 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 30 medium retained (31 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2060,75 +2060,6 @@ A spec-pinned, operator-visible rendering (the single-issue `<JSON-Pointer> JSON
 Add one Tests bullet to `docs/plan_topics/V11f-T-binder-retry-taxonomy.md` and mirror it verbatim in `docs/plan_topics/V11f-binder-retry-taxonomy.md` (the paired tests/impl bullet lists are kept identical), asserting the depth-walk fast-fail rendering distinctly from the joined form. The bullet must assert: a binder `kind:"ok"` envelope whose `args` trip the depth-walk fast-fail at the `params` boundary renders the AJV-on-`args` failure-mode row with `<ajv-summary>` equal to the single canonical issue `<JSON-Pointer> JSON document depth exceeds 5` (single-issue form, no `; ` separator, `<JSON-Pointer>` the path to the first too-deep node), and that this is distinct from the multi-issue `errorsText`-joined form already covered. Cite the spec anchor `../spec_topics/binder/determinism-cancellation-failure.md` §Failure-mode templates (Depth-walk fast-fail clause) and the AJV-on-`args` class in §Failure-class taxonomy.
 
 Edge cases the implementer must watch: AJV does not run at this site (the `errors` array is empty), so the summary is synthesised from the depth-walk `ValidationIssue` (`schema_keyword:"maxDepth"`, message `"JSON document depth exceeds 5"`), not from any AJV call; the assertion must confirm the synthesised path, not an `errorsText` traversal.
-
-## Relationships
-
-None
-
----
-
-# T31 — Respond-repair follow-up turn templates have no asserting test
-
-**Original heading:** Verbatim follow-up-turn templates unasserted
-**Original section:** V13d — Query failure and repair
-**Kind:** validation
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-`query-failure-and-repair.md` §"Follow-up turn templates (normative)" carries a verbatim emission contract: "Renderers MUST emit the surrounding template text verbatim; only the `<…>` placeholders are interpolated. Wording changes — including whitespace inside the template body — are spec-versioned breaking changes." The section pins the two non-`none` methodologies (`validator_error`, `schema_repeat`), the literal U+0060 backticks around `__loom_respond_<slug>`, the terminating U+000A after the `<schema-json>` interpolation, the `<schema-json>` = `JSON.stringify(schema, null, 2)` over the **lowered** response schema, and the rule that on a multi-attempt sequence each follow-up's `<ajv-summary>` reflects **only** the most-recent failed attempt (never a cumulative concatenation).
-
-`V13d` is the closing leaf for the QRY code-keyed area that owns this obligation, and its **Adds** names "the `validator_error`/`schema_repeat` templates". But neither `V13d` nor its paired `V13d-T` has a Tests bullet that pins the rendered template bytes, the `<schema-json>` substitution, or the most-recent-attempt-only `<ajv-summary>` rule. The four existing Tests bullets cover attempt accounting, proximate-variant propagation, the context-overflow short-circuit, per-attempt budget, and `ERR-17` — none of them the template wording.
-
-The obligation carries no numbered `PREFIX-N` REQ-ID and no `loom/...` diagnostics-registry code, so the registry-code↔asserting-test and REQ-ID-citation closing-gate surfaces cannot force its assertion. The un-anchored-MUST surface is satisfied vacuously: the QRY area is enumerated in `coverage-matrix.md` with `V13d` as a closing leaf, but the closing gate's recogniser is a best-effort `MUST`-token scan that only checks an enumerated closing leaf exists — it does not verify the leaf actually asserts the template bytes. An implementer can therefore ship `Adds`-described behaviour as descriptive-only prose (`Adds.` does not bind on its own per `conventions.md` §Leaf format) with all gates green.
-
-## Plan Documents
-
-- `docs/plan_topics/V13d-query-failure-repair.md` — Tests (edited)
-- `docs/plan_topics/V13d-T-query-failure-repair.md` — Tests (edited)
-- `docs/plan_topics/coverage-matrix.md` — Code-keyed obligation areas, QRY row (read-only)
-- `docs/plan_topics/conventions.md` — §Leaf format / §REQ-ID discipline (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/query/query-failure-and-repair.md` — Follow-up turn templates (normative) (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V13)
-
-**Leaves (implementation order):**
-
-- `V13d-T` — Query failure and respond-repair (tests) — (modified)
-- `V13d` — Query failure and respond-repair — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The verbatim template text — wording, internal whitespace, the trailing U+000A, the backticks — is a spec-versioned breaking contract that no mechanical gate exercises, so two implementers can ship divergent follow-up turn bodies and both pass CI including the closing gate. The most-recent-attempt-only `<ajv-summary>` rule can silently regress to a cumulative concatenation across attempts, and `<schema-json>` can be serialised over the source-Loom-type form instead of the lowered schema, with no red test to catch either.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e ("pi-loom plan: build/update plan for spec.md + review", 2026-06-10)
-**History:** The `V13d` / `V13d-T` leaf pair was created in c6a664e — the initial plan build — with `Adds` naming the `validator_error`/`schema_repeat` templates but no Tests bullet asserting them; the gap has existed since the files first appeared. The only later edit to either file (8f9e160, 2026-06-10) added the `ERR-17` bullet, not a verbatim-template assertion. The spec's normative verbatim requirement predates the plan build: the "Follow-up turn templates (normative)" section and its "Renderers MUST emit … verbatim" rule were present in `docs/spec_topics/query/query-failure-and-repair.md` before 2026-06-10 (the terminal-newline / trailing-whitespace refinement landed in d083d70 on 2026-06-06). The defect is a present-since-inception plan gap, not a regression introduced by a later edit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add asserting Tests bullets to `V13d-T` (red, per the paired-task ritual) and the mirror bullets to `V13d`, citing the QRY code-keyed area and `query-failure-and-repair.md` §"Follow-up turn templates (normative)" the same way the existing QRY bullets cite the spec page (the obligation has no `PREFIX-N` / `loom/...` code to cite). The bullets must assert:
-
-- Each non-`none` methodology renders its template body byte-for-byte for a known input — `validator_error` and `schema_repeat` — including the trailing U+000A after the `<schema-json>` interpolation and the literal backticks around `` `__loom_respond_<slug>` ``, with only the `<…>` placeholders interpolated and all other characters fixed.
-- `<schema-json>` is `JSON.stringify(schema, null, 2)` over the **lowered** response schema (the JSON Schema handed to AJV), not the source-Loom-type form, and `<slug>` equals the slug of that lowered schema.
-- On a 2-attempt sequence, the second follow-up's `<ajv-summary>` reflects only the most-recent failed attempt's `ValidationIssue` entries, not a cumulative concatenation across both attempts.
-
-Source the expected `<ajv-summary>` ordering from the canonical `validation_errors` order (ERR-14) so the rendered-summary assertion stays consistent with the binder's `<ajv-summary>` rendering already pinned on `V11f`. Edge cases the implementer must watch: the `none` / `attempts: 0` case emits no follow-up (no template to assert); the synthesised-`ValidationIssue` path of forced-respond non-compliance (`ERR-17`) routes through the same template pipeline, so its rendered follow-up body is covered by the same template assertion.
 
 ## Relationships
 
