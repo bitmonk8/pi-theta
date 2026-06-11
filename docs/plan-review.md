@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 47 medium retained (48 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 46 medium retained (47 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -3237,70 +3237,3 @@ V18a already owns the `SDK_SURFACE_INVENTORY` constant, and the spec treats that
 - T48 "Non-capability `SDK_SURFACE_INVENTORY` rows have no owning leaf" — co-resolve (the same inventory-population ownership assignment resolves both this and that finding)
 - T53 "V18b audit-methodology obligations have no coverage-matrix closing-leaf row" — same-cluster (both touch V18b but resolve independently — that one is coverage-matrix traceability, this one is Adds scope)
 - T04 "Gate globs (`src/**` / `**/*.test.ts`) assume a project layout the scaffold never establishes" — decision-overlap (the land-green `src/` sweep presupposes the `src/**` layout that finding reports as unestablished, which constrains the sweep's scope)
-
----
-
-# T48 — Non-capability `SDK_SURFACE_INVENTORY` rows have no owning leaf
-
-**Original heading:** Non-capability `SDK_SURFACE_INVENTORY` rows created by no leaf
-**Original section:** V18c — Version-bump static gates
-**Kind:** implementability, assumptions
-**Importance:** medium
-**Score:** 30
-**MustFix:** false
-
-## Finding
-
-The spec is explicit that `SDK_SURFACE_INVENTORY` is "strictly broader than the seven capabilities" (`inventory-audit-intro.md` §SDK capability inventory). Beyond the seven `CAPABILITY_OBLIGATIONS` rows, the inventory carries: the non-capability `pi.<member>` category-(1) rows `pi.registerFlag` / `pi.getFlag` (`inventory-audit-intro.md` §"Non-capability `pi.<member>` surfaces"); the `pi-engines-node` row, which holds the in-repo pinned Node floor read as operand (ii) of the `engines.node` three-way equality (`version-bump-step2b.md` step 3); the `peer-dep-range` row backing the `peerDependencies` literal-read; the `strict-capability-probe` row (`audit-recognised-shapes.md` §strict-capability-absence-pin); and the `api-coverage` row backing the provider seed-field gate.
-
-V18a is the only leaf whose **Adds** creates the `SDK_SURFACE_INVENTORY` constant, but its Adds scopes the constant to "the seven named SDK capabilities" and says nothing about the non-capability rows. The consumers exist: V18c's `engines.node` literal-read reads the `pi-engines-node` row, its `peerDependencies` assertion reads the `peer-dep-range` row, its strict-capability probe and provider-seed-field gate read the `strict-capability-probe` and `api-coverage` rows; V18b's closure audit must resolve every `src/**` Pi-side reference (including `pi.registerFlag` / `pi.getFlag`) to an inventory entry. No leaf's Adds states that it populates these rows or fixes their shape, so an implementer building V18a from its Adds produces a seven-row constant and the V18c/V18b consumers reference rows that do not exist.
-
-## Plan Documents
-
-- `docs/plan_topics/V18a-capability-inventory.md` — Adds (edited)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Adds / Tests (read-only)
-- `docs/plan_topics/V18b-inventory-audit.md` — Adds (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/inventory-audit-intro.md` — §SDK capability inventory; §"Non-capability `pi.<member>` surfaces" (read-only)
-- `docs/spec_topics/pi-integration-contract/version-bump-step2b.md` — step 3 (`engines.node` three-way equality); step 4 (`peerDependencies`) (read-only)
-- `docs/spec_topics/pi-integration-contract/audit-recognised-shapes.md` — §strict-capability-absence-pin (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V18 — Build-time SDK gates)
-
-**Leaves (implementation order):**
-
-- V18a — SDK capability inventory — (modified)
-- V18b — Inventory-closure audit — (blocked)
-- V18c — Version-bump static gates — (blocked)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge on where the non-capability rows live and what shape they take: one extends V18a's constant, another adds them ad hoc inside V18c, producing inconsistent inventory shapes. V18c's `engines.node` three-way-equality gate and `peerDependencies` assertion cannot be built as specified until the `pi-engines-node` / `peer-dep-range` rows exist, and V18b's closure audit cannot resolve `pi.registerFlag` / `pi.getFlag` without their category-(1) rows.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** V18a's `SDK_SURFACE_INVENTORY` constant was introduced in the initial plan-build commit c6a664e with its Adds scoped to "the seven named SDK capabilities", and V18c's consuming `engines.node` / `peerDependencies` / strict-capability gates were present in the same commit. The mismatch — consumers referencing non-capability rows that the inventory owner's Adds never populates — has been present since the plan corpus's first commit; no later commit touched the scoping.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend `V18a-capability-inventory.md` **Adds** so the `SDK_SURFACE_INVENTORY` constant V18a already owns is described as the full Pi-side surface set per `inventory-audit-intro.md`, not just the seven capabilities. Name the non-capability rows V18a populates: the category-(1) `pi.<member>` rows `pi.registerFlag` and `pi.getFlag`; the `pi-engines-node` row holding the in-repo pinned Node floor (operand (ii) of the `engines.node` three-way equality); the `peer-dep-range` row backing the `peerDependencies` literal-read; the `strict-capability-probe` row; and the `api-coverage` row backing the provider seed-field gate. State that V18a owns the inventory's entry-kind taxonomy (the `namespace-function` kind plus the additional non-`namespace-function` kinds the spec leaves implementation-owned), so the V18c gates and the V18b closure audit resolve against rows V18a establishes.
-
-Keep population of the single `SDK_SURFACE_INVENTORY` constant in the one leaf that creates it (V18a); do not split row population into V18c, which only reads the rows. Coordinate with the related V18b land-green finding so the entry-kind taxonomy and `src/**` sweep land against the same V18a-owned constant rather than a second definition.
-
-## Relationships
-
-- T47 "V18b's Adds omits the broader-inventory population, entry-kind taxonomy, and land-green `src/` sweep the audit-introducing leaf must own" — co-resolve (fixing inventory ownership here pins where the entry-kind taxonomy and `src/` sweep land)
-- T42 "`engines.node` floor gate described two-way in V18c, three-way everywhere else" — must-precede (the three-way fix reads the `pi-engines-node` row this finding requires V18a to populate)
-- T40 "V18c strict-capability probe gate is named in Adds but has no asserting test" — same-cluster (depends on the `strict-capability-probe` row; resolves independently)
