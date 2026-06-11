@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 7 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 6 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -344,73 +344,6 @@ Edge cases for the implementer:
 
 - T42 "Binder system-prompt structure obligations have no coverage-matrix closing-leaf row" — same-cluster (sibling missing-row finding on the same table; resolves independently).
 - T41 "V9b / V9c / V9e PIC-area MUSTs are missing from the code-keyed obligation-area table" — same-cluster (sibling missing-row finding on the same table; resolves independently).
-
----
-
-# T06 — BNDR-5 number-renderer impl leaf cites only example vectors, not the `|value| < 1e-7` threshold
-
-**Original heading:** BNDR-5 — impl leaf states only example vectors; paired -T leaf states the threshold
-**Original section:** Consolidated Plan Review — plan
-**Kind:** clarity, cruft
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-The `V2d` implementation leaf describes the BNDR-5 obligation only through concrete reference renderings. Its `Tests` bullet reads "number echo is shortest round-trip fixed-point — no scientific notation (the `1e21` → `1000000000000000000000` and `1e-8` → `0.00000001` fixed-point expansions reproduce exactly)", and its `Ships when` likewise names just the `±1e21` / `1e-8` expansions. The paired `V2d-T` tests-task leaf states the obligation in normative form: "no scientific notation (including the `±1e21` and `|value| < 1e-7` switches expanded to full fixed-point)".
-
-The spec (`defaulting-system-note-echo.md`, BNDR-5) is unambiguous that the threshold is the load-bearing rule: scientific notation MUST NOT be used because "both ends of the JS `String(n)` switch are forbidden — the large-magnitude switch at ±1e21 and the small-magnitude switch at `|value| < 1e-7`". The `1e-8 → 0.00000001` rendering (BNDR-6s) is supplied only as an illustrative vector for that small-magnitude switch, not as the obligation itself.
-
-So the impl leaf and its paired tests leaf state the same obligation two different ways: V2d names a single example magnitude, V2d-T names the threshold. V2d-T already matches the spec; V2d is the leaf out of step.
-
-## Plan Documents
-
-- `docs/plan_topics/V2d-number-rendering.md` — `V2d` leaf, BNDR-5 `Tests` bullet / `Ships when` (edited)
-- `docs/plan_topics/V2d-T-number-rendering.md` — `V2d-T` leaf, BNDR-5 `Tests` bullet (read-only)
-- `docs/plan_topics/coverage-matrix.md` — `BNDR-4, BNDR-5 → V2d` row (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/binder/defaulting-system-note-echo.md` — Echo policy, BNDR-5 (anchor `#bndr-5`) (read-only)
-
-## Affected Leaves
-
-**Phases:** V2 — Type system and values
-
-**Leaves (implementation order):**
-
-- `V2d` — Canonical integer/number renderer — (modified)
-
-`V2d-T` is named directly by the finding but already states the threshold correctly; it is the reference and is not edited.
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer working from `V2d` alone sees only the `1e-8` / `1e21` example magnitudes and could implement a narrow special-case keyed on those exact values, satisfying the named test vectors while still emitting scientific notation for other small-magnitude values in `(1e-8, 1e-7)` such as `5e-8`. Two reasonable implementers — one reading the spec/V2d-T threshold, one reading V2d's example vectors — would produce diverging renderers, only one of which matches BNDR-5.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** Both `V2d-number-rendering.md` and `V2d-T-number-rendering.md` were created in the single plan-build commit c6a664e, and the asymmetry was present at birth — the impl leaf's BNDR-5 bullet already named only the `1e21`/`1e-8` example vectors while the paired `-T` leaf already named the `|value| < 1e-7` threshold. No later commit touched either file.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/V2d-number-rendering.md`, revise the BNDR-5 `Tests` bullet so it states the obligation as the two forbidden `String(n)` switches — the large-magnitude `±1e21` switch and the small-magnitude `|value| < 1e-7` switch, both expanded to full fixed-point — matching the wording already in `V2d-T` and the spec's BNDR-5 pin. Retain the `1e21 → 1000000000000000000000` and `1e-8 → 0.00000001` renderings as the illustrative vectors. Apply the same threshold language to the `Ships when` line, which currently names only the `±1e21` / `1e-8` expansions; naming the `|value| < 1e-7` threshold there signals that the green assertion must cover the range, not just the single named magnitude.
-
-`V2d-T` already states the threshold correctly and is the reference — do not edit it. The spec is read-only for this fix; the threshold text it already carries is the authority both plan leaves must match.
-
-Implementer edge case to watch: a renderer that special-cases only the literal `1e-8` magnitude passes the named reference vector but is wrong for other values in `(1e-8, 1e-7)`. The closing test should exercise at least one in-range value (e.g. `5e-8`) so the threshold is enforced by the suite rather than only the single illustrative magnitude.
-
-## Relationships
-
-None
 
 ---
 
