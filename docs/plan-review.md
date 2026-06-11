@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 10 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 9 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -622,76 +622,4 @@ The subagent-mode harness category should model the `V9i` subagent-mode session 
 
 - T10 "V4c ERR-13 routes a completed invoke-child through H4a, which scripts no invoke-child outcome" — co-resolve (same defect class: ERR-12's subagent-mode callee and ERR-13's invoke-child callee both lack an H4a category; one H4a-enumeration expansion can close both)
 - T08 "ERR-13 no-rollback vectors do not span the spec's enumerated authoring sites" — same-cluster (same `V4c`/`H4a` seam; resolves independently)
-
----
-
-# T10 — V4c ERR-13 routes a completed invoke-child through H4a, which scripts no invoke-child outcome
-
-**Original heading:** V4c ERR-13 models a "completed invoke child" with no H4a injection category
-**Original section:** docs/plan_topics/V4c-terminal-outcomes.md (+ V4c-T)
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V4c` / `V4c-T` ERR-13 must drive "a tool call / invoke child to *completion* (via the `H4a` session double)", then fire a downstream `?`/panic/cancel and assert the completed callee's side effect persists. The bullet routes the completed tool-call, query, and invoke-child outcomes "through the `H4a` session double and the `V17a` side-effect seam … not the live `V14a`/`V13c`/`V15a` surfaces."
-
-The completed tool-call maps to H4a response-programming category (b) (`tool_use` result, including `isError: true` and mixed-success batch) and the completed query maps to category (a)/(d). But H4a's response-programming surface enumerates exactly five scripting categories — (a) assistant turns, (b) `tool_use` results, (c) binder/provider responses, (d) `tool_loop.max_rounds` exhaustion, (e) abort injection — none of which scripts an **invoke-child** outcome. `invoke(...)` is a distinct invocation mode whose completion is owned by `V15a`, which ERR-13 explicitly excludes ("not the live … `V15a` surfaces"). `V17a`'s Adds defines only the cancellation substrate (`loomAbort`, the checkpoint set, late-settlement discard), not a way to drive an invoke-child to a produced final value.
-
-The result: the seam ERR-13 needs — a scripting/observation point that drives a nested invoke-child to completion through the harness — is owned by no named producer. An implementer must invent an ad-hoc mechanism, and the ERR-13 invoke-child case can pass against a harness fiction that does not match `V15a`'s real invoke-child completion path.
-
-## Plan Documents
-
-- `docs/plan_topics/V4c-terminal-outcomes.md` — Tests (ERR-13 bullets) (edited)
-- `docs/plan_topics/V4c-T-terminal-outcomes.md` — Tests (ERR-13 bullets) (edited)
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — Adds (response-programming surface enumeration) (edited)
-- `docs/plan_topics/V17a-cancellation-core.md` — Adds (side-effect seam) (read-only)
-- `docs/plan_topics/V15a-invocation-core.md` — Adds (invoke-child resolution owner; the excluded live surface) (read-only)
-
-## Spec Documents
-
-None — the fix is internal to plan / harness files; the harness scripting surface is test infrastructure, not a spec obligation.
-
-## Affected Leaves
-
-**Phases:** Horizontal phases; Vertical slices V4, V15, V17
-
-**Leaves (implementation order):**
-
-- H4a — Extension factory shell and end-to-end harness — (modified)
-- V4c — Terminal outcomes, partial-append, and no-rollback — (modified)
-- V4c-T — Terminal outcomes, partial-append, and no-rollback (tests) — (modified)
-- V15a — Invocation core — (read-only context; owns the excluded invoke-child surface)
-
-## Consequence
-
-**Severity:** correctness
-
-ERR-13's completed-invoke-child case cites a harness scripting point that no leaf produces. Two implementers would invent divergent ad-hoc mechanisms for "drive an invoke-child to completion through the double," and the resulting test can go green against a harness fiction that does not reproduce `V15a`'s real invoke-child completion — the no-rollback property is then witnessed against behaviour that may not match the production invoke path.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** 27e12be — pi-loom plan: resolve "Session double's model / tool / binder-response scripting surface is undefined" (2026-06-10, Thomas Andersen); e8f0236 — pi-loom plan: resolve "V4c-T/V4c assert no-rollback over later-slice surfaces" (2026-06-11, Thomas Andersen)
-**History:** 27e12be established H4a's response-programming surface with five scripting categories (assistant turns, `tool_use` results, binder/provider responses, `tool_loop.max_rounds` exhaustion, abort) and listed H4a's consumers without `V4c`; none of the five scripts an invoke-child outcome. e8f0236 then routed `V4c`/`V4c-T`'s ERR-13 completed tool-call/query/invoke-child modelling onto the H4a session double and the V17a side-effect seam while excluding the live `V14a`/`V13c`/`V15a` surfaces, so the completed-invoke-child case points at an H4a category that does not exist. A later refinement (db918a2, 2026-06-11) split the ERR-13 bullets but preserved the unproduced routing.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend `H4a`'s response-programming surface enumeration with a category that scripts/observes a nested invoke-child driven to completion (a produced final value), and add `V4c` to `H4a`'s consumer list so ERR-13 binds a declared producer.
-
-- In `H4a-factory-shell-and-harness.md` Adds, add an invoke-child-completion entry to the enumerated response-programming categories (alongside (a)–(e)); add `V4c` to the consumer list; add the corresponding functional-effect assertion to `H4a`'s per-category self-check Tests bullet.
-- Leave `V4c`/`V4c-T` ERR-13 routing as-is (it already cites the `H4a` double).
-
-The spec is read-only. Edge case for the implementer: if `H4a` is split per the sibling too-large concern, the new invoke-child-completion category must land in the half `V4c` depends on, and the `V4c`/`V4c-T` Deps edge must point at that half. This category and the subagent-mode category can be added in the same enumeration pass.
-
-## Relationships
-
-- T09 "V4c's ERR-12 consumes an H4a subagent-mode-callee modelling H4a does not enumerate" — co-resolve (same defect class: ERR-12's subagent-mode callee also has no H4a category; one H4a-enumeration expansion can close both)
-- T08 "ERR-13 no-rollback vectors do not span the spec's enumerated authoring sites" — must-precede (the widened ERR-13 vector set's completed-`invoke`-child vector has no H4a scripting point until this finding is resolved)
 
