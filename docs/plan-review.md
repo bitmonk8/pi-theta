@@ -3,9 +3,9 @@
 _Generated: 2026-06-11T11:35:00Z_
 _Plan: docs/plan.md_
 _Spec: docs/spec.md_
-_Process: bottom-up — the last finding (T19) is addressed first; the first finding (T01) is addressed last._
+_Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 8 high, 11 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 7 high, 11 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1292,80 +1292,3 @@ No spec edits are required; the obligations already exist on `implementation-not
 - T17 "V7a Multi-error test never asserts the `(file, line, col)` cross-file diagnostic ordering" — co-resolve (the same `V7a` Multi-error cross-file `(file, line, col)` ordering assertion closes both)
 - T16 "Six `invoke` parse/load diagnostic codes have no asserting leaf and no coverage-matrix row" — decision-overlap (both add coverage-matrix rows and `V15a` assertions around invocation/static-resolution obligations; the closing-leaf assignment chosen there constrains this finding's `V15a` citation)
 
----
-
-# T19 — "executable spec REQ-ID" is the closing-gate selector but is never defined as a predicate
-
-**Original heading:** coverage-matrix.md intro / plan.md / H5a/H5b/H6a — "executable spec REQ-ID" never defined
-**Original section:** docs/plan_topics/conventions.md
-**Kind:** clarity
-**Importance:** high
-**Score:** 100
-**MustFix:** false
-
-## Finding
-
-The phrase *executable spec REQ-ID* (and its shorthand *executable REQ-ID*) is the selector that drives the loom 1.0 closing gate: the gate reddens CI on "an unmapped executable REQ-ID" (`conventions.md` §REQ-ID discipline; `coverage-matrix.md` intro; `H5a`/`H5b`/`H6a` Convention bullets), and `plan.md` How-to-use step 5 and the §Spec coverage entry require "every executable spec REQ-ID" to have a closing leaf. The word *executable* is doing the work of partitioning the full REQ-ID space into the enforced set and the exempt set — yet the term is never given a definition anywhere in the plan corpus.
-
-The only guidance an implementer can assemble is indirect: `coverage-matrix.md` §"Governance REQ-IDs (GOV-*)" says the `GOV-*` family governs the spec corpus and maps to no runtime leaf, and notes `CEIL` is a registered prefix that anchors no live REQ-ID. Neither statement is tied to the word *executable* as its defining predicate. As a result an implementer building the `H5a` gate cannot mechanically decide the enforced set at the edges: whether a registered-but-unanchored prefix (`CEIL`) contributes anything, and — because the finding's own phrasing conflates them — whether warning-severity (`W`) diagnostic codes or the code-keyed obligation areas belong to the "executable REQ-ID" set at all, when those are actually a separate closing-gate surface from the numbered `PREFIX-N` REQ-IDs.
-
-Because the gate's enforced set is defined only by an undefined adjective, two reasonable implementers can build `H5a` gates that enforce different REQ-ID sets — one reddening on an ID the other silently ignores.
-
-## Plan Documents
-
-- `docs/plan_topics/conventions.md` — §REQ-ID discipline (edited)
-- `docs/plan_topics/coverage-matrix.md` — intro + §Governance REQ-IDs (GOV-*) (option-dependent)
-- `docs/plan.md` — How to use this plan (step 5) and §Spec coverage (read-only)
-- `docs/plan_topics/H5a-closing-gate-automation.md` — Adds / Convention (read-only)
-- `docs/plan_topics/H5b-warn-only-canary.md` — Convention (read-only)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Convention (read-only)
-
-## Spec Documents
-
-None. (`docs/spec_topics/governance.md` is consulted read-only to enumerate the prefix table, but the fix edits no spec page.)
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H5a — REQ-ID / diagnostic-code closing-gate automation — (blocked)
-- H5b — Warn-only live-corpus canary (pre-activation pre-flight) — (blocked)
-- H6a — Live-corpus closing-gate activation (loom 1.0 release gate) — (blocked)
-
-## Consequence
-
-**Severity:** correctness
-
-The `H5a` closing gate's enforced REQ-ID set is not mechanically determined: an implementer must guess whether edge prefixes (e.g. `CEIL`, which anchors no live REQ-ID) or non-runtime families beyond `GOV-*` belong to the "executable" set. Two implementers can therefore build gates that enforce different sets — one reddening CI on a REQ-ID the other treats as exempt — and `H5b`'s warn-only canary inherits the same ambiguity.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** 288f191 — Add implementation plan with horizontal/MVP/vertical-slice phases (2026-05-04, Thomas Andersen); 15f69aa — pi-loom plan: finish scaffold/template re-pivot from commit 657ee76 (2026-05-26, Thomas Andersen)
-**History:** The undefined *executable* selector has been in the plan since its first commit (288f191), where the coverage matrix already spoke of mapping "every executable spec section" / "executable spec rule" to a closing leaf without defining the qualifier. The 2026-05-04 topic split (fecb504) and the 2026-05-26 scaffold re-pivot (15f69aa) carried the phrasing forward into "executable spec REQ-ID", and the June 2026 closing-gate elaborations of §REQ-ID discipline (0603eb4, 953e3fa, ab8e297) built the gate on top of the selector but still never pinned it to a predicate.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Define *executable spec REQ-ID* at the term's governing home, `conventions.md` §REQ-ID discipline (the section the closing gate cites), so the existing uses in `coverage-matrix.md` intro, `plan.md` (How-to-use step 5 and §Spec coverage), and `H5a`/`H5b`/`H6a` inherit one defined referent. Candidate definition text:
-
-> An *executable spec REQ-ID* is a numbered `PREFIX-N` REQ-ID in the [`governance.md`](../spec_topics/governance.md) prefix table that denotes a runtime/parse/load obligation the loom implements — every numbered REQ-ID except the corpus-governance `GOV-*` family, which governs the spec corpus itself rather than runtime behaviour and maps to no runtime leaf.
-
-Optionally point `coverage-matrix.md`'s intro at this definition where it first writes "Every executable spec REQ-ID is mapped here".
-
-Edge cases the implementer must keep distinct:
-
-- The executable-REQ-ID set is the numbered `PREFIX-N` surface only. The `loom/...` diagnostic-registry codes (including warning-severity `W` codes) and the code-keyed obligation areas are a **separate** closing-gate surface, not members of the executable-REQ-ID set; the definition must not blur the two.
-- A registered prefix that anchors no live REQ-ID (e.g. `CEIL`) contributes nothing to the set — there is no live numbered REQ-ID to enforce.
-
-The fix is plan-internal: the spec is read-only here (`governance.md` is consulted only to enumerate the prefix set, not edited).
-
-## Relationships
-
-- T11 "Closing-gate clause omits the \"executable\" qualifier and reddens on deliberately-unmapped `GOV-*`" — must-precede (that finding inserts the *executable* qualifier into the gate clause; it has a well-formed referent only once this finding pins the predicate, so resolve this first)
-- T12 "Un-anchored-MUST recogniser names two different diagnostics-registry scopes across `conventions.md` and `coverage-matrix.md`" — same-cluster (same §REQ-ID-discipline / coverage-matrix surface; resolves independently)
