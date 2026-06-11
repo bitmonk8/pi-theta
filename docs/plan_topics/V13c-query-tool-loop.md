@@ -1,6 +1,6 @@
 # `V13c` — Query tool loop and typed two-phase
 
-**Spec.** [`../spec_topics/query/query-tool-loop.md`](../spec_topics/query/query-tool-loop.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md), [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md).
+**Spec.** [`../spec_topics/query/query-tool-loop.md`](../spec_topics/query/query-tool-loop.md), [`../spec_topics/tool-calls.md`](../spec_topics/tool-calls.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md), [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md).
 
 **Adds.** The model tool-call loop (free phase) — whose model-driven parallel tool-call batch awaits every sibling call to settle via `Promise.allSettled` ([tool-calls.md — Concurrency](../spec_topics/tool-calls.md#concurrency), TOOL code-keyed area) before the runtime constructs the next user turn — the typed two-phase `complete()` with the `__loom_respond_<slug>` forced-respond turn (verbatim templates), the `max_rounds:0` boundary, and the ceiling-#2 evaluation at the round boundary. At its ceiling-#2 first-enforcement point (the round boundary) this leaf **consults** `V16a`'s cross-ceiling arbitration seam for the cross-ceiling surfacing precedence and `masked` enumeration — the seam it binds via its `Deps` on `V16a`.
 

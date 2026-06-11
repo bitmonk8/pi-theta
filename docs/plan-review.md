@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 22 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 21 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1403,72 +1403,6 @@ State the surfaced ceiling for the depth-6 vector by its observable outcome (the
 ## Relationships
 
 - T19 "V13c-T exhaustion test bullet omits the surfaced ceiling for the depth-6 co-fire vector" — co-resolve (the identical bullet in the paired tests leaf takes the same disambiguation).
-
----
-
-# T21 — V13c `Spec` field omits `tool-calls.md`, leaving its `Promise.allSettled` use unauthorised by *Sequential by default*
-
-**Original heading:** `Spec` field omits `tool-calls.md`, blocking the `Promise.allSettled` exemption
-**Original section:** Consolidated Plan Review — plan
-**Kind:** implementability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V13c` (Query tool loop and typed two-phase) implements the model-driven parallel tool-call batch with `Promise.allSettled`: its `Adds.` field states the batch "awaits every sibling call to settle via `Promise.allSettled` ([tool-calls.md — Concurrency](../spec_topics/tool-calls.md#concurrency), TOOL code-keyed area)," and its `Tests.` carry a matching bullet citing the same TOOL code-keyed area. Because `Adds.` names the construct alongside a code-keyed obligation area, this is a Class-1 binding mechanism, not illustrative prose.
-
-The *Sequential by default* cross-cutting rule in `conventions.md` forbids `Promise.allSettled` in `src/**` "unless the calling leaf's `Spec.` field cites an obligation whose normative text mandates concurrency at this site … and the leaf's `Adds.` field names the construct together with that REQ-ID or code-keyed obligation area." V13c's `Spec.` field lists `query/query-tool-loop.md`, `hard-ceilings/ceilings-3-and-4.md`, and `cancellation.md` — but **not** `tool-calls.md`, the page carrying the concurrency-mandating "Concurrency" obligation. The `Adds.` half of the precondition is satisfied; the `Spec.`-field half is not.
-
-The field is also non-conformant to the `Spec`-field closure rule (`conventions.md`, leaf-format §`Spec.`): the field "MUST be closed under normative cross-link." V13c lists `query-tool-loop.md`, whose "Tool-call loop bound" section normatively cross-links `tool-calls.md#concurrency` ("each lowered independently per [Tool Calls — Concurrency](../tool-calls.md#concurrency)"). A correctly-closed field would therefore include `tool-calls.md`. An implementer reading the convention literally — and restricting reading to the listed `Spec.` pages, as the convention explicitly permits — sees neither the obligation page nor a satisfied exemption precondition, and cannot legitimately write the `Promise.allSettled` the leaf's `Adds.`/`Tests.` require. The sibling leaf `V14a`, which owns the same TOOL code-keyed area, lists `tool-calls.md` in its `Spec.` field correctly, so V13c's omission reads as accidental.
-
-## Plan Documents
-
-- `docs/plan_topics/V13c-query-tool-loop.md` — `Spec.` field (edited)
-- `docs/plan_topics/V13c-T-query-tool-loop.md` — `Spec.` field (edited)
-- `docs/plan_topics/conventions.md` — *Sequential by default* rule and leaf-format `Spec.`-field closure rule (read-only)
-- `docs/plan_topics/coverage-matrix.md` — *Code-keyed obligation areas* (TOOL → `V14a`, `V13c`) (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slice V13 — Query
-
-**Leaves (implementation order):**
-
-- `V13c` — Query tool loop and typed two-phase — (modified)
-- `V13c-T` — Query tool loop and typed two-phase (tests) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reasonable implementers diverge: one treats `query-tool-loop.md`'s normative cross-link as transitively pulling `tool-calls.md` into closure and proceeds with `Promise.allSettled`; the other reads the `Spec.` field literally, finds the *Sequential by default* exemption precondition unmet, and stops per the *Spec drift* rule. The leaf is internally inconsistent — its `Adds.`/`Tests.` mandate a concurrency construct its `Spec.` field does not authorise.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** db4ef95 — pi-loom plan: resolve "Parallel-batch settle-and-independent-lowering rule has no asserting leaf" (2026-06-10, Thomas Andersen); 75b6a9b — pi-loom plan: resolve "Sequential by default carve-out admits only a numbered REQ-ID" (2026-06-10, Thomas Andersen)
-**History:** V13c's first commit (c6a664e, 2026-06-10) carried a `Spec.` field of `query-tool-loop.md` + `ceilings-3-and-4.md` and no concurrency construct. db4ef95 added the `Tests.` bullet citing `tool-calls.md#concurrency` (TOOL code-keyed area) without adding `tool-calls.md` to the `Spec.` field. 75b6a9b then added `Promise.allSettled` to the `Adds.` field — invoking the *Sequential by default* exemption that requires the `Spec.` field to cite the concurrency obligation — again without adding `tool-calls.md` to the `Spec.` field. The defect arises from the interaction: the construct and its obligation citation landed in `Adds.`/`Tests.`, but neither commit closed the `Spec.` field over the `tool-calls.md` cross-link.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add `tool-calls.md` to the `Spec.` field of both `V13c` and `V13c-T`. In each file's `**Spec.**` line, insert the entry `[`../spec_topics/tool-calls.md`](../spec_topics/tool-calls.md)` alongside the existing `query-tool-loop.md`, `ceilings-3-and-4.md`, and `cancellation.md` entries. This both closes the field under the normative cross-link from `query-tool-loop.md`'s "Tool-call loop bound" section and satisfies the *Sequential by default* exemption precondition; the `Adds.` field already names `Promise.allSettled` together with the TOOL code-keyed area, so once the `Spec.` field cites `tool-calls.md`, both halves of the precondition hold.
-
-Edge case: `tool-calls.md` (TOOL) is already enumerated under `coverage-matrix.md`'s *Code-keyed obligation areas* (closed by `V14a`, `V13c`), so the eventual ESLint allow-list token resolves at the closing gate with no `coverage-matrix.md` edit. Keep `V13c-T`'s `Spec.` field byte-identical to `V13c`'s, as the paired tests task already mirrors it.
-
-## Relationships
-
-- T44 "V11d / V11d-T `Spec` field omits the normatively cross-linked `binder-bypass-and-envelope.md`" — same-cluster (same closure-rule defect class, different leaf and page; resolves independently).
-- T23 "`M` Spec-field "happy-path subset only" qualifier conflicts with the closure-under-cross-link rule" — same-cluster (same `Spec`-field closure rule; resolves independently).
 
 ---
 

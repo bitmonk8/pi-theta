@@ -1,6 +1,6 @@
 # `V13c-T` — Query tool loop and typed two-phase (tests)
 
-**Spec.** [`../spec_topics/query/query-tool-loop.md`](../spec_topics/query/query-tool-loop.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md), [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md).
+**Spec.** [`../spec_topics/query/query-tool-loop.md`](../spec_topics/query/query-tool-loop.md), [`../spec_topics/tool-calls.md`](../spec_topics/tool-calls.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md), [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md).
 
 **Adds.** Failing tests for the paired `V13c` implementation leaf.
 
