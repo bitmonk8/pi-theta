@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 45 medium retained (46 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 44 medium retained (45 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -3106,67 +3106,3 @@ Edge case the implementer must reconcile: the named `tsc` runner has to resolve 
 
 - T42 "`engines.node` floor gate described two-way in V18c, three-way in the spec and V18d" — same-cluster (same V18c leaf, resolves independently)
 - T44 "V18c bundles mechanically-gated build-time tests with non-testable editorial obligations under one Ships-when" — same-cluster (same V18c static-gates list / Ships-when, resolves independently)
-
----
-
-# T46 — V18d's revert path normatively re-runs V18c's static gates, but V18c is absent from V18d's Deps
-
-**Original heading:** V18d requires V18c but V18c is absent from Deps (direct or transitive)
-**Original section:** V18d — Version-bump runtime-evidence acceptance gate and revert path
-**Kind:** consistency
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V18d`'s **Ships when** carries a normative obligation that depends on `V18c` being complete: after the prior pin is restored, *"the contributor MUST re-run [`V18c`]'s static build-time gates against the restored prior pin … and confirm they pass green before the revert is merged. That green re-run is what establishes the revert is complete."* This makes a green run of V18c's static gates (step-2(a)/2(b) surface-inventory, the `engines.node` three-way equality gate, the `peerDependencies` literal-read, and the `loom/typecheck/session-shutdown-reason-snapshot` brand-string gate) a hard prerequisite of V18d's revert procedure.
-
-V18d's declared dependencies are `V18d-T`, `H4a`, `V5d`, `V11f`, `V13c`, `V14a`, `V15a`, `V17a`. `V18c` appears nowhere in that list, and it is not reachable transitively — the full dependency closure of V18d (78 leaves) does not contain V18c. `V18c` is cited in V18d's **Adds.** only as the *owner* of the static gates (a scope delimiter), never as a prerequisite of V18d's own procedure.
-
-A Deps-ordered scheduler may therefore pick up and complete V18d before V18c exists, at which point V18d's revert path references a gate suite that has not yet been built. The dependency the prose asserts is real but is not encoded where the plan's sequencing relies on it.
-
-## Plan Documents
-
-- `docs/plan_topics/V18d-version-bump-acceptance.md` — **Deps.** field (edited)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — whole leaf (read-only)
-- `docs/plan.md` — V18 Interleave note (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** V18 — Build-time SDK gates (Vertical slice)
-
-**Leaves (implementation order):**
-
-- `V18c` — Pi version-bump static gates — (read into scope as the unencoded prerequisite; file unchanged)
-- `V18d` — Pi version-bump runtime-evidence acceptance gate and revert path — (both)
-
-## Consequence
-
-**Severity:** correctness
-
-A Deps-driven sequencer can schedule V18d before V18c, so V18d's normative "re-run V18c's static gates before the revert merges" obligation references gates that do not yet exist; two implementers would diverge on whether V18d is buildable in isolation, and a revert authored against an absent gate suite cannot be validated as the prose requires.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** eed7975 — pi-loom plan: resolve "revert path re-asserts gates return green" (2026-06-11, Thomas Andersen)
-**History:** V18d was created at 8af3204 (2026-06-11) when it was split out of V18c; at creation its **Deps.** omitted V18c and its revert path carried no V18c re-run obligation, so V18c-in-Adds was a pure scope delimiter and no inconsistency existed. Commit eed7975 added the normative "the contributor MUST re-run V18c's static build-time gates … before the revert is merged" sentence to **Ships when** without adding V18c to **Deps.**, which is the change that turned V18d's procedure into a V18c-dependent one while leaving the dependency unencoded.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Encode the dependency: treat the V18c re-run as the real prerequisite it is — V18d's revert path cannot be validated until V18c's static gates exist, so make V18c a dependency of V18d. In `docs/plan_topics/V18d-version-bump-acceptance.md`, add `V18c` to the **Deps.** line, which currently reads `**Deps.** \`V18d-T\`, \`H4a\`, \`V5d\`, \`V11f\`, \`V13c\`, \`V14a\`, \`V15a\`, \`V17a\``.
-
-The re-run obligation is load-bearing — it is the only stated check that the revert restored consistency across all five operands — so the dependency on V18c is genuine and should be encoded rather than dropped. The change is internal to the plan leaf files (the spec is read-only). Edge cases the implementer must watch: confirm no dependency cycle is created (V18c's own Deps are `V18c-T`/`V18a`/`V18b`, so none arises), and leave the `docs/plan.md` Interleave note untouched (it governs V9h/V9g's V18c dependency and explicitly does not constrain V18d).
-
-## Relationships
-
-- T44 "V18c bundles mechanically-gated build-time tests with non-testable editorial obligations under one Ships-when" — decision-overlap (if the revert path is split into a separate leaf, the V18c dependency relocates with it)
