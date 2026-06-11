@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 34 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2371,72 +2371,3 @@ Optionally surface the same citation from `H5a`'s **Adds** where it names "the l
 
 - T33 "Un-anchored-MUST recogniser — the seam-name exclusion arm has no defined mechanical input" — same-cluster (the adjacent finding names a different missing mechanical input — the seam-exclusion set — for the same recogniser arm; both resolve by pinning the arm's inputs but address distinct inputs).
 - T32 "H6a release-gate green criterion over-claims un-anchored-MUST scan completeness" — same-cluster (concerns the live-corpus completeness claim for the same recogniser; resolves independently).
-
----
-
-# T35 — Response-programming surface: determinism is gated at H4a, functional effect is not
-
-**Original heading:** Injection points — only determinism is gated, not functional effect
-**Original section:** Consolidated Plan Review — plan
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H4a` establishes the shared **response-programming surface** — the single input-side API every harness-driven leaf scripts against — and enumerates five injection-point categories the contract must support: (a) scripted assistant turns/fragments, (b) `tool_use` results including an `isError: true` result and a mixed-success parallel batch, (c) binder/provider responses including a malformed-envelope and a transport-class failure, (d) a `tool_loop.max_rounds` round-exhaustion, and (e) an abort injected at a chosen point in the drive. `H4a` owns this seam (the `V13c` / `V11f` / `V17a` vectors are explicitly named as its consumers).
-
-`H4a`'s self-check asserts the four fidelity axes (streamed-token order, single-turn append, cancel-forward subscription, cancellation propagation) and that the surface drives the double **deterministically** — replaying the same scripted inputs yields the same transcript. It never asserts that any scripted input produces the *correct* observable. A surface that, for example, ignores the `isError: true` flag and always emits a success tool-result, or never routes a transport-class failure into the retry path, would pass both the determinism gate and `H4a`'s `Ships when` while being functionally mis-wired.
-
-Functional correctness of the seam is therefore exercised only transitively, by downstream consumers (`V13c`, `V11f`, `V13d`, `V17a`, …) when they later script against it. The seam's owning leaf gates that its outputs are stable, not that they are right.
-
-## Plan Documents
-
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — Tests / fidelity-contract self-check (edited)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H4a` — Extension factory shell and end-to-end harness — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A mis-wired injection point in the response-programming surface ships green from `H4a`: its determinism gate and `Ships when` both pass while the seam returns the wrong observable. The defect is still caught — but only transitively, at the first downstream leaf that scripts that category (`V13c`, `V11f`, `V13d`, or `V17a`), where the failure is mis-attributed to the consuming leaf rather than to the seam it actually lives in, costing the downstream implementer debugging effort on infrastructure they do not own.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 27e12be — pi-loom plan: resolve "Session double's model / tool / binder-response scripting surface is undefined" (2026-06-10, Thomas Andersen)
-**History:** Commit 27e12be introduced the response-programming surface (all five injection-point categories, including the `isError: true` and transport-class cases) into `H4a` together with the determinism self-check ("drives the double deterministically"). The same commit that added the surface added a determinism-only gate and no functional-effect assertion, so the gap was born with the surface; prior to 27e12be the scripting surface did not exist and there was nothing to verify.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Extend `H4a`'s harness self-check (the determinism Tests bullet, or an added Tests bullet) so it asserts — in addition to determinism — that each injection-point category of the response-programming surface produces its expected observable, keeping the seam contract verified at its owning leaf. Cover the categories `H4a`'s **Adds** already enumerates:
-
-- (a) scripted assistant turns and per-turn fragments appear in the transcript in the scripted order;
-- (b) a scripted `isError: true` tool-result surfaces as an error tool-result in the transcript, and a mixed-success parallel `tool_use` batch lowers each sibling's outcome independently;
-- (c) a scripted malformed-envelope failure and a scripted transport-class failure drive the observable binder failure / retry path;
-- (d) a scripted `tool_loop.max_rounds` round-exhaustion produces the round-exhaustion observable;
-- (e) an abort injected at each chosen point (pre-call, in-flight provider call, budgeted retry) surfaces the cancellation observable.
-
-Phrase the assertions in terms of the observable each scripted input must yield; the surface's API shape stays the implementer's to finalise.
-
-Edge case: if the full response-programming surface a–e is split into a new leaf, these functional self-checks belong with whichever leaf owns the surface — only category (a) need be functionally asserted in the reduced `H4a`; (b)–(e) move with the surface.
-
-## Relationships
-
-- T12 "V4c/V4c-T name the H4a harness and session double but omit H4a from Deps" — same-cluster (both concern correct wiring/verification of the H4a harness contract; independent).
