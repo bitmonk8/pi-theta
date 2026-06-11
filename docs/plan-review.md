@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 35 medium retained (36 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 34 medium retained (35 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2335,77 +2335,6 @@ Ownership is `V15c`, not `V1b`/`V2a` — do not retarget the assertion there. Ed
 
 - T35 "V15c asserts only import failure paths; auto-export and re-export success behaviour is unverified" — same-cluster (same `V15c` leaf; both add missing Tests bullets, resolve independently)
 - T02 "Code-keyed obligation rows have no machine-matchable key, yet three closing-gate arms match cited tokens against them" — same-cluster (both concern coverage-matrix code-keyed-row representation of import/code-keyed obligations; resolve independently)
-
----
-
-# T35 — V15c asserts only import failure paths; auto-export and re-export success behaviour is unverified
-
-**Original heading:** Auto-export and re-export positive paths unasserted
-**Original section:** V15c — Imports and re-exports
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-Every Tests bullet on `V15c` (and its paired `V15c-T`) drives a failure path: `IMP-1` unresolvable-path throw, `loom/parse/warp-top-level-statement`, `loom/load/import-cycle`, `import-unknown-symbol`, and `import-name-collision`. None of the success behaviours the import system is specified to produce is asserted.
-
-`imports.md` defines several normative positive obligations that no test covers. Under **Visibility**, every top-level `schema`/`enum`/`fn` in a `.warp` file is implicitly exported and resolvable by a downstream importer. Under **Re-exports**, `export { A } from "./x.warp"` (and the `as`-aliased `export { A as B } from`) makes the symbol visible to downstream importers while creating no local binding, and — critically — a plain `import { A } from "./x.warp"` does **not** re-export `A` from the importing file. These are MUST-level distinctions, not incidental behaviour.
-
-`V15c`'s `Ships when` ("`npm test` resolves a `.warp` import, rejects a non-permitted top-level form, and fires `import-cycle`") names only a coarse "resolves a .warp import" observable that does not pin the auto-export/re-export semantics. A thin implementation could fire every error code correctly, conflate the `import`-vs-`export … from` re-export distinction, and still pass the gate green.
-
-## Plan Documents
-
-- `docs/plan_topics/V15c-T-imports.md` — Tests (edited)
-- `docs/plan_topics/V15c-imports.md` — Tests, Ships when (edited)
-- `docs/plan_topics/conventions.md` — Leaf format / per-phase TDD ritual (read-only)
-- `docs/plan_topics/coverage-matrix.md` — IMP-1 row (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/imports.md` — Visibility, Re-exports (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V15)
-
-**Leaves (implementation order):**
-
-- `V15c-T` — Imports (`.warp` library files) (tests) — (modified)
-- `V15c` — Imports (`.warp` library files) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The accepted-form behaviour (auto-export visibility, `export … from` re-export with no local binding, plain `import` not re-exported) is a normative MUST surface with no asserting test, so two reasonable implementers can diverge on the re-export-vs-import distinction and both ship the leaf green. A regression that breaks symbol visibility or leaks a plain `import` as a downstream re-export passes the existing gate undetected.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `git log --follow` on both `docs/plan_topics/V15c-imports.md` and `docs/plan_topics/V15c-T-imports.md` returns a single commit (c6a664e); both leaves were authored with failure-path-only Tests bullets in that first commit. No later edit added or removed positive-path assertions, so the validation gap has existed since the leaf entered the corpus.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add positive-path assertions to the `V15c-T` Tests field (and mirror the same bullets in `V15c` Tests, per the paired `-T`/impl ritual), citing `imports.md` for each obligation:
-
-- A downstream file resolves an auto-exported symbol: a top-level `schema`, `enum`, and `fn` declared in a `.warp` file are each visible to an importing file with no `export` keyword on the declaration (Visibility rule in `imports.md`).
-- `export { A as B } from "./x.warp"` is visible to a downstream importer as `B`, with no local binding for `A` in the re-exporting file (Re-exports rule).
-- A plain `import { A } from "./x.warp"` is **not** re-exported: a further downstream `import { A } from "<re-importing file>"` does not see `A` (the negative half of the Re-exports rule).
-- A resolvable relative `.warp` import binds its symbols successfully (the `Resolver` success path, complementing the existing `IMP-1` throw test).
-
-Tighten `V15c`'s `Ships when` so it names a positive observable — an auto-exported symbol resolving in a downstream file and an `export … from` re-export being visible — rather than the coarse "resolves a `.warp` import". These behaviours are already owned by `V15c`, so no coverage-matrix or spec edit is required.
-
-## Relationships
-
-- T34 "`loom/parse/import-non-warp-extension` has no asserting test" — same-cluster (sibling V15c validation gap; may land in the same Tests-field edit pass)
-- T12 "V5a positive declaration-form parse has no asserting test" — same-cluster (identical "only error codes asserted, accepted forms untested" pattern; independent leaf)
 
 ---
 
