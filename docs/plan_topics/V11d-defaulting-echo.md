@@ -1,6 +1,6 @@
 # `V11d` — System-prompt builder, defaulting, and echo
 
-**Spec.** [`../spec_topics/binder/binder-model-and-context.md`](../spec_topics/binder/binder-model-and-context.md), [`../spec_topics/binder/defaulting-system-note-echo.md`](../spec_topics/binder/defaulting-system-note-echo.md).
+**Spec.** [`../spec_topics/binder/binder-model-and-context.md`](../spec_topics/binder/binder-model-and-context.md), [`../spec_topics/binder/binder-bypass-and-envelope.md`](../spec_topics/binder/binder-bypass-and-envelope.md), [`../spec_topics/binder/defaulting-system-note-echo.md`](../spec_topics/binder/defaulting-system-note-echo.md).
 
 **Adds.** The binder system-prompt builder (the eight structured items with type/default renderings), the fill-if-absent defaulting with post-merge AJV validation, and the argument echo (`(default)` annotation only when a default was supplied).
 

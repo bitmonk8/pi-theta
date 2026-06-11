@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 9 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 8 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -3015,66 +3015,3 @@ Cite the area as the code-keyed `binder-bypass-and-envelope.md` §"System-prompt
 
 - T42 "Binder system-prompt structure obligations have no coverage-matrix closing-leaf row" — co-resolve (that finding adds the `coverage-matrix.md` code-keyed row naming `V11d` as the closing leaf, this one makes `V11d` actually bind the obligation).
 - T44 "V11d / V11d-T `Spec` field omits the normatively cross-linked `binder-bypass-and-envelope.md`" — decision-dependency (the new Tests bullet can only cite `binder-bypass-and-envelope.md` once that page is added to `V11d`/`V11d-T`'s `Spec.` field; that fix must land first).
-
----
-
-# T44 — V11d / V11d-T `Spec` field omits the normatively cross-linked `binder-bypass-and-envelope.md`
-
-**Original heading:** `Spec` field not closed under normative cross-link
-**Original section:** Consolidated Plan Review — plan
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-The leaf format mandates (conventions.md line 44) that a leaf's **Spec** field be *closed under normative cross-link*: closure runs outbound from each listed topic, transitively to a fixed point, excluding only narrative cross-links per `governance.md` GOV-3. The same convention, and plan.md How-to-use step 3, both tell an implementer they MAY restrict their reading to the pages listed under **Spec**.
-
-`V11d`'s **Spec** lists only `binder-model-and-context.md` and `defaulting-system-note-echo.md`. The first of those normatively depends on `binder-bypass-and-envelope.md`: its *Compact-transcript format (normative)* sub-section renders the body of the `Recent session context` block defined by *System-prompt structure (normative)* item 6 on `binder-bypass-and-envelope.md`, and that page is where the eight structured prompt items (items 1–8), the envelope-kinds enumeration, the Type-display table, the Default-literal rendering, and the per-field Parameter-line reference renderings are pinned as MUST-reproduce-exactly obligations. `binder-bypass-and-envelope.md` is not listed in `V11d`'s **Spec**, so the field is not closed.
-
-This matters here specifically because `V11d`'s **Adds** field claims to build "the binder system-prompt builder (the eight structured items with type/default renderings)" — precisely the obligations defined on the omitted page. An implementer reading only the two listed pages never sees the eight-item structure, the envelope schema, the bypass cases, or the per-field reference renderings, and invents the prompt layout. The paired tests leaf `V11d-T` carries the identical two-page **Spec** and is closed-violating for the same reason.
-
-## Plan Documents
-
-- `docs/plan_topics/V11d-defaulting-echo.md` — `Spec.` field (edited)
-- `docs/plan_topics/V11d-T-defaulting-echo.md` — `Spec.` field (edited)
-- `docs/plan_topics/conventions.md` — leaf-format Spec-closure rule, line 44 (read-only)
-
-## Spec Documents
-
-None — the fix is internal to plan files. `binder-bypass-and-envelope.md` already exists and is unchanged; the fix only adds a reference to it.
-
-## Affected Leaves
-
-**Phases:** Vertical slice V11 — Binder
-
-**Leaves (implementation order):**
-
-- `V11d-T` — System-prompt builder, defaulting, and echo (tests) — (modified)
-- `V11d` — System-prompt builder, defaulting, and echo — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-An implementer who exercises the convention-granted permission to read only the listed **Spec** pages never encounters the *System-prompt structure (normative)* obligations that `V11d`'s **Adds** claims to build, and so invents a non-conforming prompt layout and envelope. Two reasonable implementers, reading the same closed set, would diverge on the eight-item structure and per-field renderings, producing a builder that does not match the spec.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `V11d` and `V11d-T` were both created in c6a664e with a `Spec` field listing only `binder-model-and-context.md` and `defaulting-system-note-echo.md`; a pickaxe over each leaf's full history shows `binder-bypass-and-envelope.md` never appeared in either `Spec` field. The Spec-closure convention ("closed under normative cross-link", conventions.md) was already in force at the time (present since 31ff060, 2026-05-08), so both leaves were authored already violating it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add `[`../spec_topics/binder/binder-bypass-and-envelope.md`](../spec_topics/binder/binder-bypass-and-envelope.md)` to the **Spec.** field of both `docs/plan_topics/V11d-defaulting-echo.md` and `docs/plan_topics/V11d-T-defaulting-echo.md`, so each leaf's **Spec** lists all three binder pages. This restores the leaf-format closure invariant (conventions.md line 44): the page is reachable by normative cross-link from `binder-model-and-context.md`, which is already listed, and it is the page that defines the eight structured items `V11d`'s **Adds** builds. Both the implementation leaf and its paired `-T` tests leaf need the addition — the tests assert the same System-prompt-structure obligations, so the tests leaf's **Spec** must also be closed.
-
-## Relationships
-
-- T42 "Binder system-prompt structure obligations have no coverage-matrix closing-leaf row" — decision-dependency (that finding designates `V11d` as the coverage-matrix closing leaf for `binder-bypass-and-envelope.md` §"System-prompt structure (normative)"; `V11d` can only legitimately close that obligation once its `Spec` cites the defining page, which this fix supplies).
-- T43 "V11d ships the binder system-prompt builder with no test binding its structure" — decision-dependency (that finding adds a `V11d` Tests bullet citing `binder-bypass-and-envelope.md` §"System-prompt structure (normative)"; under the closure rule a Tests bullet may only cite a page reachable from the `Spec` field, so this `Spec` addition must land first).
