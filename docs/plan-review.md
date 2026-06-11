@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 6 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 5 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2798,86 +2798,3 @@ Edge case: `V13c` is independently missing the same `V4d` edge (it consumes `Too
 ## Relationships
 
 - T16 "V5e per-boundary routing test asserts destination error surfaces its `Deps` cannot reach" — same-cluster (V5e asserts `ValidationError`/`InvokeInfraError` (V4d) and `CodeToolError` (V14a) without those edges; same missing-dependency pattern, resolved independently).
-
----
-
-# T41 — V9b / V9c / V9e PIC-area MUSTs are missing from the code-keyed obligation-area table
-
-**Original heading:** V9b / V9c / V9e un-anchored obligations missing code-keyed rows
-**Original section:** Consolidated Plan Review — plan
-**Kind:** doc-alignment-broad
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-`conventions.md` *REQ-ID discipline* defines a third closing-gate surface: every normative MUST/MUST-NOT on a non-narrative `spec_topics/**` page that carries neither a numbered `PREFIX-N` REQ-ID nor a `loom/{parse,load,runtime}/*` registry code, and is not a named cross-leaf seam, is the GOV-22 un-anchored-obligation residue. Each such MUST must be enumerated in `coverage-matrix.md` under *Code-keyed obligation areas (no numbered REQ-IDs)* with a named closing leaf; the closing gate's `MUST`/`MUST NOT`-token scan over non-narrative `spec_topics/**` pages treats any such obligation absent from that table as a CI failure on the live-corpus footing that binds at the loom 1.0 release gate.
-
-Three sets of PIC-area obligations are closed by existing leaves but have no row in that table:
-
-- **`drain-state-contract.md` (closed by V9b).** The `LoomRegistry.readDrainState` closed three-arm dispatch (dispatch / shutting-down note / degraded-needs-reload note), the "slash handler MUST NOT introduce a fourth arm or alternative gating field" prohibition, and the `readDrainState` read-failure fail-safe MUSTs carry no PIC REQ-ID and no `loom/...` code. V9b's `Tests.` cites them as a "(PIC area)" obligation.
-- **`conversation-drive.md` (closed by V9c).** The untyped-query trailing-turn `Ok(string)` extraction MUSTs (anchor `#untyped-query-ok-extraction`: final-turn boundary, assistant-text concatenation, run downstream of the cancel and `stopReason: "error"` short-circuits) are un-anchored — distinct from the existing `conversation-drive.md` *No additional access channels* row (→ V14a). V9c's `Tests.` cites the trailing-turn extraction as a "(PIC area)" obligation.
-- **`active-invocation-registry.md` (closed by V9e).** Insertion-order iteration, the `disposeBarrier` `Promise.allSettled` settle-all, and `invocationId`-from-`IdSource.newInvocationId()` MUSTs carry no PIC REQ-ID (the page anchors only PIC-20, which closes in V8b). V9e's `Tests.` cites all three as "(PIC area)" obligations.
-
-The defect is in the coverage *trace* only — V9b, V9c, and V9e already exist and close these obligations through their PIC-area tests. V9b's `registry-swap-failed` obligation is exempt because it carries the diagnostic code `loom/runtime/registry-swap-failed`.
-
-## Plan Documents
-
-- `docs/plan_topics/coverage-matrix.md` — *Code-keyed obligation areas (no numbered REQ-IDs)* table (edited)
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* (read-only; defines the gate)
-- `docs/plan_topics/V9b-registration-drain-state.md` — `Tests.` (read-only)
-- `docs/plan_topics/V9c-conversation-drive.md` — `Tests.` (read-only)
-- `docs/plan_topics/V9e-active-invocation-registry.md` — `Tests.` (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/drain-state-contract.md` — `LoomRegistry` drain-state contract (read-only)
-- `docs/spec_topics/pi-integration-contract/conversation-drive.md` — §`untyped-query-ok-extraction` (read-only)
-- `docs/spec_topics/pi-integration-contract/active-invocation-registry.md` — registry entry / iteration / `disposeBarrier` (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V9 — Extension host integration); Release gate
-
-**Leaves (implementation order):**
-
-- V9b — Registration steps and drain-state contract — (modified — closing leaf named by the new drain-state residue row; leaf-file body unchanged)
-- V9c — Prompt-mode conversation drive and active-set gating — (modified — closing leaf named by the new trailing-turn residue row; leaf-file body unchanged)
-- V9e — `ActiveInvocationRegistry` — (modified — closing leaf named by the new active-invocation-registry residue row; leaf-file body unchanged)
-- H5b — Warn-only live-corpus canary — (blocked — the canary surfaces the missing rows as a warning until the fix lands)
-- H6a — Live-corpus closing-gate activation — (blocked — the live-corpus release gate hard-fails on these un-anchored MUSTs until the rows exist)
-
-## Consequence
-
-**Severity:** blocking
-
-When `H6a` flips the closing gate to its live-corpus footing, the `MUST`/`MUST NOT`-token scan over non-narrative `spec_topics/**` pages catches the drain-state, trailing-turn, and active-invocation-registry obligations (all un-anchored), finds no enumerated closing-leaf rows, and hard-fails CI — even though V9b/V9c/V9e already close them. The loom 1.0 release gate cannot go green, and `H5b`'s warn-only canary flags the same gap beforehand.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen); 0603eb4 — pi-loom plan: resolve "un-anchored normative MUSTs invisible to closing gate" (2026-06-10, Thomas Andersen)
-**History:** c6a664e created the V9b/V9c/V9e leaves and their "(PIC area)" obligation citations against the non-narrative pi-integration-contract pages. 0603eb4 then introduced the un-anchored-MUST residue-row closing-gate surface into `coverage-matrix.md`'s *Code-keyed obligation areas* table — the rule that every such obligation be enumerated with a closing leaf — but seeded only a subset of rows and omitted the drain-state, trailing-turn, and active-invocation-registry obligations. Later commits (e.g. 12f7933, 81ab342, 83c25b9) added sibling residue rows without closing this gap, so the obligations have been gate-relevant yet untraced since 0603eb4.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add three rows to the *Code-keyed obligation areas (no numbered REQ-IDs)* table in `docs/plan_topics/coverage-matrix.md`, each mapping one un-anchored PIC-area obligation to its existing closing leaf, following the existing residue-row style (`<page> — <obligation description> (un-anchored; GOV-22 residue) | <leaf>`):
-
-- `pi-integration-contract/drain-state-contract.md` — `LoomRegistry.readDrainState` closed three-arm dispatch (dispatch / shutting-down note / degraded-needs-reload note), the no-fourth-arm / no-alternative-gating-field prohibition, and the `readDrainState` read-failure fail-safe MUSTs (un-anchored; GOV-22 residue) → **V9b**
-- `pi-integration-contract/conversation-drive.md` §`untyped-query-ok-extraction` — untyped-query trailing-turn `Ok(string)` extraction MUSTs (final-turn boundary, assistant-text concatenation, downstream of the cancel and `stopReason: "error"` short-circuits) (un-anchored; GOV-22 residue) → **V9c**
-- `pi-integration-contract/active-invocation-registry.md` — insertion-order iteration, `disposeBarrier` `Promise.allSettled` settle-all, and `invocationId`-from-`IdSource.newInvocationId()` MUSTs (un-anchored; GOV-22 residue) → **V9e**
-
-Edge cases for the implementer:
-- The new `conversation-drive.md` row is additive and distinct from the existing *No additional access channels* → V14a row; do not collapse or replace it.
-- Do not add a row for V9b's `registry-swap-failed` obligation — it carries the `loom/runtime/registry-swap-failed` diagnostics-registry code and is therefore not GOV-22 residue.
-- The fix is confined to `coverage-matrix.md`; the V9b/V9c/V9e leaf files and the spec pages are read-only.
-
-## Relationships
-
-- T42 "Binder system-prompt structure obligations have no coverage-matrix closing-leaf row" — same-cluster (also adds a missing closing-leaf row to the same `coverage-matrix.md` table; resolves independently).
-- T05 "`frontmatter/` (FRNT) code-keyed obligations have no prefix-area row in the coverage matrix" — same-cluster (also adds missing rows to the same table; resolves independently).
