@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 33 medium retained (34 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 32 medium retained (33 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2199,72 +2199,6 @@ Extend `V14a` **Ships when** to name this positive-mapping assertion alongside t
 ## Relationships
 
 None
-
----
-
-# T33 — V15a omits the Pi behavioural preconditions its prompt→prompt snapshot/restore depends on
-
-**Original heading:** Prompt→prompt suspend presupposes Pi `setActiveTools` atomicity + serial dispatch
-**Original section:** V15a — Invocation core
-**Kind:** assumptions
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`V15a` declares (in its **Adds** field) "the prompt→prompt parent-suspend with the `setActiveTools` snapshot/restore" and its **Ships when** spawns an invoke across the cross-mode matrix. The safety of that whole-body snapshot/restore window rests on two Pi *behavioural* preconditions: (a) the runtime may treat `pi.setActiveTools(string[])` as synchronous-and-atomic on the JS event loop, and (b) Pi serialises slash-command dispatch per session so two loom-invocation dispatches against the same session cannot overlap their snapshot/restore windows.
-
-`invocation.md` (Cross-mode semantics) does not state those guarantees itself — it defers: the prompt→prompt protocol "rests on the same two Pi guarantees ... pinned there", where "there" is the Pi Integration Contract tool-registration-lifetime page (`spec_topics/pi-integration-contract/tool-registration-lifetime.md`, anchor `#snapshot-restore-pi-behavioural-preconditions`). That page is the sole owner of the two preconditions, the restore-/install-failure protocols (PIC-8 / PIC-19), and the defensive recovery-mutex path that applies if either precondition weakens.
-
-`V15a`'s **Spec** field lists `invocation.md`, `discovery-sources.md`, `cancellation.md`, `return.md`, and `implementation-notes.md` — but not the PIC tool-registration-lifetime page; and its **Deps** (`V15a-T`, `V10a`, `V2b`, `V3d`, `V8a`) omit `V9f`, the leaf that owns that page and builds the registration-cache / active-set machinery the whole-body snapshot/restore reuses. Per the plan's How-to-use step 3 an implementer reads only the leaf and the spec topics in its **Spec** field, so a `V15a` implementer working from the listed pages never encounters the preconditions the snapshot/restore window depends on.
-
-## Plan Documents
-
-- `docs/plan_topics/V15a-invocation-core.md` — Spec field and Deps (edited)
-- `docs/plan_topics/V9f-tool-registration-lifetime.md` — owner of the PIC tool-registration-lifetime page and the snapshot/restore machinery (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md` — `#snapshot-restore-pi-behavioural-preconditions` (the two behavioural preconditions, PIC-8/PIC-19, recovery-mutex) (read-only)
-- `docs/spec_topics/invocation.md` — Cross-mode semantics (the prompt→prompt suspend paragraph that defers to the PIC page) (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical — V15 (Invocation and imports)
-
-**Leaves (implementation order):**
-
-- `V15a` — Invocation core — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A `V15a` implementer working from only the cited pages never sees that the snapshot/restore window's safety rests on synchronous-atomic `pi.setActiveTools` and per-session serial slash dispatch, nor the recovery-mutex fallback if either weakens. Two reasonable implementers would diverge — one assuming the window needs no concurrency guard, another inventing an ad-hoc lock — and the resulting whole-body snapshot/restore may not match the precondition contract the spec actually pins.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `V15a` was authored in its first commit with "the prompt→prompt parent-suspend with the `setActiveTools` snapshot/restore" already in its **Adds** field but a **Spec** field listing only `invocation.md` and `discovery-sources.md` (and **Deps** without `V9f`). A pickaxe for `pi-integration-contract` over the leaf's history returns no commit, confirming the PIC tool-registration-lifetime page was never cited; the four later edits to the leaf touched unrelated fields. The omission therefore exists in the leaf's inaugural commit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add the PIC tool-registration-lifetime page to `V15a`'s **Spec** field so the two behavioural preconditions become visible to the implementer. Insert a citation to `../spec_topics/pi-integration-contract/tool-registration-lifetime.md` (anchor `#snapshot-restore-pi-behavioural-preconditions`) into the existing **Spec.** list in `docs/plan_topics/V15a-invocation-core.md`.
-
-Companion edit on the same leaf: add `V9f` to `V15a`'s **Deps** (`V15a-T`, `V10a`, `V2b`, `V3d`, `V8a` → also `V9f`). `V15a`'s whole-body snapshot/restore is the per-query protocol from `V9f` generalised to the child's whole body and reuses `V9f`'s registration-cache and active-set swap machinery, so `V15a` must sequence after `V9f`; the Spec-field citation alone surfaces the preconditions but does not establish that build order.
-
-Edge case: if the companion "Leaf too large" finding splits `V15a`, both the Spec citation and the `V9f` Deps edge land on whichever sub-leaf carries the prompt→prompt parent-suspend (the proposed dispatch+suspend leaf), not on the load-infrastructure or diagnostics leaves.
-
-## Relationships
-
-- T45 "V15a bundles seven independently-shippable units across five spec topics" — must-follow (if V15a is split, this Spec-citation + Deps edge attaches to the dispatch+suspend sub-leaf that carries the parent-suspend; settle the split shape first)
-- T24 "PIC-17 active-set snapshot/restore window owned by both V9c and V9f" — decision-overlap (resolving which leaf canonically owns the snapshot/restore protocol determines the correct Deps target for V15a's companion edge)
 
 ---
 
