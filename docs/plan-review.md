@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 8 high, 47 medium retained (56 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 8 high, 47 medium retained (55 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -3774,69 +3774,3 @@ Do not add a separate matrix row for `loom/load/typed-query-unsupported-provider
 
 - T54 "V11a binder-model obligations have no coverage-matrix closing row" — same-cluster (identical defect class on a different PIC-area leaf; same table, different rows, resolves independently)
 - T53 "V18b audit-methodology obligations have no coverage-matrix closing-leaf row" — same-cluster (same defect class, independent leaf/rows)
-
----
-
-# T56 — V9h degraded-state branch is authored as settled work over an unresolved host contradiction (presupposition (a))
-
-**Original heading:** Degraded-state branch presupposes an unresolved host contradiction (presupposition (a))
-**Original section:** V9h — Session-only degraded state and unknown-reason rule
-**Kind:** assumptions
-**Importance:** blocker
-**Score:** 200
-**MustFix:** true
-
-## Finding
-
-The `V9h` leaf authors the session-only degraded-state branch for `reason ∈ {"new","resume","fork"}` as settled, implementable work: its Adds and Tests build the `markRuntimeDegraded` tag write, the `"degraded-needs-reload"` transition, the `loom/host/session-shutdown-runtime-degraded` emission, and the `/reload`-only recovery note. The spec, however, records the foundational premise of that branch as an *open contradiction*, not an accepted presupposition. `pi-integration-contract/host-prerequisites.md` §"Host prerequisites for the degraded-state branch" clause **(a)** states that the branch presupposes Pi keeps the same extension instance loaded (with its closed-over, drained `LoomRegistry`) across a session-only `session_shutdown`, while Pi's published `docs/extensions.md` lifecycle documents the opposite at the loom 1.0 Pi-SDK pin: Pi tears the old runtime down and reloads-and-rebinds the extension for the new session, so the drained registry the branch depends on does not survive — the new instance starts fresh and dispatches normally, hiding the degradation the branch is built to surface.
-
-The spec is explicit that clause (a) is distinct from the unpinned presuppositions (b)–(d): it "gates implementation of the degraded-state branch" and "MUST be resolved before the SM-4 / SM-5 / SM-6 (and SM-3b) degraded-state obligations are implemented," with the open question tracked on the version-bump editorial-review checklist at item (a) (`version-bump-step2.md#bump-checklist-instance-survival`). The resolution may determine the branch is "unreachable as written" and that SM-4/5/6 must be reworked.
-
-`V9h` cites neither the prerequisites page nor clause (a), and a corpus-wide search confirms the anchor `degraded-state-host-prerequisites` appears nowhere in the plan. An implementer picking up `V9h` therefore has no in-plan signal that the branch rests on an unresolved contradiction and would build the full degraded-state machinery (the leaf's acceptance criteria (a)–(m) span 30+ fixtures) against a premise the spec flags as gating.
-
-## Plan Documents
-
-- `docs/plan_topics/V9h-degraded-unknown-reason.md` — V9h leaf, Adds/Tests/Deps (edited)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — V18c, editorial-review checklist gates (read-only)
-- `docs/plan_topics/coverage-matrix.md` — rows mapping `session-only-degraded-state.md` → V9h (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V9 — Extension host integration)
-
-**Leaves (implementation order):**
-
-- V9h — Session-only degraded state and unknown-reason rule — (modified)
-
-## Consequence
-
-**Severity:** blocking
-
-`V9h` presents as a normal pickable leaf, so an implementer would build the entire `new`/`resume`/`fork` degraded-state branch and its 30+ acceptance fixtures against a premise the spec records as an open contradiction at the pin — code and tests that may exercise an unreachable path. The spec mandates the contradiction be authoritatively resolved before the SM-4/SM-5/SM-6/SM-3b obligations are implemented; with no in-plan reference to that gate, the precondition is silently bypassed and the leaf is picked up out of sequence.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** The `V9h` leaf (`docs/plan_topics/V9h-degraded-unknown-reason.md`) has a single commit in its history (c6a664e); it entered the corpus already treating the degraded-state branch as settled work. `git log -S 'degraded-state-host-prerequisites' -- docs/plan_topics/ docs/plan.md` and a corpus grep both return nothing, confirming the prerequisites-page citation was never present. The omission exists in the leaf's first and only commit; no later change introduced it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/V9h-degraded-unknown-reason.md`, surface the gating precondition that currently lives only in the spec:
-
-- Add a reference to `../spec_topics/pi-integration-contract/host-prerequisites.md#degraded-state-host-prerequisites` clause (a), recording that clause (a) is not an accepted presupposition but an **open contradiction** against Pi's documented teardown-and-rebind extension lifecycle at the loom 1.0 Pi-SDK pin.
-- Record that the contradiction must be authoritatively resolved — tracked at version-bump editorial-review checklist item (a) (`../spec_topics/pi-integration-contract/version-bump-step2.md#bump-checklist-instance-survival`) — before the degraded-state branch (the SM-4 / SM-5 / SM-6 / SM-3b obligations this leaf closes) is implemented, and that the resolution may find the branch unreachable as written.
-
-The unknown-reason-rule obligations `V9h` also closes are unaffected by clause (a) and remain pickable; only the session-only degraded-state branch carries the gate. The reference belongs on whichever surface the implementer reads before starting the branch (the Spec/Deps citation surface or an explicit precondition note); the requirement is that the gate be discoverable from the leaf, not its precise placement.
-
-## Relationships
-
-None
