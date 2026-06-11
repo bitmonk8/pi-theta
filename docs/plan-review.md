@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 6 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 5 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -269,81 +269,6 @@ Keep the three triggers parallel, and ensure the closing-leaf qualifier is groun
 
 - T02 "Transitive-completeness plan-maintenance obligation is invisible at the point of leaf authoring" — decision-overlap (both edit the same rule sentence; a wording-narrowing fix here and the discoverability cross-reference there must be reconciled in one edit).
 - T03 "`H5b` `Deps` uses a non-contiguous range" — same-cluster (touches `H5b`'s `Deps.` line; resolves independently).
-
----
-
-# T05 — `frontmatter/` (FRNT) code-keyed obligations have no prefix-area row in the coverage matrix
-
-**Original heading:** `frontmatter/` (FRNT) absent from the code-keyed obligation-area table
-**Original section:** Consolidated Plan Review — plan
-**Kind:** spec-coverage
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`coverage-matrix.md` §*Code-keyed obligation areas (no numbered REQ-IDs)* gives every comparable non-narrative spec page a prefix-area row mapping the page's `loom/{parse,load,runtime}/*`-keyed obligations to the leaf(s) that close them — `lexical.md` (LEX) / `grammar.md` (GRAM) → `V1a`/`V1b`/`V2a`, `runtime-value-model.md` (RVM) → `V2c`, `expressions.md` (EXPR) → `V3a`, `query/` (QRY) → `V13a–V13d`, `tool-calls.md` (TOOL) → `V14a`/`V13c`, and so on. The `frontmatter/` page family (registered prefix `FRNT` in `governance/req-id-prefix-table-active-a.md`) is the conspicuous omission: it carries exactly one numbered REQ-ID, `FRNT-1` → `V6e` (in the *Numbered REQ-IDs* section), and a single narrow code-keyed row `frontmatter-fields-a.md §model → V6a`. There is no `frontmatter/ (FRNT)` prefix-area row.
-
-`frontmatter-fields-a.md` and `frontmatter-fields-b-and-templates.md` own roughly thirty diagnostic-code obligations across `V6a`–`V6e` (`loom/load/missing-mode`, `unknown-mode-value`, `unknown-frontmatter-field`, `deferred-frontmatter-field`, `unknown-bind-context-value`, `binder-model-not-strict-capable`, `binder-model-strict-capability-unknown`, `params-null`, `bind-echo-without-params`, `argument-hint-not-displayed`, `tool-name-collision`, `invalid-tool-rename`, `frontmatter-value-out-of-range`; `loom/parse/system-on-prompt-mode`, `unresolved-named-type`, `non-trailing-default`, `default-not-literal`, `integer-narrowing`, `invoke-non-loom-extension`, the four `system-interp-*` codes, …) plus the field-contract table's non-code behavioural defaults (`model:` absent → inherit session model; empty/absent `tools:` → empty callable set, no ambient inheritance; `params:` absent → binder does not run). Aside from the single `model-unresolved` row, none of this surface has an explicit closing-leaf trace in the matrix.
-
-The closing gate does not hard-fail on the gap: the code-bearing obligations are reconciled by the separate registry-code↔asserting-test parity arm (`conventions.md` *REQ-ID discipline*), and the behavioural defaults carry no `MUST`/`MUST NOT` token (verified against both pages), so the un-anchored-MUST token scan does not require GOV-22 residue rows for them — they fall to the GOV-15 release-time editorial review. The defect is therefore in the coverage *trace*, not in the leaves (`V6a`–`V6e` already exist and assert the codes): the matrix, which `plan.md` presents as the authoritative spec→plan navigational reference, is inconsistent — every sibling page has a prefix-area row and `frontmatter/` does not, so an auditor cannot confirm from the matrix that the frontmatter code-keyed surface and its table-cell defaults have owning leaves.
-
-## Plan Documents
-
-- `docs/plan_topics/coverage-matrix.md` — §Code-keyed obligation areas (no numbered REQ-IDs) (edited)
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* (code-keyed obligation-area contract) (read-only)
-- `docs/plan_topics/V6a-frontmatter-contract.md` — mapping target (read-only)
-- `docs/plan_topics/V6b-params-defaults.md` — mapping target (read-only)
-- `docs/plan_topics/V6c-tools-set.md` — mapping target (read-only)
-- `docs/plan_topics/V6d-system-interpolation.md` — mapping target (read-only)
-- `docs/plan_topics/V6e-respond-repair-tool-loop.md` — mapping target (read-only)
-
-## Spec Documents
-
-None — the fix is internal to `coverage-matrix.md`. (`docs/spec_topics/frontmatter/frontmatter-fields-a.md` and `frontmatter-fields-b-and-templates.md` are read-only context: they are the obligation source, not edited.)
-
-## Affected Leaves
-
-**Phases:** None
-
-**Leaves (implementation order):**
-
-None — the fix edits only `coverage-matrix.md`; no leaf's `Adds`/`Tests`/`Deps`/`Ships when` changes. `V6a`–`V6e` appear above as read-only mapping targets, not as modified/blocked leaves.
-
-## Consequence
-
-**Severity:** advisory
-
-An auditor relying on the coverage matrix as the spec→plan traceability reference cannot confirm that the `frontmatter/` code-keyed obligations and the field-contract behavioural defaults have owning leaves, because — alone among comparable non-narrative pages — `frontmatter/` has no prefix-area row. Closure is still real (registry↔test parity closes the codes; editorial review backstops the token-less defaults), so nothing ships unimplemented, but the navigational guarantee the matrix advertises is silently incomplete for one page family.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** `c6a664e` ("pi-loom plan: build/update plan for spec.md + review", 2026-06-10)
-**History:** The *Code-keyed obligation areas* table was authored in `c6a664e` with a prefix-area row for every comparable non-narrative page (`lexical.md`/`grammar.md`, `runtime-value-model.md`, `expressions.md`, `query/`, `tool-calls.md`, …) but with no `frontmatter/` (FRNT) row; `FRNT-1` was placed in the *Numbered REQ-IDs* section only (`git show c6a664e:docs/plan_topics/coverage-matrix.md`). A later commit `4088e2e` ("pi-loom plan: resolve \"model/bind_* resolution hooks named in V6a Adds with no closing assertion\"", 2026-06-10) added a single narrow code-keyed row (`frontmatter-fields-a.md §model → V6a`) but did not add the prefix-area row covering the remaining ~30 frontmatter code-keyed obligations or `V6b`–`V6e`. `git log -S "frontmatter/"` / `-S "model-unresolved"` over `coverage-matrix.md` report only `4088e2e`, and the table header traces to `c6a664e`; the prefix-area-row gap has thus existed since the table's inception.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add one prefix-area row to the *Code-keyed obligation areas (no numbered REQ-IDs)* table of `docs/plan_topics/coverage-matrix.md`, parallel to the existing sibling rows (e.g. `lexical.md (LEX)`), mapping the `frontmatter/` page family to its closing leaves:
-
-`| `frontmatter/frontmatter-fields-a.md`, `frontmatter-fields-b-and-templates.md` (FRNT) | `V6a`, `V6b`, `V6c`, `V6d`, `V6e` |`
-
-The existing narrow `frontmatter-fields-a.md §model → V6a` (code-keyed; no numbered REQ-ID) row may stay as a per-code precision entry or be subsumed by the new prefix-area row; either keeps the `model-unresolved` trace intact.
-
-Edge cases for the implementer:
-
-- The three non-code behavioural defaults — `model:` absent → session-model inheritance (`V6a`), empty/absent `tools:` → no ambient inheritance (`V6c`), `params:` absent → binder does not run (`V6b`) — carry no `MUST`/`MUST NOT` token and no diagnostic code, so they are **not** GOV-22 un-anchored-MUST residue and the closing gate's token scan does not act on them. If they are traced at all, add them as plain navigational rows naming their owning leaf; do not label them "GOV-22 residue", which would mischaracterise them as gate-enforced. Tracing them is optional (consistent with the matrix's stated residue posture); the prefix-area row above is the load-bearing fix.
-- The prefix-area row does not change which obligations the H5a/H6a gate enforces (the code arm is registry↔test parity, independent of the matrix); it restores the matrix's navigational completeness only.
-
-## Relationships
-
-- T42 "Binder system-prompt structure obligations have no coverage-matrix closing-leaf row" — same-cluster (sibling missing-row finding on the same table; resolves independently).
-- T41 "V9b / V9c / V9e PIC-area MUSTs are missing from the code-keyed obligation-area table" — same-cluster (sibling missing-row finding on the same table; resolves independently).
 
 ---
 
