@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 32 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 31 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2174,68 +2174,3 @@ Leave the existing manual-gate framing (no mechanical real-host gate; editorial-
 ## Relationships
 
 - T38 "Live-host smoke pass criterion assumes a non-deterministic LLM reproduces a transcript recorded against the in-process double" — same-cluster (same manual-smoke item; concerns the achievability of the pass criterion rather than its record).
-
----
-
-# T32 — H6a release-gate green criterion over-claims un-anchored-MUST scan completeness
-
-**Original heading:** Release-gate green criterion over-claims un-anchored-MUST completeness
-**Original section:** Consolidated Plan Review — plan
-**Kind:** overclaim
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H6a`'s first Tests bullet and its `Ships when` gate state that the live-corpus closing gate is green when "every un-anchored normative MUST/MUST-NOT is enumerated with a closing leaf." The mechanism that actually backs this is, per `conventions.md` *REQ-ID discipline* and `H5a`'s gate definition, a **best-effort `MUST`/`MUST NOT`-token text scan** over non-narrative `spec_topics/**` pages. That scan explicitly cannot witness obligations phrased without the literal `MUST`/`MUST NOT` token ("shall", "is required to", lowercase, split-across-table-cell phrasings), cannot distinguish a normative MUST from one inside narrative / an illustrative example / a quoted passage, and only approximates the cross-leaf seam-name exclusion set. `conventions.md` is careful to scope its claim accordingly and routes that residue to the release-time `governance.md` GOV-15 reviewer-inspection step.
-
-`H6a`'s Tests bullet 1 drops that scoping. As written, the gate going green is asserted to establish that *every* un-anchored MUST is enumerated, when it in fact establishes only that every **token-matched** un-anchored MUST is enumerated. The over-claim is isolated to `H6a`: `H5a`'s Adds describes the failure mode accurately, and `H5b`'s canary bullet uses the careful gap-kind phrasing ("an un-enumerated un-anchored MUST"). `H6a`'s `Ships when` carries the same over-reach more mildly by describing "the live `spec_topics/**` normative-MUST set ... reconciled" as if that set were the complete normative-MUST set rather than the token-recognised subset.
-
-## Plan Documents
-
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Tests bullet 1 and `Ships when` (edited)
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* (read-only; authoritative scoped phrasing the fix matches)
-- `docs/plan_topics/H5a-closing-gate-automation.md` — Adds / un-anchored-obligation Tests bullet (read-only; gate-mechanism reference)
-- `docs/plan_topics/H5b-warn-only-canary.md` — canary Tests bullet (read-only; parallel careful phrasing)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal (Release gate)
-
-**Leaves (implementation order):**
-
-- H6a — Live-corpus closing-gate activation (loom 1.0 release gate) — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-A reader who takes `H6a`'s green gate at face value believes the release gate mechanically proves complete un-anchored-MUST coverage, and may treat the GOV-15 reviewer-inspection backstop as redundant or skip it — exactly the residue (token-less / narrative-ambiguous / seam-name-dependent obligations) the gate cannot catch then ships unenumerated. The gate machinery itself is sound; only the leaf's stated green criterion over-reaches.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** 5353dd7 — pi-loom plan: resolve "Release-gate activation has no owning leaf" (2026-06-10, Thomas Andersen)
-**History:** `docs/plan_topics/H6a-live-corpus-activation.md` was created in `5353dd7`, and `git log -S 'every un-anchored normative MUST'` localises the over-claiming phrasing to that same first commit with no later edit. The leaf's green criterion has asserted unqualified un-anchored-MUST completeness since the leaf entered the corpus; the four subsequent commits touching the file (citing-test mode, rollback, real-host fidelity, transitive-completeness) never revised the bullet.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H6a-live-corpus-activation.md`, soften the over-claiming clause so the stated green criterion matches the best-effort token-scan mechanism and names the GOV-15 backstop inline:
-
-- **Tests bullet 1** — replace the trailing clause "and every un-anchored normative MUST/MUST-NOT is enumerated with a closing leaf." with a clause scoped to the recogniser, e.g.: "and every un-anchored normative MUST/MUST-NOT that the best-effort `MUST`/`MUST NOT`-token scan recognises is enumerated with a closing leaf; token-less, narrative-ambiguous, or seam-name-dependent residue is covered by the [`governance.md` GOV-15](../spec_topics/governance/source-language-stability.md#gov-15) reviewer-inspection step, not this gate."
-- **`Ships when`** — qualify "the live `spec_topics/**` normative-MUST set" as the **token-recognised** normative-MUST set (or append the same GOV-15-residue note) so the gate criterion does not imply reconciliation of the complete normative-MUST set.
-
-Match the wording already used in `conventions.md` *REQ-ID discipline* rather than inventing new phrasing. The REQ-ID and citing-test arms of the bullet are sound — leave them unchanged. Optionally mirror the scoped phrasing in `H5b`'s `Ships when` for cross-leaf consistency, but that leaf's Tests bullet already uses the careful gap-kind form, so it is not required.
-
-## Relationships
-
-- T33 "Un-anchored-MUST recogniser — the seam-name exclusion arm has no defined mechanical input" — same-cluster (both about limits of the same best-effort MUST-token scan; independent edits to H5a vs H6a).
