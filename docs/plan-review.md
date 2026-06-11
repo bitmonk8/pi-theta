@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 26 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 25 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1662,71 +1662,6 @@ In H1a's Adds, name the three packages — `eslint`, `@typescript-eslint/parser`
 ## Relationships
 
 None
-
----
-
-# T25 — Golden transcript and diagnostics list have no initial-correctness establishment step
-
-**Original heading:** Golden transcript / diagnostics list correctness not established (regression-only gate)
-**Original section:** Consolidated Plan Review — plan
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H7a`'s first two Tests bullets, and its `Ships when`, assert equality of the integrated run's output against a *committed golden transcript* and a *committed golden diagnostics list* checked in alongside the fixture `.loom`. Nothing in `H7a` — or in any leaf it cites — states how those goldens are established as correct when first committed. An implementer faced with "the run's appended turns match … the committed golden transcript" will most naturally capture whatever the assembled pipeline emits on its first green run and commit that capture as the golden.
-
-Under that reading the gate only ever proves that future runs match the first run; it cannot detect a defect that was already present when the golden was captured. The leaf's `Adds.` already self-describes the gate as a "cross-slice integration-regression gate," so the regression posture is intentional — but the boundary between *establishing* the goldens (initial correctness) and *defending* them (regression) is left implicit. A golden that encodes a wrong-but-stable first output will pass `H7a` indefinitely.
-
-The fix is a single clarifying obligation in `H7a`: state how the golden transcript and golden diagnostics list are derived/validated at first commit — human-reviewed against the spec, or assembled from the per-leaf (`Deps`) gates' already-established expected outputs — rather than snapshotted from an unreviewed pipeline run.
-
-## Plan Documents
-
-- `docs/plan_topics/H7a-integration-acceptance.md` — Tests bullets 1–2 / `Ships when` (edited)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H7a — Terminal integration-acceptance run (cross-slice end-to-end gate) — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-If `H7a` ships unfixed, an implementer can satisfy the gate by committing an auto-captured snapshot of the first pipeline run as the "golden," so the gate silently degrades to regression-only and never establishes that the integrated composition is correct to begin with — a buggy-but-stable first output passes the terminal acceptance gate forever. The per-leaf gates still verify each behaviour in isolation, so a working leaf is still producible; the gap is that `H7a`'s authority is weaker than its phrasing implies.
-
-## Issue introduction
-
-**Verdict:** single-commit-introduction
-**Introducing commit:** `39593c3` — "pi-loom plan: resolve \"H7a Tests bullets 1-2 lack a defined referent\"" (2026-06-11)
-**History:** `H7a` was created at `e7e51cc` ("Plan has no terminal end-to-end integration-acceptance leaf", 2026-06-10) with Tests bullets phrased as "the run produces the expected appended turns" / "emits the expected `loom-system-note` diagnostics" — vague referents, but not a committed-snapshot regression gate. `git log -S "golden transcript"` / `-S "golden diagnostics"` over the leaf shows the committed-golden framing was introduced solely at `39593c3`, which rewrote both bullets to assert equality against a "committed golden transcript / golden diagnostics list checked in alongside the fixture." That commit closed the "no defined referent" finding by naming committed goldens as the referent, but in doing so introduced the present gap: it pinned the goldens as the comparison target without adding any step that establishes their initial correctness. The defect is the direct, isolated product of that one edit; it does not predate the golden framing.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H7a-integration-acceptance.md`, add a clarifying statement (a short bullet under `Tests.`, or a sentence in `Adds.`) that fixes how the committed golden transcript and golden diagnostics list are established when first committed, so the gate is not satisfiable by an unreviewed snapshot. The statement must accomplish two things in content:
-
-- Assert that the goldens are *derived / validated*, not snapshotted — either (a) human-reviewed against `docs/spec.md` and the cited spec topics at first commit, or (b) assembled from the expected outputs the per-leaf `Deps` gates (`V5d`, `V8a`, `V11f`, `V13c`, `V14a`, `V16a`, `V17a`) already establish in isolation. Naming option (b) is preferable where the golden turns/codes map cleanly onto already-gated per-leaf behaviours, because it ties each golden element to an existing correctness gate; fall back to (a) for the composed turn ordering that no single leaf gate covers.
-- Make the regression-vs-initial-correctness boundary explicit: state that once established, the goldens act as a regression gate, consistent with the existing `Adds.` "integration-regression gate" framing.
-
-Edge case the implementer must watch: the ceiling-arbitration bullet (Tests bullet 3) already asserts an observable invariant against `CIO-5` order rather than against an opaque golden, so it needs no establishment note; the new obligation applies only to the transcript and diagnostics-list goldens.
-
-## Relationships
-
-- T38 "Live-host smoke pass criterion assumes a non-deterministic LLM reproduces a transcript recorded against the in-process double" — decision-dependency (how the H7a goldens are derived constrains what the H6a live-host smoke can validly compare against).
-- T39 "H6a consumes H7a's golden artifacts but no dependency edge orders H7a before H6a" — same-cluster (H7a golden artifacts/ordering; resolves independently).
 
 ---
 
