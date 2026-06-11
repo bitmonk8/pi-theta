@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T56) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 38 medium retained (39 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
+_Triage tally: 0 blocker, 1 high, 37 medium retained (38 findings); ~88 low discarded; 4 low findings merged into 2 medium findings; ~35 NIT dropped; 14 false dropped (upstream)._
 
 ---
 
@@ -2545,75 +2545,6 @@ The three-entry-point forwarding tests and the abort-injection vectors are drive
 ## Relationships
 
 - T38 "Forwarding-listener throw-trap contract has no asserting test in V17a" — must-precede (the throw-injection test must be driven through H4a's response-programming surface across the three entry points; resolving this Deps gap supplies the wiring that test needs)
-
----
-
-# T38 — Forwarding-listener throw-trap contract has no asserting test in V17a
-
-**Original heading:** Forwarding-listener throw-trap behaviour unasserted
-**Original section:** V17a — Cancellation core
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`cancellation.md` (*Forwarding-listener throw*) defines a behavioural contract for the three steady-state forwarding listeners that `V17a` constructs: a throw from a listener's `loomAbort.abort(source.reason)` call — for the slash-command `ctx.signal`-aborted trigger, the tool-exposed `signal`-aborted trigger, or the `invoke`-parent derived-controller trigger — MUST be trapped at the listener boundary and routed through the runtime-defect surface on the `loom/runtime/internal-error` channel, with the `cause: "internal_error"` arm of `InvokeInfraError` at an `invoke` parent. The same clause states a non-swallow obligation: the trap MUST NOT absorb the cancellation itself, so `source.signal.aborted` is unchanged and the next `Checkpoint`-seam await still surfaces `Err(QueryError { kind: "cancelled" })`.
-
-`V17a` adds all three forwarding listeners (its Adds bullet wires `ctx.signal`, the tool-exposed `signal`, and the parent-`invoke` signal into `loomAbort`), but neither `V17a` nor `V17a-T` carries any test bullet that injects a throw from a forwarding listener and asserts this trap-and-don't-swallow contract. The existing test bullets cover CNCL-1..6, forwarding into `loomAbort`, downward-only propagation, swallowing-handler suppression, checkpoint granularity, and loop-iteration yield — none of which exercises the defect path where the `abort()` invocation itself throws.
-
-The contract is fully specified upstream; this is a plan-side coverage gap against an existing spec rule, not a spec defect.
-
-## Plan Documents
-
-- `docs/plan_topics/V17a-cancellation-core.md` — Tests / Ships when (edited)
-- `docs/plan_topics/V17a-T-cancellation-core.md` — Tests / Ships when (edited)
-- `docs/plan_topics/coverage-matrix.md` — CNCL row block (read-only)
-- `docs/plan_topics/V4b-runtime-panics.md` — Adds / Tests (read-only; owns the `loom/runtime/internal-error` runtime-defect surface the trap routes into)
-- `docs/plan_topics/V15a-invocation-core.md` — Tests (read-only; owns the `InvokeInfraError` variants the invoke-parent arm uses)
-
-## Spec Documents
-
-- `docs/spec_topics/cancellation.md` — *Forwarding-listener throw* (read-only; the governing contract, already complete)
-
-## Affected Leaves
-
-**Phases:** V17 — Cancellation
-
-**Leaves (implementation order):**
-
-- `V17a-T` — Cancellation core (tests) — (modified)
-- `V17a` — Cancellation core — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Without an asserting test, two reasonable implementers diverge on the listener body: one wraps `loomAbort.abort(...)` so a throw routes to `loom/runtime/internal-error` (and the `InvokeInfraError{cause:"internal_error"}` arm at an invoke parent) while leaving the source signal aborted; another lets the throw escape (surfacing as an unhandled rejection) or swallows it together with the cancellation, so the next checkpoint never surfaces `cancelled`. Either divergence ships a `V17a` that does not match the spec's *Forwarding-listener throw* clause, and the `V17a` red→green gate passes without detecting it.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** The `V17a` / `V17a-T` leaves were authored together in c6a664e and have never carried a forwarding-listener throw-trap test in any revision, while the spec's *Forwarding-listener throw* clause predates the plan (present in `cancellation.md` since the 2026-05-08 docs reorganisation, 31ff060). The coverage gap is therefore present in the leaf pair's first commit; later edits (52a6819, 319b277, dc56e9a, 75a9bcd) reshaped other cancellation test bullets but never added this one.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add a test bullet to `V17a-T`'s **Tests** list (mirrored into `V17a`'s **Tests** list) asserting the *Forwarding-listener throw* contract from [`cancellation.md`](../spec_topics/cancellation.md): inject a throw from each of the three steady-state forwarding listeners' `loomAbort.abort(source.reason)` call — the slash-command `ctx.signal`-aborted trigger, the tool-exposed `signal`-aborted trigger, and the `invoke`-parent derived-controller trigger — and assert two facets:
-
-1. the defect routes through the runtime-defect surface on `loom/runtime/internal-error` (and, at an `invoke` parent, surfaces via the `cause: "internal_error"` arm of `InvokeInfraError`);
-2. the trap does not swallow the cancellation: `source.signal.aborted` remains `true` and the next `Checkpoint`-seam await (`V8a`) still surfaces `Err(QueryError { kind: "cancelled" })`.
-
-Drive the injection through the entry-point harness so the throw is raised inside the real listener boundary rather than a bespoke double. Add the matching assertion to `V17a`'s **Ships when** clause (the throw-trap routing and the non-swallow check). Use the spec's canonical "runtime-defect surface" wording for the assertion target rather than coining a name. Edge cases the implementer must watch: the first-source-wins one-shot guard on `loomAbort.abort()` (a throw on a re-entrant second trigger must not re-stamp the reason); and the `session_shutdown` teardown-iteration path, which is governed by its own sub-step-2 swallow rule and is explicitly out of scope for this steady-state trap.
-
-## Relationships
-
-- T37 "`V17a` / `V17a-T` omit `H4a` from Deps despite requiring its harness and response-programming surface" — must-follow (the throw-injection test must be driven through H4a's response-programming surface; resolving the Deps gap supplies the wiring this test needs)
 
 ---
 
