@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T18) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 5 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 4 medium retained; 38 low discarded; 0 low findings merged into 0 medium findings; 13 NIT dropped; 0 false dropped._
 
 ---
 
@@ -283,74 +283,3 @@ In `docs/plan_topics/V16a-ceiling-order-masked.md`, in the **Adds** "Enforcement
 ## Relationships
 
 - T07 "V5e references V4d-owned `ValidationIssue` / `ValidationError` without declaring a `V4d` dependency" — same-cluster (V5e is in the ceiling-consulting set; resolves independently)
-
----
-
-# T05 — Real-host smoke pass criterion (e) names a permitted code set with no committed source
-
-**Original heading:** Real-host smoke pass criterion (e) permitted-code set has no committed artifact
-**Original section:** docs/plan_topics/H4a-factory-shell-and-harness.md
-**Kind:** validation
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H4a`'s third Tests bullet defines the manual real-host smoke run's pass/fail criteria (a)–(e). Criterion (e) passes iff the emitted `loom-system-note` codes are a **subset** of a permitted set defined inline as "the union of `loom/...` codes the slices in `H7a`'s **Deps** can emit". Unlike the two artefacts `H7a` checks in alongside its multi-feature fixture `.loom` — the committed golden transcript and the committed golden diagnostics list — this permitted *union* has no committed, reviewed artefact anywhere in the corpus.
-
-`H7a`'s committed golden diagnostics list enumerates the codes the integrated fixture path **emits** (a fixed, reviewed set). Criterion (e)'s permitted set is deliberately broader: the union of every code each of the eight slices in `H7a`'s Deps (`H4a`, `V5d`, `V8a`, `V11f`, `V13c`, `V14a`, `V16a`, `V17a`) *can* emit, so that a benign live-model variant code (permitted by the composition but not present in the deterministic double's golden run) is not scored as a fail. Because that union is never materialised as a committed list, the human running the smoke must reconstruct it by hand from the eight slices on every run.
-
-A by-hand reconstruction is not reproducible: two runners can derive different unions, so the same emitted code can be scored "permitted" by one runner and "out-of-set" (a fail / confirmed behavioural-divergence finding) by another. Criterion (e) — the only criterion that detects an unexpected emitted code — therefore lacks a fixed reference set, and `H6a`'s release-gate evidence record (which records the run's result "against `H4a`'s narrowed model-output-invariant criterion … and emitted `loom-system-note` codes within the permitted set") inherits the same unmaterialised reference.
-
-## Plan Documents
-
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — Tests, third bullet, pass/fail criterion (e) (edited)
-- `docs/plan_topics/H7a-integration-acceptance.md` — Adds / Tests (committed fixture + golden lists) (option-dependent)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Release-gate acceptance (manual real-host smoke) bullet (read-only)
-- `docs/plan.md` — Release gate (read-only)
-
-## Spec Documents
-
-None — the fix is internal to the plan's leaf files; the permitted set is derived from `loom/...` registry codes the plan's own slices emit.
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H4a` — Extension factory shell and end-to-end harness — (modified)
-- `H7a` — Terminal integration-acceptance run — (modified)
-- `H6a` — Live-corpus closing-gate activation — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Criterion (e) is the only smoke criterion that catches an unexpected emitted diagnostic code, yet its permitted set is reconstructed by hand from eight slices per run. Two runners can compute different permitted unions, so the same emitted code is scored "permitted" by one and a merge-blocking divergence by another — the (e) pass/fail is not reproducible across runners, and the `H6a` release-gate evidence record cites a reference set that does not exist as a committed artefact.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 3911733 — pi-loom plan: resolve "Live-host smoke pass criterion assumes a non-deterministic LLM reproduces a transcript" (2026-06-11, Thomas Andersen)
-**History:** Before this commit, criterion (e) required the live-host run to emit exactly the codes in `H7a`'s committed golden diagnostics list — a committed, reviewed artefact. The 2026-06-11 rewrite, addressing a separate finding that a non-deterministic LLM cannot reproduce an exact transcript/code-set, relaxed (e) to a subset check against "the union of `loom/...` codes the slices in `H7a`'s Deps can emit". That broader union — distinct from the committed golden diagnostics list — was introduced with no committed artefact, leaving the permitted set the runner checks against unmaterialised.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Materialise the permitted union as a committed, reviewed list checked in alongside `H7a`'s fixture `.loom` and golden lists, and have criterion (e) reference it by name. The list enumerates the `loom/...` codes the slices in `H7a`'s Deps can emit; the smoke passes iff the live run's emitted codes are a subset of that committed list. This keeps the subset-of-union semantics (benign live-model code variance remains non-failing) while giving the runner — and `H6a`'s evidence record — a single committed, reviewed reference set.
-
-- In `H7a` Adds/Tests, add the committed permitted-code list to the artefacts checked in alongside the fixture `.loom` (next to the golden transcript and golden diagnostics list), drawn from the same Deps-slice provenance and human-reviewed at first commit like the goldens.
-- In `H4a` criterion (e), reference that committed list as the permitted set rather than describing a by-hand union.
-- In `H6a`'s Release-gate acceptance bullet, cite the same committed list as the source for "emitted `loom-system-note` codes within the permitted set".
-
-Tie the list's maintenance to the same provenance obligation that keeps `H7a`'s golden diagnostics list current. Edge case for the implementer: keep the permitted list a superset of `H7a`'s golden diagnostics list (every code the deterministic run emits is permitted), so the in-process gate and the smoke cannot disagree on a code the fixture path actually emits. The spec is read-only for this fix.
-
-## Relationships
-
-- T06 "Release-gate evidence artifact has no defined committed home or format" — same-cluster (both are committed-artefact gaps in the H4a smoke / H6a release-evidence chain; resolve independently)
-
