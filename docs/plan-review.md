@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 6 high, 35 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2881,70 +2881,3 @@ Edge cases for the implementer:
 
 - T42 "Binder system-prompt structure obligations have no coverage-matrix closing-leaf row" — same-cluster (also adds a missing closing-leaf row to the same `coverage-matrix.md` table; resolves independently).
 - T05 "`frontmatter/` (FRNT) code-keyed obligations have no prefix-area row in the coverage matrix" — same-cluster (also adds missing rows to the same table; resolves independently).
-
----
-
-# T42 — Binder system-prompt structure obligations have no coverage-matrix closing-leaf row
-
-**Original heading:** Binder system-prompt structure has no closing-leaf row
-**Original section:** Consolidated Plan Review — plan
-**Kind:** implementability
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-`binder/binder-bypass-and-envelope.md` §"System-prompt structure (normative)" pins a block of MUST obligations: the eight numbered structural items (Loom-identity line, Description line, Argument-hint line, Parameters block, User-arguments line, Session-context block, Envelope-kinds enumeration, No-invent-defaults instruction), the *Type display* reference-rendering table, the *Default-literal rendering* rule, and the *Parameter-line reference renderings* table whose rows MUST be reproduced byte-exact. None of these carries a numbered `PREFIX-N` REQ-ID, a `loom/...` registry code, or a named cross-leaf seam, so they are un-anchored normative MUSTs — exactly the GOV-22 residue that `conventions.md` *REQ-ID discipline* requires to appear as a rule-driven row in `coverage-matrix.md`'s *Code-keyed obligation areas* table with a named closing leaf.
-
-The matrix has no such row. Its *Code-keyed obligation areas* table enumerates the sibling binder residue from the same page cluster — `defaulting-system-note-echo.md` §System-note rendering → `V11e` and `determinism-cancellation-failure.md` §Determinism → `V11e` — but the binder system-*prompt* structure obligations are absent. The numbered `BNDR-1/2/3` rows map the envelope discriminator to `V11c`; the system-prompt structure section is a distinct, un-numbered surface and is not covered by those rows.
-
-The leaf that builds this surface is `V11d`, whose `Adds.` claims "the binder system-prompt builder (the eight structured items with type/default renderings)." Because no matrix row maps the §System-prompt structure obligations to any closing leaf, the spec→plan traceability document has no authoritative record that `V11d` (or any leaf) closes them.
-
-## Plan Documents
-
-- `docs/plan_topics/coverage-matrix.md` — *Code-keyed obligation areas* table (edited)
-- `docs/plan_topics/V11d-defaulting-echo.md` — `Adds.` / named closing leaf (read-only)
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* un-anchored-obligation residue rule (read-only)
-- `docs/plan_topics/H5a-closing-gate-automation.md` — un-anchored-MUST scan gate (read-only)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — live-corpus footing activation (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/binder/binder-bypass-and-envelope.md` — §"System-prompt structure (normative)", §Type display, §Default-literal rendering, §Parameter-line reference renderings (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V11)
-
-**Leaves (implementation order):**
-
-- `V11d` — System-prompt builder, defaulting, and echo — (modified)
-
-## Consequence
-
-**Severity:** blocking
-
-On the live-corpus footing that binds at the `H6a` release gate, the `H5a` un-anchored-MUST scan fails on every §System-prompt-structure MUST absent from the *Code-keyed obligation areas* table with a closing leaf; with no row present, the gate reds `main` and `H6a` cannot flip green. Independently, an implementer has no traced obligation to reproduce the pinned per-field line bytes, Type-display renderings, or Default-literal renderings, so the binder system prompt may ship non-conforming without any gate noticing.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** 31ff060 — Move spec, plan, and review docs into docs/ (2026-05-08, Thomas Andersen); 12f7933 — pi-loom plan: resolve "binder system-note/determinism un-anchored coverage rows" (2026-06-10, Thomas Andersen)
-**History:** `git log -S "system-prompt structure" -- docs/plan_topics/coverage-matrix.md` returns no commit, confirming the matrix has never carried a row for these obligations across its entire history (the table existed by the docs/ relocation 31ff060). The §System-prompt structure (normative) MUSTs were progressively made testable in the spec via earlier spec-review commits (e.g. 5a4ec51, 93439f0, 4188412), making them GOV-22 residue requiring a matrix row. Commit 12f7933 was the targeted pass that added the sibling binder residue rows (§System-note rendering → V11e, §Determinism → V11e) but did not enumerate the §System-prompt structure obligations, leaving the gap in place.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add one code-keyed residue row to the *Code-keyed obligation areas* table in `docs/plan_topics/coverage-matrix.md`, in the same style as the existing `binder/...` residue rows added alongside it, mapping `binder/binder-bypass-and-envelope.md` §"System-prompt structure (normative)" — covering the eight structural items, the *Type display* reference renderings, the *Default-literal rendering* rule, and the *Parameter-line reference renderings* — to closing leaf `V11d`, annotated `(un-anchored; GOV-22 residue)`.
-
-The named closing leaf only validly closes the row once `V11d` carries closure evidence for these obligations: its `Tests.` must assert the §System-prompt structure obligations, and its `Spec.` must cite `binder-bypass-and-envelope.md`. Both are tracked as the decision-dependent related findings below; resolve them so the row is non-vacuous. If those resolve to a different closing leaf for any sub-area (e.g. the Session-context block, item 6, whose renderer is owned by `V11b`), split the row's closing-leaf cell accordingly rather than forcing a single leaf.
-
-## Relationships
-
-- T43 "V11d ships the binder system-prompt builder with no test binding its structure" — decision-dependency (the matrix row names `V11d` as closing leaf; that closure is real only once `V11d`'s Tests assert the §System-prompt structure obligations).
-- T44 "V11d / V11d-T `Spec` field omits the normatively cross-linked `binder-bypass-and-envelope.md`" — same-cluster (`V11d`'s `Spec.` must cite `binder-bypass-and-envelope.md` for an implementer to reach these obligations; resolves independently of the matrix row).
-
