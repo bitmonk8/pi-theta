@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 31 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 30 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2112,65 +2112,3 @@ Resolve in order — first establish the static-gates leaf (the scope-bounding h
 - T27 "V18c Ships-when conflates a pre-merge gate and a post-merge smoke..." — same-cluster (also edits `V18c` Ships-when; resolves independently of the split).
 - T26 "Revert path restores the prior pin but never re-asserts the gates return green" — same-cluster (revert-path verification; lands on whichever leaf owns the acceptance gate).
 - T28 "Real-host divergence detectable only by a manual, post-merge smoke" — same-cluster (acceptance-gate detection window; resolves independently).
-
----
-
-# T31 — Manual real-host fidelity gate leaves no falsifiable record
-
-**Original heading:** Manual real-host fidelity rests on a mechanically-unenforced checklist item
-**Original section:** Consolidated Plan Review — plan
-**Kind:** risk
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-loom 1.0's only evidence that the in-process session double matches real Pi behaviour is the H6a "Release-gate acceptance (manual real-host smoke)" item — a manual checklist entry confirming that H4a's manual real-host smoke run (driving H7a's committed multi-feature fixture `.loom` against a live Pi host) was executed and passed against the shipping Pi-SDK pin. By design there is no mechanical real-host fidelity gate; `npm test` exercises only the in-process double, and H4a explicitly frames the double's fidelity as a host-behaviour presupposition audited by editorial review.
-
-H6a states the manual item is "recorded as executed-and-passed" and that "the release does not pass until this item is checked," but the plan does not require the check to leave any committed, falsifiable artifact. "Recorded" currently means only that a contributor asserts the run happened and passed. If a contributor skips the run, mis-records it, or checks the box against a stale Pi-SDK pin, loom 1.0 ships with no real-host verification and a possibly-divergent double, and nothing in the corpus would later contradict the (false) record. The risk is acknowledged by the plan (it states plainly that there is no mechanical gate), but the gate's output is unfalsifiable, which is the gap.
-
-## Plan Documents
-
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Adds / "Release-gate acceptance (manual real-host smoke)" Tests bullet / Ships when (edited)
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — manual real-host smoke pass/fail criterion and trigger policy (read-only)
-- `docs/plan.md` — §Release gate (option-dependent)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H4a — Extension factory shell and end-to-end harness — (read-only)
-- H6a — Live-corpus closing-gate activation (loom 1.0 release gate) — (modified)
-
-## Consequence
-
-**Severity:** advisory
-
-If the manual smoke is skipped or mis-recorded, loom 1.0 ships with zero real-host fidelity evidence despite the release gate reporting "passed," and the failure is silent because the checklist tick is not backed by any committed, inspectable trace. The leaf still builds and the automated gates still fire; what degrades is the trustworthiness of the single release-time real-host assurance.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** 07403da — pi-loom plan: resolve T20 (Branch A) — H4a double fidelity is an editorial-review presupposition, not a real-host backstop; unpark (2026-06-10, Thomas Andersen); 328ba4d — pi-loom plan: resolve "real-host verification gap" (2026-06-10, Thomas Andersen); e7f14dd — pi-loom plan: resolve "Real-host fidelity of the session double has no reproducible detection point" (2026-06-11, Thomas Andersen)
-**History:** 07403da established H4a's stance that the double's fidelity is an editorial-review presupposition with no mechanical real-host fidelity gate. 328ba4d then added the "manual real-host smoke run" as the concrete post-merge detection mechanism in H4a (a revert trigger), still with no release-gate record-keeping. e7f14dd promoted that smoke into the H6a "Release-gate acceptance (manual real-host smoke)" checklist item and made it "the recorded real-host fidelity evidence loom 1.0 ships on" — recorded "as executed-and-passed" but with no committed, falsifiable trace, which is the interaction that leaves the release-time assurance resting on an unenforced check-off.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H6a-live-corpus-activation.md`, strengthen what "recorded as executed-and-passed" obligates in the "Release-gate acceptance (manual real-host smoke)" Tests bullet (and the matching clause in `Ships when`): require that passing the manual smoke produce a committed artifact capturing the falsifiable evidence — at minimum the Pi-SDK pin literal the run was executed against (the single-source-of-truth pin at `host-prerequisites.md#pi-sdk-pin`), the date of the run, and the observed result against H7a's goldens (appended-turn order/count match and the emitted `loom-system-note` code set). The release gate then passes only when that committed evidence record exists, not merely when a box is ticked, so a skipped or stale run is detectable after the fact.
-
-Leave the existing manual-gate framing (no mechanical real-host gate; editorial-review presupposition) intact — the fix adds a durable trace to the manual gate, it does not convert the gate to a mechanical one. The smoke procedure and pass/fail criterion in H4a stay read-only; only the H6a record-keeping obligation changes.
-
-## Relationships
-
-- T38 "Live-host smoke pass criterion assumes a non-deterministic LLM reproduces a transcript recorded against the in-process double" — same-cluster (same manual-smoke item; concerns the achievability of the pass criterion rather than its record).
