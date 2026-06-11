@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T44) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 0 high, 5 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 0 high, 4 medium retained; 39 low discarded; 0 low findings merged into 0 medium findings; 16 NIT dropped; 0 false dropped._
 
 ---
 
@@ -199,76 +199,6 @@ Edge case: the leaf's parenthetical note also reads "(`V1a`–`V18c`)" as descri
 
 - T04 "Transitive-completeness rule's trigger is broader than H5b's coverage-producing dependency set" — same-cluster (touches `H5b`'s `Deps`/coverage-producing set; resolves independently of the notation fix).
 - T39 "H6a consumes H7a's golden artifacts but no dependency edge orders H7a before H6a" — same-cluster (cites `H5b`'s `Deps` list).
-
----
-
-# T04 — Transitive-completeness rule's trigger is broader than H5b's coverage-producing dependency set
-
-**Original heading:** Transitive-completeness rule vs H5b's declared/scoped set disagree on H7a
-**Original section:** Consolidated Plan Review — plan
-**Kind:** consistency
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-The *Transitive-completeness plan-maintenance* rule in `conventions.md` (under *REQ-ID discipline*) names three triggers for forcing a new leaf into `H5b`'s `Deps.`: a leaf that can introduce "an executable REQ-ID, a numbered-REQ-ID citing test, or an un-anchored normative MUST." The second trigger is phrased without qualification — any leaf carrying a test that cites a numbered `PREFIX-N` REQ-ID literally satisfies it.
-
-`H7a`'s third **Tests** bullet drives a co-occurring ceiling breach and asserts arbitration "in `CIO-5` order," citing the numbered REQ-ID `CIO-5` inline. By the rule's literal text, `H7a` therefore MUST appear in `H5b`'s `Deps.` — yet it does not, and `H5b`'s own note scopes the dependency set to "every MVP and vertical implementation leaf (`V1a`–`V18c`)," which excludes horizontal `H7a` by construction. The rule (literal trigger) and the declared/scoped set (the `V1a`–`V18c` note) disagree about whether a leaf that merely *re-cites* an already-mapped REQ-ID belongs in the canary's coverage-producing set.
-
-The note's exclusion is the substantively correct one: `H7a` "closes no new spec REQ-ID" (its own `Adds.`), and `CIO-1 … CIO-6` close in `V16a` per `coverage-matrix.md`. `V16a` is already inside the `V1a`–`V18c` range, so the warn-only canary — sequenced after `V16a` — already reconciles `CIO-5`'s closing citing test. `H7a`'s re-citation contributes nothing the canary depends on. The defect is the rule's trigger phrasing being broader than the canary's actual purpose (coverage-*producing* leaves), so the normative rule text and the scoped set contradict each other on a leaf the plan currently handles correctly.
-
-## Plan Documents
-
-- `docs/plan_topics/conventions.md` — *REQ-ID discipline* → *Transitive-completeness plan-maintenance* (edited)
-- `docs/plan_topics/H5b-warn-only-canary.md` — `Deps.` and the coverage-producing-set note (read-only)
-- `docs/plan_topics/H7a-integration-acceptance.md` — third **Tests** bullet (the `CIO-5` citing test) (read-only)
-- `docs/plan_topics/V16a-ceiling-order-masked.md` — closing leaf for `CIO-1 … CIO-6` (read-only)
-- `docs/plan_topics/coverage-matrix.md` — `CIO-1 … CIO-6 → V16a` mapping (read-only)
-- `docs/plan.md` — Release gate section prose (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal, Release gate
-
-**Leaves (implementation order):**
-
-- `H7a` — Terminal integration-acceptance run (cross-slice end-to-end gate) — read-only context under the narrow-rule fix
-- `H5b` — Warn-only live-corpus canary (pre-activation pre-flight) — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The *Transitive-completeness plan-maintenance* rule is the standing maintenance contract that keeps the warn-only canary and the `H6a` release gate sequenced after every coverage-producing leaf. With the rule's second trigger broader than the `V1a`–`V18c` note, two reasonable maintainers diverge: one follows the literal trigger and adds re-citing horizontal leaves like `H7a` to `H5b`'s `Deps.`; one follows the coverage-producing scoping and omits them. The plan's current `Deps.` is correct, but the contract that governs future edits is self-contradictory, so the canary's "transitive completeness" guarantee rests on a membership criterion that is read two different ways.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** ea6b1da — pi-loom plan: resolve "Live-corpus gate activation has no documented rollback" (2026-06-11, Thomas Andersen); 37733fd — pi-loom plan: resolve "H6a transitive-completeness rule parked in Deps, not conventions" (2026-06-11, Thomas Andersen)
-**History:** Commit ea6b1da created `H5b` with the coverage-producing-set note scoping the dependency set to MVP/vertical implementation leaves (`V1a`–`V18c`). Commit 37733fd later moved the *Transitive-completeness plan-maintenance* rule into `conventions.md`, phrasing its second trigger as the unqualified "a numbered-REQ-ID citing test" rather than the coverage-producing/closing citing test. The two land in disagreement: the rule's literal trigger admits `H7a`'s pre-existing `CIO-5` re-citing test (added 2026-06-10 in b73a11a), which the `H5b` note's coverage-producing scoping excludes.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Narrow the rule's second trigger to the coverage-producing/closing citing test. In `conventions.md` *Transitive-completeness plan-maintenance*, qualify the second trigger so it fires only for the citing test that *closes* a `coverage-matrix.md`-mapped REQ-ID — i.e. the leaf the coverage matrix lists as that REQ-ID's closing leaf — rather than any test that cites a numbered REQ-ID. A re-citing test like `H7a`'s `CIO-5` assertion (closed by `V16a`) then does not trigger inclusion.
-
-Edit the `conventions.md` *Transitive-completeness plan-maintenance* sentence's second trigger. The `H5b` note already reads "complete coverage-producing set," so it stays consistent and needs no change. This preserves the plan's current (correct) `Deps.`, aligns the rule with the canary's actual purpose, and adds no redundant dependency.
-
-Keep the three triggers parallel, and ensure the closing-leaf qualifier is grounded in the coverage-matrix mapping so a leaf introducing the *first* citing test for a newly-mapped REQ-ID still triggers inclusion: the qualifier turns on whether the leaf is the REQ-ID's coverage-matrix closing leaf, not on whether the citation is its first occurrence textually.
-
-## Relationships
-
-- T02 "Transitive-completeness plan-maintenance obligation is invisible at the point of leaf authoring" — decision-overlap (both edit the same rule sentence; a wording-narrowing fix here and the discoverability cross-reference there must be reconciled in one edit).
-- T03 "`H5b` `Deps` uses a non-contiguous range" — same-cluster (touches `H5b`'s `Deps.` line; resolves independently).
 
 ---
 
