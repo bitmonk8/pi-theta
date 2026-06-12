@@ -114,6 +114,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V9h` — Session-only degraded state and unknown-reason rule](./plan_topics/V9h-degraded-unknown-reason.md)
 - [`V9i` — Subagent-mode session isolation and lifecycle](./plan_topics/V9i-subagent-isolation.md)
 - [`V9j` — Binder inference call and provider-error mapping](./plan_topics/V9j-binder-inference-provider-mapping.md)
+- [`V9k` — Extension-bootstrap SDK-failure granularity](./plan_topics/V9k-extension-bootstrap-failures.md)
 
 ### V10 — Discovery and settings
 
