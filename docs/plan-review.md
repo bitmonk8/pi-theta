@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 19 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 18 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1249,70 +1249,3 @@ Edge case the implementer must watch: clause (b) governs the live, non-determini
 
 - T16 "Manual real-host smoke does not enumerate its live-host / binder-model / credential prerequisites" — decision-dependency (criterion (b) depends on a resolvable, credentialed binder model; anchoring (b) and enumerating the binder-model precondition are coordinated edits to the same bullet)
 - T17 "Axis (ii) 'single-turn prompt-mode append semantics' is ambiguous" — same-cluster (same `(a)–(e)` live-host smoke pass-criterion block in `H4a`; resolves independently)
-
----
-
-# T19 — H4a's "closed at source" / "cannot merge" smoke guarantee overstates a manual, after-the-fact-auditable mechanism
-
-**Original heading:** Manual smoke "cannot merge"/"closed at source" guarantee is not backed by the named mechanism
-**Original section:** docs/plan_topics/H4a-factory-shell-and-harness.md
-**Kind:** overclaim, validation
-**Importance:** medium
-**Score:** 30
-**MustFix:** true
-
-## Finding
-
-H4a's third `Tests` bullet describes the manual real-host smoke as a "required pre-merge gate" on two triggers and then asserts a hard merge-blocking guarantee: "Because the gate runs before merge, a divergent pin or a divergence-introducing four-axes change **cannot merge**: the undetected-by-CI window between a divergent merge and a human running the smoke is **closed at source**." The named mechanism behind that claim is entirely human discipline — a contributor is obligated to run the smoke and record the result in the triggering commit message. Nothing in H4a, H6a, or `conventions.md` describes a CI hook that observes whether the smoke ran, and the second trigger ("any merge whose diff touches the four fidelity-contract axes") has no mechanical detector that recognises such a diff and demands evidence.
-
-The leaf's own companion text confirms the gap: H6a's Release-gate acceptance says a skipped, mis-recorded, or stale-pin run is "detectable **after the fact** by reading the commit message." That is after-the-fact auditability, not a closed pre-merge window. A contributor who forgets to run the smoke, or who does not recognise that their diff touched one of the four axes, merges with no obstruction; the omission surfaces only when someone later reads the commit history. The "cannot merge" / "closed at source" framing therefore promises a mechanical guarantee the plan does not deliver.
-
-## Plan Documents
-
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — third `Tests` bullet (the "required pre-merge gate" / "closed at source" prose) (edited)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Release-gate acceptance (manual real-host smoke) (read-only — its "detectable after the fact" wording is the mechanism the H4a prose must be reconciled to)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal phases
-
-**Leaves (implementation order):**
-
-- `H4a` — Extension factory shell and end-to-end harness — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A reader who trusts the "closed at source" guarantee will believe divergent merges are mechanically blocked and de-prioritise both running the manual smoke and building any real enforcement, while a reader who reconciles against H6a's "after the fact" wording will conclude only auditability exists — two reasonable contributors diverge on whether the merge window is actually closed. The plan ships an unenforceable promise: a divergent pin or an axes-touching change can land on `main` unblocked, contradicting the leaf's own stated guarantee.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** `15eb44c` — "pi-loom plan: resolve \"real-host divergence pre-merge gate (posture i)\"" (2026-06-11)
-**History:** The plan corpus is git-tracked. `git log -S "closed at source"` and `git log -S "cannot merge"` over `docs/plan_topics/H4a-factory-shell-and-harness.md` each return exactly one commit, `15eb44c`. That commit added the entire "required pre-merge gate" passage to H4a's third `Tests` bullet, including the "Because the gate runs before merge … cannot merge … closed at source" sentence. The defect entered with the posture-i pre-merge-gate resolution: the edit introduced hard merge-blocking framing without a CI mechanism to back it. The companion after-the-fact-auditability language in H6a ("detectable after the fact by reading the commit message") was added separately in `eca63cf` ("resolve \"Manual real-host fidelity gate leaves no falsifiable record\""), which is consistent with the mechanism; the overclaim is localised to the language `15eb44c` introduced in H4a.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H4a-factory-shell-and-harness.md`, in the third `Tests` bullet, strike the sentence:
-
-> Because the gate runs before merge, a divergent pin or a divergence-introducing four-axes change cannot merge: the undetected-by-CI window between a divergent merge and a human running the smoke is closed at source.
-
-Replace it with wording that matches the mechanism actually delivered: the smoke is a required *manual* pre-merge step whose execution is auditable after the fact via the commit-message evidence record (per H6a), and it carries no mechanical guarantee that a skipped run, or a divergence the contributor does not recognise as touching the four axes, is blocked from merging. The new text must state (a) the smoke is a contributor obligation, not a CI-enforced gate, and (b) detection of a skipped/unrecognised run is after-the-fact via the commit message rather than at merge time.
-
-Leave the subsequent "merge blocker" sentence intact: a *confirmed* behavioural-divergence finding from a run that did occur is a genuine blocker; the overclaim is only the implication that every divergent change is mechanically forced through the gate. If a hard pre-merge block is genuinely intended instead, the alternative is to name a real CI trigger that observes smoke execution — but no such trigger exists in the plan today, so the wording softening is the change that makes the leaf truthful.
-
-Edge case the implementer must watch: the second trigger ("touches the four fidelity-contract axes") has no mechanical diff detector, so the softened wording must not reintroduce an implication that trigger recognition is automatic.
-
-## Relationships
-
-- T16 "Manual real-host smoke does not enumerate its prerequisites" — same-cluster (same H4a smoke gate; resolves independently)
-- T15 "H4a bundles three independent units into one leaf" — same-cluster (same leaf; resolves independently)
