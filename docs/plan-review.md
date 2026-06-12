@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 6 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 5 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1843,71 +1843,3 @@ Resolve in this order: first split and gate the degraded-state work into `<new>`
 - T11 "V9h parks a blocking dependency and open-risk note in a non-standard inline Precondition field" — co-resolve (the same split + blocked-leaf annotation + plan.md Blocked Obligations surface removes the misplaced inline block)
 - T10 "V9h cites 'four discriminators' without enumerating them" — same-cluster (touches V9h's snapshot-failure path, which stays in V9h; resolves independently)
 
----
-
-# T26 — V13a asserts the `discarded-query-result` runtime event but omits the V9d channel from its Deps
-
-**Original heading:** Emits `discarded-query-result` runtime event without declaring the event-channel leaf V9d
-**Original section:** docs/plan_topics/V13a-query-render.md
-**Kind:** ordering
-**Importance:** high
-**Score:** 85
-**MustFix:** false
-
-## Finding
-
-`V13a` (Query render and escapes) and its paired tests task `V13a-T` carry a Tests bullet that asserts the `discarded-query-result` diagnostic *and its runtime event* fire: "Each loom type stringifies per the table; `interpolated-result` and `discarded-query-result` (with its runtime event) fire." The runtime event for a discarded query result is a group-A `details: { event: RuntimeEvent }` emission on the `loom-system-note` channel, carrying the `discard_site` field — exactly the machinery (the `RuntimeEvent` payload shape, the always-log group-A routing, and the `loom-system-note` delivery surface) defined by `V9d` (Runtime-event channel and `masked` co-fire). This channel is distinct from the V7a diagnostics channel.
-
-`V13a`'s declared Deps are `V13a-T, V11d, V2c, V4d`; `V13a-T`'s are `V11d, V2c, V4d`. `V9d` appears in neither, and is not reachable transitively: `V11d` deps `V11a/V2a/V2d/V5d/V8a`, `V2c` deps `V2a/V5d`, and `V4d` deps `V5d` — none of which reach `V9d` (the only leaf depending on `V9d` in the corpus is `V16a`). The runtime-event channel `V9d` builds is therefore not guaranteed to exist when `V13a`/`V13a-T` are picked.
-
-Because the plan's build order is dep-driven and slice numbering is explicitly editorial ("sequence by **Deps**, not slice number"), an implementer who picks `V13a` once its declared Deps are green can do so before `V9d` has been built. The `discarded-query-result` runtime-event assertion then has no channel to emit on or observe against.
-
-## Plan Documents
-
-- `docs/plan_topics/V13a-query-render.md` — Deps (edited)
-- `docs/plan_topics/V13a-T-query-render.md` — Deps (edited)
-- `docs/plan_topics/V9d-runtime-event-channel.md` — runtime-event channel definition (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V13 — Query)
-
-**Leaves (implementation order):**
-
-- `V13a-T` — Query render and escapes (tests) — (modified)
-- `V13a` — Query render and escapes — (modified)
-
-## Consequence
-
-**Severity:** blocking
-
-When `V13a`/`V13a-T` are picked per their declared Deps (the canonical dep-driven order) before `V9d` is built, the runtime-event channel does not yet exist, so the `discarded-query-result` runtime-event assertion in `V13a-T` cannot be written to fail red for the intended reason and the `V13a` test cannot pass. The leaf pair cannot be completed at the point the build order admits it.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `V13a`'s first commit (c6a664e) already carried both the `discarded-query-result` "(with its runtime event)" Tests bullet and a Deps line that omits V9d (then `V13a-T, V11d, V2c`); the V9d runtime-event-channel leaf was created in that same commit, so the gap is the missing Deps edge rather than a missing target. A later commit a12e8b2 (2026-06-11) edited the same Deps line to add `V4d` while resolving an unrelated missing-dependency finding, but did not add `V9d`, leaving the gap intact.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add `V9d` to the **Deps.** field of both leaves in the pair:
-
-- In `docs/plan_topics/V13a-query-render.md`, extend `**Deps.** \`V13a-T\`, \`V11d\`, \`V2c\`, \`V4d\`` to also list `\`V9d\``.
-- In `docs/plan_topics/V13a-T-query-render.md`, extend `**Deps.** \`V11d\`, \`V2c\`, \`V4d\`` to also list `\`V9d\``.
-
-This is the only correct resolution: the runtime-event channel is genuinely unreachable through `V13a`'s current transitive deps (verified against `V11d`/`V2c`/`V4d`), so the alternative of relying on an existing transitive edge does not apply.
-
-Implementer note: `V9d` already deps `V7a`, so declaring `V9d` also brings the diagnostics primitive into transitive reach — expected, and harmless. The discarded-query event is group-A (`details: { event: RuntimeEvent }`) routed by `V9d`, not a V7a diagnostics-channel emission, so V7a alone would not satisfy the assertion.
-
-## Relationships
-
-- T27 "Depth-walk fast-fail test consumes V5e's depth walk without declaring V5e in Deps" — same-cluster (sibling confirmed cross-shard missing-Deps-edge defect on a different leaf; resolved by an independent Deps edit)
