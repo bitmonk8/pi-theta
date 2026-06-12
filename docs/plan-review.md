@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 1 blocker, 9 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 9 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2133,70 +2133,3 @@ The `peerDependencies` tilde-pin and its `"*"`-vs-tilde deviation rationale in `
 
 - T14 "`ajv-formats` missing from H1a's enumerated runtime-dependency set" — same-cluster (both are H1a manifest-enumeration completeness gaps; resolve independently)
 - T30 "`eslint-plugin-loom-local` in-tree plugin package has no creating leaf" — same-cluster (both name an unstated H1a provisioning precondition; resolve independently)
-
----
-
-# T30 — `eslint-plugin-loom-local` in-tree plugin package has no creating leaf
-
-**Original heading:** `eslint-plugin-loom-local` package skeleton creation is unassigned
-**Original section:** docs/plan_topics/H1a-scaffold-and-toolchain.md
-**Kind:** implementability
-**Importance:** blocker
-**Score:** 200
-**MustFix:** true
-
-## Finding
-
-`H1a`'s **Adds** declares `eslint-plugin-loom-local` as one of loom's own `devDependencies` and states its value "may be a relative / workspace specifier (e.g. `file:./tools/eslint-plugin-loom-local`)" because "the rule lives in loom's own tree." `H1a`'s **Ships when** requires a fresh checkout to run `npm install && npm run build && npm run typecheck && npm test` green with zero production source files.
-
-A `file:` devDependency only resolves during `npm install` if a loadable package — a directory carrying its own resolvable `package.json` plus an entry module — already exists at that path. No leaf states that this in-tree package is created. `H1a`'s Adds enumerates `package.json`, `tsconfig.json`, scripts, and the test runner, but never the `tools/eslint-plugin-loom-local` package. `H2a` (the consumer) builds the `no-broad-catch` rule *body* but does not provision the package the rule lives in. The result is that the artefact whose existence `npm install` depends on is owned by neither the establishing leaf nor the consuming leaf.
-
-The fix is an ownership assignment, not an internal-layout decision: some named leaf must own creation of the minimal loadable plugin package so the `file:` specifier resolves, leaving the rule logic to `H2a`.
-
-## Plan Documents
-
-- `docs/plan_topics/H1a-scaffold-and-toolchain.md` — Adds / Ships when (edited)
-- `docs/plan_topics/H2a-cross-cutting-gates.md` — Adds (option-dependent)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H1a` — Project scaffold and toolchain — (modified)
-- `H2a` — Cross-cutting lint and architectural gates — (option-dependent)
-
-## Consequence
-
-**Severity:** blocking
-
-On a fresh checkout `npm install` fails to resolve the `file:./tools/eslint-plugin-loom-local` devDependency because no package exists at that path, so `H1a`'s **Ships when** (`npm install … green`) can never be observed as written. Every later leaf depends transitively on `H1a`, so the whole plan is gated behind an artefact no field assigns; an `H1a` implementer hits an install failure with no instruction on what to create.
-
-## Issue introduction
-
-**Verdict:** multi-commit-interaction
-**Introducing commits:** 8df334c, fe9d03a
-**History:** `H1a`'s **Ships when** has required `npm install … green` on a fresh checkout since the plan's inception (c6a664e, 2026-06-10). The custom-rule plugin was first provisioned abstractly in 8df334c (2026-06-11, "Lint engine and custom-rule mechanism are consumed but never provisioned"), which added the prose "a local rule module / plugin package must be installable and loadable" — introducing the requirement of an in-tree loadable plugin package without naming any leaf that creates it. fe9d03a (2026-06-11, "Lint-toolchain package identities unspecified") concretised that mechanism as the `eslint-plugin-loom-local` package with the `file:./tools/eslint-plugin-loom-local` workspace specifier, turning the missing in-tree package from an abstract gap into an outright `npm install` resolution failure. No commit between fe9d03a and HEAD assigns skeleton creation to a leaf.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H1a-scaffold-and-toolchain.md`, assign creation of the in-tree plugin package to `H1a`: extend the **Adds** field to state that `H1a` creates the minimal loadable package at the `file:` specifier path (`./tools/eslint-plugin-loom-local`) — a package npm can resolve and ESLint can load with a placeholder/empty rule export — so the `eslint-plugin-loom-local` devDependency resolves during `npm install`, and state that `H2a` populates the `no-broad-catch` rule body. Reinforce the assignment with a Tests/Ships-when clause noting that the green `npm install` on fresh checkout is what witnesses the package resolves (this is implied by the existing Ships-when, but the owned artefact must be named).
-
-`H2a` remains the owner of the rule logic; do not move rule-body provisioning into `H1a`. Pin ownership and the specifier path (both content); leave the package's internal file contents to the implementer.
-
-Edge case the implementer must watch: the architectural test in `H1a` that asserts the `eslint-plugin-loom-local` key is present and accepts a `file:` specifier already exists — it checks the manifest key but does not by itself prove the target package loads; the green `npm install` gate is the actual loadability witness.
-
-## Relationships
-
-- T14 "`ajv-formats` missing from H1a's enumerated dependency set" — same-cluster (same `H1a` Adds dependency enumeration; resolves independently)
-- T29 "Pi SDK is never provisioned into loom's own build-test environment" — same-cluster (both concern H1a dependency provisioning; resolves independently)
-
