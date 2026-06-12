@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 17 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 16 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1120,66 +1120,3 @@ In `H4a`'s third Tests bullet (the manual real-host smoke), state the live-host 
 - T18 "Smoke pass criterion (b) leaves 'structurally-valid binder output' undefined" — decision-dependency (criterion (b) is the criterion that depends on a resolvable, credentialed binder model; anchoring (b) and enumerating the binder-model precondition are coordinated edits to the same bullet)
 - T15 "H4a bundles three independent units into one leaf" — same-cluster (same leaf; resolves independently)
 - T19 "H4a's 'closed at source' / 'cannot merge' smoke guarantee overstates a manual mechanism" — same-cluster (same H4a smoke bullet; concerns the merge-block mechanism rather than the live-host precondition)
-
----
-
-# T17 — Axis (ii) "single-turn prompt-mode append semantics" is ambiguous against the turn-count carve-out in the live-host pass criterion
-
-**Original heading:** Axis (ii) "single-turn prompt-mode append semantics" conflicts with allowed turn-count variance
-**Original section:** docs/plan_topics/H4a-factory-shell-and-harness.md
-**Kind:** clarity
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H4a`'s third Tests bullet defines the live-host smoke run's pass/fail predicate as criteria (a)–(e). Criterion (d) requires "the four session-double fidelity-contract axes — streamed-token order relative to `ctx.waitForIdle()` resolution, **single-turn prompt-mode append semantics**, the `pi.on` cancel-forward subscription, and cancellation propagation — hold". The same paragraph closes by declaring "benign live-model variance in turn **order**, turn **count**, or which permitted codes fire is **not** a fail."
-
-The bare phrase "single-turn prompt-mode append semantics" admits two incompatible readings. Read as a *per-response* invariant — each streamed assistant response is appended as exactly one prompt-mode turn — it is fully compatible with a variable total turn count, since the live model may emit any number of responses. Read as a *total* constraint — the run produces a single prompt-mode turn — it directly contradicts the carve-out that blesses turn-count variance. A smoke-runner scoring criterion (d) cannot tell which the gate means.
-
-Earlier in the same bullet the self-check enumerates the same axis as "(ii) one streamed assistant response appended as a single prompt-mode turn" — the per-response reading. The pass/fail criterion (d) drops that per-response gloss while sitting beside the turn-count carve-out, so the release-blocking predicate is stated more loosely than the contract it scores against. Two reasonable contributors running the gate against a live (non-deterministic) model would diverge on whether a multi-turn run fails (d).
-
-## Plan Documents
-
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — Tests bullet 3, "Pass/fail criterion" list item (d) (edited)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Release-gate acceptance (read-only; inherits H4a's pass criterion by reference)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H4a` — Extension factory shell and end-to-end harness — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Criterion (d) is a release-blocking pass/fail predicate for the manual real-host smoke gate. Under the ambiguous phrasing, one runner reads axis (ii) as per-response and passes a benign multi-turn live run; another reads it as a single-total-turn requirement and fails the same run as a behavioural divergence, triggering the revert / merge-block path. The gate scores inconsistently on the very turn-count variance the paragraph elsewhere declares benign.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 3911733 — pi-loom plan: resolve "Live-host smoke pass criterion assumes a non-deterministic LLM reproduces a transcript" (2026-06-11, Thomas Andersen)
-**History:** Before 3911733 the pass criterion required the live run to match `H7a`'s golden transcript in exact turn order and count, so the bare phrase "single-turn prompt-mode append semantics" stood beside no turn-count concession and was unambiguous in context. Commit 3911733 reframed the criterion for a non-deterministic LLM, simultaneously introducing the (a)–(e) list (whose item (d) re-uses the bare phrase without the per-response gloss the self-check item (ii) carries) and the closing "benign live-model variance in turn … count … is not a fail" carve-out. Those two edits in the same commit created the present ambiguity.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H4a-factory-shell-and-harness.md`, third Tests bullet, within the "Pass/fail criterion" sentence, edit criterion (d)'s axis enumeration so axis (ii) carries the per-response gloss the self-check already uses. Strike `single-turn prompt-mode append semantics` from the criterion-(d) axis list and replace it with text asserting the per-response invariant explicitly — e.g. `each streamed assistant response is appended as exactly one prompt-mode turn (a per-response invariant, independent of total turn count)`. This makes (d) consistent with the self-check's axis (ii) phrasing ("one streamed assistant response appended as a single prompt-mode turn") and reconciles it with the trailing carve-out that turn-count variance is benign: a run may produce any number of turns, but each streamed response must map to exactly one prompt-mode turn.
-
-Edge case for the implementer: the same bare phrase `single-turn prompt-mode append semantics` appears twice more in the bullet — in the contract definition (`**Adds.**` paragraph) and in trigger (2)'s "touches the four fidelity-contract axes" enumeration. Those are axis *labels*, not the scored predicate, so they may stay as short labels; only criterion (d)'s use is the scored predicate that needs the per-response gloss. Keep the label and the predicate semantically aligned.
-
-## Relationships
-
-- T18 "Smoke pass criterion (b) leaves 'structurally-valid binder output' undefined" — same-cluster (another under-specified item in the same H4a (a)–(e) pass/fail list; resolves independently)
-
