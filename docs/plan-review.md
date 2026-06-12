@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 7 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 6 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1911,73 +1911,3 @@ Implementer note: `V9d` already deps `V7a`, so declaring `V9d` also brings the d
 ## Relationships
 
 - T27 "Depth-walk fast-fail test consumes V5e's depth walk without declaring V5e in Deps" — same-cluster (sibling confirmed cross-shard missing-Deps-edge defect on a different leaf; resolved by an independent Deps edit)
-
----
-
-# T27 — Depth-walk fast-fail test consumes V5e's depth walk without declaring V5e in Deps
-
-**Original heading:** Depth-walk fast-fail has an undeclared dependency on V5e
-**Original section:** docs/plan_topics/V11f-binder-retry-taxonomy.md
-**Kind:** ordering
-**Importance:** high
-**Score:** 85
-**MustFix:** false
-
-## Finding
-
-`V11f`'s "Depth-walk fast-fail `<ajv-summary>` rendering" test bullet asserts that a binder `kind:"ok"` envelope whose `args` trip the depth-walk fast-fail at the `params` boundary renders the *AJV validation of the binder's `args` failed* row with `<ajv-summary>` equal to the **single canonical depth-walk `ValidationIssue`** (`schema_keyword:"maxDepth"`, message `"JSON document depth exceeds 5"`). That `ValidationIssue` and its `maxDepth` rendering are owned by `V5e` (JSON document depth enforcement, hard ceiling #4) — the test explicitly requires the summary to be synthesised from the depth-walk issue rather than from an AJV `errorsText` traversal, so the depth-walk machinery from `V5e` must exist before the test can be written or pass.
-
-`V11f`'s Deps are `V11f-T, V11e, V9j, V16a, V17a`, and the paired tests leaf `V11f-T`'s Deps are `V11e, V9j, V16a, V17a`. Neither lists `V5e`, and `V5e` is not transitively reachable from either Deps set (the transitive closure of `V11f`'s Deps reaches `V5d` — V5e's own dependency — but never `V5e` itself). The sibling leaf `V13c`, which exercises the same `maxDepth` depth-walk path for the typed-query response surface, correctly declares `V5e` in its Deps, confirming `V5e` is the canonical source for this behaviour and that the omission in the `V11f` pair is the anomaly.
-
-Under the plan's Deps-driven pick rule (How-to-use step 3: "Pick the next leaf whose **Deps** are satisfied"), an implementer could legitimately pick up `V11f-T` / `V11f` with `V5e` unbuilt, at which point the depth-walk fast-fail test cannot be written against a non-existent canonical `ValidationIssue`, nor can it pass.
-
-## Plan Documents
-
-- `docs/plan_topics/V11f-binder-retry-taxonomy.md` — Deps field (edited)
-- `docs/plan_topics/V11f-T-binder-retry-taxonomy.md` — Deps field (edited)
-- `docs/plan_topics/V5e-depth-enforcement.md` — Adds / Tests (read-only) — confirms the canonical `maxDepth` `ValidationIssue` ownership
-- `docs/plan_topics/V13c-query-tool-loop.md` — Deps field (read-only) — sibling precedent that correctly declares `V5e`
-- `docs/plan.md` — How-to-use Deps-driven pick rule (read-only)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Vertical slice V11
-
-**Leaves (implementation order):**
-
-- `V11f-T` — Binder cancellation, per-class retry budget, and failure taxonomy (tests) — (modified)
-- `V11f` — Binder cancellation, per-class retry budget, and failure taxonomy — (modified)
-
-## Consequence
-
-**Severity:** blocking
-
-If `V11f-T` / `V11f` is picked when its declared Deps are green, `V5e`'s depth walk may be unbuilt, so the depth-walk fast-fail test has no canonical `maxDepth` `ValidationIssue` to synthesise its `<ajv-summary>` from — the test cannot be written for the intended reason and cannot pass. The Deps DAG therefore admits a build order in which an acceptance gate is unsatisfiable.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 62d0251 — pi-loom plan: resolve "AJV-on-args depth-walk fast-fail ajv-summary has no asserting test" (2026-06-11, Thomas Andersen)
-**History:** `V11f` and `V11f-T` were created at c6a664e (2026-06-10) with Deps `V11f-T, V11e, V9j, V16a, V17a` (and `V11e, V9j, V16a, V17a` respectively); at that point neither leaf consumed `V5e`. Commit 62d0251 (2026-06-11) added the "Depth-walk fast-fail `<ajv-summary>` rendering" test bullet to both leaves — which consumes `V5e`'s canonical depth-walk `ValidationIssue` (`schema_keyword:"maxDepth"`) — but did not add `V5e` to either leaf's Deps, introducing the undeclared dependency.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add `V5e` to the **Deps** field of both `docs/plan_topics/V11f-binder-retry-taxonomy.md` and `docs/plan_topics/V11f-T-binder-retry-taxonomy.md`.
-
-- In `V11f-binder-retry-taxonomy.md`, change the Deps line from ``**Deps.** `V11f-T`, `V11e`, `V9j`, `V16a`, `V17a` `` so it also includes `` `V5e` ``.
-- In `V11f-T-binder-retry-taxonomy.md`, change the Deps line from ``**Deps.** `V11e`, `V9j`, `V16a`, `V17a` `` so it also includes `` `V5e` ``.
-
-This mirrors the existing, correct declaration in `V13c` (``**Deps.** `V13c-T`, `V13b`, `V9c`, `V16a`, `V5e`, `V8a` ``). No spec edit is required — `V5e` already owns and defines the canonical depth-walk `ValidationIssue` the test consumes; the gap is purely the missing Deps edge.
-
-## Relationships
-
-- T26 "V13a asserts the `discarded-query-result` runtime event but omits the V9d channel from its Deps" — same-cluster (sibling missing-Deps-edge defect on a different leaf; resolved by an independent Deps edit)
-
