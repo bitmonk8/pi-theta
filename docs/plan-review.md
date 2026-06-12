@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 13 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 12 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -832,70 +832,3 @@ In `H5a`'s `Adds.`, in the transitive-completeness arm sentence, change the sing
 
 - T13 "H5a transitive-completeness arm illustrates range expansion with an unexpandable cross-group range" — same-cluster (same transitive-completeness-arm sentence in `H5a`'s `Adds.`; resolves independently)
 - T20 "Systemic leaf over-bundling across the leaf corpus" — decision-dependency (a split of `H5a` would relocate the transitive-completeness arm carrying this example)
-
----
-
-# T13 — H5a transitive-completeness arm illustrates range expansion with an unexpandable cross-group range
-
-**Original heading:** Cross-group range `V1a–V18d` has no defined expansion order
-**Original section:** docs/plan_topics/H5a-closing-gate-automation.md
-**Kind:** clarity
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-H5a's `Adds.` defines a standing transitive-completeness arm whose mechanism is: "for every closing-leaf cell … the arm requires AT LEAST ONE of the leaf IDs that cell lists to be a member of `H5b`'s `Deps.` after expanding both sides' contiguous ranges (e.g. `V1a–V18d`) and `H5b`'s named singletons (`H5a`, `M`)". The worked example `V1a–V18d` is a **cross-group** range — it spans every vertical slice group from V1 through V18.
-
-There is no defined enumeration for such a range. `plan.md`'s "Vertical slices" intro states slice numbering "is an editorial grouping that only roughly tracks the dependency DAG … it is not a topological order", and `conventions.md` item 3 says slices "are roughly ordered by their dependency DAG … Reorder freely". So the membership and ordering of leaves between `V1a` and `V18d` is not fixed by any rule the plan states; expanding the range requires an implementer to invent a canonical leaf sequence that does not exist.
-
-The ranges actually present in `H5b`'s `Deps.` are all **within-group** (`V1a`–`V1b`, `V2a`–`V2d`, … `V18a`–`V18d`) — each spans a single `<group>` number and varies only the letter suffix, which is well-defined. The arm only ever needs within-group expansion; the cross-group `V1a–V18d` example is illustrative only, but it tells an implementer to build a more general expander than the data requires, and a more general one whose semantics the plan never pins. Two implementers reading this sentence implement different expanders: one restricts to within-group letter-suffix expansion (correct against the real `Deps.`), another attempts whole-range expansion and must guess the leaf order.
-
-## Plan Documents
-
-- `docs/plan_topics/H5a-closing-gate-automation.md` — `Adds.` (transitive-completeness arm) (edited)
-- `docs/plan_topics/H5b-warn-only-canary.md` — `Deps.` (read-only — the expansion target; its ranges are all within-group)
-- `docs/plan.md` — "Vertical slices" intro (read-only — establishes editorial, non-topological slice numbering)
-- `docs/plan_topics/conventions.md` — item 3 + `Leaf format` (`Deps.`) (read-only — range usage and editorial numbering)
-
-## Spec Documents
-
-None
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- `H5a` — REQ-ID / diagnostic-code closing-gate automation — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-The transitive-completeness arm is the mechanism that mechanically backs the coverage closure obligation. Because the example instructs the implementer to expand a range whose enumeration the plan explicitly declares non-canonical, two reasonable implementers produce different expanders — one matching the real within-group `Deps.` data, one guessing a cross-group leaf order — so the same coverage-matrix cell can pass the gate for one and red it for the other.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 08bd641 — pi-loom plan: resolve "H5b coverage Deps completeness has no mechanical backstop" (2026-06-11, Thomas Andersen)
-**History:** The transitive-completeness plan-structural arm was authored into H5a's `Adds.` in this commit, and the cross-group `V1a–V18d` range example was part of the arm's wording from the start. `git log -S 'V1a–V18d'` and `git log -S 'transitive-completeness'` over `H5a-closing-gate-automation.md` each return only `08bd641`, and `git show 08bd641` confirms the example appears in the added paragraph — the ambiguity has been present since the arm was introduced.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/H5a-closing-gate-automation.md`, in the `Adds.` transitive-completeness-arm sentence, replace the cross-group example `V1a–V18d` with a within-group range that actually occurs in `H5b`'s `Deps.` (for example `V2a–V2d`), and state that the arm expands only within-group `<group><letter>` ranges — i.e. a range whose two endpoints share the same `<group>` number, enumerated by contiguous letter suffix. This matches the real `H5b` `Deps.` (every range there is within-group) and removes any dependence on a canonical cross-group leaf order, which `plan.md` and `conventions.md` declare does not exist.
-
-Concretely, the clause currently reading "after expanding both sides' contiguous ranges (e.g. `V1a–V18d`) and `H5b`'s named singletons (`H5a`, `M`)" should expand a within-group example and pin the within-group letter-suffix expansion rule, e.g. "after expanding both sides' contiguous within-group `<group><letter>` ranges by letter suffix (e.g. `V2a–V2d` → `V2a, V2b, V2c, V2d`) and `H5b`'s named singletons (`H5a`, `M`)".
-
-Edge case for the implementer: confirm no closing-leaf cell in `coverage-matrix.md` lists a cross-group range on its own side; if one does, it must be rewritten as a comma-separated list or within-group ranges so the symmetric "both sides" expansion stays well-defined.
-
-## Relationships
-
-- T12 "Transitive-completeness arm's named-singleton example `(H5a, M)` omits H1a" — same-cluster (corrects the named-singleton example in the same transitive-completeness-arm sentence; resolves independently of the range example)
-- T20 "Systemic leaf over-bundling across the leaf corpus" — decision-dependency (a split would relocate the transitive-completeness arm; the expansion-order fix applies wherever the arm lives)
