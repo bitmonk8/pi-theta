@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 10 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 9 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -637,67 +637,3 @@ Edge case: the new edge must land on the leaf that does *not* declare (`V10c`→
 ## Relationships
 
 - T20 "Systemic leaf over-bundling across the leaf corpus" — decision-dependency (the V9b split folds the failure-injection seam into a registration sub-leaf; the canonical-home choice must land on whichever sub-leaf declares the interface)
-
----
-
-# T10 — V9h cites "four discriminators" for `pinned-constant-unreadable` without enumerating them — and the count is ambiguous against the spec
-
-**Original heading:** "four discriminators" referenced but not enumerated
-**Original section:** docs/plan_topics/V9h-degraded-unknown-reason.md
-**Kind:** clarity
-**Importance:** medium
-**Score:** 20
-**MustFix:** false
-
-## Finding
-
-`V9h`'s second Tests bullet (mirrored verbatim in the test-companion leaf `V9h-T`) reads: *"A snapshot read failure emits `loom/host/session-shutdown-pinned-constant-unreadable` with its four discriminators."* The phrase "its four discriminators" is neither enumerated in the leaf nor cross-referenced to the spec page that owns the set, so a test author cannot construct the discriminator-coverage assertion from the leaf alone.
-
-The count is also ambiguous — and arguably wrong — against the spec. `pi-integration-contract/unknown-reason-rule.md` pins the `details.failure` discriminator set as a **closed set of three forms**: the two literals `"missing-entry"` and `"literals-shape-invalid"`, plus the `"throw:<String(error)>"` template family (the spec states explicitly: *"the three pinned-constant-unreadable discriminator literals"*). Separately, the same page describes the snapshot-side failure routing as *"four arms"* (two of which both collapse to `"missing-entry"`), and the `"literals-shape-invalid"` discriminator itself fans out into *four* structurally-distinct sub-cases each requiring its own conformance fixture. "Four discriminators" therefore maps to none of these cleanly: a reader cannot tell whether the bullet means the three discriminator literal forms, the four failure-routing arms, or the four `"literals-shape-invalid"` sub-cases.
-
-## Plan Documents
-
-- `docs/plan_topics/V9h-degraded-unknown-reason.md` — Tests bullet 2 (edited)
-- `docs/plan_topics/V9h-T-degraded-unknown-reason.md` — Tests bullet 2 (edited)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/unknown-reason-rule.md` — `details.failure` discriminator set and sub-anchor `#unknown-reason-rule-handler-trycatch` / substring (d) (read-only)
-- `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — `<failure>` carve-out (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical slices (V9 — Extension host integration)
-
-**Leaves (implementation order):**
-
-- `V9h-T` — Session-only degraded state and unknown-reason rule (tests) — (modified)
-- `V9h` — Session-only degraded state and unknown-reason rule — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-A test author implementing `V9h-T` cannot derive the required discriminator-coverage assertions from the leaf: a literal reading of "four discriminators" does not match the spec's three-form `details.failure` set, and two reasonable implementers diverge on whether to assert three discriminator values, four routing arms, or four `"literals-shape-invalid"` sub-case fixtures. The test-registry gate keys on the leaf's Tests bullets, so the imprecise count leaves discriminator coverage unverifiable at the leaf level.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e ("pi-loom plan: build/update plan for spec.md + review", 2026-06-10)
-**History:** The plan corpus is git-tracked. `docs/plan_topics/V9h-degraded-unknown-reason.md` and its test twin `V9h-T-degraded-unknown-reason.md` were both added in c6a664e (the initial plan-build commit; confirmed via `git log --diff-filter=A`). `git log -S "four discriminators"` locates the token's only introduction in that same commit, and the later c6a664e→a70e2a7 edit ("resolve V9h degraded-state branch over unresolved host contradiction") did not touch the discriminators line. The imprecise phrasing has therefore been present since the leaf was authored; no later edit introduced or perturbed it.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `docs/plan_topics/V9h-degraded-unknown-reason.md` Tests bullet 2, strike `with its four discriminators` and replace it with an enumeration cross-referenced to the discriminator set `unknown-reason-rule.md` owns. Concretely, rewrite the bullet to read: *"A snapshot read failure emits `loom/host/session-shutdown-pinned-constant-unreadable` carrying a `details.failure` discriminator from the closed set defined by [`unknown-reason-rule.md`](../spec_topics/pi-integration-contract/unknown-reason-rule.md#unknown-reason-rule-handler-trycatch) — the two literals `"missing-entry"` and `"literals-shape-invalid"`, plus the `"throw:<String(error)>"` template family — with the four `"literals-shape-invalid"` sub-cases each witnessed by their own fixture."* Apply the identical replacement to the mirrored Tests bullet 2 in `docs/plan_topics/V9h-T-degraded-unknown-reason.md` so the two leaves stay in lockstep.
-
-This removes the bare "four" count and pins the acceptance criterion to the spec's authoritative three-form set while preserving the four-fixture obligation the spec attaches to `"literals-shape-invalid"`. The discriminator literals are anchor-stable contract surface (substring (d) of the unknown-reason rule), so cite them exactly as the spec spells them.
-
-## Relationships
-
-- T11 "V9h parks a blocking dependency and open-risk note in a non-standard inline `Precondition` field" — same-cluster (same V9h leaf; resolves independently)
-- T25 "Degraded-state obligations are required green at loom 1.0 over an open spec contradiction" — same-cluster (touches V9h's snapshot-failure path, which stays in V9h; resolves independently)
-
