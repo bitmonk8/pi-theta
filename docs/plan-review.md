@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 8 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 7 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1980,75 +1980,4 @@ This mirrors the existing, correct declaration in `V13c` (``**Deps.** `V13c-T`, 
 ## Relationships
 
 - T26 "V13a asserts the `discarded-query-result` runtime event but omits the V9d channel from its Deps" — same-cluster (sibling missing-Deps-edge defect on a different leaf; resolved by an independent Deps edit)
-
----
-
-# T28 — Prompt→prompt `invoke` snapshot/restore has no failure-path restore assertion
-
-**Original heading:** `setActiveTools` snapshot/restore mutates shared host state with no restore-on-failure assertion
-**Original section:** docs/plan_topics/V15a-invocation-core.md
-**Kind:** risk
-**Importance:** high
-**Score:** 100
-**MustFix:** true
-
-## Finding
-
-`V15a` Adds "the prompt→prompt parent-suspend with the `setActiveTools` snapshot/restore" — the control surface that, around a prompt→prompt `invoke(...)`, snapshots the host's session-scoped active-tool set, swaps in the callee loom's callable set, runs the child body, and restores the snapshot in a `finally`. The spec mandates this restore-on-the-failure-path explicitly: `PIC-17` step 4 places the restore in a `finally` "so cancellation, panic, and provider exceptions all preserve the invariant," and `tool-registration-lifetime.md` names the prompt→prompt cross-mode path as one of the two `setActiveTools` snapshot/restore paths the protocol governs.
-
-`V15a`'s Tests and Ships-when assert only the happy path: the cross-mode-matrix bullet checks "a child uses its own model/tools/system; prompt→prompt suspends the parent." No Test or Ships-when clause asserts that when the child invocation fails, cancels, or throws inside the suspended-parent window, the parent's active-tool set is observably restored to the pre-invoke snapshot. An implementer can satisfy every current `V15a` assertion with a build that installs the callee's tools and never restores them on the inner-failure path, because the only matrix assertion exercises a successful child.
-
-The neighbouring restore protocols do not close this gap. `PIC-8`/`PIC-19` (owned by `V9f`) cover the case where the *restore call itself* throws and the setup-side snapshot/swap-install throws; `PIC-17` (owned by `V9c`) asserts the `finally` restore for a single prompt-mode *query*, and `PIC-2` (also `V9c`) asserts cross-body non-overlap. None of these fires on the specific event this finding names: a prompt→prompt child that fails while the parent is suspended, where the restore must still return the parent to its pre-invoke active set. That outcome belongs to the leaf that owns the parent-suspend snapshot/restore window — `V15a` — and is currently unasserted there.
-
-## Plan Documents
-
-- `docs/plan_topics/V15a-invocation-core.md` — Tests / Ships when (edited)
-- `docs/plan_topics/V15a-T-invocation-core.md` — Tests / Ships when (edited)
-- `docs/plan_topics/V9f-tool-registration-lifetime.md` — `PIC-8`/`PIC-19` restore-failure / install-failure protocols (read-only)
-- `docs/plan_topics/V9c-conversation-drive.md` — `PIC-17` `finally` restore / `PIC-2` cross-body non-overlap (read-only)
-- `docs/plan_topics/coverage-matrix.md` — `INV`/`PIC` → leaf mapping (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md` — `PIC-17` step-4 `finally` restore; `PIC-8`/`PIC-19`; recovery-mutex paragraph (read-only)
-
-## Affected Leaves
-
-**Phases:** Vertical V15
-
-**Leaves (implementation order):**
-
-- `V15a-T` — Invocation core (tests) — (modified)
-- `V15a` — Invocation core — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-If `V15a` ships unfixed, an implementer can build the prompt→prompt parent-suspend without the `finally` restore and every `V15a` test stays green, because the cross-mode-matrix assertion exercises only a successful child. The defect surfaces only after a child invocation fails or cancels: the parent is left bound to the callee loom's callable set, corrupting the active-tool set for every subsequent turn in that session — exactly the invariant `PIC-17`'s `finally` exists to protect.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, Thomas Andersen)
-**History:** `V15a` was created in c6a664e with the prompt→prompt parent-suspend + `setActiveTools` snapshot/restore in **Adds** but only a happy-path cross-mode-matrix test and an `INV-1` containment Ships-when — no failure-path restore assertion ever existed. A later commit, e2d385b (2026-06-11, "resolve V15a omits Pi behavioural preconditions for prompt→prompt snapshot/restore"), deepened the **Spec** citation to name `PIC-8`/`PIC-19` and the recovery-mutex fallback, but added no corresponding Tests/Ships-when restore assertion, so the test gap persisted unchanged from inception.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Add an outcome-level test obligation for the prompt→prompt `invoke` restore path. Place the failing test in `V15a-T`'s **Tests** (the paired red-tests leaf) and the matching mirrored entry in `V15a`'s **Tests**, then extend `V15a`'s **Ships when** to require it.
-
-The new assertion: after a prompt→prompt child invocation that fails, cancels, or throws inside the suspended-parent window, the parent's active-tool set is observably restored to its pre-invoke snapshot (the `PIC-17` step-4 `finally` restore exercised on the `invoke` path, with the inner failure surfaced and not masked). Word it against the observable active-set state (`pi.getActiveTools()` returns the pre-invoke snapshot after the failed child settles), not against an implementation hook.
-
-Edge cases for the implementer:
-
-- This is distinct from the assertions already owned elsewhere — do not duplicate them. `PIC-8`/`PIC-19` (the restore call itself throwing, and the setup-side snapshot/swap-install throwing) stay closed on `V9f`; `PIC-2` cross-body non-overlap stays on `V9c`. The new assertion is the restore-on-inner-failure for the `invoke` path, which no current leaf fires on.
-- Cover the cancel and throw sub-cases of the child failure, since both transit the same `finally`.
-
-## Relationships
-
-- T20 "Systemic leaf over-bundling across the leaf corpus" — decision-dependency (the V15a split proposes peeling the prompt→prompt suspend + snapshot/restore into its own sub-leaf; if the split lands, this restore-test obligation should be authored onto whichever sub-leaf owns the parent-suspend window)
 
