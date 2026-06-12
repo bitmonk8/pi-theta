@@ -12,6 +12,6 @@
 - [defaulting-system-note-echo.md — System-note rendering rule 5 (`ambiguous.candidates` not surfaced)](../spec_topics/binder/defaulting-system-note-echo.md#system-note-rendering) (BNDR area): the `ambiguous` failure row renders only the model's `message` and never surfaces `candidates` in loom 1.0; the envelope-schema retention of `candidates` is asserted by `V11c`'s `BNDR-2`.
 - [determinism-cancellation-failure.md — binder determinism](../spec_topics/binder/determinism-cancellation-failure.md) (BNDR area): the binder seed is derived via FNV-1a so the same inputs produce the same seed; `temperature:0` is set on every call.
 
-**Deps.** `V11d`, `V9j`
+**Deps.** `V11h`, `V9j`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.

@@ -8,6 +8,6 @@
 - A reason outside the closed set (or one whose property access throws) routes through full teardown and emits `loom/host/session-shutdown-reason-unknown` (W).
 - A snapshot read failure emits `loom/host/session-shutdown-pinned-constant-unreadable` with its four discriminators.
 
-**Deps.** `V9h-T`, `V9b`, `V18c`
+**Deps.** `V9h-T`, `V9m`, `V18c`
 
 **Ships when.** `npm test` exercises the closed-set, unknown, and snapshot-failure paths with their codes.

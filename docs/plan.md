@@ -29,6 +29,7 @@ Project scaffold, dependency-injection skeleton, diagnostics primitive, Pi-exten
 - [`H3a` — Dependency-injection seam skeleton](./plan_topics/H3a-di-seam-skeleton.md)
 - [`H4a` — Extension factory shell and end-to-end harness](./plan_topics/H4a-factory-shell-and-harness.md)
 - [`H5a` — REQ-ID / diagnostic-code closing-gate automation](./plan_topics/H5a-closing-gate-automation.md)
+- [`H5c` — `no-broad-catch` allow-list closing-gate reconciliation](./plan_topics/H5c-broad-catch-allow-list-gate.md)
 - [`H7a` — Terminal integration-acceptance run (cross-slice end-to-end gate)](./plan_topics/H7a-integration-acceptance.md)
 
 ---
@@ -64,6 +65,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V3b` — Bindings and mutability](./plan_topics/V3b-bindings.md)
 - [`V3c` — Control flow](./plan_topics/V3c-control-flow.md)
 - [`V3d` — Functions and return](./plan_topics/V3d-functions-and-return.md)
+- [`V3e` — Expression stdlib members](./plan_topics/V3e-expression-stdlib.md)
 
 ### V4 — Errors and results
 
@@ -78,8 +80,9 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V5a` — Schema declarations (object / alias / enum)](./plan_topics/V5a-schema-decls.md)
 - [`V5b` — Discriminated unions, recursion, and cycle detection](./plan_topics/V5b-disc-unions-recursion.md)
 - [`V5c` — Descriptions (`///`)](./plan_topics/V5c-descriptions.md)
-- [`V5d` — Schema-subset gate, lowering, and canonical hash](./plan_topics/V5d-subset-lowering.md)
+- [`V5d` — Schema-subset reject gate](./plan_topics/V5d-subset-lowering.md)
 - [`V5e` — JSON document depth enforcement (hard ceiling #4)](./plan_topics/V5e-depth-enforcement.md)
+- [`V5f` — Schema lowering and canonical hash](./plan_topics/V5f-subset-lowering-hash.md)
 
 ### V6 — Frontmatter
 
@@ -97,15 +100,18 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ### V8 — Pi host seams
 
-- [`V8a` — `Checkpoint` and `SchemaValidator` seams](./plan_topics/V8a-checkpoint-validator-seams.md)
-- [`V8b` — `Clock`, `FileSystem`, `IdSource`, `FileWatcher`, `TokenEstimator` seams](./plan_topics/V8b-clock-fs-id-watch-token-seams.md)
+- [`V8a` — `Checkpoint` seam](./plan_topics/V8a-checkpoint-validator-seams.md)
+- [`V8b` — `FileSystem` seam](./plan_topics/V8b-clock-fs-id-watch-token-seams.md)
+- [`V8c` — `SchemaValidator` seam](./plan_topics/V8c-schema-validator-seam.md)
+- [`V8d` — `Clock` and `IdSource` seams](./plan_topics/V8d-clock-id-seams.md)
+- [`V8e` — `FileWatcher` and `TokenEstimator` seams](./plan_topics/V8e-watch-token-seams.md)
 
 ### V9 — Extension host integration
 
 > **Interleave note.** V9 and V11 are not built as contiguous blocks. `V11a` (Binder-model resolution) depends on `V9b` and is itself a prerequisite of `V9c`/`V9i`/`V9j`, so the seam runs `V9b → V11a → V9c`/`V9i`/`V9j` — `V11a` lands mid-V9, not after all of V9. Separately, `V9h` (and therefore `V9g`) depend on `V18c` — the lightweight static-gates leaf from the `V18` SDK-gate slice (itself needing only `V18a`/`V18b`) — solely for its `session-shutdown-reason-snapshot` brand-string constant; they do **not** wait on the high-dependency runtime-evidence acceptance leaf `V18d`. `V9l` (session-only degraded-state branch) also depends on `V18c`, both for that brand-string constant and because `V18c` owns the clause-(a) resolution that gates it — `V9l` is **blocked** until that resolution lands (see [§Blocked obligations](#blocked-obligations)). Sequence by **Deps**, not slice number.
 
 - [`V9a` — Capability probe (Step 0)](./plan_topics/V9a-capability-probe.md)
-- [`V9b` — Registration steps and drain-state contract](./plan_topics/V9b-registration-drain-state.md)
+- [`V9b` — Registration steps and reload-wiring seams](./plan_topics/V9b-registration-drain-state.md)
 - [`V9c` — Prompt-mode conversation drive and active-set gating](./plan_topics/V9c-conversation-drive.md)
 - [`V9d` — Runtime-event channel and `masked` co-fire](./plan_topics/V9d-runtime-event-channel.md)
 - [`V9e` — `ActiveInvocationRegistry`](./plan_topics/V9e-active-invocation-registry.md)
@@ -116,6 +122,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V9j` — Binder inference call and provider-error mapping](./plan_topics/V9j-binder-inference-provider-mapping.md)
 - [`V9k` — Extension-bootstrap SDK-failure granularity](./plan_topics/V9k-extension-bootstrap-failures.md)
 - [`V9l` — Session-only degraded-state branch](./plan_topics/V9l-session-only-degraded-branch.md) — **blocked** on the host-prerequisites clause (a) resolution (see [§Blocked obligations](#blocked-obligations))
+- [`V9m` — `LoomRegistry` drain-state contract](./plan_topics/V9m-drain-state-contract.md)
 
 ### V10 — Discovery and settings
 
@@ -130,9 +137,11 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V11a` — Binder-model resolution and strict-capability probe](./plan_topics/V11a-binder-model-resolution.md)
 - [`V11b` — Bind context, truncation, and transcript renderer](./plan_topics/V11b-bind-context-transcript.md)
 - [`V11c` — Binder bypass and envelope schema](./plan_topics/V11c-bypass-envelope.md)
-- [`V11d` — System-prompt builder, defaulting, and echo](./plan_topics/V11d-defaulting-echo.md)
+- [`V11d` — Binder system-prompt builder](./plan_topics/V11d-defaulting-echo.md)
 - [`V11e` — Binder system-note rendering and determinism](./plan_topics/V11e-system-note-determinism.md)
 - [`V11f` — Binder cancellation, per-class retry budget, and failure taxonomy](./plan_topics/V11f-binder-retry-taxonomy.md)
+- [`V11g` — Fill-if-absent defaulting and post-merge AJV validation](./plan_topics/V11g-defaulting-revalidation.md)
+- [`V11h` — Argument echo](./plan_topics/V11h-argument-echo.md)
 
 ### V12 — Slash invocation
 
@@ -155,6 +164,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V15a` — Invocation core](./plan_topics/V15a-invocation-core.md)
 - [`V15b` — Invoke depth bound and cycle detection](./plan_topics/V15b-invoke-depth-cycle.md)
 - [`V15c` — Imports (`.warp` library files)](./plan_topics/V15c-imports.md)
+- [`V15d` — Prompt→prompt parent-suspend and `setActiveTools` snapshot/restore](./plan_topics/V15d-prompt-suspend-snapshot.md)
 
 ### V16 — Hard ceilings
 
@@ -163,6 +173,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 ### V17 — Cancellation
 
 - [`V17a` — Cancellation core](./plan_topics/V17a-cancellation-core.md)
+- [`V17b` — Forwarding-listener throw-trap](./plan_topics/V17b-forwarding-listener-throw-trap.md)
 
 ### V18 — Build-time SDK gates
 

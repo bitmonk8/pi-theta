@@ -10,6 +10,6 @@
 - `BNDR-3`: the `needs more info` and `ambiguous arguments` template prefixes stay distinct.
 - The envelope is a relaxed copy (`maxLength:500` as a model budget, not a user cap); the bypass path skips the LLM call.
 
-**Deps.** `V11c-T`, `V5d`, `V8a`
+**Deps.** `V11c-T`, `V5d`, `V5f`, `V8c`
 
 **Ships when.** `npm test` validates the three-arm envelope and the bypass path.

@@ -11,6 +11,6 @@
 - A `params:` entry whose type RHS forward-references a `schema`/`enum` declared *later* in the loom body (e.g. a field typed `Author` whose `schema Author` appears below the frontmatter) resolves and validates correctly.
 - A `params:` named type that resolves to no body declaration fires `loom/parse/unresolved-named-type`.
 
-**Deps.** `V6b-T`, `V6a`, `V5d`, `V8a`
+**Deps.** `V6b-T`, `V6a`, `V5d`, `V5f`, `V8c`
 
 **Ships when.** `npm test` validates `params`, enforces default ordering, rejects non-literal defaults, and resolves forward-referenced named types (firing `loom/parse/unresolved-named-type` when no body declaration matches).

@@ -12,6 +12,6 @@
 - [tool-calls.md — Concurrency](../spec_topics/tool-calls.md#concurrency) (TOOL code-keyed area): a model-driven parallel tool-call batch mixing one succeeding and one failing sibling awaits every call in the batch to settle before the runtime constructs the next user turn, and each sibling's outcome is lowered independently — the failing sibling becomes that `tool_use` block's `isError: true` tool-result fed back alongside the successful siblings' results.
 - Swallowing-handler attachment at this site ([cancellation.md — *Race semantics — swallowing-handler attachment on every abandonable Promise*](../spec_topics/cancellation.md)): assert the underlying `@`-query provider Promise attaches its swallowing handler at the Promise-construction site (before the first microtask boundary), and that a late settlement landed via the `Checkpoint` seam (`V8a`) after the checkpoint has surfaced `cause: "cancelled"` is suppressed along all three side channels — no Node `unhandledRejection`, no second `RuntimeEvent`, and no diagnostic of any severity — so a build that bypasses the substrate reddens this leaf's tests.
 
-**Deps.** `V13c-T`, `V13b`, `V9c`, `V16a`, `V5e`, `V8a`
+**Deps.** `V13c-T`, `V13b`, `V9c`, `V16a`, `V5e`, `V8a`, `V8c`
 
 **Ships when.** `npm test` advances the tool loop, runs the forced-respond branch, asserts the `max_rounds:0` and exhaustion paths, and asserts the `@`-query provider Promise's three-channel swallowing-handler suppression (no `unhandledRejection`, no second `RuntimeEvent`, no diagnostic) at the `Checkpoint` seam (`V8a`).

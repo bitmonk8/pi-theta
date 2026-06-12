@@ -9,6 +9,6 @@
 - `loom/parse/explicit-schema-mismatch`: a `@<Schema>` override whose ascription is not `⊑` the annotation fires (one-directional; skipped when unresolvable) — the four vectors.
 - [schema-subset.md — Lowering Algorithm step 4 (per-query `$defs` pruning)](../spec_topics/schema-subset.md#lowering-algorithm) (SUBS code-keyed area): a typed query's request schema document contains only the `$defs` transitively reachable from its response-schema root; unreachable `$defs` are pruned.
 
-**Deps.** `V13a`, `V2b`, `V5d`
+**Deps.** `V13a`, `V2b`, `V5d`, `V5f`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.

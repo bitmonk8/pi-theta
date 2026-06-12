@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/type-system.md`](../spec_topics/type-system.md), [`../spec_topics/schema-subset.md`](../spec_topics/schema-subset.md).
 
-**Adds.** The structural type-compatibility relation `T₁ ⊑ T₂` with per-site mismatch diagnostics, nominal treatment of named schemas, and a deferral marker for statically-unresolvable operands, consumed by the downstream runtime-validator sites (`V6b`, `V11d`).
+**Adds.** The structural type-compatibility relation `T₁ ⊑ T₂` with per-site mismatch diagnostics, nominal treatment of named schemas, and a deferral marker for statically-unresolvable operands, consumed by the downstream runtime-validator sites (`V6b`, `V11g`).
 
 **Tests.**
 - `TYPE-1`: reflexivity `T ⊑ T` holds.

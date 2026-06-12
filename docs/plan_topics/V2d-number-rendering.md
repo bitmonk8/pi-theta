@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/binder/defaulting-system-note-echo.md`](../spec_topics/binder/defaulting-system-note-echo.md).
 
-**Adds.** The canonical number-rendering pure function shared by the schema canonical-hash recipe (`V5d`) and the binder argument echo (`V11d`): rendering an `integer` value as canonical base-10 (BNDR-4) and a `number` value as shortest round-tripping fixed-point (BNDR-5), with no dependency on the runtime value model or schema declarations.
+**Adds.** The canonical number-rendering pure function shared by the schema canonical-hash recipe (`V5f`) and the binder argument echo (`V11h`): rendering an `integer` value as canonical base-10 (BNDR-4) and a `number` value as shortest round-tripping fixed-point (BNDR-5), with no dependency on the runtime value model or schema declarations.
 
 **Tests.**
 - `BNDR-4`: integer echo is canonical base-10 — no leading zeros/separators/exponent; `-0` renders `0`.

@@ -1,11 +1,12 @@
-# `V8b-T` — `FileSystem` seam (tests)
+# `V8e-T` — `FileWatcher` and `TokenEstimator` seams (tests)
 
 **Spec.** [`../spec_topics/pi-integration-contract/host-interfaces-core.md`](../spec_topics/pi-integration-contract/host-interfaces-core.md), [`../spec_topics/pi-integration-contract/host-interfaces-services.md`](../spec_topics/pi-integration-contract/host-interfaces-services.md).
 
-**Adds.** Failing tests for the paired `V8b` implementation leaf.
+**Adds.** Failing tests for the paired `V8e` implementation leaf.
 
 **Tests.**
-- `PIC-13`: `FileSystem` maps Node `.code` values; `readBytes` returns raw pre-decode bytes (`Uint8Array`) with the same `.code` rejection mapping (`ENOENT`/`EACCES`/`EPERM`) as `readText`; no `src/**` module reads `process.env`/`process.cwd` directly.
+- `PIC-14`: `FileWatcher.watch` returns an `Unsubscribe` and reports the three change kinds.
+- `PIC-16`: `TokenEstimator.estimate` delegates to `estimateTokens` and is per-runtime.
 
 **Deps.** `H3a`
 

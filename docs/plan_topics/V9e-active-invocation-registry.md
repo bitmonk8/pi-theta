@@ -9,6 +9,6 @@
 - [active-invocation-registry.md — `disposeBarrier`](../spec_topics/pi-integration-contract/active-invocation-registry.md) (PIC area): the per-entry `disposeBarrier` `Promise<void>` settles after that entry's `AgentSession.dispose()` returns (subagent mode) / immediately (prompt mode) — a single entry's barrier, not the aggregate settle-all.
 - [active-invocation-registry.md — `invocationId` allocation](../spec_topics/pi-integration-contract/active-invocation-registry.md) (PIC area): `invocationId` is sourced only from `IdSource.newInvocationId()`.
 
-**Deps.** `V9e-T`, `V9b`, `V8b`
+**Deps.** `V9e-T`, `V9b`, `V8d`
 
 **Ships when.** `npm test` proves teardown reaches every in-flight invocation in insertion order via the barrier.

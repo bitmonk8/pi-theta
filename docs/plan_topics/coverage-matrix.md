@@ -22,11 +22,11 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | ERR-19 | `V4d`, `V13c` |
 | BNDR-1, BNDR-2, BNDR-3 | `V11c` |
 | BNDR-4, BNDR-5 | `V2d` |
-| BNDR-6 | `V11d` |
+| BNDR-6 | `V11h` |
 | BNDR-7, BNDR-8, BNDR-9 | `V11b` |
 | DISC-1, DISC-2, DISC-3 | `V10a` |
 | DISC-4 (discovery/collision detection) | `V10a` |
-| DISC-4 (superseded-entry dispatch) | `V9b` |
+| DISC-4 (superseded-entry dispatch) | `V9m` |
 | DISC-5, DISC-6 | `V10b` |
 | DISC-7 | `V10c` |
 | CIO-1 | `V16a`, `V4e`, `V11f` |
@@ -41,8 +41,11 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-7 | `V9g` |
 | PIC-8, PIC-19 | `V9f` |
 | PIC-9, PIC-22 | `V9i` |
-| PIC-10, PIC-11 | `V8a` |
-| PIC-12, PIC-13, PIC-14, PIC-16, PIC-20 | `V8b` |
+| PIC-10 | `V8a` |
+| PIC-11 | `V8c` |
+| PIC-13 | `V8b` |
+| PIC-12, PIC-20 | `V8d` |
+| PIC-14, PIC-16 | `V8e` |
 | PIC-15 | `V18a` |
 | PIC-17, PIC-18 | `V9c` |
 | PIC-21 | `V7a` |
@@ -68,12 +71,12 @@ The same table also enumerates the third closing-gate surface defined in [`conve
 |---|---|
 | `lexical.md` (LEX), `grammar.md` (GRAM) | `V1a`, `V1b`, `V2a` |
 | `runtime-value-model.md` (RVM) | `V2c` |
-| `expressions.md` (EXPR) | `V3a` |
+| `expressions.md` (EXPR) | `V3a`, `V3e` |
 | `bindings.md` (BNDS) | `V3b` |
 | `functions.md` (FN), `return.md` (RET) | `V3d` |
 | `schemas.md` (SCHM) | `V5a`, `V5b` |
 | `descriptions.md` (DESC) | `V5c` |
-| `schema-subset.md` (SUBS) | `V5d`, `V5e` |
+| `schema-subset.md` (SUBS) | `V5d`, `V5e`, `V5f` |
 | `frontmatter/frontmatter-fields-a.md`, `frontmatter-fields-b-and-templates.md` (FRNT) | `V6a`, `V6b`, `V6c`, `V6d`, `V6e` |
 | `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d` |
 | `tool-calls.md` (TOOL) | `V14a`, `V13c` |
@@ -84,7 +87,7 @@ The same table also enumerates the third closing-gate surface defined in [`conve
 | `pi-integration-contract/version-bump-triggers.md` — runtime-evidence acceptance-gate MUST (output (c); a red runtime-evidence run MUST NOT be merged at the candidate pin) (un-anchored; GOV-22 residue) | `V18d` |
 | `pi-integration-contract/audit-resolution.md`, `audit-recognised-shapes.md`, `audit-target-categories.md`, `audit-failures.md`, `audit-wire-and-canary.md`, and the audit-procedure MUSTs on `inventory-audit-intro.md` not closed by `V18a`'s `PIC-15` — the non-exemptible family-(4) out-of-scope-import/access discriminator, the fail-closed non-empty canary, the `audit/<class>/<family>/<symptom>` record grammar, and the `// allow-pi-surface:` marker scope (un-anchored; GOV-22 residue) | `V18b` |
 | `pi-integration-contract/host-prerequisites.md` §`pi-sdk-pin` — `typebox` `"*"` MUST NOT be collapsed into the four-entry tilde-pinned `peerDependencies` group (un-anchored; GOV-22 residue) | `H1a` |
-| `pi-integration-contract/drain-state-contract.md` — `LoomRegistry.readDrainState` closed three-arm dispatch (dispatch / shutting-down note / degraded-needs-reload note), the no-fourth-arm / no-alternative-gating-field prohibition, and the `readDrainState` read-failure fail-safe MUSTs (un-anchored; GOV-22 residue) | `V9b` |
+| `pi-integration-contract/drain-state-contract.md` — `LoomRegistry.readDrainState` closed three-arm dispatch (dispatch / shutting-down note / degraded-needs-reload note), the no-fourth-arm / no-alternative-gating-field prohibition, and the `readDrainState` read-failure fail-safe MUSTs (un-anchored; GOV-22 residue) | `V9m` |
 | `pi-integration-contract/conversation-drive.md` §`untyped-query-ok-extraction` — untyped-query trailing-turn `Ok(string)` extraction MUSTs (final-turn boundary, assistant-text concatenation, downstream of the cancel and `stopReason: "error"` short-circuits) (un-anchored; GOV-22 residue) | `V9c` |
 | `pi-integration-contract/active-invocation-registry.md` — insertion-order iteration and `invocationId`-from-`IdSource.newInvocationId()` MUSTs (un-anchored; GOV-22 residue) | `V9e` |
 | `pi-integration-contract/session-only-degraded-state.md` — the Recovery-path prohibition set (no un-drain / no re-subscribe / no poll / no other self-recovery path until `/reload`), the state-independent drain-state tag write, the *Predicate split* diagnostic-emission-vs-tag-transition rule, the *Seam-minimality* `MUST NOT introduce any handler-scoped state seam` prohibition, and the *Inline triplet is normative* clause (un-anchored; GOV-22 residue) | `V9l` |

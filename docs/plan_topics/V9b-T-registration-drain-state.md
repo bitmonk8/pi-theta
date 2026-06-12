@@ -1,16 +1,13 @@
-# `V9b-T` — Registration steps and drain-state contract (tests)
+# `V9b-T` — Registration steps and reload-wiring seams (tests)
 
-**Spec.** [`../spec_topics/pi-integration-contract/registration-steps.md`](../spec_topics/pi-integration-contract/registration-steps.md), [`../spec_topics/pi-integration-contract/drain-state-contract.md`](../spec_topics/pi-integration-contract/drain-state-contract.md), [`../spec_topics/implementation-notes.md`](../spec_topics/implementation-notes.md).
+**Spec.** [`../spec_topics/pi-integration-contract/registration-steps.md`](../spec_topics/pi-integration-contract/registration-steps.md), [`../spec_topics/implementation-notes.md`](../spec_topics/implementation-notes.md).
 
 **Adds.** Failing tests for the paired `V9b` implementation leaf.
 
 **Tests.**
 - [registration-steps.md — registry swap](../spec_topics/pi-integration-contract/registration-steps.md) (PIC area): looms discovered are registered; the swap is atomic (build-aside, then publish); a failed swap fires `loom/runtime/registry-swap-failed`.
-- [drain-state-contract.md — three-arm dispatch](../spec_topics/pi-integration-contract/drain-state-contract.md) (PIC area): the drain-state three-arm dispatch routes (dispatch / shutting-down / degraded-needs-reload); the predicate `drained === true || tag !== undefined` is idempotent.
-- `loom/host/session-shutdown-runtime-degraded`: a `readDrainState` read-failure fails safe (slash → degraded arm; handler-entry → steady-state full teardown).
 - [implementation-notes.md — Static-resolution load pass](../spec_topics/implementation-notes.md) (IMPL area): the in-process re-parse path drops the per-pass cache entry for the changed file and every transitive `.warp` importer as part of the `LoomRegistry` swap.
-- [drain-state-contract.md — superseded-entry dispatch](../spec_topics/pi-integration-contract/drain-state-contract.md#superseded-entry-dispatch) (PIC area): after a `session_start` supersession pass drops a loom's `LoomRegistry` entry-table entry, a later dispatch of `/<name>` reaches steady-state arm (a), the entry-table lookup misses, and the slash handler returns the fixed `"loom /<name>: superseded; /reload to refresh"` system note rather than dispatching the dropped loom.
 
-**Deps.** `V9a`, `V10a`, `V8b`
+**Deps.** `V9a`, `V10a`, `V8e`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.
