@@ -102,7 +102,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ### V9 — Extension host integration
 
-> **Interleave note.** V9 and V11 are not built as contiguous blocks. `V11a` (Binder-model resolution) depends on `V9b` and is itself a prerequisite of `V9c`/`V9i`/`V9j`, so the seam runs `V9b → V11a → V9c`/`V9i`/`V9j` — `V11a` lands mid-V9, not after all of V9. Separately, `V9h` (and therefore `V9g`) depend on `V18c` — the lightweight static-gates leaf from the `V18` SDK-gate slice (itself needing only `V18a`/`V18b`) — solely for its `session-shutdown-reason-snapshot` brand-string constant; they do **not** wait on the high-dependency runtime-evidence acceptance leaf `V18d`. Sequence by **Deps**, not slice number.
+> **Interleave note.** V9 and V11 are not built as contiguous blocks. `V11a` (Binder-model resolution) depends on `V9b` and is itself a prerequisite of `V9c`/`V9i`/`V9j`, so the seam runs `V9b → V11a → V9c`/`V9i`/`V9j` — `V11a` lands mid-V9, not after all of V9. Separately, `V9h` (and therefore `V9g`) depend on `V18c` — the lightweight static-gates leaf from the `V18` SDK-gate slice (itself needing only `V18a`/`V18b`) — solely for its `session-shutdown-reason-snapshot` brand-string constant; they do **not** wait on the high-dependency runtime-evidence acceptance leaf `V18d`. `V9l` (session-only degraded-state branch) also depends on `V18c`, both for that brand-string constant and because `V18c` owns the clause-(a) resolution that gates it — `V9l` is **blocked** until that resolution lands (see [§Blocked obligations](#blocked-obligations)). Sequence by **Deps**, not slice number.
 
 - [`V9a` — Capability probe (Step 0)](./plan_topics/V9a-capability-probe.md)
 - [`V9b` — Registration steps and drain-state contract](./plan_topics/V9b-registration-drain-state.md)
@@ -111,10 +111,11 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V9e` — `ActiveInvocationRegistry`](./plan_topics/V9e-active-invocation-registry.md)
 - [`V9f` — Tool-registration lifetime and visibility](./plan_topics/V9f-tool-registration-lifetime.md)
 - [`V9g` — Session-shutdown teardown and emission isolation](./plan_topics/V9g-session-shutdown.md)
-- [`V9h` — Session-only degraded state and unknown-reason rule](./plan_topics/V9h-degraded-unknown-reason.md)
+- [`V9h` — Unknown-reason rule](./plan_topics/V9h-degraded-unknown-reason.md)
 - [`V9i` — Subagent-mode session isolation and lifecycle](./plan_topics/V9i-subagent-isolation.md)
 - [`V9j` — Binder inference call and provider-error mapping](./plan_topics/V9j-binder-inference-provider-mapping.md)
 - [`V9k` — Extension-bootstrap SDK-failure granularity](./plan_topics/V9k-extension-bootstrap-failures.md)
+- [`V9l` — Session-only degraded-state branch](./plan_topics/V9l-session-only-degraded-branch.md) — **blocked** on the host-prerequisites clause (a) resolution (see [§Blocked obligations](#blocked-obligations))
 
 ### V10 — Discovery and settings
 
@@ -182,6 +183,12 @@ A warn-only live-corpus canary ([`H5b`](./plan_topics/H5b-warn-only-canary.md)) 
 - [`H6a` — Live-corpus closing-gate activation (loom 1.0 release gate)](./plan_topics/H6a-live-corpus-activation.md)
 
 ---
+
+## Blocked obligations
+
+Leaves whose work rests on an unresolved spec open question. Each is gated by a **Deps** entry on the leaf that owns the deciding resolution, not by leaf prose, and is not pickable until the open question is closed.
+
+- **`V9l` — session-only degraded-state branch** — blocked on the [host-prerequisites clause (a)](./spec_topics/pi-integration-contract/host-prerequisites.md#degraded-state-host-prerequisites) **open contradiction** against Pi's documented teardown-and-rebind extension lifecycle at the loom 1.0 Pi-SDK pin (Pi reloads-and-rebinds the extension for the swapped-in session, so the drained `LoomRegistry` the branch depends on does not survive). The deciding resolution is owned by version-bump editorial-review checklist item (a) ([`version-bump-step2.md#bump-checklist-instance-survival`](./spec_topics/pi-integration-contract/version-bump-step2.md#bump-checklist-instance-survival)), tracked in plan terms by `V18c`'s **Deps** edge. The spec records that the resolution "may find the branch unreachable as written" and require `SM-4`/`SM-5`/`SM-6`/`SM-3b` to be reworked. Pre-designed fallback (in [`V9l`](./plan_topics/V9l-session-only-degraded-branch.md)): if the branch is found unreachable, collapse to full teardown + `/reload` with no degraded tag write. The unknown-reason / closed-set / snapshot-failure obligations are unaffected and stay in `V9h`.
 
 ## Spec coverage
 
