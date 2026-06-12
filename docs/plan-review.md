@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 9 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 8 high, 20 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -2052,84 +2052,3 @@ Edge cases for the implementer:
 
 - T20 "Systemic leaf over-bundling across the leaf corpus" — decision-dependency (the V15a split proposes peeling the prompt→prompt suspend + snapshot/restore into its own sub-leaf; if the split lands, this restore-test obligation should be authored onto whichever sub-leaf owns the parent-suspend window)
 
----
-
-# T29 — Pi SDK is never provisioned into loom's own build-test environment, yet the version-bump gates live-read and import it
-
-**Original heading:** Version-bump/harness leaves presuppose the Pi SDK is installed/resolvable at build-test time
-**Original section:** docs/plan_topics/V18c-version-bump-checklist.md
-**Kind:** assumptions
-**Importance:** high
-**Score:** 90
-**MustFix:** false
-
-## Finding
-
-Several `V18`-phase gates require the four `@earendil-works/*` packages (`pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`) to be resolvable under `node_modules` when `npm test` / `npm run typecheck` run on `main`:
-
-- `V18c`'s `engines.node` three-way equality gate, operand (iii), is "the floor read live at build time from the installed `@earendil-works/pi-coding-agent` `package.json` under `node_modules` at the candidate version" (`version-bump-step2b.md` step 3). This is a module-resolving read of the installed dependency.
-- `V18a`'s `SDK_SURFACE_INVENTORY` presence tests assert "each member is present on the pinned SDK", and `V18b`'s inventory-closure audit ranges over the SDK surface — both require the SDK importable.
-- `V18c`'s strict-capability probe inspects a reachable `Model<Api>` declaration, and the `loom/typecheck/session-shutdown-reason-snapshot` brand-string gate is a `tsc` assertion against `SessionShutdownEvent['reason']` declared at `dist/core/extensions/types.d.ts` in `@earendil-works/pi-coding-agent` — both require the SDK's compiled surface and `.d.ts` present.
-- `V18d`'s runtime-evidence gate (and the `H4a` harness it runs through) loads the extension, which imports SDK types, so the SDK must be resolvable to compile and run.
-
-But `H1a`, the manifest owner, declares those four packages **only** as `peerDependencies`. `peerDependencies` are the consumer-facing contract; npm does not reliably install a package's own declared peers into that package's own `node_modules` during development, and the spec's host-prerequisites contract deliberately relies on `pnpm` (isolated mode) and `yarn` *not* deduplicating peer ranges — the very behaviour that means a peer-only declaration is not guaranteed present in loom's own checkout. No plan or spec text declares the precondition that the pinned Pi SDK is installed/resolvable in loom's own build-test environment, nor names a mechanism (a `devDependencies` / direct-dependency declaration, or an explicit install step) that provisions it. The `H1a` `Ships when` only exercises "zero production source files", so the gap is invisible until `V18a`/`V18b`/`V18c`/`V18d` are implemented and their SDK-reading tests fail to resolve the module.
-
-## Plan Documents
-
-- `docs/plan_topics/H1a-scaffold-and-toolchain.md` — Adds (manifest dependency declaration) + Tests (architectural devDependency assertions) (edited)
-- `docs/plan_topics/V18c-version-bump-checklist.md` — Adds / Tests (gate descriptions that live-read and import the SDK) (option-dependent)
-- `docs/plan_topics/V18a-capability-inventory.md` — Tests (surface-inventory presence assertions) (read-only)
-- `docs/plan_topics/V18b-inventory-audit.md` — inventory-closure audit over `src/` (read-only)
-- `docs/plan_topics/V18d-version-bump-acceptance.md` — runtime-evidence gate via the harness (read-only)
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — harness compiles/imports SDK types (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/implementation-notes.md` — "Loom-package implementation dependencies (loom 1.0)" (option-dependent — natural home if the build-test SDK-provisioning precondition is recorded in the spec rather than only in `H1a`'s manifest)
-- `docs/spec_topics/pi-integration-contract/host-prerequisites.md` — item 1 (Pi SDK pin) / "Loom-package implementation dependencies" (read-only — frames the four packages as the consumer-facing `peerDependencies` host contract; the build-test install precondition is distinct and unaddressed here)
-
-## Affected Leaves
-
-**Phases:** Horizontal, Vertical V18
-
-**Leaves (implementation order):**
-
-- `H1a` — Project scaffold and toolchain — (modified)
-- `H4a` — Extension factory shell and end-to-end harness — (blocked)
-- `V18a` — SDK capability inventory — (blocked)
-- `V18b` — Inventory-closure audit — (blocked)
-- `V18c` — Pi version-bump static gates — (both)
-- `V18d` — Pi version-bump runtime-evidence acceptance gate and revert path — (blocked)
-
-## Consequence
-
-**Severity:** blocking
-
-`V18c`'s `engines.node` operand (iii) live-reads the installed `@earendil-works/pi-coding-agent` `package.json`, and `V18a`/`V18b`'s surface-inventory and the brand-string `tsc` gate import the SDK; with the SDK absent from loom's own `node_modules` these gates error on module resolution rather than producing a meaningful red, so the version-bump procedure's static gates cannot fire correctly. Because the manifest owner (`H1a`) declares the four packages only as `peerDependencies` — which the spec's own skew-detection rationale tells contributors not to expect deduped into the package's own tree — two reasonable implementers diverge (one adds a `devDependencies` declaration, one relies on fragile npm-7 peer auto-install that fails under the `pnpm`/`yarn` setups the spec targets), and CI under those package managers fails to provision the SDK at all.
-
-## Issue introduction
-
-**Verdict:** present-since-inception
-**Introducing commits:** c6a664e — pi-loom plan: build/update plan for spec.md + review (2026-06-10, plan author)
-**History:** The plan corpus is git-tracked (`git rev-parse --is-inside-work-tree` → true). The inception commit c6a664e created `H1a`, `V18a`, `V18b`, and `V18c` together. At that commit `H1a` already declared the four `@earendil-works/*` packages as `peerDependencies` only (`git show c6a664e:docs/plan_topics/H1a-scaffold-and-toolchain.md` shows two `peerDependencies` occurrences, no SDK `devDependencies`), and `V18a`/`V18c` already carried the `SDK_SURFACE_INVENTORY` "present on the pinned SDK" presence requirement (`git log -G "present on the pinned"` resolves only to c6a664e). The `engines.node` operand-(iii) "read live … from the installed `@earendil-works/pi-coding-agent` `package.json`" framing was later sharpened in 1e6ac07 (2026-06-11, "engines.node floor gate described two-way in V18c"), but that commit only made the live-read explicit — the underlying presupposition that the SDK is resolvable under `node_modules` while the manifest declares it peer-only was present from inception. No commit in the history ever introduced an SDK build-test install precondition or a corresponding `devDependencies` declaration.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `H1a`'s **Adds**, declare the four `@earendil-works/*` packages (`pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`) in loom's own `devDependencies`, pinned to the same loom 1.0 Pi-SDK pin range (`host-prerequisites.md#pi-sdk-pin`) the `peerDependencies` entries carry, so a fresh `npm install` provisions them under `node_modules` for the build-test gates. This is additive to — not a replacement for — the existing `peerDependencies` declaration: `peerDependencies` stays the consumer-facing, tilde-pinned skew-detection contract (a consumer installing loom never pulls loom's `devDependencies`), while `devDependencies` provisions loom's own checkout so `V18a`/`V18b`/`V18c`'s surface-inventory and `engines.node` operand-(iii) live-read, the strict-capability probe, the `loom/typecheck/session-shutdown-reason-snapshot` `tsc` gate, and the `V18d`/`H4a` harness all resolve the SDK.
-
-In `H1a`'s **Tests**, add an architectural assertion that reads `package.json#devDependencies` and asserts the four `@earendil-works/*` packages are present at the pinned line, on the same footing as the existing `vitest` and lint-toolchain `devDependencies` assertions, so the provisioning is gated at `H1a` rather than discovered when a downstream `V18` test fails to resolve the module.
-
-Edge cases the implementer must watch:
-- The four `devDependencies` entries must stay lock-stepped to the same Pi-SDK pin literal as the four `peerDependencies` entries. The version-bump procedure's step-4 "joint move" (`version-bump-step2b.md`) and the `peerDependencies` literal-read assertion currently move and check only the four `peerDependencies` entries; they must extend to the four `devDependencies` entries too, otherwise operand (iii)'s live read resolves the stale `devDependency`-installed version rather than the candidate pin and the bump's gates pass against the wrong SDK.
-- If any gate imports `typebox` at test time, the same provisioning consideration applies to `typebox` (declared `"*"` per its own carve-out, not folded into the four-entry tilde-pinned group).
-
-The `peerDependencies` tilde-pin and its `"*"`-vs-tilde deviation rationale in `host-prerequisites.md` are unchanged by this fix; the spec stays read-only unless the precondition is additionally recorded under `implementation-notes.md` §"Loom-package implementation dependencies", where `semver`/`chokidar`/`yaml` provisioning already lives.
-
-## Relationships
-
-- T14 "`ajv-formats` missing from H1a's enumerated runtime-dependency set" — same-cluster (both are H1a manifest-enumeration completeness gaps; resolve independently)
-- T30 "`eslint-plugin-loom-local` in-tree plugin package has no creating leaf" — same-cluster (both name an unstated H1a provisioning precondition; resolve independently)
