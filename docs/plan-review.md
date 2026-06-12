@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 11 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 10 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -701,74 +701,3 @@ This removes the bare "four" count and pins the acceptance criterion to the spec
 - T11 "V9h parks a blocking dependency and open-risk note in a non-standard inline `Precondition` field" — same-cluster (same V9h leaf; resolves independently)
 - T25 "Degraded-state obligations are required green at loom 1.0 over an open spec contradiction" — same-cluster (touches V9h's snapshot-failure path, which stays in V9h; resolves independently)
 
----
-
-# T11 — `V9h` parks a blocking dependency and open-risk note in a non-standard inline `Precondition` field
-
-**Original heading:** Precondition block is misplaced inline normative/decide-later content
-**Original section:** docs/plan_topics/V9h-degraded-unknown-reason.md
-**Kind:** cruft, placement
-**Importance:** medium
-**Score:** 20
-**MustFix:** false
-
-## Finding
-
-`docs/plan_topics/V9h-degraded-unknown-reason.md` carries a `**Precondition — degraded-state branch is gated.**` block between the `**Spec.**` and `**Adds.**` fields. `conventions.md §Leaf format` states every leaf has the same five fields in the same order (Spec/Convention, Adds, Tests, Deps, Ships when), with the blank skeleton in `leaf-template.md`; the `Precondition` block is a sixth, non-standard field.
-
-The block does two things, neither of which belongs inline in the leaf body. First, it asserts a hard **blocking dependency**: the SM-4 / SM-5 / SM-6 / SM-3b degraded-state obligations "MUST be authoritatively resolved … before [they] are implemented", and "the resolution may find the branch unreachable as written and require those obligations to be reworked." That is a sequencing/blocked-leaf constraint expressed as prose rather than as a `Deps.` edge or a structural blocked-leaf signal. Second, it parks a paragraph-length **open-risk / decide-later** note about an unresolved spec contradiction (host-prerequisites clause (a)) — a plan-level scheduling concern.
-
-Both payloads are invisible to anyone reading `docs/plan.md`, which only links the leaf file and has no Blocked Obligations or Open Questions section. A leaf-sequencer reading `Deps.` sees `V9h-T, V9b, V18c` and no signal that the degraded obligations are gated on an unresolved contradiction, while a reader of the leaf body sees a hard precondition — the two readers diverge on whether `V9h`'s degraded arm is pickable.
-
-## Plan Documents
-
-- `docs/plan_topics/V9h-degraded-unknown-reason.md` — leaf body, `Precondition` block between `Spec.` and `Adds.` (edited)
-- `docs/plan.md` — `V9` slice listing / a Blocked Obligations or Open Questions section to surface the plan-level risk (edited)
-- `docs/plan_topics/conventions.md` — `§Leaf format` (defines the five-field format the block violates) (read-only)
-- `docs/plan_topics/leaf-template.md` — canonical field skeleton (read-only)
-
-## Spec Documents
-
-None — the fix is purely internal relocation across plan files. (`host-prerequisites.md#degraded-state-host-prerequisites` and `version-bump-step2.md#bump-checklist-instance-survival` are referenced by the block but not edited; the spec contradiction itself is owned by the related higher-severity finding, not this one.)
-
-## Affected Leaves
-
-**Phases:** Vertical slices — V9
-
-**Leaves (implementation order):**
-
-- `V9h` — Session-only degraded state and unknown-reason rule — (modified)
-
-(`V9g` lists `V9h` in `Deps.` and would inherit any blocked-leaf signal under the co-resolved split below, but the minimal placement fix in isolation does not edit it.)
-
-## Consequence
-
-**Severity:** correctness
-
-The blocking dependency on the unresolved clause-(a) contradiction is expressed only as prose in a non-standard field, so it is absent from `Deps.` and from plan.md. A planner or sequencer reading the plan would treat `V9h`'s degraded arm as pickable while the leaf body says it is gated — two reasonable readers diverge on whether the work can start, and no structural signal stops the degraded obligations from being implemented (and green-gated) ahead of the resolution.
-
-## Issue introduction
-
-**Verdict:** single-commit
-
-**Introducing commit:** `a70e2a7` — "pi-loom plan: resolve \"V9h degraded-state branch over unresolved host contradiction\"" (2026-06-11)
-
-**History:** `docs/plan_topics/V9h-degraded-unknown-reason.md` was created at `c6a664e` (2026-06-10, "pi-loom plan: build/update plan for spec.md + review") with the standard five-field leaf format and no `Precondition` block. Commit `a70e2a7` (2026-06-11) added the `**Precondition — degraded-state branch is gated.**` block (and the `host-prerequisites.md` Spec link) while resolving a prior-review finding about the degraded-state branch resting on an unresolved host-prerequisite contradiction. `git log -S 'Precondition — degraded-state branch is gated'` over `docs/plan_topics/` confirms `a70e2a7` is the sole introducing commit; the misplaced-inline form entered the corpus as the chosen vehicle for that earlier resolution.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-Strike the entire `**Precondition — degraded-state branch is gated.**` block (the paragraph between `**Spec.**` and `**Adds.**`) from `docs/plan_topics/V9h-degraded-unknown-reason.md` so the leaf returns to the five-field format in `conventions.md §Leaf format`. Re-home its two distinct payloads:
-
-- **Blocking relationship** — the SM-4 / SM-5 / SM-6 / SM-3b degraded-state obligations are gated on host-prerequisites clause (a): express this as a structural blocked-leaf signal a sequencer reading leaf metadata / `Deps.` can observe, not as prose in a non-standard field.
-- **Plan-level scheduling/risk** — clause (a) is an open spec contradiction whose resolution may render the branch unreachable as written: surface this in `docs/plan.md` where a planner reading the plan sees it (e.g. a Blocked Obligations / Open Questions entry), since plan.md has no such section today and the concern is currently invisible there.
-
-Keep the authoritative tracking of clause (a) at the version-bump editorial-review checklist item (a) (`version-bump-step2.md#bump-checklist-instance-survival`); do not re-park the tracking obligation in the leaf body. The `host-prerequisites.md#degraded-state-host-prerequisites` link added alongside the block stays in `**Spec.**`.
-
-## Relationships
-
-- T25 "Degraded-state obligations are required green at loom 1.0 over an open spec contradiction" — co-resolve (same `V9h` leaf; its split-into-a-blocked-leaf decision constrains where this finding's blocked-leaf signal and plan-level risk note land, and the same restructuring can co-resolve both — apply that decision first, then land this placement correction on the resulting structure)
-- T10 "V9h cites 'four discriminators' without enumerating them" — same-cluster (same `V9h` leaf; resolves independently)
