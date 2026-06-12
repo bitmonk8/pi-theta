@@ -1029,45 +1029,26 @@ If shipped unfixed, the MVP path (`M-T`/`M`) cannot begin until the entire seven
 
 ## Solution Space
 
-**Shape:** multiple
+**Shape:** single
 
 This is a two-obligation fix: first carve the surface out of `H4a`, then point its consumers at the new leaf. Resolve them in that order so the second obligation lands on a stable baseline.
 
-### Option A — Extract the response-programming surface into a new horizontal leaf
+### Recommendation
 
-**Approach:** Create a new horizontal leaf (placeholder `<new>`; the finding's prose names it `H4b`) that owns the full (a)–(g) response-programming surface. Leave `H4a` with the factory entry point, the basic harness, the in-memory fixture-supply mechanism, and the four-axis session-double fidelity-contract self-check.
+Extract the response-programming surface into a new horizontal leaf, then retarget the surface consumers' `Deps` onto it.
 
-**Plan edits:**
+**First, extract the surface into a new horizontal leaf.** Create a new horizontal leaf (placeholder `<new>`; the finding's prose names it `H4b`) that owns the full (a)–(g) response-programming surface, leaving `H4a` with the factory entry point, the basic harness, the in-memory fixture-supply mechanism, and the four-axis session-double fidelity-contract self-check. This unblocks `M-T`/`M` (which depend on `H4a` alone) once the harness and fixture-supply ship, keeps each leaf reviewable in one pass, and isolates the (f)/(g) modelling to one leaf.
+
 - In `docs/plan_topics/H4a-factory-shell-and-harness.md`: move the `Adds.` response-programming-surface paragraph (categories (a)–(g)) and the fourth `Tests.` bullet (the per-category (a)–(g) functional-effect self-check) into the new leaf's `Adds.`/`Tests.`. Strike the per-category (a)–(g) clause from `H4a`'s `Ships when`, leaving `H4a`'s `Ships when` gating on factory load, no-op command dispatch, and the four-axis fidelity-contract self-check (including its determinism gate).
 - Create `docs/plan_topics/<new>-response-programming-surface.md` from `leaf-template.md`, owning the (a)–(g) surface `Adds.`, the per-category functional-effect `Tests.` bullet, the determinism gate over the scripted inputs, and `Deps. H4a`.
 - Add the new leaf to the Horizontal phases list in `docs/plan.md`, after `H4a`.
 - Per `conventions.md` §REQ-ID discipline (How-to-use step 2), evaluate whether the new leaf must be added to `H5b`'s `Deps`.
 
-**Spec edits:** None.
+**Then, retarget the surface consumers onto the now-stable new leaf.** Add the new leaf ID to the `Deps.` field of every leaf that consumes the (a)–(g) surface, so each scripts against the leaf that actually owns the surface rather than against `H4a`. `V11f`, `V13c`, `V13d`, and `V9i` currently list no dependency on `H4a` at all despite the surface naming them as consumers — they gain the new leaf as their `Deps` entry. `V17a`, `V4c`, and `H7a` currently list `H4a` and gain the surface leaf alongside it, retaining `H4a` because they also use the harness. Check each consumer's actual usage before adding the dep: a consumer that uses only the basic harness (not the (a)–(g) surface) keeps `H4a` and does not gain the surface leaf — `V11f`/`V13c`/`V13d`/`V9i` need only the new leaf, while `V17a`/`V4c`/`H7a` legitimately need both.
 
-**Pros:** `M-T`/`M` depend on `H4a` alone and are unblocked once the harness + fixture-supply ship; each leaf is reviewable in one pass; the (f)/(g) modelling is isolated to one leaf.
-
-**Cons:** Adds a leaf and a new ID-allocation step.
-
-**Risks:** The (f)/(g) categories still forward-model `V4c`/`V9i` contracts; isolating them in `<new>` does not by itself resolve the forward-reference (it can be sequenced after those contracts are pinned, or the modelling explicitly flagged as the harness's own contract).
-
-### Option B — Retarget the surface consumers' `Deps` onto the new leaf
-
-**Approach:** After Option A creates the new leaf, add it to the `Deps` of every leaf that consumes the (a)–(g) surface, so each scripts against the leaf that actually owns the surface rather than against `H4a`.
-
-**Plan edits:** Add the new leaf ID to the `Deps.` field of `V11f`, `V13c`, `V13d`, `V17a`, `V4c`, `V9i`, and `H7a`. `V11f`, `V13c`, `V13d`, and `V9i` currently list no dependency on `H4a` at all despite the surface naming them as consumers — they gain the new leaf as a `Deps` entry; `V17a`, `V4c`, and `H7a` currently list `H4a` and gain the surface leaf alongside it (retaining `H4a` where they also use the harness).
+The (f)/(g) categories still forward-model the `V4c` ERR-13 and `V9i` subagent contracts; isolating them in the new leaf does not by itself resolve the forward-reference, so sequence the new leaf after those contracts are pinned, or explicitly flag the modelling as the harness's own contract.
 
 **Spec edits:** None.
-
-**Pros:** Each consumer's `Deps` reflects the surface it actually scripts against; dep-driven build order picks the surface up before its consumers.
-
-**Cons:** Touches seven leaf files; depends on the new leaf's final ID being chosen first.
-
-**Risks:** Over-retargeting — a consumer that uses only the basic harness (not the (a)–(g) surface) should keep `H4a`, not the surface leaf; check each consumer's actual usage before adding the dep.
-
-### Recommendation
-
-Do Option A first: extracting the surface bounds the scope and creates the new leaf ID that Option B targets. Then do Option B against the now-stable new leaf. Watch the edge case that `V17a`, `V4c`, and `H7a` may legitimately need *both* `H4a` (harness) and the new leaf (surface) in `Deps`, while `V11f`/`V13c`/`V13d`/`V9i` need only the new leaf.
 
 ## Relationships
 
@@ -1492,31 +1473,17 @@ Two reasonable implementers could derive the tool `label` differently — fail t
 
 ## Solution Space
 
-**Shape:** multiple
-
-This finding carries two independent obligations — a leaf-content closure and a coverage-matrix gating row — that land in different files and must be sequenced. Both are required.
-
-### Option A — Name the `label`/typed-query MUSTs in `V9f`
-
-**Approach.** Make `V9f` the home for the ToolDefinition `label` contract (it already materialises the definition). Add `extension-bootstrap-and-per-loom.md` to `V9f`'s **Spec** field; extend its **Adds** to cover the `label` basename-capitalisation derivation (hyphens preserved, leading character capitalised) and the synthesised typed-query tool's literal label `"Loom typed-query response"`; add a **Tests** bullet asserting both — e.g. `code-review.loom` materialises `label: "Code-review"` and the typed-query one-shot tool materialises `label: "Loom typed-query response"`.
-**Plan edits.** `V9f` **Spec**, **Adds**, **Tests**.
-**Spec edits.** None.
-**Pros.** Co-locates the full ToolDefinition-shape contract on the leaf that already owns the `Type.Unsafe` bridge and per-mode wiring; no new leaf or ID.
-**Cons.** Adds a second spec citation to a leaf that currently cites one page.
-**Risks.** Low.
-
-### Option B — Add the Per-loom-registration coverage-matrix row
-
-**Approach.** Add a *Code-keyed obligation areas* row mapping `extension-bootstrap-and-per-loom.md` §Per-loom registration's ToolDefinition-shape MUSTs (the `label` basename-capitalisation derivation and the typed-query literal label) to closing leaf `V9f`, marked as GOV-22 un-anchored residue consistent with the sibling rows.
-**Plan edits.** `coverage-matrix.md` *Code-keyed obligation areas* table.
-**Spec edits.** None.
-**Pros.** Closes the `H5a` un-anchored-MUST arm for the page; `V9f` is already in `H5b`'s `V9a`–`V9j` Deps range, so transitive completeness needs no further edit.
-**Cons.** Inert unless `V9f` actually asserts the MUSTs.
-**Risks.** If the row lands first, it points at a leaf that does not yet assert the obligation.
+**Shape:** single
 
 ### Recommendation
 
-Do both, Option A before Option B. Option A is scope-bounding — it gives the matrix row a closing leaf that genuinely asserts the MUSTs — so Option B then lands on a stable baseline. Edge cases the implementer must hold: the `label` rule preserves interior hyphens and capitalises only the leading character, and the synthesised typed-query tool uses the exact literal `"Loom typed-query response"`. No new leaf or ID is needed, and no `H5b` Deps edit is owed (`V9f` is already covered by the `V9a`–`V9j` range).
+Name the ToolDefinition `label` contract in `V9f` — which already materialises the definition — and then add the matching coverage-matrix gating row, landing the `V9f` content edit first so the row points at a leaf that already asserts the obligation.
+
+In `V9f`: add `extension-bootstrap-and-per-loom.md` to the **Spec** field; extend **Adds** to cover the `label` basename-capitalisation derivation (interior hyphens preserved, only the leading character capitalised) and the synthesised typed-query tool's literal label `"Loom typed-query response"`; add a **Tests** bullet asserting both — `code-review.loom` materialises `label: "Code-review"` and the typed-query one-shot tool materialises `label: "Loom typed-query response"`.
+
+In `coverage-matrix.md`: add a *Code-keyed obligation areas* row mapping `extension-bootstrap-and-per-loom.md` §Per-loom registration's ToolDefinition-shape MUSTs (the `label` basename-capitalisation derivation and the typed-query literal label) to closing leaf `V9f`, marked as GOV-22 un-anchored residue consistent with the sibling rows.
+
+No new leaf or ID is needed, and no `H5b` Deps edit is owed — `V9f` is already covered by `H5b`'s `V9a`–`V9j` range.
 
 ## Relationships
 
@@ -2298,31 +2265,21 @@ The five per-call-type bootstrap-failure MUSTs would ship unimplemented, and the
 
 ## Solution Space
 
-**Shape:** multiple
-
-This finding carries two independent obligations — establishing the closing leaf and its tests, and wiring the coverage gating (matrix row + `H5b` Deps). They are decomposed into one option each; both are required, and the Recommendation fixes their order.
-
-### Option A — Establish the closing leaf and its tests
-
-**Approach.** Assign ownership of the Extension-bootstrap SDK-failures granularity contract to a closing leaf and a paired `-T` tests task that asserts `loom/load/extension-bootstrap-failed` for each of the five surfaces with their distinct observable behaviours: (1) `pi.registerMessageRenderer` failure — renderer dropped, factory completes, this instance's system notes permanently degrade to the `ctx.ui.notify` arm, `details.capability = "pi.registerMessageRenderer"`; (2) `pi.registerCommand` failure (factory-time or `session_start`-time) — only the failing loom dropped, siblings register, one diagnostic per failing loom with `details.loom`; (3) `pi.registerFlag` failure — fatal to the whole extension, steps 2–5 skipped, single diagnostic; (4) `pi.on(...)` subscription failure — fatal to the whole extension, remaining steps skipped, single diagnostic with `details.event`; (5) `session_start`-time `pi.getCommands()` read failure — pending-registration list dropped for that pass, no `registerCommand` calls issue, handler swallows the throw and does not set drain state, single diagnostic. Two placement choices: extend `V9b` (it already owns registration steps 1–5 and the `session_start` collision pass) by adding the contract to its Adds and a Tests bullet per surface; or create a `<new>` V9-slice leaf citing `extension-bootstrap-and-per-loom.md` (the factory boundary is established by `H4a`, the registration mechanics by `V9b`).
-**Plan edits.** Either `V9b` Adds + Tests (extend), or a new leaf file plus a `docs/plan.md` V9-list link.
-**Spec edits.** None — the spec already fully defines the rule and the code.
-**Pros.** Closes the spec obligation; makes each of the five surfaces individually falsifiable rather than only transitively touched.
-**Cons.** Extending `V9b` deepens its existing over-bundling.
-**Risks.** The `pi.getCommands()` surface is `session_start`-time and must not touch drain state (drain state is owned by `V9b`'s `LoomRegistry` contract); conflating it with the four write-side surfaces produces a wrong test.
-
-### Option B — Wire the coverage gating
-
-**Approach.** Add a code-keyed obligation row to `coverage-matrix.md`'s "Code-keyed obligation areas (no numbered REQ-IDs)" table mapping `pi-integration-contract/extension-bootstrap-and-per-loom.md` §Extension-bootstrap SDK failures / `loom/load/extension-bootstrap-failed` to the closing leaf chosen in Option A; and add that closing leaf to `H5b`'s transitive-completeness Deps so the canary and the `H5a` gate recognise it as the producing leaf.
-**Plan edits.** `coverage-matrix.md` (new row), `H5b` Deps.
-**Spec edits.** None.
-**Pros.** Turns the self-witnessing `H5a` red into a satisfied gate with a real closing leaf.
-**Cons.** The row and the Deps entry both name the leaf from Option A, so they cannot land before it.
-**Risks.** A row that names a not-yet-existing leaf would itself red the gate against a `<new>` placeholder.
+**Shape:** single
 
 ### Recommendation
 
-Resolve Option A first: it is the scope-bounding obligation because it decides the closing leaf's identity (and whether `V9b` is extended or a `<new>` V9 leaf is created), which both the `coverage-matrix.md` row and the `H5b` Deps entry in Option B must reference. Prefer a new `<new>` V9-slice leaf over extending `V9b`, since `V9b` is already flagged as over-bundled. Edge case for the fixer: the `pi.getCommands()` surface's tests must assert the no-drain-state behaviour distinctly from the four write-side surfaces.
+Create a new V9-slice closing leaf — rather than extending the already-over-bundled `V9b` — that owns the Extension-bootstrap SDK-failures granularity contract, citing `spec_topics/pi-integration-contract/extension-bootstrap-and-per-loom.md` §Extension-bootstrap SDK failures. The factory boundary is established by `H4a` and the registration mechanics by `V9b`; the new leaf closes the per-surface granularity. Author it in the paired leaf form per `docs/plan_topics/conventions.md` — a `-T` tests task plus the bare implementation task, with the implementation listing its `-T` task in `Deps` and taking the next free V9-slice letter.
+
+The `-T` tests task asserts `loom/load/extension-bootstrap-failed` (severity `E`, phase `load`) for each of the five surfaces with its distinct observable behaviour:
+
+1. `pi.registerMessageRenderer` failure — the renderer registration is dropped, the factory still completes, this extension instance's system notes permanently degrade to the `ctx.ui.notify` arm of the System-notes fallback chain, and `details.capability = "pi.registerMessageRenderer"`.
+2. `pi.registerCommand` failure (factory-time or `session_start`-time, per-loom) — only the failing loom is dropped, siblings still register, and one diagnostic is emitted per failing loom with `details.loom` carrying the slash-name.
+3. `pi.registerFlag` failure — fatal to the whole extension; registration steps 2–5 do not execute; a single diagnostic is emitted.
+4. `pi.on(...)` subscription failure — fatal to the whole extension; the remaining steps do not execute; a single diagnostic is emitted with `details.event` naming the subscribed Pi event.
+5. `session_start`-time `pi.getCommands()` read failure — the pending-registration list for that pass is dropped (no `pi.registerCommand` calls issue), the handler swallows the throw and MUST NOT set drain state, and a single diagnostic is emitted. This surface's tests assert the no-drain-state behaviour distinctly from the four write-side surfaces: drain state is owned by `V9b`'s `LoomRegistry` contract, and conflating the `session_start`-time read with the write-side surfaces produces a wrong test.
+
+After the new leaf exists, wire the coverage gating against it: add a code-keyed obligation row to `coverage-matrix.md`'s "Code-keyed obligation areas (no numbered REQ-IDs)" table mapping `pi-integration-contract/extension-bootstrap-and-per-loom.md` §Extension-bootstrap SDK failures / `loom/load/extension-bootstrap-failed` to the new closing leaf, and add the new leaf to `H5b`'s transitive-completeness Deps so the canary and the `H5a` closing gate recognise it as the producing leaf. Both the matrix row and the `H5b` Deps entry name the new leaf, so they land only after it exists — a row naming a not-yet-existing leaf would itself red the gate. The spec already fully defines the rule and the code, so no spec edits are required.
 
 ## Relationships
 
