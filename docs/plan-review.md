@@ -5,7 +5,7 @@ _Plan: docs/plan.md_
 _Spec: docs/spec.md_
 _Process: bottom-up — the last finding (T31) is addressed first; the first finding (T01) is addressed last._
 
-_Triage tally: 0 blocker, 1 high, 18 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
+_Triage tally: 0 blocker, 1 high, 17 medium retained; 9 low discarded; 9 low findings merged into 1 medium finding; 25 NIT dropped; 0 false dropped._
 
 ---
 
@@ -1183,69 +1183,3 @@ Edge case for the implementer: the same bare phrase `single-turn prompt-mode app
 
 - T18 "Smoke pass criterion (b) leaves 'structurally-valid binder output' undefined" — same-cluster (another under-specified item in the same H4a (a)–(e) pass/fail list; resolves independently)
 
----
-
-# T18 — Smoke pass criterion (b) leaves "structurally-valid binder output" undefined
-
-**Original heading:** "structurally-valid binder output" pass criterion (b) is undefined
-**Original section:** docs/plan_topics/H4a-factory-shell-and-harness.md
-**Kind:** clarity, implementability
-**Importance:** medium
-**Score:** 25
-**MustFix:** false
-
-## Finding
-
-`H4a`'s manual real-host smoke run is scored on a release-blocking pass/fail predicate whose clauses `(a)–(e)` each name a concrete observable — except clause `(b)`, "the binder pass produces structurally-valid output." The term "structurally-valid" is never anchored to a contract. The plan defines several distinct candidate meanings for binder-related output: the three-arm `ok | needs_info | ambiguous` envelope schema (`V11c`, ultimately `spec_topics/binder/binder-bypass-and-envelope.md#binder-envelope-schema-constructed-dynamically-from-params`), the JSON-Schema-subset reject gate (`V5d`), and the binder system-note line discipline (`V11e`). Each yields a different pass/fail outcome for the same run — "JSON parses," "validates against the envelope schema," "passes the subset gate," and "matches system-note line discipline" are not equivalent.
-
-The same undefined phrase is restated verbatim in `H6a`'s release-gate acceptance bullet, which cites `H4a`'s criterion as the definition of "pass" for the loom 1.0 release gate. A release-blocking gate therefore turns on a predicate two reviewers could score differently, and the ambiguity propagates from `H4a` into the release gate without a single source of truth.
-
-## Plan Documents
-
-- `docs/plan_topics/H4a-factory-shell-and-harness.md` — Tests bullet, live-host smoke `Pass/fail criterion` clause (b) (edited)
-- `docs/plan_topics/H6a-live-corpus-activation.md` — Release-gate acceptance (manual real-host smoke) bullet (edited)
-- `docs/plan_topics/V11c-bypass-envelope.md` — binder bypass and envelope schema (read-only)
-- `docs/plan_topics/V5d-subset-lowering.md` — schema-subset reject gate (read-only)
-- `docs/plan_topics/V11e-system-note-determinism.md` — binder system-note rendering / line discipline (read-only)
-
-## Spec Documents
-
-- `docs/spec_topics/binder/binder-bypass-and-envelope.md` — Binder envelope schema (`#binder-envelope-schema-constructed-dynamically-from-params`) (read-only)
-
-## Affected Leaves
-
-**Phases:** Horizontal
-
-**Leaves (implementation order):**
-
-- H4a — Extension factory shell and end-to-end harness — (modified)
-- H6a — Live-corpus activation / release gate — (modified)
-
-## Consequence
-
-**Severity:** correctness
-
-Two reviewers scoring the same live-host smoke run can reach opposite pass/fail verdicts on clause (b), because "structurally-valid" admits at least three incompatible readings (envelope-schema validity, subset-gate acceptance, line-discipline conformance). Since `H6a`'s release gate inherits this clause as its definition of "pass," the loom 1.0 release can be blocked or allowed on an arbitrary interpretation rather than a fixed contract.
-
-## Issue introduction
-
-**Verdict:** single-commit
-**Introducing commits:** 3911733 — pi-loom plan: resolve "Live-host smoke pass criterion assumes a non-deterministic LLM reproduces a transcript" (2026-06-11, Thomas Andersen)
-**History:** `H4a`'s live-host smoke pass criterion was originally an exact-golden-transcript match and contained no "structurally-valid" term. Commit 3911733 replaced that exact-match criterion with the model-output-invariant `(a)–(e)` clause list, introducing clause (b) "the binder pass produces structurally-valid output" without anchoring "structurally-valid" to any concrete contract. The same commit propagated the phrase into `H6a`'s release-gate restatement, so both leaves have carried the undefined term since that single commit.
-
-## Solution Space
-
-**Shape:** single
-
-### Recommendation
-
-In `H4a`'s live-host smoke `Pass/fail criterion`, replace clause (b)'s bare "the binder pass produces structurally-valid output" with a clause that anchors validity to the binder envelope schema — the contract the binder's inference response is actually checked against. Concrete text for clause (b): "the binder pass produces output that validates against the binder envelope schema (`V11c`; `spec_topics/binder/binder-bypass-and-envelope.md#binder-envelope-schema-constructed-dynamically-from-params`)." Update the matching failure-enumeration phrase later in the same bullet ("structurally-invalid binder output") to refer to the same anchored contract.
-
-Apply the identical anchored wording to `H6a`'s release-gate acceptance bullet, which currently restates "structurally-valid binder output" twice; both restatements must cite the same `V11c` envelope-schema definition so the release gate and the `H4a` smoke share one source of truth for clause (b).
-
-Edge case the implementer must watch: clause (b) governs the live, non-deterministic run, so it must remain a structural-validity check (the envelope parses and conforms to the three-arm `ok | needs_info | ambiguous` schema), not an exact-value match against `H7a`'s deterministic goldens — the surrounding bullet already distinguishes model-output-invariant scoring from `H7a`'s exact-match in-process gate.
-
-## Relationships
-
-- T16 "Manual real-host smoke does not enumerate its live-host / binder-model / credential prerequisites" — decision-dependency (criterion (b) depends on a resolvable, credentialed binder model; anchoring (b) and enumerating the binder-model precondition are coordinated edits to the same bullet)
-- T17 "Axis (ii) 'single-turn prompt-mode append semantics' is ambiguous" — same-cluster (same `(a)–(e)` live-host smoke pass-criterion block in `H4a`; resolves independently)
