@@ -42,6 +42,5 @@ entries:
   - { id: F-0117, tier: medium, file: docs/plan_topics/V18c-version-bump-checklist.md, anchor: "Adds, Ships when", title: "V18c — editorial-checklist MUST/SHOULD blocking distinction lives only in Adds, not in the exit gate" }
   - { id: F-0111, tier: medium, file: docs/plan_topics/V18a-capability-inventory.md, anchor: "Tests bullet 2, Ships when", title: "V18a — second `PIC-15` Tests bullet has no paired failing test and no Ships-when gate" }
   - { id: F-0106, tier: medium, file: docs/plan_topics/V16a-ceiling-order-masked.md, anchor: "Adds (output bullet), Tests (CIO-5), \"Verified at the seam\" bullet", title: "V16a names the `masked` co-fire concept with three interchangeable terms" }
-  - { id: F-0101, tier: medium, file: docs/plan_topics/V15b-invoke-depth-cycle.md, anchor: "Tests (INV-4 bullet) + Ships when", title: "V15b INV-4 test bullet conflates two required surfacing modes with \"vs\"" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->

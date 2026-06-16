@@ -5,7 +5,7 @@
 **Adds.** Failing tests for the paired `V15b` implementation leaf.
 
 **Tests.**
-- `INV-4` (NOCEIL-4 frame-depth seam: the 32-level `invoke`-chain bound is the only loom-level frame-depth ceiling): the per-chain depth counter (incremented before the child, crossing the subagent boundary, siblings independent) fires `loom/runtime/invoke-depth-exceeded` at 33 > 32 — a top-level system note vs a nested `InvokeInfraError{panic}` — with message `invoke chain depth exceeded: 33 > 32`. The counter is exercised across all three countable frame classes, including a cross-file `.warp fn` call chain (caller and callee in different source files, per `invocation.md` §INV-4) that reaches the 32-frame boundary and fires at 33 > 32.
+- `INV-4` (NOCEIL-4 frame-depth seam: the 32-level `invoke`-chain bound is the only loom-level frame-depth ceiling): the per-chain depth counter (incremented before the child, crossing the subagent boundary, siblings independent) fires `loom/runtime/invoke-depth-exceeded` at 33 > 32 — surfacing in both separately-required modes: a top-level overflow as a Pi system note **and** a nested overflow surfaced to the parent as `Err(InvokeInfraError { cause: "panic", ... })` — with message `invoke chain depth exceeded: 33 > 32`. The counter is exercised across all three countable frame classes, including a cross-file `.warp fn` call chain (caller and callee in different source files, per `invocation.md` §INV-4) that reaches the 32-frame boundary and fires at 33 > 32.
 - `loom/load/invocation-cycle`: a static-resolution cycle fires at parse time; an unresolvable callee is a leaf (undetected until fixed).
 
 **Deps.** `V15a`, `V15c`, `V16a`
