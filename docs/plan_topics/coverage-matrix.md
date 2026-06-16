@@ -46,7 +46,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-12, PIC-20 | `V8d` |
 | PIC-14, PIC-16 | `V8e` |
 | PIC-15 | `V18a` |
-| PIC-17, PIC-18 | `V9c` |
+| PIC-17, PIC-18 | `V9c`, `V15d` (prompt→prompt-`invoke`-path facet of the `PIC-17` step-4 `finally` restore) |
 | PIC-21 | `V7a` |
 | INV-1, INV-2, INV-3 | `V15a` |
 | INV-4 | `V15b` |
@@ -82,6 +82,7 @@ The same table also enumerates the third closing-gate surface defined in [`conve
 | `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d` |
 | `tool-calls.md` (TOOL) | `V14a`, `V14b` |
 | `invocation.md` (INV) — the six un-anchored `invoke` parse/load diagnostic codes (`loom/parse/invoke-arg-type-mismatch`, `loom/parse/invoke-return-type-mismatch`, `loom/parse/invoke-arity-too-few`, `loom/parse/invoke-arity-too-many`, `loom/parse/invoke-non-loom-extension`, `loom/load/callee-has-errors`) (un-anchored; GOV-22 residue) | `V15a` |
+| `invocation.md` (INV) §Cross-mode semantics — the prompt→prompt parent-suspend MUST and the whole-body `setActiveTools` snapshot/restore-in-`finally` MUST (parent active-tool set snapshotted before the prompt→prompt child runs and restored in a `finally` across the fail/cancel/throw paths) (un-anchored; GOV-22 residue) | `V15d` |
 | `pi-integration-contract/extension-bootstrap-and-per-loom.md` §Extension-bootstrap SDK failures — the five per-call-type `loom/load/extension-bootstrap-failed` granularity surfaces (renderer-failure degrade-and-proceed; per-loom `registerCommand` drop; whole-extension `registerFlag`/`pi.on` abort; `session_start`-time `getCommands()` read-failure pending-list drop with no drain-state write) (un-anchored; GOV-22 residue) | `V9k` |
 | `pi-integration-contract/extension-bootstrap-and-per-loom.md` §Per-loom registration — the mode-independent `ToolDefinition.label` field-derivation MUSTs (basename with interior hyphens preserved and the leading character capitalised, e.g. `code-review.loom` → `"Code-review"`; the synthesised typed-query one-shot tool's literal label `"Loom typed-query response"`) (un-anchored; GOV-22 residue) | `V9f` |
 | `pi-integration-contract/conversation-drive.md` — *No additional access channels* denial-surface MUST (un-anchored; GOV-22 residue) | `V14a` |
