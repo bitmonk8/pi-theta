@@ -46,6 +46,5 @@ entries:
   - { id: F-0098, tier: medium, file: docs/plan_topics/V15a-invocation-core.md, anchor: "Deps field", title: "V15a consumes `FileSystem.realpath` (owned by V8b) without declaring `V8b` in Deps" }
   - { id: F-0097, tier: medium, file: docs/plan_topics/V14a-tool-calls.md, anchor: "Tests bullet (`loom/runtime/internal-error`), Adds field, Ships when", title: "V14a / V14a-T — the `internal-error` Tests bullet conflates four off-surface outcomes into one routing claim" }
   - { id: F-0094, tier: medium, file: docs/plan_topics/V13c-query-tool-loop.md, anchor: "Adds / Tests / Deps / Ships-when", title: "V13c bundles four independent spec obligations into one leaf" }
-  - { id: F-0092, tier: medium, file: docs/plan_topics/V13a-query-render.md, anchor: "Tests (second bullet)", title: "V13a / V13a-T cite `interpolated-result` and `discarded-query-result` as bare suffixes instead of full `loom/parse/` codes" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
