@@ -41,6 +41,5 @@ entries:
   - { id: F-0119, tier: medium, file: docs/plan_topics/V18d-version-bump-acceptance.md, anchor: "Ships when / Adds", title: "V18d Ships-when overloads its single-observable gate with revert-path MUST/MUST-NOT obligations" }
   - { id: F-0117, tier: medium, file: docs/plan_topics/V18c-version-bump-checklist.md, anchor: "Adds, Ships when", title: "V18c — editorial-checklist MUST/SHOULD blocking distinction lives only in Adds, not in the exit gate" }
   - { id: F-0111, tier: medium, file: docs/plan_topics/V18a-capability-inventory.md, anchor: "Tests bullet 2, Ships when", title: "V18a — second `PIC-15` Tests bullet has no paired failing test and no Ships-when gate" }
-  - { id: F-0106, tier: medium, file: docs/plan_topics/V16a-ceiling-order-masked.md, anchor: "Adds (output bullet), Tests (CIO-5), \"Verified at the seam\" bullet", title: "V16a names the `masked` co-fire concept with three interchangeable terms" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
