@@ -65,6 +65,5 @@ entries:
   - { id: F-0037, tier: medium, file: docs/plan_topics/H1a-scaffold-and-toolchain.md, anchor: "Tests (`capability-probe.md` §(a) literal-read bullet) and Adds (`engines.node` population sentence)", title: "H1a — the `engines.node` literal-read test names no in-code source for its comparison operand" }
   - { id: F-0038, tier: medium, file: docs/plan_topics/H1a-scaffold-and-toolchain.md, anchor: "Adds + Tests", title: "H1a omits the `typescript` devDependency and its load-bearing `>=5.4.0` floor" }
   - { id: F-0036, tier: medium, file: docs/plan_topics/H1a-scaffold-and-toolchain.md, anchor: "Adds (`package.json` field enumeration)", title: "Pi extension-discovery contract (`pi.extensions` manifest entry + `extensions/index.ts` factory path) is owned by no leaf" }
-  - { id: F-0035, tier: medium, file: docs/plan_topics/H1a-scaffold-and-toolchain.md, anchor: Adds, title: "H1a never pins the package manager its `file:` plugin resolution and flat `node_modules` layout assume" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
