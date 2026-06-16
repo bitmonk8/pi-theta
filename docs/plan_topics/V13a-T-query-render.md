@@ -5,7 +5,7 @@
 **Adds.** Failing tests for the paired `V13a` implementation leaf.
 
 **Tests.**
-- The trim → dedent order reproduces the eight normative vectors; illegal-escape and unterminated-template diagnostics fire.
+- The trim → dedent order reproduces the eight normative vectors; `loom/parse/illegal-template-escape` and `loom/parse/unterminated-template` diagnostics fire.
 - Each loom type stringifies per the table; `interpolated-result` and `discarded-query-result` (with its runtime event) fire.
 - A degenerate (empty) template emits the `empty-template` warning and short-circuits to `ValidationError{empty_template, attempts:0}` — not respond-repair.
 

@@ -48,6 +48,5 @@ entries:
   - { id: F-0094, tier: medium, file: docs/plan_topics/V13c-query-tool-loop.md, anchor: "Adds / Tests / Deps / Ships-when", title: "V13c bundles four independent spec obligations into one leaf" }
   - { id: F-0092, tier: medium, file: docs/plan_topics/V13a-query-render.md, anchor: "Tests (second bullet)", title: "V13a / V13a-T cite `interpolated-result` and `discarded-query-result` as bare suffixes instead of full `loom/parse/` codes" }
   - { id: F-0090, tier: medium, file: docs/plan_topics/V13a-query-render.md, anchor: Tests, title: "V13a / V13a-T — Tests bullet conflates the parse-time `discarded-query-result` diagnostic with the separate runtime discard-observability event" }
-  - { id: F-0091, tier: high, file: docs/plan_topics/V13a-query-render.md, anchor: Tests, title: "V13a / V13a-T cite `illegal-escape` for the query-template diagnostic, but that code names the string-literal case" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->

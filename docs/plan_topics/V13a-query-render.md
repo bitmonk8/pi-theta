@@ -5,7 +5,7 @@
 **Adds.** The `@`-template query construct (code → model, returning `Result`; untyped → `Result<string>`), the trim → dedent rendering (the eight ordered vectors), the escape handling, and the stringify-by-loom-type table with the degenerate-template short-circuit.
 
 **Tests.**
-- The trim → dedent order reproduces the eight normative vectors; illegal-escape and unterminated-template diagnostics fire.
+- The trim → dedent order reproduces the eight normative vectors; `loom/parse/illegal-template-escape` and `loom/parse/unterminated-template` diagnostics fire.
 - Each loom type stringifies per the table; `interpolated-result` and `discarded-query-result` (with its runtime event) fire.
 - A degenerate (empty) template emits the `empty-template` warning and short-circuits to `ValidationError{empty_template, attempts:0}` — not respond-repair.
 
