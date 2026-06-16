@@ -36,6 +36,5 @@ entries:
   - { id: F-0127, tier: medium, file: docs/plan_topics/V5a-schema-decls.md, anchor: "Tests, enum-violations bullet", title: "`(name-first ordering)` parenthetical in V5a/V5a-T enum-violations bullet is ambiguous" }
   - { id: F-0125, tier: medium, file: docs/plan_topics/V4b-runtime-panics.md, anchor: Tests, title: "V4b / V4b-T — `internal-error` Tests bullet inverts the lead-code-fires pattern" }
   - { id: F-0124, tier: medium, file: docs/plan_topics/V4a-match-result.md, anchor: "Tests (`?`/operand bullets) + Ships when", title: "V4a / V4a-T cite `question-outside-result-fn` and `question-on-non-result` without the canonical `loom/parse/` registry prefix" }
-  - { id: F-0121, tier: medium, file: docs/plan_topics/V3a-expression-evaluator.md, anchor: "H1 heading", title: "V3a / V3a-T heading \"Expression evaluator and stdlib\" overstates the leaf's scope" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->

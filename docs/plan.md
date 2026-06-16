@@ -63,7 +63,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ### V3 — Expressions, bindings, control flow, functions
 
-- [`V3a` — Expression evaluator and stdlib](./plan_topics/V3a-expression-evaluator.md)
+- [`V3a` — Expression evaluator](./plan_topics/V3a-expression-evaluator.md)
 - [`V3b` — Bindings and mutability](./plan_topics/V3b-bindings.md)
 - [`V3c` — Control flow](./plan_topics/V3c-control-flow.md)
 - [`V3d` — Functions and return](./plan_topics/V3d-functions-and-return.md)

@@ -1,4 +1,4 @@
-# `V3a` — Expression evaluator and stdlib
+# `V3a` — Expression evaluator
 
 **Spec.** [`../spec_topics/expressions.md`](../spec_topics/expressions.md).
 
