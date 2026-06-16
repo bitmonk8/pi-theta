@@ -27,6 +27,5 @@ entries:
   - { id: F-0149, tier: medium, file: docs/plan_topics/V9b-registration-drain-state.md, anchor: "Adds (wiring point), Tests, Ships when", title: "V9b owns the model-reference-matcher production wiring but no test asserts it" }
   - { id: F-0144, tier: high, file: docs/plan_topics/V8c-schema-validator-seam.md, anchor: "Spec field", title: "V8c / V8c-T cite the wrong spec page for PIC-11 (`SchemaValidator`)" }
   - { id: F-0024, tier: medium, file: docs/plan_topics/V8b-clock-fs-id-watch-token-seams.md, anchor: "leaf file (rename)", title: "V8b leaf-file slug names five seams the leaf no longer owns" }
-  - { id: F-0143, tier: medium, file: docs/plan_topics/V8b-clock-fs-id-watch-token-seams.md, anchor: "Adds + `PIC-13` Tests bullet + Ships-when + Spec citations", title: "V8b's byte-read `.code`-rejection contract is attributed to PIC-13, which enumerates no byte-read member" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
