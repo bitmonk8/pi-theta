@@ -55,6 +55,5 @@ entries:
   - { id: F-0081, tier: medium, file: docs/plan_topics/V11b-bind-context-transcript.md, anchor: "Adds + Tests + Ships when", title: "V11b bundles the byte-exact transcript renderer with the session-context truncation walk" }
   - { id: F-0078, tier: medium, file: docs/plan_topics/V10c-settings-merge.md, anchor: Deps, title: "V10c / V10c-T omit the `V8d` Clock-seam dependency they bind" }
   - { id: F-0076, tier: medium, file: docs/plan_topics/V10b-package-discovery.md, anchor: "Deps field", title: "V10b / V10b-T omit `V8d` from Deps despite binding the `Clock` seam" }
-  - { id: F-0054, tier: medium, file: docs/plan_topics/H7a-integration-acceptance.md, anchor: "Tests bullet 4 / Adds", title: "H7a — golden-derivation methodology and the first-commit human-review obligation are parked inside a Tests bullet" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
