@@ -59,7 +59,5 @@ entries:
   - { id: F-0052, tier: medium, file: docs/plan_topics/H7a-integration-acceptance.md, anchor: "Tests (first bullet) and Ships when", title: "H7a golden-transcript assertion checks only turn order and count, not turn content" }
   - { id: F-0044, tier: medium, file: docs/plan_topics/H5a-closing-gate-automation.md, anchor: "Adds / Tests / Ships-when", title: "H5a bundles gate arms spanning four distinct data sources in one leaf" }
   - { id: F-0055, tier: medium, file: docs/plan_topics/H5a-closing-gate-automation.md, anchor: "Adds (transitive-completeness arm) + transitive-completeness Tests bullet", title: "H5a transitive-completeness arm's IMPL-row back-reference exclusion is not mechanically determinable" }
-  - { id: F-0041, tier: medium, file: docs/plan_topics/H4a-factory-shell-and-harness.md, anchor: "Tests (third bullet) → Adds", title: "H4a's manual real-host smoke governance protocol is embedded inside a Tests bullet rather than a non-test field" }
-  - { id: F-0042, tier: medium, file: docs/plan_topics/H4a-factory-shell-and-harness.md, anchor: "Adds, Tests (third bullet), Ships-when", title: "H4a bundles factory/harness infrastructure with the manual real-host smoke governance protocol" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
