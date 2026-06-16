@@ -15,6 +15,5 @@ entries:
   - { id: F-0069, tier: medium, file: docs/plan_topics/conventions.md, anchor: "*Specific exception types only* rule", title: "Broad-catch exemption: category-membership enforcement posture is unstated" }
   - { id: F-0027, tier: medium, file: docs/plan_topics/conventions.md, anchor: "*REQ-ID discipline* (and *Specific exception types only* / *Sequential by default*, which use \"loom 1.0 closing gate\")", title: "\"loom 1.0 closing gate\" and \"loom 1.0 release gate\" coexist in the conventions.md REQ-ID rule with no inline equivalence" }
   - { id: F-0033, tier: medium, file: docs/plan_topics/conventions.md, anchor: "*No globals, statics, singletons*; *Sequential by default* (blocking-runtime ban); *Doc updates*; *REQ-ID discipline* (u", title: "GOV-15 release-time reviewer inspection has no enumerated residue checklist" }
-  - { id: F-0166, tier: medium, file: docs/plan_topics/V9l-session-only-degraded-branch.md, anchor: "Adds bullet", title: "V9l Adds carries the conditional clause-(a) fallback path that belongs in plan.md §Blocked obligations" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
