@@ -62,6 +62,5 @@ entries:
   - { id: F-0041, tier: medium, file: docs/plan_topics/H4a-factory-shell-and-harness.md, anchor: "Tests (third bullet) → Adds", title: "H4a's manual real-host smoke governance protocol is embedded inside a Tests bullet rather than a non-test field" }
   - { id: F-0042, tier: medium, file: docs/plan_topics/H4a-factory-shell-and-harness.md, anchor: "Adds, Tests (third bullet), Ships-when", title: "H4a bundles factory/harness infrastructure with the manual real-host smoke governance protocol" }
   - { id: F-0040, tier: medium, file: docs/plan_topics/H4a-factory-shell-and-harness.md, anchor: "Adds (factory entry point) + first Tests bullet", title: "H4a never-throw factory boundary leaves a returned rejected Promise unaddressed" }
-  - { id: F-0037, tier: medium, file: docs/plan_topics/H1a-scaffold-and-toolchain.md, anchor: "Tests (`capability-probe.md` §(a) literal-read bullet) and Adds (`engines.node` population sentence)", title: "H1a — the `engines.node` literal-read test names no in-code source for its comparison operand" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
