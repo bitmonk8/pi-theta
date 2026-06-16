@@ -12,6 +12,5 @@ entries:
   - { id: F-0061, tier: medium, file: docs/plan_topics/conventions.md, anchor: "§Per-phase TDD ritual, \"MVP and vertical features — tests-task → implementation-task pairing\", Tests-task bullet", title: "Per-phase TDD ritual: \"One assertion per rule where practical\" gives no exception criterion" }
   - { id: F-0065, tier: medium, file: docs/plan_topics/conventions.md, anchor: "Cross-cutting rules → *Sequential by default* (Enforcement posture)", title: "Blocking-runtime ban concedes its entire enforcement to manual review when a cheap approximating gate is available" }
   - { id: F-0070, tier: medium, file: docs/plan_topics/conventions.md, anchor: "Cross-cutting rules (*No globals, statics, singletons*; *Specific exception types only*; *Sequential by default*)", title: "Production-code root (`src/**`) is never reconciled with the Pi extension entry point (`extensions/index.ts`)" }
-  - { id: F-0069, tier: medium, file: docs/plan_topics/conventions.md, anchor: "*Specific exception types only* rule", title: "Broad-catch exemption: category-membership enforcement posture is unstated" }
 ---
 <!-- Generated view. Entries are ordered by location and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
