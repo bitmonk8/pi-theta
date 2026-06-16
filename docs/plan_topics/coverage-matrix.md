@@ -78,7 +78,7 @@ The same table also enumerates the third closing-gate surface defined in [`conve
 | `schema-subset.md` (SUBS) | `V5d`, `V5e`, `V5f` |
 | `frontmatter/frontmatter-fields-a.md`, `frontmatter-fields-b-and-templates.md` (FRNT) | `V6a`, `V6b`, `V6c`, `V6d`, `V6e` |
 | `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d` |
-| `tool-calls.md` (TOOL) | `V14a`, `V13c` |
+| `tool-calls.md` (TOOL) | `V14a`, `V14b` |
 | `invocation.md` (INV) — the six un-anchored `invoke` parse/load diagnostic codes (`loom/parse/invoke-arg-type-mismatch`, `loom/parse/invoke-return-type-mismatch`, `loom/parse/invoke-arity-too-few`, `loom/parse/invoke-arity-too-many`, `loom/parse/invoke-non-loom-extension`, `loom/load/callee-has-errors`) (un-anchored; GOV-22 residue) | `V15a` |
 | `pi-integration-contract/extension-bootstrap-and-per-loom.md` §Extension-bootstrap SDK failures — the five per-call-type `loom/load/extension-bootstrap-failed` granularity surfaces (renderer-failure degrade-and-proceed; per-loom `registerCommand` drop; whole-extension `registerFlag`/`pi.on` abort; `session_start`-time `getCommands()` read-failure pending-list drop with no drain-state write) (un-anchored; GOV-22 residue) | `V9k` |
 | `pi-integration-contract/extension-bootstrap-and-per-loom.md` §Per-loom registration — the mode-independent `ToolDefinition.label` field-derivation MUSTs (basename with interior hyphens preserved and the leading character capitalised, e.g. `code-review.loom` → `"Code-review"`; the synthesised typed-query one-shot tool's literal label `"Loom typed-query response"`) (un-anchored; GOV-22 residue) | `V9f` |

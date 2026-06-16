@@ -159,10 +159,12 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V13b` — Query schema inference](./plan_topics/V13b-query-schema-inference.md)
 - [`V13c` — Query tool loop and typed two-phase](./plan_topics/V13c-query-tool-loop.md)
 - [`V13d` — Query failure and respond-repair](./plan_topics/V13d-query-failure-repair.md)
+- [`V13f` — `@`-query provider swallowing-handler per-site routing](./plan_topics/V13f-query-cancellation-routing.md)
 
 ### V14 — Tool calls
 
 - [`V14a` — Tool calls (code-side) and `CodeToolError`](./plan_topics/V14a-tool-calls.md)
+- [`V14b` — Model-driven parallel tool-call batch (settle-all and independent lowering)](./plan_topics/V14b-tool-calls-parallel-batch.md)
 
 ### V15 — Invocation and imports
 
