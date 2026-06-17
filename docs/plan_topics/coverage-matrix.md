@@ -48,7 +48,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-14, PIC-16 | `V8e` |
 | PIC-15 | `V18a` |
 | PIC-17, PIC-18 | `V9c`, `V15d` (prompt→prompt-`invoke`-path facet of the `PIC-17` step-4 `finally` restore) |
-| PIC-21 | `V7a` |
+| PIC-21 | `V7d` |
 | INV-1, INV-2, INV-3 | `V15a` |
 | INV-4 | `V15b` |
 | DIAG-1 | `V7a` |
@@ -114,7 +114,7 @@ The same table also enumerates the third closing-gate surface defined in [`conve
 | `binder/defaulting-system-note-echo.md` §System-note rendering — the five line-discipline MUSTs (rule 1 single-line collapse/trim against the reference rendering, rule 2 120-code-point truncation-with-`…`, rule 3 prefix/suffix demarcation grammar, rule 4 empty-model-content→malformed-envelope classification, rule 5 `ambiguous.candidates` non-surfacing) (un-anchored; GOV-22 residue) | `V11e` |
 | `binder/determinism-cancellation-failure.md` §Determinism — `temperature: 0` + FNV-1a seed-derivation MUSTs (un-anchored; GOV-22 residue) | `V11e` |
 | `binder/determinism-cancellation-failure.md` §Cancellation + §Failure modes (cancelled-binder row) — the in-flight binder-call cancellation-forwarding MUSTs: `ctx.signal` forwarded into the binder inference call as `options.signal` on the initial attempt and every budgeted retry, and an abort observed before or during the binder call (initial attempt or budgeted retry) suppresses it and surfaces the cancelled-binder system note (`loom /<name>: argument binding cancelled`) immediately while the loom does not run (un-anchored; GOV-22 residue) | `V11j` |
-| `implementation-notes.md` (IMPL) §Runtime *Static-resolution load pass* — the transitive static-resolution per-pass parse cache walk → `V15a` and the in-process hot-reload re-walk (drop of the changed file plus every transitive `.warp` importer on the `LoomRegistry` swap) → `V15e`; the cross-file `(file, line, col)` diagnostic aggregation order → `V7a` (un-anchored; GOV-22 residue). Pure back-references closed on their owning leaves: multi-error batching → `V7a` (PIC-21 / DIAG-1), ambient-access ban → `H3a`, runtime dependency declarations (`semver`, `chokidar`, `yaml`) → `H1a` | `V15a`, `V15e`, `V7a` |
+| `implementation-notes.md` (IMPL) §Runtime *Static-resolution load pass* — the transitive static-resolution per-pass parse cache walk → `V15a` and the in-process hot-reload re-walk (drop of the changed file plus every transitive `.warp` importer on the `LoomRegistry` swap) → `V15e`; the cross-file `(file, line, col)` diagnostic aggregation order → `V7a` (un-anchored; GOV-22 residue). Pure back-references closed on their owning leaves: multi-error batch delivery → `V7d` (PIC-21), the `Diagnostic[]` assembly and content-line format → `V7a` (DIAG-1), ambient-access ban → `H3a`, runtime dependency declarations (`semver`, `chokidar`, `yaml`) → `H1a` | `V15a`, `V15e`, `V7a`, `V7d` |
 | `binder/binder-bypass-and-envelope.md` §"System-prompt structure (normative)" — the eight structural items (Loom-identity line, Description line, Argument-hint line, Parameters block, User-arguments line, Session-context block, Envelope-kinds enumeration, No-invent-defaults instruction), the *Type display* reference renderings, the *Default-literal rendering* rule, and the *Parameter-line reference renderings* table (un-anchored; GOV-22 residue) | `V11d` |
 
 ## Governance REQ-IDs (GOV-*) — corpus governance, not runtime obligations

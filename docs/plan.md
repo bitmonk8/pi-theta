@@ -98,9 +98,10 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ### V7 — Diagnostics
 
-- [`V7a` — Diagnostics primitive and `loom-system-note` channel](./plan_topics/V7a-diagnostics-primitive.md)
+- [`V7a` — Diagnostics primitive](./plan_topics/V7a-diagnostics-primitive.md)
 - [`V7b` — Diagnostic code registry and closing gate](./plan_topics/V7b-code-registry.md)
 - [`V7c` — Placeholder rendering](./plan_topics/V7c-placeholder-rendering.md)
+- [`V7d` — `loom-system-note` delivery channel](./plan_topics/V7d-system-note-channel.md)
 
 ### V8 — Pi host seams
 

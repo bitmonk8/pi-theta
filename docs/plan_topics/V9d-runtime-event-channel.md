@@ -10,6 +10,6 @@
 - Per-variant `(details-key, display, content)` triple: a fixture per row of the spec's [*Per-variant `display`/`content` pairings* matrix](../spec_topics/pi-integration-contract/runtime-event-channel.md#system-note-details-shapes) witnesses the prescribed `display` flag and companion `content` for that `details` variant; a wrong `display` or wrong `content` for any row reds the test.
 - Group-A/B single-shape routing: a single always-log failure routes to exactly one of the spec's `details` shapes per the [group-A / group-B partition](../spec_topics/pi-integration-contract/runtime-event-channel.md) with no fan-out across variants — a fixture per group asserts exactly one emission of the routed shape and zero of the sibling shape.
 
-**Deps.** `V9d-T`, `V7a`
+**Deps.** `V9d-T`, `V7d`
 
 **Ships when.** `npm test` asserts the always-log exactly-once emission, the per-variant `(details-key, display, content)` triple and group-A/B single-shape routing, and the `masked` omit-when-empty rule.

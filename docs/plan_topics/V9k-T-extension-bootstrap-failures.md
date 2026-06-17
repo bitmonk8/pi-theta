@@ -11,6 +11,6 @@
 - `loom/load/extension-bootstrap-failed` ([extension-bootstrap-and-per-loom.md — `pi.on(...)` failure](../spec_topics/pi-integration-contract/extension-bootstrap-and-per-loom.md), PIC area): a factory-time `pi.on(...)` subscription failure is fatal to the whole extension — no subsequent `pi.register*` / `pi.on` call executes after the failing subscription — and a single diagnostic is emitted with `details.capability = "pi.on"` and `details.event` naming the subscribed Pi event (`"resources_discover" | "session_start" | "session_shutdown"`).
 - `loom/load/extension-bootstrap-failed` ([extension-bootstrap-and-per-loom.md — `pi.getCommands()` read failure](../spec_topics/pi-integration-contract/extension-bootstrap-and-per-loom.md#getcommands-read-failure), PIC area): a `session_start`-time `pi.getCommands()` read failure drops the pending-registration list for that pass (no `pi.registerCommand` calls issue), the handler swallows the throw and MUST NOT set drain state (drain state is owned by `V9m`'s `LoomRegistry` contract), and a single diagnostic is emitted with `details.capability = "pi.getCommands"` — asserted distinctly from the four write-side surfaces, since conflating this read with them produces a wrong test.
 
-**Deps.** `V9m`, `H4a`, `V9b`, `V7a`
+**Deps.** `V9m`, `H4a`, `V9b`, `V7d`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.

@@ -12,6 +12,6 @@
 - `PIC-6`: the factory never throws — each check is `try`/`catch`-wrapped.
 - A failure emits one `host-incompatible` with the correct closed `details.kind` discriminator (`node-floor` / `abortsignal-shape` / `sdk-capability-missing` / `peer-dep-out-of-range` / `peer-dep-malformed-version` / `typebox-shape` / `probe-failed`).
 
-**Deps.** `V9a-T`, `H4a`, `V7a`
+**Deps.** `V9a-T`, `H4a`, `V7d`
 
 **Ships when.** `npm test` proves the probe refuses on each failure kind with the right `details.kind` and binds nothing.

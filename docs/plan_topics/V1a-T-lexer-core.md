@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/lexical.md`](../spec_topics/lexical.md), [`../spec_topics/grammar.md`](../spec_topics/grammar.md).
 
-**Adds.** Failing tests for the paired `V1a` implementation leaf. The tests assert the lexer's `loom/load/invalid-encoding` and `loom/parse/*` codes fire through the `V7a` producer-facing **diagnostic-emission seam** (the contract the `Deps.` `V7a` edge stands for), not via a direct `pi.sendMessage` call.
+**Adds.** Failing tests for the paired `V1a` implementation leaf. The tests assert the lexer's `loom/load/invalid-encoding` and `loom/parse/*` codes fire through the `V7d` producer-facing **diagnostic-emission seam** (the contract the `Deps.` `V7d` edge stands for), not via a direct `pi.sendMessage` call.
 
 **Tests.**
 - `loom/load/invalid-encoding`: a non-UTF-8 byte sequence fails load with this code at the byte offset.
@@ -14,6 +14,6 @@
 - [grammar.md — Newline continuation](../spec_topics/grammar.md#newline-continuation) (closed trigger table, positive path): each of the four continuation triggers — unmatched open bracket, trailing binary/ternary operator, trailing comma (inside an open bracket), leading binary/ternary operator — tokenises its spanning lines as a single continued statement.
 - [grammar.md — Newline continuation](../spec_topics/grammar.md#newline-continuation) (blank-line-spanning rule): one or more intervening blank lines do not break a continuation — the spanning lines still tokenise as a single continued statement for both the trailing-trigger and leading-operator forms.
 
-**Deps.** `V7a`, `V8b`
+**Deps.** `V7d`, `V8b`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.
