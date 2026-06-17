@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/type-system.md`](../spec_topics/type-system.md), [`../spec_topics/schema-subset.md`](../spec_topics/schema-subset.md).
 
-**Adds.** The structural type-compatibility relation `T₁ ⊑ T₂` with per-site mismatch diagnostics, nominal treatment of named schemas, and a deferral marker for statically-unresolvable operands, consumed by the downstream runtime-validator sites (`V6b`, `V11g`).
+**Adds.** The structural type-compatibility relation `T₁ ⊑ T₂` with per-site mismatch diagnostics, nominal treatment of named schemas, and a runtime AJV safety-net for statically-unresolvable operands.
 
 **Tests.**
 - `TYPE-1`: reflexivity `T ⊑ T` holds.
@@ -18,4 +18,4 @@
 
 **Deps.** `V2b-T`, `V2a`, `V5d`
 
-**Ships when.** `npm test` asserts each TYPE rule and marks unresolved operands for downstream runtime validation.
+**Ships when.** `npm test` asserts each TYPE rule and leaves statically-unresolvable operands to the runtime AJV safety-net.
