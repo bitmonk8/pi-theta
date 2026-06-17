@@ -17,6 +17,5 @@ entries:
   - { id: F-0275, tier: medium, file: docs/plan_topics/V9f-tool-registration-lifetime.md, anchor: Adds, title: "One window concept named three ways across V9c, V9c-T, and V9f" }
   - { id: F-0276, tier: medium, file: docs/plan_topics/V9f-T-tool-registration-lifetime.md, anchor: Tests, title: "`ToolDefinition.label` derivation is asserted only in the V9f implementation leaf, never red-first in V9f-T and never gated by Ships when" }
   - { id: F-0273, tier: medium, file: docs/plan_topics/V9c-conversation-drive.md, anchor: "implementation leaf body", title: "V9c bundles three concern clusters — query-drive, active-set gating, and transport-error mapping — in one leaf pair" }
-  - { id: F-0272, tier: medium, file: docs/plan_topics/V9c-conversation-drive.md, anchor: "Tests, `stopReason: \"error\"` error-detection bullet", title: "Prompt-mode `TransportError.provider` cites V9j's classifier, which owns no prompt-mode session-model read path" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
