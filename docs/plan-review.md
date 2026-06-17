@@ -30,6 +30,5 @@ entries:
   - { id: F-0245, tier: medium, file: docs/plan_topics/V4c-terminal-outcomes.md, anchor: "`V4c` leaf body", title: "`V4c` bundles two independently-shippable units: the ERR-8…ERR-12 trichotomy and the ERR-13 no-rollback proof" }
   - { id: F-0246, tier: medium, file: docs/plan_topics/V4c-terminal-outcomes.md, anchor: "`Tests.`", title: "Duplicate `ERR-13` REQ-ID across two `V4c` / `V4c-T` test bullets" }
   - { id: F-0244, tier: medium, file: docs/plan_topics/V4a-T-match-result.md, anchor: "`loom/runtime/match-error` Tests bullet", title: "`V4a-T`'s `loom/runtime/match-error` assertion scope is left undetermined by the \"co-asserted here\" note" }
-  - { id: F-0234, tier: medium, file: docs/plan_topics/V2d-number-rendering.md, anchor: "BNDR-5 Tests bullet and Ships when", title: "`V2d` BNDR-5 test criterion hedges the interior-magnitude vector with \"such as `5e-8`\", under-specifying what must be asserted" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
