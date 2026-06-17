@@ -7,6 +7,6 @@
 **Tests.**
 - Swallowing-handler attachment at this site ([cancellation.md — *Race semantics — swallowing-handler attachment on every abandonable Promise*](../spec_topics/cancellation.md)): assert the underlying `@`-query provider Promise attaches its swallowing handler at the Promise-construction site (before the first microtask boundary), and that a late settlement landed via the `Checkpoint` seam (`V8a`) after the checkpoint has surfaced `cause: "cancelled"` is suppressed along all three side channels — no Node `unhandledRejection`, no second `RuntimeEvent`, and no diagnostic of any severity — so a build that bypasses the substrate reddens this leaf's tests.
 
-**Deps.** `V13f-T`, `V9c`, `V8a`, `H4b`
+**Deps.** `V13f-T`, `V9n`, `V8a`, `H4b`
 
 **Ships when.** `npm test` lands a late settlement on the `@`-query provider Promise via the `Checkpoint` seam (`V8a`) after the checkpoint has surfaced `cause: "cancelled"`, and asserts the Promise's three-channel swallowing-handler suppression (no `unhandledRejection`, no second `RuntimeEvent`, no diagnostic) — a build that bypasses the substrate reddens this leaf's tests.

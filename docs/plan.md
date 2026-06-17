@@ -118,6 +118,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V9a` — Capability probe (Step 0)](./plan_topics/V9a-capability-probe.md)
 - [`V9b` — Registration steps and reload-wiring seams](./plan_topics/V9b-registration-reload-wiring.md)
 - [`V9c` — Prompt-mode conversation drive and active-set gating](./plan_topics/V9c-conversation-drive.md)
+- [`V9n` — Prompt-mode transport-error mapping](./plan_topics/V9n-transport-error-mapping.md)
 - [`V9d` — Runtime-event channel and `masked` co-fire](./plan_topics/V9d-runtime-event-channel.md)
 - [`V9e` — `ActiveInvocationRegistry`](./plan_topics/V9e-active-invocation-registry.md)
 - [`V9f` — Tool-registration lifetime and visibility](./plan_topics/V9f-tool-registration-lifetime.md)
