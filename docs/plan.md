@@ -58,8 +58,9 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 - [`V2a` — Type grammar and loom literal sublanguage](./plan_topics/V2a-type-grammar.md)
 - [`V2b` — Type-compatibility engine (`⊑`)](./plan_topics/V2b-type-compat-engine.md)
-- [`V2c` — Runtime value model, equality, and wire-name translation](./plan_topics/V2c-value-model.md)
+- [`V2c` — Runtime value model and equality](./plan_topics/V2c-value-model.md)
 - [`V2d` — Canonical integer/number renderer](./plan_topics/V2d-number-rendering.md)
+- [`V2e` — Wire-name translation boundary](./plan_topics/V2e-wire-name-translation.md)
 
 ### V3 — Expressions, bindings, control flow, functions
 

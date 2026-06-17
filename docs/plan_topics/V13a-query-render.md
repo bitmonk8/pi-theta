@@ -9,6 +9,6 @@
 - Each loom type stringifies per the table; `loom/parse/interpolated-result` fires on a `Result`-valued `${...}` interpolation.
 - A degenerate (empty) template emits the `empty-template` warning and short-circuits to `ValidationError{empty_template, attempts:0}` — not respond-repair.
 
-**Deps.** `V13a-T`, `V11d`, `V2c`, `V4d`
+**Deps.** `V13a-T`, `V11d`, `V2c`, `V2e`, `V4d`
 
 **Ships when.** `npm test` renders the eight dedent vectors and short-circuits the empty template.

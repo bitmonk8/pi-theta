@@ -71,7 +71,7 @@ The same table also enumerates the third closing-gate surface defined in [`conve
 | Spec area (prefix) | Closing leaf(s) |
 |---|---|
 | `lexical.md` (LEX), `grammar.md` (GRAM) | `V1a`, `V1b`, `V2a` |
-| `runtime-value-model.md` (RVM) | `V2c` |
+| `runtime-value-model.md` (RVM) | `V2c`, `V2e` |
 | `expressions.md` (EXPR) | `V3a`, `V3e` |
 | `expressions.md` (EXPR) §Truthiness — the `loom/parse/non-boolean-condition` reject code for a non-`boolean` `if` / `while` / ternary condition or `&&` / `||` operand (code-keyed; no numbered REQ-ID) | `V3a` |
 | `control-flow.md` (CTRL) — the four loop/branch reject codes `loom/parse/non-array-iterand`, `loom/parse/break-outside-loop`, `loom/parse/continue-outside-loop`, `loom/parse/break-with-value` (code-keyed; no numbered REQ-ID; CTRL-1 closes in the numbered table above) | `V3c` |

@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/schema-subset.md`](../spec_topics/schema-subset.md), [`../spec_topics/schemas.md`](../spec_topics/schemas.md).
 
-**Adds.** The lowering pass over the accepted JSON-Schema subset ([`V5d`](./V5d-reject-gate.md) owns the reject gate): the `__inline_<slug>` hoist, auto `$defs`/`$ref`, the per-schema two-map sidecar (wire-name translation map plus named-enum-position map) whose shared type `V5f` owns as the seam `V2c` consumes, per-query `$defs` pruning, and the canonical-hash → 16-hex-slug recipe with the slug-collision byte-verify posture.
+**Adds.** The lowering pass over the accepted JSON-Schema subset ([`V5d`](./V5d-reject-gate.md) owns the reject gate): the `__inline_<slug>` hoist, auto `$defs`/`$ref`, the per-schema two-map sidecar (wire-name translation map plus named-enum-position map) whose shared type `V5f` owns as the seam `V2e` consumes, per-query `$defs` pruning, and the canonical-hash → 16-hex-slug recipe with the slug-collision byte-verify posture.
 
 **Tests.**
 - `loom/load/schema-slug-collision`: two non-byte-identical inline schemas hashing to the same slug fire; byte-identical ones dedup silently.
