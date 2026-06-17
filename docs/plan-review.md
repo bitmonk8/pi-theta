@@ -55,6 +55,5 @@ entries:
   - { id: F-0215, tier: medium, file: docs/plan.md, anchor: section, title: "Un-anchored-MUST recogniser has no defined behaviour for a `spec_topics/**` page absent from the prefix table" }
   - { id: F-0223, tier: medium, file: docs/plan.md, anchor: section, title: "Permitted-code-list \"cannot disagree\" guarantee is unenforced and rests on a manually-maintained union" }
   - { id: F-0231, tier: medium, file: docs/plan.md, anchor: section, title: "`V2b` Adds claims the deferral marker is consumed by `V6b`/`V11g`, but neither leaf binds the seam" }
-  - { id: F-0235, tier: medium, file: docs/plan.md, anchor: section, title: "V2d-T's BNDR-5 tests omit the interior-range vector that V2d requires" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
