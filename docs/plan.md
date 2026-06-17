@@ -127,7 +127,8 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V9i` — Subagent-mode session isolation and lifecycle](./plan_topics/V9i-subagent-isolation.md)
 - [`V9o` — Subagent-mode `AgentSession.abort()` swallowing-handler per-site routing](./plan_topics/V9o-subagent-swallowing-handler.md)
 - [`V9j` — Binder inference call and provider-error mapping](./plan_topics/V9j-binder-inference-provider-mapping.md)
-- [`V9k` — Extension-bootstrap SDK-failure granularity](./plan_topics/V9k-extension-bootstrap-failures.md)
+- [`V9k` — Extension-bootstrap SDK-failure abort surfaces](./plan_topics/V9k-extension-bootstrap-failures.md)
+- [`V9p` — Extension-bootstrap SDK-failure non-abort surfaces](./plan_topics/V9p-extension-bootstrap-nonabort.md)
 - [`V9l` — Session-only degraded-state branch](./plan_topics/V9l-session-only-degraded-branch.md) — **blocked** on the host-prerequisites clause (a) resolution (see [§Blocked obligations](#blocked-obligations))
 - [`V9m` — `LoomRegistry` drain-state contract](./plan_topics/V9m-drain-state-contract.md)
 
