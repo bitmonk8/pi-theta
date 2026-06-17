@@ -53,6 +53,5 @@ entries:
   - { id: F-0203, tier: medium, file: docs/plan.md, anchor: section, title: "TypeScript devDependency pin: Adds \"pinned to floor `>=5.4.0`\" vs Tests \"satisfies floor\" predicate mismatch" }
   - { id: F-0213, tier: medium, file: docs/plan.md, anchor: section, title: "Smoke-protocol triggers can fire before their H7a-owned inputs exist" }
   - { id: F-0215, tier: medium, file: docs/plan.md, anchor: section, title: "Un-anchored-MUST recogniser has no defined behaviour for a `spec_topics/**` page absent from the prefix table" }
-  - { id: F-0223, tier: medium, file: docs/plan.md, anchor: section, title: "Permitted-code-list \"cannot disagree\" guarantee is unenforced and rests on a manually-maintained union" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
