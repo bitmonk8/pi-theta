@@ -208,6 +208,8 @@ A warn-only live-corpus canary ([`H5b`](./plan_topics/H5b-warn-only-canary.md)) 
 - [`H5b` — Warn-only live-corpus canary (pre-activation pre-flight)](./plan_topics/H5b-warn-only-canary.md)
 - [`H6a` — Live-corpus closing-gate activation (loom 1.0 release gate)](./plan_topics/H6a-live-corpus-activation.md)
 
+The **manual real-host smoke governance protocol** the bump/merge contributor runs and the [`H6a`](./plan_topics/H6a-live-corpus-activation.md) auditor records — its triggers, named owners, activation window, live-host precondition, pass/fail criterion, and merge-blocker / revert path — is a cross-cutting governance note, not a leaf: see [`real-host-smoke-gate.md`](./plan_topics/real-host-smoke-gate.md).
+
 ---
 
 ## Blocked obligations

@@ -46,6 +46,5 @@ entries:
   - { id: F-0221, tier: medium, file: docs/plan_topics/H6a-live-corpus-activation.md, anchor: "Tests / Ships when", title: "Manual real-host smoke acceptance belongs in `H6a` Ships when, not Tests" }
   - { id: F-0218, tier: medium, file: docs/plan_topics/H5d-transitive-completeness-gate.md, anchor: Adds, title: "Closing-leaf cell tokenisation is never formally stated" }
   - { id: F-0214, tier: medium, file: docs/plan_topics/H5a-closing-gate-automation.md, anchor: "H1 heading", title: "H5a heading enumerates two of its three closing-gate surfaces, omitting the un-anchored-MUST arm" }
-  - { id: F-0209, tier: medium, file: docs/plan_topics/H4a-factory-shell-and-harness.md, anchor: Adds, title: "Manual real-host smoke governance protocol is oversized and misplaced in H4a's Adds" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
