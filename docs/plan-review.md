@@ -66,6 +66,5 @@ entries:
   - { id: F-0290, tier: high, file: docs/plan_topics/V14a-tool-calls.md, anchor: "V14a leaf", title: "V14a bundles eight independently-testable concerns from four spec documents" }
   - { id: F-0283, tier: high, file: docs/plan_topics/V10a-discovery-walk.md, anchor: "`Tests.`", title: "Duplicate `DISC-2` test-bullet label on `V10a` / `V10a-T`" }
   - { id: F-0200, tier: high, file: docs/plan.md, anchor: section, title: "cancellation.md swallowing-handler attachment MUST has no coverage-matrix.md Code-keyed row" }
-  - { id: F-0201, tier: high, file: docs/plan.md, anchor: section, title: "Session-context truncation walk (V11i) has no coverage-matrix row" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
