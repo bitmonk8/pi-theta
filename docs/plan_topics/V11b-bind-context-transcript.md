@@ -7,7 +7,7 @@
 **Tests.**
 - `BNDR-7`: the compact-transcript renderings (7a–7i) reproduce byte-exact, including the void-truncation whole-block omission (7i).
 - `BNDR-8`: the assistant body emits the `[assistant]:` line first, then `[tool-call …]` in array order, with args JSON keys in ascending Unicode and array order verbatim.
-- `BNDR-9`: a non-transcript-safe `customType` (containing any of `\n`, `\r`, `]`, or the two-byte sequence `": "` (U+003A U+0020)) fires `loom/runtime/custom-type-unsafe`.
+- `BNDR-9`: a non-transcript-safe `customType` (containing any of `\n`, `\r`, `]`, or the two-byte sequence `: ` (U+003A U+0020)) fires `loom/runtime/custom-type-unsafe`.
 - `loom/parse/bind-context-session-on-subagent`: fires for `bind_context: session` on a `mode: subagent` loom.
 
 **Deps.** `V11b-T`, `V11a`, `V9i`
