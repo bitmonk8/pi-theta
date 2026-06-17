@@ -8,6 +8,5 @@ entries:
   - { id: F-0199, tier: medium, file: docs/plan_topics/conventions.md, anchor: "REQ-ID discipline", title: "`<new>` placeholder coverage-matrix rows satisfy the un-anchored-MUST gate without a real closing leaf" }
   - { id: F-0192, tier: medium, file: docs/plan_topics/conventions.md, anchor: "Leaf format, **Spec** field bullet", title: "Spec-field closure rule uses the undefined terms \"normative cross-link\" / \"narrative cross-link\"" }
   - { id: F-0188, tier: medium, file: docs/plan_topics/conventions.md, anchor: "Leaf format §Deps / Per-phase TDD ritual", title: "\"Deps satisfied\" build-order step names no machine-checkable pickability predicate" }
-  - { id: F-0193, tier: medium, file: docs/plan_topics/conventions.md, anchor: "Cross-cutting rules → *Sequential by default*", title: "Sequential-by-default allow-list representation is undefined at its own rule site" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
