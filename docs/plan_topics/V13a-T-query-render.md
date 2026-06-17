@@ -6,9 +6,9 @@
 
 **Tests.**
 - The trim → dedent order reproduces the eight normative vectors; `loom/parse/illegal-template-escape` and `loom/parse/unterminated-template` diagnostics fire.
-- Each loom type stringifies per the table; `loom/parse/interpolated-result` fires on a `Result`-valued `${...}` interpolation, and `loom/parse/discarded-query-result` fires on a bare `@`...`` expression-statement; separately, the runtime discard-observability event fires on an explicit `Err` discard (`let _ = @`...`` or the `void`-tail form).
+- Each loom type stringifies per the table; `loom/parse/interpolated-result` fires on a `Result`-valued `${...}` interpolation.
 - A degenerate (empty) template emits the `empty-template` warning and short-circuits to `ValidationError{empty_template, attempts:0}` — not respond-repair.
 
-**Deps.** `V11d`, `V2c`, `V4d`, `V9d`
+**Deps.** `V11d`, `V2c`, `V4d`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.

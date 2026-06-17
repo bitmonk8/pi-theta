@@ -41,6 +41,5 @@ entries:
   - { id: F-0292, tier: medium, file: docs/plan_topics/V15e-hot-reload-cache-eviction.md, anchor: "Adds, Tests, Deps, Ships when", title: "Static-resolution per-pass parse cache named inconsistently across V15a and V15e" }
   - { id: F-0295, tier: medium, file: docs/plan_topics/V15e-hot-reload-cache-eviction.md, anchor: "Adds / Tests / Ships when", title: "Hot-reload eviction never pins a single normalised path identity across the parse-cache key, the import-edge-graph node, and the watcher-delivered changed-file path" }
   - { id: F-0293, tier: medium, file: docs/plan_topics/V15b-invoke-depth-cycle.md, anchor: "`INV-4` Tests bullet", title: "INV-4 frame-class boundary-coverage scope is ambiguous" }
-  - { id: F-0288, tier: medium, file: docs/plan_topics/V13a-query-render.md, anchor: "`V13a` leaf body", title: "`V13a` bundles five independent query surfaces into one leaf" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->

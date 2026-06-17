@@ -81,7 +81,7 @@ The same table also enumerates the third closing-gate surface defined in [`conve
 | `descriptions.md` (DESC) | `V5c` |
 | `schema-subset.md` (SUBS) | `V5d`, `V5e`, `V5f` |
 | `frontmatter/frontmatter-fields-a.md`, `frontmatter-fields-b-and-templates.md` (FRNT) | `V6a`, `V6b`, `V6c`, `V6d`, `V6e` |
-| `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d` |
+| `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d`, `V13g` |
 | `tool-calls.md` (TOOL) | `V14a`, `V14b`, `V14c`, `V14e` |
 | `invocation.md` (INV) — the six un-anchored `invoke` parse/load diagnostic codes (`loom/parse/invoke-arg-type-mismatch`, `loom/parse/invoke-return-type-mismatch`, `loom/parse/invoke-arity-too-few`, `loom/parse/invoke-arity-too-many`, `loom/parse/invoke-non-loom-extension`, `loom/load/callee-has-errors`) (un-anchored; GOV-22 residue) | `V15f` |
 | `invocation.md` (INV) §Cross-mode semantics — the prompt→prompt parent-suspend MUST and the whole-body `setActiveTools` snapshot/restore-in-`finally` MUST (parent active-tool set snapshotted before the prompt→prompt child runs and restored in a `finally` across the fail/cancel/throw paths) (un-anchored; GOV-22 residue) | `V15d` |
