@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/invocation.md`](../spec_topics/invocation.md), [`../spec_topics/implementation-notes.md`](../spec_topics/implementation-notes.md).
 
-**Adds.** The six static-resolution `invoke` diagnostic codes — `loom/parse/invoke-arg-type-mismatch`, `loom/parse/invoke-return-type-mismatch`, `loom/parse/invoke-arity-too-few`, `loom/parse/invoke-arity-too-many`, `loom/parse/invoke-non-loom-extension`, and `loom/load/callee-has-errors` — fired against the static-resolution parse cache [`V15a`](./V15a-invocation-core.md) builds, with the runtime AJV check as the only net where the callee is not statically resolvable.
+**Adds.** The six static-resolution `invoke` diagnostic codes — `loom/parse/invoke-arg-type-mismatch`, `loom/parse/invoke-return-type-mismatch`, `loom/parse/invoke-arity-too-few`, `loom/parse/invoke-arity-too-many`, `loom/parse/invoke-non-loom-extension`, and `loom/load/callee-has-errors` — fired against the static-resolution per-pass parse cache [`V15a`](./V15a-invocation-core.md) builds, with the runtime AJV check as the only net where the callee is not statically resolvable.
 
 **Tests.**
 - `loom/parse/invoke-arg-type-mismatch` ([invocation.md — Argument binding](../spec_topics/invocation.md#argument-binding), INV parse/load code-keyed area): a positional argument whose type fails the callee's declared param schema fires the parse error when the callee is statically resolvable; when the callee is not statically resolvable the parse check is skipped and the runtime AJV check is the only safety net (no parse error).
