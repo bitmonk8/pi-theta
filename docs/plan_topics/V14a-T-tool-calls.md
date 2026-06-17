@@ -1,18 +1,14 @@
 # `V14a-T` — Tool calls (code-side) and `CodeToolError` (tests)
 
-**Spec.** [`../spec_topics/tool-calls.md`](../spec_topics/tool-calls.md), [`../spec_topics/pi-integration-contract/conversation-drive.md`](../spec_topics/pi-integration-contract/conversation-drive.md) (the denial-surface MUST under *No additional access channels*), [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md), [`../spec_topics/hard-ceilings/ceilings-3-and-4.md`](../spec_topics/hard-ceilings/ceilings-3-and-4.md) (the code-driven-tool-args row of the ceiling-#4 per-boundary table).
+**Spec.** [`../spec_topics/tool-calls.md`](../spec_topics/tool-calls.md).
 
 **Adds.** Failing tests for the paired `V14a` implementation leaf.
 
 **Tests.**
 - `loom/parse/tool-arg-not-literal`, `tool-arg-arity`, `tool-arg-type-mismatch`: argument violations fire (arity before type).
-- [ceilings-3-and-4.md — Per-boundary destination/surface table (ceiling #4)](../spec_topics/hard-ceilings/ceilings-3-and-4.md#ceiling-4-table) (delegated live-carrier witness for `V5e`'s code-driven-tool-args routing row): a depth-6 code-driven `<name>(args)` tool-call argument trips the loom-owned depth walk (`V5e`) before AJV and surfaces wrapped as `Err(CodeToolError { cause: "validation" })` carrying `schema_keyword: "maxDepth"` (message `"JSON document depth exceeds 5"`).
 - [tool-calls.md — `CodeToolError`](../spec_topics/tool-calls.md) (TOOL code-keyed area): the `CodeToolError` enum is closed (`validation` / `execution` / `cancelled` / `unknown_tool`) and is distinct from `ModelToolError`.
-- Off-surface outcome routing — the four off-surface outcomes each surface on their own channel, not all on `loom/runtime/internal-error`: a pre-eval setup throw → `{isError:true}` + one `loom/runtime/internal-error` diagnostic; a non-conforming return shape → `loom/runtime/internal-error{tool-return-shape}`; a non-settling promise → blocks at its `await` until `loomAbort.signal` fires and surfaces via the `cause:"cancelled"` path (no `internal-error`); a post-cancel late settlement → discarded per CNCL-1/CNCL-2/CNCL-3 (no `internal-error`).
 - [tool-calls.md — *Return type*](../spec_topics/tool-calls.md) (TOOL code-keyed area): both return-type rows lower on the *accepted* path — a conforming **Pi tool** return lowers to a `Result<string, QueryError>` `Ok` carrying the tool's final output as a single `string`; a conforming **registered subagent-mode `.loom` callable** return lowers to a `Result<T, QueryError>` `Ok` whose payload is the callee's inferred return type `T` (statically resolved per `invoke<T>(...)`, runtime AJV-enforced when not statically resolvable).
 - [tool-calls.md — `.loom`-callable failure](../spec_topics/tool-calls.md) (TOOL code-keyed area): a `.loom`-callable failure surfaces via `Invoke*Error` (input-validation = `InvokeInfraError{validation}`).
-- [conversation-drive.md — No additional access channels](../spec_topics/pi-integration-contract/conversation-drive.md#no-extra-mediation): a host-side denial (thrown or `isError: true` tool return) reaches loom code as `Err(QueryError{kind:"code_tool", cause:"execution"})` and never resolves as a silent `Ok` (silent success on denial is forbidden).
-- Swallowing-handler attachment at this site ([cancellation.md — *Race semantics — swallowing-handler attachment on every abandonable Promise*](../spec_topics/cancellation.md)): assert the code-side `execute()` Promise attaches its swallowing handler at the Promise-construction site (before the first microtask boundary), and that a late settlement landed via the `Checkpoint` seam (`V8a`) after the checkpoint has surfaced `cause: "cancelled"` is suppressed along all three side channels — no Node `unhandledRejection`, no second `RuntimeEvent`, and no diagnostic of any severity — so a build that bypasses the substrate reddens this leaf's tests.
 
 **Deps.** `V15a`, `V9f`, `V8a`, `V5e`, `V4d`
 

@@ -165,6 +165,10 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 - [`V14a` — Tool calls (code-side) and `CodeToolError`](./plan_topics/V14a-tool-calls.md)
 - [`V14b` — Model-driven parallel tool-call batch (settle-all and independent lowering)](./plan_topics/V14b-tool-calls-parallel-batch.md)
+- [`V14c` — Code-side tool-call off-surface outcome routing](./plan_topics/V14c-tool-calls-off-surface-routing.md)
+- [`V14d` — Code-tool host-denial surface](./plan_topics/V14d-tool-calls-host-denial.md)
+- [`V14e` — Ceiling-#4 depth-6 code-driven-tool-args routing (live carrier)](./plan_topics/V14e-tool-calls-depth-ceiling.md)
+- [`V14f` — Code-side `execute()` swallowing-handler per-site routing](./plan_topics/V14f-tool-calls-swallowing-handler.md)
 
 ### V15 — Invocation and imports
 
