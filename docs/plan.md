@@ -29,7 +29,7 @@ Project scaffold, dependency-injection skeleton, diagnostics primitive, Pi-exten
 - [`H3a` — Dependency-injection seam skeleton](./plan_topics/H3a-di-seam-skeleton.md)
 - [`H4a` — Extension factory shell and end-to-end harness](./plan_topics/H4a-factory-shell-and-harness.md)
 - [`H4b` — Response-programming surface (scripted-injection contract)](./plan_topics/H4b-response-programming-surface.md)
-- [`H5a` — REQ-ID / diagnostic-code closing-gate automation](./plan_topics/H5a-closing-gate-automation.md)
+- [`H5a` — REQ-ID / diagnostic-code / un-anchored-obligation closing-gate automation](./plan_topics/H5a-closing-gate-automation.md)
 - [`H5c` — `no-broad-catch` allow-list closing-gate reconciliation](./plan_topics/H5c-broad-catch-allow-list-gate.md)
 - [`H5d` — Transitive-completeness plan-structural closing-gate arm](./plan_topics/H5d-transitive-completeness-gate.md)
 - [`H7a` — Terminal integration-acceptance run (cross-slice end-to-end gate)](./plan_topics/H7a-integration-acceptance.md)

@@ -1,4 +1,4 @@
-# `H5a` — REQ-ID / diagnostic-code closing-gate automation
+# `H5a` — REQ-ID / diagnostic-code / un-anchored-obligation closing-gate automation
 
 **Convention.** [`conventions.md`](./conventions.md) — *REQ-ID discipline*, *Diagnostic message anchors*, and the [`coverage-matrix.md`](./coverage-matrix.md) closure obligation.
 
