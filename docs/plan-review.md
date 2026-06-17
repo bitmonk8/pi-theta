@@ -21,6 +21,5 @@ entries:
   - { id: F-0268, tier: medium, file: docs/plan_topics/V9b-registration-reload-wiring.md, anchor: "Adds / Tests / Ships when", title: "V9b's matcher witness asserts a reconciliation only V11a can exercise" }
   - { id: F-0270, tier: medium, file: docs/plan_topics/V9b-registration-reload-wiring.md, anchor: Adds, title: "The \"pending-registration list\" is named three different ways across V9b, V9k, and the coverage matrix" }
   - { id: F-0266, tier: medium, file: docs/plan_topics/V9a-capability-probe.md, anchor: Adds, title: "V9a Adds prescribes source-code layout (\"single physical home\" / \"lives alongside\") instead of the export/import obligations" }
-  - { id: F-0264, tier: medium, file: docs/plan_topics/V7c-placeholder-rendering.md, anchor: "Tests block", title: "Category-8 test bullet conflates the byte-identical surround with a free \"tail\" and omits the assertion shape" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
