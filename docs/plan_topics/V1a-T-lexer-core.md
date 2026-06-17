@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/lexical.md`](../spec_topics/lexical.md), [`../spec_topics/grammar.md`](../spec_topics/grammar.md).
 
-**Adds.** Failing tests for the paired `V1a` implementation leaf.
+**Adds.** Failing tests for the paired `V1a` implementation leaf. The tests assert the lexer's `loom/load/invalid-encoding` and `loom/parse/*` codes fire through the `V7a` producer-facing **diagnostic-emission seam** (the contract the `Deps.` `V7a` edge stands for), not via a direct `pi.sendMessage` call.
 
 **Tests.**
 - `loom/load/invalid-encoding`: a non-UTF-8 byte sequence fails load with this code at the byte offset.
