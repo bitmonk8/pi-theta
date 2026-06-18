@@ -1,6 +1,6 @@
 ---
-list: deferred
-corpus: plan
+list: active
+corpus: mixed
 order: by-importance-then-location
 entries: []
 ---

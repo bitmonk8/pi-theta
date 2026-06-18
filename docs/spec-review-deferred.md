@@ -1,6 +1,6 @@
 ---
 list: deferred
-corpus: plan
+corpus: spec
 order: by-importance-then-location
 entries: []
 ---
