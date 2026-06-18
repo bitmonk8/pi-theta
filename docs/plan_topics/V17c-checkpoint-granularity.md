@@ -1,0 +1,13 @@
+# `V17c` — Checkpoint granularity
+
+**Spec.** [`../spec_topics/cancellation.md`](../spec_topics/cancellation.md), [`../spec_topics/pi-integration-contract/host-interfaces-services.md`](../spec_topics/pi-integration-contract/host-interfaces-services.md).
+
+**Adds.** The cancellation-checkpoint granularity surface peeled off the [`V17a`](./V17a-cancellation-core.md) cancellation core: the fixed checkpoint set (including the pre-binder checkpoint) — the interpreter checks the cancellation signal immediately before each of the five sites (each `for`/`while` iteration, each `@`-query dispatch, each tool call, each `invoke`, and the slash-command argument binder's LLM call) and at no other node kinds — together with the loop-iteration macrotask-yield property. The surface is observable through the [`V8a`](./V8a-checkpoint-validator-seams.md) `Checkpoint` seam alone, independent of the `V17a` forwarding contract.
+
+**Tests.**
+- Checkpoint granularity ([cancellation.md — *Granularity*](../spec_topics/cancellation.md); testability hook: the `Checkpoint` seam, `V8a`, [`host-interfaces-services.md#checkpoint-seam`](../spec_topics/pi-integration-contract/host-interfaces-services.md#checkpoint-seam)): drive the seam to assert a checkpoint fires immediately before each of the five sites — each `for`/`while` iteration, each `@`-query dispatch, each tool call, each `invoke`, and the slash-command argument binder's LLM call. A best-effort negative arm also asserts the seam witnesses no checkpoint at the non-checkpoint categories the test drives — inside a primitive operation (arithmetic, comparison, field/index access) and at a straight-line statement boundary; a checkpoint emitted at a node kind outside the test corpus is not caught by this assertion.
+- Loop-iteration macrotask yield (cancellation.md — *Granularity*, the seam's `loop-iter` case): a signal flipped during a synchronous compute-bound `for`/`while` body is observed before the next iteration — i.e. the loop-iteration checkpoint yields one macrotask turn before reading the signal, so a Pi-dispatched abort (a macrotask) lands without a genuine `await` in the loop body.
+
+**Deps.** `V17c-T`, `V17a`, `V8a`, `H4a`
+
+**Ships when.** `npm test` drives the [`V8a`](./V8a-checkpoint-validator-seams.md) `Checkpoint` seam to assert the checkpoint-granularity presence arm (a checkpoint fires immediately before each of the five sites) together with its best-effort negative arm (no checkpoint at the primitive operations or straight-line statement boundaries the test drives), and asserts the loop-iteration macrotask-yield (a signal flipped during a synchronous loop body is observed before the next iteration).

@@ -196,6 +196,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 - [`V17a` — Cancellation core](./plan_topics/V17a-cancellation-core.md)
 - [`V17b` — Forwarding-listener throw-trap](./plan_topics/V17b-forwarding-listener-throw-trap.md)
+- [`V17c` — Checkpoint granularity](./plan_topics/V17c-checkpoint-granularity.md)
 
 ### V18 — Build-time SDK gates
 
