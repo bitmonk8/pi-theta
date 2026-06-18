@@ -20,6 +20,5 @@ entries:
   - { id: F-0329, tier: medium, file: docs/plan_topics/conventions.md, anchor: "§Sequential by default (\"Enforcement posture\"), §Per-phase TDD ritual self-review, §loom 1.0 release-time residue inspection item 3", title: "`H2a` blocking-runtime recogniser: `*Sync` enumeration is ambiguous (named form is a subset of the family)" }
   - { id: F-0305, tier: medium, file: docs/plan_topics/conventions.md, anchor: "§REQ-ID discipline, *Transitive-completeness plan-maintenance* clause", title: "'Transitive-completeness trigger verb \"can introduce\" is ambiguous'" }
   - { id: F-0310, tier: medium, file: docs/plan_topics/conventions.md, anchor: "§REQ-ID discipline (third closing-gate surface)", title: "Un-anchored-MUST closing gate checks enumeration but never asserting-test existence" }
-  - { id: F-0306, tier: medium, file: docs/plan_topics/conventions.md, anchor: "§Leaf format, Adds. bullet", title: "'Class-2 seam-binding criterion: \"names the seam\" has no precision rule'" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
