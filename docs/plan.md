@@ -69,7 +69,9 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V3b` — Bindings and mutability](./plan_topics/V3b-bindings.md)
 - [`V3c` — Control flow](./plan_topics/V3c-control-flow.md)
 - [`V3d` — Functions and return](./plan_topics/V3d-functions-and-return.md)
-- [`V3e` — Expression stdlib members](./plan_topics/V3e-expression-stdlib.md)
+- [`V3f` — Expression stdlib members: `string`](./plan_topics/V3f-expression-stdlib-string.md)
+- [`V3g` — Expression stdlib members: `array<T>`](./plan_topics/V3g-expression-stdlib-array.md)
+- [`V3h` — Expression stdlib members: `object`](./plan_topics/V3h-expression-stdlib-object.md)
 
 ### V4 — Errors and results
 

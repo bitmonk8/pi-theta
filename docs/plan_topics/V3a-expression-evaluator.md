@@ -2,7 +2,7 @@
 
 **Spec.** [`../spec_topics/expressions.md`](../spec_topics/expressions.md).
 
-**Adds.** The expression interpreter: literals, identifier resolution (local > fn > import > callable), operators with precedence/associativity, boolean-only truthiness, left-to-right short-circuit with skipped-operand observability, arithmetic widening (`integer ⊑ number`), div/mod-by-zero → `Inf`/`NaN` with no integer-overflow panic, ordering (NaN unordered → false), and object/array construction. The `string`/`array<T>`/`object` stdlib members build on this interpreter in [`V3e`](./V3e-expression-stdlib.md).
+**Adds.** The expression interpreter: literals, identifier resolution (local > fn > import > callable), operators with precedence/associativity, boolean-only truthiness, left-to-right short-circuit with skipped-operand observability, arithmetic widening (`integer ⊑ number`), div/mod-by-zero → `Inf`/`NaN` with no integer-overflow panic, ordering (NaN unordered → false), and object/array construction. The `string`/`array<T>`/`object` stdlib members build on this interpreter in [`V3f`](./V3f-expression-stdlib-string.md), [`V3g`](./V3g-expression-stdlib-array.md), and [`V3h`](./V3h-expression-stdlib-object.md).
 
 **Tests.**
 - [expressions.md — Operator precedence](../spec_topics/expressions.md#operator-precedence) (EXPR code-keyed area): operator precedence and associativity match the spec table.

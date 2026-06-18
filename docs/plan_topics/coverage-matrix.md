@@ -77,7 +77,7 @@ Each row carries a **canonical code-keyed-area token** in its leading *Token* co
 |---|---|---|
 | `cka-1` | `lexical.md` (LEX), `grammar.md` (GRAM) | `V1a`, `V1b`, `V2a` |
 | `cka-2` | `runtime-value-model.md` (RVM) | `V2c`, `V2e` |
-| `cka-3` | `expressions.md` (EXPR) | `V3a`, `V3e` |
+| `cka-3` | `expressions.md` (EXPR) | `V3a`, `V3f`, `V3g`, `V3h` |
 | `cka-4` | `expressions.md` (EXPR) §Truthiness — the `loom/parse/non-boolean-condition` reject code for a non-`boolean` `if` / `while` / ternary condition or `&&` / `||` operand (code-keyed; no numbered REQ-ID) | `V3a` |
 | `cka-5` | `control-flow.md` (CTRL) — the four loop/branch reject codes `loom/parse/non-array-iterand`, `loom/parse/break-outside-loop`, `loom/parse/continue-outside-loop`, `loom/parse/break-with-value` (code-keyed; no numbered REQ-ID; CTRL-1 closes in the numbered table above) | `V3c` |
 | `cka-6` | `bindings.md` (BNDS) | `V3b` |

@@ -24,6 +24,5 @@ entries:
   - { id: F-0313, tier: medium, file: docs/plan_topics/conventions.md, anchor: "*No globals, statics, singletons* rule + *loom 1.0 release-time residue inspection* checklist", title: "'Ambient-primitive ban list \"lockstep with spec\" is asserted but has no reconciliation backstop'" }
   - { id: F-0354, tier: medium, file: docs/plan_topics/V4e-pre-evaluation-failures.md, anchor: "leaf body (Tests, Deps, Ships when)", title: "`V4e` bundles a heterogeneous reload-integration scenario (ERR-7) with seven routing checks" }
   - { id: F-0416, tier: medium, file: docs/plan_topics/V4c-terminal-outcomes.md, anchor: "Tests (ERR-12) / Adds deferral note", title: "V4c/V4f defer ERR-8…ERR-13 live-surface confirmation to downstream owners that never re-assert it" }
-  - { id: F-0350, tier: medium, file: docs/plan_topics/V3e-expression-stdlib.md, anchor: "whole leaf", title: "`V3e` bundles three independent stdlib type namespaces in one leaf" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
