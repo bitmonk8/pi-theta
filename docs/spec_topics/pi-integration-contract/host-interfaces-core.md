@@ -56,7 +56,7 @@ Members loom does not touch (e.g. `reload()`, `newSession()`, `fork()`, `switchS
 
 ```ts
 interface ExtensionCommandContext extends ExtensionContext {
-  waitForIdle(): Promise<void>;                          // resolves once Pi emits `agent_end` for the user session and every awaited `agent_end` listener settles; never rejects (see **Conversation drive — prompt mode** above)
+  waitForIdle(): Promise<void>;                          // resolves once Pi emits `agent_end` for the user session and every awaited `agent_end` listener settles; [never rejects](./conversation-drive.md#waitforidle-no-rejection-presupposition) (consumption posture; see **Conversation drive — prompt mode** above)
   // Members loom MUST NOT touch in loom 1.0: newSession, fork, navigateTree, switchSession, ReplacedSessionContext, …
 }
 ```
