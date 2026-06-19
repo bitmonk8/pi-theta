@@ -193,6 +193,5 @@ entries:
   - { id: F-0452, tier: high, file: docs/plan_topics/conventions.md, anchor: "§REQ-ID discipline, *Transitive-completeness plan-maintenance* clause", title: "Transitive-completeness trigger: item-1 (\"carries an executable REQ-ID\") contradicts the item-2 re-citation carve-out" }
   - { id: F-0588, tier: high, file: docs/plan_topics/conventions.md, anchor: "§Leaf format (Deps.)", title: "Deps-field trigger summary restates the transitive-completeness rule with the same over-broad first arm" }
   - { id: F-0556, tier: high, file: docs/plan_topics/V13c-query-tool-loop.md, anchor: "Tests, depth-6 co-fire vector bullet", title: "V13c depth-6 co-fire bullet: \"the surface's `masked`\" misattributes `masked` to `QueryError`" }
-  - { id: F-0811, tier: blocker, file: docs/spec_topics/type-system.md, anchor: "§Type compatibility, structural-cases table and the TYPE-10 paragraph", title: "Type-compatibility closed list does not cover named alias schemas" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->

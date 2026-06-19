@@ -14,7 +14,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 
 | REQ-ID | Closing leaf(s) |
 |---|---|
-| TYPE-1 … TYPE-10 | `V2b` |
+| TYPE-1 … TYPE-11 | `V2b` |
 | CTRL-1 | `V3c` |
 | ERR-1 … ERR-6 | `V4e` |
 | ERR-7 | `V4g` |
