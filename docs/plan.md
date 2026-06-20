@@ -139,6 +139,8 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ### V10 — Discovery and settings
 
+> **Interleave note.** V10 is not built in letter order: `V10c` (settings reads and merge) carries no intra-slice dep, while `V10a` depends on `V10c`, `V10b` depends on `V10a`/`V10c`, and `V10d` depends on `V10c`, so the slice builds `V10c → V10a → V10b → V10d`. Sequence by **Deps**, not slice number.
+
 - [`V10a` — Discovery walk, sources, and collisions](./plan_topics/V10a-discovery-walk.md)
 - [`V10b` — Package discovery (bounded walk)](./plan_topics/V10b-package-discovery.md)
 - [`V10c` — Settings reads and merge](./plan_topics/V10c-settings-merge.md)
@@ -146,7 +148,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ### V11 — Binder
 
-> **Interleave note.** `V11a` depends on `V9b` and is a prerequisite of `V9c`/`V9i`/`V9j`, so it lands mid-V9 (seam `V9b → V11a → V9c`/`V9i`/`V9j`) rather than after the whole V9 slice. Sequence by **Deps**, not slice number.
+> **Interleave note.** `V11a` depends on `V9b` and is a prerequisite of `V9c`/`V9i`/`V9j`, so it lands mid-V9 (seam `V9b → V11a → V9c`/`V9i`/`V9j`) rather than after the whole V9 slice. Separately, `V11e` (Binder system-note rendering and determinism) depends on `V11h` (argument echo), an intra-slice inversion of letter order. Sequence by **Deps**, not slice number.
 
 - [`V11a` — Binder-model resolution and strict-capability probe](./plan_topics/V11a-binder-model-resolution.md)
 - [`V11b` — Bind context and transcript renderer](./plan_topics/V11b-bind-context-transcript.md)
@@ -160,6 +162,8 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V11j` — Binder-call cancellation forwarding](./plan_topics/V11j-binder-call-cancellation.md)
 
 ### V12 — Slash invocation
+
+> **Interleave note.** `V12a`/`V12a-T` depend on `V13c` (query tool loop and typed two-phase), so the V12 slice lands after that V13 leaf rather than before all of V13. Sequence by **Deps**, not slice number.
 
 - [`V12a` — Slash dispatch, overflow, and streaming](./plan_topics/V12a-slash-dispatch.md)
 - [`V12b` — Top-level `Err` formatting and chain attribution](./plan_topics/V12b-top-level-err-chain.md)
@@ -175,6 +179,8 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 
 ### V14 — Tool calls
 
+> **Interleave note.** The V14 series depends on `V15a` (invocation core) via `V14a`, so the V14 slice lands after that V15 leaf rather than before all of V15. Sequence by **Deps**, not slice number.
+
 - [`V14a` — Tool calls (code-side) and `CodeToolError`](./plan_topics/V14a-tool-calls.md)
 - [`V14b` — Model-driven parallel tool-call batch (settle-all and independent lowering)](./plan_topics/V14b-tool-calls-parallel-batch.md)
 - [`V14c` — Code-side tool-call off-surface outcome routing](./plan_topics/V14c-tool-calls-off-surface-routing.md)
@@ -183,6 +189,8 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V14f` — Code-side `execute()` swallowing-handler per-site routing](./plan_topics/V14f-tool-calls-swallowing-handler.md)
 
 ### V15 — Invocation and imports
+
+> **Interleave note.** `V15b` (invoke depth bound and cycle detection) depends on `V16a` (hard-ceiling interaction order and `masked` co-fire), so it lands after that V16 leaf rather than before all of V16. Sequence by **Deps**, not slice number.
 
 - [`V15a` — Invocation core](./plan_topics/V15a-invocation-core.md)
 - [`V15b` — Invoke depth bound and cycle detection](./plan_topics/V15b-invoke-depth-cycle.md)
