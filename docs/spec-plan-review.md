@@ -161,7 +161,6 @@ entries:
   - { id: F-0947, tier: medium, file: docs/plan_topics/V10c-settings-merge.md, anchor: "Tests / Ships when", title: "V10c claims \"and validation\" but asserts only one of several spec-defined validation criteria" }
   - { id: F-0953, tier: medium, file: docs/plan_topics/V10b-package-discovery.md, anchor: Tests, title: "`DISC-6b` / `DISC-6c` mint REQ-ID-shaped tokens for unregistered DISC-6 sub-scenarios" }
   - { id: F-0484, tier: medium, file: docs/plan_topics/H6a-live-corpus-activation.md, anchor: Deps, title: "H6a flips H5c's live-corpus arm but does not depend on H5c" }
-  - { id: F-0913, tier: medium, file: docs/plan_topics/H6a-live-corpus-activation.md, anchor: "Adds / Ships when", title: "Release-time residue inspection has no owner step or evidence record" }
   - { id: F-0922, tier: medium, file: docs/plan_topics/H5a-closing-gate-automation.md, anchor: "Adds (warn-only live-corpus mode)", title: "Warn-only canary \"CI finding\" reporting contract is undefined" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
