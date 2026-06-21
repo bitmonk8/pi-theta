@@ -160,6 +160,5 @@ entries:
   - { id: F-0391, tier: medium, file: docs/plan_topics/V12a-slash-dispatch.md, anchor: "Tests (`SLSH-2`), Adds, Ships when", title: "V12a / V12a-T SLSH-2 — design-rationale and governance prose buried in the streaming-ordering test bullet" }
   - { id: F-0947, tier: medium, file: docs/plan_topics/V10c-settings-merge.md, anchor: "Tests / Ships when", title: "V10c claims \"and validation\" but asserts only one of several spec-defined validation criteria" }
   - { id: F-0953, tier: medium, file: docs/plan_topics/V10b-package-discovery.md, anchor: Tests, title: "`DISC-6b` / `DISC-6c` mint REQ-ID-shaped tokens for unregistered DISC-6 sub-scenarios" }
-  - { id: F-0484, tier: medium, file: docs/plan_topics/H6a-live-corpus-activation.md, anchor: Deps, title: "H6a flips H5c's live-corpus arm but does not depend on H5c" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
