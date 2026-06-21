@@ -158,6 +158,5 @@ entries:
   - { id: F-0946, tier: medium, file: docs/plan_topics/V13d-query-failure-repair.md, anchor: "V13d leaf body", title: "V13d bundles respond-repair loop control with byte-exact follow-up template rendering" }
   - { id: F-0557, tier: medium, file: docs/plan_topics/V13c-query-tool-loop.md, anchor: "depth-6 co-fire Tests bullet", title: "V13c depth-6 co-fire bullet mis-states the `RuntimeEvent` shape as carrying \"only `kind` plus the optional `masked` field\"" }
   - { id: F-0391, tier: medium, file: docs/plan_topics/V12a-slash-dispatch.md, anchor: "Tests (`SLSH-2`), Adds, Ships when", title: "V12a / V12a-T SLSH-2 — design-rationale and governance prose buried in the streaming-ordering test bullet" }
-  - { id: F-0947, tier: medium, file: docs/plan_topics/V10c-settings-merge.md, anchor: "Tests / Ships when", title: "V10c claims \"and validation\" but asserts only one of several spec-defined validation criteria" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
