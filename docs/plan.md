@@ -177,6 +177,7 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V13d` — Query failure and respond-repair](./plan_topics/V13d-query-failure-repair.md)
 - [`V13f` — `@`-query provider swallowing-handler per-site routing](./plan_topics/V13f-query-cancellation-routing.md)
 - [`V13g` — Discarded-query result discipline and discard observability](./plan_topics/V13g-query-discard-observability.md)
+- [`V13h` — Query follow-up turn template rendering](./plan_topics/V13h-query-followup-rendering.md)
 
 ### V14 — Tool calls
 

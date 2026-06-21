@@ -89,7 +89,7 @@ Each row carries a **canonical code-keyed-area token** in its leading *Token* co
 | `cka-9` | `descriptions.md` (DESC) | `V5c` |
 | `cka-10` | `schema-subset.md` (SUBS) | `V5d`, `V5e`, `V5f` |
 | `cka-11` | `frontmatter/frontmatter-fields-a.md`, `frontmatter-fields-b-and-templates.md` (FRNT) | `V6a`, `V6b`, `V6c`, `V6d`, `V6e` |
-| `cka-12` | `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d`, `V13g` |
+| `cka-12` | `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d`, `V13g`, `V13h` |
 | `cka-13` | `tool-calls.md` (TOOL) | `V14a`, `V14b`, `V14c`, `V14e` |
 | `cka-14` | `invocation.md` (INV) — the six un-anchored `invoke` parse/load diagnostic codes (`loom/parse/invoke-arg-type-mismatch`, `loom/parse/invoke-return-type-mismatch`, `loom/parse/invoke-arity-too-few`, `loom/parse/invoke-arity-too-many`, `loom/parse/invoke-non-loom-extension`, `loom/load/callee-has-errors`) (un-anchored; GOV-22 residue) | `V15f` |
 | `cka-15` | `invocation.md` (INV) §Cross-mode semantics — the prompt→prompt parent-suspend MUST and the whole-body `setActiveTools` snapshot/restore-in-`finally` MUST (parent active-tool set snapshotted before the prompt→prompt child runs and restored in a `finally` across the fail/cancel/throw paths) (un-anchored; GOV-22 residue) | `V15d` |

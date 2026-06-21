@@ -155,6 +155,5 @@ entries:
   - { id: F-0564, tier: medium, file: docs/plan_topics/V15a-invocation-core.md, anchor: "Adds / Tests / Ships-when / Deps", title: "V15a Ships-when spawns an invoke across the cross-mode matrix without depending on the session spawn-and-attach machinery" }
   - { id: F-0559, tier: medium, file: docs/plan_topics/V14c-tool-calls-off-surface-routing.md, anchor: "Adds, Tests, Ships when", title: "V14c — pre-eval setup throw off-surface bullet drops its `.loom`-callable-adapter scope" }
   - { id: F-0560, tier: medium, file: docs/plan_topics/V14b-tool-calls-parallel-batch.md, anchor: "Adds / Tests", title: "V14b leaves Pi's model-driven parallel-tool-mode behaviour unsurfaced as an unpinned host presupposition" }
-  - { id: F-0946, tier: medium, file: docs/plan_topics/V13d-query-failure-repair.md, anchor: "V13d leaf body", title: "V13d bundles respond-repair loop control with byte-exact follow-up template rendering" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
