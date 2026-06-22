@@ -24,7 +24,7 @@
 **Placeholders.** `<error.message>`, `<original content first line>`, `<dispose error first line>`.
 
 <a id="underlying-error-coercion"></a>
-**Underlying-error coercion.** `<error.message>` and `<dispose error first line>` bind a *caught thrown value*, which JavaScript does not guarantee to be `Error`-shaped (`throw <any value>` is legal, and only `Error`-derived values carry a string-valued `.message`). Before the first-line truncation rule below applies — and likewise wherever a producer site populates an error-message field from a caught thrown value (a diagnostic `details.error`, a `hint` or `message` that carries a caught throw's message, or `CodeToolError.message`) — the caught value `v` is coerced to the underlying string by:
+**Underlying-error coercion.** `<error.message>` and `<dispose error first line>` bind a *caught thrown value*, which JavaScript does not guarantee to be `Error`-shaped (`throw <any value>` is legal, and only `Error`-derived values carry a string-valued `.message`). Before the first-line truncation rule below applies — and likewise wherever a producer site populates an error-message field from a caught thrown value (a diagnostic `details.error` or `details.cause`, a `hint` or `message` that carries a caught throw's message, or `CodeToolError.message`) — the caught value `v` is coerced to the underlying string by:
 
 1. when `v` is an object whose `.message` is a string, the underlying string is that `.message`;
 2. otherwise the underlying string is `String(v)`, or the literal text `<unreadable>` when the `String(v)` coercion itself throws.
