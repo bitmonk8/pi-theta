@@ -18,7 +18,7 @@ Whether the seed is included in the request payload, and under which field name,
 
 ## Cancellation
 
-The binder participates in cancellation per [Cancellation](../cancellation.md). The runtime checks `ctx.signal` immediately before issuing the binder call and forwards the signal into the [binder inference call](../pi-integration-contract/binder-inference.md#binder-inference-call) as its `options.signal`; the initial attempt and every retry permitted by the per-invocation budget below honour the signal. A cancelled binder produces the cancelled-binder system note in the failure-modes table below and the loom does not run. The bypass path (single no-default `string` param, no LLM call) is naturally cancellable at the next regular checkpoint inside the loom body; the cancelled-binder system note does not apply to bypass-eligible looms.
+The binder participates in cancellation per [Cancellation](../cancellation.md). The runtime checks `loomAbort.signal` immediately before issuing the binder call and forwards the signal into the [binder inference call](../pi-integration-contract/binder-inference.md#binder-inference-call) as its `options.signal`; the initial attempt and every retry permitted by the per-invocation budget below honour the signal. A cancelled binder produces the cancelled-binder system note in the failure-modes table below and the loom does not run. The bypass path (single no-default `string` param, no LLM call) is naturally cancellable at the next regular checkpoint inside the loom body; the cancelled-binder system note does not apply to bypass-eligible looms.
 
 ## Failure modes
 
@@ -50,7 +50,7 @@ The six user-facing shapes:
 | Binder model transport failure (after 1 retry) | `loom /<name>: argument binder unavailable (<provider>: <message>)` |
 | Binder returned malformed envelope (after 1 retry) | `loom /<name>: argument binding failed — could not parse arguments` |
 | AJV validation of the binder's `args` failed (no retry) | `loom /<name>: argument binding produced invalid args — <ajv-summary>` |
-| `ctx.signal` aborted before or during the binder call | `loom /<name>: argument binding cancelled` |
+| `loomAbort.signal` aborted before or during the binder call | `loom /<name>: argument binding cancelled` |
 
 Transport failures and malformed-envelope failures each get exactly one retry; the second failure of that class surfaces as the system note above. AJV validation failures on `args` are not retried — a binder that returned a structurally valid envelope whose `args` violate the params schema is hallucinating field shapes, and a re-prompt with the same system prompt would not change the outcome. Respond-repair follow-ups (the mechanism typed queries use for response-schema repair) do not apply to any binder failure; the frontmatter `respond_repair.attempts` / `respond_repair.methodology` knobs apply only to typed queries from loom code, and the binder uses fixed retry counts and does not consult them.
 
