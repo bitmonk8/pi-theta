@@ -112,6 +112,18 @@ When `FnBody` or `LoomBody` is parsed without a trailing `Expr`, the function or
 
 A statement-form `if` / `for` / `while` (the `IfStmt` / `WhileStmt` / `ForStmt` productions above, whose surface forms and diagnostics are owned by [Control Flow](./control-flow.md)) is a statement, not an expression: it produces no value and is not admissible in expression position — the ternary `cond ? a : b` is the expression form of conditional. Its `StmtBlock` body accepts zero or more statements with an optional tail `Expr`; an empty `{}` body is admitted. A present tail `Expr` is evaluated and its value is discarded (the block produces no value), except that a tail `Expr` ending in the postfix `?` operator — applied to any operand `?` admits, per [Errors and Results — `?` operand-type precondition](./errors-and-results/error-model.md#err-18) — still triggers `?` early-return on failure, because `?` desugars to `return Err(e)` per [Return Statement](./return.md).
 
+## `fn` declarations
+
+<a id="fn-declarations"></a>
+
+```
+FnDecl       ::= "fn" Ident "(" FnParams? ")" (":" ReturnType)? FnBody
+FnParams     ::= FnParam ("," FnParam)* ","?
+FnParam      ::= Ident ":" Type
+```
+
+A `FnDecl` is a top-level `fn` declaration; its placement, nesting, call-position, and documentation rules are owned by [Function Definitions](./functions.md). The parameter list is parenthesised in every case — a zero-parameter function is written `fn f()`, never bare `fn f` — with parameters separated by `,` and a trailing comma admitted. Each `FnParam` is an `Ident ":" Type` pair: a `fn` parameter carries no default (loom 1.0 admits literal-valued defaults only on `params:` frontmatter fields, see [Parameters and Frontmatter — Defaults](./frontmatter.md)), so every `fn` parameter is non-defaulted for the argument-arity count at [Invocation — Argument arity](./invocation.md#argument-binding), and a `mut` modifier on a `fn` parameter is `loom/parse/mut-on-immutable-context` (see [Bindings — Immutable contexts](./bindings.md)). The `: ReturnType` annotation is optional; when present, the body type-checks its tail and every `return` operand against it, and when absent the return type is inferred per [Function Definitions — Loom return type](./functions.md#loom-return-type) (an annotation-less body whose last form is a statement infers `null` per [Empty-tail body](./functions.md#empty-tail-body)). `FnBody` is the relaxed function-body block defined under [Block expressions](#block-expressions) above.
+
 ## `match` arm body
 
 ```
