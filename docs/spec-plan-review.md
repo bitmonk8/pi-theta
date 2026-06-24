@@ -151,6 +151,5 @@ entries:
   - { id: F-1372, tier: high, file: docs/plan_topics/coverage-matrix.md, anchor: "Code-keyed obligation areas table", title: "V15i export-visibility obligations are untracked by the coverage matrix and cite prose section names" }
   - { id: F-1373, tier: high, file: docs/plan_topics/coverage-matrix.md, anchor: "Code-keyed obligation areas (no numbered REQ-IDs) table", title: "V15j invoke-ceiling-#4 live-carrier witness is untracked: no coverage-matrix row and a prose-only Tests citation" }
   - { id: F-1374, tier: high, file: docs/plan_topics/coverage-matrix.md, anchor: "*Code-keyed obligation areas (no numbered REQ-IDs)* table", title: "V17c (§Granularity closing leaf) has no coverage-matrix row and cites only prose section links" }
-  - { id: F-1363, tier: high, file: docs/plan_topics/V9i-subagent-isolation.md, anchor: "Tests (`ERR-8` bullet) + Ships when", title: "V9i's real-`AgentSession` ERR-8 witness has no offline cancellable-stream source under `npm test`" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
