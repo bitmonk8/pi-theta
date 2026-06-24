@@ -42,7 +42,11 @@ interface ExtensionContext {
 }
 ```
 
+*Pi-owned snapshot.* The enumerated member set is normative on the loom runtime — members deliberately omitted remain MUST-NOT-call (an arm (a) behavioural constraint per [GOV-18 arm (a)](../governance/corpus-direction-and-scope.md#gov-18-arm-a)) — while each member's TypeScript signature is a non-normative snapshot of the Pi-owned shape at the [loom 1.0 Pi-SDK pin](./host-prerequisites.md#pi-sdk-pin), re-validated on each Pi minor bump per [Pi version bump procedure](./version-bump-intro.md#pi-version-bump-procedure) below.
+
 `CompactOptions` and `CompactionResult` (referenced by the `compact` row above) are declared in `dist/core/extensions/types.d.ts` and `dist/core/compaction/compaction.d.ts` respectively in `@earendil-works/pi-coding-agent` (the [loom 1.0 Pi-SDK pin](./host-prerequisites.md#pi-sdk-pin) from **Host prerequisites** above) as `CompactOptions = { customInstructions?: string; onComplete?: (result: CompactionResult) => void; onError?: (error: Error) => void }`; `CompactionResult` is the host-defined result payload threaded through `onComplete`. Loom does not construct either value in loom 1.0 — both are listed only so the touched-surface inventory is closed against the cited declarations and re-validated on each Pi minor bump per [Pi version bump procedure](./version-bump-intro.md#pi-version-bump-procedure) below.
+
+*Pi-owned snapshot.* The enumerated member set is normative on the loom runtime — members deliberately omitted remain MUST-NOT-call (an arm (a) behavioural constraint per [GOV-18 arm (a)](../governance/corpus-direction-and-scope.md#gov-18-arm-a)) — while each member's TypeScript signature is a non-normative snapshot of the Pi-owned shape at the [loom 1.0 Pi-SDK pin](./host-prerequisites.md#pi-sdk-pin), re-validated on each Pi minor bump per [Pi version bump procedure](./version-bump-intro.md#pi-version-bump-procedure) below.
 
 <a id="model-registry-pin"></a>
 
@@ -60,6 +64,8 @@ interface ExtensionCommandContext extends ExtensionContext {
   // Members loom MUST NOT touch in loom 1.0: newSession, fork, navigateTree, switchSession, ReplacedSessionContext, …
 }
 ```
+
+*Pi-owned snapshot.* The enumerated member set is normative on the loom runtime — members deliberately omitted remain MUST-NOT-call (an arm (a) behavioural constraint per [GOV-18 arm (a)](../governance/corpus-direction-and-scope.md#gov-18-arm-a)) — while each member's TypeScript signature is a non-normative snapshot of the Pi-owned shape at the [loom 1.0 Pi-SDK pin](./host-prerequisites.md#pi-sdk-pin), re-validated on each Pi minor bump per [Pi version bump procedure](./version-bump-intro.md#pi-version-bump-procedure) below.
 
 Members loom MUST NOT touch in loom 1.0 (e.g. `newSession()`, `fork()`, `navigateTree()`, `switchSession()`, the `ReplacedSessionContext` surface) are deliberately omitted from the inline shape; their absence from this table is normative — the loom runtime MUST NOT call them in loom 1.0, and a future widening (the deferred *Mid-loom user-session replacement* extension in [Future Considerations](../future-considerations/surface-extensions.md#mid-loom-user-session-replacement) is the only loom 1.0 surface that anticipates such use) is a spec-versioned change. The `waitForIdle()` member is the only `ExtensionCommandContext`-only member loom touches in loom 1.0; it is consulted on the captured slash-command handler context only (the `ExtensionCommandContext` Pi passes to the loom's slash-command `handler`), never on the synthesised tool-execution `ctx` from the **`ExtensionContext`** section above (which is typed as the wider `ExtensionContext` and does not expose `waitForIdle`).
 
@@ -104,6 +110,8 @@ interface AgentSession {
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;  // session-local event subscription scoped to this `AgentSession`; returns an unsubscribe function the runtime calls before resolving each query
 }
 ```
+
+*Pi-owned snapshot.* The enumerated member set is normative on the loom runtime — members deliberately omitted remain MUST-NOT-call (an arm (a) behavioural constraint per [GOV-18 arm (a)](../governance/corpus-direction-and-scope.md#gov-18-arm-a)) — while each member's TypeScript signature is a non-normative snapshot of the Pi-owned shape at the [loom 1.0 Pi-SDK pin](./host-prerequisites.md#pi-sdk-pin), re-validated on each Pi minor bump per [Pi version bump procedure](./version-bump-intro.md#pi-version-bump-procedure) below.
 
 `abort()` is the only member of this subset additionally probed at factory time (`typeof AgentSession.prototype.abort === "function"`, per [Step 0 (c)](./capability-probe.md#entry-capability-probe) above and the [cancellation-propagation capability](./capability-inventory-items.md#sdk-cap-cancellation-propagation)), so a Pi minor that renames or drops it surfaces as `loom/load/host-incompatible` rather than as a runtime-time `TypeError`. `dispose`, `sendUserMessage`, and `subscribe` are **not** factory-probed and are not among the seven named SDK capabilities the [literal-read assertion](./version-bump-step2.md#bump-step-2-positive) enumerates; their re-validation against the cited declaration is carried by item (n) of the *Editorial-review checklist for unpinned host presuppositions* under [Pi version bump procedure](./version-bump-intro.md#pi-version-bump-procedure) below.
 
