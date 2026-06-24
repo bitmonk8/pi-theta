@@ -148,6 +148,5 @@ entries:
   - { id: F-1352, tier: high, file: docs/plan_topics/coverage-matrix.md, anchor: "Numbered REQ-IDs table", title: "Close BNDR-10 at V11i" }
   - { id: F-1353, tier: high, file: docs/plan_topics/coverage-matrix.md, anchor: "Numbered REQ-IDs table", title: "Close BNDR-11 at V11a" }
   - { id: F-1364, tier: high, file: docs/plan_topics/coverage-matrix.md, anchor: "Numbered REQ-IDs (runtime obligations) table", title: "SUBS-1 union-lowering rule is an unmapped executable REQ-ID with no closing leaf or citing test" }
-  - { id: F-1372, tier: high, file: docs/plan_topics/coverage-matrix.md, anchor: "Code-keyed obligation areas table", title: "V15i export-visibility obligations are untracked by the coverage matrix and cite prose section names" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
