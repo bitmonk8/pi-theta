@@ -2,7 +2,7 @@
 
 ## Untyped form
 
-`Ok` value is the assistant's text response as a `string`:
+<a id="qry-1"></a> **QRY-1.** `Ok` value is the assistant's text response as a `string`:
 
 ```loom
 let critique = @`Critique this code:\n${code}`?
@@ -12,7 +12,7 @@ Return type: `Result<string, QueryError>`.
 
 ## Typed form
 
-The response schema is **inferred from the surrounding type context**. The runtime hands the schema to the provider as a structured-output / strict tool-input contract and validates the response with AJV before returning it. The most common form is type-annotated `let`:
+<a id="qry-2"></a> **QRY-2.** The response schema is **inferred from the surrounding type context**. The runtime hands the schema to the provider as a structured-output / strict tool-input contract and validates the response with AJV before returning it. The most common form is type-annotated `let`:
 
 ```loom
 let score: ReviewScore = @`Rate the critique 1-5: ${critique}`?
@@ -24,7 +24,7 @@ Return type: `Result<Schema, QueryError>`, where `Schema` is the inferred respon
 
 <a id="explicit-ascription-override"></a>
 
-An explicit `@<Schema>` ascription via the [explicit form](#explicit-form) always supplies the response schema and overrides the inference contexts below, regardless of where the query appears.
+<a id="qry-3"></a> **QRY-3.** An explicit `@<Schema>` ascription via the [explicit form](#explicit-form) always supplies the response schema and overrides the inference contexts below, regardless of where the query appears.
 
 Absent an explicit ascription, the response schema flows into the query expression from a *type sink* — a position whose declared type can supply the schema. The positions that can serve as a sink are:
 
@@ -54,7 +54,7 @@ If the walk reaches a sink, that schema is the query's response type. If the wal
 
 ### Explicit form
 
-`@<Schema>`...`` overrides inference. Required in any expression position with no usable type context, such as the scrutinee of `match`:
+<a id="qry-4"></a> **QRY-4.** `@<Schema>`...`` overrides inference. Required in any expression position with no usable type context, such as the scrutinee of `match`:
 
 ```loom
 let score = match @<ReviewScore>`Rate the critique 1-5: ${critique}` {
@@ -74,7 +74,7 @@ Per the [override rule](#explicit-ascription-override), when both a binding anno
 
 ## Multi-line templates
 
-Backtick templates span as many lines as needed; there is no separate heredoc form. Loom applies two normalisations to the rendered text:
+<a id="qry-5"></a> **QRY-5.** Backtick templates span as many lines as needed; there is no separate heredoc form. Loom applies two normalisations to the rendered text:
 
 - **Newline trim.** A newline immediately after the opening backtick is stripped; a newline immediately before the closing backtick is stripped. This makes the natural-looking form produce clean text:
 
@@ -96,7 +96,7 @@ Dedent and newline-trim apply uniformly to every `@`...`` template regardless of
 
 <a id="degenerate-rendered-templates"></a>
 
-Two layers defend against sending the provider a turn that contains no useful text:
+<a id="qry-6"></a> **QRY-6.** Two layers defend against sending the provider a turn that contains no useful text:
 
 - **Parse-time warning** (`loom/parse/empty-template`, severity *warning*): if a template's *static* body — every literal segment between interpolations, taken as the parser's conceptual static-analysis approximation of the rendered static body — newline-trim and dedent notionally applied to those segments, the escape rewrites of [Query escapes — Escapes](query-escapes-stringification.md#escapes) notionally **not** applied — is empty or whitespace-only (whitespace being the ASCII set pinned at [System-note rendering](../binder/defaulting-system-note-echo.md#system-note-rendering) rule 1, never the regex `\s` class), the parser emits a one-line warning at the template's source location. The loom still loads. Authors who genuinely intend a whitespace-only prompt can suppress the warning by writing an explicit literal escape (`\n`): evaluating the predicate pre-escape, the body is the non-whitespace two-character sequence `` \n `` and the warning is suppressed (post-escape it would be a single whitespace newline, so only the pre-escape reading makes this suppression hatch effective).
 - **Runtime short-circuit:** immediately before the user turn would be issued, if the *fully-rendered* text (post-interpolation, post-newline-trim, post-dedent) has length 0 or contains only characters drawn from the ASCII whitespace set pinned at [System-note rendering](../binder/defaulting-system-note-echo.md#system-note-rendering) rule 1 — the language-dependent regex `\s` class is **not** used, so non-ASCII whitespace (e.g. U+00A0) does not satisfy the predicate and a render consisting solely of such characters issues a turn rather than short-circuiting — the query short-circuits to `Err(QueryError { kind: "validation", cause: "empty_template", message: "rendered query template is empty", attempts: 0, validation_errors: [], raw_response: null })` without consuming a provider round-trip. The empty-template short-circuit emits the `cause: "empty_template"` arm of `ValidationError` (see [Errors and Results — ValidationError](../errors-and-results.md)) so it is observably distinct on the wire from a `cause: "schema_validation"` failure even though both share `kind: "validation"`. The short-circuit fires equally on the original turn and on any respond-repair follow-up turn (defensive — should not occur for follow-ups, since the runtime constructs them); a follow-up that short-circuits does **not** consume an `attempts` slot. An empty-template short-circuit on the original user turn of a typed query MUST NOT trigger the respond-repair path: zero respond-repair follow-up turns are issued, no follow-up user turn is appended to the conversation history, and the returned `ValidationError.attempts` is 0 regardless of `respond_repair.attempts` and `respond_repair.methodology`. Rationale: respond-repair repairs a malformed model response (see Schema-validation respond-repair); the short-circuit is the runtime refusing input it constructed itself, before any model response exists, so there is nothing for a follow-up turn to repair.
@@ -105,7 +105,7 @@ Oversized rendered templates have no pre-flight bound in loom 1.0; they pass thr
 
 ### Dedent and newline-trim — normative behaviour
 
-The two normalisations are applied in a fixed order: **newline-trim first**, then **dedent**. The normative authority for both is this section itself — the behaviour rules below, the vector table, and the obligations that accompany them. CPython 3.x `textwrap.dedent` is cited only as a non-normative pointer to one conforming implementation; where this section addresses an input or where the two would disagree, this section governs. The following behaviours matter for the rendered prompt the model sees:
+<a id="qry-7"></a> **QRY-7.** The two normalisations are applied in a fixed order: **newline-trim first**, then **dedent**. The normative authority for both is this section itself — the behaviour rules below, the vector table, and the obligations that accompany them. CPython 3.x `textwrap.dedent` is cited only as a non-normative pointer to one conforming implementation; where this section addresses an input or where the two would disagree, this section governs. The following behaviours matter for the rendered prompt the model sees:
 
 1. Whitespace-only lines are ignored when computing the common prefix and are normalised to an empty line in the output. A "blank" line that contains stray spaces still dedents as if it were empty.
 2. The common prefix is the longest common literal prefix of the non-blank lines, not a visual column. A template that mixes tab-indented and space-indented lines has no shared prefix; nothing is stripped.

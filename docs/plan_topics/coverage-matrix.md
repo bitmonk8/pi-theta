@@ -66,6 +66,12 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | CNCL-4 | `V17a`, `V9g` |
 | CNCL-5, CNCL-6 | `V17a` |
 | FRNT-1 | `V6e` |
+| QRY-1, QRY-5, QRY-6, QRY-7, QRY-17, QRY-18, QRY-21 | `V13a` |
+| QRY-2, QRY-3, QRY-4 | `V13b` |
+| QRY-8 … QRY-11 | `V13d` |
+| QRY-12 | `V13h` |
+| QRY-13 … QRY-16 | `V13c` |
+| QRY-19, QRY-20 | `V13g` |
 | IMP-1 | `V15c` |
 
 **`CIO` / `HC3` / `NOCEIL` / `CEIL` closure rationale (for the `CIO` rows above).** `CEIL` is a registered prefix that currently anchors no live REQ-ID; its cross-ceiling content is carried by the `CIO` IDs and the `HC3`/`NOCEIL` inline labels. `CIO-2 … CIO-4` and `CIO-6` close in [`V16a`](./V16a-ceiling-order-masked.md); `CIO-1`'s cross-ceiling precedence *decision* is witnessed at [`V16a`](./V16a-ceiling-order-masked.md)'s seam while its temporal slash-load-before-runtime placement is co-witnessed by the load-time consults in [`V4e`](./V4e-pre-evaluation-failures.md) / [`V11f`](./V11f-binder-retry-taxonomy.md); `CIO-5`'s seam-local single-surface arbitration closes at [`V16a`](./V16a-ceiling-order-masked.md) while its cross-site never-interleaves property is co-witnessed by [`H7a`](./H7a-integration-acceptance.md)'s co-occurring-breach integration run; and `HC3-a … HC3-e` close in [`V11f`](./V11f-binder-retry-taxonomy.md); the `SNK-a … SNK-k` per-`kind` system-note labels (`SLSH-4` on [`../spec_topics/slash-invocation.md`](../spec_topics/slash-invocation.md)) likewise close by per-label single-leaf closure in [`V12b`](./V12b-top-level-err-chain.md), with `SNK-k` carrying the catch-all totality property over the `QueryError` union. The `NOCEIL-1 … NOCEIL-4` non-existence claims have no single closing leaf: their observable seams are distributed (NOCEIL-1 → [`V6a`](./V6a-frontmatter-contract.md)'s `loom/parse/timeout-field-rejected`; NOCEIL-2 → [`V4d`](./V4d-queryerror-variants.md)'s `ContextOverflowError` / ERR-14/15/17; NOCEIL-3 → [`V4b`](./V4b-runtime-panics.md)'s `loom/runtime/internal-error` carve-out; NOCEIL-4 → [`V15b`](./V15b-invoke-depth-cycle.md)'s `INV-4` invoke-depth bound), and their cross-cutting closure is the spec's four-axis Audit methodology in [`../spec_topics/hard-ceilings.md`](../spec_topics/hard-ceilings.md) (a GOV-15 release-time corpus-review obligation, not a runtime leaf).
@@ -92,7 +98,7 @@ Each row carries a **canonical code-keyed-area token** in its leading *Token* co
 | `cka-9` | `descriptions.md` (DESC) | `V5c` |
 | `cka-10` | `schema-subset.md` (SUBS) | `V5d`, `V5e`, `V5f`, `V15j` (co-witness — delegated live-carrier witness for V5e's ceiling-#4 routing at the runtime invoke boundary) |
 | `cka-11` | `frontmatter/frontmatter-fields-a.md`, `frontmatter-fields-b-and-templates.md` (FRNT) | `V6a`, `V6b`, `V6c`, `V6d`, `V6e` |
-| `cka-12` | `query/` (QRY) | `V13a`, `V13b`, `V13c`, `V13d`, `V13g`, `V13h` |
+| `cka-12` | `query/` (QRY) — retired as a code-keyed-area row: the subtree's obligations are now coined as numbered `QRY-1 … QRY-21` REQ-IDs (GOV-22 drain) and mapped per closing leaf in the *Numbered REQ-IDs* table above; no residual un-anchored / code-keyed obligation remains on the `query/` pages | *(numbered above)* |
 | `cka-13` | `tool-calls.md` (TOOL) | `V14a`, `V14b`, `V14c`, `V14e` |
 | `cka-14` | `invocation.md` (INV) — the six un-anchored `invoke` parse/load diagnostic codes (`loom/parse/invoke-arg-type-mismatch`, `loom/parse/invoke-return-type-mismatch`, `loom/parse/invoke-arity-too-few`, `loom/parse/invoke-arity-too-many`, `loom/parse/invoke-non-loom-extension`, `loom/load/callee-has-errors`) (un-anchored; GOV-22 residue) | `V15f` |
 | `cka-15` | `invocation.md` (INV) §Cross-mode semantics — the prompt→prompt parent-suspend MUST and the whole-body `setActiveTools` snapshot/restore-in-`finally` MUST (parent active-tool set snapshotted before the prompt→prompt child runs and restored in a `finally` across the fail/cancel/throw paths) (un-anchored; GOV-22 residue) | `V15d` |

@@ -9,11 +9,11 @@ Inside a query template:
 - `\\`    — literal backslash
 - `\n`, `\t`, `\r` — standard string escapes (rarely needed; literal newlines in the template body work directly)
 
-No other escapes are recognised; a backslash followed by any other character is `loom/parse/illegal-template-escape`. EOF inside an unterminated template body surfaces as `loom/parse/unterminated-template`. Curly braces `{` and `}` need no escape — they are ordinary text content. Only the sequence `${` (and the `}` that closes a corresponding `${...}`) has special meaning.
+<a id="qry-17"></a> **QRY-17.** No other escapes are recognised; a backslash followed by any other character is `loom/parse/illegal-template-escape`. EOF inside an unterminated template body surfaces as `loom/parse/unterminated-template`. Curly braces `{` and `}` need no escape — they are ordinary text content. Only the sequence `${` (and the `}` that closes a corresponding `${...}`) has special meaning.
 
 ## Stringification of interpolated values
 
-A `${expr}` interpolation evaluates `expr` per the [Expression Sublanguage](../expressions.md) and renders the result into the prompt text by the **Loom static type** of the expression — *not* by JavaScript's default `String(...)`, whose `[object Object]` and comma-joined-array defaults would silently corrupt prompts without any diagnostic for the author. The same rule applies to the bare-path `${param}` / `${param.field}` form in the frontmatter `system:` field (see [Parameters and Frontmatter — `system` Interpolation](../frontmatter.md)); the `system:` slot's grammar restricts only the *expression* shape (to bare identifier paths), not the *stringification* of the resolved value.
+<a id="qry-18"></a> **QRY-18.** A `${expr}` interpolation evaluates `expr` per the [Expression Sublanguage](../expressions.md) and renders the result into the prompt text by the **Loom static type** of the expression — *not* by JavaScript's default `String(...)`, whose `[object Object]` and comma-joined-array defaults would silently corrupt prompts without any diagnostic for the author. The same rule applies to the bare-path `${param}` / `${param.field}` form in the frontmatter `system:` field (see [Parameters and Frontmatter — `system` Interpolation](../frontmatter.md)); the `system:` slot's grammar restricts only the *expression* shape (to bare identifier paths), not the *stringification* of the resolved value.
 
 | Loom static type | Rendered as |
 |---|---|
@@ -37,7 +37,7 @@ Notes:
 
 ## Discarded query results are a parse error (`loom/parse/discarded-query-result`)
 
-The author must pick one of:
+<a id="qry-19"></a> **QRY-19.** The author must pick one of:
 
 ```loom
 @`Summarise the discussion above.`?      // propagate failure via early-return
@@ -51,8 +51,8 @@ The diagnostic on a bare `@`...`` expression-statement reads: *"discarded query 
 
 ## Observability of discarded results
 
-`let _ = @`...`` (and the equivalent `void`-tail form) is a true discard at the *user-facing* surface: no `loom-system-note` is rendered to the user's transcript, no `Result` flows to the caller, and the loom continues. On the *operator-facing* surface, an `Err` from a discarded query is preserved as a runtime event on the always-log set defined in [Pi Integration Contract — Runtime event channel](../pi-integration-contract.md). The event carries the same `kind`, `code`, `message`, and (where defined) `attempts` / `tokens_used` fields the user-facing note would have carried, plus the source location carried in the `RuntimeEvent` `discard_site` field — the location of the discarding `let _ =` binding for the expression-statement form, and the location of the tail `@`...`` expression (its start, for a tail expression spanning multiple source lines) for the void-tail-function form; it is delivered through the same `loom-system-note` channel as user-facing notes but with `display: false` so log scrapers, replay tools, and `/tree` navigation can recover it without rendering it inline. The runtime event fires exactly once per discarded `Err`, regardless of how many tool-call rounds or respond-repair follow-ups the underlying query consumed. `Ok` discards produce no event (nothing to observe).
+<a id="qry-20"></a> **QRY-20.** `let _ = @`...`` (and the equivalent `void`-tail form) is a true discard at the *user-facing* surface: no `loom-system-note` is rendered to the user's transcript, no `Result` flows to the caller, and the loom continues. On the *operator-facing* surface, an `Err` from a discarded query is preserved as a runtime event on the always-log set defined in [Pi Integration Contract — Runtime event channel](../pi-integration-contract.md). The event carries the same `kind`, `code`, `message`, and (where defined) `attempts` / `tokens_used` fields the user-facing note would have carried, plus the source location carried in the `RuntimeEvent` `discard_site` field — the location of the discarding `let _ =` binding for the expression-statement form, and the location of the tail `@`...`` expression (its start, for a tail expression spanning multiple source lines) for the void-tail-function form; it is delivered through the same `loom-system-note` channel as user-facing notes but with `display: false` so log scrapers, replay tools, and `/tree` navigation can recover it without rendering it inline. The runtime event fires exactly once per discarded `Err`, regardless of how many tool-call rounds or respond-repair follow-ups the underlying query consumed. `Ok` discards produce no event (nothing to observe).
 
 ### Panics during interpolation are not caught by `let _ =`
 
-A `${expr}` interpolation can trip any of the runtime panics in [Errors and Results — Runtime panics](../errors-and-results.md) (non-exhaustive `match`, OOB, null/missing-key access). Panics arise during evaluation of the RHS and propagate before the `let _ =` binding completes; the discard form does not contain them. Authors who need a query-rendering site to be panic-safe must guard the interpolated expressions individually.
+<a id="qry-21"></a> **QRY-21.** A `${expr}` interpolation can trip any of the runtime panics in [Errors and Results — Runtime panics](../errors-and-results.md) (non-exhaustive `match`, OOB, null/missing-key access). Panics arise during evaluation of the RHS and propagate before the `let _ =` binding completes; the discard form does not contain them. Authors who need a query-rendering site to be panic-safe must guard the interpolated expressions individually.
