@@ -16,6 +16,6 @@
 - `PIC-43`: an untyped subagent query extracts its `Ok(string)` from the terminal (`willRetry: false`) `agent_end` event's `messages` array — ignoring `willRetry: true` events — applying the cancellation short-circuit then the transport-failure (`stopReason: "error"`) short-circuit before the trailing-assistant-text concatenation.
 - `ERR-8` (delegated live-carrier witness for `V4c`'s ERR-8/ERR-12 deferral): the live-surface confirmation that a mid-stream cancellation inside the real subagent `AgentSession` does not mutate the subagent session's committed turns is a **real-host-only behaviour** — it is not asserted under `npm test` (no offline source feeds a real `createAgentSession` session a scripted cancellable stream) but is witnessed at the manual real-host smoke gate ([`real-host-smoke-gate.md`](./real-host-smoke-gate.md) criterion (c)). This is the live-surface confirmation `V4c` defers from the `H4a` double.
 
-**Deps.** `V9a`, `V17a`, `V11a`, `V8a`, `V3d`, `V4c`, `H4c`
+**Deps.** `V9a`, `V17a`, `V6a`, `V8a`, `V3d`, `V4c`, `H4c`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.

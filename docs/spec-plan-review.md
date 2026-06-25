@@ -111,7 +111,6 @@ entries:
   - { id: F-1315, tier: medium, file: docs/plan_topics/coverage-matrix.md, anchor: "Code-keyed obligation areas table", title: "`determinism-cancellation-failure.md §Failure-mode templates` (non-cancelled classes) has no coverage-matrix row" }
   - { id: F-1371, tier: medium, file: docs/plan_topics/coverage-matrix.md, anchor: "*Numbered REQ-IDs* table, `SLSH-3, SLSH-4, SLSH-5` row", title: "V15g's SLSH-5 producer-seam citation is not reflected in the SLSH-5 coverage-matrix row" }
   - { id: F-1242, tier: medium, file: docs/plan_topics/V9n-transport-error-mapping.md, anchor: Adds, title: "V9n Adds misattributes the prompt-mode `provider` source to V9j, contradicting the leaf's own tests" }
-  - { id: F-1327, tier: medium, file: docs/plan_topics/V9i-subagent-isolation.md, anchor: "Adds, Deps", title: "V9i mislabels the pre-spawn model guard as a \"binder-model guard\" and points its model-resolution dependency at the binder" }
   - { id: F-1405, tier: medium, file: docs/plan_topics/V9b-T-registration-reload-wiring.md, anchor: Deps, title: "`V9b-T` omits the `V6a` dependency its model-reference-matcher wiring test requires" }
   - { id: F-1360, tier: medium, file: docs/plan_topics/V7a-diagnostics-primitive.md, anchor: "Tests / Ships when", title: "`cka-44` (IMPL static-resolution) facet citations" }
   - { id: F-1361, tier: medium, file: docs/plan_topics/V7a-diagnostics-primitive.md, anchor: "Tests / Ships when", title: "`cka-33` (CNCL race-semantics) facet citations" }
