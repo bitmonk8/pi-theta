@@ -156,6 +156,5 @@ entries:
   - { id: F-1118, tier: high, file: docs/spec_topics/pi-integration-contract/active-invocation-registry.md, anchor: "*Registry contract* → **Dispatch-site setup wrap**", title: "Dispatch-site `loomAbort.abort()` cleanup throw is routed to the wrong `try`/`catch`" }
   - { id: F-1280, tier: high, file: docs/spec_topics/imports.md, anchor: "`.warp` file rules / `fn` body semantics", title: "INV-4 invoke-depth count over cross-file `.warp` `fn` calls is invisible from `imports.md` and `functions.md`" }
   - { id: F-1328, tier: high, file: docs/spec_topics/governance/stable-inline-labels.md, anchor: "Per-page inline-label prefix table", title: "GOV-16 per-page table registers the `HC3` inline-label prefix on the wrong page" }
-  - { id: F-1329, tier: high, file: docs/spec_topics/governance/stable-inline-labels.md, anchor: "Per-page inline-label prefix table", title: "GOV-16 per-page table registers the `NOCEIL` inline-label prefix on the wrong page" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
