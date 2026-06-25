@@ -58,6 +58,8 @@ Your previous response did not match the required schema. Return your final answ
 <schema-json>
 ~~~
 
+The leading sentence common to both templates — `Your previous response did not match the required schema.` — is the **non-compliance sentence**: the opening sentence reporting that the prior response failed schema validation. It is the only content `schema_repeat` carries beyond the instruction sentence and the `<schema-json>` placeholder, which is why the [Initial forced respond turn template](./query-tool-loop.md#initial-forced-respond-turn-template-normative) is specified as `schema_repeat` minus its non-compliance sentence.
+
 `none` is excluded — no follow-up is issued, so there is no template to specify; the `respond_repair.methodology: none` bullet in [Parameters and Frontmatter](../frontmatter.md) carries the full contract for that case.
 
 ### Non-validation failures during a respond-repair follow-up
@@ -65,7 +67,7 @@ Your previous response did not match the required schema. Return your final answ
 A follow-up turn is a full provider round-trip and can fail for any reason the original turn could fail for — transport, cancellation, tool failure, context overflow, invoke failure, invoke-callee error. The runtime handles such failures uniformly:
 
 - The proximate failure **propagates as the corresponding `QueryError` variant** (`transport`, `cancelled`, `model_tool`, `tool_loop_exhausted`, `context_overflow`, `invoke_infra`, `invoke_callee`) and **terminates respond-repair immediately**. The query does not return `validation` with the prior attempt count when the actual failure was, say, transport; the proximate cause wins.
-- A follow-up that fails for a non-validation reason **does not consume an `attempts` slot**. `attempts` counts only follow-ups that produced an assistant response which was then re-validated (whether successfully or not). Rationale: `attempts` is the bound on *respond-repair*, not on incidental infrastructure failure; consuming a slot for a transport blip would silently shorten the repair budget on retry.
+- A follow-up that fails for a non-validation reason **does not consume an `attempts` slot**. `attempts` counts only follow-ups that produced an assistant response which the runtime then re-validated; the slot debits when that re-validation *runs*, regardless of whether it passes or fails. Rationale: `attempts` is the bound on *respond-repair*, not on incidental infrastructure failure; consuming a slot for a transport blip would silently shorten the repair budget on retry.
 - `context_overflow` **short-circuits respond-repair permanently** for the lifetime of that typed query. Once detected on any turn — original or follow-up — the runtime returns `Err({ kind: "context_overflow", ... })` without issuing further follow-ups, because the conversation only grows and subsequent attempts cannot succeed.
 - **Conversation-history cleanup:** the malformed assistant response and any tool-call traffic that preceded it remain in history (consistent with the "history stays intact" rule above). The follow-up user turn that triggered the propagated failure also remains; nothing is rolled back. Subagent-mode looms see the partial transcript via the same conversation handle on their next query.
 
