@@ -12,6 +12,8 @@
 - [return.md — final-value contract](../spec_topics/return.md) (RET code-keyed area), against the function-result seam `V3d` defines: the callee's produced final value propagates to the `invoke` caller on success and is absent on fail/cancel.
 - [invocation.md — cross-mode matrix](../spec_topics/invocation.md) (INV area): the cross-mode matrix selects fresh-vs-attach by callee mode and a child uses its own model/tools/system. (The prompt→prompt parent-suspend facet is owned by `V15d`.)
 
-**Deps.** `V10a`, `V2b`, `V3d`, `V8b`
+- Checkpoint before `invoke` ([cancellation.md — *Granularity*](../spec_topics/cancellation.md), [`coverage-matrix.md`](./coverage-matrix.md) code-keyed-area token `cka-47`, `V15a` facet — the `invoke` checkpoint site distributed off [`V17c`](./V17c-checkpoint-granularity.md); testability hook: the [`V8a`](./V8a-checkpoint-validator-seams.md) `Checkpoint` seam, [`host-interfaces-services.md#checkpoint-seam`](../spec_topics/pi-integration-contract/host-interfaces-services.md#checkpoint-seam)): drive the seam to assert a cancellation checkpoint fires immediately before each `invoke` on the live `V15a` surface.
+
+**Deps.** `V10a`, `V2b`, `V3d`, `V8a`, `V8b`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.

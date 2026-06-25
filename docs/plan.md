@@ -215,6 +215,8 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V17b` — Forwarding-listener throw-trap](./plan_topics/V17b-forwarding-listener-throw-trap.md)
 - [`V17c` — Checkpoint granularity](./plan_topics/V17c-checkpoint-granularity.md)
 
+> **Interleave note.** `V17c`/`V17c-T` (checkpoint granularity) depend on `V3c` (the `for`/`while` loop site) and `V9j` (the binder-inference LLM-call site) so their two cycle-free per-site checkpoint arms fail red for a behavioural reason rather than because the site constructs do not yet parse. The remaining three per-site checkpoint arms — `@`-query dispatch, tool call, and `invoke` — are distributed onto `V13c`/`V14a`/`V15a`, which land after `V17c` via the `V4f` chain (`V4f` depends on `V17c`; `V13c`/`V14a`/`V15a` each depend on `V4f`), so those leaves cannot be pulled into `V17c.Deps` without closing the `V17c ↔ V4f` cycle. Each carries its own `cka-47` facet test. Sequence by **Deps**, not slice number.
+
 ### V18 — Build-time SDK gates
 
 - [`V18a` — SDK capability and surface inventory](./plan_topics/V18a-capability-inventory.md)
