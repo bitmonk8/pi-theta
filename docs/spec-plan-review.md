@@ -127,6 +127,5 @@ entries:
   - { id: F-1237, tier: medium, file: docs/plan_topics/H4a-factory-shell-and-harness.md, anchor: Adds, title: "Harness in-memory fixture-supply mechanism has no declared injection point into discovery" }
   - { id: F-1402, tier: medium, file: docs/plan.md, anchor: "V9 slice listing / interleave note", title: "`V9b` bundles three independently-scoped deliverables in one leaf" }
   - { id: F-1331, tier: medium, file: .pi/project-config.md, anchor: "## Spec rules, Stable inline labels bullet", title: "Project-config inline-label prefix snapshot is stale (omits `SNK`) and reads as exhaustive" }
-  - { id: F-1344, tier: high, file: docs/spec_topics/pi-integration-contract/conversation-drive.md, anchor: "No additional access channels; prompt-mode-error-detection; untyped-query-ok-extraction; prompt-mode pi.on", title: "Coin `PIC-N` anchors on `conversation-drive.md` (un-anchored normative MUSTs)" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
