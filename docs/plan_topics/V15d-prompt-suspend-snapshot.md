@@ -1,6 +1,6 @@
 # `V15d` — Prompt→prompt parent-suspend and `setActiveTools` snapshot/restore
 
-**Spec.** [`../spec_topics/invocation.md`](../spec_topics/invocation.md), [`../spec_topics/pi-integration-contract/tool-registration-lifetime.md`](../spec_topics/pi-integration-contract/tool-registration-lifetime.md#snapshot-restore-pi-behavioural-preconditions) (the two Pi behavioural preconditions the prompt→prompt snapshot/restore window depends on — synchronous-and-atomic `pi.setActiveTools` and per-session serial slash dispatch — plus the PIC-8/PIC-19 failure protocols and the recovery-mutex fallback).
+**Spec.** [`../spec_topics/invocation.md`](../spec_topics/invocation.md), [`../spec_topics/pi-integration-contract/tool-registration-lifetime.md`](../spec_topics/pi-integration-contract/tool-registration-lifetime.md#snapshot-restore-pi-behavioural-preconditions) (the two Pi behavioural preconditions the prompt→prompt snapshot/restore window depends on — synchronous-completion-and-commit `pi.setActiveTools` and per-session serial slash dispatch — plus the PIC-8/PIC-19 failure protocols and the recovery-mutex fallback).
 
 **Adds.** The prompt→prompt parent-suspend with the `setActiveTools` snapshot/restore — the highest-risk, host-state-mutating, asynchronous facet of the cross-mode matrix, peeled off the [`V15a`](./V15a-invocation-core.md) invocation core. The parent's active-tool set is snapshotted before the prompt→prompt child runs and restored in a `finally` once the child settles, including the fail/cancel/throw paths.
 
