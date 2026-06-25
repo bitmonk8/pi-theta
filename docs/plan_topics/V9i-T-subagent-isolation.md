@@ -10,7 +10,10 @@
 - `PIC-23`: the spawn passes the loom-constructed `ResourceLoader` adapter and does not route the loom's `system:` through the `DefaultResourceLoader.systemPromptOverride` construction channel.
 - A subagent-mode invocation runs an isolated session with no shared transcript or tool table.
 - [return.md — final-value contract](../spec_topics/return.md) (RET code-keyed area), against the function-result seam `V3d` defines: the callee's produced final value propagates to the subagent caller on success and is absent on fail/cancel.
-- `loom/runtime/subagent-model-unresolved` fires when the pre-spawn model guard fails; `loom/runtime/subagent-dispose-failure` is advisory on a `dispose()` throw.
+- `PIC-40`: `loom/runtime/subagent-model-unresolved` fires when the pre-spawn model guard fails (the runtime does not call `createAgentSession` when the resolved `model` is `undefined`); `loom/runtime/subagent-dispose-failure` is advisory on a `dispose()` throw.
+- `PIC-41`: the spawn call to `createAgentSession` includes no `signal` field; cancellation is forwarded solely via the one-shot `loomAbort.signal` listener calling `AgentSession.abort()`.
+- `PIC-42`: completion is awaited via the session-local `session.subscribe` API rather than the global `pi.on("agent_end", …)` event; the runtime unsubscribes before resolving each query and attaches a fresh subscription per query.
+- `PIC-43`: an untyped subagent query extracts its `Ok(string)` from the terminal (`willRetry: false`) `agent_end` event's `messages` array — ignoring `willRetry: true` events — applying the cancellation short-circuit then the transport-failure (`stopReason: "error"`) short-circuit before the trailing-assistant-text concatenation.
 - `ERR-8` (delegated live-carrier witness for `V4c`'s ERR-8/ERR-12 deferral): the live-surface confirmation that a mid-stream cancellation inside the real subagent `AgentSession` does not mutate the subagent session's committed turns is a **real-host-only behaviour** — it is not asserted under `npm test` (no offline source feeds a real `createAgentSession` session a scripted cancellable stream) but is witnessed at the manual real-host smoke gate ([`real-host-smoke-gate.md`](./real-host-smoke-gate.md) criterion (c)). This is the live-surface confirmation `V4c` defers from the `H4a` double.
 
 **Deps.** `V9a`, `V17a`, `V11a`, `V8a`, `V3d`, `V4c`, `H4c`

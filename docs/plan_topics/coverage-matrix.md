@@ -48,7 +48,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-3, PIC-4, PIC-5, PIC-6 | `V9a` |
 | PIC-7 | `V9g` |
 | PIC-8, PIC-19 | `V9f` |
-| PIC-9, PIC-22, PIC-23 | `V9i` |
+| PIC-9, PIC-22, PIC-23, PIC-40, PIC-41, PIC-42, PIC-43 | `V9i` |
 | PIC-10 | `V8a` |
 | PIC-11 | `V8c` |
 | PIC-13 | `V8b` |
