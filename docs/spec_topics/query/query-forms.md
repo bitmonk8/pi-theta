@@ -105,13 +105,15 @@ Oversized rendered templates have no pre-flight bound in loom 1.0; they pass thr
 
 ### Dedent and newline-trim — normative behaviour
 
-The two normalisations are applied in a fixed order: **newline-trim first**, then **dedent**. The normative reference is the behaviour of CPython 3.x `textwrap.dedent` *as illustrated by the table below*; an implementer who cannot read the CPython source can still pass the conformance tests from the spec alone. Three behaviours of `textwrap.dedent` matter for the rendered prompt the model sees:
+The two normalisations are applied in a fixed order: **newline-trim first**, then **dedent**. The normative authority for both is this section itself — the behaviour rules below, the vector table, and the obligations that accompany them. CPython 3.x `textwrap.dedent` is cited only as a non-normative pointer to one conforming implementation; where this section addresses an input or where the two would disagree, this section governs. The following behaviours matter for the rendered prompt the model sees:
 
 1. Whitespace-only lines are ignored when computing the common prefix and are normalised to an empty line in the output. A "blank" line that contains stray spaces still dedents as if it were empty.
 2. The common prefix is the longest common literal prefix of the non-blank lines, not a visual column. A template that mixes tab-indented and space-indented lines has no shared prefix; nothing is stripped.
 3. Tab-only and space-only indentation are stripped uniformly — the prefix being stripped is whatever bytes are common across all non-blank lines.
+4. Both normalisations split the rendered text into lines on the line-feed `\n` (U+000A) only. Source CR (`\r`) and CRLF (`\r\n`) line endings are normalised to `\n` before newline-trim and dedent run (see [Lexical Structure — Newline normalisation](../lexical.md)), so no bare `\r` survives from the source. A `\r` introduced into the rendered text by an interpolated value — the one path by which a carriage return can reach dedent, since interpolated values are not subject to source newline normalisation — is ordinary content: it neither splits a line nor satisfies the whitespace-only-line predicate of rule 1.
+5. The leading whitespace dedent considers for the common prefix, and the characters that make a line satisfy the whitespace-only-line predicate of rule 1, are drawn only from U+0020 (space) and U+0009 (tab) — the space and tab members of the ASCII whitespace set pinned at [System-note rendering](../binder/defaulting-system-note-echo.md#system-note-rendering) rule 1. Any other code point — including non-ASCII whitespace such as U+00A0 (no-break space) or U+3000 (ideographic space) — is ordinary content for both the common-prefix walk and the whitespace-only-line predicate.
 
-The following input → output pairs are normative. `\n` and `\t` denote literal newline and tab bytes inside the source between the backticks; they are not escape sequences interpreted by the loom parser (a literal newline or tab in the source has the same effect).
+The following input → output pairs are normative. `\n`, `\r`, and `\t` denote literal newline, carriage-return, and tab bytes, and `\u00A0` a literal U+00A0 (no-break space), inside the source between the backticks; they are not escape sequences interpreted by the loom parser (a literal newline, carriage return, or tab in the source has the same effect).
 
 | # | Template (between backticks) | Rendered text |
 |---|---|---|
@@ -123,6 +125,8 @@ The following input → output pairs are normative. `\n` and `\t` denote literal
 | 6 | `` @`\n` `` | `""` |
 | 7 | `` @`\n    only\n` `` | `"only"` |
 | 8 | `` @`\n    only\n  ` `` | `"only\n"` |
+| 9 | `` @`\n    a\r\n    b\n` `` | `"a\nb"` |
+| 10 | `` @`\n\u00A0x\n\u00A0y\n` `` | `"\u00A0x\n\u00A0y"` |
 
 Vector commentary:
 
@@ -134,5 +138,7 @@ Vector commentary:
 6. A template that consists solely of a single newline becomes the empty string after newline-trim; dedent on the empty string is the empty string. How the runtime treats an empty rendered template is pinned earlier in this file under [Degenerate rendered templates](#degenerate-rendered-templates).
 7. Newline-trim removes the leading newline and the newline immediately before the closing backtick, leaving the single line `    only`; dedent then strips the four-space common prefix, yielding `"only"`. This pins the order: newline-trim first, dedent second.
 8. The source ends `\n  ` (a newline followed by two trailing spaces), so the character immediately before the closing backtick is a space, not a newline: newline-trim removes the leading newline but leaves the trailing newline in place. Dedent then sees two lines — `    only` and the whitespace-only line `  ` — strips the four-space common prefix from `    only`, and normalises the trailing whitespace-only line to an empty line per rule 1 (it does not contribute to the common prefix). The result is `only` followed by an empty line: the rendered string `"only\n"`.
+9. Source CR and CRLF line endings are normalised to `\n` before newline-trim and dedent run (see [Lexical Structure — Newline normalisation](../lexical.md)), so the `\r\n` here behaves exactly as a lone `\n`: the two lines `    a` and `    b` share the four-space common prefix, which dedent strips, yielding `"a\nb"`. An implementation that dedented the raw bytes and treated `\r` as trailing content on the first line would mis-render this as `"a\r\nb"`. This pins rule 4's LF-only line-splitting.
+10. The leading character on each line is U+00A0 (no-break space), which lies outside the {U+0020, U+0009} alphabet of rule 5, so it is ordinary content: dedent finds no space/tab common prefix and strips nothing. The non-ASCII leading whitespace is preserved verbatim in what the model sees. An implementation that used the Unicode `\s` class as the dedent alphabet would wrongly strip it.
 
 Newline-trim strips a newline only when it sits **immediately** after the opening backtick or **immediately** before the closing backtick. A trailing `\n` followed by whitespace before the closing backtick (e.g. `\n    only\n  `) is not trimmed; the trailing whitespace-only line is then handled by dedent's whitespace-only-line normalisation (it does not contribute to the common prefix and is rendered as an empty line); vector 8 pins the resulting rendered string.
