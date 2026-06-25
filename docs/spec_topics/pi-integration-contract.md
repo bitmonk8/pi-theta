@@ -5,6 +5,7 @@ The runtime depends on a small, named surface from `@earendil-works/pi-coding-ag
 ## Contents
 
 - [Host prerequisites](./pi-integration-contract/host-prerequisites.md)
+- [Trust boundary](./pi-integration-contract/trust-boundary.md)
 - [Capability probe](./pi-integration-contract/capability-probe.md)
 - [Registration steps](./pi-integration-contract/registration-steps.md)
 - [Unknown reason rule](./pi-integration-contract/unknown-reason-rule.md)

@@ -1,8 +1,6 @@
 # Conversation drive
 
-<a id="no-extra-mediation"></a>
-
-**No additional access channels.** The runtime interposes no privilege layer between loom code and the Pi extension host. Loom-side filesystem, network, and Pi-API access are bounded only by Pi's extension-host grants and by the per-loom `tools:` allowlist, whose active-set enforcement is specified by [Tool registration lifetime — Active-set allowlist gating (PIC-17)](./tool-registration-lifetime.md#pic-17). The runtime MUST NOT introduce additional access channels (sandbox, capability filter, mediated proxy) in any loom 1.x release; widening or narrowing this rule is a major-version concern. The `tools:` allowlist constrains the *model's* reachable callable set, not the host process: a loom that declares a high-privilege callable (e.g. `bash`) exposes the full underlying capability of that callable to its model. Host-side denials of filesystem, network, or Pi-API access reach loom code through the tool that issued the request: a thrown or `isError: true` return is mapped to `Err(QueryError { kind: "code_tool", cause: "execution", ... })` per [Tool Calls — Failures](../tool-calls.md) and [Tool execution from loom code](./host-interfaces-core.md#tool-execution-from-loom-code) below; silent success on denial is forbidden.
+The runtime-wide trust-boundary NFR — the *No additional access channels* obligation (no sandbox / capability filter / mediated proxy) and the host-side denial-surface rule — formerly opened this prompt-mode driver page; it is now owned by [Trust boundary — No additional access channels](./trust-boundary.md#no-extra-mediation).
 
 **Conversation drive — prompt mode.** The loom interpreter drives the user's session by:
 
