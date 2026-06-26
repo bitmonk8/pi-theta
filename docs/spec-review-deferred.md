@@ -2,6 +2,85 @@
 list: deferred
 corpus: spec
 order: by-importance-then-location
-entries: []
+entries:
+  - { id: F-1812, tier: nit, file: docs/spec_topics/slash-invocation.md, anchor: "", title: "SLSH-4 spec-authoring SHOULD directive misplaced", defer_reason: nit }
+  - { id: F-1815, tier: nit, file: docs/spec_topics/schema-subset.md, anchor: "", title: "HTML comment in canonical-schema-hash step 2", defer_reason: nit }
+  - { id: F-1816, tier: nit, file: docs/spec_topics/schema-subset.md, anchor: "", title: "Depth-error `path` target ambiguous", defer_reason: nit }
+  - { id: F-1804, tier: nit, file: docs/spec_topics/related-work.md, anchor: "", title: "TypeChat bullet — non-canonical `respond-repair-via-follow-up`", defer_reason: nit }
+  - { id: F-1860, tier: nit, file: docs/spec_topics/pi-integration-contract/unknown-reason-rule.md, anchor: "", title: "256-code-unit truncation may split a surrogate pair (undefined result)", defer_reason: nit }
+  - { id: F-1861, tier: nit, file: docs/spec_topics/pi-integration-contract/unknown-reason-rule.md, anchor: "", title: "`String(event.reason)` coercion idiom pinned over the behavioural requirement", defer_reason: nit }
+  - { id: F-1877, tier: nit, file: docs/spec_topics/pi-integration-contract/subagent.md, anchor: "", title: "PIC-22 \"Widening or narrowing this rule is a major-version concern\" versioning note", defer_reason: nit }
+  - { id: F-1878, tier: nit, file: docs/spec_topics/pi-integration-contract/subagent.md, anchor: "", title: "State-isolation matrix consumers provenance note", defer_reason: nit }
+  - { id: F-1879, tier: nit, file: docs/spec_topics/pi-integration-contract/subagent.md, anchor: "", title: "docs/spec_topics/errors-and-results/queryerror-variants.md — recurring \"[Query — Failure modes](../query.md)\" label names a section the target lacks", defer_reason: nit }
+  - { id: F-1880, tier: nit, file: docs/spec_topics/pi-integration-contract/subagent.md, anchor: "", title: "docs/spec_topics/diagnostics/placeholder-rendering-b.md — GOV-7/GOV-8 cited as unlinked bold text", defer_reason: nit }
+  - { id: F-1867, tier: nit, file: docs/spec_topics/pi-integration-contract/runtime-event-channel.md, anchor: "", title: "\"custom-type approach … is chosen because\" alternatives-considered aside", defer_reason: nit }
+  - { id: F-1869, tier: nit, file: docs/spec_topics/pi-integration-contract/runtime-event-channel.md, anchor: "", title: "Inner \"Runtime event channel\" bold heading duplicates the page title", defer_reason: nit }
+  - { id: F-1870, tier: nit, file: docs/spec_topics/pi-integration-contract/runtime-event-channel.md, anchor: "", title: "PIC-54 try/catch swallow over-prescribes the mechanism", defer_reason: nit }
+  - { id: F-1849, tier: nit, file: docs/spec_topics/pi-integration-contract/extension-bootstrap-and-per-loom.md, anchor: "", title: "Renderer MUST uses open-ended \"etc.\"", defer_reason: nit }
+  - { id: F-1863, tier: nit, file: docs/spec_topics/pi-integration-contract/conversation-drive.md, anchor: "", title: "HTML comment with dropped-clause change history", defer_reason: nit }
+  - { id: F-1864, tier: nit, file: docs/spec_topics/pi-integration-contract/conversation-drive.md, anchor: "", title: "Non-normative single-constant-factoring implementation note", defer_reason: nit }
+  - { id: F-1865, tier: nit, file: docs/spec_topics/pi-integration-contract/conversation-drive.md, anchor: "", title: "Future-widening inline note in provider-compatibility section", defer_reason: nit }
+  - { id: F-1855, tier: nit, file: docs/spec_topics/pi-integration-contract/capability-probe.md, anchor: "", title: "\"For brevity the probe is described above as five sub-steps\" meta-commentary", defer_reason: nit }
+  - { id: F-1856, tier: nit, file: docs/spec_topics/pi-integration-contract/capability-probe.md, anchor: "", title: "Post-probe SDK-shape-drift — `details.kind` discriminator Phase-2 deferral inline", defer_reason: nit }
+  - { id: F-1859, tier: nit, file: docs/spec_topics/pi-integration-contract/audit-wire-and-canary.md, anchor: "", title: "Wall-clock budget value not spec-pinned", defer_reason: nit }
+  - { id: F-1857, tier: nit, file: docs/spec_topics/pi-integration-contract/audit-target-categories.md, anchor: "", title: "\"this allow-list\" ambiguous (member-access vs named-import)", defer_reason: nit }
+  - { id: F-1805, tier: nit, file: docs/spec_topics/implementation-notes.md, anchor: "", title: "Synthesised respond tool — pinned `label` copy string", defer_reason: nit }
+  - { id: F-1832, tier: nit, file: docs/spec_topics/governance/req-id-prefix-table-retired.md, anchor: "", title: "GOV-15 migration HTML comment", defer_reason: nit }
+  - { id: F-1828, tier: nit, file: docs/spec_topics/governance/req-id-prefix-table-active-b.md, anchor: "", title: "Three tombstone HTML comments (GOV-4/GOV-10/GOV-11)", defer_reason: nit }
+  - { id: F-1830, tier: nit, file: docs/spec_topics/governance/req-id-prefix-table-active-b.md, anchor: "", title: "GOV-22 MUST is mechanically decidable but has no gate", defer_reason: nit }
+  - { id: F-1831, tier: nit, file: docs/spec_topics/governance/req-id-prefix-table-active-b.md, anchor: "", title: "Page headings \"Req id …\" deviate from the established \"REQ-ID\" abbreviation", defer_reason: nit }
+  - { id: F-1827, tier: nit, file: docs/spec_topics/governance/req-id-prefix-table-active-a.md, anchor: "", title: "GOV-2 tombstone HTML comment", defer_reason: nit }
+  - { id: F-1826, tier: nit, file: docs/spec_topics/governance.md, anchor: "", title: "GOV-16 intro links the hub page for HC3/NOCEIL labels that live on sub-pages", defer_reason: nit }
+  - { id: F-1819, tier: nit, file: docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md, anchor: "", title: "retry-vs-respond-repair disambiguation note misplaced", defer_reason: nit }
+  - { id: F-1817, tier: nit, file: docs/spec_topics/frontmatter/frontmatter-fields-a.md, anchor: "", title: "`argument-hint` future-tracking sentence", defer_reason: nit }
+  - { id: F-1818, tier: nit, file: docs/spec_topics/frontmatter/frontmatter-fields-a.md, anchor: "", title: "`loom/load/frontmatter-value-out-of-range` prefix vs \"parse time\" phase", defer_reason: nit }
+  - { id: F-1810, tier: nit, file: docs/spec_topics/expressions.md, anchor: "", title: "Lowercase \"loom\" for the language", defer_reason: nit }
+  - { id: F-1811, tier: nit, file: docs/spec_topics/expressions.md, anchor: "", title: "\"Other arithmetic\" — integer overflow lacks a test vector", defer_reason: nit }
+  - { id: F-1822, tier: nit, file: docs/spec_topics/errors-and-results/queryerror-variants.md, anchor: "", title: "HTML editorial-relocation comment (ERR-14)", defer_reason: nit }
+  - { id: F-1821, tier: nit, file: docs/spec_topics/discovery/package-and-settings.md, anchor: "", title: "\"Settings file reads\" — \"now lives alongside\" migration phrasing", defer_reason: nit }
+  - { id: F-1844, tier: nit, file: docs/spec_topics/diagnostics/placeholder-rendering-a.md, anchor: "", title: "Opaque \"Placeholder rendering a/b\" headings", defer_reason: nit }
+  - { id: F-1837, tier: nit, file: docs/spec_topics/diagnostics/code-registry-load.md, anchor: "", title: "`unreadable-source` — \"previously rode this row\" version-history prose", defer_reason: nit }
+  - { id: F-1838, tier: nit, file: docs/spec_topics/diagnostics/code-registry-load.md, anchor: "", title: "`missing-source` — \"warning never\" phrasing", defer_reason: nit }
+  - { id: F-1839, tier: nit, file: docs/spec_topics/diagnostics/code-registry-load.md, anchor: "", title: "`cross-format-collision` — historical-rationale clause in the Trigger column", defer_reason: nit }
+  - { id: F-1808, tier: nit, file: docs/spec_topics/descriptions.md, anchor: "", title: "Vendor-specific provenance note", defer_reason: nit }
+  - { id: F-1813, tier: low, file: docs/spec_topics/tool-calls.md, anchor: "", title: "Parallel-tool-mode consumption-posture note buried in Concurrency", defer_reason: low }
+  - { id: F-1803, tier: low, file: docs/spec_topics/related-work.md, anchor: "", title: "Broken `[backlot](../backlot)` link", defer_reason: low }
+  - { id: F-1862, tier: low, file: docs/spec_topics/pi-integration-contract/version-bump-step2b.md, anchor: "", title: "Branch (1)∧(2) overlap — discretionary MUST not verifiable", defer_reason: low }
+  - { id: F-1873, tier: low, file: docs/spec_topics/pi-integration-contract/session-only-degraded-state.md, anchor: "", title: "Residual-gaps \"future edit … assessed against this baseline\" preamble", defer_reason: low }
+  - { id: F-1874, tier: low, file: docs/spec_topics/pi-integration-contract/session-only-degraded-state.md, anchor: "", title: "\"Accepted (rather than …) because …\" rationale per residual gap", defer_reason: low }
+  - { id: F-1875, tier: low, file: docs/spec_topics/pi-integration-contract/session-only-degraded-state.md, anchor: "", title: "Gap 1 future-reducer (Pi stdio-capture facet) inline note", defer_reason: low }
+  - { id: F-1876, tier: low, file: docs/spec_topics/pi-integration-contract/session-only-degraded-state.md, anchor: "", title: "\"session-only triplet\" vs \"session-only reasons\" unreconciled", defer_reason: low }
+  - { id: F-1868, tier: low, file: docs/spec_topics/pi-integration-contract/runtime-event-channel.md, anchor: "", title: "`RuntimeEvent.code` applicability for group-A non-panic events ambiguous", defer_reason: low }
+  - { id: F-1853, tier: low, file: docs/spec_topics/pi-integration-contract/provider-error-mapping.md, anchor: "", title: "`TransportError.retryable` unassigned for a resolved non-{2xx,4xx,5xx} status", defer_reason: low }
+  - { id: F-1854, tier: low, file: docs/spec_topics/pi-integration-contract/host-prerequisites.md, anchor: "", title: "Tilde-range deviation rationale paragraph (pure design rationale)", defer_reason: low }
+  - { id: F-1850, tier: low, file: docs/spec_topics/pi-integration-contract/extension-bootstrap-and-per-loom.md, anchor: "", title: "Renderer `expanded`/`details`-disclosure Phase 2 note inline", defer_reason: low }
+  - { id: F-1851, tier: low, file: docs/spec_topics/pi-integration-contract/extension-bootstrap-and-per-loom.md, anchor: "", title: "`customType` collision SHOULD governs external extensions", defer_reason: low }
+  - { id: F-1852, tier: low, file: docs/spec_topics/pi-integration-contract/extension-bootstrap-and-per-loom.md, anchor: "", title: "`loom-` prefix SHOULD NOT governs external extensions", defer_reason: low }
+  - { id: F-1871, tier: low, file: docs/spec_topics/pi-integration-contract/drain-state-contract.md, anchor: "", title: "`tag`/`drainStateTag` naming-rationale block", defer_reason: low }
+  - { id: F-1872, tier: low, file: docs/spec_topics/pi-integration-contract/drain-state-contract.md, anchor: "", title: "PIC-31 future-diagnostic MAY note", defer_reason: low }
+  - { id: F-1866, tier: low, file: docs/spec_topics/pi-integration-contract/conversation-drive.md, anchor: "", title: "Hang-handling re-entrant-abort \"one-shot flag\" over-prescribed and untestable", defer_reason: low }
+  - { id: F-1858, tier: low, file: docs/spec_topics/pi-integration-contract/audit-wire-and-canary.md, anchor: "", title: "\"baseline-snapshot mechanism\" undefined", defer_reason: low }
+  - { id: F-1848, tier: low, file: docs/spec_topics/pi-integration-contract.md, anchor: "", title: "Preamble — \"non-load-bearing … may be revised\" ambiguous subject", defer_reason: low }
+  - { id: F-1802, tier: low, file: docs/spec_topics/overview-and-orientation.md, anchor: "", title: "Prerequisites — \"Pi SDK and capabilities\" hosts audit-mechanism detail", defer_reason: low }
+  - { id: F-1806, tier: low, file: docs/spec_topics/implementation-notes.md, anchor: "", title: "npm package names / `package.json` placement in spec body", defer_reason: low }
+  - { id: F-1807, tier: low, file: docs/spec_topics/implementation-notes.md, anchor: "", title: "`chokidar`/`yaml` audit-scope rulings misplaced", defer_reason: low }
+  - { id: F-1833, tier: low, file: docs/spec_topics/governance/source-language-stability.md, anchor: "", title: "GOV-15 *Tighten* mixes current prohibition with post-unlock normative text", defer_reason: low }
+  - { id: F-1829, tier: low, file: docs/spec_topics/governance/req-id-prefix-table-active-b.md, anchor: "", title: "GOV-8 editorial note (formerly GOV-14) — rationale/decision-log remnant", defer_reason: low }
+  - { id: F-1823, tier: low, file: docs/spec_topics/future-considerations/surface-extensions.md, anchor: "", title: "Tooling-deferrals section is pure roadmap content", defer_reason: low }
+  - { id: F-1824, tier: low, file: docs/spec_topics/future-considerations/surface-extensions.md, anchor: "", title: "Surface extension gated on an unresolved in-body design decision (automatic context escalation)", defer_reason: low }
+  - { id: F-1809, tier: low, file: docs/spec_topics/expressions.md, anchor: "", title: "Heading \"…and operator rules\" overpromises", defer_reason: low }
+  - { id: F-1820, tier: low, file: docs/spec_topics/discovery/package-and-settings.md, anchor: "", title: "Missing/malformed candidate `package.json` disposition unstated", defer_reason: low }
+  - { id: F-1845, tier: low, file: docs/spec_topics/diagnostics/placeholder-rendering-b.md, anchor: "", title: "`host-incompatible` observed/required table placed after \"Edge cases\"", defer_reason: low }
+  - { id: F-1846, tier: low, file: docs/spec_topics/diagnostics/placeholder-rendering-b.md, anchor: "", title: "§8 `<failure>` membership-predicate MUST governs external tooling", defer_reason: low }
+  - { id: F-1847, tier: low, file: docs/spec_topics/diagnostics/placeholder-rendering-b.md, anchor: "", title: "§8 build-time enforcement meta-rule states no product behaviour", defer_reason: low }
+  - { id: F-1834, tier: low, file: docs/spec_topics/diagnostics/diagnostic-shape.md, anchor: "", title: "`loom/typecheck/*` block embeds spec-author naming/definition-site rules out of scope", defer_reason: low }
+  - { id: F-1841, tier: low, file: docs/spec_topics/diagnostics/code-registry-runtime.md, anchor: "", title: "`cancelled-by-session-shutdown` references an undefined `cancelled` analogue", defer_reason: low }
+  - { id: F-1842, tier: low, file: docs/spec_topics/diagnostics/code-registry-runtime.md, anchor: "", title: "Trailing \"deliberately not in the panic catalogue\" rationale paragraph", defer_reason: low }
+  - { id: F-1843, tier: low, file: docs/spec_topics/diagnostics/code-registry-runtime.md, anchor: "", title: "`cancelled-by-session-shutdown` mutual-exclusion SHOULD governs external consumers", defer_reason: low }
+  - { id: F-1840, tier: low, file: docs/spec_topics/diagnostics/code-registry-parse.md, anchor: "", title: "\"V1\" used as version designator instead of \"loom 1.0.0\"", defer_reason: low }
+  - { id: F-1836, tier: low, file: docs/spec_topics/diagnostics/code-registry-load.md, anchor: "", title: "`argument-hint-not-displayed` — \"the binder still receives the hint\" ambiguous", defer_reason: low }
+  - { id: F-1835, tier: low, file: docs/spec_topics/diagnostics/code-registry-host.md, anchor: "", title: "`session-shutdown-pinned-constant-unreadable` MUST governs external triage tooling", defer_reason: low }
+  - { id: F-1814, tier: low, file: docs/spec_topics/cancellation.md, anchor: "", title: "`timeout:` reject rule prefixed with future-work framing", defer_reason: low }
+  - { id: F-1825, tier: low, file: docs/spec_topics/binder/binder-bypass-and-envelope.md, anchor: "", title: "BNDR-3 constrains the failure-mode templates table in a different file", defer_reason: low }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
