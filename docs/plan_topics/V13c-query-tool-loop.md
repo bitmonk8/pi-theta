@@ -16,4 +16,4 @@
 
 **Deps.** `V13c-T`, `V13b`, `V9c`, `V16a`, `V5e`, `V8a`, `V8c`, `V4f`, `H4b`
 
-**Ships when.** `npm test` advances the tool loop, runs the forced-respond branch, asserts the `max_rounds:0` and exhaustion paths, and drives the [`V8a`](./V8a-checkpoint-validator-seams.md) `Checkpoint` seam to assert a cancellation checkpoint fires immediately before each `@`-query dispatch (the `cka-47` `V13c` facet).
+**Ships when.** `npm test` advances the tool loop, runs the forced-respond branch, asserts the `max_rounds:0` and exhaustion paths, drives the [`V8a`](./V8a-checkpoint-validator-seams.md) `Checkpoint` seam to assert a cancellation checkpoint fires immediately before each `@`-query dispatch (the `cka-47` `V13c` facet), and asserts the `ERR-13` completed-callee-finality witness — a query-tool-loop callee driven to completion on the live `V13c` surface stays final after a downstream `?`/panic/cancel, its side effect persisting with no compensating turn injected.

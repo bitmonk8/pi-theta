@@ -12,6 +12,8 @@
 
 - Checkpoint before `@`-query dispatch ([cancellation.md — *Granularity*](../spec_topics/cancellation.md), [`coverage-matrix.md`](./coverage-matrix.md) code-keyed-area token `cka-47`, `V13c` facet — the `@`-query-dispatch checkpoint site distributed off [`V17c`](./V17c-checkpoint-granularity.md); testability hook: the [`V8a`](./V8a-checkpoint-validator-seams.md) `Checkpoint` seam, [`host-interfaces-services.md#checkpoint-seam`](../spec_topics/pi-integration-contract/host-interfaces-services.md#checkpoint-seam)): drive the seam to assert a cancellation checkpoint fires immediately before each `@`-query dispatch on the live `V13c` query-tool-loop surface.
 
-**Deps.** `V13b`, `V9c`, `V16a`, `V5e`, `V8a`, `V8c`, `H4b`
+- `ERR-13` (delegated live-carrier witness for `V4f`'s completed-callee-finality deferral): a query-tool-loop callee driven to completion on the live `V13c` surface, then a downstream `?`/panic/cancel fired, leaves the completed callee's side effect in place with no compensating turn injected. These live surfaces are loom-runtime-internal, so this witness is `npm test`-assertable (no real-host-only smoke gate).
+
+**Deps.** `V13b`, `V9c`, `V16a`, `V5e`, `V8a`, `V8c`, `V4f`, `H4b`
 
 **Ships when.** The tests above exist, compile, and fail red for the intended reason.
