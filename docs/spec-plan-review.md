@@ -172,6 +172,5 @@ entries:
   - { id: F-1886, tier: medium, file: docs/plan_topics/H2a-cross-cutting-gates.md, anchor: "Adds (`no-broad-catch` clause) + first Tests bullet", title: "`no-broad-catch`: H2a lint scope (comment presence vs token resolution) is self-contradictory" }
   - { id: F-1898, tier: medium, file: docs/plan_topics/H1a-scaffold-and-toolchain.md, anchor: Adds, title: "H1a mischaracterises `minimatch` as the engine for the DISC-5 `!`/`+`/`-` override ordering" }
   - { id: F-1926, tier: medium, file: docs/plan.md, anchor: "V9 slice interleave note; V11 slice interleave note", title: "V9/V11 interleave notes overstate V11a as a prerequisite of V9c and V9i" }
-  - { id: F-1595, tier: high, file: docs/spec_topics/tool-calls.md, anchor: "§Failures opening sentence + `cause` enum paragraph", title: "`tool-calls.md` \"Failures\" opening sentence contradicts the later `.loom`-callable paragraph" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
