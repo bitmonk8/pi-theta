@@ -5,7 +5,7 @@
 **Adds.** Failing tests for the paired `V8e` implementation leaf.
 
 **Tests.**
-- `PIC-14`: `FileWatcher.watch` returns an `Unsubscribe` and reports the three change kinds.
+- `PIC-14`: `FileWatcher.watch` returns an `Unsubscribe` and reports the three change kinds (the delivery contract); the seam also exposes the enumerated terminal-signal channel and a `FakeFileWatcher` injection point that conveys a stopped-delivering observation distinct from the three change kinds.
 - `PIC-16`: `TokenEstimator.estimate` delegates to `estimateTokens` and is per-runtime.
 
 **Deps.** `H3a`
