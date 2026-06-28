@@ -66,7 +66,7 @@ The `RuntimeEvent` payload shape is normative and additive-only:
 
 ```ts
 type RuntimeEvent = {
-  kind: string;                       // QueryError.kind, the binder failure cause, or the loom/runtime/* code for panics
+  kind: string;                       // a group-A QueryError.kind value or the binder failure cause; never a loom/runtime/* panic code (panics route group B through details: { diagnostics } and construct no RuntimeEvent)
   code?: string;                      // diagnostic code when one applies (loom/runtime/*, loom/load/*, etc.)
   loom: string;                       // slash name of the loom that owned the failure ("/code-review")
   invocation_id: string;              // per-invocation UUID sourced from the ActiveInvocationRegistry entry's `invocationId` field (canonical lowercase 8-4-4-4-12 hex form per §7 of Diagnostics); distinguishes concurrent sibling invocations of the same loom on operator-visible surfaces
