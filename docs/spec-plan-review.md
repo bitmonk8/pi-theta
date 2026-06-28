@@ -18,6 +18,5 @@ entries:
   - { id: F-2144, tier: high, file: docs/spec_topics/errors-and-results/error-model.md, anchor: "Per-cause caller surfaces* table", title: "Hard-ceiling exhaustion row's `same` surface cells have no resolvable antecedent" }
   - { id: F-2130, tier: high, file: docs/spec_topics/diagnostics/diagnostic-shape.md, anchor: "`masked` field (hard-ceiling co-fire) paragraph (`#masked-field-hard-ceiling-co-fire`)", title: "`masked` field on diagnostics never directly states it is always omitted in loom 1.0" }
   - { id: F-2138, tier: high, file: docs/spec_topics/diagnostics.md, anchor: "hub file (introductory paragraph + Contents table)", title: "Diagnostics hub lacks a consolidated non-goals / scope section" }
-  - { id: F-2094, tier: high, file: docs/spec_topics/binder/binder-model-and-context.md, anchor: "`## Binder context`, the seam blockquote after BNDR-10", title: "Binder-path re-entrancy requirement is stated only inside a future-work seam blockquote" }
 ---
 <!-- Generated view. Entries are ordered by importance (highest-importance last, addressed first by the bottom-up picker), then by location, and carry a renderer-owned projection (tier/file/anchor/title) of each finding; edit only membership: which ids appear and their defer_reason/note. Substance lives in docs/findings/F-NNNN.md. -->
