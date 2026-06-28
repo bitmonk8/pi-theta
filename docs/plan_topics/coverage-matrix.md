@@ -16,6 +16,8 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 |---|---|
 | TYPE-1 … TYPE-11 | `V2b` |
 | CTRL-1 | `V3c` |
+| FN-1 … FN-5 | `V3d` |
+| RET-1 … RET-3 | `V3d` |
 | ERR-1 … ERR-6 | `V4e` |
 | ERR-7 | `V4g` |
 | ERR-8 … ERR-12 | `V4c` |
@@ -106,7 +108,7 @@ Each row carries a **canonical code-keyed-area token** in its leading *Token* co
 | `cka-4` | `expressions.md` (EXPR) §Truthiness — the `loom/parse/non-boolean-condition` reject code for a non-`boolean` `if` / `while` / ternary condition or `&&` / `||` operand (code-keyed; no numbered REQ-ID) | `V3a` |
 | `cka-5` | `control-flow.md` (CTRL) — the four loop/branch reject codes `loom/parse/non-array-iterand`, `loom/parse/break-outside-loop`, `loom/parse/continue-outside-loop`, `loom/parse/break-with-value` (code-keyed; no numbered REQ-ID; CTRL-1 closes in the numbered table above) | `V3c` |
 | `cka-6` | `bindings.md` (BNDS) | `V3b` |
-| `cka-7` | `functions.md` (FN), `return.md` (RET) | `V3d` |
+| `cka-7` | `functions.md` (FN), `return.md` (RET) — retired as a code-keyed-area row: the pages' obligations are now coined as numbered `FN-1 … FN-5` / `RET-1 … RET-3` REQ-IDs (GOV-22 drain) and mapped to their closing leaf `V3d` in the *Numbered REQ-IDs* table above; no residual un-anchored / code-keyed obligation remains | *(numbered above)* |
 | `cka-8` | `schemas.md` (SCHM) | `V5a`, `V5b` |
 | `cka-9` | `descriptions.md` (DESC) | `V5c` |
 | `cka-10` | `schema-subset.md` (SUBS) | `V5d`, `V5e`, `V5f`, `V15j` (co-witness — delegated live-carrier witness for V5e's ceiling-#4 routing at the runtime invoke boundary) |
