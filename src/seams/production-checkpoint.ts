@@ -1,9 +1,7 @@
 // V8a — `ProductionCheckpoint` production wiring for the `Checkpoint` seam (PIC-10).
 //
-// V8a-T STUB: `before(...)` throws so the paired V8a-T yield-semantics tests red
-// on their own assertions (the implementation under test is absent). The real
-// adapter constructs one `Checkpoint` per `loomAbort` (per invocation) from the
-// injected `Clock` seam, and `before(kind, site)`:
+// Constructs one `Checkpoint` per `loomAbort` (per invocation) from the injected
+// `Clock` seam. `before(kind, site)`:
 //   - for `loop-iter`, releases the event loop for one macrotask turn before
 //     resolving — scheduling that resolution through the injected `Clock`'s
 //     `setTimeout(fn, 0)` (the PIC-12 timer surface), never a bare global
@@ -19,8 +17,6 @@
 import type { Clock } from "./clock";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "./checkpoint";
 
-const UNIMPLEMENTED = "ProductionCheckpoint not implemented (V8a-T stub)";
-
 export class ProductionCheckpoint implements Checkpoint {
   readonly #clock: Clock;
 
@@ -28,8 +24,17 @@ export class ProductionCheckpoint implements Checkpoint {
     this.#clock = clock;
   }
 
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    void this.#clock;
-    throw new Error(UNIMPLEMENTED);
+  before(kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
+    if (kind === "loop-iter") {
+      // One macrotask turn, scheduled through the injected Clock seam's
+      // setTimeout(fn, 0) (PIC-12 timer surface) — never a bare global timer —
+      // so a Pi-dispatched abort can land before the next signal-check.
+      return new Promise<void>((resolve) => {
+        this.#clock.setTimeout(resolve, 0);
+      });
+    }
+    // query / tool-call / invoke / binder-call: resolve on the microtask queue;
+    // these checkpoints precede real async I/O that already yields the loop.
+    return Promise.resolve();
   }
 }
