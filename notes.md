@@ -47,3 +47,39 @@ Free-form running log of discoveries that are not plan changes.
   forms like `globalThis.setTimeout` are indirect and fall to the conceded
   residue (release-time inspection item 2), consistent with the leaf's
   "direct references only" framing.
+
+## 2026-06-30 — H4a factory shell and end-to-end harness
+
+- **Never-throw factory uses swallow-and-continue, NOT the spec's fatal/skip
+  semantics.** extension-bootstrap-and-per-loom.md says a `pi.registerFlag` or
+  factory-time `pi.on` failure is FATAL to the whole extension (skip the
+  remaining steps) while a renderer failure is non-fatal (drop the renderer,
+  continue). H4a's binding Tests bullet is narrower — "completes its
+  registrations and never throws even when a host seam is absent, each call
+  try/catch-wrapped, returning synchronously". So the H4a factory wraps each
+  call in its own swallow-and-continue `try`/`catch` (the minimal never-throw
+  boundary) and does NOT implement the per-call-type fatal/skip differentiation
+  or the `loom/load/extension-bootstrap-failed` diagnostics — those, with the
+  capability-probe refusal logic, are explicitly deferred to V9a (the leaf says
+  so). Logged as a divergence in decisions.jsonl.
+- **Harness lives under `tests/`, not `src/**`.** The reusable end-to-end
+  harness + in-process session double are test-support code Pi never loads, so
+  they sit under `tests/harness/` outside the `src/**` mechanical gates (which
+  is why the double may use ambient `Promise`/`AbortController` freely). The
+  production seam M/M-T bind against — `LoomExtensionDeps.fixtures` /
+  `LoomFixture` and `createLoomExtension` — lives in `src/extension/factory.ts`.
+- **`extensions/index.ts` added to tsconfig `include`.** The entry shim sits
+  outside `src/**` (so the `src/**`-scoped lint/arch/ambient gates do not read
+  it; its purity is a release-time residue-inspection item), but it is added to
+  the tsconfig `include` so `tsc` build/typecheck still compile the re-export.
+- **Session-double fidelity self-check checks the double against the spec
+  model, not live Pi.** Per the leaf, the harness runs no live Pi session and
+  there is no mechanical real-host fidelity gate in loom 1.0; the four axes
+  (streaming-before-idle / single-turn append / pi.on cancel-forward / CNCL-4
+  reason propagation) are asserted against the conversation-drive.md /
+  cancellation.md behaviour model the Adds fidelity-contract sentence cites.
+- **`cancelTurn(reason)` vs `ctx.abort()`.** The double models two abort
+  directions: `cancelTurn(reason)` is the Pi/user-initiated CNCL-4 source
+  (aborts the in-flight turn signal WITH a reason, the value CNCL-4 requires be
+  mirrored into `loomAbort`); `ctx.abort()` is the loom→Pi teardown direction
+  (SDK `abort()` takes no reason argument).
