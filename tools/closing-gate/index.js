@@ -29,6 +29,27 @@
 //   - broad-catch-allow-list-unresolved: a `// allow-broad-catch:` entry whose
 //                                      cited token resolves to none of the four
 //                                      admitted arms (H5c)
+//   - transitive-completeness-unreachable: a coverage-matrix closing-leaf cell
+//                                      none of whose listed leaves is in H5b's
+//                                      expanded `Deps.` membership (H5d)
+//
+// H5d — transitive-completeness plan-structural arm. For every row in the
+// coverage-matrix's *Numbered REQ-IDs* and *Code-keyed obligation areas (no
+// numbered REQ-IDs)* tables, the arm reads ONLY that row's right-hand closing-
+// leaf cell, tokenises it by its backtick-delimited spans (each `…` span is one
+// leaf-ID token), and requires AT LEAST ONE of those leaf IDs to be a member of
+// H5b's `Deps.` after expanding both sides' contiguous within-group
+// `<group><letter>` ranges (e.g. `V2a`–`V2d` → V2a, V2b, V2c, V2d). A cell none
+// of whose listed leaves is in that expanded set is a CI failure. The arm
+// excludes the two recognised empty-tokenising cell forms whose content is
+// EXACTLY the literal `<new>` placeholder or the literal `*(numbered above)*`
+// retirement marker; any other cell (including a mis-authored un-delimited
+// single-leaf cell tokenising empty) is subject to the at-least-one check. It is
+// a per-cell AT-LEAST-ONE test — a multi-leaf (primary + co-witness) cell stays
+// green as long as one listed leaf is present — so it cannot catch an omitted
+// secondary facet-closer (that residue is surfaced by H5b's canary and the
+// release-time residue inspection). The arm runs only when the corpus supplies
+// `h5bDepsText`; the H5a/H5c seeded fixtures omit it and are unaffected.
 //
 // H5c — `no-broad-catch` allow-list closing-gate reconciliation arm. The gate
 // scans the `// allow-broad-catch:` comments across `src/**` (the lint allow-
@@ -195,6 +216,83 @@ function expandReqIdSpec(cell) {
   return out;
 }
 
+// ── Transitive-completeness parsing (H5d) ─────────────────────────────────────
+// Expand a span of plan prose into the set of leaf IDs it names, expanding each
+// contiguous within-group `<group><letter>` range whose two backtick-delimited
+// endpoints share the same `<group>` over its contiguous letter suffixes (e.g.
+// `V2a`–`V2d` → V2a, V2b, V2c, V2d), and taking every other backtick-delimited
+// leaf-ID span as a singleton (including a no-letter singleton such as `M`).
+// Only backtick-delimited spans are read; surrounding prose is ignored.
+export function expandLeafTokens(text) {
+  const out = new Set();
+  const rangeRe = /`([A-Z]+[0-9]+)([a-z])`\s*[\u2013\u2014-]\s*`([A-Z]+[0-9]+)([a-z])`/g;
+  // Consume ranges first so their endpoints are not re-counted as singletons.
+  const remainder = text.replace(rangeRe, (_full, g1, l1, g2, l2) => {
+    if (g1 === g2) {
+      for (let c = l1.charCodeAt(0); c <= l2.charCodeAt(0); c++) {
+        out.add(`${g1}${String.fromCharCode(c)}`);
+      }
+    } else {
+      // Cross-group range is not a contiguous within-group range: keep both
+      // endpoints rather than silently inventing intermediate IDs.
+      out.add(`${g1}${l1}`);
+      out.add(`${g2}${l2}`);
+    }
+    return " ";
+  });
+  for (const m of remainder.matchAll(/`([A-Z]+[0-9]*[a-z]?)`/g)) out.add(m[1]);
+  return out;
+}
+
+// Parse H5b's `Deps.` field into its expanded leaf-ID membership. Reads only the
+// `**Deps.**` paragraph (up to the next blank line) so leaf IDs cited elsewhere
+// in the H5b page's prose are not admitted, then expands per `expandLeafTokens`.
+export function parseH5bDeps(text) {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*\*\*Deps\.\*\*/.test(lines[i])) continue;
+    let para = lines[i].replace(/^\s*\*\*Deps\.\*\*/, "");
+    for (let j = i + 1; j < lines.length && lines[j].trim() !== ""; j++) {
+      para += `\n${lines[j]}`;
+    }
+    return expandLeafTokens(para);
+  }
+  return new Set();
+}
+
+// The two literal empty-tokenising cell forms the arm excludes from the at-least-
+// one check: the `<new>` placeholder and the `*(numbered above)*` retirement
+// marker. Recognised by EXACT trimmed cell content — a mis-authored un-delimited
+// single-leaf cell is NOT excluded and tokenises empty into a (spurious) failure.
+const EXCLUDED_CLOSING_LEAF_CELLS = new Set(["<new>", "*(numbered above)*"]);
+
+// Parse the right-hand *Closing leaf(s)* cell of every row in the coverage
+// matrix's *Numbered REQ-IDs* and *Code-keyed obligation areas (no numbered
+// REQ-IDs)* tables. Scoped by `##` section heading so the *Governance REQ-IDs*
+// table (and any other section) is not read. The closing-leaf cell is the LAST
+// cell of each row; the header row (last cell literally `Closing leaf(s)`) is
+// skipped. Returns the raw trimmed cell strings, in document order.
+export function parseClosingLeafCells(text) {
+  const cells = [];
+  let inScope = false;
+  for (const line of text.split("\n")) {
+    const heading = line.match(/^\s*##\s+(.*)$/);
+    if (heading != null) {
+      inScope =
+        /Numbered REQ-IDs/i.test(heading[1]) ||
+        /Code-keyed obligation areas/i.test(heading[1]);
+      continue;
+    }
+    if (!inScope) continue;
+    const row = parseTableRow(line);
+    if (row == null || row.length < 2) continue;
+    const last = row[row.length - 1].trim();
+    if (/^Closing leaf\(s\)$/i.test(last)) continue; // header row
+    cells.push(last);
+  }
+  return cells;
+}
+
 // ── Diagnostics-registry parsing ──────────────────────────────────────────────
 // Distinct backtick-delimited `loom/...` codes in the registry sources,
 // excluding the `loom/typecheck/*` build-time brand namespace.
@@ -276,6 +374,7 @@ export function extractCitingReqIds(sources) {
  *   registryText: string,
  *   testSources: {path: string, text: string}[],
  *   srcSources?: {path: string, text: string}[],
+ *   h5bDepsText?: string,
  * }} corpus
  * @returns {{kind: string, subject: string, detail: string}[]}
  */
@@ -368,6 +467,26 @@ export function runClosingGate(corpus) {
     }
   }
 
+  // (5c) Transitive-completeness (H5d): every coverage-matrix closing-leaf cell
+  // must list at least one leaf reachable in H5b's expanded `Deps.` membership.
+  // Runs only when the corpus supplies H5b's `Deps.` text; the `<new>` and
+  // `*(numbered above)*` literal cells are excluded.
+  if (corpus.h5bDepsText != null && corpus.h5bDepsText.trim() !== "") {
+    const h5bDeps = parseH5bDeps(corpus.h5bDepsText);
+    for (const cell of parseClosingLeafCells(corpus.coverageMatrixText)) {
+      if (EXCLUDED_CLOSING_LEAF_CELLS.has(cell)) continue;
+      const leaves = expandLeafTokens(cell);
+      const reachable = [...leaves].some((id) => h5bDeps.has(id));
+      if (!reachable) {
+        findings.push({
+          kind: "transitive-completeness-unreachable",
+          subject: cell,
+          detail: `closing-leaf cell "${cell}" lists no leaf present in H5b's expanded Deps. (tokenised: {${[...leaves].join(", ")}})`,
+        });
+      }
+    }
+  }
+
   // (6) Per-prefix numbering hole: for each prefix the corpus owns, an integer
   // n ≤ max(live ∪ retired) that is neither live nor retired.
   for (const hole of numberingHoles(specReqIds, retired)) {
@@ -411,6 +530,8 @@ function numberingHoles(liveIds, retiredSet) {
 //   <dir>/coverage-matrix.md  — REQ-ID → closing-leaf mapping table
 //   <dir>/registry.md         — diagnostics registry table(s)
 //   <dir>/tests/**            — the (seeded or live) test corpus
+//   <dir>/h5b-deps.md         — (H5d) H5b's `Deps.` field snapshot; absent in
+//                               the H5a/H5c scenarios (arm stays dormant)
 //
 // At the live-corpus footing (H6a) the same loader is pointed at the live trees;
 // the path selection MUST exclude the fixtures root so no seeded fixture is ever
@@ -426,6 +547,9 @@ export function loadCorpus(dir) {
       .join("\n") || readIfPresent(path.join(dir, "registry.md")),
     testSources: readTree(path.join(dir, "tests"), (f) => f.endsWith(".ts")),
     srcSources: readTree(path.join(dir, "src"), (f) => f.endsWith(".ts")),
+    // H5d: H5b's `Deps.` snapshot. Absent in the H5a/H5c scenarios, which leaves
+    // the transitive-completeness arm dormant for those fixtures.
+    h5bDepsText: readIfPresent(path.join(dir, "h5b-deps.md")),
   };
 }
 

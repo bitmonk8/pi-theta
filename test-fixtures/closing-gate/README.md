@@ -22,6 +22,11 @@ Each scenario directory uses the conventional closing-gate corpus layout the
 - `src/**/*.ts` — (for the H5c arm) seeded production-shaped sources carrying
   `// allow-broad-catch: <token> — <spec-page>` comments. These are fixture data
   outside the gated `src/**` tree, so their broad `catch` clauses are never linted.
+- `h5b-deps.md` — (for the H5d arm) a snapshot of H5b's `Deps.` field. The
+  transitive-completeness arm parses only the `**Deps.**` paragraph (the same
+  `parseH5bDeps` reader it runs against the live H5b page) and expands its
+  contiguous within-group `<group><letter>` ranges. Absent in the H5a/H5c
+  scenarios, which leaves the transitive-completeness arm dormant for them.
 
 Scenarios:
 
@@ -37,3 +42,12 @@ Scenarios:
   cell, a concrete `loom/...` registry code, and `pi-sdk-boundary`.
 - `broad-catch-unresolved/` — (H5c) an entry cites a `loom/...` glob/wildcard
   family the concrete-registry-code resolver never matches.
+- `transitive-no-violation/` — (H5d) every coverage-matrix closing-leaf cell has
+  at least one listed leaf in the seeded `h5b-deps.md`, including a multi-leaf
+  primary + co-witness cell with exactly one leaf present (the co-witness `H7a`
+  intentionally absent from `Deps.`), a cell carrying parenthetical facet
+  annotation prose alongside its backtick IDs, a `<new>` placeholder cell, and a
+  retired `*(numbered above)*` cell — both excluded from the at-least-one check.
+- `transitive-unreachable/` — (H5d) one closing-leaf cell names a leaf (`V7z`)
+  absent from the seeded `h5b-deps.md` `Deps.` membership; the row stays mapped
+  and cited, so only the transitive-completeness arm reds out.

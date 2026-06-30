@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS closing-gate module, no type declarations.
-import { loadCorpus, runClosingGate, extractReqIds, parsePrefixTable, parseRetiredReqIds, parseCoverageMatrix, parseRegistryCodes, extractAssertedCodes, extractCitingReqIds, parseCkaTokens, extractBroadCatchEntries } from "../tools/closing-gate/index.js";
+import { loadCorpus, runClosingGate, extractReqIds, parsePrefixTable, parseRetiredReqIds, parseCoverageMatrix, parseRegistryCodes, extractAssertedCodes, extractCitingReqIds, parseCkaTokens, extractBroadCatchEntries, expandLeafTokens, parseH5bDeps, parseClosingLeafCells } from "../tools/closing-gate/index.js";
 
 // H5a — REQ-ID / diagnostic-code closing-gate automation. These assertions ARE
 // the closing gate "wired into npm test": they run the gate against the seeded
@@ -146,6 +146,78 @@ describe("H5c — broad-catch allow-list token resolution (unit)", () => {
       { path: "s.ts", text: "x; // allow-broad-catch: pi-sdk-boundary — page\ny; // allow-broad-catch: cka-1 — page" },
     ]);
     expect(entries.map((e: { token: string }) => e.token)).toEqual(["pi-sdk-boundary", "cka-1"]);
+  });
+});
+
+// H5d — transitive-completeness plan-structural arm, running as part of the
+// unified closing-gate machinery against seeded fixtures under the same
+// dedicated test-fixtures root. The arm reconciles every coverage-matrix
+// closing-leaf cell (tokenised by its backtick spans, ranges expanded) against
+// H5b's expanded `Deps.` membership and reddens for a cell none of whose listed
+// leaves is reachable. Each block cites the conventions.md convention it backs.
+describe("H5d — transitive-completeness arm against seeded fixtures", () => {
+  it("(Convention: REQ-ID discipline — transitive-completeness) runs green when every closing-leaf cell has at least one listed leaf in the seeded H5b-Deps fixture, including a multi-leaf primary+co-witness cell with exactly one leaf present, a cell carrying parenthetical annotation prose alongside its backtick IDs, and a retired `*(numbered above)*` cell the arm excludes", () => {
+    expect(gate("transitive-no-violation")).toEqual([]);
+  });
+
+  it("(Convention: REQ-ID discipline — transitive-completeness) fails when a closing-leaf cell names no leaf present in the seeded H5b-Deps fixture", () => {
+    const findings = gate("transitive-unreachable");
+    expect(kinds(findings)).toEqual(["transitive-completeness-unreachable"]);
+    expect(findings[0]?.subject).toBe("`V7z`");
+  });
+});
+
+describe("H5d — transitive-completeness parsing (unit)", () => {
+  it("expandLeafTokens expands a contiguous within-group range by letter suffix and keeps singletons (incl. the no-letter `M`)", () => {
+    const set = expandLeafTokens("`M`, `V2a`–`V2d`, `H7a`");
+    expect([...set].sort()).toEqual(["H7a", "M", "V2a", "V2b", "V2c", "V2d"]);
+  });
+
+  it("expandLeafTokens reads only backtick spans, ignoring surrounding prose (co-witness / facet annotations)", () => {
+    const set = expandLeafTokens("`V16a`, `H7a` (co-witness — cross-site never-interleaves integration witness)");
+    expect([...set].sort()).toEqual(["H7a", "V16a"]);
+  });
+
+  it("parseH5bDeps reads only the `**Deps.**` paragraph, expands its ranges, and ignores leaf IDs cited in surrounding prose", () => {
+    const text = [
+      "Some prose mentioning `V99z` and `H7a` that must NOT be admitted.",
+      "",
+      "**Deps.** `H1a`, `H5a`, `M`, `V1a`, `V2a`–`V2e`, `V3b`, `V8d`, `V9m`",
+      "",
+      "Trailing prose mentioning `V42z` that must NOT be admitted.",
+    ].join("\n");
+    const deps = parseH5bDeps(text);
+    expect(deps.has("V2c")).toBe(true); // from the V2a–V2e range
+    expect(deps.has("V9m")).toBe(true);
+    expect(deps.has("M")).toBe(true);
+    expect(deps.has("V99z")).toBe(false); // prose before the field
+    expect(deps.has("V42z")).toBe(false); // prose after the field
+    expect(deps.has("H7a")).toBe(false);
+  });
+
+  it("parseClosingLeafCells reads the last cell of each row in the two named tables, skips headers, and ignores other sections", () => {
+    const text = [
+      "## Numbered REQ-IDs (runtime obligations)",
+      "| REQ-ID | Closing leaf(s) |",
+      "|---|---|",
+      "| FOO-1 | `V1a` |",
+      "| FOO-2 | `V2c`, `H7a` (co-witness — x) |",
+      "",
+      "## Code-keyed obligation areas (no numbered REQ-IDs)",
+      "| Token | Spec area (prefix) | Closing leaf(s) |",
+      "|---|---|---|",
+      "| `cka-1` | `foo.md` (FOO) | `V8d` |",
+      "| `cka-2` | `bar.md` (BAR) — retired | *(numbered above)* |",
+      "",
+      "## Governance REQ-IDs (GOV-*) — not runtime obligations",
+      "| GOV-1 | `someplace` |",
+    ].join("\n");
+    expect(parseClosingLeafCells(text)).toEqual([
+      "`V1a`",
+      "`V2c`, `H7a` (co-witness — x)",
+      "`V8d`",
+      "*(numbered above)*",
+    ]);
   });
 });
 
