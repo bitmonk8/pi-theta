@@ -36,6 +36,14 @@
 declare const enumBrand: unique symbol;
 
 /**
+ * The interpreter-private property name carrying an enum value's declaring-enum
+ * tag. It is installed **non-enumerable** so `JSON.stringify` of the boxed-
+ * string enum value yields the bare wire string and the tag never appears in
+ * JSON output (runtime-value-model.md, value-representation table, enum row).
+ */
+const ENUM_TAG = "__loomEnum";
+
+/**
  * An enum runtime value. Carries the variant's wire string plus an
  * interpreter-private declaring-enum tag identifying the declaring enum.
  * `JSON.stringify` of an enum value yields the **bare wire string** — the tag
@@ -79,14 +87,41 @@ export type LoomValue =
  * The resulting value carries the wire string plus the interpreter-private
  * declaring-enum tag, and `JSON.stringify` of it yields the bare wire string.
  *
- * V2c-T inert stub: returns a plain tagged object, which `JSON.stringify`
- * serialises to its object form rather than the bare wire string, so the value-
- * representation test reds on its primary assertion. The paired V2c leaf builds
- * the real declaring-enum-tagged representation (the reference encoding is a
- * non-enumerable tag on a boxed string).
+ * The reference encoding is a non-enumerable `__loomEnum` tag installed on a
+ * boxed `String`: `JSON.stringify` of a boxed string yields the bare wire
+ * string, and the non-enumerable tag is excluded from JSON output, so the value
+ * serialises to the bare wire string while still carrying its declaring-enum
+ * tag for cross-enum equality. The concrete shape is an implementation detail
+ * not reachable from Loom code.
  */
 export function makeEnumValue(declaringEnum: string, wire: string): EnumValue {
-  return { __loomEnum: declaringEnum, wire } as unknown as EnumValue;
+  const boxed = new String(wire);
+  Object.defineProperty(boxed, ENUM_TAG, {
+    value: declaringEnum,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return boxed as unknown as EnumValue;
+}
+
+/** The declaring-enum tag of `value` if it is an enum value, else `undefined`. */
+function enumTagOf(value: LoomValue): string | undefined {
+  if (typeof value === "object" && value !== null && Object.prototype.hasOwnProperty.call(value, ENUM_TAG)) {
+    return (value as unknown as Record<string, string>)[ENUM_TAG];
+  }
+  return undefined;
+}
+
+/** Whether `value` is a `Result` runtime value (carries an `ok` discriminator). */
+function isResultValue(value: LoomValue): value is ResultValue {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    enumTagOf(value) === undefined &&
+    typeof (value as { ok?: unknown }).ok === "boolean"
+  );
 }
 
 /** Construct an `Ok(value)` `Result` runtime value. */
@@ -108,14 +143,78 @@ export function makeErr(error: LoomValue): ResultValue {
  * compares the discriminator and recurses on the payload. Never panics and
  * never raises a diagnostic — a cross-type comparison simply evaluates `false`.
  *
- * V2c-T inert stub: reports every pair unequal (returns `false`), so each
- * equality test reds on its `true`-expecting primary assertion (the structural-
- * equality relation is absent). The paired V2c leaf implements the relation.
  */
 export function valuesEqual(a: LoomValue, b: LoomValue): boolean {
-  void a;
-  void b;
-  return false;
+  // Enum variants compare the declaring-enum tag *and* the wire value; an enum
+  // against a non-enum (e.g. `Severity.Low == "low"`) is a cross-type pair.
+  const tagA = enumTagOf(a);
+  const tagB = enumTagOf(b);
+  if (tagA !== undefined || tagB !== undefined) {
+    if (tagA === undefined || tagB === undefined) {
+      return false;
+    }
+    return tagA === tagB && String(a) === String(b);
+  }
+
+  // `Result` compares the `Ok`/`Err` discriminator and recurses on the payload.
+  const resA = isResultValue(a);
+  const resB = isResultValue(b);
+  if (resA || resB) {
+    if (!resA || !resB) {
+      return false;
+    }
+    if (a.ok !== b.ok) {
+      return false;
+    }
+    return a.ok && b.ok
+      ? valuesEqual(a.value, b.value)
+      : valuesEqual((a as { error: LoomValue }).error, (b as { error: LoomValue }).error);
+  }
+
+  // Arrays compare element-wise at equal length.
+  const arrA = Array.isArray(a);
+  const arrB = Array.isArray(b);
+  if (arrA || arrB) {
+    if (!arrA || !arrB || a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (!valuesEqual(a[i], b[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Objects compare loom-side key set and per-key value (declaration order
+  // irrelevant).
+  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) {
+      return false;
+    }
+    const objA = a as { readonly [key: string]: LoomValue };
+    const objB = b as { readonly [key: string]: LoomValue };
+    for (const key of keysA) {
+      if (!Object.prototype.hasOwnProperty.call(objB, key)) {
+        return false;
+      }
+      if (!valuesEqual(objA[key] as LoomValue, objB[key] as LoomValue)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Primitives compare by value, with the two fixed refinements: `NaN == NaN`
+  // is `true`, and `+0 == -0` is `true` (`===` already equates `+0`/`-0`). A
+  // cross-type primitive pair (differing `typeof`, or object-vs-primitive)
+  // falls through to a `false` here — never a panic, never a diagnostic.
+  if (typeof a === "number" && typeof b === "number") {
+    return a === b || (Number.isNaN(a) && Number.isNaN(b));
+  }
+  return a === b;
 }
 
 /**
@@ -124,10 +223,7 @@ export function valuesEqual(a: LoomValue, b: LoomValue): boolean {
  * wire (runtime-value-model.md, value-representation table, `Result` row).
  * Plain primitives, arrays, objects, and enum variants are lowerable.
  *
- * V2c-T inert stub: reports every value lowerable, so the `Result`-not-lowerable
- * test reds on its primary assertion (the `Result` non-lowerable recognition is
- * absent). The paired V2c leaf implements the recognition.
  */
 export function isWireLowerable(value: LoomValue): boolean {
-  return value !== undefined;
+  return !isResultValue(value);
 }
