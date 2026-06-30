@@ -311,3 +311,24 @@ spec edit extends the §3 closed token table to cover schema-subset keywords, th
 V5d implementation should render that token and the V5d-T assertions can tighten
 to full-string equality. Surfaced here, not re-anchored — re-anchoring is a
 spec-side GOV-7/GOV-8 placeholder-table decision, not a plan-leaf change.
+
+## 2026-06-30 — V4b-T match-error / match-bypass coverage decision
+
+The V4b-T leaf binds "each of the six closed panic sources ... bypasses
+`?`/`match`". For five of the six sources the V4b-T suite exercises the bypass
+through *both* `?` (a panic raised in a `?` operand propagates past
+`evaluateQuestion`) and `match` (a panic raised in a `match` arm body escapes
+`evaluateMatch`). The sixth source, `loom/runtime/match-error`, IS the `match`
+construct's own panic — its bypass-of-`match` (an outer `match` arm cannot
+capture a nested non-exhaustive `match`'s panic) rests entirely on the V4a
+`evaluateMatch` propagation already shipped and verified by
+`tests/match-result.test.ts`. Including a match-error-bypasses-`match` test in
+the V4b-T red suite would be a *green* test (it passes with the V4b
+implementation still absent), which the conventions classify as a defect ("a
+test that would pass when prerequisites are missing is a defect"). So
+`match-error` is exercised for `?`-bypass only in V4b-T (where `evaluateQuestion`
+is the V4b-new seam and the assertion reds), and its message-template assertion
+reds on the V4a stub message. The five non-match sources cover the `match`-bypass
+obligation. This keeps every test in the red suite failing for the intended
+reason while still witnessing all six sources bypassing `?` and (for the five
+non-match sources) `match`.
