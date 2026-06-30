@@ -54,11 +54,19 @@ export function supersededNote(name: string): string {
  * `"degraded-needs-reload"`. The arms are mutually exclusive and exhaust the
  * tuple state space; no fourth arm (PIC-30).
  *
- * V9m-T stub: returns arm (a) unconditionally, so the tuple-to-arm test reds on
- * the non-dispatch tuples (the paired V9m implements the mapping).
+ * The mapping keys on the tuple per PIC-29's closed three-arm map: arm (c)
+ * `"degraded-needs-reload"` fires whenever the tag is `"degraded-needs-reload"`
+ * (regardless of `drained`); arm (b) `"shutting-down"` fires on the tag
+ * `"shutting-down"` or on `(true, undefined)`; arm (a) `"dispatch"` is the
+ * steady-state residue `(false, undefined)`. There is no fourth arm (PIC-30).
  */
 export function routeDrainStateArm(snapshot: DrainStateSnapshot): DispatchArm {
-  void snapshot;
+  if (snapshot.tag === "degraded-needs-reload") {
+    return "degraded-needs-reload";
+  }
+  if (snapshot.tag === "shutting-down" || snapshot.drained) {
+    return "shutting-down";
+  }
   return "dispatch";
 }
 
@@ -70,12 +78,9 @@ export function routeDrainStateArm(snapshot: DrainStateSnapshot): DispatchArm {
  * introduces no third boolean drain-state field and no arm-specific gate
  * (PIC-30).
  *
- * V9m-T stub: returns `false` unconditionally, so the predicate test reds on the
- * non-steady tuples (the paired V9m implements the disjunction).
  */
 export function shouldShortCircuitShutdown(snapshot: DrainStateSnapshot): boolean {
-  void snapshot;
-  return false;
+  return snapshot.drained === true || snapshot.tag !== undefined;
 }
 
 /**
@@ -85,15 +90,23 @@ export function shouldShortCircuitShutdown(snapshot: DrainStateSnapshot): boolea
  * (c) (`"degraded-needs-reload"`) — the conservative operator action (`/reload`)
  * is correct on every non-dispatch arm.
  *
- * V9m-T stub: returns arm (a) without wrapping `read`, so the read-failure test
- * reds on its primary assertion (the paired V9m wraps the read and routes a
- * throw to arm (c)).
  */
 export function routeSlashDispatchWithReadFailover(
   read: () => DrainStateSnapshot,
 ): DispatchArm {
-  void read;
-  return "dispatch";
+  // PIC-31 read-failure fail-safe: the read may throw an arbitrary shape (a
+  // frozen-but-mutated import, a Proxy getter trap, OOM during snapshot
+  // construction, or any other read-side throw), so the catch is broad and
+  // routes to arm (c) — the `/reload` operator action is correct on every
+  // non-dispatch arm, the only safe choice when the arm cannot be determined.
+  let snapshot: DrainStateSnapshot;
+  try {
+    snapshot = read();
+  } catch (readError: unknown) { // allow-broad-catch: PIC-31 — pi-integration-contract/drain-state-contract.md
+    void readError;
+    return "degraded-needs-reload";
+  }
+  return routeDrainStateArm(snapshot);
 }
 
 /**
@@ -105,15 +118,23 @@ export function routeSlashDispatchWithReadFailover(
  * the handler proceeds into the full five-sub-step teardown rather than
  * stranding resources.
  *
- * V9m-T stub: returns `true` without wrapping `read`, so the read-failure test
- * reds on its primary assertion (the paired V9m wraps the read and returns
- * `false` on a throw to drive full teardown).
  */
 export function evalShutdownShortCircuitWithReadFailover(
   read: () => DrainStateSnapshot,
 ): boolean {
-  void read;
-  return true;
+  // PIC-31 read-failure fail-safe: on a read-side throw treat the read as the
+  // steady-state tuple `(false, undefined)` — equivalently, as if the predicate
+  // had NOT fired — so the handler proceeds into the full five-sub-step teardown
+  // rather than short-circuiting and stranding every resource it must release.
+  // The read may throw an arbitrary shape, so the catch is broad.
+  let snapshot: DrainStateSnapshot;
+  try {
+    snapshot = read();
+  } catch (readError: unknown) { // allow-broad-catch: PIC-31 — pi-integration-contract/drain-state-contract.md
+    void readError;
+    return false;
+  }
+  return shouldShortCircuitShutdown(snapshot);
 }
 
 /** The outcome of a slash dispatch: dispatch the loom, or return a system note. */
@@ -128,17 +149,25 @@ export type SlashDispatchOutcome =
  * the fixed superseded note (registration-steps.md#superseded-entry-dispatch), a
  * sub-case of arm (a) that introduces no fourth `readDrainState` arm.
  *
- * V9m-T stub: dispatches unconditionally, so the superseded-entry test (an empty
- * entry table on the steady-state tuple) reds on its primary assertion (the
- * paired V9m performs the entry-table lookup and returns the superseded note on
- * a miss).
  */
 export function resolveSlashDispatch(
   name: string,
   snapshot: DrainStateSnapshot,
   registry: LoomRegistry,
 ): SlashDispatchOutcome {
-  void snapshot;
-  void registry;
-  return { kind: "dispatch", loom: { slashName: name } };
+  const arm = routeDrainStateArm(snapshot);
+  if (arm === "shutting-down") {
+    return { kind: "note", content: shuttingDownNote(name) };
+  }
+  if (arm === "degraded-needs-reload") {
+    return { kind: "note", content: degradedNote(name) };
+  }
+  // Arm (a) dispatch: look the slash name up in the registry entry table. A hit
+  // dispatches the loom; a miss (a dropped, superseded entry) returns the fixed
+  // superseded note — a sub-case of arm (a), not a fourth arm (PIC-30).
+  const loom = registry.get(name);
+  if (loom === undefined) {
+    return { kind: "note", content: supersededNote(name) };
+  }
+  return { kind: "dispatch", loom };
 }

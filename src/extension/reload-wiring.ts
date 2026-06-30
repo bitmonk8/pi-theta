@@ -111,7 +111,7 @@ export class LoomRegistry {
    * test reds on its primary assertion (the paired V9m sets the flag).
    */
   drain(): void {
-    // V9m implementation: this.#drained = true;
+    this.#drained = true;
   }
 
   /**
@@ -122,7 +122,9 @@ export class LoomRegistry {
    * V9m-T stub: a no-op (the paired V9m sets the tag).
    */
   initDrainStateTag(): void {
-    // V9m implementation: if (this.#drainStateTag === undefined) this.#drainStateTag = "shutting-down";
+    if (this.#drainStateTag === undefined) {
+      this.#drainStateTag = "shutting-down";
+    }
   }
 
   /**
@@ -132,7 +134,7 @@ export class LoomRegistry {
    * V9m-T stub: a no-op (the paired V9m sets the tag).
    */
   markRuntimeDegraded(): void {
-    // V9m implementation: this.#drainStateTag = "degraded-needs-reload";
+    this.#drainStateTag = "degraded-needs-reload";
   }
 
   /**
