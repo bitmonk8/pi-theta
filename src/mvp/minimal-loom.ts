@@ -26,6 +26,63 @@ export interface MinimalLoomSource {
   readonly source: string;
 }
 
+/** The minimal happy-path parse of a single-untyped-query prompt-mode loom. */
+interface ParsedMinimalLoom {
+  /** The frontmatter `mode:` value (the MVP happy path requires `prompt`). */
+  readonly mode: string;
+  /** The rendered text of the single untyped `` @`<literal>` `` body query. */
+  readonly queryText: string;
+}
+
+/**
+ * Parse the minimal `.loom` source shape the MVP happy path proves: a
+ * `mode:`-only frontmatter block delimited by `---` fences and a body holding a
+ * single untyped query of the form `` @`<literal>` ``.
+ *
+ * This is the narrowest parser the MVP vertical needs — full frontmatter,
+ * lexing, and body parsing are deepened by the `V*` slices. It reads `mode:`
+ * from the frontmatter and extracts the backtick-delimited literal of the
+ * single `@`-query, returning the rendered query text verbatim.
+ */
+function parseMinimalLoom(source: string): ParsedMinimalLoom {
+  const lines = source.split("\n");
+  let mode = "";
+  let queryText: string | undefined;
+  let inFrontmatter = false;
+  let frontmatterClosed = false;
+
+  for (const line of lines) {
+    if (line.trim() === "---") {
+      if (!inFrontmatter && !frontmatterClosed) {
+        inFrontmatter = true;
+      } else if (inFrontmatter) {
+        inFrontmatter = false;
+        frontmatterClosed = true;
+      }
+      continue;
+    }
+    if (inFrontmatter) {
+      const match = /^\s*mode\s*:\s*(\S+)\s*$/.exec(line);
+      if (match !== null && match[1] !== undefined) {
+        mode = match[1];
+      }
+      continue;
+    }
+    // Body: the single untyped `@`-query of the form `` @`<literal>` ``.
+    const queryMatch = /^\s*@`([^`]*)`\s*$/.exec(line);
+    if (queryMatch !== null && queryMatch[1] !== undefined) {
+      queryText = queryMatch[1];
+    }
+  }
+
+  if (queryText === undefined) {
+    throw new Error(
+      "minimal loom source has no untyped @-query of the form @`<literal>`",
+    );
+  }
+  return { mode, queryText };
+}
+
 /**
  * Build the minimal end-to-end loom pipeline for one in-memory `.loom` source.
  *
@@ -43,13 +100,17 @@ export function buildMinimalLoom(
   loom: MinimalLoomSource,
   pi: ExtensionAPI,
 ): LoomFixture {
-  // Reference `pi` so the parameter the prompt-mode driver requires is part of
-  // the pinned seam signature `M` implements against (the stub drives no turn).
-  void pi;
+  const parsed = parseMinimalLoom(loom.source);
   return {
     slashName: loom.slashName,
-    run: async () => {
-      // Inert until `M` lands the `mode:` parse + prompt-mode drive.
+    run: async (_args, ctx) => {
+      // Prompt mode: the single query is a turn the user sees in their session
+      // (SLSH-2). Issue the rendered query text as one user turn and await the
+      // streamed assistant response; the interpreter resumes only after the
+      // turn goes idle, leaving exactly one appended prompt-mode turn.
+      void parsed.mode;
+      pi.sendUserMessage(parsed.queryText);
+      await ctx.waitForIdle();
     },
   };
 }
