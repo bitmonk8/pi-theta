@@ -15,17 +15,11 @@
 //   - `has(k)` returns whether a loom-side name is present — `false` for an
 //     unknown key, with no panic (the explicit safe-check).
 //
-// V3h-T (tests-task) declares the seam — the `evaluateObjectMember` runtime
-// dispatcher — and stubs the behaviour-bearing function inertly so the failing
-// tests compile and red on their own primary assertions:
-//
-//   - `evaluateObjectMember` returns the inert `null` sentinel without
-//     evaluating any member, so every result assertion reds (a `keys()` name
-//     array, a `values()` value array, or a `has(k)` boolean).
-//
-// No test reds on a compile error, a missing fixture, or a harness throw. The
-// paired V3h implementation leaf fills this in (and wires object member-access /
-// method-call parsing into the V3a evaluator).
+// The V3h implementation fills in the runtime member dispatch: `keys()` /
+// `values()` follow the object value's own key order (established at
+// construction time — schema declaration order for named schemas, insertion
+// order otherwise), and `has(k)` tests own loom-side names only (never the JS
+// prototype chain), returning `false` for an unknown key without panic.
 
 import type { LoomValue } from "./value";
 
@@ -35,17 +29,28 @@ import type { LoomValue } from "./value";
  * by the V3a interpreter. Returns the member's loom value per the expressions.md
  * stdlib table (`keys()` / `values()` follow the object's key order; `has(k)`
  * returns `false` for an unknown key without panic).
- *
- * V3h-T stubs this as the inert `null` sentinel (no member is evaluated); the
- * paired V3h implementation leaf fills it in.
  */
 export function evaluateObjectMember(
   receiver: { readonly [key: string]: LoomValue },
   member: string,
   args: readonly LoomValue[],
 ): LoomValue {
-  void receiver;
-  void member;
-  void args;
-  return null;
+  switch (member) {
+    // `keys()` — the loom-side field names as an `array<string>`, in the
+    // object value's own key order (schema declaration order for named schemas,
+    // insertion order otherwise; both reduce to `Object.keys` at runtime).
+    case "keys":
+      return Object.keys(receiver);
+    // `values()` — the field values as a heterogeneous `array<T>`, in the same
+    // order as `keys()`.
+    case "values":
+      return Object.values(receiver) as LoomValue[];
+    // `has(k)` — whether a loom-side name is present. Own keys only (not the JS
+    // prototype chain), so an inherited name such as `toString` reports absent;
+    // an unknown key returns `false` with no panic (the explicit safe-check).
+    case "has":
+      return Object.prototype.hasOwnProperty.call(receiver, args[0] as string);
+    default:
+      throw new Error(`unknown object stdlib member: ${member}`);
+  }
 }
