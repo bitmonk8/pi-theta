@@ -313,3 +313,124 @@ export function checkVariantAccess(
     message: `unknown variant '${access.variant}' on enum '${access.enumName}'`,
   };
 }
+
+// --- V5b / V5b-T — discriminated unions, recursion, cycle detection --------
+//
+// V5b owns the parse-time checks for the discriminated-union, `by`-clause, and
+// type-alias-cycle rules of schemas.md §Discriminated unions and §Recursion:
+//
+//   - `loom/parse/non-string-discriminator`     — the discriminator field's
+//     per-variant literal type is not `string`.
+//   - `loom/parse/ambiguous-discriminator`      — more than one field qualifies.
+//   - `loom/parse/missing-discriminator`        — no field qualifies.
+//   - `loom/parse/duplicate-discriminator-value`— two variants share a value.
+//   - `loom/parse/nested-discriminator`         — the discriminator field's
+//     value is a nested object, not a top-level literal.
+//   - `loom/parse/by-on-object-schema`          — a `by` clause on an object body.
+//   - `loom/parse/type-alias-cycle`             — a pure-alias cycle (a cycle
+//     through at least one object-schema hop remains legal).
+//
+// V5b-T (this tests-task) declares these seam shapes and stubs the
+// behaviour-bearing functions so the failing tests compile and red on their own
+// primary assertions. The paired V5b implementation leaf fills these in.
+
+/**
+ * A field of a union variant relevant to discriminator detection. `literal` is
+ * present iff the field type is a single literal `const` (`kind: "v1"`), and
+ * carries that literal's type-kind and source text. `nested` marks a field
+ * whose value is a nested object (`kind: { type: "x" }`) rather than a
+ * top-level literal. Detection runs on the wire name (`wireName ?? name`).
+ */
+export interface DiscriminatorCandidateField {
+  readonly name: string;
+  readonly wireName?: string;
+  readonly literal?: { readonly kind: EnumValueKind; readonly text: string };
+  readonly nested?: boolean;
+}
+
+/** A single object-schema variant of a discriminated union. */
+export interface UnionVariantSchema {
+  readonly name: string;
+  readonly fields: readonly DiscriminatorCandidateField[];
+}
+
+/**
+ * A `schema X = A | B | C` union (optionally `schema X by f = ...`). `by` is
+ * the explicit loom-side discriminator field name when the author overrode
+ * implicit detection.
+ */
+export interface DiscriminatedUnionDecl {
+  readonly name: string;
+  readonly by?: string;
+  readonly variants: readonly UnionVariantSchema[];
+}
+
+/**
+ * Check a discriminated-union declaration, returning every diagnostic raised in
+ * source order (`loom/parse/non-string-discriminator`,
+ * `loom/parse/ambiguous-discriminator`, `loom/parse/missing-discriminator`,
+ * `loom/parse/duplicate-discriminator-value`, `loom/parse/nested-discriminator`).
+ */
+export function checkDiscriminatedUnion(
+  decl: DiscriminatedUnionDecl,
+  site: SchemaDeclSite,
+): Diagnostic[] {
+  // V5b-T stub: inert until the paired V5b implementation lands.
+  void decl;
+  void site;
+  return [];
+}
+
+/**
+ * A schema declaration carrying a `by <field>` clause. `form` distinguishes the
+ * object body (`schema X by f { ... }`, illegal) from the union form
+ * (`schema X by f = A | B`, legal).
+ */
+export interface ByClauseDecl {
+  readonly name: string;
+  readonly form: "object" | "union";
+  readonly field: string;
+}
+
+/**
+ * Check a `by <field>` clause, returning `loom/parse/by-on-object-schema` when
+ * the clause sits on an object body (the `by` concept applies only to
+ * discriminated unions). Returns `undefined` for the union form.
+ */
+export function checkByClause(
+  decl: ByClauseDecl,
+  site: SchemaDeclSite,
+): Diagnostic | undefined {
+  // V5b-T stub: inert until the paired V5b implementation lands.
+  void decl;
+  void site;
+  return undefined;
+}
+
+/**
+ * A node in the schema-reference graph for type-alias-cycle detection. `kind`
+ * is `"alias"` for the `schema X = ...` form and `"object"` for an object
+ * schema (`schema X { ... }`); `references` lists the named schemas the node's
+ * right-hand side refers to.
+ */
+export interface SchemaGraphNode {
+  readonly name: string;
+  readonly kind: "alias" | "object";
+  readonly references: readonly string[];
+}
+
+/**
+ * Detect type-alias cycles across the schema-reference graph, returning one
+ * `loom/parse/type-alias-cycle` per pure-alias cycle (a cycle whose every node
+ * is an alias). A cycle that traverses at least one object-schema hop crosses a
+ * `$ref` against `$defs` and is legal — it raises no diagnostic.
+ */
+export function detectTypeAliasCycles(
+  nodes: readonly SchemaGraphNode[],
+  site: SchemaDeclSite,
+): Diagnostic[] {
+  // V5b-T stub: inert until the paired V5b implementation lands.
+  void nodes;
+  void site;
+  return [];
+}
