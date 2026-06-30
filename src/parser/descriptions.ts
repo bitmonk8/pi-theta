@@ -44,11 +44,34 @@ export type DocAnchorKind = "schema" | "enum" | "field" | "variant" | "fn";
  * lines become blank lines. No other transformation is performed.
  */
 export function joinDocComment(docLines: readonly string[]): string {
-  // Stub: the V5c implementation performs the newline-join + common-leading-
-  // whitespace strip. An inert empty string reds the multi-line-join tests on
-  // their own primary assertion.
-  void docLines;
-  return "";
+  // Common-leading-whitespace strip, same algorithm as the query-template
+  // dedent (query-forms.md QRY-7): the common prefix is the longest common
+  // literal prefix of the non-blank lines, drawn only from U+0020 (space) and
+  // U+0009 (tab); whitespace-only lines are ignored when computing the prefix
+  // and are normalised to an empty line in the output.
+  const isBlank = (line: string): boolean => /^[ \t]*$/.test(line);
+
+  const nonBlank = docLines.filter((line) => !isBlank(line));
+
+  // Longest common {space,tab} prefix shared by every non-blank line.
+  let prefix: string | undefined;
+  for (const line of nonBlank) {
+    const lead = /^[ \t]*/.exec(line)?.[0] ?? "";
+    if (prefix === undefined) {
+      prefix = lead;
+      continue;
+    }
+    let i = 0;
+    const max = Math.min(prefix.length, lead.length);
+    while (i < max && prefix[i] === lead[i]) i += 1;
+    prefix = prefix.slice(0, i);
+  }
+  const common = prefix ?? "";
+
+  const stripped = docLines.map((line) =>
+    isBlank(line) ? "" : line.slice(common.length),
+  );
+  return stripped.join("\n");
 }
 
 /**
@@ -61,11 +84,23 @@ export function joinDocComment(docLines: readonly string[]): string {
 export function extractDescription(
   commentLines: readonly string[],
 ): string | undefined {
-  // Stub: the V5c implementation isolates the trailing `///` run, strips the
-  // `///` marker, and delegates to `joinDocComment`. An inert `undefined` reds
-  // the `//`-not-propagated test on its own primary assertion.
-  void commentLines;
-  return undefined;
+  // A `///` doc line, capturing the RestOfLine content after the marker; the
+  // negative lookahead keeps a four-slash `////` line from reading as a doc
+  // comment (its fourth slash is ordinary content of a regular `//` comment).
+  const docLine = /^[ \t]*\/\/\/(?!\/)(.*)$/;
+
+  // Collect the maximal run of `///` lines immediately above the anchor — the
+  // trailing run. A regular `//` (or any non-`///`) line terminates the run
+  // and is not propagated.
+  const restOfLines: string[] = [];
+  for (let i = commentLines.length - 1; i >= 0; i -= 1) {
+    const match = docLine.exec(commentLines[i] ?? "");
+    if (match === null) break;
+    restOfLines.unshift(match[1] ?? "");
+  }
+
+  if (restOfLines.length === 0) return undefined;
+  return joinDocComment(restOfLines);
 }
 
 /**
@@ -81,13 +116,15 @@ export function lowerDescription(
   anchor: DocAnchorKind,
   fragment: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Stub: the V5c implementation writes `description` for the schema-bearing
-  // anchors and leaves the fragment untouched for `fn`. An inert pass-through
-  // (never writing `description`) reds the byte-for-byte lowering tests on
-  // their own primary assertions while leaving the `fn` AST-only case correct.
-  void description;
-  void anchor;
-  return fragment;
+  // A `fn` anchor has no JSON Schema, so the description stays AST-only and the
+  // fragment is returned unchanged.
+  if (anchor === "fn") return fragment;
+
+  // Schema-bearing anchors (`schema`/`enum`/`field`/`variant`) carry the text
+  // byte-for-byte into `description` — no escaping, dedenting, or wrapping
+  // beyond the join the caller already applied. Pre-existing fragment keys are
+  // preserved untouched alongside the added description.
+  return { ...fragment, description };
 }
 
 /**
@@ -100,10 +137,26 @@ export function checkDocCommentPlacement(
   production: string,
   site: DocCommentSite,
 ): Diagnostic | undefined {
-  // Stub: the V5c implementation fires the diagnostic for ineligible
-  // productions. An inert `undefined` reds the placement test on its own
-  // primary assertion (an absent expected diagnostic).
-  void production;
-  void site;
-  return undefined;
+  // The eligible anchor productions per descriptions.md §Placement and
+  // grammar.md §`///` placement. A `///` above any other production fires
+  // `loom/parse/doc-comment-misplaced`.
+  const eligible: ReadonlySet<string> = new Set<DocAnchorKind>([
+    "schema",
+    "enum",
+    "field",
+    "variant",
+    "fn",
+  ]);
+  if (eligible.has(production)) return undefined;
+
+  // Message string sourced from the diagnostics registry
+  // (diagnostics/code-registry-parse.md) per the *Diagnostic message anchors*
+  // rule.
+  return {
+    severity: "error",
+    code: "loom/parse/doc-comment-misplaced",
+    file: site.file,
+    range: site.range,
+    message: "'///' doc comment is not legal above this production",
+  };
 }
