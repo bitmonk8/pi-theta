@@ -144,6 +144,8 @@ type InteriorKind = Exclude<TokenKind, "eof">;
 interface RawToken {
   readonly kind: InteriorKind | "newline";
   readonly text: string;
+  readonly value?: string;
+  readonly numericType?: "integer" | "number";
   readonly range: Range;
 }
 
@@ -189,6 +191,10 @@ function leadingTriggers(): ReadonlySet<string> {
 
 function isDigit(c: string): boolean {
   return c >= "0" && c <= "9";
+}
+
+function isHexDigit(c: string): boolean {
+  return isDigit(c) || (c >= "a" && c <= "f") || (c >= "A" && c <= "F");
 }
 
 function isIdentStart(c: string): boolean {
@@ -349,30 +355,104 @@ function scanTokens(
       return { tokens, diagnostics };
     }
 
-    // String literals: single- or double-quoted, single-line, `\` escapes the
-    // next character (so `\"` does not close). Span recording only; the
-    // unterminated / illegal-escape diagnostics belong to later leaves.
+    // String literals: single- or double-quoted, single-line. The escape table
+    // (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\u{XXXX}`) is decoded into the
+    // token's `value`; `text` keeps the verbatim source slice. An unrecognised
+    // escape is `loom/parse/illegal-escape`; a `\u{...}` whose scalar value is
+    // out of range or names a surrogate is `loom/parse/invalid-unicode-escape`
+    // (lexical.md §"String literals").
     if (c === '"' || c === "'") {
+      const quote = c;
       const start = pos();
-      let value = advance();
+      let raw = advance(); // opening quote
+      let value = "";
       while (i < n && text[i] !== "\n") {
         const ch = text[i];
         if (ch === undefined) {
           break;
         }
+        if (ch === quote) {
+          raw += advance(); // closing quote
+          break;
+        }
         if (ch === "\\") {
-          value += advance();
-          if (i < n && text[i] !== "\n") {
-            value += advance();
+          const escStart = pos();
+          raw += advance(); // the backslash
+          const e = text[i];
+          if (e === undefined || e === "\n") {
+            // Dangling backslash at end of line / EOF: an unrecognised escape.
+            diagnostics.push({
+              severity: "error",
+              code: "loom/parse/illegal-escape",
+              file,
+              range: { start: escStart, end: pos() },
+              message: "illegal escape sequence: \\",
+            });
+            break;
+          }
+          if (e === '"' || e === "'" || e === "\\") {
+            value += e;
+            raw += advance();
+          } else if (e === "n") {
+            value += "\n";
+            raw += advance();
+          } else if (e === "t") {
+            value += "\t";
+            raw += advance();
+          } else if (e === "r") {
+            value += "\r";
+            raw += advance();
+          } else if (e === "u") {
+            raw += advance(); // the `u`
+            // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar value.
+            let hex = "";
+            let wellFormed = false;
+            if (text[i] === "{") {
+              raw += advance(); // `{`
+              while (i < n && isHexDigit(text[i] ?? "") && hex.length < 6) {
+                hex += advance();
+              }
+              if (text[i] === "}") {
+                raw += advance(); // `}`
+                wellFormed = hex.length >= 1;
+              }
+            }
+            const cp = wellFormed ? parseInt(hex, 16) : NaN;
+            const isScalar =
+              wellFormed && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
+            if (isScalar) {
+              value += String.fromCodePoint(cp);
+            } else {
+              diagnostics.push({
+                severity: "error",
+                code: "loom/parse/invalid-unicode-escape",
+                file,
+                range: { start: escStart, end: pos() },
+                message:
+                  "invalid Unicode escape: value is not a Unicode scalar value",
+              });
+            }
+          } else {
+            diagnostics.push({
+              severity: "error",
+              code: "loom/parse/illegal-escape",
+              file,
+              range: { start: escStart, end: { line: pos().line, column: pos().column + 1 } },
+              message: `illegal escape sequence: \\${e}`,
+            });
+            raw += advance(); // consume the offending character
           }
           continue;
         }
-        value += advance();
-        if (ch === c) {
-          break;
-        }
+        value += ch;
+        raw += advance();
       }
-      tokens.push({ kind: "string", text: value, range: { start, end: pos() } });
+      tokens.push({
+        kind: "string",
+        text: raw,
+        value,
+        range: { start, end: pos() },
+      });
       continue;
     }
 
@@ -394,6 +474,7 @@ function scanTokens(
     if (isDigit(c)) {
       const start = pos();
       let value = "";
+      let isFractional = false;
       while (i < n) {
         const d = text[i];
         if (d === undefined || !isDigit(d)) {
@@ -402,6 +483,7 @@ function scanTokens(
         value += advance();
       }
       if (text[i] === ".") {
+        isFractional = true;
         value += advance();
         while (i < n) {
           const d = text[i];
@@ -412,6 +494,7 @@ function scanTokens(
         }
       }
       if (text[i] === "e" || text[i] === "E") {
+        isFractional = true;
         value += advance();
         if (text[i] === "+" || text[i] === "-") {
           value += advance();
@@ -424,7 +507,65 @@ function scanTokens(
           value += advance();
         }
       }
-      tokens.push({ kind: "number", text: value, range: { start, end: pos() } });
+
+      // A digit/letter/underscore abutting the decimal literal is a reserved or
+      // malformed numeric form — the loom 1.0-deferred hex (`0x`), octal (`0o`),
+      // binary (`0b`), and underscore-separator (`1_000`) syntaxes all surface
+      // here as `loom/parse/unsupported-feature` (lexical.md §"Number literals").
+      const tail = text[i];
+      if (tail !== undefined && isIdentPart(tail)) {
+        let extra = "";
+        while (i < n) {
+          const d = text[i];
+          if (d === undefined || !isIdentPart(d)) {
+            break;
+          }
+          extra += advance();
+        }
+        const fullText = value + extra;
+        diagnostics.push({
+          severity: "error",
+          code: "loom/parse/unsupported-feature",
+          file,
+          range: { start, end: pos() },
+          message: `unsupported syntactic feature: ${fullText}`,
+        });
+        tokens.push({ kind: "number", text: fullText, range: { start, end: pos() } });
+        continue;
+      }
+
+      // A literal with no fractional or exponent part is typed `integer`,
+      // otherwise `number`. The magnitude is judged per lexed token, before the
+      // parse-time unary-`-` fold: an out-of-safe-range integer or a
+      // non-finite number rejects rather than silently rounding to a double or
+      // yielding `Infinity` (lexical.md §"Number literals").
+      const numericType: "integer" | "number" = isFractional
+        ? "number"
+        : "integer";
+      const parsed = Number(value);
+      if (numericType === "integer" && parsed > Number.MAX_SAFE_INTEGER) {
+        diagnostics.push({
+          severity: "error",
+          code: "loom/parse/integer-literal-out-of-range",
+          file,
+          range: { start, end: pos() },
+          message: "integer literal exceeds the safe-integer range",
+        });
+      } else if (numericType === "number" && !Number.isFinite(parsed)) {
+        diagnostics.push({
+          severity: "error",
+          code: "loom/parse/number-literal-not-finite",
+          file,
+          range: { start, end: pos() },
+          message: "number literal is not a finite IEEE-754 double",
+        });
+      }
+      tokens.push({
+        kind: "number",
+        text: value,
+        numericType,
+        range: { start, end: pos() },
+      });
       continue;
     }
 
@@ -512,7 +653,13 @@ function collapseContinuations(raw: readonly RawToken[]): Token[] {
         }
       }
     }
-    out.push({ kind: t.kind, text: t.text, range: t.range });
+    out.push({
+      kind: t.kind,
+      text: t.text,
+      ...(t.value !== undefined ? { value: t.value } : {}),
+      ...(t.numericType !== undefined ? { numericType: t.numericType } : {}),
+      range: t.range,
+    });
     i += 1;
   }
 

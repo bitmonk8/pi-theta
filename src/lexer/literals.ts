@@ -57,14 +57,55 @@ export interface NarrowingSite {
  * `loom/parse/import-non-warp-extension`. The check is byte-exact lowercase, so
  * `.LOOM` is rejected identically on case-sensitive and case-insensitive hosts.
  *
- * Stub (V1b-T): returns no diagnostics, so the tests red on the absent code.
+ * Diagnostics are produced in spec order: the backslash separator check first,
+ * then the byte-exact lowercase final-segment check.
  */
 export function validatePathLiteral(
-  _literal: PathLiteral,
-  _kind: PathLiteralKind,
-  _file: string,
+  literal: PathLiteral,
+  kind: PathLiteralKind,
+  file: string,
 ): Diagnostic[] {
-  return [];
+  const diagnostics: Diagnostic[] = [];
+  const { value, range } = literal;
+
+  // Forward-slash separators only: any backslash is a parse error, located at
+  // the offending span (lexical.md §"Path literals").
+  if (value.includes("\\")) {
+    diagnostics.push({
+      severity: "error",
+      code: "loom/parse/invalid-path-separator",
+      file,
+      range,
+      message: "invalid path separator: backslash in path literal",
+    });
+  }
+
+  // Byte-exact lowercase final-segment check, on the literal as written (no
+  // realpath normalisation). `import` paths must end in `.warp`; `invoke` and
+  // `tools:` paths must end in `.loom`. The comparison is byte-exact lowercase,
+  // so `.LOOM` / `.WARP` is rejected identically cross-OS
+  // (lexical.md §"Extension matching").
+  if (kind === "import") {
+    if (!value.endsWith(".warp")) {
+      diagnostics.push({
+        severity: "error",
+        code: "loom/parse/import-non-warp-extension",
+        file,
+        range,
+        message: `import path '${value}' does not end in .warp`,
+      });
+    }
+  } else if (!value.endsWith(".loom")) {
+    diagnostics.push({
+      severity: "error",
+      code: "loom/parse/invoke-non-loom-extension",
+      file,
+      range,
+      message: `invoke path '${value}' does not end in .loom`,
+    });
+  }
+
+  return diagnostics;
 }
 
 /**
@@ -72,13 +113,20 @@ export function validatePathLiteral(
  * position, return `loom/parse/integer-narrowing`; the reverse (`integer`
  * widening to `number`) is permitted and returns `undefined`.
  *
- * Stub (V1b-T): always returns `undefined`, so the narrowing test reds on the
- * absent diagnostic.
  */
 export function checkIntegerNarrowing(
-  _sourceType: NumericLiteralType,
-  _targetType: NumericLiteralType,
-  _site: NarrowingSite,
+  sourceType: NumericLiteralType,
+  targetType: NumericLiteralType,
+  site: NarrowingSite,
 ): Diagnostic | undefined {
+  if (sourceType === "number" && targetType === "integer") {
+    return {
+      severity: "error",
+      code: "loom/parse/integer-narrowing",
+      file: site.file,
+      range: site.range,
+      message: "cannot narrow number to integer",
+    };
+  }
   return undefined;
 }
