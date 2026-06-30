@@ -155,3 +155,20 @@ leaf-ID inline). This is strictly tighter than the H5a per-REQ-ID corpus-wide sc
 yet still a best-effort existence check; finer per-`it`-block association and
 per-facet assertion fidelity stay routed to the release-time residue inspection
 item 7, exactly as conventions.md specifies.
+
+## 2026-06-30 — M-T harness session-double sendMessage recorder
+
+Implementation discovery (not a plan/spec change): the H4a session double models
+`pi.sendUserMessage` but not `pi.sendMessage` (the diagnostics channel the
+`loom-system-note` renderer surfaces). M-T's SLSH-2 happy-path assertion that a
+dispatch produces "no diagnostic" needs to observe the absence of any emitted
+`loom-system-note`, so the double now records `pi.sendMessage` calls into a
+`systemNotes` array. Additive only — no H4a test changed.
+
+Seam-shape choice for the MVP pipeline (faithful to M's Adds, not a divergence):
+`buildMinimalLoom(source, pi)` closes the returned LoomFixture's prompt-mode
+driver over the injected `pi` handle, because `sendUserMessage` lives on
+`ExtensionAPI` (`pi`) while the dispatched handler only receives `ctx`
+(`waitForIdle`). The fixture is fed through H4a's in-memory fixture-supply seam
+(`LoomExtensionDeps.fixtures`), so no FileSystem seam and no ambient src/** read
+is introduced. M fills in the parse + drive; M-T leaves the stub inert.

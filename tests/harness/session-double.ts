@@ -33,6 +33,13 @@ interface TranscriptMessage {
   streaming: boolean;
 }
 
+/** A custom message emitted via `pi.sendMessage` (the diagnostics channel). */
+interface SentMessage {
+  readonly customType: string;
+  readonly content: string;
+  readonly display: boolean;
+}
+
 interface RegisteredCommandRecord {
   readonly handler: (
     args: string,
@@ -71,6 +78,13 @@ export class SessionDouble {
   readonly transcript: TranscriptMessage[] = [];
   /** Ordered log of streaming / lifecycle events, for ordering assertions. */
   readonly events: string[] = [];
+  /**
+   * Custom messages sent via `pi.sendMessage` — the diagnostics channel the
+   * `loom-system-note` renderer surfaces. The `M-T` happy-path assertion that
+   * a dispatch produces "no diagnostic" reads this log; a `loom-system-note`
+   * here is a surfaced diagnostic.
+   */
+  readonly systemNotes: SentMessage[] = [];
 
   #programmed: string[][] = [];
   #turn: DrivenTurn | undefined;
@@ -228,6 +242,17 @@ export class SessionDouble {
       [...this.commands.keys()].map((name) => ({ name, source: "extension" })),
     sendUserMessage: (content: string): void => {
       this.#beginTurn(content);
+    },
+    sendMessage: (message: {
+      customType: string;
+      content: string;
+      display?: boolean;
+    }): void => {
+      this.systemNotes.push({
+        customType: message.customType,
+        content: message.content,
+        display: message.display ?? true,
+      });
     },
   };
 
