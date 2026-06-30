@@ -45,29 +45,19 @@ export interface FunctionResult {
 }
 
 /**
- * The V3d-T stub sentinel value. The paired V3d seam never produces it; it
- * exists only so the FN-5 success test reds on its own primary assertion (no
- * expected produced value equals this sentinel).
- */
-const UNIMPLEMENTED_SENTINEL: LoomValue = "V3d-T:functionResult unimplemented";
-
-/**
  * Project a terminal `outcome` and the body's `producedValue` onto the
  * final-value the caller observes (FN-5): on `"success"` the produced value is
- * present; on `"fail"` / `"cancel"` no final value flows (absent).
- *
- * V3d-T stubs this as an inert sentinel: it reports the value present for every
- * outcome and carries the unimplemented sentinel, so the success test reds (the
- * sentinel is not the produced value) and the fail / cancel tests red (the
- * value should be absent). The paired V3d leaf computes the projection.
+ * present; on `"fail"` / `"cancel"` no final value flows (the caller observes
+ * only the corresponding `Err` envelope), so the value is absent.
  */
 export function functionResult(
   outcome: TerminalOutcome,
   producedValue: LoomValue,
 ): FunctionResult {
-  void outcome;
-  void producedValue;
-  return { present: true, value: UNIMPLEMENTED_SENTINEL };
+  if (outcome === "success") {
+    return { present: true, value: producedValue };
+  }
+  return { present: false };
 }
 
 /**
@@ -80,6 +70,8 @@ export function functionResult(
  * returns `null`.
  */
 export function discardForVoid(tailValue: LoomValue): LoomValue {
-  // V3d-T stub: does not discard; V3d returns null (the void discard).
-  return tailValue;
+  // FN-4 — a `void`-annotated function discards its tail value silently and
+  // produces `null`, regardless of the tail expression's value.
+  void tailValue;
+  return null;
 }

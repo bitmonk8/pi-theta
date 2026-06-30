@@ -38,7 +38,12 @@
 // throw. The paired V3d implementation leaf fills every check in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
-import { type Compatibility, type CompatType, type TypeEnv } from "./type-compat";
+import {
+  checkCompatible,
+  type Compatibility,
+  type CompatType,
+  type TypeEnv,
+} from "./type-compat";
 
 /** A located site at which a function/return form is checked. */
 export interface FnSite {
@@ -67,10 +72,19 @@ export interface FnPlacement {
  */
 export function checkFnPlacement(
   placement: FnPlacement,
-  _site: FnSite,
+  site: FnSite,
 ): Diagnostic | undefined {
-  void placement;
-  return undefined;
+  if (!placement.nested) {
+    return undefined;
+  }
+  // Message from diagnostics/code-registry-parse.md.
+  return {
+    severity: "error",
+    code: "loom/parse/nested-fn",
+    file: site.file,
+    range: site.range,
+    message: "nested 'fn' declarations are not supported in loom 1.0",
+  };
 }
 
 /**
@@ -92,10 +106,19 @@ export interface FunctionReference {
  */
 export function checkFunctionReference(
   ref: FunctionReference,
-  _site: FnSite,
+  site: FnSite,
 ): Diagnostic | undefined {
-  void ref;
-  return undefined;
+  if (ref.position === "call") {
+    return undefined;
+  }
+  // Message from diagnostics/code-registry-parse.md (interpolates the name).
+  return {
+    severity: "error",
+    code: "loom/parse/function-as-value",
+    file: site.file,
+    range: site.range,
+    message: `function '${ref.name}' used outside call position; functions are not first-class in loom 1.0`,
+  };
 }
 
 /**
@@ -123,9 +146,7 @@ export function resolveFnCall(
   name: string,
   hoistedTopLevelFns: readonly string[],
 ): FnResolution {
-  void name;
-  void hoistedTopLevelFns;
-  return "unchecked";
+  return hoistedTopLevelFns.includes(name) ? "resolved" : "unresolved";
 }
 
 // --- FN-2 — Documentation ---------------------------------------------------
@@ -155,8 +176,11 @@ export function buildFnDeclaration(opts: {
   readonly params: readonly { readonly name: string; readonly type: CompatType }[];
   readonly doc?: string;
 }): FnDeclaration {
-  // V3d-T stub: drops the doc (does not preserve it on the AST node).
-  return { name: opts.name, params: opts.params };
+  // FN-2 — preserve the `///` doc comment on the AST node as documentation
+  // only; a `fn` with no doc comment leaves `doc` absent.
+  return opts.doc === undefined
+    ? { name: opts.name, params: opts.params }
+    : { name: opts.name, params: opts.params, doc: opts.doc };
 }
 
 /**
@@ -171,9 +195,10 @@ export function buildFnDeclaration(opts: {
  * paired V3d leaf returns the empty fragment.
  */
 export function lowerFnDescription(node: FnDeclaration): Record<string, unknown> {
-  // V3d-T stub: wrongly lowers the doc; V3d returns {} (functions have no JSON
-  // Schema, so the description never enters a provider payload).
-  return node.doc === undefined ? {} : { description: node.doc };
+  // FN-2 — functions have no JSON Schema, so a `fn`'s `///` doc comment lowers
+  // nowhere: the fragment carries no `description` regardless of the node's doc.
+  void node;
+  return {};
 }
 
 // --- FN-3 / RET-1 — Return-type inference and type-check ---------------------
@@ -246,8 +271,90 @@ export function resolveReturnType(opts: {
   readonly env: TypeEnv;
   readonly site: FnSite;
 }): ResolvedReturn {
-  void opts;
-  return { kind: "unchecked" };
+  const { annotation, contributions, hasQuestion, env, site } = opts;
+
+  // RET-1 — an explicit return annotation bypasses inference: type-check the
+  // tail and every `return` operand against the annotation, in contribution
+  // order. A `"plain"` operand contributes its type; a `"result"` operand its
+  // success payload (the only success-path type the CompatType model expresses).
+  if (annotation !== undefined) {
+    const operandResults: Compatibility[] = contributions.map((c) =>
+      checkCompatible(operandType(c), annotation, env),
+    );
+    return { kind: "checked", operandResults };
+  }
+
+  // FN-3 — wrap in `Result<T, QueryError>` when the body can short-circuit with
+  // an `Err`: any `?` in the body, or any `Result`-typed contribution.
+  const wrapped =
+    hasQuestion || contributions.some((c) => c.kind === "result");
+
+  // FN-4 — an empty-tail body infers the `null` literal type (wrapped to
+  // `Result<null, QueryError>` when the body bears `?`).
+  if (contributions.length === 0) {
+    // FN-4 — the `null` literal type an empty-tail body infers.
+    return {
+      kind: "inferred",
+      inferred: { payload: { kind: "literal", typesAs: "null" }, wrapped },
+    };
+  }
+
+  // Reconcile the contributing success payloads by their LUB under `⊑`. When
+  // wrapping applies, a `Result<U, QueryError>` operand contributes `U` and a
+  // plain operand `X` contributes `X`; when it does not, the tail/`return`
+  // types are reconciled directly. `operandType` already projects each
+  // contribution to its representable success-payload type, so one path serves
+  // both cases.
+  const payloadTypes = contributions.map(operandType);
+  const payload = computeLub(payloadTypes, env);
+
+  if (payload === undefined) {
+    // FN-3 — contributions sharing no common upper bound (and narrowed by no
+    // sink) have no inferred type. Message from
+    // diagnostics/code-registry-parse.md.
+    return {
+      kind: "inference-no-common-type",
+      diagnostic: {
+        severity: "error",
+        code: "loom/parse/return-no-common-type",
+        file: site.file,
+        range: site.range,
+        message:
+          "return operands have no common type; annotate the function return type or reconcile the operands",
+      },
+    };
+  }
+
+  return { kind: "inferred", inferred: { payload, wrapped } };
+}
+
+/**
+ * Project a return contribution to the type it contributes to inference /
+ * checking: a `"plain"` operand its own type, a `"result"` operand its success
+ * payload (its path yields an implicit `Ok(payload)`).
+ */
+function operandType(c: ReturnContribution): CompatType {
+  return c.kind === "plain" ? c.type : c.payload;
+}
+
+/**
+ * The least upper bound of `types` under `⊑`: a member `C` of `types` such that
+ * every type is `⊑ C` (the same common-type discipline `checkCommonType`
+ * applies to array/ternary branches, narrowed by no sink here). Returns
+ * `undefined` when no member dominates the rest. A statically-unresolvable
+ * operand (`"unknown"`) does not block a candidate — the runtime AJV check is
+ * the safety net.
+ */
+function computeLub(
+  types: readonly CompatType[],
+  env: TypeEnv,
+): CompatType | undefined {
+  return types.find((candidate) =>
+    types.every((t) => {
+      const r = checkCompatible(t, candidate, env);
+      return r === "compatible" || r === "unknown";
+    }),
+  );
 }
 
 // --- RET-2 / RET-3 — bare `return` and unreachable code ---------------------
@@ -271,10 +378,19 @@ export interface BareReturn {
  */
 export function checkBareReturn(
   bare: BareReturn,
-  _site: FnSite,
+  site: FnSite,
 ): Diagnostic | undefined {
-  void bare;
-  return undefined;
+  if (bare.returnTypeIsVoid) {
+    return undefined;
+  }
+  // Message from diagnostics/code-registry-parse.md.
+  return {
+    severity: "error",
+    code: "loom/parse/bare-return-in-non-void",
+    file: site.file,
+    range: site.range,
+    message: "missing return value",
+  };
 }
 
 /**
@@ -294,8 +410,18 @@ export interface UnreachableCode {
  */
 export function checkUnreachableCode(
   ctx: UnreachableCode,
-  _site: FnSite,
+  site: FnSite,
 ): Diagnostic | undefined {
-  void ctx;
-  return undefined;
+  if (!ctx.hasCodeAfterReturn) {
+    return undefined;
+  }
+  // RET-3 — unreachable code is a warning, not an error. Message from
+  // diagnostics/code-registry-parse.md.
+  return {
+    severity: "warning",
+    code: "loom/parse/unreachable-code",
+    file: site.file,
+    range: site.range,
+    message: "unreachable code after return",
+  };
 }
