@@ -36,9 +36,35 @@ export type LoomType =
   | { readonly kind: "object"; readonly fields: readonly { readonly name: string; readonly type: LoomType }[] };
 
 /** Render a Loom static type by re-serialising it in source-grammar form. */
-export function renderType(_type: LoomType): string {
-  // V7c-T stub: type re-serialisation is unimplemented.
-  return "";
+export function renderType(type: LoomType): string {
+  switch (type.kind) {
+    case "primitive":
+      // Primitive type names lowercase (already in canonical lowercase form).
+      return type.name;
+    case "literal":
+      // Literal types as their literal source: `"foo"`, `42`, `true`.
+      return typeof type.value === "string"
+        ? JSON.stringify(type.value)
+        : String(type.value);
+    case "union":
+      // Unions joined by ` | ` with no surrounding parentheses.
+      return type.members.map(renderType).join(" | ");
+    case "array":
+      // Arrays as `array<T>` (the angle-bracket form).
+      return `array<${renderType(type.element)}>`;
+    case "named":
+      // Named schemas/enums/aliases by their loom-side identifier.
+      return type.name;
+    case "result":
+      // `Result<T, E>`, inner types recursing this rule.
+      return `Result<${renderType(type.ok)}, ${renderType(type.err)}>`;
+    case "object":
+      // Inline anonymous object types: fields in declaration order, single
+      // space after each `:` and after each `,`.
+      return `{ ${type.fields
+        .map((f) => `${f.name}: ${renderType(f.type)}`)
+        .join(", ")} }`;
+  }
 }
 
 // ── Category 2 — runtime-value placeholders ─────────────────────────────────
@@ -60,9 +86,43 @@ export type RuntimeValue =
  * Unicode code points is truncated to its first 77 code points followed by the
  * literal three-character ellipsis `...` (counting by code point).
  */
-export function renderRuntimeValue(_value: RuntimeValue): string {
-  // V7c-T stub: runtime-value stringification + truncation is unimplemented.
-  return "";
+export function renderRuntimeValue(value: RuntimeValue): string {
+  switch (value.kind) {
+    case "string":
+      return truncateRuntimeString(value.value);
+    case "integer":
+      return renderInteger(value.value);
+    case "number":
+      // The `number` row of the stringification table: shortest decimal,
+      // signed-zero normalised at the rendering boundary.
+      return Object.is(value.value, -0) ? "0" : String(value.value);
+    case "boolean":
+      return value.value ? "true" : "false";
+    case "null":
+      return "null";
+    case "schema-object":
+      // Schema-typed object: compact `JSON.stringify` (the schema name does
+      // not surface in the rendered string).
+      return JSON.stringify(value.value);
+    case "result":
+      // `Result<T, E>` values render as `Ok(<inner>)` / `Err(<inner>)`, the
+      // inner recursing this rule.
+      return `${value.variant}(${renderRuntimeValue(value.inner)})`;
+  }
+}
+
+/**
+ * Truncate a runtime string per category 2: a string longer than 80 Unicode
+ * code points is truncated to its first 77 code points followed by the literal
+ * three-character ellipsis `...`. Counting is by Unicode code point (not by
+ * UTF-16 code unit and not by grapheme cluster), so iterate code points.
+ */
+function truncateRuntimeString(s: string): string {
+  const codePoints = Array.from(s);
+  if (codePoints.length <= 80) {
+    return s;
+  }
+  return codePoints.slice(0, 77).join("") + "...";
 }
 
 // ── Category 3 — syntactic-construct placeholders ───────────────────────────
@@ -77,9 +137,12 @@ export type ConstructPlaceholder =
  * Render a syntactic-construct placeholder: the closed token-name for
  * `<construct>`, or the verbatim source span (byte-for-byte) for `<expr>`.
  */
-export function renderConstruct(_placeholder: ConstructPlaceholder): string {
-  // V7c-T stub: construct rendering is unimplemented.
-  return "";
+export function renderConstruct(placeholder: ConstructPlaceholder): string {
+  // For `<construct>` the caller supplies the closed token-name; for `<expr>`
+  // the verbatim source span. Both render byte-for-byte as given.
+  return placeholder.kind === "construct"
+    ? placeholder.token
+    : placeholder.sourceSpan;
 }
 
 // ── Category 4 — numeric placeholders ───────────────────────────────────────
@@ -90,9 +153,13 @@ export function renderConstruct(_placeholder: ConstructPlaceholder): string {
  * Render an integer as the shortest decimal representation: no scientific
  * notation, no leading zeros, leading `-` for negatives, `0` for `-0`.
  */
-export function renderInteger(_value: number): string {
-  // V7c-T stub: integer rendering is unimplemented.
-  return "";
+export function renderInteger(value: number): string {
+  // `0` for the value `-0` (signed zero normalised at the rendering boundary);
+  // otherwise the shortest decimal representation `String` already produces for
+  // an integer (no scientific notation, no leading zeros, leading `-` for
+  // negatives). `Infinity` / `NaN` are unreachable for these placeholders by
+  // construction (every emitting site is bounded).
+  return Object.is(value, -0) ? "0" : String(value);
 }
 
 // ── Category 5 — source-derived placeholders ────────────────────────────────
@@ -112,9 +179,59 @@ export type SourceDerivedPlaceholder =
  * identifiers/paths bare, `<key>` quoted only when not identifier-shaped,
  * `<char>` raw when printable else escaped, `<descriptor>` as `<kind>:"<value>"`.
  */
-export function renderSourceDerived(_placeholder: SourceDerivedPlaceholder): string {
-  // V7c-T stub: source-derived rendering is unimplemented.
-  return "";
+export function renderSourceDerived(placeholder: SourceDerivedPlaceholder): string {
+  switch (placeholder.kind) {
+    case "identifier":
+      // Identifier-shaped names rendered unquoted; any surrounding quoting is
+      // contributed by the registry template, not the placeholder.
+      return placeholder.text;
+    case "path":
+      // The literal text inside the path-literal quotes, no normalisation.
+      return placeholder.text;
+    case "key":
+      // `<key>` quoted with double quotes only when the key string is *not*
+      // identifier-shaped per Lexical — Identifiers; otherwise rendered bare.
+      return isIdentifierShaped(placeholder.text)
+        ? placeholder.text
+        : JSON.stringify(placeholder.text);
+    case "char":
+      // The raw character when printable (outside Unicode `Cc`/`Cn`); else the
+      // standard `\xNN` / `\u{NNNN}` escape.
+      return renderChar(placeholder.codePoint);
+    case "descriptor":
+      // The discovery-source descriptor as a `kind:value` pair, rendered
+      // `<kind>:"<value>"` (the kind unquoted, the value double-quoted).
+      return `${placeholder.descriptorKind}:${JSON.stringify(placeholder.value)}`;
+  }
+}
+
+/**
+ * The category-5 `<key>` identifier-shape predicate: a *runtime* string check
+ * against `^[A-Za-z_][A-Za-z0-9_]*$` (Lexical — Identifiers). Reserved-keyword
+ * collisions are still identifier-shaped for this rule (the reserved-keyword
+ * rule fires at parse time on source positions, not at runtime on string
+ * values).
+ */
+function isIdentifierShaped(s: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(s);
+}
+
+/**
+ * Render a `<char>` placeholder: the raw character when printable (any code
+ * point outside the Unicode general categories `Cc` and `Cn`); otherwise the
+ * `\xNN` escape for code points ≤ U+00FF, else the `\u{NNNN}` escape.
+ */
+function renderChar(codePoint: number): string {
+  // `Cc` = control characters (C0 + C1: U+0000–U+001F, U+007F–U+009F). `Cn` =
+  // unassigned. `String#match(/\p{Cc}|\p{Cn}/u)` witnesses both categories.
+  const ch = String.fromCodePoint(codePoint);
+  if (!/\p{Cc}|\p{Cn}/u.test(ch)) {
+    return ch;
+  }
+  if (codePoint <= 0xff) {
+    return `\\x${codePoint.toString(16).toUpperCase().padStart(2, "0")}`;
+  }
+  return `\\u{${codePoint.toString(16).toUpperCase()}}`;
 }
 
 // ── Category 6 — underlying-error placeholders ──────────────────────────────
@@ -126,9 +243,51 @@ export function renderSourceDerived(_placeholder: SourceDerivedPlaceholder): str
  * `String(v)`, else `<unreadable>`), newline-normalised, then cut at the first
  * `\n` (trailing whitespace preserved), rendering `<no message>` when empty.
  */
-export function renderUnderlyingError(_caught: unknown): string {
-  // V7c-T stub: underlying-error first-line coercion is unimplemented.
-  return "";
+export function renderUnderlyingError(caught: unknown): string {
+  return firstLineTruncate(coerceUnderlyingString(caught));
+}
+
+/**
+ * Coerce a caught thrown value to its underlying string per the §6
+ * underlying-error coercion: when `v` is an object whose `.message` is a
+ * string, that `.message`; otherwise `String(v)`, or the literal `<unreadable>`
+ * when the `String(v)` coercion itself throws.
+ */
+function coerceUnderlyingString(v: unknown): string {
+  if (typeof v === "object" && v !== null) {
+    const message = (v as { message?: unknown }).message;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+  try {
+    return String(v);
+  } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — Specific exception types only
+    // `v` is a caught thrown value owned by the Pi SDK (a `pi.sendMessage`
+    // throw, an `AgentSession.dispose()` rejection, an extension-bootstrap
+    // throw) whose runtime shape loom cannot statically guarantee — a hostile
+    // `toString`/`valueOf`/`Symbol.toPrimitive` may throw during the `String(v)`
+    // coercion. The §6 coercion pins the literal `<unreadable>` fallback for
+    // exactly this case: any throw maps to the sentinel (the caught value is
+    // not inspected), so `String(v)` never yields a synchronous TypeError.
+    void e;
+    return "<unreadable>";
+  }
+}
+
+/**
+ * Truncate an already-coerced underlying string to its first line per §6:
+ * newline-normalise (`\r\n` and bare `\r` collapse to `\n`), take the prefix up
+ * to (but not including) the first `\n`, preserve trailing whitespace, and
+ * render `<no message>` when the string is empty or has nothing before its
+ * first `\n`. Only `\n` is a line break; `\u2028` / `\u2029` are ordinary.
+ */
+function firstLineTruncate(s: string): string {
+  const normalised = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const newlineIndex = normalised.indexOf("\n");
+  const firstLine =
+    newlineIndex === -1 ? normalised : normalised.slice(0, newlineIndex);
+  return firstLine === "" ? "<no message>" : firstLine;
 }
 
 // ── Category 7 — identifier-, descriptor-, and closed-enum placeholders ──────
@@ -150,9 +309,32 @@ export type Category7Placeholder =
  * numeric via the integer rule, path via the `<path>` rule, descriptor via the
  * `<descriptor>` rule).
  */
-export function renderCategory7(_placeholder: Category7Placeholder): string {
-  // V7c-T stub: category-7 sub-rule rendering is unimplemented.
-  return "";
+export function renderCategory7(placeholder: Category7Placeholder): string {
+  switch (placeholder.kind) {
+    case "identifier":
+      // Identifier-shaped rendered unquoted in identifier form; surrounding
+      // quoting comes from the registry template.
+      return placeholder.text;
+    case "uuid":
+      // `<uuid>` renders in canonical lowercase 8-4-4-4-12 hex form.
+      return placeholder.value.toLowerCase();
+    case "closed-enum":
+      // Each closed-enum value renders verbatim from its closed value table.
+      return placeholder.value;
+    case "numeric":
+      // `<ms>`, `<deadline>`, `<step>` render via category 4's integer rule.
+      return renderInteger(placeholder.value);
+    case "path":
+      // Path-shaped placeholders render via category 5's `<path>` rule.
+      return renderSourceDerived({ kind: "path", text: placeholder.text });
+    case "descriptor":
+      // Descriptor-shaped placeholders render via category 5's `<descriptor>`.
+      return renderSourceDerived({
+        kind: "descriptor",
+        descriptorKind: placeholder.descriptorKind,
+        value: placeholder.value,
+      });
+  }
 }
 
 // ── Category 8 — host-derived freeform-tail placeholders ────────────────────
@@ -165,9 +347,10 @@ export function renderCategory7(_placeholder: Category7Placeholder): string {
  * The byte-identical surround comes from the registry *Message* template, not
  * from this function.
  */
-export function renderHostDerivedTail(_hostString: string): string {
-  // V7c-T stub: host-derived first-line tail is unimplemented.
-  return "";
+export function renderHostDerivedTail(hostString: string): string {
+  // Category 8's host-derived tail uses the same first-line truncation as
+  // category 6 (the input is already a string, so no §6 caught-throw coercion).
+  return firstLineTruncate(hostString);
 }
 
 /** The `loom/load/host-incompatible` payload the renderer interpolates. */
@@ -186,7 +369,13 @@ export interface HostIncompatibleDetails {
  * host-derived `<observed>`. The prefix and suffix bytes are byte-identical
  * across implementations; only the `<observed>` tail is implementation-defined.
  */
-export function renderHostIncompatible(_details: HostIncompatibleDetails): string {
-  // V7c-T stub: host-incompatible message assembly is unimplemented.
-  return "";
+export function renderHostIncompatible(details: HostIncompatibleDetails): string {
+  // Interpolate the registry template `host incompatible (<kind>): observed
+  // <observed>, required <required>`. The `<observed>` of a host-derived
+  // `kind` (e.g. `node-floor`, the running version string) is bounded by
+  // category 8's first-line truncation; the closed-literal kinds pass through
+  // unchanged (they carry no newline). The `<kind>` and `<required>` substrings
+  // are pinned per `kind` and contribute byte-identical surround.
+  const observed = renderHostDerivedTail(details.observed);
+  return `host incompatible (${details.kind}): observed ${observed}, required ${details.required}`;
 }

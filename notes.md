@@ -191,3 +191,27 @@ IDs, with `reconcileStableIds` reporting `code-renamed` for any baseline code
 absent from the current registry. This is the closest mechanical signal of a
 rename (a rename removes the old code); distinguishing an intentional removal
 from a rename is left to the V7b impl / its baseline-maintenance discipline.
+
+## V7c — placeholder rendering: broad-catch exempt-site classification
+
+The category-6 underlying-error coercion (placeholder-rendering-b.md §6) mandates
+that when the `String(v)` coercion of a caught thrown value *itself throws*, the
+renderer yields the literal `<unreadable>` rather than propagating. There is no
+clean way to detect a hostile `toString`/`valueOf`/`Symbol.toPrimitive` without
+invoking it, so the fallback requires a `catch` that binds an arbitrary thrown
+value — which the *Specific exception types only* cross-cutting rule forbids
+outside the five enumerated exempt broad-catch sites.
+
+Classification decision: the `String(v)` catch in `coerceUnderlyingString`
+(`src/diagnostics/placeholder.ts`) is treated as enumerated exempt site (1), the
+**Pi SDK boundary site**. Justification: the §6/§8 placeholders that route
+through this coercion (`<error.message>`, `<dispose error first line>`, and the
+category-8 `<error>` on `loom/load/extension-bootstrap-failed` /
+`loom/runtime/active-set-restore-failed`) all bind values *caught from* Pi SDK
+operations (`pi.sendMessage` throw, `AgentSession.dispose()` rejection,
+extension-bootstrap throw) whose runtime shape loom cannot statically guarantee
+— a hostile getter / `Proxy` / `null`-prototype object may throw during the
+`String(v)` coercion. The site cites the structural `pi-sdk-boundary` token (no
+spec obligation exists for it), which the H5c broad-catch allow-list closing-gate
+arm admits. The catch swallows any throw and returns the spec-mandated
+`<unreadable>` sentinel (not a rethrow-on-mismatch).
