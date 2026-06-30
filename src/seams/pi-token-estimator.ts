@@ -6,18 +6,18 @@
 // algorithm. The seam is relied on as a deterministic pure function of its
 // `message` argument at a fixed Pi-SDK pin.
 //
-// V8e-T STATUS: stub. The adapter throws so the paired V8e-T tests red for the
-// intended reason — the implementation under test is absent. V8e replaces this
-// body with the `estimateTokens` delegation.
-//
 // Spec: host-interfaces-services.md PIC-16; host-interfaces-core.md
 // #estimatetokens-named-export.
 
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { TokenEstimator } from "./token-estimator";
 
 export class PiTokenEstimator implements TokenEstimator {
-  estimate(_message: AgentMessage): number {
-    throw new Error("V8e: PiTokenEstimator.estimate not implemented");
+  estimate(message: AgentMessage): number {
+    // Delegate to Pi's pinned `estimateTokens`, returning its result unchanged
+    // — loom redefines none of Pi's estimation algorithm. Relied on as a
+    // deterministic pure function of `message` at the fixed Pi-SDK pin.
+    return estimateTokens(message);
   }
 }

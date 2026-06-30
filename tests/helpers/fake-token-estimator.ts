@@ -5,10 +5,6 @@
 // (keyed by message identity), and `estimate(message)` returns the configured
 // integer for each message rather than deriving one from message content.
 //
-// V8e-T STATUS: stub. `estimate` throws so the paired V8e-T tests red for the
-// intended reason — the implementation under test is absent. V8e replaces this
-// body with the configured-count lookup.
-//
 // Spec: host-interfaces-services.md PIC-16.
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -21,7 +17,15 @@ export class FakeTokenEstimator implements TokenEstimator {
     this.#counts = counts;
   }
 
-  estimate(_message: AgentMessage): number {
-    throw new Error("V8e: FakeTokenEstimator.estimate not implemented");
+  estimate(message: AgentMessage): number {
+    const count = this.#counts.get(message);
+    // No silent fallback: an unconfigured message is a test-setup defect, not a
+    // zero count that would silently corrupt the truncation-bounds total.
+    if (count === undefined) {
+      throw new Error(
+        "FakeTokenEstimator.estimate: no configured count for the supplied message",
+      );
+    }
+    return count;
   }
 }

@@ -5,10 +5,6 @@
 // observation distinct from the three change kinds — synchronously invoking the
 // attached `onTerminate` callback. `watch` returns an idempotent `Unsubscribe`.
 //
-// V8e-T STATUS: stub. Every member throws so the paired V8e-T tests red for the
-// intended reason — the implementation under test is absent. V8e replaces these
-// bodies with the in-memory dispatch.
-//
 // Spec: host-interfaces-services.md PIC-14.
 
 import type {
@@ -20,21 +16,41 @@ import type {
 } from "../../src/seams/file-watcher";
 
 export class FakeFileWatcher implements FileWatcher {
+  // The single attached change handler and optional terminal-signal callback.
+  // `undefined` once no subscription is active (initial state, or after the
+  // returned `Unsubscribe` runs) so a post-unsubscribe `emit`/`terminate` is a
+  // no-op rather than reaching a stale handler.
+  #handler: ((event: FileWatchEvent) => void) | undefined;
+  #onTerminate: OnWatchTerminate | undefined;
+
   watch(
     _roots: readonly string[],
-    _handler: (event: FileWatchEvent) => void,
-    _onTerminate?: OnWatchTerminate,
+    handler: (event: FileWatchEvent) => void,
+    onTerminate?: OnWatchTerminate,
   ): Unsubscribe {
-    throw new Error("V8e: FakeFileWatcher.watch not implemented");
+    this.#handler = handler;
+    this.#onTerminate = onTerminate;
+    let active = true;
+    return () => {
+      // Idempotent teardown: calling twice is a no-op.
+      if (!active) return;
+      active = false;
+      this.#handler = undefined;
+      this.#onTerminate = undefined;
+    };
   }
 
   /** Injection point: synchronously deliver one change-kind event to the attached handler. */
-  emit(_event: FileWatchEvent): void {
-    throw new Error("V8e: FakeFileWatcher.emit not implemented");
+  emit(event: FileWatchEvent): void {
+    this.#handler?.(event);
   }
 
-  /** Injection point: drive the terminal-signal channel (a stopped-delivering observation). */
-  terminate(_termination: WatchTermination): void {
-    throw new Error("V8e: FakeFileWatcher.terminate not implemented");
+  /**
+   * Injection point: drive the terminal-signal channel (a stopped-delivering
+   * observation). It reaches the `onTerminate` callback, never the change
+   * handler — a `terminate` with no `onTerminate` attached is a no-op.
+   */
+  terminate(termination: WatchTermination): void {
+    this.#onTerminate?.(termination);
   }
 }
