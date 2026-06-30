@@ -17,11 +17,11 @@
 //     (path `""`, schema_keyword `"required"`, branch-specific two-arm message).
 //   - ERR-19 — the `ToolLoopExhaustedError` shape (`rounds == max_rounds`).
 //
-// V4d-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// helpers inertly so the failing tests compile and red on their own primary
-// assertions (canonical ordering, the closed conformance set, the synthesised
-// issue's contract strings, and the exhaustion-error shape are all absent). The
-// paired V4d implementation leaf fills these in.
+// V4d-T (tests-task) declared the seam shapes and stubbed the behaviour-bearing
+// helpers inertly so the failing tests compiled and redded on their own primary
+// assertions; the paired V4d implementation leaf fills in the canonical
+// ordering, the closed conformance set, the synthesised issue's contract
+// strings, and the exhaustion-error shape.
 //
 // Spec: errors-and-results/queryerror-variants.md, errors-and-results/error-model.md.
 
@@ -167,13 +167,47 @@ export type QueryError =
  * each field compared by Unicode code point. `validation_errors[0]` is therefore
  * well-defined (the canonically-first issue).
  *
- * STUB (V4d-T): identity copy — preserves the input order rather than applying
- * the canonical sort, so ordering tests red on their own assertion.
+ * The sort is stable: equal-key entries retain their input relative order.
  */
 export function orderValidationIssues(
   issues: readonly ValidationIssue[],
 ): ValidationIssue[] {
-  return [...issues];
+  return [...issues]
+    .map((issue, index) => ({ issue, index }))
+    .sort((a, b) => {
+      const byPath = compareByCodePoint(a.issue.path, b.issue.path);
+      if (byPath !== 0) return byPath;
+      const byKeyword = compareByCodePoint(
+        a.issue.schema_keyword,
+        b.issue.schema_keyword,
+      );
+      if (byKeyword !== 0) return byKeyword;
+      const byMessage = compareByCodePoint(a.issue.message, b.issue.message);
+      if (byMessage !== 0) return byMessage;
+      // Stable: fall back to input position for fully equal-key entries.
+      return a.index - b.index;
+    })
+    .map((entry) => entry.issue);
+}
+
+/**
+ * Compare two strings by Unicode code point (not UTF-16 code unit), so an astral
+ * character (a surrogate pair, first code unit 0xD800–0xDBFF) sorts after a BMP
+ * character such as U+FFFF rather than before it.
+ */
+function compareByCodePoint(a: string, b: string): number {
+  const ai = a[Symbol.iterator]();
+  const bi = b[Symbol.iterator]();
+  for (;;) {
+    const an = ai.next();
+    const bn = bi.next();
+    if (an.done && bn.done) return 0;
+    if (an.done) return -1;
+    if (bn.done) return 1;
+    const ac = an.value.codePointAt(0) as number;
+    const bc = bn.value.codePointAt(0) as number;
+    if (ac !== bc) return ac < bc ? -1 : 1;
+  }
 }
 
 // --- ERR-15 — discriminator type-openness seam -----------------------------
@@ -183,21 +217,31 @@ export function orderValidationIssues(
  * never emits a `kind` outside this set, even though the *type* of `kind` is the
  * open `string`. Order matches the union declaration.
  *
- * STUB (V4d-T): returns the empty set, so the conformance-set test reds.
  */
 export function loom10QueryErrorKinds(): readonly string[] {
-  return [];
+  return LOOM_10_QUERY_ERROR_KINDS;
 }
+
+const LOOM_10_QUERY_ERROR_KINDS = [
+  "validation",
+  "transport",
+  "model_tool",
+  "context_overflow",
+  "cancelled",
+  "tool_loop_exhausted",
+  "code_tool",
+  "invoke_infra",
+  "invoke_callee",
+] as const;
 
 /**
  * ERR-15. Whether `kind` is one of the nine loom 1.0.0 wire tags. The *type* of
  * `QueryError["kind"]` stays open (`string`); this runtime predicate is the
  * closed-conformance counterpart.
  *
- * STUB (V4d-T): reports every kind out-of-set, so the conformance test reds.
  */
-export function isLoom10QueryErrorKind(_kind: string): boolean {
-  return false;
+export function isLoom10QueryErrorKind(kind: string): boolean {
+  return (LOOM_10_QUERY_ERROR_KINDS as readonly string[]).includes(kind);
 }
 
 // --- ERR-17 — forced-respond non-compliance synthesised issue --------------
@@ -222,17 +266,15 @@ export type ForcedRespondBranch =
  * did not invoke the synthesised respond tool. `path` is `""`, `schema_keyword`
  * is `"required"`, and the `message` literal varies by branch.
  *
- * STUB (V4d-T): returns an inert sentinel issue (none of the contract fields),
- * so each branch test reds on its own assertion.
  */
 export function synthesizeForcedRespondIssue(
-  _branch: ForcedRespondBranch,
+  branch: ForcedRespondBranch,
 ): ValidationIssue {
-  return {
-    path: "<unimplemented>",
-    message: "<unimplemented>",
-    schema_keyword: "<unimplemented>",
-  };
+  const message =
+    branch.kind === "plain_text"
+      ? "model returned plain text instead of calling the forced respond tool"
+      : `model invoked tool '${branch.providerToolName}' instead of the forced respond tool '${branch.respondToolName}'`;
+  return { path: "", message, schema_keyword: "required" };
 }
 
 // --- ERR-19 — ToolLoopExhaustedError shape ---------------------------------
@@ -250,17 +292,15 @@ export interface ToolLoopExhaustionInput {
  * ERR-19. Build a `ToolLoopExhaustedError` whose `rounds == tool_loop.max_rounds`
  * and whose `kind` is the `"tool_loop_exhausted"` wire tag.
  *
- * STUB (V4d-T): returns an inert object with the wrong `kind` and a sentinel
- * `rounds`, so the shape test reds on its own assertion.
  */
 export function makeToolLoopExhaustedError(
-  _input: ToolLoopExhaustionInput,
+  input: ToolLoopExhaustionInput,
 ): ToolLoopExhaustedError {
   return {
-    kind: "<unimplemented>",
-    message: "<unimplemented>",
-    rounds: -1,
-    last_tool_name: null,
-    raw_response: null,
+    kind: "tool_loop_exhausted",
+    message: input.message,
+    rounds: input.maxRounds,
+    last_tool_name: input.last_tool_name,
+    raw_response: input.raw_response,
   };
 }
