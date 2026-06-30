@@ -142,13 +142,20 @@
 
 		<script src="progress-data.js"></script>
 		<script>
-			(function () {
-				var d = window.__LOOM__;
-				var $ = function (id) { return document.getElementById(id); };
-				if (!d) {
-					$("sub").textContent = "No progress data yet. Run the progress generator.";
-					return;
-				}
+			var $ = function (id) { return document.getElementById(id); };
+			var lastGen = null;
+			var REFRESH_MS = 5000;
+			function esc(s) {
+				return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+					return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+				});
+			}
+			function fill(id, arr, render, emptyMsg) {
+				var el = $(id);
+				if (!arr || !arr.length) { el.innerHTML = '<li class="empty">' + emptyMsg + "</li>"; return; }
+				el.innerHTML = arr.map(function (x) { return "<li>" + render(x) + "</li>"; }).join("");
+			}
+			function render(d) {
 				var pct = d.totals.features ? Math.round((d.totals.done / d.totals.features) * 100) : 0;
 				$("overallBig").innerHTML = pct + "% <small>complete &mdash; " + d.totals.done + " of " + d.totals.features + " features built</small>";
 				$("overallBar").style.width = pct + "%";
@@ -158,11 +165,18 @@
 				var stateLabel = { done: "done", "in-progress": "building", ready: "up next", waiting: "waiting", blocked: "blocked" };
 
 				var ph = $("phases");
+				var openLabels = {};
+				Array.prototype.forEach.call(ph.querySelectorAll("details.phase"), function (el) {
+					if (el.open) openLabels[el.getAttribute("data-label")] = true;
+				});
+				var hadState = Object.keys(openLabels).length > 0;
+				ph.innerHTML = "";
 				d.phases.forEach(function (p, idx) {
 					var ppct = p.total ? Math.round((p.done / p.total) * 100) : 0;
 					var det = document.createElement("details");
 					det.className = "phase";
-					if (p.done < p.total && p.done > 0) det.open = true;
+					det.setAttribute("data-label", p.label);
+					det.open = hadState ? !!openLabels[p.label] : (p.done < p.total && p.done > 0);
 					var rows = p.items.map(function (it) {
 						var badges = "";
 						if (it.hasTests && it.testsDone && !it.builtDone)
@@ -195,19 +209,31 @@
 				}, "No divergences recorded — implementation has followed the plan.");
 				fill("activity", d.activity.map(function (l) { return { line: l }; }), function (x) { return esc(x.line); }, "No activity yet.");
 
-				$("footer").textContent = "Last updated " + new Date(d.generatedAt).toLocaleString();
+				$("footer").textContent =
+					"Last updated " + new Date(d.generatedAt).toLocaleString() +
+					" \u00b7 auto-refreshing every " + (REFRESH_MS / 1000) + "s";
+			}
 
-				function fill(id, arr, render, emptyMsg) {
-					var el = $(id);
-					if (!arr || !arr.length) { el.innerHTML = '<li class="empty">' + emptyMsg + "</li>"; return; }
-					el.innerHTML = arr.map(function (x) { return "<li>" + render(x) + "</li>"; }).join("");
-				}
-				function esc(s) {
-					return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
-						return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
-					});
-				}
-			})();
+			// --- bootstrap + auto-refresh ------------------------------------
+			// fetch() is CORS-blocked on file://, so we reload the data by
+			// re-injecting the data <script> on a timer and re-render only when
+			// generatedAt changed (preserves scroll + which panels are open).
+			function show() {
+				var d = window.__LOOM__;
+				if (!d) { $("sub").textContent = "No progress data yet. Run the progress generator."; return; }
+				if (d.generatedAt === lastGen) return;
+				lastGen = d.generatedAt;
+				render(d);
+			}
+			function poll() {
+				var s = document.createElement("script");
+				s.src = "progress-data.js?_=" + Date.now();
+				s.onload = function () { show(); if (s.parentNode) s.parentNode.removeChild(s); };
+				s.onerror = function () { if (s.parentNode) s.parentNode.removeChild(s); };
+				document.head.appendChild(s);
+			}
+			show();
+			setInterval(poll, REFRESH_MS);
 		</script>
 	</body>
 </html>

@@ -56,6 +56,12 @@ via a `<script>` tag (works on `file://`, no server). The orchestrator
 regenerates and commits `progress-data.js` after every leaf, so the page is
 current after a `git pull`.
 
+The page **auto-refreshes every 5s**: it re-injects the data `<script>` (a
+`file://`-safe substitute for `fetch()`, which browsers CORS-block on `file://`)
+and re-renders only when the data actually changed, so your scroll position and
+which work-area panels you've expanded are preserved. Just leave the tab open.
+The interval is the `REFRESH_MS` constant in `index.html`.
+
 The page shows **only human-meaningful names** — work areas, task names, plain
 notes. It never shows leaf ids, requirement codes, or spec/plan jargon.
 
