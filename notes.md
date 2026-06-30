@@ -378,3 +378,19 @@ project with neither `.pi/settings.json` nor `~/.pi/agent/settings.json` emits
 two W-severity warnings at load — noisy but spec-faithful. Flagging for the V10c
 implementer; the registry *Trigger* wording could be reconciled spec-side later.
 No code/spec change made in this -T leaf.
+
+## 2026-06-30 — V10a-T: case-collision vs invalid-slash-name interaction (spec ambiguity, resolved minimally)
+
+discovery-sources.md DISC-3 "Filename validity" says an invalid-stem name (e.g. `Plan.loom`)
+"does not participate in collision detection", yet the case-collision rule's own example pairs
+`Plan.loom` with `plan.loom` — and any case-collision pair necessarily contains at least one
+uppercase (therefore invalid) stem, because valid stems are lowercase-only. Read literally the two
+clauses contradict (a case-collision could never fire).
+
+Minimal resolution adopted for the V10a-T tests: `loom/load/case-collision` is a directory-entry
+filename-level check (two `*.loom` entries case-folding to one name within a source), independent of
+slash-name validity; the "does not participate in collision detection" exclusion is scoped to the
+slash-name-level cross-format/cross-source collision, not the case-collision warning. The
+case-collision test therefore asserts only that the W warning fires naming both paths, not which (if
+either) registers. V10a must implement case-collision detection on directory entries before the
+slash-name validity gate drops invalid-stem files.
