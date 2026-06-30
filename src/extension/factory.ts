@@ -31,6 +31,8 @@ import type {
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
 import { createSystemNoteRenderer } from "./system-note-renderer";
+import type { RendererGate } from "./system-note-channel";
+import type { LoomRegistry } from "./reload-wiring";
 
 /**
  * The diagnostics-registry code a factory-time bootstrap registration /
@@ -122,6 +124,26 @@ export interface LoomExtensionDeps {
    * `H4a` harness path omits it, so it is optional.
    */
   readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
+
+  /**
+   * The renderer-availability gate (V9p). On a factory-time
+   * `pi.registerMessageRenderer` failure the paired V9p implementation calls
+   * `rendererGate.degrade()` so this extension instance's system notes
+   * permanently route through the `ctx.ui.notify` arm of the System-notes
+   * fallback chain. Optional: the `H4a` / `V9k` paths that do not exercise the
+   * renderer-degrade surface omit it. Declared by `V9p-T`, consumed by `V9p`.
+   */
+  readonly rendererGate?: RendererGate;
+
+  /**
+   * The extension-scoped `LoomRegistry` whose drain-state contract the
+   * `session_start` handler MUST NOT touch on a `pi.getCommands()` read failure
+   * (drain state is owned by `V9m`'s `LoomRegistry` contract). Injected so the
+   * `V9p` getCommands-failure path can be witnessed to leave the registry in
+   * its steady-state drain tuple. Optional; declared by `V9p-T`, consumed by
+   * `V9p`.
+   */
+  readonly registry?: LoomRegistry;
 }
 
 /**

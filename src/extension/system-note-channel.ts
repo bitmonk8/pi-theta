@@ -77,6 +77,38 @@ export interface UiNotifier {
   notify(message: string, type: "error"): void;
 }
 
+/**
+ * The renderer-availability gate shared between the extension factory and the
+ * System-notes fallback chain. The factory degrades it once, permanently, when
+ * the factory-time `pi.registerMessageRenderer` registration fails
+ * (extension-bootstrap-and-per-loom.md §"`pi.registerMessageRenderer` failure"):
+ * the persistent-transcript surface (the `loom-system-note` renderer) is then
+ * unavailable, so the System-notes fallback chain degrades to the
+ * `ctx.ui.notify` arm — `sendSystemNote` skips the `pi.sendMessage` arm and
+ * routes through `ctx.ui.notify` for the remaining lifetime of this extension
+ * instance. Constructed once per extension instance and injected (no
+ * module-level state), so a fresh `/reload` instance starts with the renderer
+ * available again.
+ *
+ * V9p-T declares this seam; the paired V9p implementation wires the factory's
+ * renderer-failure path to call `degrade()` and `sendSystemNote` to consult
+ * `available()`.
+ */
+export class RendererGate {
+  /** True until the renderer registration fails; then permanently false. */
+  #rendererAvailable = true;
+
+  /** Whether the persistent-transcript (renderer) arm is still usable. */
+  available(): boolean {
+    return this.#rendererAvailable;
+  }
+
+  /** Permanently degrade system notes to the `ctx.ui.notify` arm. */
+  degrade(): void {
+    this.#rendererAvailable = false;
+  }
+}
+
 /** Construction dependencies for the delivery channel. */
 export interface SystemNoteChannelDeps {
   /** The `loom-system-note` send seam (adapts `pi.sendMessage`). */
@@ -85,6 +117,16 @@ export interface SystemNoteChannelDeps {
   readonly ui: UiNotifier;
   /** Submit a constructed `Diagnostic` through the standard diagnostics channel. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+  /**
+   * The renderer-availability gate (V9p). When present and degraded
+   * (`available() === false`), the persistent-transcript `pi.sendMessage` arm
+   * is skipped and the note routes straight through the `ctx.ui.notify` arm —
+   * the renderer that would render a `loom-system-note` failed to register, so
+   * delivering to the transcript would render nothing. Absent (or available)
+   * means the steady-state `pi.sendMessage`-first path. Consumed by the paired
+   * V9p implementation.
+   */
+  readonly rendererGate?: RendererGate;
 }
 
 /**
