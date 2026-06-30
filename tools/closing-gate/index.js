@@ -32,6 +32,36 @@
 //   - transitive-completeness-unreachable: a coverage-matrix closing-leaf cell
 //                                      none of whose listed leaves is in H5b's
 //                                      expanded `Deps.` membership (H5d)
+//   - un-anchored-must-unenumerated  : an un-anchored normative MUST on a non-
+//                                      narrative spec page with no Code-keyed
+//                                      obligation-areas row enumerating it (H5e)
+//   - un-anchored-must-new-placeholder: an un-anchored MUST mapped only to a
+//                                      `<new>` placeholder coverage-matrix row
+//                                      that names no real closing leaf (H5e)
+//   - un-anchored-must-unresolved-leaf: an un-anchored MUST whose enumerating
+//                                      row's closing-leaf token resolves to no
+//                                      real plan leaf ID (a typo like V99z) (H5e)
+//   - un-rowed-page-residue           : a non-hub-stub spec_topics/**-shaped
+//                                      page absent from the prefix table (H5e)
+//
+// H5e — un-anchored normative-MUST text-scan arm. A best-effort MUST/MUST-NOT
+// token scan over the non-narrative spec pages, spanning three sub-recognisers
+// (facets of one scan, not separate arms): the un-enumerated-MUST recogniser,
+// the `<new>`-placeholder-MUST recogniser, and the un-rowed-page recogniser. A
+// spec page is non-narrative — and thus in scope — iff its prefix-table row's
+// cell is NOT the byte-exact `(no IDs — narrative)` literal (GOV-3); a page
+// absent from the table altogether is an un-rowed-page residue defect unless it
+// is a GOV-24 table-of-contents hub stub (a page whose stem matches a trailing-
+// slash subtree row). For each in-scope page carrying an un-anchored MUST (a
+// paragraph holding a MUST token but neither a `PREFIX-N` REQ-ID nor a
+// `loom/...` registry code), the page MUST be enumerated in the coverage-
+// matrix's *Code-keyed obligation areas (no numbered REQ-IDs)* table by a row
+// whose closing-leaf cell resolves to a real plan leaf ID. A `<new>` literal
+// names no real leaf (placeholder); any other non-resolving token (V99z) is a
+// defect. The arm runs only when the corpus supplies `planLeavesText` (the real
+// plan leaf-ID universe); the H5a/H5c/H5d fixtures omit it and are unaffected.
+// Like the H5a surfaces it is exercised against the seeded fixtures here and
+// first binds against the live spec corpus at the H6a release-gate activation.
 //
 // H5d — transitive-completeness plan-structural arm. For every row in the
 // coverage-matrix's *Numbered REQ-IDs* and *Code-keyed obligation areas (no
@@ -293,6 +323,121 @@ export function parseClosingLeafCells(text) {
   return cells;
 }
 
+// ── Un-anchored-MUST text-scan parsing (H5e) ──────────────────────────────────
+// The byte-exact narrative-cell literal (GOV-3). A prefix-table row whose cell
+// is EXACTLY this string classifies its page as pure-narrative and out of the
+// un-anchored-MUST scan's scope; any other cell is non-narrative and in scope.
+const NARRATIVE_CELL = "(no IDs — narrative)";
+
+// Parse the governance prefix table into a per-page classification map plus the
+// set of subtree directory names (trailing-slash `Page` cells). A page row's
+// `Page` cell is the FIRST column (optionally backtick-delimited); the
+// classification cell is the LAST column. A `Page` cell ending in `/` is a
+// subtree binding (e.g. `binder/`), recorded in `subtrees` (its trailing slash
+// stripped) rather than as a single-file page; the GOV-24 hub-stub exclusion
+// matches an un-rowed page's filename stem against this set.
+export function parsePrefixTablePages(text) {
+  const pages = new Map(); // basename → { narrative: boolean }
+  const subtrees = new Set(); // subtree directory names (no trailing slash)
+  const lines = text.split("\n");
+  let inTable = false;
+  for (const line of lines) {
+    if (/^\s*##\s+REQ-ID prefix table/i.test(line)) {
+      inTable = true;
+      continue;
+    }
+    if (inTable && /^\s*##\s+/.test(line)) inTable = false;
+    if (!inTable) continue;
+    const cells = parseTableRow(line);
+    if (cells == null || cells.length < 2) continue;
+    const pageCell = cells[0].replace(/`/g, "").trim();
+    if (/^Page$/i.test(pageCell)) continue; // header row
+    const classCell = cells[cells.length - 1].trim();
+    if (pageCell.endsWith("/")) {
+      subtrees.add(pageCell.replace(/\/$/, ""));
+      continue;
+    }
+    pages.set(pageCell, { narrative: classCell === NARRATIVE_CELL });
+  }
+  return { pages, subtrees };
+}
+
+// Parse the coverage-matrix *Code-keyed obligation areas (no numbered REQ-IDs)*
+// table into one entry per row: the set of `.md` page basenames its *Spec area*
+// cell references, and the raw trimmed *Closing leaf(s)* cell. Scoped to that
+// `##` section so the *Numbered REQ-IDs* / *Governance* tables are not read; the
+// header row (last cell `Closing leaf(s)`) is skipped.
+export function parseCkaAreaRows(text) {
+  const rows = [];
+  let inScope = false;
+  for (const line of text.split("\n")) {
+    const heading = line.match(/^\s*##\s+(.*)$/);
+    if (heading != null) {
+      inScope = /Code-keyed obligation areas/i.test(heading[1]);
+      continue;
+    }
+    if (!inScope) continue;
+    const cells = parseTableRow(line);
+    if (cells == null || cells.length < 3) continue;
+    const closing = cells[cells.length - 1].trim();
+    if (/^Closing leaf\(s\)$/i.test(closing)) continue; // header row
+    const areaCell = cells.slice(1, cells.length - 1).join(" ");
+    const pages = new Set(
+      [...areaCell.matchAll(/([A-Za-z0-9._-]+\.md)/g)].map((m) => m[1]),
+    );
+    rows.push({ pages, closing });
+  }
+  return rows;
+}
+
+// Parse a plan-leaf-ID universe snapshot (the fixture stand-in for the live
+// `docs/plan_topics/` leaf-ID set) into the set of leaf IDs it lists, reading
+// only its backtick-delimited spans via `expandLeafTokens`.
+export function parsePlanLeaves(text) {
+  return expandLeafTokens(text);
+}
+
+// Strip fenced code blocks and HTML comments (NOT inline code spans, so a
+// `loom/...` registry code in backticks still anchors its obligation) before the
+// MUST scan, mirroring the GOV-3 exclusion order for the constructs that can
+// hide a MUST token.
+function stripFencesAndComments(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/~~~[\s\S]*?~~~/g, "")
+    .replace(/<!--[\s\S]*?-->/g, "");
+}
+
+// True iff the page carries at least one un-anchored normative MUST: a blank-
+// line-delimited paragraph holding a `MUST` token (covering `MUST` and
+// `MUST NOT`) but neither a numbered `PREFIX-N` REQ-ID nor a non-typecheck
+// `loom/...` registry code. Best-effort per conventions.md *REQ-ID discipline*:
+// it cannot tell a normative MUST from one in narrative, an example, or a quote.
+export function pageHasUnanchoredMust(text) {
+  const scanned = stripFencesAndComments(text);
+  for (const para of scanned.split(/\n\s*\n/)) {
+    if (!/\bMUST\b/.test(para)) continue;
+    if (/\b[A-Z]{2,4}-[1-9][0-9]*\b/.test(para)) continue; // PREFIX-N anchor
+    const loom = para.match(/\bloom\/[a-z0-9/_-]+/);
+    if (loom != null && !loom[0].startsWith(TYPECHECK_PREFIX)) continue; // loom code anchor
+    return true;
+  }
+  return false;
+}
+
+// Classify a Code-keyed closing-leaf cell against the real plan leaf-ID universe.
+// Returns "new-placeholder" for the literal bare `<new>` token, "resolved" when
+// at least one backtick-delimited leaf token names a real plan leaf, and
+// "unresolved" otherwise (a typo'd / non-existent leaf ID such as `V99z`).
+export function classifyClosingCell(cell, planLeaves) {
+  if (cell.trim() === "<new>") return "new-placeholder";
+  const leaves = expandLeafTokens(cell);
+  for (const id of leaves) {
+    if (planLeaves.has(id)) return "resolved";
+  }
+  return "unresolved";
+}
+
 // ── Diagnostics-registry parsing ──────────────────────────────────────────────
 // Distinct backtick-delimited `loom/...` codes in the registry sources,
 // excluding the `loom/typecheck/*` build-time brand namespace.
@@ -375,6 +520,7 @@ export function extractCitingReqIds(sources) {
  *   testSources: {path: string, text: string}[],
  *   srcSources?: {path: string, text: string}[],
  *   h5bDepsText?: string,
+ *   planLeavesText?: string,
  * }} corpus
  * @returns {{kind: string, subject: string, detail: string}[]}
  */
@@ -487,6 +633,62 @@ export function runClosingGate(corpus) {
     }
   }
 
+  // (5d) Un-anchored normative-MUST text-scan (H5e): reconcile the non-narrative
+  // spec pages' un-anchored MUST/MUST-NOT obligations against the coverage-
+  // matrix's *Code-keyed obligation areas* table, and redden un-rowed non-hub-
+  // stub pages. Runs only when the corpus supplies the plan leaf-ID universe;
+  // the H5a/H5c/H5d fixtures omit `planLeavesText` and leave this arm dormant.
+  if (corpus.planLeavesText != null && corpus.planLeavesText.trim() !== "") {
+    const planLeaves = parsePlanLeaves(corpus.planLeavesText);
+    const { pages: prefixPages, subtrees } = parsePrefixTablePages(
+      corpus.prefixTableText,
+    );
+    const ckaRows = parseCkaAreaRows(corpus.coverageMatrixText);
+    for (const src of corpus.specSources) {
+      const basename = path.basename(src.path);
+      const row = prefixPages.get(basename);
+      if (row == null) {
+        // Un-rowed page: in scope unless it is a GOV-24 hub stub (its filename
+        // stem names a trailing-slash subtree row). Emit only the un-rowed
+        // residue defect; the MUST-enumeration check needs a row to scope it.
+        const stem = basename.replace(/\.md$/, "");
+        if (subtrees.has(stem)) continue; // hub stub — excluded
+        findings.push({
+          kind: "un-rowed-page-residue",
+          subject: basename,
+          detail: `spec page ${basename} is absent from the prefix table and is not a GOV-24 hub stub`,
+        });
+        continue;
+      }
+      if (row.narrative) continue; // narrative page — out of scope
+      if (!pageHasUnanchoredMust(src.text)) continue; // no un-anchored MUST
+      const enumerating = ckaRows.filter((r) => r.pages.has(basename));
+      if (enumerating.length === 0) {
+        findings.push({
+          kind: "un-anchored-must-unenumerated",
+          subject: basename,
+          detail: `un-anchored normative MUST on ${basename} has no Code-keyed obligation-areas row with a closing leaf`,
+        });
+        continue;
+      }
+      const classes = enumerating.map((r) => classifyClosingCell(r.closing, planLeaves));
+      if (classes.includes("resolved")) continue; // enumerated with a real leaf
+      findings.push(
+        classes.includes("new-placeholder")
+          ? {
+              kind: "un-anchored-must-new-placeholder",
+              subject: basename,
+              detail: `un-anchored normative MUST on ${basename} maps only to a <new> placeholder row naming no real closing leaf`,
+            }
+          : {
+              kind: "un-anchored-must-unresolved-leaf",
+              subject: basename,
+              detail: `un-anchored normative MUST on ${basename} maps only to a closing-leaf token resolving to no real plan leaf ID`,
+            },
+      );
+    }
+  }
+
   // (6) Per-prefix numbering hole: for each prefix the corpus owns, an integer
   // n ≤ max(live ∪ retired) that is neither live nor retired.
   for (const hole of numberingHoles(specReqIds, retired)) {
@@ -550,6 +752,9 @@ export function loadCorpus(dir) {
     // H5d: H5b's `Deps.` snapshot. Absent in the H5a/H5c scenarios, which leaves
     // the transitive-completeness arm dormant for those fixtures.
     h5bDepsText: readIfPresent(path.join(dir, "h5b-deps.md")),
+    // H5e: the real plan leaf-ID universe snapshot. Absent in the H5a/H5c/H5d
+    // scenarios, which leaves the un-anchored-MUST arm dormant for those fixtures.
+    planLeavesText: readIfPresent(path.join(dir, "plan-leaves.md")),
   };
 }
 

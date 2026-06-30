@@ -27,6 +27,11 @@ Each scenario directory uses the conventional closing-gate corpus layout the
   `parseH5bDeps` reader it runs against the live H5b page) and expands its
   contiguous within-group `<group><letter>` ranges. Absent in the H5a/H5c
   scenarios, which leaves the transitive-completeness arm dormant for them.
+- `plan-leaves.md` — (for the H5e arm) a snapshot of the real plan leaf-ID
+  universe (the fixture stand-in for the live `docs/plan_topics/` leaf-ID set).
+  The un-anchored-MUST arm resolves each Code-keyed closing-leaf token against
+  the backtick-delimited leaf IDs listed here. Absent in the H5a/H5c/H5d
+  scenarios, which leaves the un-anchored-MUST arm dormant for them.
 
 Scenarios:
 
@@ -51,3 +56,18 @@ Scenarios:
 - `transitive-unreachable/` — (H5d) one closing-leaf cell names a leaf (`V7z`)
   absent from the seeded `h5b-deps.md` `Deps.` membership; the row stays mapped
   and cited, so only the transitive-completeness arm reds out.
+- `un-anchored-no-violation/` — (H5e) every un-anchored-MUST recogniser green:
+  a non-narrative page (`seam.md`) whose un-anchored MUST is enumerated in the
+  *Code-keyed obligation areas* table with a real closing leaf, a GOV-24
+  hub-stub page (`binder.md`) absent from the prefix table yet excluded from the
+  un-rowed-page defect because its stem matches the `binder/` subtree row, and a
+  narrative page (`narr.md`) out of scope by its byte-exact narrative cell.
+- `un-enumerated-must/` — (H5e) a non-narrative page (`orphan.md`) carries an
+  un-anchored MUST that no *Code-keyed obligation areas* row enumerates.
+- `new-placeholder-must/` — (H5e) a non-narrative page (`placeholder.md`) whose
+  un-anchored MUST maps only to a `<new>` placeholder row naming no real leaf.
+- `un-rowed-page/` — (H5e) a non-hub-stub spec-shaped page (`stray.md`) absent
+  from the prefix table altogether (no `stray/` subtree row), an un-rowed-page
+  residue defect. (The non-resolving-token case — a closing-leaf token like
+  `V99z` resolving to no real plan leaf — is exercised by an inline unit corpus
+  in `tests/closing-gate.test.ts` rather than a fixture directory.)

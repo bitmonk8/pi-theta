@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS closing-gate module, no type declarations.
-import { loadCorpus, runClosingGate, extractReqIds, parsePrefixTable, parseRetiredReqIds, parseCoverageMatrix, parseRegistryCodes, extractAssertedCodes, extractCitingReqIds, parseCkaTokens, extractBroadCatchEntries, expandLeafTokens, parseH5bDeps, parseClosingLeafCells } from "../tools/closing-gate/index.js";
+import { loadCorpus, runClosingGate, extractReqIds, parsePrefixTable, parseRetiredReqIds, parseCoverageMatrix, parseRegistryCodes, extractAssertedCodes, extractCitingReqIds, parseCkaTokens, extractBroadCatchEntries, expandLeafTokens, parseH5bDeps, parseClosingLeafCells, parsePrefixTablePages, parseCkaAreaRows, parsePlanLeaves, pageHasUnanchoredMust, classifyClosingCell } from "../tools/closing-gate/index.js";
 
 // H5a — REQ-ID / diagnostic-code closing-gate automation. These assertions ARE
 // the closing gate "wired into npm test": they run the gate against the seeded
@@ -218,6 +218,117 @@ describe("H5d — transitive-completeness parsing (unit)", () => {
       "`V8d`",
       "*(numbered above)*",
     ]);
+  });
+});
+
+// H5e — un-anchored normative-MUST text-scan arm, running as part of the
+// unified closing-gate machinery against seeded fixtures under the same
+// dedicated test-fixtures root (outside docs/spec_topics/** and outside this
+// live vitest corpus). The arm spans three sub-recognisers — the un-enumerated-
+// MUST, the `<new>`-placeholder-MUST, and the un-rowed-page recogniser — facets
+// of one MUST/MUST-NOT token scan over the non-narrative spec pages. Each block
+// cites the conventions.md *REQ-ID discipline* convention it operationalises.
+describe("H5e — un-anchored-MUST text-scan arm against the seeded no-violation fixture", () => {
+  it("(Convention: REQ-ID discipline — un-anchored obligations) runs green: an un-anchored MUST enumerated with a real closing leaf, a hub-stub page excluded from the un-rowed-page defect, and a narrative page out of scope", () => {
+    expect(gate("un-anchored-no-violation")).toEqual([]);
+  });
+});
+
+describe("H5e — un-anchored-MUST text-scan arm against each seeded violation fixture", () => {
+  it("(Convention: REQ-ID discipline — un-anchored obligations) fails when an un-anchored MUST is absent from the Code-keyed obligation-areas table", () => {
+    const findings = gate("un-enumerated-must");
+    expect(kinds(findings)).toEqual(["un-anchored-must-unenumerated"]);
+    expect(findings[0]?.subject).toBe("orphan.md");
+  });
+
+  it("(Convention: REQ-ID discipline — un-anchored obligations, `<new>` placeholder) fails when an un-anchored MUST maps only to a `<new>` placeholder row naming no real closing leaf", () => {
+    const findings = gate("new-placeholder-must");
+    expect(kinds(findings)).toEqual(["un-anchored-must-new-placeholder"]);
+    expect(findings[0]?.subject).toBe("placeholder.md");
+  });
+
+  it("(Convention: REQ-ID discipline — un-rowed page) reddens when a non-hub-stub spec page is absent from the prefix table altogether", () => {
+    const findings = gate("un-rowed-page");
+    expect(kinds(findings)).toEqual(["un-rowed-page-residue"]);
+    expect(findings[0]?.subject).toBe("stray.md");
+  });
+});
+
+describe("H5e — un-anchored-MUST recogniser parsing (unit)", () => {
+  it("parsePrefixTablePages classifies each page by its byte-exact narrative cell and records trailing-slash subtree bindings", () => {
+    const { pages, subtrees } = parsePrefixTablePages(
+      [
+        "## REQ-ID prefix table",
+        "| Page | Prefix |",
+        "|---|---|",
+        "| seam.md | SEAM |",
+        "| narr.md | (no IDs — narrative) |",
+        "| binder/ | BNDR |",
+      ].join("\n"),
+    );
+    expect(pages.get("seam.md")?.narrative).toBe(false);
+    expect(pages.get("narr.md")?.narrative).toBe(true);
+    expect(pages.has("binder/")).toBe(false);
+    expect(subtrees.has("binder")).toBe(true);
+  });
+
+  it("parseCkaAreaRows reads each Code-keyed row's referenced .md pages and its closing-leaf cell, scoped to the named section", () => {
+    const rows = parseCkaAreaRows(
+      [
+        "| REQ-ID | Closing leaf(s) |",
+        "|---|---|",
+        "| FOO-1 | `V1a` |",
+        "",
+        "## Code-keyed obligation areas (no numbered REQ-IDs)",
+        "| Token | Spec area (prefix) | Closing leaf(s) |",
+        "|---|---|---|",
+        "| `cka-1` | `lexical.md` (LEX), `grammar.md` (GRAM) | `V1a`, `V1b` |",
+        "| `cka-2` | `seam.md` (SEAM) | <new> |",
+      ].join("\n"),
+    );
+    expect(rows).toHaveLength(2);
+    expect([...rows[0].pages].sort()).toEqual(["grammar.md", "lexical.md"]);
+    expect(rows[0].closing).toBe("`V1a`, `V1b`");
+    expect([...rows[1].pages]).toEqual(["seam.md"]);
+    expect(rows[1].closing).toBe("<new>");
+  });
+
+  it("pageHasUnanchoredMust flags a MUST paragraph with no PREFIX-N / loom code, and clears one anchored by either", () => {
+    expect(pageHasUnanchoredMust("The loader MUST reject it.")).toBe(true);
+    expect(pageHasUnanchoredMust("**FOO-1.** The loader MUST reject it.")).toBe(false);
+    expect(pageHasUnanchoredMust("The loader MUST emit `loom/load/bad`.")).toBe(false);
+    expect(pageHasUnanchoredMust("No obligation here, only prose.")).toBe(false);
+    // A MUST inside a fenced code block is invisible to the scan.
+    expect(pageHasUnanchoredMust("```\nMUST in a fence\n```")).toBe(false);
+    // A loom/typecheck/* brand is NOT a registry-code anchor.
+    expect(pageHasUnanchoredMust("The build MUST brand `loom/typecheck/x`.")).toBe(true);
+  });
+
+  it("classifyClosingCell distinguishes a real plan leaf, the `<new>` placeholder, and a non-resolving token (V99z)", () => {
+    const planLeaves = parsePlanLeaves("- `V8a`\n- `H7a`");
+    expect(classifyClosingCell("`V8a`", planLeaves)).toBe("resolved");
+    expect(classifyClosingCell("`V8a`, `H7a`", planLeaves)).toBe("resolved");
+    expect(classifyClosingCell("<new>", planLeaves)).toBe("new-placeholder");
+    expect(classifyClosingCell("`V99z`", planLeaves)).toBe("unresolved");
+  });
+
+  it("(Convention: REQ-ID discipline — un-anchored obligations, `<new>` placeholder) reddens a non-resolving closing-leaf token (V99z) as a defect rather than a benign placeholder", () => {
+    const corpus = {
+      prefixTableText: "## REQ-ID prefix table\n| Page | Prefix |\n|---|---|\n| typo.md | TYPO |",
+      specSources: [{ path: "spec/typo.md", text: "The loader MUST reject it." }],
+      coverageMatrixText: [
+        "## Code-keyed obligation areas (no numbered REQ-IDs)",
+        "| Token | Spec area (prefix) | Closing leaf(s) |",
+        "|---|---|---|",
+        "| `cka-1` | `typo.md` (TYPO) | `V99z` |",
+      ].join("\n"),
+      registryText: "",
+      testSources: [],
+      planLeavesText: "- `V8a`",
+    };
+    const findings = runClosingGate(corpus) as Finding[];
+    expect(kinds(findings)).toEqual(["un-anchored-must-unresolved-leaf"]);
+    expect(findings[0]?.subject).toBe("typo.md");
   });
 });
 
