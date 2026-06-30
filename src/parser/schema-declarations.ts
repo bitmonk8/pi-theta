@@ -24,10 +24,8 @@
 //       * `loom/parse/unknown-variant`               — a reference to a variant the
 //         enum does not declare.
 //
-// V5a-T (tests-task) declares these seam shapes and stubs every check as an
-// inert no-op (no diagnostic produced) so the failing tests compile and red on
-// their own primary assertions (the schema-declaration checker is absent). The
-// paired V5a implementation leaf fills them in.
+// V5a-T (tests-task) declared these seam shapes; V5a (this leaf) implements
+// every check.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 
@@ -63,15 +61,83 @@ export interface ObjectSchemaDecl {
  *   - `loom/parse/wire-name-collision` — a field's effective wire name
  *     (`wireName ?? loomName`) collides with another field's effective wire
  *     name or with another field's loom-side name in the same schema.
- *
- * V5a-T stubs this as an inert no-op (returns `[]`); the paired V5a
- * implementation leaf fills it in.
  */
 export function checkObjectSchema(
-  _decl: ObjectSchemaDecl,
-  _site: SchemaDeclSite,
+  decl: ObjectSchemaDecl,
+  site: SchemaDeclSite,
 ): Diagnostic[] {
-  return [];
+  const diagnostics: Diagnostic[] = [];
+
+  // `schema X { }` with no fields — the lowered empty-object shape would
+  // silently accept every object (schemas.md §Object schema).
+  if (decl.fields.length === 0) {
+    diagnostics.push({
+      severity: "error",
+      code: "loom/parse/empty-schema-body",
+      file: site.file,
+      range: site.range,
+      message: `'${decl.name}' has no fields; an empty schema cannot be validated.`,
+    });
+    return diagnostics;
+  }
+
+  // A rename whose wire name equals the loom-side name carries no information
+  // (schemas.md §Wire-name renaming) — warning, in source order.
+  for (const field of decl.fields) {
+    if (field.wireName !== undefined && field.wireName === field.loomName) {
+      diagnostics.push({
+        severity: "warning",
+        code: "loom/parse/redundant-wire-name",
+        file: site.file,
+        range: site.range,
+        message: `redundant 'as' clause: wire name '${field.wireName}' equals the loom-side name`,
+        hint: "Drop the `as` clause.",
+      });
+    }
+  }
+
+  // Wire-name collisions (schemas.md §Wire-name renaming): two fields cannot
+  // share an effective wire name (`wireName ?? loomName`), and an explicit wire
+  // name cannot collide with another field's loom-side name. Report each
+  // colliding name once, in source order.
+  const reported = new Set<string>();
+  for (let i = 0; i < decl.fields.length; i += 1) {
+    const fi = decl.fields[i];
+    if (fi === undefined) {
+      continue;
+    }
+    const wi = fi.wireName ?? fi.loomName;
+    for (let j = 0; j < decl.fields.length; j += 1) {
+      if (i === j) {
+        continue;
+      }
+      const fj = decl.fields[j];
+      if (fj === undefined) {
+        continue;
+      }
+      const wj = fj.wireName ?? fj.loomName;
+      let collidingName: string | undefined;
+      if (wi === wj) {
+        // Two fields share an effective wire name.
+        collidingName = wi;
+      } else if (fi.wireName !== undefined && fi.wireName === fj.loomName) {
+        // An explicit wire name collides with another field's loom-side name.
+        collidingName = fi.wireName;
+      }
+      if (collidingName !== undefined && !reported.has(collidingName)) {
+        reported.add(collidingName);
+        diagnostics.push({
+          severity: "error",
+          code: "loom/parse/wire-name-collision",
+          file: site.file,
+          range: site.range,
+          message: `wire name '${collidingName}' collides with another field on schema '${decl.name}'`,
+        });
+      }
+    }
+  }
+
+  return diagnostics;
 }
 
 /** The literal kind of an enum variant's explicit value. */
@@ -104,30 +170,118 @@ export interface EnumDecl {
  *     not `string`.
  *   - `loom/parse/duplicate-enum-value`        — two distinct-named variants
  *     share one explicit string value.
- *
- * V5a-T stubs this as an inert no-op (returns `[]`); the paired V5a
- * implementation leaf fills it in.
  */
 export function checkEnumDeclaration(
-  _decl: EnumDecl,
-  _site: SchemaDeclSite,
+  decl: EnumDecl,
+  site: SchemaDeclSite,
 ): Diagnostic[] {
-  return [];
+  const diagnostics: Diagnostic[] = [];
+
+  // `enum X { }` with no variants — the would-be `{type:"string", enum:[]}`
+  // lowering is invalid JSON Schema 2020-12 (schemas.md §Enum declarations).
+  if (decl.variants.length === 0) {
+    diagnostics.push({
+      severity: "error",
+      code: "loom/parse/empty-enum-body",
+      file: site.file,
+      range: site.range,
+      message: `'${decl.name}' has no variants; an empty enum cannot be validated.`,
+    });
+    return diagnostics;
+  }
+
+  // Name-duplication check runs BEFORE the value-duplication check
+  // (schemas.md §Enum declarations): two variants sharing an identifier fail on
+  // the name collision regardless of explicit-value assignment. Report each
+  // repeated name once, in source order.
+  const namesSeen = new Set<string>();
+  const nameReported = new Set<string>();
+  for (const variant of decl.variants) {
+    if (namesSeen.has(variant.name) && !nameReported.has(variant.name)) {
+      nameReported.add(variant.name);
+      diagnostics.push({
+        severity: "error",
+        code: "loom/parse/duplicate-enum-variant-name",
+        file: site.file,
+        range: site.range,
+        message: `duplicate variant name '${variant.name}' on enum '${decl.name}'`,
+      });
+    }
+    namesSeen.add(variant.name);
+  }
+
+  // loom 1.0 enums carry string values only (schemas.md §Enum declarations):
+  // an explicit value of any other literal kind is rejected.
+  for (const variant of decl.variants) {
+    if (variant.value !== undefined && variant.value.kind !== "string") {
+      diagnostics.push({
+        severity: "error",
+        code: "loom/parse/non-string-enum-value",
+        file: site.file,
+        range: site.range,
+        message: `enum variant value must be a string literal; got ${variant.value.kind}`,
+      });
+    }
+  }
+
+  // Value-duplication check (schemas.md §Enum declarations) is reserved for the
+  // orthogonal case of DISTINCT names sharing one explicit string value. Group
+  // explicit string values by the distinct variant names carrying them; a value
+  // borne by two or more distinct names collides.
+  const valueToNames = new Map<string, Set<string>>();
+  for (const variant of decl.variants) {
+    if (variant.value !== undefined && variant.value.kind === "string") {
+      const names = valueToNames.get(variant.value.text) ?? new Set<string>();
+      names.add(variant.name);
+      valueToNames.set(variant.value.text, names);
+    }
+  }
+  const valueReported = new Set<string>();
+  for (const variant of decl.variants) {
+    if (variant.value === undefined || variant.value.kind !== "string") {
+      continue;
+    }
+    const value = variant.value.text;
+    const names = valueToNames.get(value);
+    if (names !== undefined && names.size >= 2 && !valueReported.has(value)) {
+      valueReported.add(value);
+      diagnostics.push({
+        severity: "error",
+        code: "loom/parse/duplicate-enum-value",
+        file: site.file,
+        range: site.range,
+        message: `duplicate enum value '${value}' across variants of enum '${decl.name}'`,
+      });
+    }
+  }
+
+  return diagnostics;
 }
 
 /**
  * Check an inline-enum form (`enum["a", "b"]` or other inline `enum[...]`),
  * returning `loom/parse/inline-enum` — `enum` is top-level only. Returns
  * `undefined` when `source` is not an inline-enum form.
- *
- * V5a-T stubs this as an inert no-op (returns `undefined`); the paired V5a
- * implementation leaf fills it in.
  */
 export function checkInlineEnumForm(
-  _source: string,
-  _site: SchemaDeclSite,
+  source: string,
+  site: SchemaDeclSite,
 ): Diagnostic | undefined {
-  return undefined;
+  // `enum` is top-level only; an inline `enum[...]` form is rejected
+  // (schemas.md §Enum declarations). Detect the leading `enum` keyword followed
+  // by an opening bracket.
+  if (!/^\s*enum\s*\[/.test(source)) {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: "loom/parse/inline-enum",
+    file: site.file,
+    range: site.range,
+    message:
+      "inline 'enum[...]' is not supported; use a top-level 'enum' declaration or a literal-union",
+    hint: "Use a literal-union (`\"a\" | \"b\"`) or a top-level `enum` declaration.",
+  };
 }
 
 /** A `Enum.Variant` member-access reference and the enum's declared variants. */
@@ -141,13 +295,21 @@ export interface VariantAccess {
  * Check a `Enum.Variant` reference, returning `loom/parse/unknown-variant` when
  * `variant` is not one of `knownVariants`. Returns `undefined` for a declared
  * variant.
- *
- * V5a-T stubs this as an inert no-op (returns `undefined`); the paired V5a
- * implementation leaf fills it in.
  */
 export function checkVariantAccess(
-  _access: VariantAccess,
-  _site: SchemaDeclSite,
+  access: VariantAccess,
+  site: SchemaDeclSite,
 ): Diagnostic | undefined {
-  return undefined;
+  // `Enum.Variant` where `Variant` is not a declared variant of `Enum`
+  // (schemas.md §Variant access).
+  if (access.knownVariants.includes(access.variant)) {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: "loom/parse/unknown-variant",
+    file: site.file,
+    range: site.range,
+    message: `unknown variant '${access.variant}' on enum '${access.enumName}'`,
+  };
 }
