@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>loom — implementation progress</title>
+		<style>
+			:root {
+				--bg: #0f1115;
+				--panel: #171a21;
+				--panel2: #1e222b;
+				--text: #e6e8ec;
+				--muted: #9aa3b2;
+				--line: #2a2f3a;
+				--done: #3fb950;
+				--prog: #d29922;
+				--wait: #4b5263;
+				--block: #f85149;
+				--accent: #58a6ff;
+			}
+			* { box-sizing: border-box; }
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--text);
+				font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+			}
+			.wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+			header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.01em; }
+			header .sub { color: var(--muted); font-size: 14px; }
+			.overall {
+				margin: 24px 0 8px;
+				background: var(--panel);
+				border: 1px solid var(--line);
+				border-radius: 12px;
+				padding: 20px 22px;
+			}
+			.overall .big { font-size: 30px; font-weight: 700; }
+			.overall .big small { font-size: 15px; color: var(--muted); font-weight: 400; }
+			.bar { height: 12px; background: var(--panel2); border-radius: 8px; overflow: hidden; margin-top: 12px; }
+			.bar > i { display: block; height: 100%; background: var(--done); transition: width .3s; }
+			.note {
+				margin: 14px 0 0; padding: 10px 14px; border-radius: 8px;
+				background: #2a2310; color: #e3b341; font-size: 13px; border: 1px solid #4d3f15;
+			}
+			section { margin-top: 28px; }
+			section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; }
+			.phase {
+				background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+				margin-bottom: 14px; overflow: hidden;
+			}
+			.phase > summary {
+				list-style: none; cursor: pointer; padding: 16px 20px;
+				display: flex; align-items: center; gap: 14px;
+			}
+			.phase > summary::-webkit-details-marker { display: none; }
+			.phase .pname { font-weight: 600; font-size: 16px; flex: 0 0 auto; }
+			.phase .pbar { flex: 1; height: 8px; background: var(--panel2); border-radius: 6px; overflow: hidden; }
+			.phase .pbar > i { display: block; height: 100%; background: var(--done); }
+			.phase .pcount { color: var(--muted); font-size: 13px; flex: 0 0 auto; min-width: 64px; text-align: right; }
+			.items { padding: 4px 20px 16px; }
+			.item {
+				display: flex; align-items: flex-start; gap: 12px;
+				padding: 9px 0; border-top: 1px solid var(--line);
+			}
+			.item:first-child { border-top: none; }
+			.dot { width: 11px; height: 11px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; background: var(--wait); }
+			.dot.done { background: var(--done); }
+			.dot.in-progress { background: var(--prog); box-shadow: 0 0 0 3px rgba(210,153,34,.25); animation: pulse 1.4s infinite; }
+			.dot.ready { background: var(--accent); }
+			.dot.blocked { background: var(--block); }
+			@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+			.item .body { flex: 1; }
+			.item .t { font-size: 14.5px; }
+			.item .b { color: var(--muted); font-size: 13px; }
+			.badge {
+				font-size: 11px; padding: 1px 7px; border-radius: 20px; margin-left: 8px;
+				border: 1px solid var(--line); color: var(--muted); vertical-align: middle;
+			}
+			.badge.tests { color: var(--done); border-color: #20402a; }
+			.badge.state { text-transform: capitalize; }
+			.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+			@media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+			.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+			.card h3 { margin: 0 0 10px; font-size: 14px; }
+			.card.attn { border-color: #4d2120; }
+			ul.clean { list-style: none; margin: 0; padding: 0; }
+			ul.clean li { padding: 7px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+			ul.clean li:first-child { border-top: none; }
+			ul.clean li .when { color: var(--muted); font-size: 12px; }
+			.empty { color: var(--muted); font-size: 13px; font-style: italic; }
+			footer { margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center; }
+		</style>
+	</head>
+	<body>
+		<div class="wrap">
+			<header>
+				<h1>loom — building the language</h1>
+				<div class="sub" id="sub">Loading progress…</div>
+			</header>
+
+			<div class="overall">
+				<div class="big" id="overallBig">—</div>
+				<div class="bar"><i id="overallBar" style="width:0%"></i></div>
+				<div class="note" id="catalogNote" style="display:none">
+					Task names are being shown from the plan titles until the readable-name pass runs.
+				</div>
+			</div>
+
+			<section>
+				<h2>Work areas</h2>
+				<div id="phases"></div>
+			</section>
+
+			<section class="grid2">
+				<div class="card attn" id="attnCard">
+					<h3>Needs attention</h3>
+					<ul class="clean" id="blocked"></ul>
+				</div>
+				<div class="card">
+					<h3>In progress now</h3>
+					<ul class="clean" id="inprog"></ul>
+				</div>
+			</section>
+
+			<section>
+				<h2>Notes &amp; decisions made along the way</h2>
+				<div class="card">
+					<ul class="clean" id="decisions"></ul>
+				</div>
+			</section>
+
+			<section>
+				<h2>Recent activity</h2>
+				<div class="card">
+					<ul class="clean" id="activity"></ul>
+				</div>
+			</section>
+
+			<footer id="footer"></footer>
+		</div>
+
+		<script src="progress-data.js"></script>
+		<script>
+			(function () {
+				var d = window.__LOOM__;
+				var $ = function (id) { return document.getElementById(id); };
+				if (!d) {
+					$("sub").textContent = "No progress data yet. Run the progress generator.";
+					return;
+				}
+				var pct = d.totals.features ? Math.round((d.totals.done / d.totals.features) * 100) : 0;
+				$("overallBig").innerHTML = pct + "% <small>complete &mdash; " + d.totals.done + " of " + d.totals.features + " features built</small>";
+				$("overallBar").style.width = pct + "%";
+				$("sub").textContent = "An automated build of the loom language. This page shows what works today and what is still being built.";
+				$("catalogNote").style.display = d.catalogPresent ? "none" : "block";
+
+				var stateLabel = { done: "done", "in-progress": "building", ready: "up next", waiting: "waiting", blocked: "blocked" };
+
+				var ph = $("phases");
+				d.phases.forEach(function (p, idx) {
+					var ppct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+					var det = document.createElement("details");
+					det.className = "phase";
+					if (p.done < p.total && p.done > 0) det.open = true;
+					var rows = p.items.map(function (it) {
+						var badges = "";
+						if (it.hasTests && it.testsDone && !it.builtDone)
+							badges += '<span class="badge tests">tests ready</span>';
+						if (!it.builtDone)
+							badges += '<span class="badge state">' + (stateLabel[it.status] || it.status) + "</span>";
+						var cls = it.builtDone ? "done" : it.status;
+						return (
+							'<div class="item"><span class="dot ' + cls + '"></span>' +
+							'<div class="body"><div class="t">' + esc(it.name) + badges + "</div>" +
+							(it.blurb ? '<div class="b">' + esc(it.blurb) + "</div>" : "") +
+							"</div></div>"
+						);
+					}).join("");
+					det.innerHTML =
+						"<summary><span class='pname'>" + esc(p.label) + "</span>" +
+						"<span class='pbar'><i style='width:" + ppct + "%'></i></span>" +
+						"<span class='pcount'>" + p.done + "/" + p.total + "</span></summary>" +
+						"<div class='items'>" + rows + "</div>";
+					ph.appendChild(det);
+				});
+
+				fill("blocked", d.blocked, function (x) { return esc(x.name) + (x.blurb ? ' <span class="when">— ' + esc(x.blurb) + "</span>" : ""); }, "Nothing blocked.");
+				if (!d.blocked.length) $("attnCard").classList.remove("attn");
+				fill("inprog", d.inProgress, function (x) { return esc(x.name); }, "Idle — no task is mid-flight.");
+				fill("decisions", d.decisions, function (x) {
+					return "<strong>" + esc(x.summary || x.task) + "</strong>" +
+						(x.detail ? '<div class="when">' + esc(x.detail) + "</div>" : "") +
+						(x.date ? '<div class="when">' + esc(x.date) + "</div>" : "");
+				}, "No divergences recorded — implementation has followed the plan.");
+				fill("activity", d.activity.map(function (l) { return { line: l }; }), function (x) { return esc(x.line); }, "No activity yet.");
+
+				$("footer").textContent = "Last updated " + new Date(d.generatedAt).toLocaleString();
+
+				function fill(id, arr, render, emptyMsg) {
+					var el = $(id);
+					if (!arr || !arr.length) { el.innerHTML = '<li class="empty">' + emptyMsg + "</li>"; return; }
+					el.innerHTML = arr.map(function (x) { return "<li>" + render(x) + "</li>"; }).join("");
+				}
+				function esc(s) {
+					return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+						return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+					});
+				}
+			})();
+		</script>
+	</body>
+</html>

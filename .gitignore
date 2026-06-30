@@ -22,8 +22,12 @@ Thumbs.db
 .env.*
 !.env.example
 
-# Pi local state — tmp is local-only, agents/prompts/project-config are tracked
+# Pi local state — tmp is local-only; agents/prompts/project-config and the
+# implementation harness are tracked.
 .pi/*
 !.pi/agents/
 !.pi/prompts/
 !.pi/project-config.md
+!.pi/impl-progress/
+# current.json is transient in-flight runtime state; keep it local-only.
+.pi/impl-progress/current.json
