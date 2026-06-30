@@ -334,3 +334,22 @@ reason while still witnessing all six sources bypassing `?` and (for the five
 non-match sources) `match`.
 
 2026-06-30 V2e — Wire-name translation: nested `$ref` resolution divergence. The `V5f` `SchemaSidecar` (`{ wireNames, namedEnumPositions }`) carries no per-field `$ref` target. The spec (schemas.md §Recursion) lowers a reference to a named schema to `$ref` against `$defs`, but the seam handed to `translateInbound`/`translateOutbound` records no edge from a field to the `$defs` it references. To recurse into a nested schema the implementation matches the field's wire name against a `$defs` key in the per-`$defs` sidecar map (`sidecars.get(wireKey)`). This is faithful for the V2e-T fixtures (a nested-object field's wire name equals its target `$defs` name, e.g. field `Inner` → `$defs` `Inner`) but cannot be faithful in general: a field `manager: Person` references `$defs` `Person`, not `$defs` `manager`, so its nested renames/enum-tags would not be applied. A fully faithful boundary needs the `V5f` lowering pass to emit a per-field ref-target into the sidecar (out of V2e scope — would change V5f's output shape and the V2e-T fixtures). Array-element-level nested defs are likewise unresolvable through the current seam (elements recurse with no sidecar). No test exercises the general/array case; the leaf's Tests are fully satisfied.
+
+## 2026-06-30 — V9a capability-probe scope
+
+V9a's Adds describes the probe plus the factory-level refusal rule ("skip all
+factory host-binding calls") and "one loom/load/host-incompatible emission",
+noting the refusal is "enforced once at the PiExtensionAPI adapter layer". The
+binding V9a-T tests exercise only `runCapabilityProbe` (the pure-function probe
+outcome on each failure kind). Scoped this leaf to the probe function plus the
+two exported constants (`FACTORY_PROBABLE_CAPABILITIES`, `SHUTDOWN_AWAIT_CAP_MS`):
+the factory-side refusal/emission wiring needs the host-snapshot construction
+(real `process.versions`, global `AbortSignal`/`AbortController`, the imported
+`AgentSession` / `typebox` namespaces, and a `createRequire`-based peer
+`package.json` reader) routed through seam adapters / the `PiExtensionAPI`
+adapter layer that does not yet exist, and no test in V9a or its dependents
+exercises it. Adding untested ambient reads now would risk H3a/H2a violations
+and speculative code. The probe is the load-bearing deliverable; the adapter-layer
+refusal enforcement is left to the leaf that introduces that adapter. "Ships when"
+(npm test proves the probe refuses on each failure kind with the right
+details.kind and binds nothing) is met by the probe function alone.

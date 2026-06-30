@@ -22,6 +22,8 @@
 // `src/**` *No globals, statics, singletons* ambient-primitive ban is honoured
 // and the tests drive both conformant and adversarial hosts by construction.
 
+import semver from "semver";
+
 /**
  * The closed `loom/load/host-incompatible` `details.kind` discriminator set
  * (capability-probe.md "On failure: refusal and diagnostic" clause (ii)).
@@ -45,13 +47,43 @@ export type CapabilityId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
  * partition flags against (it is the partition target, not the probe's
  * nine-member iteration target).
  *
- * Tests-task stub: empty so the PIC-5 enumeration test reds for the intended
- * reason. The V9a implementation fills it with `Object.freeze([1, 2, 3, 4, 6])`.
  * `Object.freeze` keeps this module-level constant off the *No globals,
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
  */
 export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
-  Object.freeze([]);
+  Object.freeze([1, 2, 3, 4, 6]);
+
+/**
+ * Cancellation-runtime constant: the bounded wait (milliseconds) the
+ * `session_shutdown` teardown awaits in-flight invocation drainage before
+ * proceeding. Semantics are owned by `V17a`; the value is sourced from
+ * session-shutdown-semantics.md §`session_shutdown` sub-step 3. `V9a` is the
+ * single declaration site `V9g`, `V9i`, and `V17a` import (rather than
+ * redeclare) and that `V18c`'s build-time literal-read assertion reads.
+ */
+export const SHUTDOWN_AWAIT_CAP_MS = 2000;
+
+/** The pinned Node floor (capability-probe.md Step 0 (a)). */
+const NODE_FLOOR = ">=22.19.0";
+
+/**
+ * The loom 1.0 Pi-SDK pin range (host-prerequisites.md #pi-sdk-pin), the
+ * `details.required` for the `peer-dep-*` kinds and the tilde range Step 0 (d)
+ * tests each lock-step peer's installed version against.
+ */
+const PI_SDK_PIN_RANGE = "~0.75.5";
+
+/**
+ * The four lock-step `@earendil-works/*` peer-dep packages, in the fixed
+ * normative iteration order (capability-probe.md Step 0 (d)). Frozen to stay
+ * off the *No globals, statics, singletons* mutable-binding scan.
+ */
+const PEER_DEP_PACKAGES: readonly string[] = Object.freeze([
+  "@earendil-works/pi-coding-agent",
+  "@earendil-works/pi-agent-core",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-tui",
+]);
 
 /**
  * The injected host snapshot the probe reads. Every value the probe inspects is
@@ -112,22 +144,246 @@ export type ProbeOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly details: ProbeFailureDetails };
 
-// Tests-task stub: an off-union sentinel `kind` so BOTH the pass-expecting and
-// the per-kind fail-expecting tests red on their own primary assertions (the
-// probe body is absent). The double cast is the deliberate stub hack — the V9a
-// implementation never produces an off-union kind.
-const STUB_UNIMPLEMENTED_KIND = "unimplemented" as unknown as HostIncompatibleKind;
+/** The `details.step` label naming which check threw (Step 0 "Self-failure"). */
+type ProbeStep =
+  | "node-floor"
+  | "abortsignal-shape"
+  | "sdk-capability-missing"
+  | "peer-dep-version"
+  | "typebox-shape";
+
+/**
+ * Read a property off a value that may be a function (a constructor such as
+ * `AbortController`) or an ordinary object, returning `undefined` for a
+ * non-indexable holder. A hostile getter that throws propagates to the
+ * enclosing step's `try`/`catch`, routing to `kind: "probe-failed"` (PIC-6).
+ */
+function readProp(holder: unknown, key: string): unknown {
+  if (holder === null || (typeof holder !== "object" && typeof holder !== "function")) {
+    return undefined;
+  }
+  return (holder as Record<string, unknown>)[key];
+}
+
+/**
+ * The `in`-operator prototype-property check (Step 0 (b), `prototype-property`
+ * members). `in` against a non-object holder throws `TypeError`; the spec
+ * routes that to `kind: "probe-failed"` ("in-operator evaluation against a
+ * null prototype"), so the throw propagates to the step's `try`/`catch`.
+ */
+function hasMember(holder: unknown, key: string): boolean {
+  if (holder === null || (typeof holder !== "object" && typeof holder !== "function")) {
+    throw new TypeError(`cannot evaluate '${key}' in non-object prototype`);
+  }
+  return key in holder;
+}
+
+/**
+ * Coerce a caught thrown value to its underlying string per the diagnostics
+ * underlying-error coercion (placeholder-rendering-b.md #underlying-error-
+ * coercion): an object with a string `.message` yields that message; otherwise
+ * `String(v)`, or the literal `<unreadable>` when either the `.message` access
+ * or the `String(v)` coercion itself throws (PIC-6 — a hostile getter MUST NOT
+ * escape the probe).
+ */
+function coerceCause(v: unknown): string {
+  try {
+    if (typeof v === "object" && v !== null) {
+      const message = (v as Record<string, unknown>).message;
+      if (typeof message === "string") {
+        return message;
+      }
+    }
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    void e;
+  }
+  try {
+    return String(v);
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    void e;
+    return "<unreadable>";
+  }
+}
+
+/** Build the self-failure (`probe-failed`) outcome for a step that threw. */
+function probeFailed(step: ProbeStep, cause: string, pkg?: string): ProbeOutcome {
+  return {
+    ok: false,
+    details: {
+      kind: "probe-failed",
+      observed: "<unreadable>",
+      required: "<unreadable>",
+      step,
+      ...(pkg === undefined ? {} : { package: pkg }),
+      cause,
+    },
+  };
+}
 
 /**
  * Run the Step 0 capability probe over an injected host snapshot. MUST NOT
  * throw (PIC-6): every check is trapped and any throw routes to a
- * `kind: "probe-failed"` outcome. Returns a pass or the first-failure refusal.
- *
- * Tests-task stub: returns a sentinel refusal so the tests red. V9a fills in.
+ * `kind: "probe-failed"` outcome. Runs the five checks in the fixed
+ * short-circuit order `(a)` → `(b)` → `(c)+(d)` → `(e)`, stopping at the first
+ * failure, and returns a pass or that first-failure refusal. The probe is
+ * `typeof`-/`in`-only and never constructs or invokes a member it checks
+ * (PIC-3/PIC-4).
  */
-export function runCapabilityProbe(_host: ProbeHost): ProbeOutcome {
-  return {
-    ok: false,
-    details: { kind: STUB_UNIMPLEMENTED_KIND, observed: "", required: "" },
-  };
+export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
+  // ── (a) Node floor ───────────────────────────────────────────────────────
+  try {
+    const nodeVersion = host.nodeVersion;
+    if (semver.valid(nodeVersion) === null) {
+      // Not a syntactically valid SemVer string → probe-failed, not node-floor.
+      return probeFailed(
+        "node-floor",
+        `process.versions.node is not a valid SemVer string: ${String(nodeVersion)}`,
+      );
+    }
+    if (!semver.satisfies(nodeVersion, NODE_FLOOR, { includePrerelease: true })) {
+      return {
+        ok: false,
+        details: { kind: "node-floor", observed: nodeVersion, required: NODE_FLOOR },
+      };
+    }
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    return probeFailed("node-floor", coerceCause(e));
+  }
+
+  // ── (b) AbortSignal / AbortController shape ───────────────────────────────
+  try {
+    const abortController = host.abortController;
+    const abortSignal = host.abortSignal;
+    // `typeof`-checked members, in the table's listed order (constructors,
+    // prototype-methods, static-methods) — short-circuit at the first.
+    const typeofMembers: ReadonlyArray<readonly [string, () => unknown]> = [
+      ["AbortController", () => abortController],
+      ["AbortSignal", () => abortSignal],
+      ["AbortController.prototype.abort", () =>
+        readProp(readProp(abortController, "prototype"), "abort")],
+      ["AbortSignal.any", () => readProp(abortSignal, "any")],
+      ["AbortSignal.timeout", () => readProp(abortSignal, "timeout")],
+      ["AbortSignal.prototype.throwIfAborted", () =>
+        readProp(readProp(abortSignal, "prototype"), "throwIfAborted")],
+      ["AbortSignal.prototype.addEventListener", () =>
+        readProp(readProp(abortSignal, "prototype"), "addEventListener")],
+    ];
+    for (const [, get] of typeofMembers) {
+      const observed = typeof get();
+      if (observed !== "function") {
+        return {
+          ok: false,
+          details: { kind: "abortsignal-shape", observed, required: "function" },
+        };
+      }
+    }
+    // `prototype-property` members (accessor properties whose getters throw off
+    // the prototype) → `in`-based, never a value read (PIC-3).
+    const abortSignalProto = readProp(abortSignal, "prototype");
+    for (const name of ["aborted", "reason"]) {
+      if (!hasMember(abortSignalProto, name)) {
+        return {
+          ok: false,
+          details: { kind: "abortsignal-shape", observed: "absent", required: "present" },
+        };
+      }
+    }
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    return probeFailed("abortsignal-shape", coerceCause(e));
+  }
+
+  // ── (c) Factory-probable SDK capabilities (nine function members) ─────────
+  try {
+    const pi = host.pi;
+    const sdkMembers: ReadonlyArray<readonly [string, () => unknown]> = [
+      ["pi.registerCommand", () => readProp(pi, "registerCommand")],
+      ["pi.sendUserMessage", () => readProp(pi, "sendUserMessage")],
+      ["createAgentSession", () => host.createAgentSession],
+      ["AgentSession.prototype.abort", () =>
+        readProp(readProp(host.agentSession, "prototype"), "abort")],
+      ["pi.registerTool", () => readProp(pi, "registerTool")],
+      ["pi.setActiveTools", () => readProp(pi, "setActiveTools")],
+      ["pi.getActiveTools", () => readProp(pi, "getActiveTools")],
+      ["pi.registerMessageRenderer", () => readProp(pi, "registerMessageRenderer")],
+      ["pi.sendMessage", () => readProp(pi, "sendMessage")],
+    ];
+    for (const [member, get] of sdkMembers) {
+      const observed = typeof get();
+      if (observed !== "function") {
+        return {
+          ok: false,
+          details: {
+            kind: "sdk-capability-missing",
+            observed,
+            required: "function",
+            member,
+          },
+        };
+      }
+    }
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    return probeFailed("sdk-capability-missing", coerceCause(e));
+  }
+
+  // ── (d) Peer-dep version (lock-step, four packages) ───────────────────────
+  for (const pkg of PEER_DEP_PACKAGES) {
+    let version: string | undefined;
+    try {
+      version = host.readPeerVersion(pkg);
+    } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+      // Any throw outside the four installation-observable conditions routes to
+      // probe-failed with the offending package named (Step 0 "Self-failure").
+      return probeFailed("peer-dep-version", coerceCause(e), pkg);
+    }
+    if (version === undefined) {
+      // Conditions (1)–(3): no readable `version` string was obtained.
+      return {
+        ok: false,
+        details: {
+          kind: "peer-dep-malformed-version",
+          observed: "<unresolvable>",
+          required: PI_SDK_PIN_RANGE,
+          package: pkg,
+        },
+      };
+    }
+    if (semver.valid(version) === null) {
+      // Condition (4): present-but-invalid SemVer string (rendered host-derived).
+      return {
+        ok: false,
+        details: {
+          kind: "peer-dep-malformed-version",
+          observed: version,
+          required: PI_SDK_PIN_RANGE,
+          package: pkg,
+        },
+      };
+    }
+    if (!semver.satisfies(version, PI_SDK_PIN_RANGE)) {
+      return {
+        ok: false,
+        details: {
+          kind: "peer-dep-out-of-range",
+          observed: version,
+          required: PI_SDK_PIN_RANGE,
+          package: pkg,
+        },
+      };
+    }
+  }
+
+  // ── (e) typebox host-shape ────────────────────────────────────────────────
+  try {
+    const observed = typeof readProp(host.typeboxType, "Unsafe");
+    if (observed !== "function") {
+      return {
+        ok: false,
+        details: { kind: "typebox-shape", observed, required: "function" },
+      };
+    }
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    return probeFailed("typebox-shape", coerceCause(e));
+  }
+
+  return { ok: true };
 }
