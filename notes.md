@@ -394,3 +394,21 @@ slash-name-level cross-format/cross-source collision, not the case-collision war
 case-collision test therefore asserts only that the W warning fires naming both paths, not which (if
 either) registers. V10a must implement case-collision detection on directory entries before the
 slash-name validity gate drops invalid-stem files.
+
+## V9b — broad-catch site for the registry-swap rebuild (PIC-36)
+
+PIC-36 mandates that any throw out of the build-aside rebuild (parse / AJV
+recompile / `pi.registerTool`) be caught and surfaced as one
+`loom/runtime/registry-swap-failed` diagnostic, with the staging set discarded
+and the prior snapshot left live. The throw shape is arbitrary across those
+steps, so `rebuildAndSwap` uses a `catch (rebuildError: unknown)` carrying
+`// allow-broad-catch: loom/runtime/registry-swap-failed — pi-integration-contract/registration-steps.md`.
+
+The token resolves under the closing-gate predicate (a concrete `loom/...`
+diagnostics-registry code), so the mechanical `no-broad-catch` lint and the
+closing-gate token-resolution arm both pass. Category-membership (requirement
+(b)) note: conventions.md enumerates five exempt broad-catch site categories and
+this rebuild-failure trap is not literally among them. It is nonetheless a
+spec-mandated broad catch (PIC-36 "if any rebuild step throws"). Recorded for the
+loom 1.0 release-time residue inspection (checklist item 6) to confirm or
+re-anchor; no contract invented.

@@ -90,13 +90,44 @@ export interface RegistrySwapDeps {
  * (failed) swap.
  */
 export function rebuildAndSwap(
-  _changedPath: string,
-  _build: () => ReadonlyMap<string, ParsedLoom>,
-  _deps: RegistrySwapDeps,
+  changedPath: string,
+  build: () => ReadonlyMap<string, ParsedLoom>,
+  deps: RegistrySwapDeps,
 ): boolean {
-  // V9b-T stub: no publish, no diagnostic — the paired V9b leaf implements the
-  // build-aside-then-publish swap and the failed-swap diagnostic.
-  return false;
+  // Build aside: run every staged step before touching the live registry. A
+  // throw out of any staged step (parse, AJV recompile, `pi.registerTool`)
+  // discards the staging set, leaves the prior snapshot live, and surfaces one
+  // `loom/runtime/registry-swap-failed` diagnostic (PIC-36). The throw shape is
+  // arbitrary across the staged steps, so the catch is the spec-mandated
+  // rebuild-failure trap keyed to the diagnostics-registry code it emits.
+  let staged: ReadonlyMap<string, ParsedLoom>;
+  try {
+    staged = build();
+  } catch (rebuildError: unknown) { // allow-broad-catch: loom/runtime/registry-swap-failed — pi-integration-contract/registration-steps.md
+    emitRegistrySwapFailed(changedPath, rebuildError, deps);
+    return false;
+  }
+  // Publish: single synchronous write installing the staged map.
+  deps.registry.publish(staged);
+  return true;
+}
+
+/**
+ * Construct and emit the single `loom/runtime/registry-swap-failed` diagnostic
+ * for a discarded swap (PIC-36). `message` names the failing path; `hint`
+ * carries the underlying error's message (diagnostics/code-registry-runtime.md).
+ */
+function emitRegistrySwapFailed(
+  changedPath: string,
+  rebuildError: unknown,
+  deps: RegistrySwapDeps,
+): void {
+  deps.emitDiagnostic({
+    severity: "error",
+    code: REGISTRY_SWAP_FAILED_CODE,
+    message: `registry swap failed: ${changedPath}`,
+    hint: rebuildError instanceof Error ? rebuildError.message : String(rebuildError),
+  });
 }
 
 // --- Test-only reload failure-injection seam ---
@@ -124,13 +155,17 @@ export interface ReloadFailureInjector {
  * (both surface `loom/runtime/registry-swap-failed`).
  */
 export function createReloadFailureInjector(
-  _deps: RegistrySwapDeps,
+  deps: RegistrySwapDeps,
 ): ReloadFailureInjector {
-  // V9b-T stub: a no-op injector — the paired V9b leaf routes the registry-swap
-  // and `.loom`/`.warp` re-parse arms onto the system-note surfacing path.
   return {
-    injectReloadFailure(_arm: ReloadFailureArm, _error: Error): void {
-      // no-op
+    injectReloadFailure(arm: ReloadFailureArm, error: Error): void {
+      // V9b wires the two watcher-time arms it owns onto the registry-swap-
+      // failed surfacing path: a registry-swap failure and a `.loom`/`.warp`
+      // re-parse failure both surface `loom/runtime/registry-swap-failed`. The
+      // `settings-remerge` arm is contributed by V10d against this interface.
+      if (arm === "registry-swap" || arm === "loom-warp-reparse") {
+        emitRegistrySwapFailed(`<injected:${arm}>`, error, deps);
+      }
     },
   };
 }
@@ -158,13 +193,27 @@ export interface CollisionPassResult {
  */
 export function dropCollidingLooms(
   pending: readonly ParsedLoom[],
-  _existingCommands: readonly SlashCommandInfo[],
+  existingCommands: readonly SlashCommandInfo[],
 ): CollisionPassResult {
-  // V9b-T stub: no collision detection — every pending loom survives. The
-  // paired V9b leaf drops names colliding with the collision source set while
-  // leaving the snapshot array unmutated.
-  void COLLISION_SOURCE_SET;
-  return { survivors: [...pending], dropped: [] };
+  // Read-only forward pass: collect the names of existing commands whose
+  // `source` is in the collision source set, reading `existingCommands` without
+  // mutating it (PIC-39 read-only-by-convention).
+  const collidingNames = new Set<string>();
+  for (const cmd of existingCommands) {
+    if (COLLISION_SOURCE_SET.has(cmd.source)) {
+      collidingNames.add(cmd.name);
+    }
+  }
+  const survivors: ParsedLoom[] = [];
+  const dropped: ParsedLoom[] = [];
+  for (const loom of pending) {
+    if (collidingNames.has(loom.slashName)) {
+      dropped.push(loom);
+    } else {
+      survivors.push(loom);
+    }
+  }
+  return { survivors, dropped };
 }
 
 // --- structural-change loom-system-note (PIC-37 / PIC-38) ---
@@ -182,11 +231,17 @@ export function structuralChangeNote(
   added: readonly string[],
   removed: readonly string[],
 ): SystemNote | undefined {
-  // V9b-T stub: returns a placeholder note for every input (wrong content, and
-  // does not suppress the empty window) so PIC-37 and PIC-38 red on their own
-  // assertions. The paired V9b leaf implements the suppression + template.
+  // Empty-window suppression (PIC-37): no resolved add/remove path → no note.
+  const count = added.length + removed.length;
+  if (count === 0) {
+    return undefined;
+  }
+  // Fixed template (PIC-38 / Structural changes): only `<N>` is substituted —
+  // the literal `file(s)` and trailing `/reload` clause ship verbatim. `<N>` is
+  // base-10 with no separator/leading-zero/sign and equals added+removed length
+  // (a same-window rename counts twice; the arrays are not deduplicated).
   return {
-    content: "",
+    content: `loom watcher: ${count} file(s) added or removed; run /reload to refresh the slash command list`,
     display: true,
     details: { structural: { added, removed } },
   };
@@ -224,15 +279,42 @@ export interface ModelRegistrySurface {
 export function createModelReferenceMatcher(
   registry: ModelRegistrySurface,
 ): ModelReferenceMatcher {
-  // V9b-T stub: a non-resolving matcher so the exact-match / ambiguity
-  // behaviour tests red on their own assertions. The paired V9b leaf
-  // implements the .id/.provider exact-match resolution over getAvailable().
   return {
-    resolve(_reference: unknown): ModelMatchOutcome {
-      void registry;
-      return "no-match";
+    resolve(reference: unknown): ModelMatchOutcome {
+      // A non-string reference matches no available model (no-match).
+      if (typeof reference !== "string") {
+        return "no-match";
+      }
+      const available = registry.getAvailable();
+      const slash = reference.indexOf("/");
+      if (slash >= 0) {
+        // `provider/modelId`: the provider half compares against the short
+        // provider-id `Model<Api>.provider` (NOT the api-shaped `.api`) and the
+        // modelId half against `Model<Api>.id`.
+        const provider = reference.slice(0, slash);
+        const modelId = reference.slice(slash + 1);
+        const matches = available.filter(
+          (m) => m.provider === provider && m.id === modelId,
+        );
+        return outcomeOf(matches.length);
+      }
+      // A bare `modelId` matches each model's `Model<Api>.id`; a match across
+      // more than one provider is ambiguous (resolves to no model).
+      const matches = available.filter((m) => m.id === reference);
+      return outcomeOf(matches.length);
     },
   };
+}
+
+/** Map a match count onto the resolution outcome: 1 → resolved, >1 → ambiguous, 0 → no-match. */
+function outcomeOf(count: number): ModelMatchOutcome {
+  if (count === 1) {
+    return "resolved";
+  }
+  if (count > 1) {
+    return "ambiguous";
+  }
+  return "no-match";
 }
 
 /** A single `.loom` source to parse in the load pass. */
@@ -260,13 +342,10 @@ export function loadPassParse(
   files: readonly LoadPassFile[],
   deps: LoadPassDeps,
 ): readonly FrontmatterParseResult[] {
-  // V9b-T stub: constructs a fresh matcher PER file (not single-source) so the
-  // instance-identity test reds. The paired V9b leaf constructs it once and
-  // injects the single instance.
-  return files.map((f) =>
-    deps.parse({
-      file: f.file,
-      modelMatcher: createModelReferenceMatcher(deps.modelRegistry),
-    }),
-  );
+  // Single source of construction: build the matcher once over
+  // `modelRegistry.getAvailable()`, then inject that one instance into every
+  // parse call so V6a's `loom/load/model-unresolved` resolution binds it
+  // (instance identity, not equivalence-of-outcome).
+  const modelMatcher = createModelReferenceMatcher(deps.modelRegistry);
+  return files.map((f) => deps.parse({ file: f.file, modelMatcher }));
 }
