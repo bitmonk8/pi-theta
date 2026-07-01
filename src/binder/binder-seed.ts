@@ -15,27 +15,37 @@
 // 32-bit unsigned output mask, and the reference vectors
 // (`code-review` → 0x7ba86b63, `hello` → 0x4f9f2cab, `a` → 0xe40c292c).
 //
-// V11e-T (tests-task) declares this seam and stubs it inertly so the failing
-// determinism test compiles and reds on its own primary assertion (the FNV
-// reference vectors) while the V11e body is absent. The paired V11e leaf fills
-// in the FNV-1a algorithm.
+// V11e fills in the FNV-1a algorithm (V11e-T declared this seam).
+
+/** The 32-bit FNV-1a offset basis. */
+const FNV_OFFSET_BASIS = 0x811c9dc5;
+
+/** The 32-bit FNV-1a prime. */
+const FNV_PRIME = 0x01000193;
 
 /**
- * A sentinel returned by the inert V11e-T stub. It equals none of the
- * reference-vector seed values, so the determinism test reds on its own primary
- * assertion (the FNV reference vectors) while the V11e body is absent.
+ * The UTF-8 encoder for the input-byte sequence. `TextEncoder` is a WHATWG
+ * global available on Pi's runtime; it holds no cross-invocation mutable state,
+ * so a module-level instance is a pure helper (not a stateful singleton) and
+ * reads no ambient primitive.
  */
-const UNIMPLEMENTED_SEED = -1;
+const UTF8 = new TextEncoder();
 
 /**
  * Derive the deterministic per-loom binder seed from the loom's bare command
  * name via 32-bit FNV-1a (offset basis `0x811c9dc5`, prime `0x01000193`) over
  * the UTF-8 bytes of the name, masked to 32-bit unsigned.
  *
- * V11e-T stubs this inertly (returns {@link UNIMPLEMENTED_SEED}); the paired
- * V11e implementation leaf fills in the FNV-1a hash.
+ * The multiply step uses `Math.imul` (32-bit-truncating integer multiply); the
+ * final `>>> 0` masks the output to 32-bit unsigned. Per-byte intermediate
+ * state is not separately masked beyond what the canonical algorithm specifies.
  */
 export function deriveBinderSeed(bareCommandName: string): number {
-  void bareCommandName;
-  return UNIMPLEMENTED_SEED;
+  const bytes = UTF8.encode(bareCommandName);
+  let hash = FNV_OFFSET_BASIS;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, FNV_PRIME);
+  }
+  return hash >>> 0;
 }

@@ -32,21 +32,28 @@
 // Spec: binder/defaulting-system-note-echo.md §"System-note rendering" (anchor
 // #system-note-rendering, incl. the normative reference rendering).
 //
-// V11e-T (tests-task) declares these seam shapes and stubs each renderer /
-// classifier inertly so the failing tests compile and red on their own primary
-// assertions (the discipline is absent). The paired V11e implementation leaf
-// fills these in.
+// V11e fills in these renderers / classifiers (V11e-T declared the seams).
 
 /** The rule-2 code-point cap for a fully-rendered system note. */
 export const SYSTEM_NOTE_CODEPOINT_CAP = 120;
 
+/** The rule-2 truncation marker (U+2026 HORIZONTAL ELLIPSIS). */
+const ELLIPSIS = "\u2026";
+
 /**
- * A sentinel returned by the inert V11e-T string stubs. It equals none of the
- * pinned outputs (in particular it is neither a sanitised substring nor a
- * capped note), so every string assertion reds on its own primary comparison
- * while the V11e body is absent.
+ * The rule-3 loom-controlled-prefix ↔ model/runtime-suffix separator: a spaced
+ * em-dash (U+2014). Rendered verbatim as the failure-arm demarcation.
  */
-const UNIMPLEMENTED = "\u0000loom/binder/system-note:unimplemented";
+const EM_DASH = "\u2014";
+
+/**
+ * The rule-1 ASCII-whitespace set — exactly {U+0009 tab, U+000A line feed,
+ * U+000B vertical tab, U+000C form feed, U+000D carriage return, U+0020 space}.
+ * Runs of these collapse to a single U+0020. Non-ASCII whitespace (U+00A0, the
+ * U+2000–U+200A range) lies outside the set and is preserved verbatim, so this
+ * class is enumerated explicitly rather than via the language-dependent `\s`.
+ */
+const ASCII_WHITESPACE_RUN = /[\u0009\u000A\u000B\u000C\u000D\u0020]+/g;
 
 /** The classification of an `ambiguous` / `needs_info` arm's model content. */
 export type ModelContentClass = "present" | "empty-malformed";
@@ -62,8 +69,22 @@ export type ModelContentClass = "present" | "empty-malformed";
  * implementation leaf fills in the whitespace collapse/trim.
  */
 export function sanitizeSystemNoteSubstring(raw: string): string {
-  void raw;
-  return UNIMPLEMENTED;
+  // Replacing each CR/LF/CRLF with one space is subsumed by collapsing runs of
+  // the ASCII-whitespace set (which includes CR and LF) to a single U+0020.
+  const collapsed = raw.replace(ASCII_WHITESPACE_RUN, " ");
+  // Trim only U+0020: any edge run of ASCII whitespace has already collapsed to
+  // a single U+0020, so stripping U+0020 at the edges performs the rule-1 trim
+  // without touching interior or edge non-ASCII whitespace (e.g. U+00A0). Using
+  // JS `String.prototype.trim` here would be wrong — it also strips U+00A0.
+  let start = 0;
+  let end = collapsed.length;
+  while (start < end && collapsed.charCodeAt(start) === 0x20) {
+    start += 1;
+  }
+  while (end > start && collapsed.charCodeAt(end - 1) === 0x20) {
+    end -= 1;
+  }
+  return collapsed.slice(start, end);
 }
 
 /**
@@ -76,8 +97,16 @@ export function sanitizeSystemNoteSubstring(raw: string): string {
  * implementation leaf fills in the scalar-aligned truncation.
  */
 export function capSystemNote(rendered: string): string {
-  void rendered;
-  return UNIMPLEMENTED;
+  // `Array.from` iterates by Unicode scalar (code point), so slicing operates at
+  // scalar boundaries and never splits a surrogate pair — unlike `string.length`
+  // / `slice`, which count and cut at UTF-16 code units.
+  const scalars = Array.from(rendered);
+  if (scalars.length <= SYSTEM_NOTE_CODEPOINT_CAP) {
+    return rendered;
+  }
+  // Keep the first (cap − 1) scalars and append `…`, which counts toward the
+  // cap, yielding exactly `SYSTEM_NOTE_CODEPOINT_CAP` code points.
+  return scalars.slice(0, SYSTEM_NOTE_CODEPOINT_CAP - 1).join("") + ELLIPSIS;
 }
 
 /** Inputs to composing a failure-arm system note (rule 3 grammar). */
@@ -100,8 +129,9 @@ export interface FailureNoteInput {
  * implementation leaf fills in the composition.
  */
 export function renderFailureNote(input: FailureNoteInput): string {
-  void input;
-  return UNIMPLEMENTED;
+  const suffix = sanitizeSystemNoteSubstring(input.suffix);
+  const note = `loom /${input.loomName}: ${input.fixedPhrase} ${EM_DASH} ${suffix}`;
+  return capSystemNote(note);
 }
 
 /** A model-content arm's fields (an `ambiguous` / `needs_info` envelope). */
@@ -123,7 +153,22 @@ export interface ModelContentInput {
  * implementation leaf fills in the empty-content detection.
  */
 export function classifyModelContent(input: ModelContentInput): ModelContentClass {
-  void input;
+  // A `message` empty after rule-1 stripping (binder returned only whitespace)
+  // is a malformed envelope, not an empty note.
+  if (sanitizeSystemNoteSubstring(input.message) === "") {
+    return "empty-malformed";
+  }
+  // The same applies to a non-empty `candidates` array whose every entry is
+  // empty after stripping. An absent array (or an empty `[]` with no entries)
+  // is not itself a malformed trigger.
+  const candidates = input.candidates;
+  if (
+    candidates != null &&
+    candidates.length > 0 &&
+    candidates.every((c) => sanitizeSystemNoteSubstring(c) === "")
+  ) {
+    return "empty-malformed";
+  }
   return "present";
 }
 
@@ -136,6 +181,6 @@ export function classifyModelContent(input: ModelContentInput): ModelContentClas
  * implementation leaf fills in the message-only rendering.
  */
 export function renderAmbiguousSuffix(input: ModelContentInput): string {
-  void input;
-  return UNIMPLEMENTED;
+  // loom 1.0 surfaces only the model's `message`; `candidates` is never read.
+  return sanitizeSystemNoteSubstring(input.message);
 }
