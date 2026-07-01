@@ -725,3 +725,10 @@ impl fills it). Design decisions recorded for the V13a implementer:
 - No divergence from spec/plan; no decisions.jsonl entry. Behaviour matches invocation.md §Cross-mode semantics / §Tools and model exactly as V15l-T's tests encode it.
 - Pre-existing failure (not caused by this leaf): `tests/pre-evaluation-reload-failure.test.ts` has 4 reds on baseline HEAD (V15l-T-complete, 636693c), confirmed via `git stash`. Unrelated subsystem; left untouched.
 - Standing observation carried from V15l-T: the coverage matrix has no cka row for the in-scope cross-mode cells (fresh-vs-attach selection + child-config-not-inherited); cka-15 covers only the prompt→prompt suspend/snapshot cell (V15d). This is a plan/coverage-matrix maintenance item, not a leaf-implementation divergence — the behaviour is faithful to invocation.md.
+
+## V15d-T (2026-07-01)
+- Added `src/runtime/invoke-prompt-suspend.ts` (inert seam stub) + `tests/invoke-prompt-suspend.test.ts` (5 failing tests) for the paired V15d prompt→prompt parent-suspend + setActiveTools snapshot/restore.
+- Seam shape: `runPromptSuspendInvoke<T>({ cell, childCallableSet, pi, childBody }) → { engaged, result }`. The V15d impl is expected to reuse V9f's `withActiveSetGate` protocol (snapshot→install→finally restore) generalised from the per-query window to the child's whole body, engaged only for the prompt→prompt cell.
+- Test design note: the restore-on-inner-failure tests have the child body perform a foreign mid-window `setActiveTools` mutation before throwing/cancelling/returning-Err, so the restore assertion reds when absent (active set stays foreign) rather than passing trivially. This is spec-faithful — invocation.md §Cross-mode semantics states the loom's restore overwrites an intervening cross-extension mutation with no diagnostic.
+- No divergence from spec/plan; no decisions.jsonl entry.
+- Pre-existing failure (not caused by this leaf): `tests/pre-evaluation-reload-failure.test.ts` has 4 reds on baseline HEAD (V15l-complete, 5f69001), confirmed via `git stash -u`. Unrelated subsystem; left untouched.
