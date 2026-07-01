@@ -76,20 +76,47 @@ export interface SurfaceInventoryOutcome {
  * the surface inventory is green. A missing surface or a failed harness
  * assertion also reddens.
  *
- * V18d-T stub: performs no acceptance composition (returns no failures), so the
- * "surface-inventory green alone" and "surface missing" directions red on their
- * detection assertion because the gate is unwired. The paired `V18d` fills it
- * in.
+ * The build-time surface-inventory verdict is accepted as an operand for shape
+ * parity with output (a), but a green inventory NEVER substitutes for the
+ * harness run: acceptance is decided solely by the `H4a` runtime-evidence run.
  */
 export function runtimeEvidenceAcceptanceFailures(
   harnessRun: HarnessRunOutcome,
   surfaceInventory: SurfaceInventoryOutcome,
 ): readonly string[] {
-  // Reference the operands so the seam signature is load-bearing; the stub
-  // deliberately performs no composition (see the doc comment above).
-  void harnessRun;
+  // A green surface inventory (output (a)) does not exercise the loom against
+  // the bumped SDK at runtime, so it is deliberately not consulted here.
   void surfaceInventory;
-  return [];
+
+  const failures: string[] = [];
+
+  if (!harnessRun.harnessDriven) {
+    failures.push(
+      "runtime-evidence acceptance gate (cka-19): the H4a end-to-end harness " +
+        "was not driven against the bumped pin (a green surface-inventory run " +
+        "alone does not satisfy output (c))",
+    );
+  }
+
+  const missing = ACCEPTANCE_SURFACES.filter(
+    (surface) => !harnessRun.surfacesExercised.has(surface),
+  );
+  if (missing.length > 0) {
+    failures.push(
+      `runtime-evidence acceptance gate (cka-19): the H4a harness run did not ` +
+        `exercise all six surfaces (missing: ${missing.join(", ")})`,
+    );
+  }
+
+  if (!harnessRun.allAssertionsPassed) {
+    failures.push(
+      "runtime-evidence acceptance gate (cka-19): the H4a harness run had a " +
+        "failing assertion at the bumped pin (a bump whose runtime-evidence run " +
+        "is red MUST NOT be merged at the candidate pin)",
+    );
+  }
+
+  return failures;
 }
 
 // --- revert / rollback verification -----------------------------------------
@@ -129,20 +156,25 @@ export interface RevertVerification {
  * co-edited operand left at its candidate value reddens at least one re-run gate
  * and the revert MUST be widened to restore that operand.
  *
- * V18d-T stub: performs no revert composition (returns the inert
- * `{ reverted: false, widenRequired: [] }` sentinel), so the complete-revert
- * direction reds on its `reverted === true` assertion and the incomplete-revert
- * direction reds on its non-empty `widenRequired` assertion — both because the
- * verification is unwired, not because any gate double is missing. The paired
- * `V18d` fills it in.
+ * The verification only fires on a red runtime-evidence run (the merge-blocking
+ * condition); a green run needs no revert, so `runtimeEvidenceRed === false`
+ * yields `reverted: false` with no widen list — there is nothing to revert.
  */
 export function verifyRevertSequence(
   runtimeEvidenceRed: boolean,
   staticGateReRuns: readonly StaticGateReRun[],
 ): RevertVerification {
-  // Reference the operands so the seam signature is load-bearing; the stub
-  // deliberately performs no composition (see the doc comment above).
-  void runtimeEvidenceRed;
-  void staticGateReRuns;
-  return { reverted: false, widenRequired: [] };
+  if (!runtimeEvidenceRed) {
+    // No red runtime-evidence run ⇒ the revert path is not engaged.
+    return { reverted: false, widenRequired: [] };
+  }
+
+  // Step 4's pin edit is restored and the V18c static gates re-run against the
+  // restored prior pin. A gate that stayed red names a co-edited operand left
+  // at its candidate value; the revert MUST be widened to restore it.
+  const widenRequired = staticGateReRuns
+    .filter((reRun) => reRun.failures.length > 0)
+    .map((reRun) => reRun.gate);
+
+  return { reverted: widenRequired.length === 0, widenRequired };
 }
