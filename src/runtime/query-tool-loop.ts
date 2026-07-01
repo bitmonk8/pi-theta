@@ -40,18 +40,15 @@
 // surfacing precedence and the `masked` enumeration, and the `V9d` `computeMasked`
 // V1-reachable predicate that populates `details.event.masked`.
 //
-// V13c-T (tests-task) declares this surface and stubs the two behaviour-bearing
-// drivers inertly:
-//   - `runUntypedQueryLoop` fires no `@`-query-dispatch checkpoint, runs no
-//     tool-call round, and returns an inert terminating text outcome (so the
-//     exhaustion, checkpoint, and ERR-13 committed-side-effect assertions red);
-//   - `runTypedQueryLoop` fires no checkpoint, dispatches no forced respond
-//     turn, and returns an inert `value` outcome with `forcedRespond` unset (so
-//     the CIO-4 slot-accounting, `max_rounds: 0`, and depth-6 co-fire assertions
-//     red).
-// Each paired V13c-T test reds on its own primary assertion, not on a compile
-// error, a missing fixture, or a harness throw. The paired V13c implementation
-// leaf fills these in.
+// V13c (this implementation leaf) drives both surfaces: `runUntypedQueryLoop`
+// fires the pre-dispatch `query` cancellation checkpoint, advances the free
+// phase one slot per `tool_use` round, returns `text` on a terminating turn and
+// `tool_loop_exhausted` (masked omitted) at the `max_rounds`-final branch;
+// `runTypedQueryLoop` runs the same free phase, dispatches the exempt forced
+// respond turn, depth-walks the payload before AJV (CIO-3) and surfaces the
+// `validation`/`maxDepth` `Err` with `["ceiling#2"]` on the operator-facing
+// `RuntimeEvent`'s `masked` at the depth-6 co-fire. The paired V13c-T tests-task
+// declared this surface and its inert stubs.
 //
 // Spec: query/query-tool-loop.md (QRY-13 … QRY-16, CIO-4 free-phase accounting),
 // hard-ceilings/ceilings-3-and-4.md (CIO-3/CIO-4/CIO-6, ceiling #4 depth,
@@ -61,10 +58,13 @@
 import type { Checkpoint, CheckpointSite } from "../seams/checkpoint";
 import type { CommittedSideEffect } from "./no-rollback";
 import type { RuntimeEvent } from "./runtime-event-channel";
-import type {
-  ToolLoopExhaustedError,
-  ValidationError,
+import { computeMasked } from "./runtime-event-channel";
+import {
+  makeToolLoopExhaustedError,
+  type ToolLoopExhaustedError,
+  type ValidationError,
 } from "./query-error";
+import { DEPTH_VIOLATION_MESSAGE, depthWalk } from "./depth-walk";
 
 // ---------------------------------------------------------------------------
 // The model turns the loop drives.
@@ -217,14 +217,64 @@ export type TypedQueryOutcome =
  * expectation. The paired V13c leaf implements the loop.
  */
 export async function runUntypedQueryLoop(
-  _checkpoint: Checkpoint,
-  _signal: AbortSignal,
-  _model: QueryModelDriver,
-  _config: QueryToolLoopConfig,
+  checkpoint: Checkpoint,
+  signal: AbortSignal,
+  model: QueryModelDriver,
+  config: QueryToolLoopConfig,
 ): Promise<UntypedQueryOutcome> {
-  // Inert stub: no `@`-query-dispatch checkpoint fires, no free-phase round
-  // runs, and no side effect is committed. The paired V13c leaf drives the loop.
-  return { kind: "text", text: "", rounds: [], committed: [] };
+  // cka-47 `V13c` facet: a cancellation checkpoint fires immediately before the
+  // `@`-query dispatch, carrying the query site. An abort observed here skips
+  // the dispatch entirely (no free-phase provider call).
+  await checkpoint.before("query", config.querySite);
+  if (signal.aborted) {
+    return { kind: "cancelled", committed: [] };
+  }
+
+  const rounds: FreePhaseRoundLog[] = [];
+  const committed: CommittedSideEffect[] = [];
+  let slotCount = 0;
+  let round = 0;
+  let lastToolName: string | null = null;
+
+  for (;;) {
+    // CIO-4 round boundary: cancellation preempts the loop at any round
+    // boundary (query-tool-loop.md#qry-16 / cancellation.md).
+    if (signal.aborted) {
+      return { kind: "cancelled", committed };
+    }
+    // CIO-4 `max_rounds`-final branch for an untyped query: once the slot count
+    // reaches `max_rounds` without a terminating plain-text turn, the runtime
+    // surfaces `Err(QueryError { kind: "tool_loop_exhausted" })` before any
+    // further turn is issued. `slot_count == max_rounds` at initialisation
+    // (0 == 0) exhausts a `max_rounds: 0` untyped query at once.
+    if (slotCount === config.maxRounds) {
+      const error = makeToolLoopExhaustedError({
+        message: `Tool-call loop exhausted after ${config.maxRounds} round(s) without a terminating response`,
+        maxRounds: config.maxRounds,
+        last_tool_name: lastToolName,
+        raw_response: null,
+      });
+      return { kind: "tool_loop_exhausted", error, rounds, committed };
+    }
+
+    const turn = await model.nextFreePhaseTurn(round);
+    if (turn.kind === "text") {
+      // Terminating plain-text turn: this is the untyped query's final response.
+      return { kind: "text", text: turn.text, rounds, committed };
+    }
+
+    // A `tool_use` round: execute the (possibly parallel) batch, feed every
+    // sibling result back, and count the whole batch as exactly one slot
+    // (CIO-4 — a parallel batch of N tool calls consumes one slot).
+    const effects = await model.runToolBatch(turn.batch, round);
+    committed.push(...effects);
+    if (turn.batch.length > 0) {
+      lastToolName = turn.batch[turn.batch.length - 1]!.toolName;
+    }
+    slotCount += 1;
+    rounds.push({ round, batchSize: turn.batch.length, slotCountAfter: slotCount });
+    round += 1;
+  }
 }
 
 /**
@@ -245,27 +295,107 @@ export async function runUntypedQueryLoop(
  * their own primary expectation. The paired V13c leaf implements the loop.
  */
 export async function runTypedQueryLoop(
-  _checkpoint: Checkpoint,
-  _signal: AbortSignal,
-  _model: QueryModelDriver,
-  _config: QueryToolLoopConfig,
+  checkpoint: Checkpoint,
+  signal: AbortSignal,
+  model: QueryModelDriver,
+  config: QueryToolLoopConfig,
 ): Promise<TypedQueryOutcome> {
-  // Inert stub: no `@`-query-dispatch checkpoint fires, no free-phase round
-  // runs, and the forced respond turn is never dispatched. The paired V13c leaf
-  // drives the two-phase loop.
+  // cka-47 `V13c` facet: the cancellation checkpoint fires immediately before
+  // the `@`-query dispatch, exactly as for an untyped query.
+  await checkpoint.before("query", config.querySite);
+  if (signal.aborted) {
+    return { kind: "cancelled", committed: [] };
+  }
+
+  const rounds: FreePhaseRoundLog[] = [];
+  const committed: CommittedSideEffect[] = [];
+  let slotCount = 0;
+  let round = 0;
+
+  // Free phase: advance one slot per `tool_use` round exactly as for an untyped
+  // query, until the model emits a terminating plain-text turn OR CIO-4's
+  // `max_rounds`-final branch fires. At `max_rounds: 0` the branch fires at
+  // typed-query start (`slot_count == max_rounds`, 0 == 0) so no free-phase
+  // provider call is issued.
+  for (;;) {
+    if (signal.aborted) {
+      return { kind: "cancelled", committed };
+    }
+    if (slotCount === config.maxRounds) {
+      break;
+    }
+    const turn = await model.nextFreePhaseTurn(round);
+    if (turn.kind === "text") {
+      break;
+    }
+    const effects = await model.runToolBatch(turn.batch, round);
+    committed.push(...effects);
+    slotCount += 1;
+    rounds.push({ round, batchSize: turn.batch.length, slotCountAfter: slotCount });
+    round += 1;
+  }
+
+  // Forced respond turn — the exempt-routed terminator CIO-4's `max_rounds`-final
+  // branch dispatches. It is NOT counted against `max_rounds` and CIO-4 is not
+  // re-evaluated against it.
+  const slotCountAtDispatch = slotCount;
+  const forced = await model.forcedRespondTurn();
+  const forcedRespond: ForcedRespondDispatch = {
+    dispatched: true,
+    countedAgainstMaxRounds: false,
+    slotCountAtDispatch,
+  };
+
+  // CIO-3: the loom-owned depth walk (`V5e`) runs at the typed-query response
+  // AJV boundary *before* AJV. A depth-6 payload trips ceiling #4 and surfaces
+  // in loom code as `Err(QueryError { kind: "validation", cause:
+  // "schema_validation" })` with `schema_keyword: "maxDepth"`.
+  const walk = depthWalk(forced.payload);
+  if (!walk.ok) {
+    const error: ValidationError = {
+      kind: "validation",
+      cause: walk.cause,
+      message: DEPTH_VIOLATION_MESSAGE,
+      attempts: 0,
+      validation_errors: [walk.issue],
+      raw_response: JSON.stringify(forced.payload),
+    };
+    // CIO-4/CIO-6: the co-satisfied ceiling #2 is enumerated on the
+    // operator-facing `RuntimeEvent`'s `masked` (wire location
+    // `details.event.masked`) via `V9d`'s V1-reachable predicate — never on the
+    // `QueryError` itself. `computeMasked` omits `masked` (returns `undefined`,
+    // never `[]`) on every other surface.
+    const masked = computeMasked({
+      kind: "validation",
+      validationCause: walk.cause,
+      atTypedQueryResponse: true,
+      turnKind: "forced_respond",
+      toolLoopSlotCount: slotCountAtDispatch,
+      maxRounds: config.maxRounds,
+    });
+    const event: RuntimeEvent = {
+      kind: "validation",
+      loom: config.loomSlashName,
+      invocation_id: config.invocationId,
+      query_site: {
+        file: config.querySite.file,
+        line: config.querySite.line,
+        column: config.querySite.column,
+      },
+      message: DEPTH_VIOLATION_MESSAGE,
+      attempts: 0,
+      occurred_at: config.occurredAt,
+      ...(masked !== undefined ? { masked } : {}),
+    };
+    return { kind: "validation", error, event, rounds, forcedRespond, committed };
+  }
+
+  // The respond tool's validated value is the typed query's final result.
   return {
     kind: "value",
-    value: null,
-    rounds: [],
-    // A deliberately non-compliant sentinel: the CIO-4 exemption witness must be
-    // `false` when the paired V13c dispatches the exempt-routed terminator, so
-    // `countedAgainstMaxRounds: true` (and `dispatched: false`) reds the CIO-4
-    // and `max_rounds: 0` assertions.
-    forcedRespond: {
-      dispatched: false,
-      countedAgainstMaxRounds: true,
-      slotCountAtDispatch: -1,
-    },
-    committed: [],
+    value: forced.payload,
+    rounds,
+    forcedRespond,
+    committed,
   };
 }
