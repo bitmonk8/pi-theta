@@ -375,10 +375,10 @@ export interface SubagentExtractionCtx {
  */
 export function extractSubagentQueryResult(
   terminalEvent: AgentEndEvent,
-  ctx: SubagentExtractionCtx,
+  extractionCtx: SubagentExtractionCtx,
 ): SubagentQueryResult {
   // PIC-43: cancellation short-circuit runs first — before any text extraction.
-  if (ctx.aborted) {
+  if (extractionCtx.aborted) {
     return { ok: false, error: makeCancelledError() };
   }
 
@@ -397,7 +397,7 @@ export function extractSubagentQueryResult(
         // matches the prompt-mode transport mapping.
         message: trailingAssistant.errorMessage ?? "provider transport failure",
         http_status: null,
-        provider: ctx.provider,
+        provider: extractionCtx.provider,
         retryable: false,
       },
     };

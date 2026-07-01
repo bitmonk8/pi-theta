@@ -156,7 +156,7 @@ export interface ActiveInvocationSignals {
  * captured signal.
  */
 export function subscribePromptModeCancelForwarding(
-  pi: PromptModeEventApi,
+  eventApi: PromptModeEventApi,
   getActiveInvocation: () => ActiveInvocationSignals | undefined,
 ): void {
   // PIC-18: register each of the five turn-lifecycle events under its bare,
@@ -165,7 +165,7 @@ export function subscribePromptModeCancelForwarding(
   // `ctx.signal` and, if it has aborted, forward that abort into the V17a
   // `loomAbort` controller. It never resolves query completion.
   for (const event of PROMPT_MODE_LIFECYCLE_EVENTS) {
-    pi.on(event, () => {
+    eventApi.on(event, () => {
       const invocation = getActiveInvocation();
       if (invocation === undefined) {
         return;

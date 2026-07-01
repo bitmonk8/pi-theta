@@ -409,10 +409,10 @@ export interface UnreachableCode {
  * V3d-T stubs this inert (always `undefined`); the paired V3d leaf fills it in.
  */
 export function checkUnreachableCode(
-  ctx: UnreachableCode,
+  unreachable: UnreachableCode,
   site: FnSite,
 ): Diagnostic | undefined {
-  if (!ctx.hasCodeAfterReturn) {
+  if (!unreachable.hasCodeAfterReturn) {
     return undefined;
   }
   // RET-3 — unreachable code is a warning, not an error. Message from

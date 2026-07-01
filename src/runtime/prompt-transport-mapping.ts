@@ -79,7 +79,7 @@ export interface PromptModeProbeCtx {
  */
 export function extractPromptModeQueryResult(
   messages: readonly Message[],
-  ctx: PromptModeProbeCtx,
+  probeCtx: PromptModeProbeCtx,
 ): PromptModeQueryResult {
   // PIC-51 cancellation short-circuit: the post-`waitForIdle` error-state probe
   // runs unconditionally on resolution, but when `loomAbort.signal.aborted` is
@@ -87,7 +87,7 @@ export function extractPromptModeQueryResult(
   // error state — even when Pi tore down cleanly and `waitForIdle()` resolved
   // without any error written. This precedes both the `stopReason: "error"`
   // probe and the `Ok(string)` extraction.
-  if (ctx.aborted) {
+  if (probeCtx.aborted) {
     const cancelled: CancelledError = makeCancelledError();
     return { ok: false, error: cancelled };
   }
@@ -103,7 +103,7 @@ export function extractPromptModeQueryResult(
       kind: "transport",
       message: trailing.errorMessage ?? PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE,
       http_status: null,
-      provider: ctx.provider,
+      provider: probeCtx.provider,
       retryable: false,
     };
     return { ok: false, error: transport };

@@ -15,7 +15,7 @@
 // turn, so the `M-T` SLSH-2 assertions red on the absent prompt-mode pipeline —
 // the intended-reason red for the tests task.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { LoomFixture } from "../extension/factory";
 
 /** A single in-memory `.loom` source the minimal pipeline discovers. */
@@ -103,7 +103,7 @@ export function buildMinimalLoom(
   const parsed = parseMinimalLoom(loom.source);
   return {
     slashName: loom.slashName,
-    run: async (_args, ctx) => {
+    run: async (_args, ctx: ExtensionCommandContext) => {
       // Prompt mode: the single query is a turn the user sees in their session
       // (SLSH-2). Issue the rendered query text as one user turn and await the
       // streamed assistant response; the interpreter resumes only after the

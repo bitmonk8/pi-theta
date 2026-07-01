@@ -125,9 +125,9 @@ export function parseParams(
   const required: string[] = [];
   const defs: Record<string, Record<string, unknown>> = {};
   for (const field of fields) {
-    const ctx: LowerCtx = { bodyTypeMap, defs, unresolved: [] };
-    properties[field.name] = lowerTypeExpr(field.typeSource, ctx);
-    for (const name of ctx.unresolved) {
+    const lowerCtx: LowerCtx = { bodyTypeMap, defs, unresolved: [] };
+    properties[field.name] = lowerTypeExpr(field.typeSource, lowerCtx);
+    for (const name of lowerCtx.unresolved) {
       diagnostics.push({
         severity: "error",
         code: "loom/parse/unresolved-named-type",
@@ -216,7 +216,7 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
  * Lower a single `params:` type expression to its JSON-Schema fragment,
- * resolving every `NamedType` whole-file against `ctx.bodyTypeMap`:
+ * resolving every `NamedType` whole-file against `lowerCtx.bodyTypeMap`:
  *
  *   - a primitive (`string`/`number`/`integer`/`boolean`/`null`) lowers to
  *     `{ "type": <name> }`;
@@ -233,7 +233,7 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * schema-subset lowering leaves, not this seam; an unrecognised form lowers
  * permissively (`{}`) while still resolving any `NamedType` it nests.
  */
-function lowerTypeExpr(source: string, ctx: LowerCtx): Record<string, unknown> {
+function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string, unknown> {
   const s = source.trim();
 
   // Generic application: `ctor<args>`.
@@ -243,12 +243,12 @@ function lowerTypeExpr(source: string, ctx: LowerCtx): Record<string, unknown> {
     const args = splitTopLevel(s.slice(lt + 1, s.length - 1), ",");
     if (ctor === "array" && args.length === 1) {
       const first = args[0] ?? "";
-      return { type: "array", items: lowerTypeExpr(first, ctx) };
+      return { type: "array", items: lowerTypeExpr(first, lowerCtx) };
     }
     // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
     // resolve nested named types best-effort, lower permissively.
     for (const arg of args) {
-      lowerTypeExpr(arg, ctx);
+      lowerTypeExpr(arg, lowerCtx);
     }
     return {};
   }
@@ -257,7 +257,7 @@ function lowerTypeExpr(source: string, ctx: LowerCtx): Record<string, unknown> {
   const arms = splitTopLevel(s, "|");
   if (arms.length > 1) {
     const loweredArms: LoweredUnionArm[] = arms.map((arm) => {
-      const lowered = lowerTypeExpr(arm, ctx);
+      const lowered = lowerTypeExpr(arm, lowerCtx);
       const type = lowered["type"];
       if (
         Object.keys(lowered).length === 1 &&
@@ -277,12 +277,12 @@ function lowerTypeExpr(source: string, ctx: LowerCtx): Record<string, unknown> {
   }
   if (IDENTIFIER.test(s)) {
     // An identifier-shaped atom is a `NamedType`: resolve whole-file.
-    const resolved = ctx.bodyTypeMap.get(s);
+    const resolved = lowerCtx.bodyTypeMap.get(s);
     if (resolved === undefined) {
-      ctx.unresolved.push(s);
+      lowerCtx.unresolved.push(s);
       return {};
     }
-    ctx.defs[s] = resolved;
+    lowerCtx.defs[s] = resolved;
     return { $ref: `#/$defs/${s}` };
   }
   // A literal-type atom (string/number literal) or any other form: lower

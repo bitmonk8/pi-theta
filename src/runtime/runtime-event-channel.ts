@@ -235,14 +235,14 @@ export interface RuntimeEventEmitContext {
  */
 export function buildRuntimeEventNote(
   event: RuntimeEvent,
-  ctx: RuntimeEventEmitContext,
+  emitCtx: RuntimeEventEmitContext,
 ): SystemNote {
   // Top-level cascade → `display: true` with the user-facing template;
   // author-handled / subagent-private invoke-reached cascade → `display: false`
   // with `content: ""` (the empty string, verbatim).
   return {
-    content: ctx.topLevelCascade ? ctx.userFacingTemplate : "",
-    display: ctx.topLevelCascade,
+    content: emitCtx.topLevelCascade ? emitCtx.userFacingTemplate : "",
+    display: emitCtx.topLevelCascade,
     details: { event },
   };
 }
@@ -308,14 +308,14 @@ export function buildRecoveryNote(
  */
 export function emitRuntimeEvent(
   event: RuntimeEvent,
-  ctx: RuntimeEventEmitContext,
+  emitCtx: RuntimeEventEmitContext,
   deps: SystemNoteChannelDeps,
 ): void {
   // Exactly one always-log emission at the origin, routed through the single
   // `details: { event }` group-A shape. The note carries `event` verbatim
   // (including any `masked` the originating site attached), so the pure-read
   // predicate is never re-evaluated here.
-  sendSystemNote(buildRuntimeEventNote(event, ctx), deps);
+  sendSystemNote(buildRuntimeEventNote(event, emitCtx), deps);
 }
 
 /**

@@ -62,7 +62,17 @@ export type SurfaceEntryKind =
   | "engines-pin"
   | "peer-dep-range"
   | "strict-capability-probe"
-  | "api-coverage";
+  | "api-coverage"
+  // The three inventory-closure-audit (`V18b`) category entry kinds coined per
+  // audit-target-categories.md §"Target surface categories": a category-(1)
+  // `pi.<member>` member-access surface, a category-(2) named import from one
+  // of the four `@earendil-works/*` peer packages, and a category-(3)
+  // canonical-`ctx` member-access surface. Each participates in inventory
+  // resolution via its `id` field (the audit's `path`): category-(1)/(3) by
+  // rightmost dot-separated segment, category-(2) by leftmost segment.
+  | "pi-member"
+  | "peer-named-import"
+  | "ctx-member";
 
 /**
  * One row of the broader Pi-side surface inventory. `id` is the surface's
@@ -141,6 +151,38 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // The two non-capability category-(1) `pi.<member>` surfaces.
     { id: "pi.registerFlag", kind: "namespace-function" },
     { id: "pi.getFlag", kind: "namespace-function" },
+    // Additional category-(1) `pi.<member>` surfaces the runtime touches that
+    // are not capability function members (`V18b`, audit-target-categories.md
+    // category (1)): the factory-time / session-lifecycle `pi.on` subscription
+    // surface and the `pi.getCommands()` collision-pass read.
+    { id: "pi.on", kind: "pi-member" },
+    { id: "pi.getCommands", kind: "pi-member" },
+    // The category-(3) canonical-`ctx` member-access surfaces the runtime
+    // touches (`V18b`, audit-target-categories.md category (3)), derived from
+    // the `ExtensionContext` / `ExtensionCommandContext` `.d.ts` declarations.
+    { id: "ctx.waitForIdle", kind: "ctx-member" },
+    // The category-(2) named-import surfaces from the four `@earendil-works/*`
+    // peer packages the runtime imports (`V18b`, audit-target-categories.md
+    // category (2); resolved by leftmost-segment against the imported name).
+    { id: "ExtensionAPI", kind: "peer-named-import" },
+    { id: "ExtensionCommandContext", kind: "peer-named-import" },
+    { id: "MessageRenderer", kind: "peer-named-import" },
+    { id: "SlashCommandInfo", kind: "peer-named-import" },
+    { id: "estimateTokens", kind: "peer-named-import" },
+    { id: "AgentMessage", kind: "peer-named-import" },
+    { id: "Api", kind: "peer-named-import" },
+    { id: "Context", kind: "peer-named-import" },
+    { id: "Model", kind: "peer-named-import" },
+    { id: "Message", kind: "peer-named-import" },
+    { id: "AssistantMessage", kind: "peer-named-import" },
+    { id: "UserMessage", kind: "peer-named-import" },
+    { id: "ToolResultMessage", kind: "peer-named-import" },
+    { id: "TextContent", kind: "peer-named-import" },
+    { id: "ToolCall", kind: "peer-named-import" },
+    { id: "Tool", kind: "peer-named-import" },
+    { id: "ProviderResponse", kind: "peer-named-import" },
+    { id: "ProviderStreamOptions", kind: "peer-named-import" },
+    { id: "Component", kind: "peer-named-import" },
     // The non-`namespace-function` operand rows the version-bump gates read.
     { id: "pi-engines-node", kind: "engines-pin" },
     { id: "peer-dep-range", kind: "peer-dep-range" },

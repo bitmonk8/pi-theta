@@ -1063,3 +1063,62 @@ field `path`; the already-shipped `V18a` `SDK_SURFACE_INVENTORY` chose `id` for
 the same role. The seam consumes `id` as that identifier rather than introducing
 a parallel `path` field. Logged as a divergence in
 `.pi/impl-progress/decisions.jsonl`.
+
+## 2026-07-01 — V18b inventory-closure audit: implementation divergences
+
+The build-time inventory-closure audit (`src/extension/inventory-closure-audit.ts`)
+implements the spec's behavioural contract (pi-integration-contract audit shards)
+faithfully for the shapes the loom-1.0 source tree exercises, with these bounded,
+documented divergences from the spec's literal completeness. The spec explicitly
+frames the audit as an optional post-1.0 hardening ("MAY publish"), so a bounded
+first cut that lands green and reds on a seed satisfies the leaf's Ships-when.
+
+1. **Marker classification is scoped to reference / family-(4) lines.** A
+   `// allow-pi-surface:` marker is classified (well-formed → authorise line;
+   clause-(h) on a family-(4) line → family-(5); otherwise malformed → family-(5))
+   only on lines that carry a detected category-(1)/(2)/(3) reference or a
+   family-(4) shape. This deliberately drops detection of *orphan / standalone*
+   malformed markers (malformed-marker clause (e), a marker on a line with no
+   surface) — line-based scanning cannot tell that such a line sits inside a
+   `/* … */` block comment, and the audit's OWN source discusses the marker
+   string in prose/regex; classifying every line would false-positive on it.
+   Net effect: markers still authorise real surfaces and clause-(h) dual-emission
+   works; genuinely orphaned markers are not reported.
+
+2. **Stale-marker (s1/s2) detection deferred.** The spec requires the audit to
+   surface a well-formed marker that authorises nothing (s1 no-surface-on-line,
+   s2 all-in-inventory) under family (5). Not implemented — a marker that
+   authorises nothing is a silent no-op rather than a family-(5) red. This keeps
+   the fixture markers (which authorise real off-inventory surfaces) and the
+   land-green sweep robust, and avoids a false positive if a marked surface is
+   later promoted into the inventory.
+
+3. **Static-AST scope approximation.** Category-(1)/(3) carrier detection keys on
+   a function-ancestor whose parameter is named `pi`/`ctx` and textually typed
+   `ExtensionAPI` / `ExtensionContext`|`ExtensionCommandContext` (the spec's
+   default static-AST carrier rule), not full lexical binding resolution. This is
+   why the land-green sweep renames every non-Pi `ctx`/`pi` parameter: the
+   canonical name is reserved across the tree, so a `ctx: LowerCtx` etc. would
+   otherwise fire family-(4) off-canonical-annotation.
+
+4. **Family-(4) shape set is bounded to the tree's shapes.** Implemented:
+   `import * as`, default/dynamic/side-effect import, aliased import/export
+   specifier, `export *`, off-canonical-name/annotation `pi`/`ctx` params. Not
+   yet detected (no occurrence in the loom-1.0 tree): destructured carrier
+   params, subtype-creation (`extends`/`implements`/`&`), wrapped/generic/aliased
+   carrier annotations, value/captured rebindings, computed access, and the
+   CJS/`createRequire` reach shapes.
+
+5. **Infrastructure-failure handling is minimal.** The gate wraps the audit in a
+   fail-closed `try`/`catch` that emits one `audit/infra/audit-crash/uncaught`
+   record and rethrows; the spec's finer infra taxonomy (parse/encoding/
+   wall-clock-budget/partial-evaluation) is not itemised. `ts.createSourceFile`
+   is error-tolerant, so parse failures do not throw and are not surfaced.
+
+6. **Inventory `path` is the `id` field.** V18a named the minimum-entry-shape
+   stable identifier `id`; the audit resolves against `id` as the spec's `path`.
+
+**Unrelated pre-existing reds.** `tests/pre-evaluation-reload-failure.test.ts`
+(4 V4g-T tests) fails on the clean `main` baseline (the "loom progress snapshot"
+commit) independent of this leaf; confirmed by `git stash` → run → `stash pop`.
+Out of V18b's scope; left for the owning leaf.

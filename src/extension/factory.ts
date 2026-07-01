@@ -260,7 +260,7 @@ export function createLoomExtension(
         for (const fixture of deps.fixtures) {
           try {
             pi.registerCommand(fixture.slashName, {
-              handler: (args, ctx) => fixture.run(args, ctx),
+              handler: (args, ctx: ExtensionCommandContext) => fixture.run(args, ctx),
             });
           } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
             deps.emitDiagnostic?.(
