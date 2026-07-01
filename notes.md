@@ -1168,3 +1168,30 @@ runtime binder (`binder-inference.ts`) keeps its own module-private
 behaviour). The two are intentionally distinct representations of the same
 spec table; reconciling them into one source is left for the paired `V18c` /
 future refactor.
+
+## V9h-T — unknown-reason-rule seam shape (2026-07-01)
+
+The V9h logic is exposed as a pure function `classifyShutdownReason(event,
+inventory)` in `src/extension/unknown-reason-rule.ts` rather than as a method
+folded into the (not-yet-built) V9g `session_shutdown` handler. Rationale:
+- The two pre-sub-step-1 reads and the four-arm routing are self-contained and
+  the natural unit V9g's handler-entry step consumes; a pure function keeps
+  V9h's obligations testable in isolation before V9g exists.
+- The pinned-constants snapshot is passed in as `inventory` (the injected
+  `SDK_SURFACE_INVENTORY`) so fixtures can force every snapshot-lookup failure
+  (undefined block, no match, kind-mismatch, throwing getters, invalid
+  `literals`). The spec's "import `SDK_SURFACE_INVENTORY` directly rather than
+  re-declare a copy" (PIC-46 single-site edit) is satisfied by the handler
+  importing the constant and passing it through — no second literal copy — and
+  is consistent with the no-globals DI rule.
+- The classifier's `inventory` parameter is typed against a local structural
+  view `PinnedConstantSnapshotSource` (`{ kind; path?; literals? }`), to which
+  `SDK_SURFACE_INVENTORY` (`SurfaceInventoryEntry[]`) is assignable, so V9h need
+  not widen the V18a inventory element type to add the snapshot entry — it adds
+  the `type-union-snapshot` / `SessionShutdownEvent.reason` row (and whatever
+  entry-shape extension it needs) without a cross-leaf type break here.
+- The single optional `diagnostic` field encodes PIC-47 mutual exclusivity (at
+  most one of the two host codes per event) structurally.
+This is a seam-shape choice, not a divergence from spec text (the iteration
+primitive and internal handler structure are explicitly leaf-owned); no
+`decisions.jsonl` entry.
