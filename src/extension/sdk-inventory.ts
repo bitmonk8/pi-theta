@@ -59,6 +59,11 @@ export interface CapabilityObligation {
  */
 export type SurfaceEntryKind =
   | "namespace-function"
+  // The `SessionShutdownEvent['reason']` closed-set snapshot the unknown-reason
+  // rule (`V9h`) reads its `literals` field from (pi-integration-contract/
+  // unknown-reason-rule.md PIC-46). It is the single source of truth shared by
+  // the build-time surface-inventory test and the runtime handler.
+  | "type-union-snapshot"
   | "engines-pin"
   | "peer-dep-range"
   | "strict-capability-probe"
@@ -97,6 +102,18 @@ export interface SurfaceInventoryEntry {
   readonly id: string;
   readonly kind: SurfaceEntryKind;
   readonly payload?: Readonly<Record<string, unknown>>;
+  /**
+   * The SDK-union path a `type-union-snapshot` row snapshots (PIC-46). The
+   * unknown-reason rule locates its row by the composite predicate
+   * `(kind === "type-union-snapshot") && (path === "SessionShutdownEvent.reason")`.
+   */
+  readonly path?: string;
+  /**
+   * The pinned closed-set literals a `type-union-snapshot` row carries; the
+   * unknown-reason rule's set-membership check consumes this field directly
+   * with no separate copy in the handler (PIC-45/PIC-46).
+   */
+  readonly literals?: readonly string[];
 }
 
 /**
@@ -153,6 +170,17 @@ export const CAPABILITY_OBLIGATIONS: readonly CapabilityObligation[] =
  */
 export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
   Object.freeze([
+    // The `SessionShutdownEvent['reason']` closed-set snapshot the
+    // unknown-reason rule (`V9h`) reads (PIC-45/PIC-46/PIC-48(c)). Single source
+    // of truth across the build-time surface-inventory test and the runtime
+    // `session_shutdown` handler; located by the composite
+    // `(kind, path)` predicate, never by array position.
+    {
+      id: "SessionShutdownEvent.reason",
+      kind: "type-union-snapshot",
+      path: "SessionShutdownEvent.reason",
+      literals: ["quit", "reload", "new", "resume", "fork"],
+    },
     // The nine factory-probable capability function members (Step 0 (c)).
     { id: "pi.registerCommand", kind: "namespace-function" },
     { id: "pi.sendUserMessage", kind: "namespace-function" },

@@ -17,6 +17,18 @@
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 
+// Anchor-stable contract surface (PIC-48 (a)/(b)): the two mutually-exclusive
+// teardown-handler diagnostic codes, sourced verbatim from
+// diagnostics/code-registry-host.md. The pre-init `"<unreadable>"` sentinel and
+// the closed-set literals themselves are pinned in `SDK_SURFACE_INVENTORY`
+// (PIC-46) and read from the injected snapshot, not restated here.
+const REASON_UNKNOWN_CODE = "loom/host/session-shutdown-reason-unknown";
+const PINNED_CONSTANT_UNREADABLE_CODE =
+  "loom/host/session-shutdown-pinned-constant-unreadable";
+
+/** The pre-init captured-reason sentinel (PIC-45). */
+const UNREADABLE = "<unreadable>";
+
 /**
  * The Pi `session_shutdown` event as the unknown-reason rule reads it. `reason`
  * is read exactly once, inside the handler-entry `try`/`catch` (PIC-47), so a
@@ -80,21 +92,220 @@ export interface ShutdownReasonClassification {
  * `inventory` is the injected `SDK_SURFACE_INVENTORY` (or `undefined` for the
  * circular-init / live-binding-gap arm that MUST route to `"missing-entry"`
  * before the iteration primitive runs).
- *
- * V9h-T stub: returns the snapshot-failure shape with no diagnostic, so every
- * routing / discriminator / membership test reds on its own primary assertion
- * (the paired V9h fills in the reads, the composite-predicate lookup, the
- * membership check, and the two mutually-exclusive emissions).
  */
 export function classifyShutdownReason(
   event: SessionShutdownEventLike,
   inventory: readonly PinnedConstantSnapshotSource[] | undefined,
 ): ShutdownReasonClassification {
-  void event;
-  void inventory;
+  // Handler-entry pre-inits (PIC-47 carve-out (b)): both variables take their
+  // pre-init values before either read runs; the snapshot-failure path leaves
+  // them unchanged.
+  let capturedEventReason = UNREADABLE;
+  let pinnedConstantReadOk = false;
+
+  // --- Read (1): snapshot lookup-and-`literals` read (runs first, PIC-47). ---
+  const snapshot = readSnapshotLiterals(inventory);
+  if (snapshot.failure !== undefined) {
+    // Snapshot-side failure is dominant: the `event.reason` read is never
+    // reached, so `capturedEventReason` stays at its pre-init and only
+    // `pinned-constant-unreadable` fires (mutual exclusivity, PIC-47).
+    return {
+      capturedEventReason,
+      pinnedConstantReadOk,
+      isClosedSetMember: false,
+      diagnostic: pinnedConstantUnreadableDiagnostic(snapshot.failure),
+    };
+  }
+  const literals = snapshot.literals;
+  pinnedConstantReadOk = true;
+
+  // --- Read (2): `event.reason` read (PIC-47). ---
+  let reasonValue: unknown;
+  let reasonReadThrew = false;
+  try {
+    reasonValue = event.reason;
+  } catch { // allow-broad-catch: loom/host/session-shutdown-reason-unknown — pi-integration-contract/unknown-reason-rule.md
+    // A throwing property-access getter is treated as an unknown reason.
+    reasonReadThrew = true;
+  }
+
+  if (reasonReadThrew) {
+    // Throwing access: observed is the `"<unreadable>"` sentinel (PIC-45).
+    return {
+      capturedEventReason: UNREADABLE,
+      pinnedConstantReadOk,
+      isClosedSetMember: false,
+      diagnostic: reasonUnknownDiagnostic(UNREADABLE),
+    };
+  }
+
+  // --- Read (3): set-membership comparison against the snapshot's literals. ---
+  if (typeof reasonValue === "string" && literals.includes(reasonValue)) {
+    // Closed-set member: capture the literal string; no diagnostic.
+    capturedEventReason = reasonValue;
+    return {
+      capturedEventReason,
+      pinnedConstantReadOk,
+      isClosedSetMember: true,
+    };
+  }
+
+  // Unknown reason: capture `String(event.reason)` (defended against a throwing
+  // coercion, PIC-45) and fire `reason-unknown`.
+  const observed = coerceObserved(reasonValue);
   return {
-    capturedEventReason: "<unreadable>",
-    pinnedConstantReadOk: false,
+    capturedEventReason: observed,
+    pinnedConstantReadOk,
     isClosedSetMember: false,
+    diagnostic: reasonUnknownDiagnostic(observed),
+  };
+}
+
+/** The outcome of the snapshot lookup-and-`literals` read (PIC-47). */
+interface SnapshotReadResult {
+  /** The validated closed set on success. */
+  readonly literals: readonly string[];
+  /** The `details.failure` discriminator on failure, else `undefined`. */
+  readonly failure?: string;
+}
+
+/**
+ * Run the snapshot lookup-and-`literals` read under `try`/`catch`, routing the
+ * four spec-owned failure modes to their `details.failure` discriminators
+ * (PIC-47): `undefined` inventory or no matching entry → `"missing-entry"`; a
+ * throwing per-entry `.kind`/`.path`/`.literals` read → `"throw:<String(error)>"`;
+ * a structurally-invalid `literals` field → `"literals-shape-invalid"`.
+ */
+function readSnapshotLiterals(
+  inventory: readonly PinnedConstantSnapshotSource[] | undefined,
+): SnapshotReadResult {
+  // The circular-init / live-binding gap MUST be guarded before the iteration
+  // primitive so it routes to `"missing-entry"`, not a `"throw:TypeError…"`.
+  if (inventory === undefined) {
+    return { literals: [], failure: "missing-entry" };
+  }
+  try {
+    let match: PinnedConstantSnapshotSource | undefined;
+    for (const entry of inventory) {
+      // Composite predicate: both clauses (PIC-46). A per-entry `.kind`/`.path`
+      // getter that throws propagates to the catch arm as a `"throw:"` value.
+      if (
+        entry.kind === "type-union-snapshot" &&
+        entry.path === "SessionShutdownEvent.reason"
+      ) {
+        match = entry;
+        break;
+      }
+    }
+    if (match === undefined) {
+      // No matching entry, or a defensive kind-mismatch at the matching path.
+      return { literals: [], failure: "missing-entry" };
+    }
+    // A throwing `.literals` getter propagates to the catch arm.
+    const raw = match.literals;
+    if (!isValidClosedSet(raw)) {
+      return { literals: [], failure: "literals-shape-invalid" };
+    }
+    return { literals: raw };
+  } catch (error: unknown) { // allow-broad-catch: loom/host/session-shutdown-pinned-constant-unreadable — pi-integration-contract/unknown-reason-rule.md
+    return { literals: [], failure: throwDiscriminator(error) };
+  }
+}
+
+/**
+ * The four `"literals-shape-invalid"` sub-cases (PIC-47): not an array; a
+ * non-string element; the empty array; or an array of strings containing the
+ * empty string.
+ */
+function isValidClosedSet(raw: unknown): raw is readonly string[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return false;
+  }
+  return raw.every((element) => typeof element === "string" && element !== "");
+}
+
+/**
+ * `String(event.reason)` for the `details.observed` payload, defended against a
+ * throwing `toString`/`Symbol.toPrimitive` — on such a throw the observed value
+ * falls back to the bare `"<unreadable>"` sentinel (no `"throw:"` prefix to
+ * preserve here, unlike the `details.failure` discriminator) (PIC-45).
+ */
+function coerceObserved(reasonValue: unknown): string {
+  try {
+    // Pinned to `String(...)` (not a template literal, which re-introduces the
+    // symbol-throw bug `String()` avoids).
+    return String(reasonValue);
+  } catch { // allow-broad-catch: loom/host/session-shutdown-reason-unknown — pi-integration-contract/unknown-reason-rule.md
+    return UNREADABLE;
+  }
+}
+
+// The `"throw:<String(error)>"` discriminator grammar (PIC-47 / PIC-48 (d)):
+// the payload is truncated to at most 256 UTF-16 code units, control characters
+// are escaped, and a throwing `String(error)` falls back to `"throw:<unreadable>"`.
+const THROW_PREFIX = "throw:";
+const MAX_PAYLOAD_CODE_UNITS = 256;
+
+function throwDiscriminator(error: unknown): string {
+  let coerced: string;
+  try {
+    coerced = String(error);
+  } catch { // allow-broad-catch: loom/host/session-shutdown-pinned-constant-unreadable — pi-integration-contract/unknown-reason-rule.md
+    // The `"throw:"` prefix is preserved so operator dedup on `startsWith`
+    // continues to bucket coercion-failure rows under the throw discriminator.
+    return `${THROW_PREFIX}${UNREADABLE}`;
+  }
+  // Truncate first (before escaping), so the post-prefix payload is at most 256
+  // UTF-16 code units regardless of escape expansion.
+  const truncated = coerced.slice(0, MAX_PAYLOAD_CODE_UNITS);
+  return `${THROW_PREFIX}${escapeControlCharacters(truncated)}`;
+}
+
+/**
+ * Escape control characters per the pinned escape classes: `\n`/`\r`/`\t` become
+ * the two-character literal escapes; every other code point in U+0000–U+001F and
+ * U+007F–U+009F becomes the six-character `\uXXXX` escape with exactly four
+ * lowercase zero-padded hex digits; all other characters pass through unchanged.
+ */
+function escapeControlCharacters(payload: string): string {
+  let out = "";
+  for (let i = 0; i < payload.length; i++) {
+    const char = payload[i];
+    const code = payload.charCodeAt(i);
+    if (char === "\n") {
+      out += "\\n";
+    } else if (char === "\r") {
+      out += "\\r";
+    } else if (char === "\t") {
+      out += "\\t";
+    } else if (
+      (code >= 0x00 && code <= 0x1f) ||
+      (code >= 0x7f && code <= 0x9f)
+    ) {
+      out += `\\u${code.toString(16).padStart(4, "0")}`;
+    } else {
+      out += char;
+    }
+  }
+  return out;
+}
+
+/** The `reason-unknown` (W) diagnostic, emitted before sub-step 1 (PIC-45). */
+function reasonUnknownDiagnostic(observed: string): Diagnostic {
+  return {
+    severity: "warning",
+    code: REASON_UNKNOWN_CODE,
+    message: `session_shutdown event.reason outside closed set: ${observed}`,
+    details: { observed },
+  };
+}
+
+/** The `pinned-constant-unreadable` (W) diagnostic (PIC-47). */
+function pinnedConstantUnreadableDiagnostic(failure: string): Diagnostic {
+  return {
+    severity: "warning",
+    code: PINNED_CONSTANT_UNREADABLE_CODE,
+    message: `session_shutdown pinned-constant read failed: ${failure}`,
+    details: { failure },
   };
 }
