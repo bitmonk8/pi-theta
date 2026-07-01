@@ -257,7 +257,10 @@ describe("V9i-T — PIC-41 abort forwarding", () => {
 
   it("PIC-41: a loomAbort abort forwards to AgentSession.abort() via the one-shot listener", () => {
     const loomAbort = new AbortController();
-    const { session, ...rec } = makeSession();
+    // Keep `rec` un-spread so `rec.abortCalls` reads the live getter; object-rest
+    // (`...rec`) would snapshot the getter to its value at destructure time.
+    const rec = makeSession();
+    const { session } = rec;
 
     attachSubagentAbortForwarding(loomAbort, session);
     expect(rec.abortCalls).toBe(0);
@@ -271,7 +274,10 @@ describe("V9i-T — PIC-41 abort forwarding", () => {
   it("PIC-41: an already-aborted loomAbort at attach time calls AgentSession.abort() synchronously", () => {
     const loomAbort = new AbortController();
     loomAbort.abort(new Error("pre-aborted"));
-    const { session, ...rec } = makeSession();
+    // Keep `rec` un-spread so `rec.abortCalls` reads the live getter; object-rest
+    // (`...rec`) would snapshot the getter to its value at destructure time.
+    const rec = makeSession();
+    const { session } = rec;
 
     attachSubagentAbortForwarding(loomAbort, session);
 

@@ -807,3 +807,26 @@ impl fills it). Design decisions recorded for the V13a implementer:
   assistant message are concatenated with no separator (mirroring the
   compact-transcript `[assistant]` body selection); untested by V9c-T but the
   faithful reading of "the text content of every assistant message".
+
+## 2026-07-01 — V9i: V9i-T test-harness defect (object-rest getter snapshot)
+
+The PIC-41 abort-forwarding tests in `tests/subagent-isolation.test.ts` built
+their session double with `const { session, ...rec } = makeSession();`, where
+`makeSession()` returns `{ session, get abortCalls() {...} }`. Object-rest
+(`...rec`) performs CopyDataProperties, which *invokes* the `abortCalls` getter
+once at destructure time and stores the resulting number (0). `rec.abortCalls`
+is therefore a frozen snapshot, not a live view of the closure counter, so
+`expect(rec.abortCalls).toBe(1)` after `attachSubagentAbortForwarding(...)` fired
+`abort()` could never pass — the assertion was unsatisfiable independently of the
+implementation. Verified empirically with a Node repro (descriptor becomes a
+plain `value: 0` data property after spread).
+
+Minimal fix (divergence logged in decisions.jsonl): keep `rec` un-spread —
+`const rec = makeSession(); const { session } = rec;` — so `rec.abortCalls` reads
+the live getter. The PIC-41 obligation (abort forwarded exactly once, and the
+already-aborted synchronous pre-registration path) is preserved; only the harness
+plumbing changed.
+
+Unrelated pre-existing reds: 4 tests in
+`tests/pre-evaluation-reload-failure.test.ts` (a V4g-T subsystem) fail on the
+base tree (`git stash` confirms) and are outside V9i's scope.

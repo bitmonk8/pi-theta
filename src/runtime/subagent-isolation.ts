@@ -58,9 +58,11 @@
 // (`AgentSession` member surface); cancellation.md; return.md / functions.md
 // (FN-5, via the `V3d` function-result seam).
 
-import type { Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { SHUTDOWN_AWAIT_CAP_MS } from "../extension/capability-probe";
+import { extractTrailingTurnText } from "./conversation-drive";
+import { makeCancelledError } from "./cancellation-core";
 import { functionResult, type FunctionResult } from "./function-result";
 import type { LoomValue } from "./value";
 import type { QueryError } from "./query-error";
@@ -73,11 +75,10 @@ import type { QueryError } from "./query-error";
  * PIC-9. The bounded budget (milliseconds) the subagent disposal phase runs
  * under. The compliant `V9i` sources this from the single `SHUTDOWN_AWAIT_CAP_MS`
  * declaration site (`V9a`), so `SUBAGENT_DISPOSE_BUDGET_MS === SHUTDOWN_AWAIT_CAP_MS`.
- *
- * V9i-T stubs this to `0` so the "SHUTDOWN_AWAIT_CAP_MS covers disposal" test
- * reds on its own primary assertion.
+ * There is no separate budget for disposal; it is covered by the single
+ * `SHUTDOWN_AWAIT_CAP_MS` declaration site.
  */
-export const SUBAGENT_DISPOSE_BUDGET_MS = 0;
+export const SUBAGENT_DISPOSE_BUDGET_MS = SHUTDOWN_AWAIT_CAP_MS;
 
 // ---------------------------------------------------------------------------
 // PIC-40 — pre-spawn model guard.
@@ -105,12 +106,19 @@ export interface ModelGuardOutcome {
  * PIC-40. Decide whether the spawn may proceed given the loom's resolved model.
  * A resolved `undefined` refuses the spawn with the
  * `loom/runtime/subagent-model-unresolved` diagnostic.
- *
- * V9i-T STUB (non-compliant): always proceeds — never guards — so the guard-fires
- * test reds on its own primary assertion.
  */
 export function preSpawnModelGuard(model: string | undefined): ModelGuardOutcome {
-  void model;
+  // PIC-40: `model === undefined` MUST NOT proceed to `createAgentSession`.
+  if (model === undefined) {
+    return {
+      proceed: false,
+      diagnostic: {
+        severity: "error",
+        code: SUBAGENT_MODEL_UNRESOLVED_CODE,
+        message: SUBAGENT_MODEL_UNRESOLVED_MESSAGE,
+      },
+    };
+  }
   return { proceed: true };
 }
 
@@ -126,15 +134,20 @@ export interface GuardedSpawnDeps {
  * PIC-40. Gate the spawn behind the pre-spawn model guard: when the resolved
  * `model` is `undefined` the runtime MUST NOT call `createAgentSession` and
  * instead emits the `subagent-model-unresolved` diagnostic.
- *
- * V9i-T STUB (non-compliant): always calls `createAgentSession` regardless of
- * `model`, so the "does not spawn when model unresolved" test reds.
  */
 export async function guardedSubagentSpawn(
   model: string | undefined,
   deps: GuardedSpawnDeps,
 ): Promise<{ readonly spawned: boolean }> {
-  void model;
+  const outcome = preSpawnModelGuard(model);
+  if (!outcome.proceed) {
+    // PIC-40: refuse the spawn before calling `createAgentSession` and emit the
+    // terminal `subagent-model-unresolved` diagnostic.
+    if (outcome.diagnostic !== undefined) {
+      deps.emitDiagnostic(outcome.diagnostic);
+    }
+    return { spawned: false };
+  }
   await deps.createAgentSession();
   return { spawned: true };
 }
@@ -181,9 +194,9 @@ export interface SpawnDeps {
 }
 
 /**
- * The `CreateAgentSessionOptions` subset the spawn populates. `signal` is
- * declared optional only so a non-compliant stub can set it; the compliant path
- * MUST omit it entirely (PIC-41).
+ * The `CreateAgentSessionOptions` subset the spawn populates. Per PIC-41 there is
+ * no `signal` field: cancellation is forwarded solely via the one-shot
+ * `loomAbort.signal` listener, never through a spawn option.
  */
 export interface SubagentSpawnOptions {
   readonly customTools: readonly LoweredTool[];
@@ -191,7 +204,6 @@ export interface SubagentSpawnOptions {
   readonly model: string;
   readonly sessionManager: object;
   readonly resourceLoader: SubagentResourceLoader;
-  readonly signal?: AbortSignal;
 }
 
 /**
@@ -200,25 +212,26 @@ export interface SubagentSpawnOptions {
  * `DefaultResourceLoader.systemPromptOverride` channel), the `tools` allowlist
  * derived from the lowered `customTools`, a fresh `SessionManager.inMemory(cwd)`,
  * and NO `signal` field.
- *
- * V9i-T STUB (non-compliant): routes `system:` through the
- * `DefaultResourceLoader.systemPromptOverride` construction channel (PIC-23),
- * includes a `signal` field (PIC-41), drifts the `tools` allowlist away from the
- * `customTools` names, and uses a non-in-memory placeholder session manager
- * (isolation) — so the PIC-23 / PIC-41 / isolation tests red on their own
- * primary assertions.
  */
 export function buildSpawnOptions(inputs: SpawnInputs, deps: SpawnDeps): SubagentSpawnOptions {
-  const resourceLoader = deps.makeDefaultResourceLoader({
-    systemPromptOverride: () => inputs.loomSystemPrompt,
-  });
+  // PIC-23: the loom-constructed adapter delivers the resolved `system:` verbatim
+  // via `getSystemPrompt()` and appends nothing; the
+  // `DefaultResourceLoader.systemPromptOverride` construction channel is NOT used.
+  const resourceLoader: SubagentResourceLoader = {
+    getSystemPrompt: (): string => inputs.loomSystemPrompt,
+    getAppendSystemPrompt: (): string[] => [],
+  };
+  // Isolation: a fresh in-memory session manager for this cwd (no shared
+  // transcript) and a `tools` allowlist derived from the same lowered
+  // `customTools` set (no shared tool table, no drift).
   return {
     customTools: inputs.customTools,
-    tools: [],
+    tools: inputs.customTools.map((tool) => tool.name),
     model: inputs.model,
-    sessionManager: {},
+    sessionManager: deps.makeInMemorySessionManager(inputs.cwd),
     resourceLoader,
-    signal: inputs.loomAbort.signal,
+    // PIC-41: NO `signal` field — the key is omitted entirely; cancellation is
+    // forwarded solely via the one-shot `loomAbort.signal` listener below.
   };
 }
 
@@ -243,17 +256,37 @@ export interface AbortForwardingRegistration {
  * already aborted at attach time, call `session.abort()` synchronously before
  * registering the listener (the spawn-then-immediate-cancel path). The returned
  * promise is deliberately not awaited from the listener.
- *
- * V9i-T STUB (non-compliant): never calls `session.abort()`, so both the
- * forward-on-abort and already-aborted tests red on their own primary assertions.
  */
 export function attachSubagentAbortForwarding(
   loomAbort: AbortController,
   session: AbortableSubagentSession,
 ): AbortForwardingRegistration {
-  void loomAbort;
-  void session;
-  return { detach: (): void => {} };
+  // PIC-41: the returned `abort()` Promise is deliberately not awaited from the
+  // listener; a swallowing handler absorbs any late rejection per Cancellation's
+  // swallowing-handler rule rather than surfacing it as an unhandled rejection.
+  const fireAbort = (): void => {
+    void session.abort().catch(() => {});
+  };
+
+  // PIC-41: the spawn-then-immediate-cancel path — if `loomAbort` is already
+  // aborted at attach time, `abort()` fires synchronously before the listener is
+  // registered, so correctness does not depend on microtask ordering.
+  if (loomAbort.signal.aborted) {
+    fireAbort();
+    return { detach: (): void => {} };
+  }
+
+  // PIC-41: a one-shot `loomAbort.signal` listener is the sole cancellation-
+  // forwarding mechanism; it is detached in the per-invocation teardown `finally`.
+  const listener = (): void => {
+    fireAbort();
+  };
+  loomAbort.signal.addEventListener("abort", listener, { once: true });
+  return {
+    detach: (): void => {
+      loomAbort.signal.removeEventListener("abort", listener);
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -285,26 +318,30 @@ export interface GlobalEventBus {
  * ignore `willRetry: true` events, resolve from the terminal (`willRetry: false`)
  * `agent_end` event, and unsubscribe before resolving. A fresh subscription is
  * attached per call — never the global `pi.on("agent_end", …)` event.
- *
- * V9i-T STUB (non-compliant): also registers the forbidden global `pi.on`
- * listener (PIC-42 MUST NOT), resolves on the FIRST `agent_end` even when
- * `willRetry` is `true`, and never unsubscribes — so the PIC-42 tests red on
- * their own primary assertions. It still subscribes to the session so the tests
- * can drive it.
  */
 export async function awaitTerminalAgentEnd(
   source: SubagentEventSource,
   globalBus: GlobalEventBus,
 ): Promise<AgentEndEvent> {
+  // PIC-42: the global `pi.on("agent_end", …)` event MUST NOT be used; the
+  // session-local `subscribe` API is the sole completion channel.
+  void globalBus;
   return await new Promise<AgentEndEvent>((resolve) => {
-    // Non-compliant: the forbidden global event.
-    globalBus.on("agent_end", () => {});
-    // Non-compliant: resolves on the first agent_end (ignores willRetry) and
-    // never calls the returned unsubscribe function.
-    source.subscribe((event) => {
-      if (event.type === "agent_end") {
-        resolve(event as AgentEndEvent);
+    let unsubscribe: (() => void) | undefined;
+    unsubscribe = source.subscribe((event) => {
+      if (event.type !== "agent_end") {
+        return;
       }
+      const agentEndEvent = event as AgentEndEvent;
+      // PIC-43: an `agent_end` with `willRetry: true` precedes an SDK retry and
+      // does not resolve the query — keep the subscription live.
+      if (agentEndEvent.willRetry) {
+        return;
+      }
+      // PIC-42: unsubscribe before resolving so the next query on this long-lived
+      // session does not observe this listener.
+      unsubscribe?.();
+      resolve(agentEndEvent);
     });
   });
 }
@@ -326,27 +363,49 @@ export interface SubagentExtractionCtx {
   readonly provider: string;
 }
 
-/** The V9i-T non-compliant success sentinel the extraction stub returns. */
-export const SUBAGENT_EXTRACTION_STUB_SENTINEL = "<<subagent extraction not implemented>>";
-
 /**
  * PIC-43. Extract the untyped query's result from the terminal `agent_end`
  * event's `messages` array, applying — in this fixed order — the cancellation
  * short-circuit (`ctx.aborted` → `Err(cancelled)`), then the transport-failure
  * short-circuit (trailing `assistant` `stopReason: "error"` → `Err(transport)`),
- * then the trailing-assistant-text concatenation (`Ok(string)`).
- *
- * V9i-T STUB (non-compliant): returns a fixed `Ok` sentinel for every event,
- * applying neither short-circuit nor the real text concatenation — so all three
- * PIC-43 tests red on their own primary assertions.
+ * then the trailing-assistant-text concatenation (`Ok(string)`). The text rule
+ * is the same final-turn assistant-text concatenation the prompt-mode driver
+ * pins (`extractTrailingTurnText`), so the "same rule on both sides" invariant
+ * holds.
  */
 export function extractSubagentQueryResult(
   terminalEvent: AgentEndEvent,
   ctx: SubagentExtractionCtx,
 ): SubagentQueryResult {
-  void terminalEvent;
-  void ctx;
-  return { ok: true, value: SUBAGENT_EXTRACTION_STUB_SENTINEL };
+  // PIC-43: cancellation short-circuit runs first — before any text extraction.
+  if (ctx.aborted) {
+    return { ok: false, error: makeCancelledError() };
+  }
+
+  // PIC-43: transport-failure short-circuit next — the trailing `assistant`
+  // message's `stopReason: "error"` maps to `Err(QueryError { kind: "transport" })`.
+  const assistantMessages = terminalEvent.messages.filter(
+    (message): message is AssistantMessage => message.role === "assistant",
+  );
+  const trailingAssistant = assistantMessages[assistantMessages.length - 1];
+  if (trailingAssistant !== undefined && trailingAssistant.stopReason === "error") {
+    return {
+      ok: false,
+      error: {
+        kind: "transport",
+        // `errorMessage` is optional on `AssistantMessage`; the fixed fallback
+        // matches the prompt-mode transport mapping.
+        message: trailingAssistant.errorMessage ?? "provider transport failure",
+        http_status: null,
+        provider: ctx.provider,
+        retryable: false,
+      },
+    };
+  }
+
+  // PIC-43: with both short-circuits passed, the trailing turn's assistant text
+  // is concatenated into `Ok(string)` by the shared prompt-mode rule.
+  return { ok: true, value: extractTrailingTurnText(terminalEvent.messages) };
 }
 
 // ---------------------------------------------------------------------------
@@ -361,12 +420,17 @@ export interface DisposableSubagentSession {
 /**
  * PIC-9. Wrap `session.dispose()` so it is invoked at most once per session —
  * a second call is a no-op (idempotent at the call site).
- *
- * V9i-T STUB (non-compliant): calls `session.dispose()` on every invocation, so
- * the idempotency test reds on its own primary assertion.
  */
 export function makeIdempotentDispose(session: DisposableSubagentSession): () => void {
+  // PIC-9: at-most-once latch scoped to this one session (not cross-invocation
+  // state). The flag flips before the call so a throwing `dispose()` still
+  // counts as consumed and a defensive second call stays a no-op.
+  let disposed = false;
   return (): void => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
     session.dispose();
   };
 }
@@ -405,19 +469,33 @@ export interface SubagentTeardownDeps {
  * the idempotent `dispose()`. A `dispose()` throw is trapped and logged via the
  * advisory `loom/runtime/subagent-dispose-failure` diagnostic; it never masks
  * the original `Err`/`Ok` and never promotes an `Ok` to an `Err`.
- *
- * V9i-T STUB (non-compliant): runs the body with NO `finally` — no detach, no
- * dispose, no advisory diagnostic — so every PIC-9 teardown test reds on its own
- * primary assertion.
  */
 export async function runWithSubagentTeardown<T>(
   teardown: SubagentTeardown,
   deps: SubagentTeardownDeps,
   run: () => Promise<T>,
 ): Promise<T> {
-  void teardown;
-  void deps;
-  return await run();
+  try {
+    return await run();
+  } finally {
+    // PIC-9: teardown fires on every exit path (normal return, `Err`, panic, any
+    // unexpected throw). Detach the one-shot abort-forwarding listener, then run
+    // the idempotent `dispose()`.
+    teardown.detachAbortListener();
+    try {
+      teardown.dispose();
+    } catch (disposeError: unknown) { // allow-broad-catch: loom/runtime/subagent-dispose-failure — pi-integration-contract/subagent.md
+      // PIC-9: a `dispose()` throw is trapped and logged as advisory only; it
+      // never masks the original `Err`/`Ok` and never promotes an `Ok` to an
+      // `Err`. `hint` carries the underlying dispose error's message.
+      deps.emitDiagnostic({
+        severity: "error",
+        code: SUBAGENT_DISPOSE_FAILURE_CODE,
+        message: renderSubagentDisposeFailureMessage(disposeError),
+        hint: disposeError instanceof Error ? disposeError.message : String(disposeError),
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -439,20 +517,20 @@ export interface ParallelSubagentSpawn {
  * PIC-22. Given N subagent-mode spawns emitted as parallel tool calls, the
  * runtime MUST initiate `createAgentSession` for all N and enter each spawned
  * session's `sendUserMessage` before any one invocation returns.
- *
- * V9i-T STUB (non-compliant): drives the spawns SEQUENTIALLY — it fully awaits
- * each spawn's create-then-drive before starting the next, so a blocking
- * `sendUserMessage` on spawn 0 prevents spawn 1's `createAgentSession` from ever
- * running; the PIC-22 test reds because not all sessions are created before the
- * blocked call is released.
  */
 export async function spawnSubagentsInParallel(
   spawns: readonly ParallelSubagentSpawn[],
 ): Promise<void> {
-  for (const spawn of spawns) {
-    const handle = await spawn.createSession();
-    await handle.sendUserMessage("");
-  }
+  // PIC-22: dispatch every per-call spawn (create-then-drive) before any one
+  // returns, so all N `createAgentSession` calls complete and each
+  // `sendUserMessage` is entered even when one blocks. A sequential loop would
+  // leave later sessions uncreated behind a blocked drive point.
+  await Promise.all( // allow: PIC-22 — pi-integration-contract/subagent.md
+    spawns.map(async (spawn) => {
+      const handle = await spawn.createSession();
+      await handle.sendUserMessage("");
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -465,22 +543,18 @@ export type SubagentInvocationOutcome =
   | { readonly kind: "fail"; readonly error: QueryError }
   | { readonly kind: "cancel" };
 
-/** The V9i-T non-compliant final-value sentinel the projection stub reports. */
-export const SUBAGENT_FINAL_VALUE_STUB_SENTINEL = "<<fn-5 not implemented>>";
-
 /**
  * FN-5 (re-cited against the `V3d` function-result seam). Project a subagent
  * invocation's outcome onto the final value the subagent caller observes: on
  * success the callee's produced value is present; on fail/cancel no final value
- * flows (the caller observes only the corresponding `Err`). The compliant path
- * delegates to `V3d`'s `functionResult`.
- *
- * V9i-T STUB (non-compliant): reports a present sentinel value on EVERY outcome
- * — so the FN-5 success, fail, and cancel tests all red on their own primary
- * assertions.
+ * flows (the caller observes only the corresponding `Err`). Delegates to `V3d`'s
+ * `functionResult`.
  */
 export function subagentCallerFinalValue(outcome: SubagentInvocationOutcome): FunctionResult {
-  void outcome;
-  void functionResult;
-  return { present: true, value: SUBAGENT_FINAL_VALUE_STUB_SENTINEL };
+  // FN-5: only the success path carries a produced final value; fail/cancel
+  // project to an absent value via the shared `V3d` seam.
+  if (outcome.kind === "success") {
+    return functionResult("success", outcome.value);
+  }
+  return functionResult(outcome.kind, null);
 }
