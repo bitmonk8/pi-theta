@@ -30,6 +30,7 @@
 // `Object.freeze` keeps these module-level constants off the *No globals,
 // statics, singletons* mutable-binding scan (runtime-immutable lists).
 
+import { FACTORY_PROBABLE_CAPABILITIES } from "./capability-probe";
 import type { CapabilityId } from "./capability-probe";
 
 /**
@@ -75,16 +76,74 @@ export interface SurfaceInventoryEntry {
 
 /**
  * The seven named SDK capabilities (capability-inventory-items.md items 1–7).
- * V18a-T stub: empty; `V18a` populates all seven rows with their partition
- * flags.
+ *
+ * The `verification` partition flag is DERIVED from the imported
+ * `FACTORY_PROBABLE_CAPABILITIES` set `V9a` exports — not re-listed literally —
+ * so the factory-probed/verified-otherwise classification cannot drift from the
+ * Step-0 probe's own factory-probable set: any change to that set re-partitions
+ * these rows in lockstep. Items 1/2/3/4/6 are factory-probed; 5/7 verified
+ * otherwise (capability-inventory-items.md items 5 and 7).
+ *
+ * `Object.freeze` keeps this module-level constant off the *No globals,
+ * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
  */
 export const CAPABILITY_OBLIGATIONS: readonly CapabilityObligation[] =
-  Object.freeze([]);
+  Object.freeze(
+    (
+      [
+        [1, "Slash-command registration"],
+        [2, "Prompt-mode conversation drive"],
+        [3, "Subagent-mode isolated session"],
+        [4, "Tool registration and gating"],
+        [5, "Cancellation propagation"],
+        [6, "Custom-message channel and renderer"],
+        [7, "Binder LLM model"],
+      ] as const
+    ).map(([item, name]): CapabilityObligation => ({
+      item,
+      name,
+      verification: FACTORY_PROBABLE_CAPABILITIES.includes(item)
+        ? "factory-probed"
+        : "verified-otherwise",
+    })),
+  );
 
 /**
  * The full Pi-side surface inventory — strictly broader than the seven
- * capabilities. V18a-T stub: empty; `V18a` populates the capability members and
- * the non-capability operand rows.
+ * capabilities (inventory-audit-intro.md §SDK capability inventory). It holds:
+ *
+ *   • the nine `namespace-function` members of the factory-probable capability
+ *     subset (capabilities 1/2/3/4/6, per Step 0 (c) of the capability probe);
+ *   • the two non-capability category-(1) `pi.<member>` `namespace-function`
+ *     surfaces `pi.registerFlag` / `pi.getFlag` (inventory-audit-intro.md
+ *     §"Non-capability `pi.<member>` surfaces"); and
+ *   • the four non-`namespace-function` operand rows the version-bump gates
+ *     (`V18c`) read — the in-repo Node floor (`pi-engines-node`), the
+ *     `peerDependencies` literal (`peer-dep-range`), the strict-capability
+ *     probe (`strict-capability-probe`), and the provider seed-field gate
+ *     (`api-coverage`).
+ *
+ * `Object.freeze` keeps this module-level constant off the *No globals,
+ * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
  */
 export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
-  Object.freeze([]);
+  Object.freeze([
+    // The nine factory-probable capability function members (Step 0 (c)).
+    { id: "pi.registerCommand", kind: "namespace-function" },
+    { id: "pi.sendUserMessage", kind: "namespace-function" },
+    { id: "createAgentSession", kind: "namespace-function" },
+    { id: "AgentSession.prototype.abort", kind: "namespace-function" },
+    { id: "pi.registerTool", kind: "namespace-function" },
+    { id: "pi.setActiveTools", kind: "namespace-function" },
+    { id: "pi.getActiveTools", kind: "namespace-function" },
+    { id: "pi.registerMessageRenderer", kind: "namespace-function" },
+    { id: "pi.sendMessage", kind: "namespace-function" },
+    // The two non-capability category-(1) `pi.<member>` surfaces.
+    { id: "pi.registerFlag", kind: "namespace-function" },
+    { id: "pi.getFlag", kind: "namespace-function" },
+    // The non-`namespace-function` operand rows the version-bump gates read.
+    { id: "pi-engines-node", kind: "engines-pin" },
+    { id: "peer-dep-range", kind: "peer-dep-range" },
+    { id: "strict-capability-probe", kind: "strict-capability-probe" },
+    { id: "api-coverage", kind: "api-coverage" },
+  ]);
