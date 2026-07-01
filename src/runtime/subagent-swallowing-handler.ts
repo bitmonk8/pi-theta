@@ -27,17 +27,6 @@
 // the late settlement at a chosen point without depending on JS microtask
 // scheduling.
 //
-// V9o-T (tests-task) declares the seam shapes and stubs both behaviour-bearing
-// functions NON-COMPLIANTLY so the failing tests compile and red on their own
-// primary assertions while `V9o` is absent:
-//   - `guardSubagentAbortPromise` returns the Promise WITHOUT attaching a
-//     construction-site handler, so a late rejection reaches Node's
-//     `unhandledRejection` channel (cka-33 / V9o channel 1);
-//   - `routeSubagentAbortLateSettlement` ignores the cancellation guard and
-//     re-surfaces every late settlement on the `RuntimeEvent` and diagnostic
-//     channels, returning `"surfaced"` (cka-33 / V9o channels 2 and 3).
-// No test reds on a compile error, a missing fixture, or a harness throw. The
-// paired V9o implementation leaf fills these in.
 //
 // Spec: cancellation.md (§"Race semantics — swallowing-handler attachment on
 // every abandonable Promise"); host-interfaces-services.md (§"`Checkpoint`
@@ -94,46 +83,70 @@ export interface SubagentAbortSideChannels {
 export type SubagentAbortLateSettlementDisposition = "discarded" | "surfaced";
 
 /**
- * NON-COMPLIANT STUB (V9o-T). The compliant `V9o` implementation attaches the
- * swallowing handler to the subagent-mode `AgentSession.abort()` Promise at its
- * construction site, before the first microtask boundary, routing each
- * settlement through `routeSubagentAbortLateSettlement`. This stub instead
- * returns the Promise WITHOUT attaching any handler, so a late rejection
- * reaches Node's `unhandledRejection` process event — reddening the
- * construction-site attachment test (cka-33 / V9o channel 1).
+ * Attach the swallowing handler to the subagent-mode `AgentSession.abort()`
+ * Promise at its construction site, before the first microtask boundary
+ * (cancellation.md §"Race semantics — swallowing-handler attachment on every
+ * abandonable Promise"). Attaching the handler synchronously here — rather than
+ * lazily after cancellation fires — is required because a `.catch` registered
+ * late cannot catch a rejection already queued for `unhandledRejection`. The
+ * handler routes each settlement through `routeSubagentAbortLateSettlement`, so
+ * a late settlement arriving after the subagent checkpoint has surfaced
+ * `cause: "cancelled"` is silently absorbed on all three side channels: the
+ * `unhandledRejection` channel is closed by the very act of attaching a
+ * rejection handler here (cka-33 / V9o channel 1), and the `RuntimeEvent` /
+ * diagnostic channels by the discard decision (channels 2 and 3).
+ *
+ * The original Promise is returned so a caller on the (non-abandoned)
+ * pre-cancellation path may still await its value; the attached handler keeps
+ * the Promise handled for its lifetime regardless of whether the return value
+ * is awaited.
  */
 export function guardSubagentAbortPromise<T>(
   abortPromise: Promise<T>,
-  _guard: SubagentAbortCancellationGuard,
-  _channels: SubagentAbortSideChannels,
+  guard: SubagentAbortCancellationGuard,
+  channels: SubagentAbortSideChannels,
 ): Promise<T> {
-  // No construction-site handler attached — non-compliant.
+  // Construction-site attachment, before the first microtask boundary: this
+  // handler makes `abortPromise` a handled Promise, so a late rejection never
+  // reaches Node's `unhandledRejection` process event.
+  abortPromise.then(
+    (value) =>
+      routeSubagentAbortLateSettlement({ kind: "resolved", value }, guard, channels),
+    (error: unknown) =>
+      routeSubagentAbortLateSettlement({ kind: "rejected", error }, guard, channels),
+  );
   return abortPromise;
 }
 
 /**
- * NON-COMPLIANT STUB (V9o-T). The compliant `V9o` implementation discards a
- * late settlement once `guard.cancellationSurfaced` is true, emitting nothing
- * on any of the three side channels. This stub ignores the guard and re-surfaces
- * every settlement on both emit channels, returning `"surfaced"` — reddening the
- * three-channel suppression tests (cka-33 / V9o channels 2 and 3).
+ * The discard decision the construction-site handler applies to each settlement
+ * of the subagent-mode `AgentSession.abort()` Promise. The discriminator is
+ * whether cancellation has already surfaced for this invocation, not the
+ * late-settle kind (cancellation.md: "the discriminator is whether cancellation
+ * has already been surfaced at the checkpoint, not the late-settle kind").
+ *
+ * Once `guard.cancellationSurfaced` is true the settlement is the abandoned
+ * case: it is discarded totally, emitting nothing on either emit channel — no
+ * second `RuntimeEvent` on the always-log channel and no diagnostic of any
+ * severity. A late rejection whose `.message` would otherwise be
+ * diagnostic-worthy (e.g. an OOM-style host failure) is still discarded;
+ * promotion to `loom/runtime/internal-error` would re-introduce the
+ * second-event surface the rule forbids. The `AgentSession.abort()` Promise has
+ * no loom-language call site to rebind and no per-invocation `Err` channel, so
+ * the tool-call-only `Err` clauses (a)/(b) do not apply here.
  */
 export function routeSubagentAbortLateSettlement(
   _settlement: SubagentAbortSettlement,
-  _guard: SubagentAbortCancellationGuard,
-  channels: SubagentAbortSideChannels,
+  guard: SubagentAbortCancellationGuard,
+  _channels: SubagentAbortSideChannels,
 ): SubagentAbortLateSettlementDisposition {
-  channels.emitRuntimeEvent({
-    kind: "internal_error",
-    loom: "/subagent",
-    invocation_id: "00000000-0000-0000-0000-000000000000",
-    message: "non-compliant stub re-surfaced a late AgentSession.abort() settlement",
-    occurred_at: 0,
-  });
-  channels.emitDiagnostic({
-    severity: "error",
-    code: "loom/runtime/internal-error",
-    message: "non-compliant stub promoted a late AgentSession.abort() settlement",
-  });
+  if (guard.cancellationSurfaced) {
+    // Abandoned case: silently absorb on all three side channels.
+    return "discarded";
+  }
+  // Pre-cancellation path: the Promise settled before the subagent checkpoint
+  // surfaced `cause: "cancelled"`, so this is not the abandoned case and the
+  // handler emits nothing of its own (this site owns no per-invocation `Err`
+  // channel).
   return "surfaced";
 }
