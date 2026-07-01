@@ -12,16 +12,15 @@
 // roll back, compensate, or enumerate completed side effects to the caller or
 // operator; idempotency and compensation are the loom author's responsibility.
 //
-// V4f-T (this tests-task) declares the seam — the enumerated authoring sites
+// V4f-T declared the seam — the enumerated authoring sites
 // (`NoRollbackAuthoringSite`), the terminal-event kinds (`NoRollbackTerminalEvent`),
 // the completed side-effect model (`CommittedSideEffect`), the `RollbackCompensator`
 // surface the runtime holds against the driven conversation and any external side
 // effect, and the `handleNoRollbackTerminalEvent` entry the runtime routes a
-// terminal event through — and stubs the behaviour-bearing entry NON-COMPLIANTLY
-// (it unwinds the committed side effects and injects a compensating turn) so the
-// failing V4f-T tests red on their own primary no-rollback assertions. The paired
-// V4f implementation leaf fills in the behaviour: the entry calls NONE of the
-// compensator's operations for any outcome.
+// terminal event through. V4f (this implementation leaf) makes the entry
+// COMPLIANT: it calls NONE of the compensator's operations for any outcome, so a
+// completed callee's side effect survives a downstream `?` / panic / cancellation
+// by construction — the runtime holds no compensating / rollback path.
 //
 // Spec: errors-and-results/error-model.md (§"No rollback" ERR-13, §"Partial-append
 // contract", §"Runtime panics"); cancellation.md (§"Race semantics", §"Granularity").
@@ -140,20 +139,19 @@ export interface NoRollbackTerminalOutcome {
  * compensating call.
  */
 export function handleNoRollbackTerminalEvent(
-  outcome: NoRollbackTerminalOutcome,
-  compensator: RollbackCompensator,
+  _outcome: NoRollbackTerminalOutcome,
+  _compensator: RollbackCompensator,
 ): void {
-  // V4f-T stub — deliberately NON-COMPLIANT so the paired V4f-T tests red on
-  // their own primary no-rollback assertions while V4f is absent. A rollback-
-  // performing runtime would unwind each committed side effect and inject a
-  // compensating turn; ERR-13 forbids exactly that. The paired V4f leaf replaces
-  // this body with one that calls nothing on `compensator`.
-  for (const effect of outcome.committed) {
-    compensator.unwindSideEffect(effect.id);
-  }
-  compensator.enumerateCompletedSideEffects(outcome.committed);
-  compensator.appendCompensatingTurn({
-    id: `compensating-for-${outcome.site}`,
-    content: `rolled back ${outcome.committed.length} side effect(s)`,
-  });
+  // ERR-13 — the no-rollback guarantee is architectural: the runtime contains no
+  // compensating / rollback path. Uniformly across the six enumerated authoring
+  // sites (`?` early-return in a function, `?` at the top of a loom block, a
+  // panic in a slash-command loom, a panic in an `invoke` child, a mid-execution
+  // cancellation, and completed-callee finality) the runtime unwinds no prior
+  // side effect, enumerates no completed side effect to the caller / operator,
+  // and injects no compensating turn. The compliant body therefore calls NOTHING
+  // on `_compensator`: the committed side effects a completed callee produced
+  // (`_outcome.committed`) stay final by construction, and the `_compensator`
+  // surface exists only so a test can witness that the runtime never touches it.
+  // Idempotency and compensation are the loom author's responsibility, not the
+  // runtime's.
 }
