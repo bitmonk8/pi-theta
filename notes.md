@@ -795,3 +795,15 @@ impl fills it). Design decisions recorded for the V13a implementer:
 - PIC-53 extraction operates on the pi-ai `Message[]` list (the buildSessionContext output) directly rather than the live ReadonlySessionManager surface, matching the terminal-outcomes (V4c-T) precedent of modelling the relevant read surface. Assistant text = concat of TextContent parts per message, successive assistant messages joined with a single \n; thinking/toolCall content omitted; pure tool-use turn → "".
 - No spec/plan divergence: the seam shape is this tests-task's to fix; V9c will supply compliant bodies. `PROMPT_MODE_LIFECYCLE_EVENTS` uses `Object.freeze([...] as const)` to satisfy the H2a no-globals scan (which flags a top-level const with a bare array-literal initializer), matching the binder-inference.ts Object.freeze idiom.
 - Confirmed the only other failing suite is the pre-existing 4 V4g-T reds (tests/pre-evaluation-reload-failure.test.ts), red on HEAD independent of this change (V4g impl not yet landed) — unrelated, untouched.
+
+## 2026-07-01 — V9c (prompt-mode conversation drive)
+
+- Pre-existing unrelated failure: `tests/pre-evaluation-reload-failure.test.ts`
+  (V4g-T, ERR-7) has 4 reds on HEAD independent of V9c — verified by stashing
+  the V9c change and re-running that file (still 4 failing). Not addressed by
+  this leaf; belongs to the V4g subsystem. V9c's own 12 tests are green.
+- PIC-53 within-message text handling: the spec pins the `\n` separator only
+  "between successive assistant messages". Multiple `text` parts inside a single
+  assistant message are concatenated with no separator (mirroring the
+  compact-transcript `[assistant]` body selection); untested by V9c-T but the
+  faithful reading of "the text content of every assistant message".

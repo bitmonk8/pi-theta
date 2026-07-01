@@ -24,23 +24,6 @@
 //   - PIC-53 untyped-query `Ok(string)` trailing-turn extraction: the value is
 //     the accumulated assistant text of the final turn.
 //
-// V9c-T (this tests-task) declares the seam and stubs each entry NON-COMPLIANTLY
-// so the paired tests red on their own primary assertions while the V9c
-// implementation is absent:
-//   - `withActiveSetGating` unions the ambient snapshot into the install vector
-//     (violating PIC-17's "not inherited") and omits the `finally` restore
-//     (violating PIC-17's restore and leaving windows open so PIC-2 detects
-//     cross-body overlap);
-//   - `subscribePromptModeCancelForwarding` registers per-session-marked event
-//     names (violating PIC-18's process-global / no-marker) and its handlers
-//     never forward the captured abort into `loomAbort` (violating PIC-18's
-//     cancel-forwarding role);
-//   - `extractTrailingTurnText` returns a fixed sentinel rather than the
-//     trailing turn's assistant text (violating PIC-53).
-// The paired V9c implementation leaf replaces these bodies with the compliant
-// behaviour. No test reds on a compile error, a missing fixture, or a harness
-// throw.
-//
 // Spec: pi-integration-contract/conversation-drive.md (PIC-2, PIC-18, PIC-53);
 // pi-integration-contract/tool-registration-lifetime.md (PIC-17 active-set
 // gating, §"Acceptance criteria — PIC-17 active-set install vector").
@@ -97,25 +80,27 @@ function computeActiveSetInstall(install: CallableSetInstall): string[] {
  * ambient tools are not inherited. Because the restore closes the window before
  * this call returns, two prompt-mode bodies against the same session can never
  * hold an open window simultaneously (PIC-2).
- *
- * V9c-T stub: unions the ambient snapshot into the install vector (PIC-17
- * violation) and omits the `finally` restore, leaving the window open (PIC-17 +
- * PIC-2 violations).
  */
 export async function withActiveSetGating<T>(
   gate: ActiveToolSet,
   install: CallableSetInstall,
   query: () => Promise<T>,
 ): Promise<T> {
+  // PIC-17 step 1: snapshot the ambient active-set. Held only for the step-4
+  // restore — never unioned into the install (ambient tools not inherited).
   const snapshot = gate.getActiveTools();
-  // STUB (V9c-T): NON-COMPLIANT. The compliant impl installs exactly
-  // `computeActiveSetInstall(install)` (no snapshot member) and restores the
-  // snapshot in a `finally`. This stub unions the ambient snapshot into the
-  // install (so PIC-17's "not inherited" reds) and never restores (so PIC-17's
-  // restore assertion and PIC-2's cross-body non-overlap both red).
-  const installed = [...snapshot, ...computeActiveSetInstall(install)];
-  gate.setActiveTools(installed);
-  return await query();
+  // PIC-17 step 2: install exactly the loom's callable set (plus the respond
+  // tool on a forced-respond turn).
+  gate.setActiveTools(computeActiveSetInstall(install));
+  try {
+    // PIC-17 step 3: issue the query inside the open window.
+    return await query();
+  } finally {
+    // PIC-17 step 4: restore the exact step-1 snapshot so cancellation, panic,
+    // and provider exceptions all preserve the invariant and close the window
+    // before this call returns (PIC-2 cross-body non-overlap).
+    gate.setActiveTools(snapshot);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,41 +154,36 @@ export interface ActiveInvocationSignals {
  * process-global and carry no per-session origin marker, a cross-fire from an
  * unrelated session is harmless — it triggers only a re-check of a non-aborted
  * captured signal.
- *
- * V9c-T stub: NON-COMPLIANT. Registers per-session-marked event names (PIC-18
- * process-global / no-marker violation) and handlers that never forward the
- * captured abort into `loomAbort` (PIC-18 cancel-forwarding violation).
  */
 export function subscribePromptModeCancelForwarding(
   pi: PromptModeEventApi,
   getActiveInvocation: () => ActiveInvocationSignals | undefined,
 ): void {
-  // STUB (V9c-T): NON-COMPLIANT. The compliant impl registers each of the five
-  // events under its bare, process-global name and wires each handler to
-  // re-check the captured signal and forward its abort into `loomAbort`. This
-  // stub appends a per-session marker to every event name and installs a
-  // handler that never touches `loomAbort`, so the process-global / no-marker
-  // and cancel-forwarding assertions both red.
-  let marker = 0;
+  // PIC-18: register each of the five turn-lifecycle events under its bare,
+  // process-global name (no per-session origin marker). Each handler's sole
+  // role is cancel-forwarding: re-check the active invocation's captured
+  // `ctx.signal` and, if it has aborted, forward that abort into the V17a
+  // `loomAbort` controller. It never resolves query completion.
   for (const event of PROMPT_MODE_LIFECYCLE_EVENTS) {
-    pi.on(`${event}#session-${marker}`, () => {
-      // Non-compliant: consult the invocation but never forward the abort.
-      void getActiveInvocation();
+    pi.on(event, () => {
+      const invocation = getActiveInvocation();
+      if (invocation === undefined) {
+        return;
+      }
+      // Forward only on a genuine abort; a cross-fire from an unrelated
+      // session's turn event on a non-aborted signal is a harmless no-op. The
+      // `loomAbort.signal.aborted` guard makes a re-entrant forward idempotent
+      // (the first reason is retained).
+      if (invocation.capturedSignal.aborted && !invocation.loomAbort.signal.aborted) {
+        invocation.loomAbort.abort(invocation.capturedSignal.reason);
+      }
     });
-    marker += 1;
   }
 }
 
 // ---------------------------------------------------------------------------
 // PIC-53 — untyped-query `Ok(string)` trailing-turn extraction.
 // ---------------------------------------------------------------------------
-
-/**
- * The V9c-T stub's sentinel return for `extractTrailingTurnText`. It equals no
- * spec-correct extraction (including the empty-string pure-tool-use turn), so
- * every PIC-53 assertion reds while the V9c implementation is absent.
- */
-export const TRAILING_TURN_EXTRACTION_STUB = "<v9c-stub: trailing-turn extraction not implemented>";
 
 /**
  * Extract the untyped-query `Ok(string)` value from the driven user session's
@@ -218,16 +198,36 @@ export const TRAILING_TURN_EXTRACTION_STUB = "<v9c-stub: trailing-turn extractio
  *
  * `messages` is the chronological `Message` list `buildSessionContext(...)`
  * yields from the `ReadonlySessionManager` read surface.
- *
- * V9c-T stub: returns `TRAILING_TURN_EXTRACTION_STUB` regardless of input, so
- * every PIC-53 assertion reds on its own primary assertion.
  */
 export function extractTrailingTurnText(messages: readonly Message[]): string {
-  // STUB (V9c-T): NON-COMPLIANT. The compliant impl selects the trailing turn
-  // (from the last `user` message onward), concatenates the text of every
-  // assistant message in it (omitting thinking + toolCalls) with `\n`, and
-  // yields `""` for a pure tool-use turn. This stub ignores `messages` and
-  // returns a fixed sentinel that matches no correct extraction.
-  void messages;
-  return TRAILING_TURN_EXTRACTION_STUB;
+  // PIC-53: the final turn is the last `user` message (the loom-issued
+  // `pi.sendUserMessage` turn) plus every subsequent message through the end
+  // of the list. Turns from earlier slash-command invocations on the
+  // long-lived user session precede that `user` message and are excluded.
+  let turnStart = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      turnStart = i;
+      break;
+    }
+  }
+  const turn = turnStart === -1 ? messages : messages.slice(turnStart);
+
+  // The string is the `text` content of every `assistant` message in the final
+  // turn, concatenated in chronological order with a single `\n` separator
+  // between successive assistant messages; the provider-internal `thinking`
+  // array and all `toolCalls` entries are omitted. A final turn that produced
+  // no assistant text (a pure tool-use turn) yields the empty string.
+  const assistantTexts: string[] = [];
+  for (const message of turn) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+    const text = message.content
+      .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    assistantTexts.push(text);
+  }
+  return assistantTexts.join("\n");
 }
