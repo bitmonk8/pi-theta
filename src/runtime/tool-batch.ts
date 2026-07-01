@@ -38,6 +38,7 @@
 // calls during a query"; pi-integration-contract/host-interfaces-core.md §"Tool
 // execution from loom code" (per-sibling lowering, shared with code-side calls).
 
+import { coerceUnderlyingString } from "../diagnostics/placeholder";
 import type { ToolContentBlock } from "./tool-call-execute";
 
 /**
@@ -86,17 +87,44 @@ export interface LoweredToolResult {
  * `isError: false` result carrying its joined text, a failing sibling (throw or
  * `{ content, isError: true }`) to that block's `isError: true` tool-result.
  *
- * V14b-T stubs this inert: it settles no sibling and returns an empty result
- * array, so the settle-all-before-next-turn, per-sibling-independence, and
- * failing-sibling `isError: true` assertions each red on their own primary
- * expectation. The paired V14b leaf implements the settle-all barrier and the
- * per-sibling lowering.
+ * The concurrent-execution and settle-all-before-next-turn shape are a real-Pi
+ * parallel-tool-mode consumption posture, not a loom-side guarantee
+ * (tool-calls.md §"Parallel-tool-mode batch delivery"): loom performs no
+ * batching of its own — it only awaits the batch Pi already dispatched.
  */
 export async function settleModelToolBatch(
-  _batch: readonly ModelToolCall[],
+  batch: readonly ModelToolCall[],
 ): Promise<readonly LoweredToolResult[]> {
-  // Inert V14b-T stub: no sibling is dispatched, nothing settles, and no result
-  // is lowered — the settle-all barrier and per-sibling lowering are the paired
-  // V14b leaf's to add.
-  return [];
+  // Dispatch every sibling, then await the whole batch to settle before
+  // returning — the caller cannot construct the next user turn until this
+  // promise resolves (tool-calls.md §Concurrency, cka-13). `Promise.allSettled`
+  // is the settle-all barrier the concurrency obligation mandates: it awaits
+  // every sibling — successful and failing alike — and never short-circuits on a
+  // rejecting sibling, so a failing sibling cannot elide the barrier.
+  const settlements = await Promise.allSettled( // allow: cka-13 — tool-calls.md
+    batch.map((call) => call.dispatch()),
+  );
+
+  // Lower each sibling's outcome independently, in batch order, keyed by its own
+  // `toolUseId`. A cleanly resolving sibling lowers to its envelope content with
+  // `isError` reflecting the tool's own `{ ..., isError: true }` failure form; a
+  // rejecting sibling (its `execute()` threw) lowers to that block's
+  // `isError: true` tool-result carrying the coerced error message as a single
+  // text block (query/query-tool-loop.md §"Tool calls during a query").
+  return settlements.map((settlement, index): LoweredToolResult => {
+    const toolUseId = batch[index]!.toolUseId;
+    if (settlement.status === "fulfilled") {
+      const envelope = settlement.value;
+      return {
+        toolUseId,
+        content: envelope.content,
+        isError: envelope.isError === true,
+      };
+    }
+    return {
+      toolUseId,
+      content: [{ type: "text", text: coerceUnderlyingString(settlement.reason) }],
+      isError: true,
+    };
+  });
 }
