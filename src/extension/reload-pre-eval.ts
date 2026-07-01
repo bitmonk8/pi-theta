@@ -22,7 +22,10 @@ import {
   type LoomRegistry,
   type ReloadFailureInjector,
 } from "./reload-wiring";
-import type { SystemNoteChannelDeps } from "./system-note-channel";
+import {
+  emitDiagnosticBatch,
+  type SystemNoteChannelDeps,
+} from "./system-note-channel";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 
 /** Construction dependencies for the ERR-7 pre-eval reload-failure router. */
@@ -49,16 +52,20 @@ export interface ReloadPreEvalDeps {
 export function createReloadFailurePreEvalRouter(
   deps: ReloadPreEvalDeps,
 ): ReloadFailureInjector {
-  // V4g-T stub: reuse V9b's arm switch but drop the constructed diagnostic
-  // rather than routing it onto the `loom-system-note` channel. The pre-eval
-  // routing the paired V4g implementation owns is absent, so no
-  // `loom-system-note` fires and the ERR-7 tests red on their primary
-  // assertion (the routed note never reaches the channel's `pi.sendMessage`).
+  // Reuse V9b's `ReloadFailureInjector` arm switch (registry-swap /
+  // `.loom`/`.warp` re-parse → `loom/runtime/registry-swap-failed`; V10d's
+  // settings-re-merge → `loom/load/settings-*`), but instead of dropping the
+  // constructed diagnostic, route it pre-eval onto the V7d `loom-system-note`
+  // delivery channel (ERR-7). `emitDiagnosticBatch` renders one
+  // `loom-system-note` carrying the arm's `Diagnostic[]` in `details.diagnostics`
+  // and delivers it through `sendSystemNote`, whose fixed `triggerTurn:false`
+  // option means the routed failure never fires a turn and never becomes an
+  // evaluation outcome — the same delivery surface the load-time causes reuse,
+  // with no live V10d/V9b watcher stood up.
   return createReloadFailureInjector({
     registry: deps.registry,
     emitDiagnostic: (diagnostic: Diagnostic): void => {
-      // Routing onto the `loom-system-note` channel is filled in by V4g.
-      void diagnostic;
+      emitDiagnosticBatch([diagnostic], deps.channel);
     },
   });
 }
