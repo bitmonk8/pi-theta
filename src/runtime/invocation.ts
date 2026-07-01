@@ -96,13 +96,43 @@ export interface InvokePathContainment {
  * semantics (the maintainability factoring INV-1's implementation note names).
  */
 export async function checkInvokePathContainment(
-  _deps: InvokePathCheckDeps,
-  _resolvedPath: string,
-  _activeRoots: readonly string[],
+  deps: InvokePathCheckDeps,
+  resolvedPath: string,
+  activeRoots: readonly string[],
 ): Promise<InvokePathContainment> {
-  // Inert stub: no `realpath` is performed and containment is never granted, so
-  // every within-root assertion and every byte-exact-`realpath` assertion reds.
-  return { canonicalPath: "", within: false };
+  // The containment comparison is decided on the byte-exact `realpath` output of
+  // *both* the resolved callee path and each active root (invocation.md
+  // §Resolution). Forward-slash-normalise per the Lexical "Path literals" rule;
+  // no independent case-folding — the canonical form is whatever `realpath`
+  // returns on the host.
+  const canonicalPath = normalizePath(await deps.fs.realpath(resolvedPath));
+
+  for (const root of activeRoots) {
+    const canonicalRoot = stripTrailingSeparator(
+      normalizePath(await deps.fs.realpath(root)),
+    );
+    // Segment-boundary containment: within iff the callee equals the root
+    // byte-for-byte or begins with the root followed by a single separator. A
+    // bare prefix test is insufficient — it admits sibling-prefix escape.
+    if (
+      canonicalPath === canonicalRoot ||
+      canonicalPath.startsWith(`${canonicalRoot}/`)
+    ) {
+      return { canonicalPath, within: true };
+    }
+  }
+
+  return { canonicalPath, within: false };
+}
+
+/** Forward-slash-normalise a host path (per the Lexical "Path literals" rule). */
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+/** Strip a single trailing forward-slash separator from a normalised root. */
+function stripTrailingSeparator(root: string): string {
+  return root.endsWith("/") ? root.slice(0, -1) : root;
 }
 
 /** Common inputs to the load-time and runtime containment surfaces. */
@@ -137,12 +167,35 @@ export type LoadTimeInvokePathResult =
  * diagnostic; the parent does not register the call site.
  */
 export async function checkInvokePathAtLoad(
-  _input: InvokePathSurfaceInput,
+  input: InvokePathSurfaceInput,
 ): Promise<LoadTimeInvokePathResult> {
-  // Inert stub: always reports within with an empty canonical path and emits no
-  // diagnostic, so the escape assertion (kind === "escape" + diagnostic) and
-  // the within-root byte-exact-`realpath` assertion both red.
-  return { kind: "within", canonicalPath: "" };
+  const { canonicalPath, within } = await checkInvokePathContainment(
+    input.deps,
+    input.resolvedPath,
+    input.activeRoots,
+  );
+  if (within) {
+    return { kind: "within", canonicalPath };
+  }
+  return {
+    kind: "escape",
+    canonicalPath,
+    diagnostic: invokePathEscapeDiagnostic(input.literalPath),
+  };
+}
+
+/**
+ * Build the `loom/load/invoke-path-escape` diagnostic. The `<path>` placeholder
+ * carries the literal path as written (no realpath normalisation) per the
+ * registry *Message* column; the hint is the registry *Hint* column verbatim.
+ */
+function invokePathEscapeDiagnostic(literalPath: string): Diagnostic {
+  return {
+    severity: "error",
+    code: INVOKE_PATH_ESCAPE_CODE,
+    message: invokePathEscapeMessage(literalPath),
+    hint: INVOKE_PATH_ESCAPE_HINT,
+  };
 }
 
 /**
@@ -168,12 +221,31 @@ export type RuntimeInvokePathResult =
  * `checkInvokePathContainment`.
  */
 export async function recheckInvokePathAtRuntime(
-  _input: InvokePathSurfaceInput,
+  input: InvokePathSurfaceInput,
 ): Promise<RuntimeInvokePathResult> {
-  // Inert stub: always reports within with an empty canonical path and produces
-  // neither the diagnostic nor the InvokeInfraError, so the two-channel escape
-  // assertion and the within-root byte-exact-`realpath` assertion both red.
-  return { kind: "within", canonicalPath: "" };
+  const { canonicalPath, within } = await checkInvokePathContainment(
+    input.deps,
+    input.resolvedPath,
+    input.activeRoots,
+  );
+  if (within) {
+    return { kind: "within", canonicalPath };
+  }
+  // An escape surfaces on both channels (invocation.md §Resolution / INV-1): the
+  // `loom/load/invoke-path-escape` diagnostic on the drain AND
+  // `Err(InvokeInfraError { cause: "load_failure", callee_path, ... })` to the
+  // parent.
+  return {
+    kind: "escape",
+    canonicalPath,
+    diagnostic: invokePathEscapeDiagnostic(input.literalPath),
+    error: {
+      kind: "invoke_infra",
+      message: invokePathEscapeMessage(input.literalPath),
+      callee_path: input.resolvedPath,
+      cause: "load_failure",
+    },
+  };
 }
 
 // --------------------------------------------------------------------------
@@ -220,11 +292,34 @@ export interface StaticResolutionResult {
  * lowering each visited file exactly once into the per-pass parse cache.
  */
 export async function runStaticResolutionPass(
-  _deps: StaticResolutionDeps,
-  _entryPath: string,
+  deps: StaticResolutionDeps,
+  entryPath: string,
 ): Promise<StaticResolutionResult> {
-  // Inert stub: returns an empty cache and never calls `parseAndLower`, so the
-  // "each visited file parsed exactly once" and transitive-reachability
-  // assertions all red on their own primary assertions.
-  return { cache: new Map<string, ParsedCallee>() };
+  const cache = new Map<string, ParsedCallee>();
+  // Frontier of canonical paths still to visit; the entry is canonicalised so
+  // the cache is keyed uniformly on `realpath` output.
+  const frontier: string[] = [normalizePath(await deps.fs.realpath(entryPath))];
+
+  while (frontier.length > 0) {
+    const canonicalPath = frontier.shift() as string;
+    // The dedup guard: a diamond node reached via two edges is parsed exactly
+    // once — the second arrival short-circuits before `readText`/`parseAndLower`.
+    if (cache.has(canonicalPath)) {
+      continue;
+    }
+    const source = await deps.fs.readText(canonicalPath);
+    const parsed = deps.parseAndLower(canonicalPath, source);
+    cache.set(canonicalPath, parsed);
+
+    // Walk transitively across literal `invoke` paths and `.loom` `tools:`
+    // entries, canonicalising each edge before enqueueing it.
+    for (const edge of [...parsed.invokePaths, ...parsed.toolLoomPaths]) {
+      const canonicalEdge = normalizePath(await deps.fs.realpath(edge));
+      if (!cache.has(canonicalEdge)) {
+        frontier.push(canonicalEdge);
+      }
+    }
+  }
+
+  return { cache };
 }
