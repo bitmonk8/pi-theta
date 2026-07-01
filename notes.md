@@ -864,3 +864,26 @@ the V9n seam module (`src/runtime/prompt-transport-mapping.ts`):
    `extractTrailingTurnText` for the `Ok(string)` fall-through. This mirrors the
    subagent-mode `extractSubagentQueryResult` shape, which likewise inlines its
    transport short-circuit and reuses `extractTrailingTurnText`.
+
+## V4f-T — no-rollback seam module placement (2026-07-01)
+
+`V4f-T` (ERR-13, No rollback) created a new module `src/runtime/no-rollback.ts`
+rather than extending `V4c`'s `src/runtime/terminal-outcomes.ts`. The two leaves
+address distinct obligations on the same spec page: `V4c` (ERR-8…ERR-12) owns
+*non-mutation of Pi-committed streaming surfaces* on a mid-stream cancellation /
+`?`-propagation, whereas `V4f` (ERR-13) owns the broader *no-rollback of
+completed callees' side effects* (tool calls that returned, queries appended,
+`invoke` children that ran) and *no compensating-turn injection* across six
+enumerated authoring sites. `V4c` is already complete/tagged, so a new module
+keeps `V4f` self-contained and avoids editing a landed leaf. Neither the plan
+nor the spec names a module for either leaf, so this is a placement choice, not
+a divergence.
+
+The ERR-13 guarantee is architectural ("the runtime contains no compensating
+path"). The seam models it as a `RollbackCompensator` surface the runtime holds
+but must never call; the paired `V4f` impl makes `handleNoRollbackTerminalEvent`
+a no-op over that surface (mirroring how `V4c`'s `handlePartialTerminalOutcome`
+calls nothing on its `CommittedConversationMutator`). The completed-callee is
+modelled through the `H4a` completed-invoke-child scripting point and the
+`V17a`/`V17c` seams per the leaf; those are exercised as real, green setup so
+each test's red is isolated to the absent `V4f` behaviour.
