@@ -900,3 +900,41 @@ to push a `system-note` marker into that same log, so a test can assert
 additive test-support (outside `src/**`, no mechanical gate) and does not change
 any modelled behaviour; existing readers filter/index specific event values
 (`stream-token`, `idle`), so the new value is inert for them.
+
+## 2026-07-01 — V14g-T: stale code-side `isError` bullets vs spec fix F-1578
+
+**Divergence (leaf edit + implementation decision).** The V14g-T leaf's `Tests.`
+bullets (3) and (4) required a code-side `execute()` `isError: true` path lowering
+to `Err(CodeToolError { cause: "execution" })` (bullet 4: the fixed string
+`"tool reported an error with no text content"` when no text survives under
+`isError`). This contradicts the leaf's own cited authoritative page,
+`pi-integration-contract/host-interfaces-core.md` §"Tool execution from loom
+code", which spec commit **F-1578** (31debf11, 2026-06-27, "re-anchor execute()
+outcome routing on AgentToolResult (no isError); collapse dead Err branch")
+rewrote so that the code-side return type is `AgentToolResult = { content,
+details, terminate? }` with **no** `isError` field — loom reads only `content`,
+a cleanly-resolving envelope always lowers to `Ok(<joined text>)`, and the only
+code-side `cause: "execution"` path is the `execute()` throw. The leaf (last
+edited 2026-06-30, three days after F-1578) was not updated in lock-step.
+
+**Decision.** The leaf-format authorises restricting reading to the leaf's `Spec.`
+pages, and within that scope (host-interfaces-core.md) the behaviour is
+unambiguous. I implemented V14g-T against the authoritative page (no code-side
+`isError`) and made a minimal leaf edit removing stale bullets (3)/(4) and the
+`!isError` qualifier in (2), aligning the leaf with F-1578. Bullet (5) (the
+`execute()`-throw lowering with the 4096-byte code-point-boundary truncation) is
+retained and renumbered (3). No invented contract: the tests assert only what
+host-interfaces-core.md states.
+
+**Residual spec-side defect (not fixed here — out of this leaf's scope).** F-1578
+edited only host-interfaces-core.md. `tool-calls.md` line 34 still says a
+code-side `<name>(args)` call lowers "an `execute()` throw **or an `{ content,
+isError: true }` return**" to `Err(CodeToolError { cause: "execution" })`, and
+`errors-and-results/queryerror-variants.md` (§CodeToolError cause enum comment)
+still reads `"execution" // tool's execute() threw or returned isError: true`.
+These are a genuine cross-page contradiction with host-interfaces-core.md about
+observable code-side behaviour and should be brought into F-1578 lock-step by a
+spec-side finding (remove the code-side `isError` arm from both, keeping the
+model-driven-loop `isError` phrasing which is correct per query-tool-loop.md).
+Not blocking for V14g/V14g-T because those pages are outside this leaf's `Spec.`
+scope.
