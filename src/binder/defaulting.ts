@@ -14,13 +14,6 @@
 //     compiled validator re-validates the merged `args` object against the
 //     lowered `params` schema, and the verdict is surfaced.
 //
-// V11g-T (tests-task) declares this seam shape and stubs `fillDefaultsAndRevalidate`
-// with an inert result — an empty merged-args object, no default-supplied fields,
-// and an unconditional `ok` verdict that never consults the validator — so the
-// failing tests red on their own primary assertions (an absent default not
-// filled, a present value not preserved, the validator never invoked on the
-// merged args). The paired V11g implementation leaf fills the behaviour in.
-//
 // Spec: binder/defaulting-system-note-echo.md §Defaulting
 // (#post-default-merge-ajv-validation).
 
@@ -72,10 +65,25 @@ export interface FillDefaultsResult {
  * (§Defaulting, #post-default-merge-ajv-validation).
  */
 export function fillDefaultsAndRevalidate(
-  _input: FillDefaultsInput,
+  input: FillDefaultsInput,
 ): FillDefaultsResult {
-  // V11g-T inert stub: no merge, no default-supplied reporting, no validator
-  // consultation. The paired V11g leaf implements the fill-if-absent merge and
-  // the post-default-merge SchemaValidator.validate() re-validation.
-  return { args: {}, defaultedWireNames: [], validation: { ok: true } };
+  // Fill-if-absent, keyed on the field's wire name in the binder-returned args:
+  // start from the binder-supplied args (preserved unchanged), then for each
+  // defaulted field whose wire name is ABSENT, fill its declared default and
+  // record it as default-supplied. A present wire name is preserved and NOT
+  // reported — even when the binder emitted a value for a defaulted field.
+  const merged: Record<string, unknown> = { ...input.binderArgs };
+  const defaultedWireNames: string[] = [];
+  for (const field of input.defaults) {
+    if (!Object.prototype.hasOwnProperty.call(input.binderArgs, field.wireName)) {
+      merged[field.wireName] = field.defaultValue;
+      defaultedWireNames.push(field.wireName);
+    }
+  }
+
+  // Post-default-merge AJV validation: re-validate the MERGED args (defaults
+  // filled in) against the lowered params schema and surface the verdict.
+  const validation = input.validator.validate(merged);
+
+  return { args: merged, defaultedWireNames, validation };
 }
