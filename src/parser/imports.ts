@@ -454,3 +454,88 @@ export function detectImportCycle(
     message: importCycleMessage(cyclePath),
   };
 }
+
+// ── V15i / V15i-T — export visibility and re-exports ─────────────────────────
+//
+// The `.warp` export-visibility semantics layered on V15c's resolution
+// (imports.md §"Visibility" + §"Re-exports", coverage-matrix code-keyed-area
+// token `cka-48`): every top-level `schema`/`enum`/`fn` is implicitly exported
+// (no `export` keyword, no privacy modifier); an aliased `export … from` re-export
+// is visible downstream as its alias while creating NO local binding for the
+// re-exported source symbol; and a plain `import` is NOT re-exported downstream.
+//
+// V15i-T (tests-task) declares these two seams and stubs each inert-but-wrong so
+// the failing visibility tests compile and red on their own primary assertions.
+// `computeWarpExports` returns the WRONG set — the plain-import locals, which
+// are precisely the names that are NOT downstream-visible — and omits the
+// auto-exported declarations and the `export … from` re-exports that ARE, so
+// every positive/negative visibility assertion reds for the intended reason
+// (implementation absent). `warpLocalBindings` symmetrically returns the
+// re-export SOURCE names, which create no local binding, so the "no local
+// binding for the re-exported symbol" assertion reds. The paired V15i leaf
+// fills both in.
+
+/** A top-level `.warp` declaration kind — each is implicitly exported (imports.md §Visibility). */
+export type WarpDeclarationKind = "schema" | "enum" | "fn";
+
+/** A top-level `schema`/`enum`/`fn` declaration in a `.warp` file (auto-exported). */
+export interface WarpDeclaration {
+  readonly kind: WarpDeclarationKind;
+  readonly name: string;
+}
+
+/**
+ * An `export { A as B } from "./x.warp"` re-export form. Visible downstream as
+ * `exported` (the `as` alias, or `source` when unaliased) and creating NO local
+ * binding for `source` in the re-exporting file (imports.md §Re-exports).
+ */
+export interface ReExportSpecifier {
+  /** The symbol as named in the re-exported-from `.warp` file (the source symbol). */
+  readonly source: string;
+  /** The downstream-visible name — the `as` alias, or `source` when unaliased. */
+  readonly exported: string;
+  /** The `.warp` path being re-exported from (as written). */
+  readonly fromPath: string;
+  readonly range: SourceRange;
+}
+
+/**
+ * The top-level forms of one `.warp` module that bear on downstream visibility:
+ * its auto-exported declarations, its `export … from` re-exports, and its plain
+ * `import` specifiers (which bind locally but are NOT re-exported).
+ */
+export interface WarpModuleForms {
+  readonly declarations: readonly WarpDeclaration[];
+  readonly reExports: readonly ReExportSpecifier[];
+  readonly plainImports: readonly ImportSpecifier[];
+}
+
+/**
+ * Compute the set of names a `.warp` module makes visible to a downstream
+ * importer (imports.md §Visibility + §Re-exports): every top-level declaration
+ * name (auto-exported) plus every `export … from` re-export's downstream name
+ * (`exported`); a plain `import` local is NOT included. This is exactly the
+ * `resolvedExports` list `checkImportedSymbols` matches an importing specifier
+ * against.
+ *
+ * V15i-T stubs this to the WRONG set (the plain-import locals only), so each
+ * visibility test reds on its own primary assertion. The paired V15i leaf fills
+ * it in.
+ */
+export function computeWarpExports(forms: WarpModuleForms): readonly string[] {
+  return forms.plainImports.map((specifier) => specifier.local);
+}
+
+/**
+ * The names a `.warp` module binds locally: its top-level declarations plus its
+ * plain `import` locals. An `export … from` re-export creates NO local binding
+ * for its source symbol, so re-export sources are excluded (imports.md
+ * §Re-exports — "a dedicated form that creates no local binding").
+ *
+ * V15i-T stubs this to the WRONG set (the re-export source names, which are
+ * exactly what a re-export does NOT bind locally), so the "no local binding for
+ * the re-exported symbol" assertion reds. The paired V15i leaf fills it in.
+ */
+export function warpLocalBindings(forms: WarpModuleForms): readonly string[] {
+  return forms.reExports.map((reExport) => reExport.source);
+}
