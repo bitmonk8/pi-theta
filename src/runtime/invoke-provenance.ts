@@ -18,15 +18,11 @@
 // `from <callee_path> invoked at <parent_path>:<line>`; this leaf is its
 // producer, V12b the consumer.
 //
-// V15g-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// producer inertly so the failing tests compile and red on their own primary
-// assertions:
-//   - `recordInvocationProvenance` returns an inert record with an empty
-//     `parentPath` (never the post-`realpath` output) and a `callSiteLine` of
-//     `0` (never the call-site token's 1-indexed line), so both the
-//     post-`realpath`-parent-path assertion and the call-site-line assertion
-//     (including the multi-line "not the receiving binding's line" pin) red.
-// No test reds on a compile error, a missing fixture, or a harness throw.
+// V15g implements the producer: it `realpath`-normalises the parent path
+// through the injected `FileSystem` seam and records the call-site token's
+// 1-indexed source line — the `invoke(` token of a literal call, or the
+// callee-name identifier of a `.loom`-callable bare call — never a receiving
+// binding's line.
 //
 // Spec: invocation.md (§Resolution), slash-invocation.md (§SLSH-5).
 
@@ -105,13 +101,21 @@ export interface InvocationProvenanceInput {
  * parent loom's post-`realpath` path and the call-site token's 1-indexed line
  * (slash-invocation.md §SLSH-5; invocation.md §Resolution).
  *
- * V15g-T stub: returns an inert record (empty `parentPath`, `callSiteLine` 0),
- * so the paired-`V15g` assertions red on their own primary expectations while
- * the suite still type-checks and runs.
+ * The parent path is canonicalised through the injected `FileSystem.realpath`
+ * seam so the recorded `parentPath` is the byte-exact post-`realpath` form
+ * V15a's discovery-root containment check uses. The recorded `callSiteLine` is
+ * the 1-indexed source line of the call-site token — the `invoke(` token for a
+ * literal `invoke(...)` call, or the callee-name identifier for a
+ * `.loom`-callable bare-identifier call — never a receiving binding's line.
  */
 export async function recordInvocationProvenance(
-  _deps: InvocationProvenanceDeps,
-  _input: InvocationProvenanceInput,
+  deps: InvocationProvenanceDeps,
+  input: InvocationProvenanceInput,
 ): Promise<InvocationRecord> {
-  return { parentPath: "", callSiteLine: 0 };
+  const parentPath = await deps.fs.realpath(input.parentPath);
+  const callSiteLine =
+    input.callSite.style === "literal_invoke"
+      ? input.callSite.invokeToken.line
+      : input.callSite.calleeNameToken.line;
+  return { parentPath, callSiteLine };
 }
