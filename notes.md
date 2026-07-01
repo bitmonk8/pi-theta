@@ -610,3 +610,18 @@ impl fills it). Design decisions recorded for the V13a implementer:
   `"  hi"→"  hi"` passes against the identity `renderTemplateText` stub (input ==
   output); the other nine vectors red. Kept because it is a genuine normative
   vector, not a masked missing-prerequisite pass.
+
+## 2026-07-01 — V13g-T (discarded-query discipline + discard observability)
+
+- Diagnostic message string divergence: `query-escapes-stringification.md` QRY-19
+  prose (and the leaf's Tests bullet, which quotes it) render the diagnostic as
+  *"discarded query result; use `?` to propagate failure or `let _ = @`...`` to
+  discard explicitly."* — but the diagnostics registry
+  (`diagnostics/code-registry-parse.md`) Message column for
+  `loom/parse/discarded-query-result` is the byte-different
+  `query result discarded; use ? to propagate failure or 'let _ = ...' to discard explicitly`.
+  Per the `conventions.md` *Diagnostic message anchors* rule the registry is the
+  single source of truth, so the test asserts the registry string. This is a
+  pre-existing spec-prose/registry wording mismatch (a local clarification, not a
+  structural defect); left unedited because the registry SSoT already resolves it
+  and no behaviour depends on the prose phrasing.
