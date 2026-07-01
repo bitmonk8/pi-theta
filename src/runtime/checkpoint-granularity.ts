@@ -75,10 +75,19 @@ export async function runCheckpointedForLoop(
   site: CheckpointSite,
   host: CheckpointedLoopHost,
 ): Promise<void> {
-  void checkpoint;
-  void signal;
-  void site;
-  void host;
+  const snapshot = host.snapshot;
+  for (let index = 0; index < snapshot.length; index += 1) {
+    const element = snapshot[index] as LoomValue;
+    // The `loop-iter` checkpoint fires immediately before each iteration's
+    // signal read; production wiring yields one macrotask turn here so a
+    // Pi-dispatched abort flipped during a compute-bound body lands before the
+    // next iteration (cancellation.md §Granularity, `loop-iter`).
+    await checkpoint.before("loop-iter", site);
+    if (signal.aborted) {
+      return;
+    }
+    await host.runIteration(element, index);
+  }
 }
 
 /**
@@ -97,9 +106,13 @@ export async function runCheckpointedBinderCall<T>(
   site: CheckpointSite,
   binderCall: () => Promise<T>,
 ): Promise<CheckpointedBinderOutcome<T>> {
-  void checkpoint;
-  void signal;
-  void site;
-  void binderCall;
-  return { cancelled: true };
+  // The `binder-call` checkpoint fires immediately before the binder's LLM
+  // call's signal read; an abort observed here skips the call and the loom
+  // never starts (cancellation.md §Granularity, §Surfacing).
+  await checkpoint.before("binder-call", site);
+  if (signal.aborted) {
+    return { cancelled: true };
+  }
+  const value = await binderCall();
+  return { cancelled: false, value };
 }
