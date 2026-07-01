@@ -1,4 +1,4 @@
-// V17a / V17a-T — the cancellation core.
+// V17a — the cancellation core (implementation).
 //
 // This module owns the `loomAbort` controller and the cancellation contract
 // (cancellation.md): forwarding Pi's per-handler `ctx.signal`, the tool-exposed
@@ -9,23 +9,12 @@
 // (CNCL-6); and the swallowing-handler three-side-channel suppression at the
 // `Checkpoint`-seam substrate.
 //
-// V17a-T (this tests-task) declares the seam shapes and stubs every behaviour-
-// bearing function inertly so the failing tests compile and red on their own
-// primary assertions:
-//   - the three `forward*` helpers and `abortForAgentEnd` are no-ops (they do
-//     not subscribe / do not abort), so `loomAbort` never fires and the
-//     forwarding / CNCL-4 reason-identity assertions red;
-//   - `deriveChildLoomAbort` returns a fresh, UNLINKED controller, so the
-//     downward-propagation assertions red (the child never aborts on parent
-//     abort);
-//   - `routeToolCallLateSettlement` wrongly rebinds and re-emits after
-//     cancellation, so CNCL-1/2/3 red;
-//   - `attachSwallowingHandler` attaches NO handler and
-//     `routeAbandonableSettlement` re-surfaces, so the three-side-channel
-//     suppression assertions red;
-//   - `runCancellableSequence` synthesises a top-level `cancelled` and retains
-//     no bindings, so CNCL-5 and CNCL-6 red.
-// The paired `V17a` implementation leaf fills these in.
+// This module fills in the behaviour the paired V17a-T tests-task stubbed:
+// forwarding each source signal into `loomAbort` via a one-shot listener that
+// carries the source's `reason` (CNCL-4), a downward-only derived child
+// controller, the tool-call late-settlement discard (CNCL-1/2/3), the
+// swallowing-handler three-side-channel suppression at the Checkpoint-seam
+// substrate, and the cancellable-sequence runner honouring CNCL-5/CNCL-6.
 //
 // Spec: cancellation.md (CNCL-1 … CNCL-6, §Signal source, §Forwarding into
 // `loomAbort`, §Propagation, §Race semantics — late-settlement discard,
@@ -49,10 +38,29 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
  * invokes) sees (cancellation.md §Signal source).
  */
 export function createLoomAbort(): AbortController {
-  // The controller itself is trivial to construct; the cancellation *contract*
-  // (forwarding into it, reason propagation, downward-only derivation) is what
-  // the paired V17a implementation leaf establishes.
   return new AbortController();
+}
+
+/**
+ * Forward one source signal into `loomAbort`, carrying the source's `reason` so
+ * `loomAbort.signal.reason === source.reason` is observable downstream (CNCL-4).
+ * If the source is already aborted at attach time, forward synchronously;
+ * otherwise attach a one-shot listener. The one-shot guard that makes the first
+ * source's reason win is inherent to `AbortController`: a second `abort(...)` on
+ * an already-aborted controller is a no-op and does not re-stamp the reason.
+ */
+function forwardSignalReason(loomAbort: AbortController, source: AbortSignal): void {
+  if (source.aborted) {
+    loomAbort.abort(source.reason);
+    return;
+  }
+  source.addEventListener(
+    "abort",
+    () => {
+      loomAbort.abort(source.reason);
+    },
+    { once: true },
+  );
 }
 
 /**
@@ -79,11 +87,13 @@ export function forwardSlashCommandCancel(
   _loomAbort: AbortController,
   _ctxSignal: AbortSignal | undefined,
 ): void {
-  // Inert (tests-task): no subscription is attached, so `loomAbort` never fires
-  // from the slash-command path and the CNCL-4 reason-identity assertion reds.
-  // The `undefined`-tolerance is satisfied trivially (a no-op never touches the
-  // signal). The paired V17a leaf attaches the one-shot reason-forwarding
-  // listener here.
+  // Pi documents `ctx.signal` as `undefined` in idle, non-turn contexts — which
+  // is exactly when the slash-command handler fires — so tolerate it without
+  // depending on its truthiness; there is nothing to forward yet.
+  if (_ctxSignal === undefined) {
+    return;
+  }
+  forwardSignalReason(_loomAbort, _ctxSignal);
 }
 
 /**
@@ -96,9 +106,7 @@ export function forwardToolExposedCancel(
   _loomAbort: AbortController,
   _signal: AbortSignal,
 ): void {
-  // Inert (tests-task): no subscription; `loomAbort` never fires from the
-  // tool-exposed path. The paired V17a leaf attaches the one-shot
-  // reason-forwarding listener here.
+  forwardSignalReason(_loomAbort, _signal);
 }
 
 /**
@@ -108,9 +116,7 @@ export function forwardToolExposedCancel(
  * `AGENT_END_CANCEL_MESSAGE`) and calls `loomAbort.abort(reason)` with it.
  */
 export function abortForAgentEnd(_loomAbort: AbortController): void {
-  // Inert (tests-task): does not abort, so `loomAbort.signal.reason` stays
-  // `undefined` and the byte-exact-message assertion reds. The paired V17a leaf
-  // aborts with `new Error(AGENT_END_CANCEL_MESSAGE)`.
+  _loomAbort.abort(new Error(AGENT_END_CANCEL_MESSAGE));
 }
 
 /**
@@ -122,11 +128,12 @@ export function abortForAgentEnd(_loomAbort: AbortController): void {
  * is returned already-aborted carrying the parent's reason.
  */
 export function deriveChildLoomAbort(_parentSignal: AbortSignal): AbortController {
-  // Inert (tests-task): a fresh, UNLINKED controller. It neither aborts when the
-  // parent aborts nor reflects an already-aborted parent, so the downward-only
-  // propagation assertions red. The paired V17a leaf links it to the parent
-  // (parent → child only) and forwards the parent's reason.
-  return new AbortController();
+  const child = new AbortController();
+  // Downward-only: the child aborts when the parent aborts (carrying the
+  // parent's reason — CNCL-4), never the reverse, because `child` is an
+  // independent controller the parent holds no reference to.
+  forwardSignalReason(child, _parentSignal);
+  return child;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,21 +187,18 @@ export function routeToolCallLateSettlement(
   guard: ToolCallCancellationGuard,
   channels: ToolCallSideChannels,
 ): ToolCallLateDisposition {
-  // Inert (tests-task): the stub does the WRONG thing after cancellation — it
-  // rebinds the call site and re-emits both `Err` and `RuntimeEvent`, so the
-  // CNCL-1/2/3 assertions (all three channels silent, disposition "discarded")
-  // red. The paired V17a leaf discards silently when `cancellationSurfaced`.
-  const value =
-    settlement.kind === "rejected" ? undefined : settlement.value;
-  channels.rebindCallSite(value);
-  channels.emitErr({ kind: "cancelled", message: "late tool-call settlement" });
-  channels.emitRuntimeEvent({
-    kind: "code_tool",
-    loom: "/stub",
-    invocation_id: "stub",
-    message: "late tool-call settlement",
-    occurred_at: 0,
-  });
+  // The discriminator is whether cancellation has already been surfaced at the
+  // checkpoint, not the late-settle kind: once surfaced, the settlement is
+  // discarded across all three coupled channels (CNCL-1: no rebind; CNCL-2: no
+  // second `Err`; CNCL-3: no second `RuntimeEvent`).
+  if (guard.cancellationSurfaced) {
+    return "discarded";
+  }
+  // Timely settlement (no cancellation surfaced): flow to the normal tool-call
+  // binding path.
+  if (settlement.kind === "resolved") {
+    channels.rebindCallSite(settlement.value);
+  }
   return "rebind";
 }
 
@@ -244,11 +248,17 @@ export function attachSwallowingHandler<T>(
   _guard: SubstrateCancellationGuard,
   _channels: SubstrateSideChannels,
 ): Promise<T> {
-  // Inert (tests-task): NO handler is attached, so a late rejection reaches
-  // Node's `unhandledRejection` channel and the suppression assertion reds. The
-  // paired V17a leaf attaches `.then(onResolve, onReject)` here, before the
-  // first microtask boundary, routing each settlement through
-  // `routeAbandonableSettlement`.
+  // Attach the swallowing handler at construction, before the first microtask
+  // boundary, so a late rejection arriving after the checkpoint surfaced
+  // `cause: "cancelled"` is absorbed and never reaches Node's
+  // `unhandledRejection` process event. The original Promise is returned so the
+  // caller keeps its construction expression; the attached `.then` is the
+  // safety net that runs in addition to the primary consumer's own `await`.
+  promise.then(
+    (value) => routeAbandonableSettlement({ kind: "resolved", value }, _guard, _channels),
+    (error: unknown) =>
+      routeAbandonableSettlement({ kind: "rejected", error }, _guard, _channels),
+  );
   return promise;
 }
 
@@ -266,23 +276,16 @@ export function routeAbandonableSettlement(
   _guard: SubstrateCancellationGuard,
   channels: SubstrateSideChannels,
 ): SubstrateDisposition {
-  // Inert (tests-task): the stub bypasses the substrate — it re-emits a second
-  // `RuntimeEvent` and a `loom/runtime/internal-error` diagnostic and reports
-  // "surfaced", so the three-side-channel suppression assertions red. The paired
-  // V17a leaf discards silently when `cancellationSurfaced`.
-  channels.emitRuntimeEvent({
-    kind: "code_tool",
-    loom: "/stub",
-    invocation_id: "stub",
-    message: "late abandonable settlement",
-    occurred_at: 0,
-  });
-  channels.emitDiagnostic({
-    severity: "error",
-    code: "loom/runtime/internal-error",
-    message: "late abandonable settlement",
-  });
-  return "surfaced";
+  // Once cancellation has surfaced the settlement is discarded on BOTH emit
+  // channels — no second `RuntimeEvent` and no diagnostic of any severity (a
+  // diagnostic-worthy OOM-style rejection is still discarded; promotion to
+  // `loom/runtime/internal-error` would re-introduce the second-event surface
+  // the rule forbids). When cancellation has NOT surfaced the settlement is the
+  // timely one already handled by the owning site's primary `await`; this
+  // secondary swallowing handler emits nothing so it does not double-emit.
+  void _settlement;
+  void channels;
+  return _guard.cancellationSurfaced ? "discarded" : "surfaced";
 }
 
 // ---------------------------------------------------------------------------
@@ -347,14 +350,32 @@ export async function runCancellableSequence(
   _deps: CancellableSequenceDeps,
   _statements: readonly CancellableStatement[],
 ): Promise<CancellableSequenceOutcome> {
-  // Inert (tests-task): the stub does the WRONG thing — it retains no bindings
-  // and synthesises a top-level `cancelled`, so CNCL-5 (a completed `Ok` is
-  // retained) and CNCL-6 (no top-level synthesis on tail abort) both red. The
-  // paired V17a leaf awaits each checkpoint, preserves completed bindings, and
-  // suppresses top-level synthesis on a tail abort.
-  return {
-    bindings: new Map<string, OperationResult>(),
-    result: { ok: false, error: makeCancelledError() },
-    synthesizedTopLevelCancelled: true,
-  };
+  const bindings = new Map<string, OperationResult>();
+  // Default when the sequence is empty; overwritten by the last completed
+  // statement's result below.
+  let result: OperationResult = { ok: true, value: undefined };
+
+  for (const statement of _statements) {
+    // The checkpoint is the ONLY place cancellation is observed. Await the seam
+    // then read the signal BEFORE dispatching `run()`.
+    await _deps.checkpoint.before(statement.kind, statement.site);
+    if (_deps.signal.aborted) {
+      // Surface `Err({kind:"cancelled"})` at THIS position. CNCL-5: every
+      // already-completed binding in `bindings` is retained verbatim — never
+      // retroactively rewritten.
+      return {
+        bindings,
+        result: { ok: false, error: makeCancelledError() },
+        synthesizedTopLevelCancelled: true,
+      };
+    }
+    result = await statement.run();
+    bindings.set(statement.binding, result);
+  }
+
+  // CNCL-6: the loop ran to completion, so no further checkpoint executed after
+  // the final cancellable operation. Even if the signal aborted in the pure
+  // tail, the top-level result is the produced value and no top-level
+  // `cancelled` is synthesised.
+  return { bindings, result, synthesizedTopLevelCancelled: false };
 }
