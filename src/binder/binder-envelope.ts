@@ -78,11 +78,66 @@ export type BinderEnvelopeSchema = Readonly<Record<string, unknown>>;
 export function buildBinderEnvelopeSchema(
   input: BuildBinderEnvelopeSchemaInput,
 ): BinderEnvelopeSchema {
-  // V11c-T stub: inert empty union — no arms constructed yet. The paired V11c
-  // implementation leaf builds the three-arm discriminator, the relaxed copy,
-  // and the message/candidates budgets.
-  void input;
-  return { anyOf: [] };
+  const relaxedArgs = relaxParamsSchema(input.paramsSchema, input.defaultedFields);
+  const messageSchema = { type: "string", maxLength: BINDER_ENVELOPE_MESSAGE_MAX_LENGTH } as const;
+  return {
+    anyOf: [
+      {
+        type: "object",
+        properties: {
+          kind: { type: "string", const: "ok" },
+          args: relaxedArgs,
+        },
+        required: ["kind", "args"],
+        additionalProperties: false,
+      },
+      {
+        type: "object",
+        properties: {
+          kind: { type: "string", const: "needs_info" },
+          message: { ...messageSchema },
+        },
+        required: ["kind", "message"],
+        additionalProperties: false,
+      },
+      {
+        type: "object",
+        properties: {
+          kind: { type: "string", const: "ambiguous" },
+          message: { ...messageSchema },
+          candidates: {
+            type: ["array", "null"],
+            items: { type: "string", maxLength: BINDER_ENVELOPE_MESSAGE_MAX_LENGTH },
+          },
+        },
+        required: ["kind", "message", "candidates"],
+        additionalProperties: false,
+      },
+    ],
+  };
+}
+
+/**
+ * Build the `<params-schema-with-defaulted-fields-relaxed>` copy embedded in the
+ * `ok` arm's `args` (§Binder envelope): each defaulted field is removed from
+ * `required` (its type is unchanged); required-without-default fields are
+ * unchanged; the copy keeps `additionalProperties: false`. When every field has
+ * a default, the copy's `required` is `[]`.
+ */
+function relaxParamsSchema(
+  paramsSchema: LoweredSchema,
+  defaultedFields: readonly string[],
+): Readonly<Record<string, unknown>> {
+  const source = paramsSchema as Record<string, unknown>;
+  const defaulted = new Set(defaultedFields);
+  const originalRequired = Array.isArray(source["required"])
+    ? (source["required"] as string[])
+    : [];
+  const relaxedRequired = originalRequired.filter((name) => !defaulted.has(name));
+  return {
+    ...source,
+    required: relaxedRequired,
+  };
 }
 
 // --- binder bypass (§Binder bypass) -----------------------------------------
@@ -121,9 +176,23 @@ export type BinderBypassDecision =
 export function classifyBinderBypass(
   fields: readonly BypassParamsField[] | undefined,
 ): BinderBypassDecision {
-  // V11c-T stub: inert — always route to the binder. The paired V11c
-  // implementation leaf adds the no-params and single-string classification.
-  void fields;
+  // No-params check runs BEFORE single-string, so a `params: {}` loom (zero
+  // fields) cannot match the single-string branch.
+  if (fields === undefined || fields.length === 0) {
+    return { kind: "no-params-bypass" };
+  }
+  if (fields.length === 1) {
+    const field = fields[0];
+    if (
+      field !== undefined &&
+      field.type === "string" &&
+      !field.hasDefault &&
+      field.optional !== true &&
+      field.nullable !== true
+    ) {
+      return { kind: "single-string-bypass", wireName: field.wireName };
+    }
+  }
   return { kind: "binder" };
 }
 
@@ -133,10 +202,16 @@ export function classifyBinderBypass(
  * and trailing characters, so non-ASCII whitespace (e.g. U+00A0) is preserved.
  */
 export function trimSlashArgumentWhitespace(raw: string): string {
-  // V11c-T stub: inert — returns the input unchanged (no trimming yet). The
-  // paired V11c implementation leaf strips leading/trailing ASCII whitespace
-  // only.
-  return raw;
+  // The ASCII slash-argument whitespace set pinned by System-note rendering
+  // rule 1 — space, tab, LF, CR, VT, FF — never the language-dependent `\s`
+  // class, so non-ASCII whitespace (e.g. U+00A0) is preserved.
+  let start = 0;
+  let end = raw.length;
+  const isSlashWs = (ch: string | undefined): boolean =>
+    ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === "\v" || ch === "\f";
+  while (start < end && isSlashWs(raw[start])) start += 1;
+  while (end > start && isSlashWs(raw[end - 1])) end -= 1;
+  return raw.slice(start, end);
 }
 
 /** Inputs to applying a bypass decision to a slash invocation. */
@@ -167,11 +242,18 @@ export interface BinderBypassArgs {
  * `binder` decision (the caller runs the binder).
  */
 export function applyBinderBypass(input: ApplyBinderBypassInput): BinderBypassArgs {
-  // V11c-T stub: inert — reports not-bypassed with empty args. The paired V11c
-  // implementation leaf fills the single-string trimmed value and the no-params
-  // empty object.
-  void input;
-  return { bypassed: false, args: {} };
+  const { decision } = input;
+  switch (decision.kind) {
+    case "no-params-bypass":
+      return { bypassed: true, args: {} };
+    case "single-string-bypass":
+      return {
+        bypassed: true,
+        args: { [decision.wireName]: trimSlashArgumentWhitespace(input.slashArguments) },
+      };
+    case "binder":
+      return { bypassed: false, args: {} };
+  }
 }
 
 // --- BNDR-3: distinct failure-mode template row prefixes --------------------
@@ -183,11 +265,7 @@ export function applyBinderBypass(input: ApplyBinderBypassInput): BinderBypassAr
  * `needs_info` and `ambiguous` prefixes MUST stay distinct.
  */
 export function binderFailureRowPrefix(kind: "needs_info" | "ambiguous"): string {
-  // V11c-T stub: inert — returns the empty string for both arms (the distinct
-  // prefixes are absent). The paired V11c implementation leaf returns the fixed
-  // `argument binding needs more info` / `ambiguous arguments` phrases.
-  void kind;
-  return "";
+  return kind === "needs_info" ? "argument binding needs more info" : "ambiguous arguments";
 }
 
 /**
@@ -199,10 +277,5 @@ export function renderBinderFailureRow(
   kind: "needs_info" | "ambiguous",
   message: string,
 ): string {
-  // V11c-T stub: inert — returns the empty string. The paired V11c
-  // implementation leaf renders the fixed row prefix and em-dash separator.
-  void name;
-  void kind;
-  void message;
-  return "";
+  return `loom /${name}: ${binderFailureRowPrefix(kind)} \u2014 ${message}`;
 }
