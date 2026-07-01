@@ -22,14 +22,13 @@
 //     `handleNoRollbackTerminalEvent`), so a completed callee's side effect
 //     survives by construction (errors-and-results/error-model.md#err-13).
 //
-// V15m-T (tests-task) declares this surface and stubs the behaviour-bearing
-// function inertly: `runInvokeChild` fires no checkpoint, never drives the
-// child, and returns a cancelled outcome carrying no committed side effect. The
-// cka-47 presence assertions therefore red on their own primary expectation
-// (the expected `invoke` checkpoint is absent and the child never runs) and the
-// ERR-13 witness reds because the completed-callee value / committed side effect
-// never surfaces — not on a compile error, a missing fixture, or a harness
-// throw. The paired V15m implementation leaf fills this in.
+// V15m (this implementation leaf) fills in `runInvokeChild`: it awaits
+// `checkpoint.before("invoke", site)` immediately before the child spawn, reads
+// `signal.aborted` and skips the spawn on an observed abort, otherwise drives
+// the child to completion and surfaces its top-level `Result` together with the
+// completed callee's `committed` side effects. Those side effects remain final
+// under any downstream terminal event because the runtime holds no compensating
+// path — the ERR-13 witness observes finality by construction.
 //
 // Spec: cancellation.md §Granularity; invocation.md; errors-and-results/
 // error-model.md §"No rollback" (ERR-13); host-interfaces-services.md PIC-10.
@@ -86,13 +85,24 @@ export type InvokeChildOutcome =
  * leaf implements it.
  */
 export async function runInvokeChild(
-  _checkpoint: Checkpoint,
-  _signal: AbortSignal,
-  _site: CheckpointSite,
-  _child: InvokeChild,
+  checkpoint: Checkpoint,
+  signal: AbortSignal,
+  site: CheckpointSite,
+  child: InvokeChild,
 ): Promise<InvokeChildOutcome> {
-  // V15m-T inert stub: no `invoke` checkpoint fires, the child is never spawned,
-  // and no side effect is committed. The paired V15m leaf awaits
-  // `checkpoint.before("invoke", site)`, reads the signal, and drives the child.
-  return { kind: "cancelled", committed: [] };
+  // The `invoke` checkpoint fires immediately before the child spawn's signal
+  // read (cka-47, V15m facet; cancellation.md §Granularity, the `invoke`
+  // per-site presence arm distributed off V17c). An abort observed here skips
+  // the spawn — the child never runs and no side effect is committed.
+  await checkpoint.before("invoke", site);
+  if (signal.aborted) {
+    return { kind: "cancelled", committed: [] };
+  }
+
+  // Drive the child to completion and surface its top-level `Result` together
+  // with the completed callee's committed side effects. Those side effects stay
+  // final under any downstream `?` / panic / cancel (ERR-13) because the runtime
+  // holds no compensating / rollback path — see `handleNoRollbackTerminalEvent`.
+  const result = await child.drive();
+  return { kind: "value", result, committed: child.committed };
 }
