@@ -236,8 +236,11 @@ function build() {
 		// `-T` tests partner. leafStatus itself stays exact so the orchestrator
 		// frontier keeps tracking the precise leaf id.
 		let status = leafStatus(leaf, tags, current);
-		const writingTests = !!partner && curBase === id && current.leaf === partner.id;
-		if (!builtDone && !leaf.blocked && curBase === id) status = "in-progress";
+		let writingTests = false;
+		if (!builtDone && !leaf.blocked && curBase === id) {
+			status = "in-progress";
+			writingTests = !!partner && current.leaf === partner.id;
+		}
 		features.push({
 			phase: leaf.phaseKey,
 			name,

@@ -181,7 +181,9 @@
 						var badges = "";
 						if (it.hasTests && it.testsDone && !it.builtDone)
 							badges += '<span class="badge tests">tests ready</span>';
-						if (!it.builtDone)
+						if (it.writingTests)
+							badges += '<span class="badge state">writing tests</span>';
+						else if (!it.builtDone)
 							badges += '<span class="badge state">' + (stateLabel[it.status] || it.status) + "</span>";
 						var cls = it.builtDone ? "done" : it.status;
 						return (
