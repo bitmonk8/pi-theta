@@ -1001,3 +1001,17 @@ in `tests/fixtures/h7a/README.md`); the leaf marks its completeness as not
 mechanically verified, only `golden ⊆ permitted` is gated. H7a is already the
 CIO-5 co-witness in `coverage-matrix.md` and, being a per-cell at-least-one arm
 with `V16a` present, needs no `H5b` Deps edit; it closes no new REQ-ID.
+
+## 2026-07-01 — V14c off-surface routing
+
+- **Synthesized `internal-error{tool-return-shape}` message for non-throwing
+  shape checks.** The `loom/runtime/internal-error` registry *Message* template
+  is `internal error: <error.message>`, phrased for the spec's "catches the
+  resulting throw" framing. But two of the four shape checks (`resolved-not-object`
+  for a scalar like `42`, `content-not-iterable` for `content: 7`) are detected
+  structurally with no thrown value carrying a `.message`. For those,
+  `routeToolReturnShape` synthesizes a fixed message
+  `internal error: tool <name> returned a non-conforming result envelope`; the
+  `details.kind`/`details.tool_name`/`details.shape_check` fields carry the
+  precise, spec-pinned discriminator. No V14c-T test constrains this defect
+  message string. Minor interpretation, not a spec contradiction.
