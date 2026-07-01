@@ -1,0 +1,11 @@
+[
+  "loom/load/binder-model-not-strict-capable",
+  "loom/load/binder-model-strict-capability-unknown",
+  "loom/load/binder-model-unresolved",
+  "loom/load/typed-query-unsupported-provider",
+  "loom/load/schema-slug-collision",
+  "loom/runtime/custom-type-unsafe",
+  "loom/runtime/internal-error",
+  "loom/runtime/registration-cache-collision",
+  "loom/runtime/validator-cache-collision"
+]

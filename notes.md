@@ -960,3 +960,44 @@ No invented contract — the implementation asserts only what host-interfaces-co
 states. The residual staleness in `tool-calls.md` and `queryerror-variants.md`
 (flagged in the V14g-T note) is outside this leaf's `Spec.` scope and remains for a
 spec-side lock-step fix.
+
+## 2026-07-01 — H7a terminal integration-acceptance run
+
+H7a is a horizontal cross-slice integration-regression gate. Two design
+decisions diverge from the leaf's literal wording; both keep the gate's
+observable behaviour faithful to the spec's intent (a deterministic composition
+of the per-leaf-gated behaviours, run against the in-process session double
+whose fidelity the leaf itself says bounds this gate).
+
+1. **Composed run is driven through the H4a/H4b response-programming surface,
+   not a single production entry point.** The leaf's prose reads as if a single
+   wired pipeline runs "typed query → tool loop → code-tool invoke → schema
+   lowering/validation → binder → cancellation" end-to-end and emits
+   loom-system-notes. No such single production entry point exists: the extension
+   factory + dispatch wires only the MVP prompt drive, and each pipeline facet is
+   a `src/runtime/*` / `src/binder/*` surface gated in isolation. The H4b Adds
+   field explicitly names H7a as a consumer of the response-programming surface
+   ("the (a)–(e)-driven harness leaves consume — `H7a`, `V11f`, `V13c`, …"), so
+   the composition is driven through that surface (`double.responses.script*` +
+   `driveResponses()`) — the deterministic integrated-pipeline model — and the
+   live `V16a` `arbitrate` seam is consulted for the ceiling co-fire. The golden
+   diagnostics are collected from the live production emission surface of the
+   owning Deps slice (`renderCompactTranscript` + `customTypeUnsafeDiagnostic`,
+   V11b/BNDR-9), not synthesised from the transcript.
+
+2. **Cancellation is exercised via the co-occurring-breach run, not a
+   same-`drive()` phase.** The response-programming surface's `scriptAbortAt`
+   short-circuits `drive()` (a binder abort returns before the tool-loop / turns
+   phases), so a single `drive()` cannot show a rich multi-turn transcript AND a
+   cancellation observable. The golden transcript therefore captures the
+   successful multi-feature composition (binder retry→ok, tool loop, mixed batch,
+   typed-query answer); the cancellation facet of the pipeline is covered by the
+   bullet-5 co-occurring ceiling breach run driven through the same live surface.
+
+Grounding notes: golden-diagnostics = [`loom/runtime/custom-type-unsafe`] — a
+real registry code emitted by a Deps slice (V11b), resolving via `registryMessage`.
+permitted-codes is a hand-curated per-Deps-slice union superset (provenance table
+in `tests/fixtures/h7a/README.md`); the leaf marks its completeness as not
+mechanically verified, only `golden ⊆ permitted` is gated. H7a is already the
+CIO-5 co-witness in `coverage-matrix.md` and, being a per-cell at-least-one arm
+with `V16a` present, needs no `H5b` Deps edit; it closes no new REQ-ID.

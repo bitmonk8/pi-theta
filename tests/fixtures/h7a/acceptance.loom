@@ -1,0 +1,32 @@
+---
+mode: prompt
+model: anthropic:claude-sonnet
+tools:
+  - read_file
+  - search
+---
+# H7a — terminal integration-acceptance fixture.
+#
+# A single representative multi-feature `.loom` whose composed pipeline path the
+# H7a integration-acceptance gate drives end-to-end through the H4a harness:
+# typed query -> tool loop -> code-tool invoke -> schema lowering/validation ->
+# binder -> cancellation, in one run against the in-process Pi session double.
+#
+# The composed observable transcript this fixture produces is enumerated in
+# `golden-transcript.json`; the `loom-system-note` codes its path emits are
+# enumerated in `golden-diagnostics.json`; the manually-maintained best-effort
+# union of every code the Deps slices *can* emit is in `permitted-codes.json`.
+
+schema Report {
+  status: "ok" | "degraded"
+  summary: string
+}
+
+# Free-phase tool loop: the model inspects the workspace with a parallel
+# `read_file` / `search` batch (a mixed-success code-tool invoke, V14a/V14b),
+# then a terminating turn. The binder resolves the model via a transport-class
+# retry then success (V11a/V11f). The typed `@`-query lowers its response
+# against `Report` (V5d/V13b) and forces a two-phase respond turn (V13c/V13d).
+let report: Report = @`Inspect the workspace and report its configuration.`
+
+respond report

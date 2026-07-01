@@ -1,0 +1,13 @@
+[
+  { "kind": "binder-call", "attempt": 0 },
+  { "kind": "binder-failure", "failureClass": "transport", "attempt": 0 },
+  { "kind": "binder-retry", "failureClass": "transport" },
+  { "kind": "binder-call", "attempt": 1 },
+  { "kind": "binder-outcome", "envelopeKind": "ok" },
+  { "kind": "fragment", "turn": 0, "text": "Inspecting the workspace" },
+  { "kind": "tool-result", "toolUseId": "read-1", "toolName": "read_file", "content": "config: ok", "isError": false },
+  { "kind": "tool-result", "toolUseId": "grep-1", "toolName": "search", "content": "denied", "isError": true },
+  { "kind": "turn-end", "turn": 0 },
+  { "kind": "fragment", "turn": 1, "text": "The workspace is configured." },
+  { "kind": "turn-end", "turn": 1 }
+]
