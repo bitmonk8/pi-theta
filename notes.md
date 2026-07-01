@@ -938,3 +938,25 @@ spec-side finding (remove the code-side `isError` arm from both, keeping the
 model-driven-loop `isError` phrasing which is correct per query-tool-loop.md).
 Not blocking for V14g/V14g-T because those pages are outside this leaf's `Spec.`
 scope.
+
+## 2026-07-01 — V14g: applying the V14g-T-intended leaf edit (stale `isError` bullets)
+
+**Divergence (leaf edit).** The V14g-T notes above recorded removing the stale
+code-side `isError` bullets (3)/(4) and the `!isError` qualifier from the leaf,
+renumbering the `execute()`-throw bullet, and trimming the Ships-when line — but
+`git log docs/plan_topics/V14g-tool-calls-execute-lowering.md` shows the file was
+never actually committed with that edit (last touched by the spec-plan commit
+`4a021fd3`). The stale bullets contradicted the leaf's own cited authoritative
+page `pi-integration-contract/host-interfaces-core.md` §"Tool execution from loom
+code", which spec fix **F-1578** rewrote so the code-side `AgentToolResult`
+carries no `isError` field: a cleanly-resolving envelope always lowers to `Ok`,
+and the `execute()` throw is the only code-side `cause: "execution"` path.
+
+I implemented V14g against the authoritative page + the V14g-T tests (no code-side
+`isError` anywhere) and applied the minimal leaf edit V14g-T intended: dropped
+bullets (3)/(4) and the `!isError` qualifier, renumbered the throw bullet to (3),
+and rewrote the Ships-when line ("three" mechanics, no `isError`/no-text-message).
+No invented contract — the implementation asserts only what host-interfaces-core.md
+states. The residual staleness in `tool-calls.md` and `queryerror-variants.md`
+(flagged in the V14g-T note) is outside this leaf's `Spec.` scope and remains for a
+spec-side lock-step fix.

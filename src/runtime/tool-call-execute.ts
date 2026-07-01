@@ -64,11 +64,12 @@
 // errors-and-results/error-model.md §"No rollback" (ERR-13).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import { coerceUnderlyingString } from "../diagnostics/placeholder";
 import type { Checkpoint, CheckpointSite } from "../seams/checkpoint";
 import type { RuntimeEvent } from "./runtime-event-channel";
 import type { CommittedSideEffect } from "./no-rollback";
 import type { CodeToolError } from "./query-error";
-import { makeErr, type ResultValue } from "./value";
+import { makeErr, makeOk, type LoomValue, type ResultValue } from "./value";
 
 // --------------------------------------------------------------------------
 // AgentToolResult content-block shape (loom-load-bearing subset)
@@ -118,8 +119,6 @@ export interface ToolLoweringSink {
 /** The 4096-byte cap on a `CodeToolError { cause: "execution" }` message. */
 export const CODE_TOOL_MESSAGE_MAX_BYTES = 4096;
 
-const V14G_STUB_TEXT = "\u0000V14g-execute-lowering-unimplemented";
-
 // --------------------------------------------------------------------------
 // (1) content filter/join
 // --------------------------------------------------------------------------
@@ -131,13 +130,19 @@ const V14G_STUB_TEXT = "\u0000V14g-execute-lowering-unimplemented";
  * no text block survives (host-interfaces-core.md §"Tool execution from loom
  * code").
  *
- * V14g-T stubs this to a sentinel constant so the filter/join and non-text-
- * discard assertions red on their own value.
  */
 export function filterJoinToolText(
-  _content: readonly ToolContentBlock[],
+  content: readonly ToolContentBlock[],
 ): string {
-  return V14G_STUB_TEXT;
+  // Keep only `type === "text"` blocks; join their `.text` with a single "\n"
+  // (Array.join places exactly one separator between adjacent entries and none
+  // before the first or after the last). Empty text blocks survive the filter
+  // as empty segments — the join is over surviving text entries, not a filter of
+  // empty strings, so `[text(""), text("x")]` joins to "\nx".
+  return content
+    .filter((block): block is ToolTextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
 }
 
 // --------------------------------------------------------------------------
@@ -150,14 +155,16 @@ export function filterJoinToolText(
  * blocks — is the legal `Ok("")` value. The non-text discard emits nothing on
  * `sink` (host-interfaces-core.md §"Tool execution from loom code").
  *
- * V14g-T stubs this to an inert `Err` so the accepted-path `Ok` assertions red
- * on `.ok`.
  */
 export function lowerResolvedToolEnvelope(
-  _envelope: AgentToolResultEnvelope,
+  envelope: AgentToolResultEnvelope,
   _sink: ToolLoweringSink,
 ): ResultValue {
-  return makeErr(V14G_STUB_TEXT);
+  // The non-text discard is not a `QueryError` and is not in the always-log set:
+  // `_sink` is deliberately never touched here. An empty result — `content: []`
+  // or a content array with no surviving text blocks — lowers to the legal
+  // `Ok("")` value the joined text already yields.
+  return makeOk(filterJoinToolText(envelope.content));
 }
 
 // --------------------------------------------------------------------------
@@ -172,15 +179,30 @@ export function lowerResolvedToolEnvelope(
  * bytes shorter than `maxBytes` (host-interfaces-core.md §"Tool execution from
  * loom code").
  *
- * V14g-T stubs this to an inert sentinel (independent of its input) so every
- * byte-length / value assertion — including the at-or-under-limit no-op case —
- * reds on its own primary expectation.
  */
 export function truncateUtf8CodePointBoundary(
-  _s: string,
-  _maxBytes: number,
+  s: string,
+  maxBytes: number,
 ): string {
-  return V14G_STUB_TEXT;
+  const encoder = new TextEncoder();
+  if (encoder.encode(s).length <= maxBytes) {
+    return s;
+  }
+  // Accumulate whole code points (iterating `s` yields code points, never lone
+  // surrogate halves) until the next one would straddle `maxBytes`; that code
+  // point is dropped entirely, so the result is a whole number of code points
+  // and MAY be up to three bytes short.
+  let byteCount = 0;
+  let out = "";
+  for (const codePoint of s) {
+    const cpBytes = encoder.encode(codePoint).length;
+    if (byteCount + cpBytes > maxBytes) {
+      break;
+    }
+    byteCount += cpBytes;
+    out += codePoint;
+  }
+  return out;
 }
 
 /**
@@ -190,16 +212,15 @@ export function truncateUtf8CodePointBoundary(
  * coercion) and truncated under the `CODE_TOOL_MESSAGE_MAX_BYTES` code-point-
  * boundary rule (host-interfaces-core.md §"Tool execution from loom code").
  *
- * V14g-T stubs this to a sentinel-`message` carrier so the coercion / truncation
- * assertions red on `.message`.
  */
 export function lowerToolExecuteThrow(
-  _thrown: unknown,
+  thrown: unknown,
   toolName: string,
 ): CodeToolError {
+  const coerced = coerceUnderlyingString(thrown);
   return {
     kind: "code_tool",
-    message: V14G_STUB_TEXT,
+    message: truncateUtf8CodePointBoundary(coerced, CODE_TOOL_MESSAGE_MAX_BYTES),
     tool_name: toolName,
     cause: "execution",
   };
@@ -257,17 +278,50 @@ export type ToolCallExecOutcome =
  * under any downstream terminal event (ERR-13; the runtime holds no compensating
  * path — see `handleNoRollbackTerminalEvent`).
  *
- * V14g-T stubs this inert: it fires no checkpoint and dispatches nothing,
- * returning a cancelled outcome with no committed effects, so the checkpoint-
- * presence, abort-skip, and ERR-13 assertions red on their own primary
- * expectations.
  */
 export async function runCodeSideToolCall(
-  _checkpoint: Checkpoint,
-  _signal: AbortSignal,
-  _site: CheckpointSite,
-  _call: CodeSideToolCall,
-  _sink: ToolLoweringSink,
+  checkpoint: Checkpoint,
+  signal: AbortSignal,
+  site: CheckpointSite,
+  call: CodeSideToolCall,
+  sink: ToolLoweringSink,
 ): Promise<ToolCallExecOutcome> {
-  return { kind: "cancelled", committed: [] };
+  // cka-47 (V14g facet): a cancellation checkpoint fires immediately before the
+  // dispatch, carrying the call site (cancellation.md §Granularity; V8a
+  // Checkpoint seam PIC-10). The signal read follows the checkpoint.
+  await checkpoint.before("tool-call", site);
+  if (signal.aborted) {
+    // The abort was observed at the pre-dispatch checkpoint: the tool is never
+    // dispatched and no side effect is committed.
+    return { kind: "cancelled", committed: [] };
+  }
+
+  let envelope: AgentToolResultEnvelope;
+  try {
+    envelope = await call.dispatch();
+  } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — Specific exception types only
+    // `call.dispatch()` invokes the Pi tool's `execute(...)`, which signals
+    // failure by throwing an arbitrary value owned by the Pi SDK whose runtime
+    // shape loom cannot statically guarantee. The throw lowers to
+    // `CodeToolError { cause: "execution" }` (host-interfaces-core.md §"Tool
+    // execution from loom code"); the completed callee's committed side effects
+    // remain final per ERR-13.
+    const error = lowerToolExecuteThrow(thrown, call.toolName);
+    return {
+      kind: "execution-error",
+      result: makeErr(error as unknown as LoomValue),
+      error,
+      committed: call.committed,
+    };
+  }
+
+  // Clean resolution: lower the envelope to `Ok(<filtered/joined text>)`
+  // (possibly `Ok("")`). The completed callee's committed side effects ride on
+  // the outcome so the ERR-13 completed-callee-finality witness stays
+  // assertable off this surface.
+  return {
+    kind: "value",
+    result: lowerResolvedToolEnvelope(envelope, sink),
+    committed: call.committed,
+  };
 }
