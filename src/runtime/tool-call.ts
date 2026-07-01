@@ -293,24 +293,41 @@ export interface CodeToolArgDepthBreach {
  * Returns `undefined` for a within-cap argument, deferring to the downstream
  * AJV boundary.
  *
- * V14e-T stubs this as a never-fires no-op (returns `undefined`), so the
- * live-carrier assertions red on their own primary assertion (a depth-6
- * argument yields no breach) while the paired `V14e` implementation is absent.
- * The paired `V14e` leaf runs the depth walk, wraps the breach into the
- * `CodeToolError` carrier, and returns the materialised breach.
+ * The depth walk (`V5e`) runs before AJV (CIO-3): a within-cap value yields
+ * `{ ok: true }` and this returns `undefined`, deferring to the downstream AJV
+ * check; a depth-6+ value yields the canonical depth-violation issue
+ * (`schema_keyword: "maxDepth"`, message `"JSON document depth exceeds 5"`),
+ * which is wrapped into the `CodeToolError` carrier (`V14a`) with
+ * `cause: "validation"` and surfaced as `Err(CodeToolError)` to loom code, per
+ * the code-driven row of the ceiling-#4 per-boundary table
+ * (ceilings-3-and-4.md#ceiling-4-table).
  */
 export function enforceCodeToolArgDepth(
   toolName: string,
   argValue: unknown,
 ): CodeToolArgDepthBreach | undefined {
-  // V14e-T inert stub: never fires — the V14e depth-walk-before-AJV enforcement
-  // is absent, so every live-carrier assertion reds on "expected a breach".
-  void toolName;
-  void argValue;
-  void depthWalk;
-  void makeErr;
-  void DEPTH_VIOLATION_MESSAGE;
-  return undefined;
+  const walk = depthWalk(argValue);
+  if (walk.ok) {
+    // Within the depth cap — no ceiling-#4 breach at this site; defer to the
+    // downstream AJV boundary (owned elsewhere).
+    return undefined;
+  }
+
+  // Depth-6+ breach: wrap the canonical depth-violation into the `V14a`
+  // `CodeToolError` carrier with `cause: "validation"`. The carrier's own
+  // `message` is the canonical depth-violation string (the same string the
+  // depth walk's issue carries), anchored to schema-subset.md §Error shape.
+  const error: CodeToolError = {
+    kind: "code_tool",
+    message: DEPTH_VIOLATION_MESSAGE,
+    tool_name: toolName,
+    cause: "validation",
+  };
+  return {
+    result: makeErr(error as unknown as LoomValue),
+    error,
+    issue: walk.issue,
+  };
 }
 
 // --------------------------------------------------------------------------
