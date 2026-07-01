@@ -123,13 +123,13 @@ export interface CalleeSessionComposition {
  * (invocation.md §Cross-mode semantics). The caller mode is irrelevant to the
  * decision.
  *
- * V15l-T inert stub: the INVERTED mapping (subagent → "attach", prompt →
- * "fresh"), so every cell's context assertion reds for the intended reason
- * (the V15l body is absent). V15l fills in: subagent → "fresh", prompt →
- * "attach".
+ * A subagent-mode callee spawns a **fresh** isolated conversation (prompt→
+ * subagent, subagent→subagent); a prompt-mode callee **attaches** to the
+ * caller's current conversation (subagent→prompt). Selection is by the callee
+ * mode alone — the caller mode does not change the decision.
  */
 export function selectCalleeContext(calleeMode: LoomMode): CalleeContext {
-  return calleeMode === "subagent" ? "attach" : "fresh";
+  return calleeMode === "subagent" ? "fresh" : "attach";
 }
 
 /**
@@ -137,17 +137,19 @@ export function selectCalleeContext(calleeMode: LoomMode): CalleeContext {
  * caller's conversation, and the callee's own configuration (invocation.md
  * §Cross-mode semantics, §Tools and model).
  *
- * V15l-T inert stub: returns a composition wrong on every observable — the
- * inverted context, the caller's prior messages regardless of context, and the
- * PARENT's inference config — so each test reds on its own primary assertion
- * because the V15l body is absent. V15l fills in the correct composition.
+ * A **fresh**-context callee starts with no prior conversation messages; an
+ * **attach**-context callee carries the caller's current conversation messages
+ * (invocation.md §Cross-mode semantics). Every callee's inference call uses the
+ * child's own configured model/tools/system, never the parent's (invocation.md
+ * §Tools and model).
  */
 export function composeCalleeSession(
   input: CrossModeInput,
 ): CalleeSessionComposition {
+  const context = selectCalleeContext(input.cell.calleeMode);
   return {
-    context: selectCalleeContext(input.cell.calleeMode),
-    priorMessages: input.caller.messages,
-    inferenceConfig: input.caller.config,
+    context,
+    priorMessages: context === "fresh" ? [] : input.caller.messages,
+    inferenceConfig: input.callee.config,
   };
 }
