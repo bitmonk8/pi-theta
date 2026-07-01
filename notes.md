@@ -664,3 +664,19 @@ impl fills it). Design decisions recorded for the V13a implementer:
 - Pre-existing unrelated reds: `tests/pre-evaluation-reload-failure.test.ts`
   (V4g-T, ERR-7, 4 tests) fails on HEAD without this change; out of scope for
   this leaf.
+
+## V14a — tool-call argument-check arity code for `.loom` callables
+
+- Spec (tool-calls.md §Argument shape) says a `.loom`-callable argument-arity
+  error surfaces via `loom/parse/invoke-arity-too-few` / `-too-many`, while a
+  multi-argument Pi-tool call is `loom/parse/tool-arg-arity`.
+- The V14a-T `ToolCallArgCheckInput` seam carries only `positionalCount` and no
+  callee-declared param count, so the invoke-arity too-few/too-many split is not
+  computable at this seam. The paired V14a-T "arity is checked before type" test
+  drives a `.loom`-callable at `positionalCount: 2` and binds
+  `loom/parse/tool-arg-arity`.
+- Decision: `checkToolCallArguments` fires `loom/parse/tool-arg-arity` on
+  `positionalCount > 1` for both callee kinds (arity short-circuits type). The
+  invoke-arity too-few/too-many refinement for `.loom` callables is deferred —
+  it needs the callee's declared param count, which this seam does not carry and
+  which no V14a Tests bullet exercises. Logged in decisions.jsonl.

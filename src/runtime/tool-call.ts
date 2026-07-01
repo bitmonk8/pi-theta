@@ -51,7 +51,8 @@
 // (§"Tool execution from loom code"), errors-and-results/queryerror-variants.md.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
-import { makeErr, type LoomValue, type ResultValue } from "./value";
+import { checkLiteralSublanguage } from "../parser/literal-sublanguage";
+import { makeOk, type LoomValue, type ResultValue } from "./value";
 import type {
   CodeToolCause,
   InvokeCalleeError,
@@ -120,7 +121,62 @@ export interface ToolCallArgCheckInput {
 export function checkToolCallArguments(
   input: ToolCallArgCheckInput,
 ): Diagnostic[] {
-  void input;
+  // (1) Arity — checked before type. A code-side call site carries at most one
+  // positional argument surface: a Pi tool takes a single object argument
+  // (tool-calls.md §"Argument shape": `read({...}, {...})` is
+  // `loom/parse/tool-arg-arity` regardless of the argument shapes). An
+  // over-supplied positional count short-circuits before any type check, so a
+  // call that both over-supplies arguments and type-mismatches fires only the
+  // arity code.
+  if (input.positionalCount > 1) {
+    return [
+      {
+        severity: "error",
+        code: "loom/parse/tool-arg-arity",
+        file: input.file,
+        range: input.range,
+        message: `Pi tool '${input.toolName}' takes a single object argument; got ${input.positionalCount}`,
+      },
+    ];
+  }
+
+  // (2) Not-literal — the single positional Pi-tool argument must be a
+  // literal-sublanguage form (tool-calls.md §"Argument shape"). Reuse the
+  // shared is-literal check (V2a), which reports `loom/parse/tool-arg-not-literal`
+  // at the `tool-arg` position and names the offending sub-expression.
+  if (input.calleeKind === "pi-tool" && input.argumentSource !== undefined) {
+    const litDiags = checkLiteralSublanguage(input.argumentSource, "tool-arg", {
+      file: input.file,
+      range: input.range,
+    });
+    if (litDiags.length > 0) {
+      return litDiags;
+    }
+  }
+
+  // (3) Type-mismatch — a `.loom`-callable argument that does not type-check
+  // against the callee `params:` is a parse error only when the callee is
+  // statically resolvable (tool-calls.md §"Argument shape"); the
+  // non-statically-resolvable arm falls to the runtime AJV check. A Pi-tool
+  // argument mismatch is never a parse error.
+  const resolution = input.staticResolution;
+  if (
+    input.calleeKind === "loom-callable" &&
+    resolution !== undefined &&
+    resolution.resolvable &&
+    !resolution.matches
+  ) {
+    return [
+      {
+        severity: "error",
+        code: "loom/parse/tool-arg-type-mismatch",
+        file: input.file,
+        range: input.range,
+        message: `tool '${input.toolName}' argument type mismatch: expected ${resolution.expected}, got ${resolution.actual}`,
+      },
+    ];
+  }
+
   return [];
 }
 
@@ -137,7 +193,7 @@ export function checkToolCallArguments(
  * V14a-T stubs this to the empty set so the closed-enum assertion reds.
  */
 export function codeToolErrorCauses(): readonly CodeToolCause[] {
-  return [];
+  return ["validation", "execution", "cancelled", "unknown_tool"];
 }
 
 /**
@@ -146,7 +202,7 @@ export function codeToolErrorCauses(): readonly CodeToolCause[] {
  * V14a-T stubs this to `""` so the distinctness assertion reds.
  */
 export function codeToolErrorKind(): string {
-  return "";
+  return "code_tool";
 }
 
 /**
@@ -158,7 +214,7 @@ export function codeToolErrorKind(): string {
  * V14a-T stubs this to `""` so the distinctness assertion reds.
  */
 export function modelToolErrorKind(): string {
-  return "";
+  return "model_tool";
 }
 
 // --------------------------------------------------------------------------
@@ -176,8 +232,7 @@ export function modelToolErrorKind(): string {
  * assertion reds.
  */
 export function lowerAcceptedPiToolReturn(finalOutput: string): ResultValue {
-  void finalOutput;
-  return makeErr(null);
+  return makeOk(finalOutput);
 }
 
 /**
@@ -190,8 +245,7 @@ export function lowerAcceptedPiToolReturn(finalOutput: string): ResultValue {
  * assertion reds.
  */
 export function lowerAcceptedLoomCallableReturn(payload: LoomValue): ResultValue {
-  void payload;
-  return makeErr(null);
+  return makeOk(payload);
 }
 
 // --------------------------------------------------------------------------
@@ -214,9 +268,12 @@ export function surfaceLoomCallableInputValidationFailure(
   calleePath: string,
   message: string,
 ): InvokeInfraError {
-  void calleePath;
-  void message;
-  return { kind: "", message: "", callee_path: "", cause: "load_failure" };
+  return {
+    kind: "invoke_infra",
+    message,
+    callee_path: calleePath,
+    cause: "validation",
+  };
 }
 
 /**
@@ -235,7 +292,10 @@ export function surfaceLoomCallableCalleeFailure(
   inner: QueryError,
   message: string,
 ): InvokeCalleeError {
-  void calleePath;
-  void message;
-  return { kind: "", message: "", callee_path: "", inner };
+  return {
+    kind: "invoke_callee",
+    message,
+    callee_path: calleePath,
+    inner,
+  };
 }
