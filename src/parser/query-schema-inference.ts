@@ -38,6 +38,7 @@
 
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import {
+  checkCompatible,
   type CompatSite,
   type CompatType,
   type PrimitiveName,
@@ -107,14 +108,23 @@ export interface QuerySchemaInferenceInput {
 }
 
 /**
- * The V13b-T inert sentinel schema. The paired V13b engine never returns this;
- * it exists so every inference test reds on its own primary assertion — no
- * expected sink equals it and no untyped (`undefined`) expectation equals it.
+ * Unwrap `depth` `array<T>` levels off a resolved sink schema. Each crossed
+ * `array-literal` frame contributes one level: an array-literal element inherits
+ * its enclosing array sink's element type (query-forms.md §"Schema inference
+ * algorithm" — `let xs: array<Score> = [@`...`?]` hands `Score` to each element).
+ * If the sink is not an `array` at some level (a type error diagnosed elsewhere),
+ * the unwrap stops and returns what remains.
  */
-const UNIMPLEMENTED_SCHEMA: InferredSchema = {
-  kind: "named",
-  name: "__loom_unimplemented__",
-};
+function unwrapArrayLevels(schema: InferredSchema, depth: number): InferredSchema {
+  let current = schema;
+  for (let i = 0; i < depth; i++) {
+    if (current.kind !== "array") {
+      return current;
+    }
+    current = current.element;
+  }
+  return current;
+}
 
 /**
  * Infer a typed query's response schema (QRY-2 / QRY-3). When an explicit
@@ -124,14 +134,65 @@ const UNIMPLEMENTED_SCHEMA: InferredSchema = {
  * transparent constructs and stopping at opaque ones; a walk that reaches a stop
  * (or exhausts the frames) without a sink returns `undefined` (untyped, `string`).
  *
- * V13b-T stubs this as an inert sentinel returning `UNIMPLEMENTED_SCHEMA`; the
- * paired V13b implementation leaf performs the walk.
+ * The walk is shallow (query-forms.md §"Schema inference algorithm"):
+ *   - `paren` / `propagate` — context-preserving, crossed.
+ *   - `ternary` — crossed; the ternary is transparent and the walk continues
+ *     outward to the sink the ternary itself has (if any).
+ *   - `array-literal` — crossed; the element inherits the enclosing array sink's
+ *     element type, so one `array<T>` level is unwrapped off the resolved sink
+ *     per crossed array-literal frame.
+ *   - `let` — the binding annotation is the sink (innermost wins).
+ *   - `call-arg` — a call boundary: a typed parameter is the sink; an untyped
+ *     parameter yields no sink and the walk does NOT continue past it (untyped).
+ *   - `fn-return` — a declared return type is the sink; a `.loom` (no declared
+ *     return type) supplies none and the walk continues outward.
+ *   - `stop` — opaque; the walk halts with no sink (untyped).
  */
 export function inferQuerySchema(
   input: QuerySchemaInferenceInput,
 ): InferredSchema | undefined {
-  void input;
-  return UNIMPLEMENTED_SCHEMA;
+  // QRY-3 — an explicit `@<Schema>` ascription always overrides the walk,
+  // regardless of where the query appears.
+  if (input.explicit !== undefined) {
+    return input.explicit;
+  }
+
+  let arrayDepth = 0;
+  for (const frame of input.frames) {
+    switch (frame.kind) {
+      case "paren":
+      case "propagate":
+      case "ternary":
+        // Transparent: continue the outward walk.
+        break;
+      case "array-literal":
+        // Crossed iff the literal has a sink; each element inherits one
+        // `array<T>` level off that sink.
+        arrayDepth++;
+        break;
+      case "let":
+        return unwrapArrayLevels(frame.annotation, arrayDepth);
+      case "call-arg":
+        // A call boundary: a typed parameter is the sink; an untyped parameter
+        // yields no sink and the walk stops (the outer context is not visible
+        // past the call boundary).
+        return frame.paramType === undefined
+          ? undefined
+          : unwrapArrayLevels(frame.paramType, arrayDepth);
+      case "fn-return":
+        // A declared return type is the sink; a `.loom` supplies none, so the
+        // walk continues outward.
+        if (frame.returnType !== undefined) {
+          return unwrapArrayLevels(frame.returnType, arrayDepth);
+        }
+        break;
+      case "stop":
+        // Opaque: the walk halts with no sink (untyped, `string`).
+        return undefined;
+    }
+  }
+  // The walk exhausted its frames without reaching a sink: untyped.
+  return undefined;
 }
 
 // --- Explicit-schema-mismatch (QRY-4 §"Explicit form") ---------------------
@@ -146,18 +207,6 @@ export const EXPLICIT_SCHEMA_MISMATCH_CODE = "loom/parse/explicit-schema-mismatc
  */
 export const EXPLICIT_SCHEMA_MISMATCH_MESSAGE =
   "explicit @<Schema> ascription is not compatible with binding annotation";
-
-/**
- * The V13b-T inert sentinel diagnostic. Its code is deliberately not
- * `explicit-schema-mismatch`, and the array is non-empty, so the firing vector
- * reds (wrong code) and each no-warning vector reds (non-empty vs the expected
- * empty array).
- */
-const UNIMPLEMENTED_DIAGNOSTIC: Diagnostic = {
-  severity: "warning",
-  code: "loom/parse/__unimplemented__",
-  message: "V13b explicit-schema-mismatch check is not implemented",
-};
 
 /**
  * QRY-4 §"Explicit form" — the one-directional `loom/parse/explicit-schema-mismatch`
@@ -178,8 +227,27 @@ export function checkExplicitSchemaMismatch(opts: {
   readonly env: TypeEnv;
   readonly site: CompatSite;
 }): Diagnostic[] {
-  void opts;
-  return [UNIMPLEMENTED_DIAGNOSTIC];
+  const { ascription, annotation, env, site } = opts;
+  // One-directional: fire iff `ascription ⋢ annotation` — a value the explicit
+  // form would produce that the binding annotation could not accept. A safe
+  // widening (`ascription ⊑ annotation`) is silent, and an operand past the
+  // parser's static view (`"unknown"`) is skipped (the runtime AJV check is the
+  // safety net).
+  const relation = checkCompatible(ascription, annotation, env);
+  if (relation === "compatible" || relation === "unknown") {
+    return [];
+  }
+  // `"incompatible"` or `"integer-narrowing"` — the ascription is not `⊑` the
+  // annotation; the explicit form could yield a value the binding cannot accept.
+  return [
+    {
+      severity: "warning",
+      code: EXPLICIT_SCHEMA_MISMATCH_CODE,
+      file: site.file,
+      range: site.range,
+      message: EXPLICIT_SCHEMA_MISMATCH_MESSAGE,
+    },
+  ];
 }
 
 // --- Per-query `$defs` pruning (schema-subset.md Lowering step 4) -----------
@@ -210,5 +278,29 @@ export interface QueryDefsDocument {
 export function prunePerQueryDefs(
   doc: QueryDefsDocument,
 ): Readonly<Record<string, readonly string[]>> {
-  return doc.defs;
+  // Breadth-first reachability from the response-schema root's direct `$ref`
+  // targets through the per-`$def` reference graph. A visited set bounds the
+  // walk so recursive references (a def referencing itself, or a cycle)
+  // terminate. Only visited defs survive; unreachable defs are pruned.
+  const reachable = new Set<string>();
+  const queue: string[] = [...doc.rootRefs];
+  while (queue.length > 0) {
+    const name = queue.shift() as string;
+    if (reachable.has(name)) {
+      continue;
+    }
+    reachable.add(name);
+    const refs = doc.defs[name];
+    if (refs !== undefined) {
+      queue.push(...refs);
+    }
+  }
+
+  const pruned: Record<string, readonly string[]> = {};
+  for (const [name, refs] of Object.entries(doc.defs)) {
+    if (reachable.has(name)) {
+      pruned[name] = refs;
+    }
+  }
+  return pruned;
 }
