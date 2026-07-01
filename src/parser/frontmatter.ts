@@ -213,6 +213,8 @@ export function parseFrontmatter(
   let modelPresent = false;
   let modelRaw: unknown;
   let modelRange: SourceRange | undefined;
+  let bindContextValue: string | undefined;
+  let bindContextRange: SourceRange | undefined;
 
   if (map !== undefined) {
     for (const item of map.items) {
@@ -240,6 +242,13 @@ export function parseFrontmatter(
         modelPresent = true;
         modelRaw = rawValue;
         modelRange = valueRange;
+        continue;
+      }
+      if (key === "bind_context") {
+        bindContextValue = isScalar(item.value)
+          ? String(item.value.value)
+          : undefined;
+        bindContextRange = valueRange;
         continue;
       }
       if (key === "timeout") {
@@ -273,6 +282,19 @@ export function parseFrontmatter(
       code: "loom/load/missing-mode",
       file,
       message: "frontmatter is missing required field 'mode:'",
+    });
+  }
+
+  // `bind_context: session` on a `mode: subagent` loom is inert: subagent-mode
+  // looms invoked from a slash command have no caller-session context to
+  // attach, so declaring it warns (not errors) and the loom still registers.
+  if (bindContextValue === "session" && modeValue === "subagent") {
+    diagnostics.push({
+      severity: "warning",
+      code: "loom/parse/bind-context-session-on-subagent",
+      file,
+      ...(bindContextRange !== undefined ? { range: bindContextRange } : {}),
+      message: "'bind_context: session' has no effect on a mode: subagent loom",
     });
   }
 
