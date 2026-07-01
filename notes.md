@@ -1122,3 +1122,49 @@ first cut that lands green and reds on a seed satisfies the leaf's Ships-when.
 (4 V4g-T tests) fails on the clean `main` baseline (the "loom progress snapshot"
 commit) independent of this leaf; confirmed by `git stash` → run → `stash pop`.
 Out of V18b's scope; left for the owning leaf.
+
+## V18c-T — Pi version-bump static gate tests
+
+**`strict-capability-absence-pin` citation drift (plan vs spec).** The `V18c-T`
+leaf's Tests bullet cites `audit-recognised-shapes.md` for the
+`strict-capability-absence-pin`, but that anchor actually lives in
+`audit-target-categories.md#strict-capability-absence-pin`, and the gate arm it
+names has since *moved* to
+`inventory-audit-intro.md#strict-capability-absence-under-probed-name`. Neither
+page is in the leaf's `Spec.` field. Resolved by reading the real anchor
+locations; the two-arm gate (rename-detection + absence-under-the-probed-name)
+is implemented faithfully to the moved arm. No spec edit made — the drift is a
+plan-side stale cross-reference, not a spec defect.
+
+**`SurfaceInventoryEntry.payload` added to the V18a inventory.** The leaf says
+the strict-capability gate "consumes the `strict-capability-probe` entry's
+`probedName` payload from `SDK_SURFACE_INVENTORY` (`V18a`)", and step 3 reads
+the `pi-engines-node` row's pinned floor as operand (ii), but the shipped `V18a`
+`SurfaceInventoryEntry` is `{ id, kind }` with no per-kind payload. Added an
+optional `payload?: Readonly<Record<string, unknown>>` field to
+`SurfaceInventoryEntry` and populated the four operand rows (`pi-engines-node`
+`literal`, `peer-dep-range` `range`, `strict-capability-probe` `probedName`,
+`api-coverage` `apiUnionSnapshot`). This is additive — the two `V18a-T` tests
+and the `V18b` audit stay green.
+
+**Gates are pure functions over injected operands.** The step-2(a) presence
+gate, the `engines.node` three-way equality, and the reason-snapshot / Api
+gates all take injected operands rather than reading the live SDK / loom
+`package.json` / installed dependency directly, so the tests drive both the
+conformant and the drifted direction by construction and no gate reads an
+ambient primitive. The live reads (operand (iii) of `engines.node`, the imported
+SDK namespace for presence, the pinned pi-ai `Api` snapshot) travel with the
+paired `V18c` implementation. The `loom/typecheck/session-shutdown-reason-snapshot`
+brand-string *type-equality* `.assert.ts` file is likewise `V18c`'s (it must
+`tsc` green); `V18c-T` covers the runtime literal-array consistency companion
+(`reasonSnapshotConsistencyFailures`).
+
+**`PROVIDER_SEED_FIELD_TABLE` vs `BINDER_SEED_FIELD_BY_API`.** `V18c` owns "the
+provider seed-field table" (Adds), so the gate module carries a
+`PROVIDER_SEED_FIELD_TABLE` using the literal `"omitted"` for the
+non-seed-supporting providers (matching the spec table's `omitted` cell). The
+runtime binder (`binder-inference.ts`) keeps its own module-private
+`BINDER_SEED_FIELD_BY_API` mapping `omitted → undefined` (the request-payload
+behaviour). The two are intentionally distinct representations of the same
+spec table; reconciling them into one source is left for the paired `V18c` /
+future refactor.

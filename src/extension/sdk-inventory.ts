@@ -78,10 +78,25 @@ export type SurfaceEntryKind =
  * One row of the broader Pi-side surface inventory. `id` is the surface's
  * stable inventory key (e.g. `pi.registerFlag`, `pi-engines-node`); `kind`
  * tags it under the entry-kind taxonomy above.
+ *
+ * `payload` carries the per-kind operand data the version-bump gates (`V18c`)
+ * read against the pinned SDK — the spec's "per-kind payload field shape"
+ * (version-bump-step2.md §2(a); audit-target-categories.md §Target surface
+ * categories). The non-`namespace-function` operand rows populate it: the
+ * `engines-pin` row's `literal` (operand (ii) of the `engines.node` three-way
+ * equality per version-bump-steps-3-4.md step 3), the `peer-dep-range` row's
+ * `range`, the `strict-capability-probe` row's `probedName` (the loom-side probe
+ * constant name the two-arm strict-capability gate consumes per
+ * inventory-audit-intro.md #strict-capability-absence-under-probed-name and
+ * version-bump-triggers.md step 7), and the `api-coverage` row's pinned `Api`
+ * literal-union snapshot the provider seed-field `Api`-coverage gate enumerates
+ * (provider-error-mapping.md #provider-seed-field-mapping). The presence-checkable
+ * kinds carry no payload.
  */
 export interface SurfaceInventoryEntry {
   readonly id: string;
   readonly kind: SurfaceEntryKind;
+  readonly payload?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -183,9 +198,41 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "ProviderResponse", kind: "peer-named-import" },
     { id: "ProviderStreamOptions", kind: "peer-named-import" },
     { id: "Component", kind: "peer-named-import" },
-    // The non-`namespace-function` operand rows the version-bump gates read.
-    { id: "pi-engines-node", kind: "engines-pin" },
-    { id: "peer-dep-range", kind: "peer-dep-range" },
-    { id: "strict-capability-probe", kind: "strict-capability-probe" },
-    { id: "api-coverage", kind: "api-coverage" },
+    // The non-`namespace-function` operand rows the version-bump gates (`V18c`)
+    // read. Each carries the pinned operand its gate reconciles against the
+    // pinned SDK: the in-repo Node floor (operand (ii) of the `engines.node`
+    // three-way equality), the `peerDependencies` tilde range, the loom-side
+    // strict-capability probe field name, and the pinned pi-ai `Api`
+    // literal-union snapshot the seed-field `Api`-coverage gate enumerates.
+    {
+      id: "pi-engines-node",
+      kind: "engines-pin",
+      payload: { literal: ">=22.19.0" },
+    },
+    {
+      id: "peer-dep-range",
+      kind: "peer-dep-range",
+      payload: { range: "~0.75.5" },
+    },
+    {
+      id: "strict-capability-probe",
+      kind: "strict-capability-probe",
+      payload: { probedName: "strictCapable" },
+    },
+    {
+      id: "api-coverage",
+      kind: "api-coverage",
+      payload: {
+        // The pinned pi-ai `Api` literal-union snapshot (the `KnownApi` members
+        // at the loom 1.0 Pi-SDK pin). `Api = KnownApi | (string & {})` is not
+        // runtime-enumerable, so the seed-field `Api`-coverage gate enumerates
+        // this pinned snapshot; a new pi-ai `Api` value lands here on a bump.
+        apiUnionSnapshot: [
+          "openai-completions",
+          "mistral",
+          "anthropic-messages",
+          "amazon-bedrock",
+        ],
+      },
+    },
   ]);
