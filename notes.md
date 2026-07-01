@@ -680,3 +680,8 @@ impl fills it). Design decisions recorded for the V13a implementer:
   invoke-arity too-few/too-many refinement for `.loom` callables is deferred —
   it needs the callee's declared param count, which this seam does not carry and
   which no V14a Tests bullet exercises. Logged in decisions.jsonl.
+
+## 2026-07-01 — V15c-T `.warp` import seam design
+
+- imports.md pins the `Resolver` interface as `resolve(spec: string, fromFile: string): string` (synchronous), but the byte-exact final-segment match (IMP-1) needs a directory enumeration and the project `FileSystem.readdir` seam (PIC-13) is async (`Promise<readonly string[]>`). To honour the spec's synchronous `resolve` signature verbatim in the tests-task, `imports.ts` introduces a synchronous `WarpDirectoryProbe` seam (`entries(dir)` / `entryReadable(dir, name)`) that `RelativeWarpResolver` consumes. The async→sync bridging (how the load pipeline pre-materialises the directory snapshot from `FileSystem.readdir` before calling the synchronous `resolve`) is left to the paired V15c implementation leaf; the seam shape here keeps `resolve` faithful to the spec signature. Not a spec divergence — the spec signature is honoured as written.
+- `loadWarpImport` is the IMP-1 registration-contract surface (catch the `UnresolvableWarpPathError` throw → emit `loom/load/unresolvable-warp-path`, `registered: false`); V15c will use a specific-type catch on `UnresolvableWarpPathError` per the *Specific exception types only* rule.
