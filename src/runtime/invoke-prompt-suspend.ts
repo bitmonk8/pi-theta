@@ -24,13 +24,12 @@
 // child body is what fails, cancels, or throws; the window must still restore
 // the pre-invoke snapshot and surface the inner failure unmasked.
 //
-// V15d-T (tests-task) declares the seam shape and stubs the behaviour-bearing
-// function inertly: `runPromptSuspendInvoke` runs the child body directly with
-// NO snapshot / install / restore and reports the window as NOT engaged, so the
-// paired tests red on their own primary assertions — an absent snapshot/install
-// before the child runs, and an active set left un-restored after the child
-// fails / cancels / throws. No test reds on a compile error, a missing fixture,
-// or a harness throw. The paired `V15d` implementation leaf fills this in.
+// V15d fills this in: for the prompt→prompt cell the runtime snapshots the
+// user session's active set (step 1), installs the child's callable set (step
+// 2), suspends the parent by awaiting the child body, and restores the snapshot
+// in a `finally` once the child settles (step 4) — including the fail / cancel /
+// throw paths, with the inner failure surfaced unmasked. For every other cell
+// no window engages and the child body runs untouched.
 
 import type { CrossModeCell } from "./invoke-cross-mode";
 
@@ -92,13 +91,35 @@ export interface PromptSuspendOutcome<T> {
  * fail / cancel / throw paths, with the inner failure surfaced unmasked. For any
  * other cell no window engages and the child body runs untouched.
  *
- * V15d-T stub: runs the child body directly with NO snapshot / install /
- * restore and reports the window as NOT engaged, so the paired tests red on
- * their own primary assertions. The V15d implementation fills this in.
+ * The step-1 snapshot is held only for the step-4 restore and is deliberately
+ * NOT unioned into the install vector — ambient tools are not inherited by the
+ * child. The step-4 restore overwrites any intervening active-set mutation with
+ * no diagnostic (invocation.md §Cross-mode semantics).
  */
 export async function runPromptSuspendInvoke<T>(
   input: PromptSuspendInput<T>,
 ): Promise<PromptSuspendOutcome<T>> {
-  const result = await input.childBody();
-  return { engaged: false, result };
+  const { cell, childCallableSet, pi, childBody } = input;
+
+  // Only the prompt→prompt cell engages the suspend + snapshot/restore window;
+  // every other cell leaves the user session's active set untouched.
+  if (cell.callerMode !== "prompt" || cell.calleeMode !== "prompt") {
+    const result = await childBody();
+    return { engaged: false, result };
+  }
+
+  // Step 1: snapshot the user session's ambient active-tool set.
+  const snapshot = pi.getActiveTools();
+  // Step 2: install the child's callable set (ambient snapshot NOT unioned in).
+  pi.setActiveTools([...childCallableSet]);
+  try {
+    // Suspend the parent's body until the child settles.
+    const result = await childBody();
+    return { engaged: true, result };
+  } finally {
+    // Step 4: restore the pre-invoke snapshot on every settle path — success,
+    // returned Err, cancel, or throw — overwriting any mid-window mutation. The
+    // inner failure (if any) propagates unmasked past this `finally`.
+    pi.setActiveTools([...snapshot]);
+  }
 }
