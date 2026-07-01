@@ -52,9 +52,15 @@
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { checkLiteralSublanguage } from "../parser/literal-sublanguage";
-import { makeOk, type LoomValue, type ResultValue } from "./value";
+import { makeErr, makeOk, type LoomValue, type ResultValue } from "./value";
+import {
+  depthWalk,
+  DEPTH_VIOLATION_MESSAGE,
+  type DepthViolationIssue,
+} from "./depth-walk";
 import type {
   CodeToolCause,
+  CodeToolError,
   InvokeCalleeError,
   InvokeInfraError,
   QueryError,
@@ -246,6 +252,65 @@ export function lowerAcceptedPiToolReturn(finalOutput: string): ResultValue {
  */
 export function lowerAcceptedLoomCallableReturn(payload: LoomValue): ResultValue {
   return makeOk(payload);
+}
+
+// --------------------------------------------------------------------------
+// V14e / V14e-T — ceiling-#4 depth-6 code-driven-tool-args live carrier.
+//
+// The delegated live-carrier witness for `V5e`'s code-driven-tool-args
+// ceiling-#4 routing row (ceilings-3-and-4.md#ceiling-4-table). A depth-6
+// code-driven `<name>(args)` argument trips the loom-owned depth walk (`V5e`,
+// `depthWalk`) *before* AJV runs (CIO-3) and surfaces wrapped as
+// `Err(CodeToolError { cause: "validation", ... })`, building on the `V14a`
+// `CodeToolError` carrier. A within-cap argument produces no depth breach and
+// falls through to the downstream AJV boundary (owned elsewhere).
+// --------------------------------------------------------------------------
+
+/**
+ * A depth-6 code-driven-tool-args ceiling-#4 breach, materialised at the
+ * `<name>(args)` site (ceilings-3-and-4.md#ceiling-4-table, code-driven row):
+ *
+ *   - `result` — the wrapped `Err(CodeToolError { cause: "validation", ... })`
+ *     surfaced to loom code, matching the per-boundary table's code-driven row;
+ *   - `error`  — the `CodeToolError` carrier itself (`kind: "code_tool"`,
+ *     `cause: "validation"`, canonical depth `message`, post-rename `tool_name`);
+ *   - `issue`  — the loom-owned depth walk's `ValidationIssue`, carrying
+ *     `schema_keyword: "maxDepth"` and the canonical
+ *     `"JSON document depth exceeds 5"` message.
+ */
+export interface CodeToolArgDepthBreach {
+  readonly result: ResultValue;
+  readonly error: CodeToolError;
+  readonly issue: DepthViolationIssue;
+}
+
+/**
+ * Enforce ceiling #4 at the code-driven `<name>(args)` argument boundary: run
+ * `V5e`'s loom-owned depth walk over the materialised argument value *before*
+ * AJV (CIO-3), and — on a depth-6+ breach — surface it wrapped as
+ * `Err(CodeToolError { cause: "validation", ... })` per the code-driven row of
+ * the ceiling-#4 per-boundary table (ceilings-3-and-4.md#ceiling-4-table).
+ * Returns `undefined` for a within-cap argument, deferring to the downstream
+ * AJV boundary.
+ *
+ * V14e-T stubs this as a never-fires no-op (returns `undefined`), so the
+ * live-carrier assertions red on their own primary assertion (a depth-6
+ * argument yields no breach) while the paired `V14e` implementation is absent.
+ * The paired `V14e` leaf runs the depth walk, wraps the breach into the
+ * `CodeToolError` carrier, and returns the materialised breach.
+ */
+export function enforceCodeToolArgDepth(
+  toolName: string,
+  argValue: unknown,
+): CodeToolArgDepthBreach | undefined {
+  // V14e-T inert stub: never fires — the V14e depth-walk-before-AJV enforcement
+  // is absent, so every live-carrier assertion reds on "expected a breach".
+  void toolName;
+  void argValue;
+  void depthWalk;
+  void makeErr;
+  void DEPTH_VIOLATION_MESSAGE;
+  return undefined;
 }
 
 // --------------------------------------------------------------------------
