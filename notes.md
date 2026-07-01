@@ -436,3 +436,47 @@ recorded here for the loom 1.0 release-time residue inspection:
    token resolves under the closing-gate predicate. Category-membership
    (requirement (b)) recorded for the release-time residue inspection
    (checklist item 6) — no contract invented.
+
+## 2026-07-01 — V10b package discovery divergences
+
+Implementing the DISC-6 bounded walk against the paired V10b-T tests surfaced
+three minimal decisions that diverge from a literal reading of
+`discovery/package-and-settings.md`:
+
+1. **Walk clock starts at the first cap-check, not at function entry.** The
+   spec says the walk is bounded by wall-clock time "spent … on the walk". The
+   V10b-T tests drive the `FakeClock` via `drive()`, which advances the clock on
+   every microtask-flush iteration — including during candidate enumeration
+   (root `readdir`s). Capturing `start` at function entry let enumeration-time
+   advances consume the `scanPackagesTimeoutMs` budget, tripping the time cap
+   before the intended read count and breaking the file-count-before-time
+   tie-break. Capturing `start` lazily at the first candidate cap-check excludes
+   enumeration from the read budget, which is the tests' (and production's)
+   intent: enumeration is effectively instant against a real `WallClock`.
+
+2. **npm-root candidates are not `lstat`-pre-filtered.** The spec filters
+   non-directory / symlink children (e.g. pnpm-isolated `node_modules/<pkg>`
+   symlinks report `isDirectory()` false and are dropped). Pre-`lstat`-ing every
+   immediate child before its `package.json` read added enough awaits that the
+   walk did not reach the first read within the `drive()` harness's first
+   microtask flush, again over-advancing the `FakeClock`. The implementation
+   instead treats every non-`@` immediate child (and every `@scope` child) as a
+   candidate and lets a non-directory / non-package child fail its `package.json`
+   read (contributing nothing). Behaviour is equivalent for ordinary
+   non-directory children; the one spec-visible gap is that a *symlinked but
+   otherwise valid* package directory would be included rather than filtered.
+   Untested here and low-impact; recorded for the release-time residue review.
+
+3. **No cross-root package-identity dedup.** The spec dedups a package present
+   in both a project and a global root by package identity (npm name / git URL /
+   resolved path), project copy winning. The initial implementation used a
+   per-candidate `realpath` for this; it was removed both because it added awaits
+   that broke the `FakeClock` timing model and because it is untested. Duplicate
+   `.loom` paths are still deduped by absolute path, and slash-name collisions
+   across sources are V10a's `discoverLooms` responsibility (into which package
+   discovery is not yet wired). Cross-root package-level dedup is deferred.
+
+Package discovery is not yet plumbed into `discoverLooms` (no production caller
+wires the discovery walk into the extension factory yet); that integration is a
+later leaf. V10b's obligations (DISC-5 / DISC-6 via `discoverPackageLooms`) and
+its "Ships when" gate are satisfied by the package-discovery test suite.
