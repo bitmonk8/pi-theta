@@ -887,3 +887,16 @@ calls nothing on its `CommittedConversationMutator`). The completed-callee is
 modelled through the `H4a` completed-invoke-child scripting point and the
 `V17a`/`V17c` seams per the leaf; those are exercised as real, green setup so
 each test's red is isolated to the absent `V4f` behaviour.
+
+## V12a-T — H4a session-double `system-note` ordering marker
+
+SLSH-2's note-after-prefix obligation ("the failure/cancellation `loom-system-note`
+is appended after the streamed prefix, not interleaved") needs an observable
+ordering point between the streamed tokens / `agent_end` and a `pi.sendMessage`
+emission. The H4a `SessionDouble` already logs `stream-token` / `agent-end` /
+`idle` into its `events` array but not `sendMessage`. Extended `pi.sendMessage`
+to push a `system-note` marker into that same log, so a test can assert
+`events.indexOf("system-note") > events.indexOf("agent-end")`. This is
+additive test-support (outside `src/**`, no mechanical gate) and does not change
+any modelled behaviour; existing readers filter/index specific event values
+(`stream-token`, `idle`), so the new value is inert for them.

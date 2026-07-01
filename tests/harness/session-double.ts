@@ -248,6 +248,11 @@ export class SessionDouble {
       content: string;
       display?: boolean;
     }): void => {
+      // Log a lifecycle marker so an ordering assertion can witness where a
+      // `pi.sendMessage` (`loom-system-note`) emission falls relative to the
+      // streamed tokens / `agent_end` of an in-flight turn — the SLSH-2
+      // note-after-prefix ordering the session-double fidelity contract models.
+      this.events.push("system-note");
       this.systemNotes.push({
         customType: message.customType,
         content: message.content,
