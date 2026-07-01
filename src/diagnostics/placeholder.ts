@@ -253,7 +253,7 @@ export function renderUnderlyingError(caught: unknown): string {
  * string, that `.message`; otherwise `String(v)`, or the literal `<unreadable>`
  * when the `String(v)` coercion itself throws.
  */
-function coerceUnderlyingString(v: unknown): string {
+export function coerceUnderlyingString(v: unknown): string {
   if (typeof v === "object" && v !== null) {
     const message = (v as { message?: unknown }).message;
     if (typeof message === "string") {

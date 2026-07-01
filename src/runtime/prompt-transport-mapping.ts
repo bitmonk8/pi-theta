@@ -42,8 +42,11 @@
 // errors-and-results/queryerror-variants.md (§TransportError.provider);
 // diagnostics/placeholder-rendering-b.md (§underlying-error coercion).
 
-import type { Message } from "@earendil-works/pi-ai";
-import type { QueryError, TransportError } from "./query-error";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type { CancelledError, QueryError, TransportError } from "./query-error";
+import { makeCancelledError } from "./cancellation-core";
+import { extractTrailingTurnText } from "./conversation-drive";
+import { coerceUnderlyingString } from "../diagnostics/placeholder";
 
 /** The fixed transport `message` when a `stopReason: "error"` turn carries no `errorMessage` (PIC-51). */
 export const PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE = "provider transport failure";
@@ -78,10 +81,63 @@ export function extractPromptModeQueryResult(
   messages: readonly Message[],
   ctx: PromptModeProbeCtx,
 ): PromptModeQueryResult {
-  // V9n-T stub: deliberately NON-COMPLIANT — always `Ok("")`, ignoring the
-  // cancellation short-circuit and the `stopReason: "error"` transport probe.
-  // The paired V9n leaf implements the fixed-order short-circuits.
-  return { ok: true, value: "" };
+  // PIC-51 cancellation short-circuit: the post-`waitForIdle` error-state probe
+  // runs unconditionally on resolution, but when `loomAbort.signal.aborted` is
+  // true the runtime synthesises `Err(cancelled)` instead of reading session
+  // error state — even when Pi tore down cleanly and `waitForIdle()` resolved
+  // without any error written. This precedes both the `stopReason: "error"`
+  // probe and the `Ok(string)` extraction.
+  if (ctx.aborted) {
+    const cancelled: CancelledError = makeCancelledError();
+    return { ok: false, error: cancelled };
+  }
+
+  // PIC-51 `stopReason: "error"` transport probe: read the driven turn's final
+  // `assistant` message and, when its `stopReason` is `"error"`, map it to a
+  // `kind: "transport"` `QueryError` — never `loom/runtime/internal-error`, and
+  // never the `Ok(string)` extraction. The `message` is the turn's
+  // `errorMessage`, or the fixed fallback when it is absent.
+  const trailing = trailingTurnFinalAssistant(messages);
+  if (trailing !== undefined && trailing.stopReason === "error") {
+    const transport: TransportError = {
+      kind: "transport",
+      message: trailing.errorMessage ?? PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE,
+      http_status: null,
+      provider: ctx.provider,
+      retryable: false,
+    };
+    return { ok: false, error: transport };
+  }
+
+  // PIC-53: downstream of both short-circuits, the `Ok(string)` value is V9c's
+  // trailing-turn assistant-text extraction.
+  return { ok: true, value: extractTrailingTurnText(messages) };
+}
+
+/**
+ * The final `assistant` message of the driven turn — the last `user` message
+ * (the loom-issued `pi.sendUserMessage` turn) plus every subsequent message —
+ * matching the trailing-turn boundary V9c's `extractTrailingTurnText` uses.
+ * `undefined` when the trailing turn carries no `assistant` message at all.
+ */
+function trailingTurnFinalAssistant(
+  messages: readonly Message[],
+): AssistantMessage | undefined {
+  let turnStart = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      turnStart = i;
+      break;
+    }
+  }
+  const turn = turnStart === -1 ? messages : messages.slice(turnStart);
+  for (let i = turn.length - 1; i >= 0; i -= 1) {
+    const message = turn[i];
+    if (message?.role === "assistant") {
+      return message;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -96,12 +152,17 @@ export function mapPromptModeSyncThrow(
   caught: unknown,
   provider: string,
 ): TransportError {
-  // V9n-T stub: deliberately NON-COMPLIANT — misclassifies the throw as
-  // `loom/runtime/internal-error` and does not coerce the caught value. The
-  // paired V9n leaf implements the coerced `kind: "transport"` mapping.
+  // PIC-50: map the synchronous throw to a `kind: "transport"` `TransportError`.
+  // `message` is derived through the underlying-error coercion rule (object
+  // `.message` when string, else `String(v)`, else `<unreadable>`) — NOT a raw
+  // `.message` read — so a non-Error throw (a thrown string, a thrown
+  // `null`/`undefined`) yields a deterministic non-null string rather than
+  // `undefined` or a synchronous TypeError. The throw is never wrapped as
+  // `loom/runtime/internal-error`, never allowed to propagate, and never
+  // swallowed as a successful `Ok("")`.
   return {
-    kind: "loom/runtime/internal-error",
-    message: "",
+    kind: "transport",
+    message: coerceUnderlyingString(caught),
     http_status: null,
     provider,
     retryable: false,
