@@ -78,6 +78,35 @@ describe("H5a — closing gate against each seeded violation fixture", () => {
   });
 });
 
+// Terminology REQ-ID (non-executable) per-ID carve-out. FRNT-2 / FRNT-3 / SUBS-2
+// coin a spec-prose naming discipline, not a runtime obligation; their prefixes
+// (FRNT, SUBS) ALSO anchor real runtime REQ-IDs, so the carve-out is per-ID, not
+// per-prefix. The gate subtracts NON_EXECUTABLE_REQ_IDS from the executable set.
+describe("H5a — terminology REQ-ID (non-executable) per-ID exclusion", () => {
+  it("(Convention: REQ-ID discipline — terminology REQ-IDs) runs green: a page whose FRNT prefix anchors BOTH runtime FRNT-1 (mapped+cited) and terminology FRNT-2 (unmapped) is clean — FRNT-2 is excluded from the executable set, FRNT-1 is not", () => {
+    expect(gate("terminology-req-id-excluded")).toEqual([]);
+  });
+
+  it("extractReqIds subtracts the per-ID terminology carve-out (FRNT-2/FRNT-3/SUBS-2) while keeping the runtime REQ-IDs under the same prefixes (FRNT-1, SUBS-1)", () => {
+    const sources = [
+      {
+        path: "p.md",
+        text: [
+          "**FRNT-1.** runtime obligation.",
+          "**FRNT-2.** terminology — excluded.",
+          "**FRNT-3.** terminology — excluded.",
+          "**SUBS-1.** runtime obligation.",
+          "**SUBS-2.** terminology — excluded.",
+        ].join("\n"),
+      },
+    ];
+    expect(extractReqIds(sources, ["FRNT", "SUBS"]).sort()).toEqual([
+      "FRNT-1",
+      "SUBS-1",
+    ]);
+  });
+});
+
 // H5c — `no-broad-catch` allow-list closing-gate reconciliation arm, running as
 // part of the unified closing-gate machinery against seeded fixtures under the
 // same dedicated test-fixtures root. The arm scans the `// allow-broad-catch:`

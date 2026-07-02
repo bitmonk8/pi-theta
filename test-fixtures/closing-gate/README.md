@@ -43,6 +43,11 @@ Scenarios:
   citing test is present, and a `loom/typecheck/*` brand whose absence of an
   asserting test must NOT fire (the registry-reconciliation carve-out).
 - `unmapped-req-id/` — a spec REQ-ID with no coverage-matrix row.
+- `terminology-req-id-excluded/` — a page whose `FRNT` prefix anchors BOTH a
+  runtime REQ-ID (`FRNT-1`, mapped + cited) and a terminology REQ-ID (`FRNT-2`,
+  unmapped). The per-ID `NON_EXECUTABLE_REQ_IDS` carve-out drops only `FRNT-2`
+  from the executable set, so the scenario is green; a per-PREFIX exclusion would
+  wrongly drop runtime `FRNT-1` too. Exercises the terminology-REQ-ID exclusion.
 - `missing-citing-test/` — a coverage-matrix-mapped REQ-ID with no citing test.
 - `registry-code-no-test/` — a registry code with no asserting test.
 - `asserted-code-not-in-registry/` — a test asserts a code absent from registry.

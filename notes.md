@@ -1728,3 +1728,76 @@ uncited in `tests/**`; DISC-4's `V9m` facet has no test citing both `DISC-4` and
 
 Not tagged; gate left on its seeded-fixture footing (no red gate wired). H6a can
 ship only after the 58 findings are closed by their owning leaves / drain work.
+
+## 2026-07-02 — H6a release-gate CHUNK 1: disposition edits clearing the 29 non-test findings
+
+Cleared the 29 "disposition" findings from the H6a live-corpus warn-only oracle
+(`runWarnOnlyCanary`) via spec/plan/gate edits only — NO new behaviour tests
+(the ~29 citing tests are a separate chunk). Oracle before → after this chunk:
+**58 → 29** findings; the 29 that remain are exactly the test-owed set the
+next chunk closes: `mapped-req-id-no-citing-test` (6 QRY) + `per-facet-citing-
+test-missing` (22) + `unmapped-executable-req-id` (`BNDR-12` alone — its
+coverage-matrix row was left unadded, an explicitly-optional Chunk-1 step). All
+disposition arms (`un-rowed-page-residue`, both `un-anchored-must-*`, and the
+`FRNT-2`/`FRNT-3`/`SUBS-2` terminology REQ-IDs) are now at ZERO. Full `npm test`
+green (1454), typecheck + lint clean.
+
+Per-finding mechanism chosen (ratified dispositions 1–4):
+
+**Decision 1 — terminology REQ-IDs (FRNT-2, FRNT-3, SUBS-2) are non-executable.**
+Added a per-ID `NON_EXECUTABLE_REQ_IDS = {FRNT-2, FRNT-3, SUBS-2}` set in
+`tools/closing-gate/index.js`, subtracted in `extractReqIds()` (per-ID, NOT
+per-prefix — FRNT/SUBS also anchor runtime IDs). Spec-backed by a new
+*Terminology REQ-IDs (non-executable)* record on `governance/req-id-prefix-table-
+active-b.md` (`#terminology-req-ids`) and documented as the "terminology REQ-ID
+(non-executable)" class in `conventions.md` §REQ-ID discipline, mirroring the
+GOV-* carve-out. New fixture `test-fixtures/closing-gate/terminology-req-id-
+excluded/` + two assertions in `tests/closing-gate.test.ts` exercise it.
+
+**Decision 2 — five overview/non-goals/future-work pages → narrative rows.**
+Gave each of the five un-rowed pages a `(no IDs — narrative)` prefix-table row
+(basename-keyed, matching the recogniser's `prefixPages.get(basename)` lookup):
+language-and-architecture, overview-and-orientation, session-model-and-appendix,
+model-changes-and-non-goals, surface-extensions. This is the already-supported
+NARRATIVE_CELL mechanism (least-invasive), makes them "rowed + narrative" → out
+of scope, and closes the F-2723 GOV-24 hub-stub gap without a new discriminator.
+None carries a live PREFIX-N anchor, so narrative classification is GOV-legal.
+
+**Decision 3 — 18 un-anchored-MUST pages.**
+Runtime subset (10) → enumerated in `coverage-matrix.md` *Code-keyed obligation
+areas* with a single-leaf resolving closing leaf = the shipped owner (GOV-22
+residue pattern; single-leaf so the H5f per-facet arm stays silent):
+  cka-51 capability-inventory-items → V18a; cka-52 capability-probe → V9a;
+  cka-53 diagnostic-shape → V7a; cka-54 discovery-sources → V10a;
+  cka-55 host-interfaces-services → V8d; cka-56 patch-skew-degradation → V18d;
+  cka-57 query-failure-and-repair → V13d; cka-58 runtime-event-channel → V9d;
+  cka-59 subagent → V9i; cka-60 tool-registration-lifetime → V9f.
+Process/governance subset (8):
+  - Governance pages (own GOV) → cited the owning GOV rule inline in each un-
+    anchored MUST paragraph (arms/mechanics of already-coined rules, so a back-
+    reference is the correct anchoring, not a fresh split): corpus-direction-and-
+    scope (both prohibition arms → GOV-18); release-version-naming (out-of-scope
+    tokens → GOV-20); req-id-prefix-table-active-a (strip-list + per-page
+    normalisation → GOV-1; narrative-cell exclusion → GOV-3).
+  - ceiling-invariants-and-audit (no live anchor; closed design-audit record) →
+    narrative row.
+  - ceilings-3-and-4 (carries CIO anchors, cannot be narrative) → cka-61 → V16a
+    (the CIO/`masked`-field closer): the `masked` canonical-absence MUST-NOT.
+  - version-bump-intro / version-bump-step2 / version-bump-steps-3-4 (contributor
+    Pi-SDK-bump procedure; no live PIC anchors) → narrative rows.
+  Release-time residue-inspection item 5 (conventions.md) extended to record the
+  process/housekeeping/design-audit obligations as manual release-checklist
+  items, not automated tests.
+
+**Decision 4 — three stale pointers (un-anchored-must-unresolved-leaf).**
+Each was enumerated only by a retired `*(numbered above)*` cka row (tokenises
+empty → "unresolved") with a leftover un-anchored MUST. Re-pointed via a new
+cka row to the real shipped closer:
+  cka-62 conversation-drive → V9c (waitForIdle no-rejection posture + mid-loom
+  user-session-replacement seam factory-captured-`pi` MUST);
+  cka-63 drain-state-contract → V9m (method-surface editorial-rename sweep MUST);
+  cka-64 host-prerequisites → H1a (tsc build-toolchain brand-string floor MUST).
+
+BNDR-12 left in `unmapped-executable-req-id` (adding its numbered-REQ-IDs row
+was optional this chunk and would move it to the test-owed arm; deferred to the
+tests chunk that adds its citing test).

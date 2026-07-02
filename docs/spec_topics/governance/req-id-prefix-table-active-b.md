@@ -12,6 +12,19 @@
 | `comparison.md` | (no IDs — narrative) |
 | `related-work.md` | (no IDs — narrative) |
 | `future-considerations.md` | (no IDs — narrative) |
+| `language-and-architecture.md` | (no IDs — narrative) |
+| `overview-and-orientation.md` | (no IDs — narrative) |
+| `session-model-and-appendix.md` | (no IDs — narrative) |
+| `model-changes-and-non-goals.md` | (no IDs — narrative) |
+| `surface-extensions.md` | (no IDs — narrative) |
+| `ceiling-invariants-and-audit.md` | (no IDs — narrative) |
+| `version-bump-intro.md` | (no IDs — narrative) |
+| `version-bump-step2.md` | (no IDs — narrative) |
+| `version-bump-steps-3-4.md` | (no IDs — narrative) |
+
+<a id="terminology-req-ids"></a> **Terminology REQ-IDs (non-executable).** The REQ-IDs `FRNT-2` (callable-set terminology), `FRNT-3` (`.loom`-callable terminology), and `SUBS-2` (schema-slug terminology) coin a spec-prose *naming discipline* (each anchor states the rule is "purely terminology"), not a runtime/parse/load obligation. Like the corpus-governance `GOV-*` family, they are **non-executable**: they map to no runtime leaf, require no coverage-matrix row, and carry no citing-test obligation. Their owning prefixes (`FRNT`, `SUBS`) also anchor real runtime REQ-IDs, so this carve-out is per-ID, not per-prefix. The loom 1.0 closing gate excludes exactly this set from the executable-REQ-ID surface (`NON_EXECUTABLE_REQ_IDS`), mirroring the `GOV-*` prefix carve-out; this record is that exclusion's spec-backed source of truth.
+
+**Narrative-row rationale (loom 1.0 disposition).** The narrative rows appended immediately above record pages that carry no loom 1.0 runtime obligation: orientation / architecture / session-model overview (`language-and-architecture.md`, `overview-and-orientation.md`, `session-model-and-appendix.md`), non-goals / future-work narrative (`model-changes-and-non-goals.md`, `surface-extensions.md`), the closed design-audit record (`ceiling-invariants-and-audit.md`), and the contributor Pi-SDK-bump procedure (`version-bump-intro.md`, `version-bump-step2.md`, `version-bump-steps-3-4.md`). Each carries no live `PREFIX-N` anchor; classifying them `(no IDs — narrative)` per GOV-3 documents them as out of the runtime-obligation scan on the same terms as every other narrative page, and closes the [GOV-24](#gov-24) un-rowed-page residue (F-2723) by giving each an explicit row rather than relying on an absent hub-stub discriminator.
 
 <!-- GOV-4 retired per GOV-8 — re-added as GOV-24 (the `Page` cell may now name a hub subtree). See [Retired REQ-IDs](./anchor-scheme-and-retired.md#retired-req-ids). -->
 

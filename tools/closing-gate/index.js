@@ -140,6 +140,19 @@ import path from "node:path";
 // so are NOT executable spec REQ-IDs (conventions.md *REQ-ID discipline*).
 const NON_EXECUTABLE_PREFIXES = new Set(["GOV"]);
 
+// Per-ID non-executable carve-out: *terminology* REQ-IDs whose obligation is a
+// spec-prose naming discipline, not a runtime/parse/load obligation. Their
+// prefixes (FRNT, SUBS) also anchor real runtime REQ-IDs, so a per-PREFIX
+// exclusion would be wrong — the carve-out is per-ID. This set mirrors the
+// governance record on `governance/req-id-prefix-table-active-b.md`
+// (*Terminology REQ-IDs (non-executable)*) and the conventions.md *REQ-ID
+// discipline* "terminology REQ-ID (non-executable)" class, exactly as
+// NON_EXECUTABLE_PREFIXES mirrors the GOV-* corpus-governance carve-out; it is
+// spec-backed, not a bare hardcode. Each cited ID's spec anchor states "purely
+// terminology": FRNT-2 (callable-set terminology), FRNT-3 (`.loom`-callable
+// terminology), SUBS-2 (schema-slug terminology).
+const NON_EXECUTABLE_REQ_IDS = new Set(["FRNT-2", "FRNT-3", "SUBS-2"]);
+
 // The build-time tsc brand-string namespace, excluded from registry
 // reconciliation on both sides (conventions.md *REQ-ID discipline* carve-out).
 const TYPECHECK_PREFIX = "loom/typecheck/";
@@ -219,7 +232,11 @@ export function extractReqIds(sources, prefixes) {
   const found = new Set();
   for (const src of sources) {
     const stripped = stripMarkdownExclusions(src.text);
-    for (const m of stripped.matchAll(re)) found.add(`${m[1]}-${m[2]}`);
+    for (const m of stripped.matchAll(re)) {
+      const id = `${m[1]}-${m[2]}`;
+      if (NON_EXECUTABLE_REQ_IDS.has(id)) continue; // terminology REQ-ID — non-executable
+      found.add(id);
+    }
   }
   return [...found];
 }

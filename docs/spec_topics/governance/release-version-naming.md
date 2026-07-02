@@ -24,7 +24,7 @@ A *closed enumeration*, as used in the frozen-baseline literal definition above,
 
 *Persistence of the alias.* For prose tokens, the alias is *transitional* — once every prose callsite of a legacy token has been converted to its alias-mapped new-scheme spelling, that token's row above MAY be retired in a future edit that updates this table per GOV-7 / GOV-8 lifecycle. For HTML `<a id>` anchors, the alias is *permanent* — see GOV-26 (*alias permanence*) below.
 
-*Out-of-scope tokens.* The following tokens are NOT governed by this rule and MUST NOT be classified as legacy version-token aliases:
+*Out-of-scope tokens (GOV-20).* The following tokens are NOT governed by [GOV-20](#gov-20) and MUST NOT be classified as legacy version-token aliases:
 
 - Pi SDK version literals (e.g. `~0.74.1`, `0.75.5`) — Pi-side `peerDependencies` versions, not loom versions.
 - Node version literals (e.g. `>= 20.6.0`, `>= 22.19.0`) — runtime engine versions.
