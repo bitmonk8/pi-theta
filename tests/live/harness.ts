@@ -59,8 +59,9 @@ export interface LiveProvider {
  * Resolve the live-host precondition: a configured, credentialed live
  * provider/model. When none is configured this **fails loudly** naming the
  * missing precondition (never a silent skip), per the leaf's *fails loudly when
- * its live-provider precondition is unmet*. Prefers a fast/cheap model to keep
- * cost and flakiness low.
+ * its live-provider precondition is unmet*. Prefers the shipping default model
+ * (`claude-opus-4-8`) so the suite exercises the same model the operator runs,
+ * rather than a divergent cheap stand-in.
  */
 export function requireLiveProvider(): LiveProvider {
   const authStorage = AuthStorage.create();
@@ -74,13 +75,13 @@ export function requireLiveProvider(): LiveProvider {
         "silently skips.",
     );
   }
-  const cheapFirst = ["gpt-4.1-nano", "gpt-4o-mini", "claude-3-5-haiku-latest"];
+  const preferredFirst = ["claude-opus-4-8"];
   const idOf = (m: LiveModel): string => (m as { id?: string }).id ?? "";
   const model =
-    cheapFirst
+    preferredFirst
       .map((id) => available.find((m) => idOf(m) === id))
       .find((m): m is LiveModel => m !== undefined) ??
-    available.find((m): m is LiveModel => idOf(m).includes("haiku")) ??
+    available.find((m): m is LiveModel => idOf(m).includes("opus")) ??
     available[0];
   if (model === undefined) {
     failLoudly("live-host precondition unmet: no resolvable live model.");
