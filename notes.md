@@ -1372,3 +1372,64 @@ of manual human-in-the-loop gates (live-Pi-host smoke run + 9-item residue
 inspection, each with a named human owner and truthful commit-message evidence)
 cannot be satisfied by an unsupervised worker. No gate flip, no invented spec
 contract, no fabricated manual-gate evidence, no tag. Returned needs-attention.
+
+## 2026-07-02 — H8a live production composition acceptance — needs-attention
+
+H8a is the paired implementation leaf for H8a-T (both horizontal, live-host
+acceptance pair). H8a-T is tagged `H8a-T-complete`; all named Deps
+(H3a, H4a, H4b, M, V8b–V8e, V9b, V10a–V10d, V11a, V5d, V13b) are tagged. Ran
+`npm run test:live`: a live provider IS configured in this environment
+(`requireLiveProvider()` resolved a model — no loud-fail), and the four H8a-T
+bullets red today exactly for the intended reason (the shipped default export
+supplies `fixtures: []`, so no discovered command registers; each bullet reds on
+the missing-command precondition BEFORE any live turn, spending no tokens).
+
+Two structural findings block a faithful implementation (returned
+needs-attention rather than inventing contracts or spending live tokens on a
+speculative composition):
+
+1. **No composed loom interpreter exists to wire.** H8a's Adds requires the
+   production composition root to "map each discovered `.loom` to a `LoomFixture`
+   … so the shipped extension actually discovers, registers, and RUNS `.loom`
+   commands." But there is no top-level statement-level interpreter anywhere in
+   `src/**`. `ParsedLoom` (reload-wiring.ts) is `{ slashName }` only — no body,
+   no statements. `resolveSlashDispatch` returns a `ParsedLoom` with no execution
+   payload. `evaluateSource` is referenced only inside expression-evaluator.ts.
+   `buildMinimalLoom` (src/mvp) is the ONLY producer of a runnable `LoomFixture`,
+   and it handles exactly one shape: a single untyped ``@`literal` `` prompt
+   query. Every V-slice (parser sub-parsers, query-tool-loop, respond-repair,
+   binder, schema-lowering, conversation-drive) is a seam unit-tested in
+   isolation against doubles; none is composed into a program executor that
+   parses a full `.loom` body into a statement list and interprets it (bindings,
+   control flow, typed/untyped queries, `${…}` interpolation, tool loop). That
+   composition — assembling ~all V-slices into a working interpreter driving a
+   live Pi session — is the bulk of a language runtime, far exceeding a single
+   leaf session, and is not cleanly splittable into 2–4 loom-subtask-worker
+   sub-slices without first designing the whole interpreter (which is itself the
+   missing work). The prompt-mode bullets (1–3) are tractable via a
+   `buildMinimalLoom`-style path; bullet 4 (typed query) is not.
+
+2. **H8a-T bullet 4 (typed-query lowering) is unsatisfiable as written against
+   the spec — a non-local tests-task/spec conflict.** The live suite's
+   `driveSlashCaptureText` captures streamed `text_delta` assistant tokens and
+   `JSON.parse`s them, expecting an object validating against the declared
+   `{ ok: bool, label: string }` schema. But SLSH-2 (slash-invocation.md) and
+   conversation-drive.md (PIC-17/typed-query bullet) are explicit and normative:
+   the typed-query **forced respond turn is dispatched off-session through
+   pi-ai's `complete()` and attaches NO turn to the driven session / renders NO
+   transcript card**; the validated structured payload is delivered to loom
+   code, never streamed to the transcript. The only streamed turn for the
+   fixture's `typedQueryLoom` is the trailing untyped ``@`${answer.label}` ``
+   prompt query, which streams the model's free-text reply to a prompt — not the
+   `{ok,label}` JSON the test `JSON.parse`s. Making bullet 4 green would require
+   inventing a "structured payload streams to the transcript as JSON" contract
+   that directly contradicts SLSH-2 — a spec change, not a local clarification.
+   H8a-T is already tagged `H8a-T-complete`, so this is a reconciliation between
+   a tagged tests-task and the normative spec, i.e. a non-local defect.
+
+No production `src/**` change was committed: a partial composition (prompt-mode
+bullets only) cannot satisfy H8a's all-four-green Ships-when, would leave a
+half-wired shipped default export validated against only 3/4 live tests (burning
+tokens on prompt turns), and cannot address the bullet-4 conflict. No tag, no
+invented interpreter, no invented streaming contract, no live-token spend on a
+speculative run.
