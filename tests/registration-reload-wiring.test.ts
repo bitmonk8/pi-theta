@@ -37,7 +37,13 @@ function command(name: string, source: SlashCommandInfo["source"]): SlashCommand
   };
 }
 
-const loom = (slashName: string): ParsedLoom => ({ slashName });
+const NOOP_RUN = async (): Promise<void> => {};
+const loom = (slashName: string): ParsedLoom => ({
+  slashName,
+  frontmatter: { mode: "prompt" },
+  body: { statements: [], tail: null },
+  run: NOOP_RUN,
+});
 
 // A `ModelRegistrySurface` over a fixed available-model set.
 function registryOf(models: readonly AvailableModel[]): ModelRegistrySurface {

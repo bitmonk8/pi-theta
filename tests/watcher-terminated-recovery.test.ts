@@ -77,7 +77,13 @@ interface RegistryRow {
 
 const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
 
-const loom = (slashName: string): ParsedLoom => ({ slashName });
+const NOOP_RUN = async (): Promise<void> => {};
+const loom = (slashName: string): ParsedLoom => ({
+  slashName,
+  frontmatter: { mode: "prompt" },
+  body: { statements: [], tail: null },
+  run: NOOP_RUN,
+});
 
 /** A captured `pi.sendMessage` call for the `loom-system-note` channel. */
 interface SentMessage {

@@ -22,22 +22,47 @@
 // pi-integration-contract/host-interfaces-core.md (model-registry surface),
 // implementation-notes.md.
 
-import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type {
+  SlashCommandInfo,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { SystemNote } from "./system-note-channel";
+import type { LoomBody } from "../parser/loom-document";
 import type {
   ModelMatchOutcome,
   ModelReferenceMatcher,
   ParseFrontmatterOptions,
   FrontmatterParseResult,
+  ParsedFrontmatter,
 } from "../parser/frontmatter";
 
 // --- LoomRegistry + build-aside-then-publish swap (PIC-36) ---
 
-/** One registered loom keyed by its slash name in the `LoomRegistry`. */
+/**
+ * One registered loom keyed by its slash name in the `LoomRegistry`.
+ *
+ * `V19e` widens this seam from the original `{ slashName }` to carry the `V19a`
+ * parsed frontmatter + whole-file body AST plus the per-loom runnable `run` the
+ * `V19e` composition producer builds. This is the Class-2 cross-leaf seam
+ * `H8a`'s `session_start` registration consumes: it reads `slashName` + `run`
+ * to register the slash command and retains `frontmatter` / `body` for the
+ * reload rebuild pass.
+ */
 export interface ParsedLoom {
   /** The slash-command name this loom registers under. */
   readonly slashName: string;
+  /** The `V19a` parsed frontmatter (`mode:` / `model:` / `tool_loop` / …). */
+  readonly frontmatter: ParsedFrontmatter;
+  /** The `V19a` whole-file body statement-list AST the interpreter walks. */
+  readonly body: LoomBody;
+  /**
+   * The per-loom runnable the `V19e` composition producer composes: it runs the
+   * binder (when applicable) and then drives `V19d`'s effectful executor against
+   * the mode's conversation. `H8a`'s `session_start` handler registers this as
+   * the slash-command `handler`.
+   */
+  readonly run: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 }
 
 // --- drain-state contract types (drain-state-contract.md) ---

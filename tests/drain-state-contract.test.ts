@@ -176,7 +176,13 @@ describe("V9m-T — drain() and predicate idempotence (PIC-32)", () => {
 // --- superseded-entry dispatch (registration-steps.md#superseded-entry-dispatch) ---
 
 describe("V9m-T — superseded-entry dispatch (PIC area)", () => {
-  const loom = (slashName: string): ParsedLoom => ({ slashName });
+  const noopRun = async (): Promise<void> => {};
+  const loom = (slashName: string): ParsedLoom => ({
+    slashName,
+    frontmatter: { mode: "prompt" },
+    body: { statements: [], tail: null },
+    run: noopRun,
+  });
 
   it("PIC area: after a supersession pass drops the entry, a steady-state dispatch reaches arm (a), the entry-table lookup misses, and the fixed superseded note is returned", () => {
     // The entry was dropped (empty table); `readDrainState` returns the
