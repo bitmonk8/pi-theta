@@ -60,6 +60,31 @@ export interface DrainStateSnapshot {
   readonly tag: DrainStateTag | undefined;
 }
 
+// --- session-swap fail-fast tripwire (V9r; session-only-degraded-state.md) ---
+
+/**
+ * The closed session-only `event.reason` half of the `session_shutdown`
+ * partition (`{"new","resume","fork"}`, host-prerequisites clause (d)) — the
+ * reasons that arm the session-swap fail-fast tripwire. `V9r` owns the arming
+ * predicate; the reason literal that armed the tripwire is carried on the
+ * `LoomRegistry` so the trip-site diagnostic can report it.
+ */
+export type SessionOnlyReason = "new" | "resume" | "fork";
+
+/**
+ * The private per-extension-instance tripwire snapshot
+ * `LoomRegistry.readSessionSwapTornDown()` returns (session-only-degraded-state.md
+ * *Session-swap fail-fast tripwire*). This is NOT part of the public
+ * `readDrainState` surface — it is neither drain-state field and adds no
+ * `readDrainState` arm.
+ */
+export interface SessionSwapTripwireState {
+  /** `true` once a session-only `session_shutdown` teardown armed the tripwire. */
+  readonly armed: boolean;
+  /** The session-only reason that armed it, or `undefined` while unarmed. */
+  readonly reason: SessionOnlyReason | undefined;
+}
+
 /**
  * The internal mutable registry (`Map<slashName, parsedLoom>`) the slash
  * handler closes over. The swap installs a staged map in a single synchronous
@@ -104,6 +129,21 @@ export class LoomRegistry {
   /** The drain-state tag, `undefined` at factory construction. */
   #drainStateTag: DrainStateTag | undefined = undefined;
 
+  // --- session-swap fail-fast tripwire (V9r) ---
+  //
+  // A private per-extension-instance boolean the `session_shutdown` handler
+  // arms after a session-only teardown, plus the armed reason for the trip-site
+  // diagnostic. NOT part of the public `readDrainState` snapshot surface (it is
+  // neither drain-state field and adds no `readDrainState` arm). The writer and
+  // reader are trivial field accessors (like `drain`/`readDrainState`); the
+  // behaviour under test in `V9r` is the arming *decision* (only on session-only
+  // reasons, from the teardown handler) and the trip-site guard, both owned by
+  // `session-swap-tripwire.ts`.
+  /** The tripwire flag, `false` at factory construction; armed idempotently. */
+  #sessionSwapTornDown = false;
+  /** The session-only reason that armed the tripwire, `undefined` while unarmed. */
+  #sessionSwapReason: SessionOnlyReason | undefined = undefined;
+
   /**
    * `LoomRegistry.drain(): void` — sets `drained = true` (PIC-32).
    *
@@ -135,6 +175,27 @@ export class LoomRegistry {
    */
   markRuntimeDegraded(): void {
     this.#drainStateTag = "degraded-needs-reload";
+  }
+
+  /**
+   * `LoomRegistry.armSessionSwapTornDown(reason): void` — sets
+   * `sessionSwapTornDown = true` and records the arming session-only reason,
+   * written idempotently so a permitted multi-`session_shutdown` delivery to one
+   * instance re-arms harmlessly (host-prerequisites clause (b)). A trivial field
+   * writer (the arming *decision* lives in `session-swap-tripwire.ts`).
+   */
+  armSessionSwapTornDown(reason: SessionOnlyReason): void {
+    this.#sessionSwapTornDown = true;
+    this.#sessionSwapReason = reason;
+  }
+
+  /**
+   * `LoomRegistry.readSessionSwapTornDown()` — returns the private tripwire
+   * snapshot the trip-site guard consults. A trivial field read, distinct from
+   * `readDrainState` (this flag is not part of that public surface).
+   */
+  readSessionSwapTornDown(): SessionSwapTripwireState {
+    return { armed: this.#sessionSwapTornDown, reason: this.#sessionSwapReason };
   }
 
   /**
