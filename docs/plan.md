@@ -231,6 +231,16 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V18c` — Pi version-bump static gates](./plan_topics/V18c-version-bump-checklist.md)
 - [`V18d` — Pi version-bump runtime-evidence acceptance gate and revert path](./plan_topics/V18d-version-bump-acceptance.md)
 
+### V19 — Program parse and execution
+
+> **Assembly slice.** The V1–V17 slices each build one language feature as an isolated seam — a runtime evaluator that takes its collaborators as an injected *host* interface and is unit-tested against doubles (e.g. `V3c`'s `evaluateForLoop(ForLoopHost)`), or a parser *checker* fragment. None of them parses a whole `.loom` body into a statement-list AST or walks such an AST supplying the real hosts, so before this slice the only runnable path was `M`'s single-query `buildMinimalLoom`. V19 builds the missing engine: a whole-program parser, the runtime lexical environment, the tree-walking statement executor, the real effectful hosts, and the per-loom composition producer that turns a discovered `.loom` into a runnable slash command. It closes two previously-un-anchored `implementation-notes.md` obligations (`cka-49` parser-Contract AST production at `V19a`; `cka-50` runtime statement-execution driver at `V19c`); `V19b`/`V19d`/`V19e` close no new coverage-matrix row — they realise the V1–V17 seams at real hosts and compose them, the same closes-no-REQ-ID shape as `H8a`. The slice builds strictly in order `V19a → V19b → V19c → V19d → V19e`, and [`H8a`](./plan_topics/H8a-live-production-acceptance.md) depends on `V19e` — its charter's "maps each discovered `.loom` to a `LoomFixture`" is exactly `V19e`'s producer, which `H8a` previously assumed already existed. Sequence by **Deps**, not slice number.
+
+- [`V19a` — Loom whole-program parser](./plan_topics/V19a-whole-program-parser.md)
+- [`V19b` — Loom lexical environment and scope model](./plan_topics/V19b-lexical-environment.md)
+- [`V19c` — Loom tree-walking statement executor](./plan_topics/V19c-statement-executor.md)
+- [`V19d` — Effectful statement wiring: real query/tool/invoke hosts](./plan_topics/V19d-effectful-statement-wiring.md)
+- [`V19e` — Loom composition producer: parsed `.loom` → runnable slash command](./plan_topics/V19e-composition-producer.md)
+
 ---
 
 ## Release gate

@@ -19,9 +19,15 @@
     "V15": "Calling other loom files",
     "V16": "Safety limits",
     "V17": "Stopping work cleanly",
-    "V18": "Keeping up with host updates"
+    "V18": "Keeping up with host updates",
+    "V19": "Running a whole loom program"
   },
   "tasks": {
+    "V19a": { "name": "Read a whole loom file into a program", "blurb": "Parses an entire .loom file — every statement, not just one query — into a structured program the runner can execute." },
+    "V19b": { "name": "Track variables and scope while running", "blurb": "Provides the runtime name-and-scope model — variables, mutability, loop bindings, function lookup — the runner evaluates against." },
+    "V19c": { "name": "Run a loom program step by step", "blurb": "Walks the parsed program top to bottom — bindings, loops, branches, matches — producing the final value, with clean cancellation points." },
+    "V19d": { "name": "Connect running programs to real effects", "blurb": "Wires the runner to real model queries, tool calls, and nested loom invocations so a program's actions actually happen." },
+    "V19e": { "name": "Turn a loom file into a working command", "blurb": "Assembles parsing, argument-binding, and running into the one step that makes a discovered loom file an executable slash command." },
     "H1a": { "name": "Set up the project skeleton", "blurb": "Creates the base project, dependencies, and build and test commands everything else is built on." },
     "H2a": { "name": "Code-quality safety checks", "blurb": "Automatic checks that block risky coding patterns before they reach the project." },
     "H3a": { "name": "Wire up swappable host services", "blurb": "Sets up replaceable connections to host services so nothing reaches global state directly." },
