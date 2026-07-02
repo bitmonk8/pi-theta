@@ -52,9 +52,10 @@
 // Spec: expressions.md (§"Identifier resolution"), bindings.md, functions.md,
 // imports.md, runtime-value-model.md.
 
-import type { LoomValue } from "./value";
+import { makeEnumValue, type LoomValue } from "./value";
 import type { EvalHost } from "./expression-evaluator";
 import type { FnDecl, LoomBody, SchemaDecl } from "../parser/loom-document";
+import type { SourceRange } from "../diagnostics/diagnostic";
 
 // --------------------------------------------------------------------------
 // Resolution model
@@ -162,91 +163,184 @@ export interface EnvironmentInputs {
  * V19b-T stubs every behaviour-bearing method inertly (see the module header).
  * The paired V19b implementation leaf fills the scope model in.
  */
+/** A local binding slot: its current value and whether it was declared `let mut`. */
+interface LocalSlot {
+  value: LoomValue;
+  readonly mutable: boolean;
+}
+
+/** A synthetic zero-width range for a schema materialised from an import (no source span). */
+function syntheticRange(): SourceRange {
+  return { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
+}
+
+/** An identifier resolved to a non-value arm (`fn` / `import` / `callable` / `unresolved`) at a read position. */
+class IdentifierNotReadableError extends Error {}
+
 export class LexicalEnvironment {
+  /** This scope's local `let` / parameter slots (`_` discards are never recorded). */
+  private readonly locals = new Map<string, LocalSlot>();
+
+  /** Hoisted top-level `fn` declarations — populated at the root only. */
+  private readonly fns: Map<string, FnDecl>;
+  /** Registered top-level + imported `schema` declarations — root only. */
+  private readonly schemas: Map<string, SchemaDecl>;
+  /** Registered top-level + imported `enum` variant sets — root only. */
+  private readonly enums: Map<string, ReadonlySet<string>>;
+  /** Materialised imports keyed by local binding name — root only. */
+  private readonly imports: Map<string, MaterializedImport>;
+  /** The callable-set names (`tools:`, `V6c`) — the arm `V19b` defines but does not populate. */
+  private readonly callables: ReadonlySet<string>;
+
   public constructor(
-    private readonly inputs: EnvironmentInputs,
+    inputs: EnvironmentInputs,
     private readonly parent: LexicalEnvironment | null = null,
-  ) {}
+  ) {
+    // The root owns the fn / schema / enum / import / callable registries; a
+    // nested scope holds only its local slots and delegates outward for the
+    // resolution walk, so registries are built exactly once.
+    this.fns = new Map();
+    this.schemas = new Map();
+    this.enums = new Map();
+    this.imports = new Map();
+    let callables: ReadonlySet<string> = new Set();
+
+    if (parent === null) {
+      // Top-level `fn` declarations are hoisted (functions.md FN-1) so mutual
+      // recursion resolves in either textual order.
+      for (const stmt of inputs.body.statements) {
+        if (stmt.kind === "fn") {
+          this.fns.set(stmt.name, stmt);
+        } else if (stmt.kind === "schema") {
+          this.schemas.set(stmt.name, stmt);
+        }
+      }
+      // Top-level `enum` registrations carry the variant sets (`V19a`'s
+      // `EnumDecl` carries only the name — see notes.md seam-shape decision).
+      for (const reg of inputs.enums ?? []) {
+        this.enums.set(reg.name, new Set(reg.variants));
+      }
+      // Imported `.warp` symbols materialised via `V15c`'s import loader
+      // (imports.md §Visibility): an `fn` is resolvable + callable, a `schema`
+      // resolves as a constructor, an `enum` resolves its variants.
+      for (const imp of inputs.imports ?? []) {
+        this.imports.set(imp.name, imp);
+        if (imp.kind === "schema") {
+          this.schemas.set(imp.name, { kind: "schema", name: imp.name, range: syntheticRange() });
+        } else if (imp.kind === "enum") {
+          this.enums.set(imp.name, new Set(imp.variants ?? []));
+        }
+      }
+      callables = new Set(inputs.callables ?? []);
+    }
+    this.callables = callables;
+  }
+
+  /** The root environment (the scope that owns the fn / schema / enum / import / callable registries). */
+  private root(): LexicalEnvironment {
+    return this.parent === null ? this : this.parent.root();
+  }
 
   /**
    * Define a local `let` / parameter binding in this scope. A `let _` discard
    * (`name === "_"`) records no resolvable binding (bindings.md §Discard).
-   *
-   * V19b-T stubs this inert (records nothing).
    */
   public defineLocal(name: string, value: LoomValue, mutable: boolean): void {
-    void name;
-    void value;
-    void mutable;
+    if (name === "_") {
+      return;
+    }
+    this.locals.set(name, { value, mutable });
   }
 
   /**
    * Write a reassignment against a local binding: accepted only against a
    * `let mut` slot, rejected against an immutable `let` slot at the scope layer
-   * (bindings.md `cka-6`).
-   *
-   * V19b-T stubs this inert — it accepts every write without recording it, so
-   * the `let mut` value-update assertion reds and the immutable-rejection
-   * assertion reds.
+   * (bindings.md `cka-6`). The write targets the nearest enclosing local slot;
+   * an immutable-slot write leaves the slot unchanged.
    */
   public writeBinding(name: string, value: LoomValue): WriteResult {
-    void name;
-    void value;
-    return { accepted: true };
+    for (let env: LexicalEnvironment | null = this; env !== null; env = env.parent) {
+      const slot = env.locals.get(name);
+      if (slot !== undefined) {
+        if (!slot.mutable) {
+          return { accepted: false };
+        }
+        slot.value = value;
+        return { accepted: true };
+      }
+    }
+    return { accepted: false };
   }
 
   /**
    * Resolve a bare identifier against this scope chain in the expressions.md
    * §"Identifier resolution" first-match order (local > `fn` > import >
    * callable), a local binding shadowing all outer scopes.
-   *
-   * V19b-T stubs this inert (always `unresolved`).
    */
   public resolve(name: string): Resolution {
-    void name;
+    // 1. local `let` / parameter — a local binding shadows all outer scopes.
+    for (let env: LexicalEnvironment | null = this; env !== null; env = env.parent) {
+      const slot = env.locals.get(name);
+      if (slot !== undefined) {
+        return { arm: "local", value: slot.value, mutable: slot.mutable };
+      }
+    }
+    const root = this.root();
+    // 2. top-level `fn` (hoisted).
+    const fn = root.fns.get(name);
+    if (fn !== undefined) {
+      return { arm: "fn", fn, callable: true };
+    }
+    // 3. imported `.warp` symbol.
+    const imp = root.imports.get(name);
+    if (imp !== undefined) {
+      return imp.fn !== undefined
+        ? { arm: "import", fn: imp.fn, callable: imp.kind === "fn" }
+        : { arm: "import", callable: imp.kind === "fn" };
+    }
+    // 4. callable set — the arm `V19b` defines but does not populate/execute.
+    if (root.callables.has(name)) {
+      return { arm: "callable", callable: true };
+    }
     return { arm: "unresolved" };
   }
 
   /** Open a nested lexical scope (a `{ … }` block / loop body). */
   public child(): LexicalEnvironment {
-    return new LexicalEnvironment(this.inputs, this);
+    return new LexicalEnvironment({ body: { statements: [], tail: null } }, this);
   }
 
   /**
    * Enter a fresh `for` iteration scope binding `name` to `value` in a
    * per-iteration fresh slot (bindings.md §"per-iteration fresh binding"), so
-   * each iteration's binding is independent of the others.
-   *
-   * V19b-T stubs this inert (returns an inert child that resolves nothing).
+   * each iteration's binding is independent of the others. The iteration
+   * variable is an immutable binding.
    */
   public bindIterationVariable(name: string, value: LoomValue): LexicalEnvironment {
-    void name;
-    void value;
-    return this.child();
+    const scope = this.child();
+    scope.defineLocal(name, value, false);
+    return scope;
   }
 
   /**
    * Resolve a registered top-level or imported `schema` by name so a
    * named-schema constructor resolves (expressions.md §"Object construction").
-   *
-   * V19b-T stubs this inert (always `undefined`).
    */
   public resolveSchema(name: string): SchemaDecl | undefined {
-    void name;
-    return undefined;
+    return this.root().schemas.get(name);
   }
 
   /**
    * Resolve a registered `enum`'s `Enum.Variant` access to its runtime
    * `EnumValue` (runtime-value-model.md, enum row). Returns `undefined` for an
    * unregistered enum or an unknown variant.
-   *
-   * V19b-T stubs this inert (always `undefined`).
    */
   public resolveEnumVariant(enumName: string, variant: string): LoomValue | undefined {
-    void enumName;
-    void variant;
-    return undefined;
+    const variants = this.root().enums.get(enumName);
+    if (variants === undefined || !variants.has(variant)) {
+      return undefined;
+    }
+    return makeEnumValue(enumName, variant);
   }
 }
 
@@ -262,7 +356,7 @@ export class LexicalEnvironment {
  * V19b leaf fills it in.
  */
 export function buildEnvironment(inputs: EnvironmentInputs): LexicalEnvironment {
-  return new LexicalEnvironment(inputs);
+  return new LexicalEnvironment(inputs, null);
 }
 
 // --------------------------------------------------------------------------
@@ -282,15 +376,27 @@ export class LoomEvalHost implements EvalHost {
   public constructor(private readonly env: LexicalEnvironment) {}
 
   public resolveIdentifier(name: string): LoomValue {
-    void this.env;
-    void name;
-    return null;
+    const r = this.env.resolve(name);
+    if (r.arm === "local") {
+      return r.value ?? null;
+    }
+    // A bare identifier naming a `fn` / import / callable is not a first-class
+    // readable value, and an unresolved name has no value. `V19b` owns only the
+    // scope-layer resolution; surfacing these as runtime diagnostics is not its
+    // responsibility, so it raises a specific error rather than a silent null.
+    throw new IdentifierNotReadableError(
+      `identifier '${name}' does not resolve to a readable value (arm: ${r.arm})`,
+    );
   }
 
   public callFunction(name: string, args: readonly LoomValue[]): LoomValue {
     void this.env;
-    void name;
     void args;
-    return null;
+    // `V19b` DEFINES the callable arm's precedence position but does NOT
+    // execute it: the cross-file `.warp fn` call execution rides `V19d`'s
+    // invoke trampoline (`V19d` / `V19e`). Calling here is a wiring error.
+    throw new IdentifierNotReadableError(
+      `call execution for '${name}' is wired by V19d's invoke trampoline, not the scope layer`,
+    );
   }
 }

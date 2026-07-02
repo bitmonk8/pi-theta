@@ -1515,3 +1515,33 @@ diverges from spec text — the plan leaves the environment API to `V19b`):
   expressions.md §"Identifier resolution" first-match precedence is directly
   observable in tests without executing the callable arm (which `V19b` only
   DEFINES the position of; `V6c` populates it, `V19d`/`V19e` execute it).
+
+## 2026-07-02 — V19b lexical-environment implementation
+
+`V19b` fills the `src/runtime/lexical-environment.ts` seam `V19b-T` declared.
+Non-plan implementation decisions (none diverge from spec text — the plan leaves
+the environment API to `V19b`):
+
+- **Root-owned registries.** The `fn` / `schema` / `enum` / `import` / callable
+  registries are built once in the root environment's constructor (`parent ===
+  null`); nested scopes (`child` / `bindIterationVariable`) hold only their own
+  local slots and delegate outward via `root()` for the non-local resolution
+  arms. `child()` therefore passes an empty body rather than re-deriving the
+  registries per scope. Keeps per-instance state (no module-level mutable
+  state) while building each registry exactly once.
+
+- **Imported schema synthesised as a `SchemaDecl`.** A `MaterializedImport` of
+  `kind: "schema"` carries only its name (no source span), so `resolveSchema`
+  returns a synthesised `SchemaDecl` with a zero-width `syntheticRange()` for an
+  imported schema. The tests assert only that the constructor resolves
+  (`toBeDefined`); the synthetic span is invisible to the constructor path.
+
+- **Non-local host reads throw a specific error.** `LoomEvalHost.resolveIdentifier`
+  returns the bound value only for a `local` arm. A bare identifier naming a
+  `fn` / import / callable is not a first-class readable value and an unresolved
+  name has no value; `V19b` owns only the scope-layer resolution (not runtime
+  diagnostics), so both cases — and `callFunction`, whose execution rides
+  `V19d`'s invoke trampoline (`V19d`/`V19e`), not the scope layer — throw a
+  specific `IdentifierNotReadableError` rather than returning a silent `null`.
+  No test exercises these arms (the callable arm is only DEFINED by `V19b`); the
+  throw keeps the inert-null "not wired" state from masquerading as a value.
