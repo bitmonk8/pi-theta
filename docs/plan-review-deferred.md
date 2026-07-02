@@ -63,9 +63,7 @@ entries:
   - { id: F-2719, tier: low, file: docs/plan_topics/H3a-di-seam-skeleton.md, anchor: "**Tests** (the ambient-primitive scan)", title: "Ambient timing-primitive scan list reconciles against the spec ban only at release time", defer_reason: low }
   - { id: F-2709, tier: low, file: docs/plan_topics/H1a-scaffold-and-toolchain.md, anchor: "Ships when", title: "H1a Ships-when overstates that `npm install` witnesses the ESLint plugin *loading*", defer_reason: low }
   - { id: F-2783, tier: low, file: docs/plan.md, anchor: "§Vertical slices (V16 section and/or the V4/V5/V11/V13 section headers)", title: "V16a early-consumer forward dependency lacks an interleave note", defer_reason: low }
-  - { id: F-2701, tier: low, file: docs/plan.md, anchor: "§Blocked obligations, V9l 'Pre-designed fallback' clause", title: "V9l's branch-unreachable resolution arm names no verification, leaving its degraded-branch obligations able to ship unasserted", defer_reason: low }
   - { id: F-2720, tier: low, file: docs/plan.md, anchor: "item 5 (How-to-use, line 11)", title: "Pre-activation gate state named two ways — 'non-gating' vs 'seeded-fixture footing' — with no equivalence bridge", defer_reason: low }
-  - { id: F-2702, tier: low, file: docs/plan.md, anchor: "`## Blocked obligations` (`V9l` entry)", title: "V9l fallback contract lives in the §Blocked obligations index, not on the leaf", defer_reason: low }
   - { id: F-2772, tier: low, file: docs/plan.md, anchor: "Pi host seams` section", title: "V8 host-seam slice omits the 'Sequence by Deps' interleave note its sibling slices carry", defer_reason: low }
   - { id: F-2703, tier: low, file: docs/plan.md, title: "Live-corpus coverage gates bind only at the H6a release flip; no recurring mid-build coverage check exists", defer_reason: low }
 ---
