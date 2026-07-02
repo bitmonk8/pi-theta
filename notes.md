@@ -1352,3 +1352,23 @@ tag. Returned needs-attention with this inventory so the corpus owners can close
 the coverage gaps (spec-coverage findings for the spec-side items; the relevant
 leaves for the citing-test items) and a human contributor can run the manual
 smoke + residue-inspection gates, after which H6a's flip can land green.
+
+## 2026-07-02 — H6a re-dispatch — re-verified, BLOCKER UNCHANGED (needs-attention)
+
+H6a was re-dispatched. Re-ran the live-corpus reconciliation
+(`runWarnOnlyCanary`) against the current corpus: **identical 59 hard-fail
+findings**, same breakdown — 4 unmapped-executable-req-id (BNDR-12, FRNT-2,
+FRNT-3, SUBS-2), 7 mapped-req-id-no-citing-test (QRY-1/5/8/9/10/15/21 → V13a),
+18 un-anchored-must-unenumerated, 5 un-rowed-page-residue, 3
+un-anchored-must-unresolved-leaf, 22 per-facet-citing-test-missing. Confirmed
+BNDR-12/FRNT-2/FRNT-3/SUBS-2 carry no coverage-matrix row and the QRY citations
+are genuinely absent from `tests/**`. All V1a–V18d, H1a, H5a, M, and the H5b/
+H5c/H7a deps are tagged complete, so the dispatch is not premature — the 59 are
+real live-corpus gaps. Closing them requires spec-side GOV-22/GOV-6/GOV-15
+decisions (re-classifying terminology REQ-IDs, re-anchoring un-anchored MUSTs,
+adding prefix-table rows, mapping BNDR-12) that conventions.md explicitly
+assigns to spec-coverage findings, not this plan rule; and the *Ships when* pair
+of manual human-in-the-loop gates (live-Pi-host smoke run + 9-item residue
+inspection, each with a named human owner and truthful commit-message evidence)
+cannot be satisfied by an unsupervised worker. No gate flip, no invented spec
+contract, no fabricated manual-gate evidence, no tag. Returned needs-attention.
