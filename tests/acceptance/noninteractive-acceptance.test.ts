@@ -252,13 +252,18 @@ describe("H9a-T (e) subagent spawn + mid-stream cancellation (Convention: Phase 
 
     requireLiveHost();
     const cwd = scratchCwd();
-    // Inject a mid-stream cancel by aborting the spawned `pi -p` process while
-    // the subagent turn is in flight.
+    // WHY no external abort: `pi -p` buffers stdout, so an external SIGTERM
+    // (abortAfterMs) discards the buffer and yields empty stdout/stderr — the
+    // `/cancel|aborted/i` assertion could never see the cancellation. Instead
+    // the fixture self-cancels: its production subagent drive injects a bounded
+    // mid-stream cancel through the injected Clock and echoes the observed
+    // cancellation on the user-visible channel on NORMAL completion. So we let
+    // the run complete normally (exit 0) and score the captured stdout — this
+    // exercises the real in-flight mid-stream cancel path, not a process kill.
     const result = await spawnPiPrint({
       loomDir: FEATURE_LOOM_DIR,
       slashInvocation: `/${spec.stem}`,
       cwd,
-      abortAfterMs: 4000,
     });
 
     // Cancellation propagation is observed: the run surfaces the cancellation
