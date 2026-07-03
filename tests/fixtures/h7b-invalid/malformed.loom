@@ -1,0 +1,15 @@
+---
+mode: prompt
+---
+// H7b — SEEDED-INVALID fixture (NOT part of the shipped set).
+//
+// This file is deliberately malformed so the committed-fixture parse gate
+// proves it reddens on a bad `.loom`. It reproduces the exact H7a real-host
+// smoke defect (notes.md 2026-07-02): loom comments are `//` / `///`; `#` is
+// not a comment. The `#` line below lexes as a `punct` followed by the
+// `schema` keyword and a lowercase word, raising
+// `loom/parse/schema-case-mismatch`. The gate excludes this directory from the
+// shipped-fixture walk and asserts this file parses with a non-empty
+// load/parse diagnostic set.
+# schema lowering validation notes
+@`Reply with exactly: OK`
