@@ -13,13 +13,30 @@ artifacts are first-pass drafts for editor review; none published.
 |---|---|---|---|---|
 | README | `README.md` | landing | drafted | thin; overwrote prior progress tracker (editor-authorised); no examples |
 | Guide | `docs/guide.md` | explanation | drafted | no runnable examples (spec-sourced illustrative fragments only) |
-| Tutorial | `docs/tutorial.md` | tutorial | drafted | steps 1–2 (`hello.loom`) runtime pass; steps 3–5 subagent `needs-provider` (H8a) |
-| How-to (7) | `docs/how-to/*.md` | how-to | drafted | backed by 9 `docs/examples/`; parse all-pass; runtime `hello.loom` pass, rest `needs-provider` (H8a) |
+| Tutorial | `docs/tutorial.md` | tutorial | drafted | 5/5 steps runtime-validated (live); subagent final values not observable on `pi -p` stdout by design (private transcript) |
+| How-to (7) | `docs/how-to/*.md` | how-to | drafted | backed by 9 `docs/examples/`; parse all-pass; all 8 invocable examples run to success live |
 | Reference (8+matrix) | `docs/reference/*.md` | reference | drafted | mechanical tables verbatim; no divergences found |
 
-`needs-provider` here is the H8a host precondition (subagent-mode live drive not
-composed at the production root), not a provider-key gap and not an example
-defect — surfaced for the editor.
+All 8 invocable `docs/examples/*.loom` run to a success terminal outcome live
+(provider `unity-messages`/`claude-haiku-4-5`); parse gate 22/22 green. During
+drafting, live validation exposed four production defects, since fixed:
+
+- **H8a** — the shipped subagent driver fired an unconditional mid-stream cancel,
+  so every subagent `@`-query returned `Err(cancelled)`. Fixed: V9i completion
+  driver wired; cancellation is now a genuine signal.
+- **V13e** — typed `@<Schema>` queries returned `Ok(null)` instead of validating.
+  Fixed: schema validation wired into all three typed paths (QRY-22).
+- **H8b** — code-side tool calls and `.loom`-callable `invoke` were inert stubs.
+  Fixed: live resolvers built and composed.
+- **core-exec-eval** — the body executor did not evaluate `?`/`match`/member
+  access/index/object literals. Fixed: parser productions + executor dispatch;
+  binder-bound `params:` now reach body scope; tool-arg object literals lower.
+
+Validation hygiene: ambient `pi --loom` discovery may load a STALE global git
+extension (`~/.pi/agent/git/.../pi-loom`) behind the working tree. Validate the
+working-tree build explicitly (`pi -ne -e ./extensions --loom docs/examples ...`).
+Subagent-mode final values are not observable on `pi -p` stdout (private
+transcript discarded on return) — this is by design, not a defect.
 
 ## Reference coverage
 
