@@ -132,6 +132,10 @@ async function runQueryEffect(
       case "value":
         return { ok: true, value: outcome.value };
       case "validation":
+      case "propagated":
+        // A terminal schema-validation failure (QRY-22) or a proximate
+        // non-validation failure respond-repair propagated (QRY-11) surfaces as
+        // the typed query's `Err`.
         return { ok: false, error: outcome.error };
       case "cancelled":
         return { ok: false, error: makeCancelledError() };

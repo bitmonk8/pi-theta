@@ -61,6 +61,7 @@ import type { RuntimeEvent } from "./runtime-event-channel";
 import { computeMasked } from "./runtime-event-channel";
 import {
   makeToolLoopExhaustedError,
+  type QueryError,
   type ToolLoopExhaustedError,
   type ValidationError,
   type ValidationIssue,
@@ -195,6 +196,14 @@ export type TypedQueryOutcome =
       readonly error: ValidationError;
       /** The operator-facing `RuntimeEvent`; carries `masked` per PIC-1. */
       readonly event: RuntimeEvent;
+      readonly rounds: readonly FreePhaseRoundLog[];
+      readonly forcedRespond: ForcedRespondDispatch;
+      readonly committed: readonly CommittedSideEffect[];
+    }
+  | {
+      readonly kind: "propagated";
+      /** A proximate non-validation `QueryError` respond-repair surfaced (QRY-11). */
+      readonly error: QueryError;
       readonly rounds: readonly FreePhaseRoundLog[];
       readonly forcedRespond: ForcedRespondDispatch;
       readonly committed: readonly CommittedSideEffect[];
@@ -377,11 +386,14 @@ export async function runTypedQueryLoop(
   signal: AbortSignal,
   model: QueryModelDriver,
   config: QueryToolLoopConfig,
-  // V13e-T seam (QRY-22): the schema-validation integration collaborators the
-  // paired `V13e` implementation wires the loop to orchestrate. Optional and
-  // ignored by the `V13c` loop body — a test injecting it reds because the loop
-  // invokes none of its steps.
-  _schemaValidation?: TypedQuerySchemaValidation,
+  // V13e seam (QRY-22): the schema-validation integration collaborators the
+  // execution path orchestrates for a typed query. When present the loop
+  // resolves → lowers → conveys the declared schema before the forced-respond
+  // turn, validates the response against the lowered shape, and routes a
+  // non-conforming response through respond-repair. Optional so a query with no
+  // declared schema (or the isolated `V13c` slot-accounting tests) drives the
+  // bare loop.
+  schemaValidation?: TypedQuerySchemaValidation,
 ): Promise<TypedQueryOutcome> {
   // cka-47 `V13c` facet: the cancellation checkpoint fires immediately before
   // the `@`-query dispatch, exactly as for an untyped query.
@@ -416,6 +428,19 @@ export async function runTypedQueryLoop(
     slotCount += 1;
     rounds.push({ round, batchSize: turn.batch.length, slotCountAfter: slotCount });
     round += 1;
+  }
+
+  // V13e (QRY-22): resolve the typed query's declared schema — a named `schema`
+  // decl (via `resolveSchema`, previously uncalled) or an inline object/type
+  // annotation — lower it to the validating JSON Schema (`V5d`/`SUBS-1`), and
+  // convey the LOWERED shape on the forced-respond turn (the conveyance carries
+  // the lowered shape, not the bare type name). Done before the forced respond
+  // turn is dispatched so the model sees the lowered shape.
+  let lowered: LoweredSchema | undefined;
+  if (schemaValidation !== undefined) {
+    const shape = schemaValidation.resolveDeclaredSchema();
+    lowered = schemaValidation.lower(shape);
+    schemaValidation.convey(lowered);
   }
 
   // Forced respond turn — the exempt-routed terminator CIO-4's `max_rounds`-final
@@ -473,6 +498,40 @@ export async function runTypedQueryLoop(
     return { kind: "validation", error, event, rounds, forcedRespond, committed };
   }
 
+  // V13e (QRY-22): validate the response against the lowered declared schema via
+  // the `AjvSchemaValidator`. A conforming response binds as the typed query's
+  // value; a non-conforming response routes through the `QRY-11` respond-repair
+  // loop (`runRespondRepairLoop`), and terminal non-conformance surfaces
+  // `Err(QueryError { kind: "validation", cause: "schema_validation" })`.
+  if (schemaValidation !== undefined && lowered !== undefined) {
+    const result = schemaValidation.validate(lowered, forced.payload);
+    if (!result.ok) {
+      const failure: ValidationFailure = {
+        kind: "schema_validation",
+        issues: result.issues,
+        raw_response: result.raw_response,
+      };
+      const repair = await schemaValidation.runRespondRepair(failure);
+      switch (repair.kind) {
+        case "value":
+          // A respond-repair follow-up re-validated successfully: its corrected
+          // value is the typed query's final result.
+          return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
+        case "validation": {
+          // Terminal non-conformance: surface the schema_validation
+          // `ValidationError` on the operator-facing `RuntimeEvent`, enumerating
+          // any co-satisfied ceiling #2 via `V9d`'s V1-reachable predicate.
+          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch);
+          return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
+        }
+        case "propagated":
+          // A proximate non-validation failure won respond-repair (QRY-11): the
+          // proximate cause propagates as the query's `Err`.
+          return { kind: "propagated", error: repair.error, rounds, forcedRespond, committed };
+      }
+    }
+  }
+
   // The respond tool's validated value is the typed query's final result.
   return {
     kind: "value",
@@ -480,5 +539,40 @@ export async function runTypedQueryLoop(
     rounds,
     forcedRespond,
     committed,
+  };
+}
+
+/**
+ * Build the operator-facing `RuntimeEvent` for a typed-query schema-validation
+ * failure surfaced through respond-repair (QRY-22). `masked` is populated only
+ * at the ceiling #2 co-fire per `V9d`'s V1-reachable predicate (unreachable for
+ * a `max_rounds: 0` query); every other surface omits it (never `[]`).
+ */
+function buildValidationEvent(
+  config: QueryToolLoopConfig,
+  error: ValidationError,
+  slotCountAtDispatch: number,
+): RuntimeEvent {
+  const masked = computeMasked({
+    kind: "validation",
+    validationCause: error.cause,
+    atTypedQueryResponse: true,
+    turnKind: "forced_respond",
+    toolLoopSlotCount: slotCountAtDispatch,
+    maxRounds: config.maxRounds,
+  });
+  return {
+    kind: "validation",
+    loom: config.loomSlashName,
+    invocation_id: config.invocationId,
+    query_site: {
+      file: config.querySite.file,
+      line: config.querySite.line,
+      column: config.querySite.column,
+    },
+    message: error.message,
+    attempts: error.attempts,
+    occurred_at: config.occurredAt,
+    ...(masked !== undefined ? { masked } : {}),
   };
 }
