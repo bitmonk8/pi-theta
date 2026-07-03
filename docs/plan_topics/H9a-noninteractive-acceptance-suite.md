@@ -1,0 +1,12 @@
+# `H9a` — Non-interactive `pi -p` real-host acceptance suite
+
+**Convention.** [`real-host-smoke-gate.md`](./real-host-smoke-gate.md) — *Phase 1 (automated non-interactive acceptance)*; [`conventions.md`](./conventions.md) — phase categories (live-host acceptance pair exception). Closes no spec REQ-ID.
+
+**Adds.** The Phase-1 automated acceptance layer of the two-phase loom 1.0 release gate ([`real-host-smoke-gate.md`](./real-host-smoke-gate.md)): a `pi -p`-spawning acceptance runner (spawns the real `pi -p --loom <dir> "/<name>"` process, captures stdout + exit code, asserts the per-loom invariant set) plus the **fuller feature-loom fixtures** enumerated in [`H9a-T`](./H9a-T-noninteractive-acceptance-suite.md), turning that suite green. It is opt-in (its own runner, excluded from the default `npm test`, sibling to `npm run test:live`), spends real tokens, and needs a live host. It gives the automated confidence the single manual `/acceptance` run and the programmatic [`H8a`](./H8a-live-production-acceptance.md) harness do not: broad feature coverage exercised through the real `pi` binary, non-interactively, on model-output-invariant observables. It depends on the manual-smoke fix leaves so the invariant assertions pass: the typed-query schema-validation integration ([`V13e`](./V13e-typed-query-schema-integration.md), `QRY-22`), the render-width contract ([`V7e`](./V7e-system-note-render-width.md), `PIC-56`), and the committed-fixture parse gate ([`H7b`](./H7b-committed-fixture-parse-gate.md)).
+
+**Tests.**
+- `Convention:` (*Phase 1 — automated non-interactive acceptance*) the opt-in runner drives the full feature-loom suite via `pi -p` against a live host and every per-loom invariant assertion passes: no-error exit, binder-envelope validity on binder-firing looms, typed-query responses validate against their declared schema (named and inline), observed subagent cancellation with committed turns unmutated, and emitted codes ⊆ the committed permitted-code list — across the areas (a)–(i) [`H9a-T`](./H9a-T-noninteractive-acceptance-suite.md) enumerates.
+
+**Deps.** `H9a-T`, `V13e`, `V7e`, `H7b`, `H8a`, `H4a`
+
+**Ships when.** The opt-in `pi -p` acceptance runner drives the full feature-loom suite non-interactively against a live host with every invariant assertion green, covering areas (a)–(i), and its run/evidence is the Phase-1 input the [`H6a`](./H6a-live-corpus-activation.md) release gate records.
