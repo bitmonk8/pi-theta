@@ -4,7 +4,24 @@ Tracks which Reference page covers which normative surface, and what is deferred
 "Done" is observable: a surface is covered when a Reference page owns it with a
 Provenance pointer to its spec source. Per `docs/documentation-plan.md` §6.
 
-## Coverage
+## Doc-set status (all five Diátaxis artifacts)
+
+Draft status across the full set per `docs/documentation-plan.md` §3/§6. All
+artifacts are first-pass drafts for editor review; none published.
+
+| Artifact | Path(s) | Mode | Status | Runtime-validation posture |
+|---|---|---|---|---|
+| README | `README.md` | landing | drafted | thin; overwrote prior progress tracker (editor-authorised); no examples |
+| Guide | `docs/guide.md` | explanation | drafted | no runnable examples (spec-sourced illustrative fragments only) |
+| Tutorial | `docs/tutorial.md` | tutorial | drafted | steps 1–2 (`hello.loom`) runtime pass; steps 3–5 subagent `needs-provider` (H8a) |
+| How-to (7) | `docs/how-to/*.md` | how-to | drafted | backed by 9 `docs/examples/`; parse all-pass; runtime `hello.loom` pass, rest `needs-provider` (H8a) |
+| Reference (8+matrix) | `docs/reference/*.md` | reference | drafted | mechanical tables verbatim; no divergences found |
+
+`needs-provider` here is the H8a host precondition (subagent-mode live drive not
+composed at the production root), not a provider-key gap and not an example
+defect — surfaced for the editor.
+
+## Reference coverage
 
 | Reference page | Surface covered | Spec sources | Status |
 |---|---|---|---|
