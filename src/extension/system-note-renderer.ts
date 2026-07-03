@@ -13,13 +13,29 @@
 // wraps the `pi.registerMessageRenderer` call itself in a per-call
 // `try`/`catch` so a registration-time throw never escapes the factory body.
 
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import type { MessageRenderer } from "@earendil-works/pi-coding-agent";
 
-/** A minimal text `Component`: renders the given lines verbatim. */
+/**
+ * A minimal text `Component` that honours the render `width` the TUI supplies.
+ * Pi's TUI rejects any rendered line wider than the terminal, so each content
+ * line is wrapped (ANSI-aware, preserving any injected styling) to `width`; a
+ * blank line is preserved as a single blank line rather than dropped. A
+ * non-positive `width` (no width contract available) falls back to the raw
+ * lines.
+ */
 function textComponent(lines: readonly string[]): Component {
   return {
-    render: (_width: number): string[] => [...lines],
+    render: (width: number): string[] => {
+      if (!(width > 0)) {
+        return [...lines];
+      }
+      return lines.flatMap((line) => {
+        const wrapped = wrapTextWithAnsi(line, width);
+        return wrapped.length > 0 ? wrapped : [""];
+      });
+    },
     invalidate: (): void => {},
   };
 }

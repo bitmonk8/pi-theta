@@ -253,6 +253,7 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "ProviderResponse", kind: "peer-named-import" },
     { id: "ProviderStreamOptions", kind: "peer-named-import" },
     { id: "Component", kind: "peer-named-import" },
+    { id: "wrapTextWithAnsi", kind: "peer-named-import" },
     // The non-`namespace-function` operand rows the version-bump gates (`V18c`)
     // read. Each carries the pinned operand its gate reconciles against the
     // pinned SDK: the in-repo Node floor (operand (ii) of the `engines.node`

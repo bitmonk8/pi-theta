@@ -10,6 +10,7 @@
 // per-phase TDD ritual's "fail red for the intended reason" gate.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import {
   assembleDiagnostics,
@@ -191,6 +192,48 @@ describe("V7d-T — PIC-21 renderer exception safety", () => {
 });
 
 // --- loom/runtime/system-note-delivery-failed fallback chain -------------
+
+describe("V7d-T — renderer honours the TUI render width (no over-wide line)", () => {
+  const opts = { expanded: false } as never;
+  const theme = {} as never;
+
+  it("wraps a long diagnostic line so no rendered line exceeds the render width (regression: Pi TUI rejects over-wide lines)", () => {
+    // The real over-wide load diagnostic that crashed Pi's TUI on the manual
+    // real-host smoke: a single 122-column line on an 80-column terminal.
+    const content =
+      "tests/fixtures/h7a/acceptance.loom:12:58: loom/parse/schema-case-mismatch: schema name must start with an uppercase letter";
+    const width = 80;
+    const renderer = createSystemNoteRenderer();
+    const component = renderer(
+      { customType: SYSTEM_NOTE_CHANNEL, content, display: true } as never,
+      opts,
+      theme,
+    );
+    expect(component).toBeDefined();
+    const lines = component?.render(width) ?? [];
+    // The pre-fix renderer returned the raw 122-wide line verbatim; the TUI
+    // then threw. Every rendered line must now fit the render width.
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+    // Content is wrapped, not truncated: the message tail survives.
+    expect(lines.join(" ")).toContain("uppercase letter");
+  });
+
+  it("preserves a blank line and honours a non-positive width fallback", () => {
+    const renderer = createSystemNoteRenderer();
+    const component = renderer(
+      { customType: SYSTEM_NOTE_CHANNEL, content: "a\n\nb", display: true } as never,
+      opts,
+      theme,
+    );
+    // Blank line preserved at a real width.
+    expect(component?.render(80)).toEqual(["a", "", "b"]);
+    // Non-positive width: raw lines, no wrap attempt.
+    expect(component?.render(0)).toEqual(["a", "", "b"]);
+  });
+});
 
 describe("V7d-T — loom/runtime/system-note-delivery-failed fallback chain", () => {
   function note(overrides?: Partial<SystemNote>): SystemNote {

@@ -1915,3 +1915,44 @@ residue items above, both in the single gate-activation commit that flips the
 gate to its live-corpus hard-fail footing, followed by `git tag H6a-complete`.
 The gate was deliberately left on its seeded-fixture footing (no partial flip on
 `main`) so the release-authorizing flip stays atomic with the smoke evidence.
+
+## 2026-07-02 — H6a manual real-host smoke findings
+
+Ran the manual real-host smoke by driving the H7a fixture on a live Pi host
+(`pi --loom tests/fixtures/h7a`, provider anthropic, model claude-opus-4-8).
+Two real defects surfaced that every automated gate missed, because the H7a
+in-process double models the pipeline (never lexes/parses the fixture text) and
+never renders through the real TUI width contract.
+
+- **Fixture was invalid `.loom` (fixture bug + coverage gap).** loom comments are
+  `//` / `///` (lexer.ts:338); `#` is not a comment — it lexes as a `punct`
+  token and surrounding prose lexes as idents/operators. `acceptance.loom` used
+  `#` comments; the prose "schema lowering/validation" on line 12 lexed as the
+  `schema` keyword + a lowercase word → `loom/parse/schema-case-mismatch@12:58`.
+  Fix: `#` → `//` (parses to 0 diagnostics). Empirically confirmed with
+  parseLoomDocument. `loom-smoke.loom` parses clean as-is (its `#` prose lexes to
+  tolerated stray tokens with no contextual violation) — left unchanged. Also
+  re-pinned the fixture binder model: `anthropic:claude-sonnet` is unresolvable
+  (loom's matcher splits provider/modelId on `/`, not `:`, and no anthropic model
+  has id `claude-sonnet`) → `anthropic/claude-opus-4-8` (exact, unique on host).
+
+- **A long diagnostic crashes Pi's TUI (real loom↔host defect).** The load
+  diagnostic rendered 122 cols on an 80-col terminal and Pi threw "Rendered line
+  exceeds terminal width … custom TUI component not truncating." Root cause:
+  `system-note-renderer.ts` `textComponent.render(width)` ignored `width`. So the
+  `loom-system-note` renderer crashes the host on ANY diagnostic wider than the
+  terminal — not fixture-specific. Fix: `render(width)` wraps each line
+  ANSI-aware via pi-tui `wrapTextWithAnsi` (blank line preserved; non-positive
+  width → raw). Added `wrapTextWithAnsi` to SDK_SURFACE_INVENTORY. Regression
+  tests added.
+
+- **Spec/test gap (recorded, not yet closed).** No spec obligation pins the
+  system-note renderer's render-width contract, and no test drove `render(width)`
+  against it before this fix. Candidate for a PIC obligation + coverage-matrix
+  row; owner decision, not made here.
+
+- **Smoke still not passable as the H6a gate.** `acceptance.loom` is `mode:
+  prompt` with no params → the binder is bypassed, so criteria (b) binder
+  envelope and (c) subagent cancellation are not exercised by this fixture as
+  written. A faithful (b)/(c)/(d) run needs a fixture that takes an argument
+  (forces a binder pass) and spawns a subagent.
