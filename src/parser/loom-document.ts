@@ -202,6 +202,31 @@ export interface MatchExpr extends NodeBase {
 }
 
 /**
+ * A `Result` constructor expression `Ok(arg)` / `Err(arg)` in value position
+ * (errors-and-results/error-model.md). A dedicated node — NOT a `call` — so the
+ * effectful-statement-host does not misclassify it as a tool-call checkpoint;
+ * it evaluates purely to `makeOk` / `makeErr`.
+ */
+export interface ResultCtorExpr extends NodeBase {
+  readonly kind: "result-ctor";
+  readonly ctor: "Ok" | "Err";
+  readonly arg: Expr;
+}
+
+/**
+ * A postfix method-call expression `target.method(args)` — the runtime stdlib
+ * member surface (expressions.md §"Built-in methods and properties"). A
+ * dedicated node — NOT a `call` — so the effectful-statement-host treats it as
+ * pure, not a tool-call checkpoint.
+ */
+export interface MethodCallExpr extends NodeBase {
+  readonly kind: "method-call";
+  readonly target: Expr;
+  readonly method: string;
+  readonly args: readonly Expr[];
+}
+
+/**
  * The `Expr` node family. A tail `Expr` of a `LoomBody` / block, a `let`
  * initialiser, a condition, etc. all use this union.
  */
@@ -221,7 +246,9 @@ export type Expr =
   | MemberExpr
   | IndexExpr
   | ObjectExpr
-  | MatchExpr;
+  | MatchExpr
+  | ResultCtorExpr
+  | MethodCallExpr;
 
 // --------------------------------------------------------------------------
 // Statement / declaration AST (the `Stmt` node family; grammar.md)
@@ -1471,6 +1498,21 @@ class BodyParser {
         };
         continue;
       }
+      if (this.isPunct("(") && expr.kind === "member") {
+        // Method call `target.method(args)` (expressions.md §"Built-in methods
+        // and properties"): fold the just-produced `member` and its argument
+        // list into a dedicated `method-call` node so the runtime dispatches
+        // the stdlib member instead of reading the bare field value.
+        const args = this.parseArgs();
+        expr = {
+          kind: "method-call",
+          target: expr.target,
+          method: expr.field,
+          args,
+          range: spanRange(expr.range, this.prevRange()),
+        };
+        continue;
+      }
       break;
     }
     return expr;
@@ -1521,6 +1563,22 @@ class BodyParser {
       }
       if (t.text === "match") {
         return this.parseMatch();
+      }
+      // `Ok(arg)` / `Err(arg)` Result constructors in value position
+      // (errors-and-results/error-model.md). Only when followed by `(` — a
+      // bare `Ok` / `Err` is not a first-class value, so it falls through to
+      // the keyword-in-value-position `null` path, mirroring the other
+      // reserved keywords that reach here.
+      if ((t.text === "Ok" || t.text === "Err") && this.isPunct("(", 1)) {
+        this.advance(); // `Ok` / `Err`
+        const args = this.parseArgs();
+        const arg = args[0] ?? nullExpr(t.range);
+        return {
+          kind: "result-ctor",
+          ctor: t.text,
+          arg,
+          range: spanRange(t.range, this.prevRange()),
+        };
       }
     }
     if (t.kind === "ident") {

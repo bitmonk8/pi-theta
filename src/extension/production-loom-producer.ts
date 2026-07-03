@@ -81,6 +81,9 @@ import type {
 } from "../runtime/terminal-outcomes";
 import { makeCancelledError } from "../runtime/cancellation-core";
 import { makeErr, makeOk, valuesEqual, type LoomValue, type ResultValue } from "../runtime/value";
+import { evaluateStringMember } from "../runtime/stdlib-string";
+import { evaluateArrayMember } from "../runtime/stdlib-array";
+import { evaluateObjectMember } from "../runtime/stdlib-object";
 import type { CallExpr, Expr, InvokeExpr, LoomBody, QueryExpr, SchemaDecl } from "../parser/loom-document";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
 import type { LoweredSchema } from "../seams/schema-validator";
@@ -1343,6 +1346,19 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): LoomValue 
       const index = evaluatePureExpression(expr.index, env);
       return evaluateIndexAccess(target, typeof index === "number" ? index : String(index));
     }
+    case "result-ctor":
+      // `Ok(arg)` / `Err(arg)` — a pure Result construction (never a tool-call).
+      return expr.ctor === "Ok"
+        ? makeOk(evaluatePureExpression(expr.arg, env))
+        : makeErr(evaluatePureExpression(expr.arg, env));
+    case "method-call": {
+      // `target.method(args)` — evaluate the receiver and arguments, then
+      // dispatch to the stdlib member surface by the receiver's runtime type
+      // (expressions.md §"Built-in methods and properties").
+      const receiver = evaluatePureExpression(expr.target, env);
+      const args = expr.args.map((arg) => evaluatePureExpression(arg, env));
+      return evaluateStdlibMethod(receiver, expr.method, args);
+    }
     case "binary":
       return evaluateBinaryExpression(expr.op, expr.left, expr.right, env);
     case "ternary": {
@@ -1358,6 +1374,32 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): LoomValue 
       // value and yields the inert `null` (the expressions.md safety net).
       return null;
   }
+}
+
+/**
+ * Dispatch a `target.method(args)` stdlib member by the receiver's runtime type
+ * (expressions.md §"Built-in methods and properties"), reusing the runtime
+ * stdlib modules so `replace`'s `$`-literal insertion and the `valuesEqual`
+ * structural equality of `includes` / `indexOf` match the reference semantics.
+ * A receiver with no stdlib member surface (number / boolean / null) has no
+ * loom-1.0 method and yields the inert `null` safety net rather than throwing
+ * out of the executor.
+ */
+function evaluateStdlibMethod(
+  receiver: LoomValue,
+  method: string,
+  args: readonly LoomValue[],
+): LoomValue {
+  if (typeof receiver === "string") {
+    return evaluateStringMember(receiver, method, args);
+  }
+  if (Array.isArray(receiver)) {
+    return evaluateArrayMember(receiver, method, args);
+  }
+  if (typeof receiver === "object" && receiver !== null) {
+    return evaluateObjectMember(receiver as { readonly [k: string]: LoomValue }, method, args);
+  }
+  return null;
 }
 
 /**
