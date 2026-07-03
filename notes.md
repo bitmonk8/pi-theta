@@ -2138,3 +2138,48 @@ decisions:
    pre-existing production-composition limitation (H8a prompt-mode drive), not a
    regression; the H9a acceptance areas assert only their model-output-invariant
    observables, which the query/binder turns carry.
+
+## 2026-07-03 — H6a re-dispatch: mechanical footing ready, blocked on two-phase manual release gate
+
+Re-ran the live-corpus closing gate over the current `main`. State has advanced
+since the prior H6a attempts:
+
+- Live-corpus gate: **0 findings** across all four hard-fail arms
+  (unmapped-executable-req-id, mapped-req-id-no-citing-test,
+  per-facet-citing-test-missing, un-anchored-must-*/un-rowed-page).
+  `node -e "runWarnOnlyCanary(cwd)"` → `[]`.
+- `npm test`: **1491 passed** (127 files). `npm run typecheck`: clean.
+- All Deps tagged complete: `H5b H5c H7a V13e V7e H7b H9a`.
+- The plan was amended (commit 1de45c8a) to the **two-phase** real-host
+  acceptance gate: Phase 1 automated `pi -p` suite (owned by H9a, complete) +
+  Phase 2 interactive human TUI sign-off. Both release-blocking.
+
+The mechanical live-corpus footing is therefore ready to flip green. What
+remains is **not** mechanical and **not** satisfiable by an unsupervised worker:
+
+H6a's **Ships when** requires, recorded in this leaf's gate-activation commit
+message (no separate artefact file):
+  1. Phase 1 `pi -p` real-host acceptance suite RUN and **passed** against the
+     shipping Pi-SDK pin `@earendil-works/pi-coding-agent ~0.75.5`
+     (`host-prerequisites.md#pi-sdk-pin`). Requires a live Pi host with a
+     structured-output-capable binder model + resolvable credentials — this
+     environment has no usable model credentials and no token budget.
+  2. Phase 2 interactive human TUI sign-off by a **named** contributor.
+  3. Nine-item release-time residue inspection, each item recorded
+     clean-or-dispositioned, with named owner + date.
+
+Items 1–2 are human-in-the-loop; the record must name the human owner who ran
+the gate and the date, and the leaf is explicitly designed so a skipped,
+mis-recorded, or stale-pin run is detectable after the fact by reading the
+commit message. Producing that evidence as an automated worker would require
+fabricating a named-human sign-off and a live-host run result — forbidden and
+detectable. Did **not** wire a partial gate-activation commit (the leaf treats
+the hard-fail flip and the manual evidence as one gate-activation commit) and
+did **not** tag. Returned needs-attention.
+
+Handoff for the human owner: the gate is green; run Phase 1 (`npm run
+test:acceptance` / the H9a `pi -p` suite) then Phase 2 (interactive), then in
+ONE gate-activation commit wire the hard-fail live-corpus test
+(`assertLiveCorpusGateGreen`, asserting `runWarnOnlyCanary` / equivalent live
+oracle returns `[]`) and record the Phase-1 + Phase-2 + nine-item evidence in
+that commit message, then `git tag H6a-complete`.
