@@ -13,8 +13,11 @@ Read this whole prompt before acting. The plan of record is
 terminology authority is `docs/spec_topics/glossary.md`.
 
 ## Guardrails
-- Draft only. Nothing here publishes. The editor reviews before anything is
-  finalised.
+- Draft only. Nothing here publishes to any docs site. The editor reviews before
+  anything is finalised. Committing and pushing draft docs to the repo is expected
+  (see Step 1a) and is not "publishing" in this sense.
+- Commit and push docs incrementally as they are written — one commit per
+  accepted artifact — so work is never lost between writer dispatches.
 - The spec (`docs/spec.md`, `docs/spec_topics/`) is fully implemented as of 1.0.
   Do not document behaviour the spec does not define or the runtime does not
   exhibit. Any spec/impl divergence a writer reports is surfaced to the editor,
@@ -56,6 +59,21 @@ doc as done. The runner materialises files under `docs/examples/`, parse-validat
 them (the committed-fixture parse gate walks `docs/`), and runtime-validates each
 via `pi --loom docs/examples -p "/<stem>"` when a provider is configured.
 
+## Step 1a — Commit and push each accepted artifact
+After an artifact is accepted (writer done, and any `EXAMPLES_NEEDED` runner
+validation passed), commit and push that artifact's outputs before moving to the
+next writer:
+1. Stage only the files the writer (and its example runner) produced under
+   `docs/` — do not stage spec, plan, or `src/` files.
+2. Commit with a message of the form
+   `docs(loom): draft <artifact> [make-loom-docs]` and a one-line body noting the
+   examples validated, if any.
+3. `git push`. If the push fails (e.g. non-fast-forward, no upstream, auth),
+   stop and surface the exact git error to the editor rather than force-pushing
+   or rebasing.
+Keep each artifact's changes in its own commit so the history mirrors the §6
+build order.
+
 ## Step 2 — Validate all examples
 After all selected writers finish, dispatch `loom-docs-example-runner` once over
 the full `docs/examples/` set. Then run the parse gate (`npm test`, or the
@@ -72,6 +90,8 @@ not a failure — note it for the editor.
     editor,
   - example validation summary (parse pass/fail; runtime pass / needs-provider /
     fail),
+  - the commits made and their push status (per Step 1a), including any push
+    failures surfaced to the editor,
   - anything a writer returned `needs-attention` on, with the precise reason.
 
 Do not finalise or publish. The editor reviews the drafts and directs the next
