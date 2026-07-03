@@ -13,12 +13,16 @@
 // signal — exactly as the production host does — so they green-lock:
 //   - an untyped subagent query drives to a SUCCESS terminal (regression: no
 //     forced self-cancel);
-//   - a typed subagent query returns the parsed structured payload across the
-//     subagent boundary (FN-5);
+//   - a typed subagent query VALIDATES its structured payload against the
+//     declared schema across the subagent boundary (FN-5 + QRY-22): a conforming
+//     payload binds the typed value; a non-conforming payload surfaces
+//     `Err(validation, schema_validation)` (Defect B — it no longer binds the
+//     raw payload unvalidated);
 //   - a GENUINE mid-stream `loomAbort` fire surfaces `Err(cancelled)` — the real
 //     cancellation path is preserved.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-42/PIC-43, FN-5), cancellation.md.
+// Spec: pi-integration-contract/subagent.md (PIC-42/PIC-43, FN-5), cancellation.md,
+// query/query-failure-and-repair.md (QRY-22).
 
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
@@ -27,9 +31,41 @@ import {
   runTypedQueryLoop,
   runUntypedQueryLoop,
   type QueryToolLoopConfig,
+  type TypedQuerySchemaValidation,
 } from "../src/runtime/query-tool-loop";
+import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
+import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import {
+  AjvSchemaValidator,
+  type LoweredSchema,
+  type SchemaSlug,
+} from "../src/seams/schema-validator";
 import type { AgentEndEvent } from "../src/runtime/subagent-isolation";
 import type { Checkpoint } from "../src/seams/checkpoint";
+
+/**
+ * Build the production typed-query validation collaborator over an inline
+ * `{ ok: boolean, label: string }` schema, exactly as the fixed subagent
+ * producer composes it (real `AjvSchemaValidator`, no re-driven follow-up).
+ */
+function subagentValidation(): TypedQuerySchemaValidation {
+  const lowered = lowerQueryResponseSchema("{ ok: boolean, label: string }", []);
+  if (lowered === undefined) {
+    throw new Error("inline schema failed to lower");
+  }
+  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
+    slug: "sub",
+    canonicalBytes: JSON.stringify(schema),
+  });
+  return buildTypedQueryValidation({
+    lowered,
+    resolveShape: () => lowered,
+    schemaValidator: new AjvSchemaValidator({ emit: () => {}, slugOf }),
+    attempts: 0,
+    maxRounds: 0,
+    driveFollowUp: () => Promise.resolve("{}"),
+  });
+}
 
 /** A no-op `Checkpoint` (an already-resolved gate). */
 const NOOP_CHECKPOINT: Checkpoint = {
@@ -93,7 +129,7 @@ describe("H8a — production subagent QueryModelDriver (regression lock)", () =>
     }
   });
 
-  it("typed subagent query returns the parsed structured payload across the subagent boundary (FN-5)", async () => {
+  it("typed subagent query VALIDATES its structured payload and binds a conforming value (FN-5 + QRY-22)", async () => {
     const loomAbort = new AbortController();
     const model = createSubagentQueryModel({
       driveTurn: () =>
@@ -102,11 +138,43 @@ describe("H8a — production subagent QueryModelDriver (regression lock)", () =>
       provider: "anthropic",
     });
 
-    const outcome = await runTypedQueryLoop(NOOP_CHECKPOINT, loomAbort.signal, model, config(0));
+    // The fixed producer supplies the schema-validation collaborator; the
+    // conforming payload validates against the declared schema and binds.
+    const outcome = await runTypedQueryLoop(
+      NOOP_CHECKPOINT,
+      loomAbort.signal,
+      model,
+      config(0),
+      subagentValidation(),
+    );
 
     expect(outcome.kind).toBe("value");
     if (outcome.kind === "value") {
       expect(outcome.value).toEqual({ ok: true, label: "blue" });
+    }
+  });
+
+  it("typed subagent query with a non-conforming payload surfaces Err(validation) — no unvalidated bind (Defect B)", async () => {
+    const loomAbort = new AbortController();
+    const model = createSubagentQueryModel({
+      // Missing the required `label`, and carrying an undeclared property.
+      driveTurn: () =>
+        Promise.resolve(agentEnd([assistantMessage('{"ok":true,"extra":1}')])),
+      loomAbort,
+      provider: "anthropic",
+    });
+
+    const outcome = await runTypedQueryLoop(
+      NOOP_CHECKPOINT,
+      loomAbort.signal,
+      model,
+      config(0),
+      subagentValidation(),
+    );
+
+    expect(outcome.kind, "a non-conforming payload is not bound as the value").toBe("validation");
+    if (outcome.kind === "validation") {
+      expect(outcome.error.cause).toBe("schema_validation");
     }
   });
 

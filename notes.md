@@ -2211,3 +2211,31 @@ Two known-limitation divergences (see .pi/impl-progress/decisions.jsonl):
    discards the buffer), so genuine-cancellation coverage moved in-process to
    tests/production-subagent-query-model.test.ts; acceptance area (e) now covers
    subagent SUCCESS end-to-end.
+
+## 2026-07-03 — Defect B (typed-query schema validation) — divergences
+
+Fixing Defect B (typed `@<Schema>` queries binding `Ok(...)` unvalidated) surfaced
+that the "pure miscompose" was deeper than composition alone: the whole-file parser
+discarded every `schema` declaration body (`skipDeclarationShape`), so no declared
+named schema could be lowered. The parser now retains object-body field sources on
+`SchemaDecl.fields` (additive), and the production wiring lowers them. Divergences
+from the narrowest possible fix, all keeping observable behaviour faithful to
+QRY-22 intent:
+
+1. `respond_repair.methodology:` is not honoured by the production wiring — the
+   parser's `ParsedRespondRepair` captures only `attempts`, not `methodology`, so
+   the follow-up drive always uses the spec default (`validator_error`). Honouring
+   a declared `methodology:` needs a parser/frontmatter change out of Defect-B
+   scope.
+2. Cross-schema `NamedType` references INSIDE another schema's field body lower
+   permissively (`{}`) rather than to a `$ref`/`$defs` expansion — the query's own
+   declared shape (its `type`/`required`/`additionalProperties`/literal `enum`
+   fields) is the validated contract, which is what catches the live defect (null
+   / missing fields / undeclared props). A nested cross-schema field's interior is
+   not deeply validated. Full `$defs` expansion is a schema-subset lowering concern
+   (V5*/V6b), not this fix.
+3. A non-JSON forced-respond reply is projected as its raw text and validated —
+   an object/enum/number schema rejects it (validation failure, the intended
+   outcome), and a bare `@<string>` schema accepts prose. A genuinely-`null`
+   parsed reply is validated and rejected by any non-nullable schema. Neither
+   throws nor binds a fabricated value.

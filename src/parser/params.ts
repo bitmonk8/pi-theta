@@ -196,7 +196,7 @@ export function parseParams(
 }
 
 /** The lowering context threaded through a single field's type expression. */
-interface LowerCtx {
+export interface LowerCtx {
   readonly bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>;
   /** Resolved named types, collected as `$defs` entries (shared across fields). */
   readonly defs: Record<string, Record<string, unknown>>;
@@ -233,7 +233,7 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * schema-subset lowering leaves, not this seam; an unrecognised form lowers
  * permissively (`{}`) while still resolving any `NamedType` it nests.
  */
-function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string, unknown> {
+export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string, unknown> {
   const s = source.trim();
 
   // Generic application: `ctor<args>`.
@@ -295,7 +295,7 @@ function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string, unkno
  * nesting and `"`/`'` string literals so nested generics and literal arms are
  * not split mid-token. Empty segments are dropped.
  */
-function splitTopLevel(source: string, separator: string): string[] {
+export function splitTopLevel(source: string, separator: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let quote: string | undefined;

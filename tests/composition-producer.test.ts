@@ -204,7 +204,11 @@ class ScriptedSessionQueryModel implements QueryModelDriver {
     return Promise.resolve([]);
   }
   forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve({ kind: "respond", payload: null });
+    // These deps drive the UNTYPED path (`typed: false`), so the forced-respond
+    // turn is never dispatched; return a conforming structured payload rather
+    // than a bare `null` so this stub does not encode the Defect-B
+    // unvalidated-null shape even on the dead path.
+    return Promise.resolve({ kind: "respond", payload: { ok: true } });
   }
 }
 

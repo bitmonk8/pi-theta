@@ -252,10 +252,28 @@ export interface ExprStmt extends NodeBase {
   readonly expr: Expr;
 }
 
+/**
+ * One `schema X { … }` object-body field, as written in source: the field name
+ * and its verbatim type-expression RHS. Retained so a typed `@<Schema>` query
+ * can resolve the named decl to its declared shape and lower it (QRY-22 /
+ * SUBS-1); the `= …` alias and `by … = …` discriminated-union forms carry no
+ * object field list.
+ */
+export interface SchemaFieldSource {
+  readonly name: string;
+  readonly typeSource: string;
+}
+
 /** A `schema` declaration (`SchemaDecl`; schemas.md). */
 export interface SchemaDecl extends NodeBase {
   readonly kind: "schema";
   readonly name: string;
+  /**
+   * The object-body field type sources, present iff the decl is the
+   * `schema X { field: Type, … }` object form. Absent for the `= …` alias and
+   * `by … = …` discriminated-union forms.
+   */
+  readonly fields?: readonly SchemaFieldSource[];
 }
 
 /** An `enum` declaration (`EnumDecl`; schemas.md). */
@@ -1009,8 +1027,78 @@ class BodyParser {
   private parseSchema(): Stmt {
     const kw = this.advance();
     const name = this.advance().text;
-    this.skipDeclarationShape();
-    return { kind: "schema", name, range: spanRange(kw.range, this.prevRange()) };
+    // Retain the object-body field sources (`schema X { field: Type, … }`) so a
+    // typed `@<Schema>` query can resolve the declared shape and lower it
+    // (QRY-22 / SUBS-1). The `= …` alias and `by … = …` forms carry no leading
+    // `{`, so they capture no field list and fall through to `skipDeclarationShape`.
+    const fields = this.parseSchemaObjectBody();
+    const range = spanRange(kw.range, this.prevRange());
+    if (fields === null) {
+      return { kind: "schema", name, range };
+    }
+    return { kind: "schema", name, fields, range };
+  }
+
+  /**
+   * Capture a `schema X { field: Type, … }` object body's field sources. Returns
+   * `null` (and consumes nothing) when the decl is not the leading-`{` object
+   * form (an `= …` alias or `by … = …` discriminated-union), leaving
+   * `skipDeclarationShape` to consume it. A field name is an `ident` / `keyword`
+   * token followed by `:` and a type expression; a body whose first non-sep
+   * token is not a plain `ident: Type` field is skipped as a balanced brace group
+   * and yields `null` (no field list retained).
+   */
+  private parseSchemaObjectBody(): SchemaFieldSource[] | null {
+    if (!(this.peek().kind === "punct" && this.peek().text === "{")) {
+      return null;
+    }
+    this.advance(); // opening `{`
+    const fields: SchemaFieldSource[] = [];
+    for (;;) {
+      while (this.peek().kind === "stmt-sep") {
+        this.advance();
+      }
+      if (this.atEnd()) {
+        break;
+      }
+      if (this.isPunct("}")) {
+        this.advance();
+        break;
+      }
+      const nameTok = this.peek();
+      const isFieldName = nameTok.kind === "ident" || nameTok.kind === "keyword";
+      if (!isFieldName) {
+        // Not a plain `ident: Type` field list (a set-of / discriminated shape):
+        // consume the balance of the brace group and retain no field list.
+        this.skipBraceRemainder();
+        return null;
+      }
+      this.advance();
+      if (!this.isPunct(":")) {
+        this.skipBraceRemainder();
+        return null;
+      }
+      this.advance(); // `:`
+      const typeSource = this.parseType();
+      fields.push({ name: nameTok.text, typeSource });
+      if (this.isPunct(",")) {
+        this.advance();
+      }
+    }
+    return fields;
+  }
+
+  /** Consume tokens up to and including the `}` closing the current brace group. */
+  private skipBraceRemainder(): void {
+    let depth = 1;
+    while (!this.atEnd() && depth > 0) {
+      const t = this.advance();
+      if (t.kind === "punct" && t.text === "{") {
+        depth += 1;
+      } else if (t.kind === "punct" && t.text === "}") {
+        depth -= 1;
+      }
+    }
   }
 
   private parseEnum(): Stmt {

@@ -79,7 +79,15 @@ import type {
 } from "../runtime/terminal-outcomes";
 import { makeCancelledError } from "../runtime/cancellation-core";
 import { makeErr, makeOk, type LoomValue, type ResultValue } from "../runtime/value";
-import type { Expr, QueryExpr } from "../parser/loom-document";
+import type { Expr, LoomBody, QueryExpr, SchemaDecl } from "../parser/loom-document";
+import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
+import type { LoweredSchema } from "../seams/schema-validator";
+import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
+import {
+  buildTypedQueryValidation,
+  parseStructuredPayload,
+  payloadForRespond,
+} from "../runtime/typed-query-validation";
 import { evaluateMemberAccess } from "../runtime/runtime-panics";
 import { lexQueryTemplate, renderTemplateText } from "../render/query-render";
 import {
@@ -376,10 +384,25 @@ class ProductionLoomProducer implements LoomProducerDeps {
         // (FN-5); the `maxRounds: 0` boundary routes it straight to the
         // forced-respond terminator, mirroring the prompt-mode typed path.
         const typed = expr.schema !== null;
+        // QRY-22: a typed subagent query drives respond-repair follow-ups as new
+        // user turns against the SAME private session (never re-issuing the
+        // original query), extracting each follow-up's reply text.
+        const driveFollowUp = async (prompt: string): Promise<string> => {
+          const terminal = await driveSubagentTurn(session, prompt);
+          const followUp = extractSubagentQueryResult(terminal, {
+            aborted: loomAbort.signal.aborted,
+            provider: String(model.provider),
+          });
+          return followUp.ok ? followUp.value : "";
+        };
+        const validation = typed
+          ? this.#buildTypedValidation(expr, env, loom, driveFollowUp)
+          : undefined;
         return {
           typed,
           model: createSubagentQueryModel({
-            driveTurn: () => driveSubagentTurn(session, renderTypedAwareQueryText(expr, env)),
+            driveTurn: () =>
+              driveSubagentTurn(session, renderTypedAwareQueryText(expr, env, validation?.lowered)),
             loomAbort,
             provider: String(model.provider),
           }),
@@ -394,6 +417,9 @@ class ProductionLoomProducer implements LoomProducerDeps {
             invocationId: root.idSource.newInvocationId(),
             occurredAt: root.clock.wallNow(),
           },
+          ...(validation !== undefined
+            ? { schemaValidation: validation.validation }
+            : {}),
         };
       },
       resolveToolCall: () => inertToolCall(),
@@ -452,12 +478,27 @@ class ProductionLoomProducer implements LoomProducerDeps {
   ): QueryHostDispatch {
     const { root } = this.#input;
     const typed = expr.schema !== null;
+    // QRY-22: a typed prompt-mode query drives respond-repair follow-ups as new
+    // user turns against the SAME conversation (a user-visible turn when the
+    // query streams, else off-session), extracting each follow-up's reply text.
+    const driveFollowUp = (prompt: string): Promise<string> =>
+      deps.userVisible
+        ? driveStreamedUserTurn({
+            pi: deps.pi,
+            ctx: deps.ctx,
+            clock: root.clock,
+            queryText: prompt,
+          })
+        : offSessionComplete(deps.ctx.model, prompt);
+    const validation = typed
+      ? this.#buildTypedValidation(expr, env, deps.loom, driveFollowUp)
+      : undefined;
     // A typed query instructs the model to emit only a JSON object of the
-    // declared shape, so its user-visible turn streams the structured value as
-    // its assistant text (shared with the subagent path via
+    // declared (lowered) shape, so its user-visible turn streams the structured
+    // value as its assistant text (shared with the subagent path via
     // `renderTypedAwareQueryText`; an off-session typed turn's reply parses the
     // same).
-    const queryText = renderTypedAwareQueryText(expr, env);
+    const queryText = renderTypedAwareQueryText(expr, env, validation?.lowered);
 
     const model = deps.userVisible
       ? new LivePromptQueryModel({
@@ -485,7 +526,45 @@ class ProductionLoomProducer implements LoomProducerDeps {
       occurredAt: root.clock.wallNow(),
     };
 
-    return { typed, model, config };
+    return {
+      typed,
+      model,
+      config,
+      ...(validation !== undefined ? { schemaValidation: validation.validation } : {}),
+    };
+  }
+
+  /**
+   * Build the typed-query schema-validation collaborator (QRY-22) for a typed
+   * `@`-query: lower the declared schema (a named `schema` decl resolved
+   * whole-file, or an inline object/type annotation) to the validating JSON
+   * Schema, and assemble the `TypedQuerySchemaValidation` over the root's AJV
+   * `SchemaValidator` and the `V13d` respond-repair loop, threading the mode's
+   * follow-up turn drive. Returns `undefined` when the query is untyped or the
+   * declared schema does not lower.
+   */
+  #buildTypedValidation(
+    expr: QueryExpr,
+    env: LexicalEnvironment,
+    loom: ConversationBindInput["loom"],
+    driveFollowUp: (prompt: string) => Promise<string>,
+  ): { readonly validation: TypedQuerySchemaValidation; readonly lowered: LoweredSchema } | undefined {
+    if (expr.schema === null) {
+      return undefined;
+    }
+    const lowered = lowerQueryResponseSchema(expr.schema, schemaDeclsOf(loom.body));
+    if (lowered === undefined) {
+      return undefined;
+    }
+    const validation = buildTypedQueryValidation({
+      lowered,
+      resolveShape: resolveDeclaredShape(expr, env),
+      schemaValidator: this.#input.root.schemaValidator,
+      attempts: loom.frontmatter.respondRepair?.attempts ?? 3,
+      maxRounds: loom.frontmatter.toolLoop?.maxRounds ?? 25,
+      driveFollowUp,
+    });
+    return { validation, lowered };
   }
 }
 
@@ -544,10 +623,13 @@ class LivePromptQueryModel implements QueryModelDriver {
     // turn that streams the structured JSON as its assistant text, then parses
     // that text as the candidate structured payload. The typed-query response
     // schema is lowered from the declared annotation (`V5d`); the respond loop
-    // depth-walks and validates the payload against it.
+    // depth-walks and validates the payload against it. A non-JSON reply is
+    // surfaced as its raw text (never a thrown `JSON.parse`, never a bound
+    // `null`) so the schema validation reports the mismatch.
     await this.#driveUserVisibleTurn();
     const text = extractTrailingTurnText(this.#readMessages());
-    return { kind: "respond", payload: parseStructuredPayload(text) };
+    const parse = await parseStructuredPayload(text);
+    return { kind: "respond", payload: payloadForRespond(parse) };
   }
 
   /**
@@ -640,19 +722,12 @@ class OffSessionQueryModel implements QueryModelDriver {
   }
 
   async forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return { kind: "respond", payload: parseStructuredPayload(await this.#complete()) };
+    const parse = await parseStructuredPayload(await this.#complete());
+    return { kind: "respond", payload: payloadForRespond(parse) };
   }
 
-  async #complete(): Promise<string> {
-    if (this.#model === undefined) {
-      throw new OffSessionModelUnavailableError(
-        "H8a: an off-session chained query has no resolved model (ctx.model is undefined).",
-      );
-    }
-    const reply: AssistantMessage = await complete(this.#model, {
-      messages: [{ role: "user", content: this.#queryText, timestamp: 0 }],
-    });
-    return assistantText(reply);
+  #complete(): Promise<string> {
+    return offSessionComplete(this.#model, this.#queryText);
   }
 }
 
@@ -744,7 +819,8 @@ class SubagentQueryModel implements QueryModelDriver {
       provider: this.#provider,
     });
     if (result.ok) {
-      return { kind: "respond", payload: parseStructuredPayload(result.value) };
+      const parse = await parseStructuredPayload(result.value);
+      return { kind: "respond", payload: payloadForRespond(parse) };
     }
     // A genuine cancellation / transport failure carries no structured payload;
     // an inert `null` lets the typed loop's depth-walk / value projection yield
@@ -778,17 +854,45 @@ function driveSubagentTurn(session: AgentSession, queryText: string): Promise<Ag
 /**
  * Render one `@`-query to its wire text, appending the typed-query JSON-only
  * instruction for a schema-typed query. Shared by the prompt-mode and
- * subagent-mode drivers so both convey the declared shape identically.
+ * subagent-mode drivers so both convey the declared shape identically. The
+ * conveyance carries the LOWERED response schema (QRY-22) when the declared
+ * schema lowered cleanly — not the bare type name — so the model sees the JSON
+ * shape its response is validated against; it falls back to the annotation text
+ * only when the schema did not lower.
  */
-function renderTypedAwareQueryText(expr: QueryExpr, env: LexicalEnvironment): string {
+function renderTypedAwareQueryText(
+  expr: QueryExpr,
+  env: LexicalEnvironment,
+  lowered?: LoweredSchema,
+): string {
   const base = renderQueryText(expr, env);
   if (expr.schema === null) {
     return base;
   }
+  const shape = lowered !== undefined ? JSON.stringify(lowered) : expr.schema;
   return (
-    `${base}\n\nRespond with ONLY a single minified JSON object matching this loom ` +
-    `type, and nothing else — no prose, no markdown, no code fences: ${expr.schema}`
+    `${base}\n\nRespond with ONLY a single minified JSON object matching this JSON ` +
+    `schema, and nothing else — no prose, no markdown, no code fences: ${shape}`
   );
+}
+
+/** The loom body's `schema` declarations, for whole-file named-type resolution. */
+function schemaDeclsOf(body: LoomBody): SchemaDecl[] {
+  return body.statements.filter((stmt): stmt is SchemaDecl => stmt.kind === "schema");
+}
+
+/** An identifier-shaped `@<Schema>` annotation names a `schema` decl. */
+const SCHEMA_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * A `resolveDeclaredSchema` step (QRY-22): a named `@<Schema>` annotation
+ * resolves whole-file via `env.resolveSchema` (previously uncalled); an inline
+ * annotation resolves to its verbatim source.
+ */
+function resolveDeclaredShape(expr: QueryExpr, env: LexicalEnvironment): () => unknown {
+  const annotation = (expr.schema ?? "").trim();
+  return () =>
+    SCHEMA_NAME.test(annotation) ? env.resolveSchema(annotation) : annotation;
 }
 
 /** Concatenate the text content of an assistant message (thinking / tool calls omitted). */
@@ -800,18 +904,24 @@ function assistantText(message: AssistantMessage): string {
 }
 
 /**
- * Parse the trailing turn's streamed assistant text as a structured JSON value.
- * A payload that does not parse as JSON is surfaced verbatim as a string so the
- * downstream depth-walk / AJV validation (`V13c`) reports the schema mismatch,
- * rather than swallowing it here.
+ * Resolve a query / respond-repair follow-up prompt off-session through pi-ai's
+ * `complete()` free function (no user session turn), returning the assistant
+ * text. Shared by the off-session query driver and the off-session respond-repair
+ * follow-up drive.
  */
-function parseStructuredPayload(text: string): unknown {
-  const trimmed = text.trim();
-  const first = trimmed.indexOf("{");
-  const last = trimmed.lastIndexOf("}");
-  const candidate = first >= 0 && last > first ? trimmed.slice(first, last + 1) : trimmed;
-  const parsed = JSON.parse(candidate) as unknown;
-  return parsed;
+async function offSessionComplete(
+  model: Model<Api> | undefined,
+  prompt: string,
+): Promise<string> {
+  if (model === undefined) {
+    throw new OffSessionModelUnavailableError(
+      "H8a: an off-session chained query has no resolved model (ctx.model is undefined).",
+    );
+  }
+  const reply: AssistantMessage = await complete(model, {
+    messages: [{ role: "user", content: prompt, timestamp: 0 }],
+  });
+  return assistantText(reply);
 }
 
 /**
