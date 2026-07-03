@@ -22,9 +22,10 @@ do not teach a hands-on path (Tutorial) and do not give task recipes (How-to).
    success / fail / cancelled trichotomy; prompt vs. subagent mode; `.loom` vs.
    `.warp`; the final value. Explain *why* and *what*, never *step 1, step 2*.
 3. The README is thin: what loom is, the problem it solves, **1.0 first-release
-   status** (spec fully implemented; expect rough edges and absent nice-to-haves
-   — state this plainly, no softening), and links to Guide / Tutorial / How-to /
-   Reference. No feature tour.
+   status**, and links to Guide / Tutorial / How-to / Reference. No feature tour.
+   State the status in general terms only: the spec is fully implemented; a first
+   release may have undiscovered rough edges. Do **not** enumerate specific rough
+   edges or missing features — they are not known. No softening, no list.
 4. Link into the Reference for exact definitions; do not restate normative
    detail. Terminology matches the glossary exactly.
 5. Any example must be a real, run example — request it from the

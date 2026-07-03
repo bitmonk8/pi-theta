@@ -169,8 +169,8 @@ the glossary.
 
 - **D-1** (resolved) Directory layout: `docs/how-to/` and `docs/reference/` as
   folders.
-- **D-2** (proposed, editor to confirm) Host-integrator docs: a single short
-  integration how-to in 1.0, defer the rest.
+- **D-2** (resolved) Host-integrator docs: a single short integration how-to in
+  1.0; defer the rest.
 - **D-3** (resolved) Reference derivation: hand-author prose; **transcribe**
   mechanical tables (diagnostics registry, grammar, frontmatter fields) verbatim
   from their single spec source page with a Provenance pointer; no separate
@@ -181,5 +181,7 @@ the glossary.
   committed-fixture parse gate (`npm test`, walks `docs/`); runtime validation is
   `pi --loom docs/examples -p "/<stem>"`. No new harness needed.
 - **D-5** (resolved) One `loom-docs-guide-writer` owns both Guide and README.
-- **D-6** (open) Whether the README status section enumerates known rough edges /
-  unimplemented nice-to-haves explicitly, and where that list is maintained.
+- **D-6** (resolved) The README does **not** enumerate specific rough edges or
+  unimplemented nice-to-haves — they are not yet discovered. The status section
+  states the 1.0 first-release posture in general terms only (spec fully
+  implemented; a first release may have undiscovered rough edges), with no list.

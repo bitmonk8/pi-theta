@@ -44,7 +44,10 @@ For each writer, pass the `SpecPages` it should read (resolve from
 3. **Guide** → `loom-docs-guide-writer` (`Target: guide`).
 4. **How-to** → `loom-docs-howto-writer`. Recipes: argument binding, calling a
    tool, typed return across a subagent boundary, handling a QueryError,
-   configuring `tool_loop`, importing a `.warp` module. One file per recipe.
+   configuring `tool_loop`, importing a `.warp` module, and one short
+   **host-integration** recipe (embedding/configuring the runtime as a Pi
+   extension — the only integrator doc in 1.0; the rest is deferred). One file
+   per recipe.
 5. **Tutorial** → `loom-docs-tutorial-writer` (last; settled surface).
 
 Whenever a writer returns `EXAMPLES_NEEDED`, dispatch the
