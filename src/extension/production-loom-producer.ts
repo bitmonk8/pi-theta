@@ -58,7 +58,11 @@ import type {
   QueryHostDispatch,
 } from "../runtime/effectful-statement-host";
 import { createEffectfulStatementHost } from "../runtime/effectful-statement-host";
-import { buildEnvironment, type LexicalEnvironment } from "../runtime/lexical-environment";
+import {
+  buildEnvironment,
+  type EnumRegistration,
+  type LexicalEnvironment,
+} from "../runtime/lexical-environment";
 import { executeBody, type BodyExecution, type ExecuteBodyDeps } from "../runtime/statement-executor";
 import { extractTrailingTurnText } from "../runtime/conversation-drive";
 import type {
@@ -790,7 +794,16 @@ function buildBoundEnvironment(
   body: LoomBody,
   paramBindings: ReadonlyMap<string, LoomValue> | undefined,
 ): LexicalEnvironment {
-  const env = buildEnvironment({ body });
+  // Register top-level `enum` declarations (with their captured variant names)
+  // so `Enum.Variant` access resolves to a first-class enum value rather than
+  // panicking on a member access against an unresolved name.
+  const enums: EnumRegistration[] = [];
+  for (const stmt of body.statements) {
+    if (stmt.kind === "enum" && stmt.variants !== undefined) {
+      enums.push({ name: stmt.name, variants: stmt.variants });
+    }
+  }
+  const env = buildEnvironment({ body, enums });
   if (paramBindings !== undefined) {
     for (const [name, value] of paramBindings) {
       env.defineLocal(name, value, false);
@@ -1337,9 +1350,19 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): LoomValue 
       }
       return obj;
     }
-    case "member":
+    case "member": {
+      // `Enum.Variant` access: a member on an identifier that names a registered
+      // enum (not a local binding) is a pure enum-value read, NOT a generic
+      // member access on a null target (runtime-value-model.md, enum row).
+      if (expr.target.kind === "ident" && env.resolve(expr.target.name).arm !== "local") {
+        const variant = env.resolveEnumVariant(expr.target.name, expr.field);
+        if (variant !== undefined) {
+          return variant;
+        }
+      }
       // `.field` access — a `null` target raises `NullMemberAccessPanic` (V4b).
       return evaluateMemberAccess(evaluatePureExpression(expr.target, env), expr.field);
+    }
     case "index": {
       // `[i]` access — a `null` target / out-of-bounds / missing key panics (V4b).
       const target = evaluatePureExpression(expr.target, env);

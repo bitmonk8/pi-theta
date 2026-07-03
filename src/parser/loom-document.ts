@@ -400,6 +400,13 @@ export interface SchemaDecl extends NodeBase {
 export interface EnumDecl extends NodeBase {
   readonly kind: "enum";
   readonly name: string;
+  /**
+   * The declared variant names in source order, captured so the runtime can
+   * register the enum and resolve `Enum.Variant` access to a first-class enum
+   * value (runtime-value-model.md, enum row). Absent for a non-`{ … }` enum
+   * shape the body parser could not read.
+   */
+  readonly variants?: readonly string[];
 }
 
 /** An `import … from` declaration (imports.md). */
@@ -1379,8 +1386,60 @@ class BodyParser {
   private parseEnum(): Stmt {
     const kw = this.advance();
     const name = this.advance().text;
-    this.skipDeclarationShape();
-    return { kind: "enum", name, range: spanRange(kw.range, this.prevRange()) };
+    const variants = this.parseEnumVariants();
+    return { kind: "enum", name, variants, range: spanRange(kw.range, this.prevRange()) };
+  }
+
+  /**
+   * Capture the variant names of an `enum X { A, B = "b", … }` body in source
+   * order so the runtime can register the enum for `Enum.Variant` resolution.
+   * Only the leading identifier of each variant is recorded; an explicit
+   * `= <literal>` value is skipped (the runtime keys the enum value by variant
+   * name). A non-brace enum shape yields no variants.
+   */
+  private parseEnumVariants(): readonly string[] {
+    // Advance to the opening `{`; a non-brace enum shape carries no variants.
+    while (!this.atEnd() && !this.isPunct("{")) {
+      if (this.peek().kind === "stmt-sep") {
+        return [];
+      }
+      this.advance();
+    }
+    if (!this.isPunct("{")) {
+      return [];
+    }
+    this.advance(); // `{`
+    const names: string[] = [];
+    let expectName = true;
+    let depth = 1;
+    while (!this.atEnd() && depth > 0) {
+      const t = this.peek();
+      if (t.kind === "punct" && t.text === "{") {
+        depth += 1;
+        this.advance();
+        continue;
+      }
+      if (t.kind === "punct" && t.text === "}") {
+        depth -= 1;
+        this.advance();
+        continue;
+      }
+      if (depth === 1 && expectName && (t.kind === "ident" || t.kind === "keyword")) {
+        names.push(t.text);
+        expectName = false;
+        this.advance();
+        continue;
+      }
+      if (depth === 1 && t.kind === "punct" && t.text === ",") {
+        expectName = true;
+        this.advance();
+        continue;
+      }
+      // An `= <literal>` explicit value or any other in-variant token: skip; the
+      // next comma re-arms name capture.
+      this.advance();
+    }
+    return names;
   }
 
   /** Skip a schema/enum shape (`{ ... }` block or `= …` / `by … = …` tail). */
