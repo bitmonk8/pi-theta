@@ -723,9 +723,27 @@ function contextualDiagnostics(tokens: readonly Token[], file: string): Diagnost
     }
   };
 
+  // A `@`…`` query template body is prose, not code: the parser recovers it by
+  // slicing raw source between the backtick token bounds (see BodyParser), so the
+  // interior tokens are vestigial. Control-header words (`if` / `for` / …) and
+  // declarator keywords (`let` / `fn` / `schema` / `enum`) occurring as prose
+  // inside a template MUST NOT trigger the single-line-body or name-case rules
+  // (grammar.md §Comments: "Text inside a `@`…`` query template is not a
+  // comment" — nor is it code). Backticks are template delimiters and always
+  // pair, so a toggle tracks the template body; `${…}` interpolations sit inside
+  // it and legitimately carry no control-header/declarator statement, so
+  // suppressing the whole region is safe.
+  let inTemplateBody = false;
   for (let k = 0; k < tokens.length; k += 1) {
     const t = tokens[k];
-    if (t === undefined || t.kind !== "keyword") {
+    if (t === undefined) {
+      continue;
+    }
+    if (t.kind === "punct" && t.text === "`") {
+      inTemplateBody = !inTemplateBody;
+      continue;
+    }
+    if (inTemplateBody || t.kind !== "keyword") {
       continue;
     }
     if (t.text === "let") {
