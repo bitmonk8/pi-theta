@@ -40,9 +40,6 @@ implemented. Known gaps at this release:
 - **Type-layer diagnostics** — static checks that require type inference are
   partial (e.g. a non-boolean `if` condition, indexing a `string`, a
   non-array `for` iterand).
-- **Some parser/lexer diagnostics** are not yet emitted (e.g. unterminated /
-  multi-line string literals, chained comparison, a statement in a `match` arm
-  body).
 - **Nested control forms in an expression position** — a `match`, a user-`fn`
   call, or an effect nested inside another expression may not evaluate in every
   position.

@@ -2463,3 +2463,28 @@ intended reason (the specific check is unimplemented).
 
 Doc-update applied to CHANGELOG only; README `## Status` prose kept, consistent
 with every prior V20* leaf (no per-leaf status table exists in this repo).
+
+## V20d — unimplemented lexer/parser diagnostics (implementation)
+
+Implemented the eight Bucket-B checks. Divergences / decisions:
+
+- comparison-chaining: the spec (expressions.md §"Operator precedence") states
+  "Comparison and equality are non-associative". I therefore marked BOTH the
+  equality tier (`== !=`) and the comparison tier (`< <= > >=`) non-associative
+  in `parseBinary`, not only comparison — faithful to the spec text; the test
+  only exercises `1 < 2 < 3`.
+- assignment-as-expression: checked at the two value-position entry points
+  `parseBracketedExpression` (parens / index) and `parseHeaderExpression`
+  (`if`/`while`/`for` headers), not inside the statement-head expression path
+  (`parseForm`), because statement-head assignment is legal and is handled by
+  `tryParseReassign` / the member-index-assignment branch. This covers the
+  spec's canonical `if (x = 1)` example without regressing `obj.field = x`
+  statement handling.
+- statement-in-arm-body / match-guard: both consume the offending construct
+  (the guard condition; the bare statement) so arm-loop recovery stays clean
+  and does not emit spurious cascade diagnostics.
+- rest-pattern: `...` lexes as three `.` puncts; detected in `parsePattern`
+  (array elements) and both object-pattern field loops.
+- Doc-update applied to CHANGELOG + the README gap list (removed the now-closed
+  "Some parser/lexer diagnostics" bullet); README `## Status` kept as prose per
+  the prior-leaf convention (no per-leaf status table exists in this repo).

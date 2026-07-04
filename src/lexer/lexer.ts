@@ -424,6 +424,7 @@ function scanTokens(
       const start = pos();
       let raw = advance(); // opening quote
       let value = "";
+      let closed = false;
       while (i < n && text[i] !== "\n") {
         const ch = text[i];
         if (ch === undefined) {
@@ -431,6 +432,7 @@ function scanTokens(
         }
         if (ch === quote) {
           raw += advance(); // closing quote
+          closed = true;
           break;
         }
         if (ch === "\\") {
@@ -504,6 +506,28 @@ function scanTokens(
         }
         value += ch;
         raw += advance();
+      }
+      if (!closed) {
+        // Single-line-only string literals (lexical.md §"String literals"): a
+        // scan that ends without a closing quote either hit a literal newline
+        // (the current char is `\n`) or ran off the end of the source (EOF).
+        if (text[i] === "\n") {
+          diagnostics.push({
+            severity: "error",
+            code: "loom/parse/literal-newline-in-string",
+            file,
+            range: { start, end: pos() },
+            message: "literal newline in string literal",
+          });
+        } else {
+          diagnostics.push({
+            severity: "error",
+            code: "loom/parse/unterminated-string",
+            file,
+            range: { start, end: pos() },
+            message: "unterminated string literal",
+          });
+        }
       }
       tokens.push({
         kind: "string",

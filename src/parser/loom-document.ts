@@ -860,6 +860,12 @@ class BodyParser {
     ["+", "-"],
     ["*", "/", "%"],
   ];
+  /**
+   * Tier indices into `tiers` whose operators are non-associative and reject
+   * chaining (equality `== !=` and comparison `< <= > >=`), per
+   * expressions.md §"Operator precedence".
+   */
+  private readonly nonAssociativeTiers: ReadonlySet<number> = new Set([2, 3]);
 
   public constructor(
     private readonly tokens: readonly Token[],
@@ -1106,6 +1112,17 @@ class BodyParser {
     }
     const nameTok = this.advance();
     const name = nameTok.text;
+    if (mutable && name === "_") {
+      // `_` is a discard binding and cannot be reassigned, so `mut` is
+      // meaningless on it (bindings.md §"Immutable contexts").
+      this.diagnostics.push({
+        severity: "error",
+        code: "loom/parse/mut-on-discard",
+        file: this.file,
+        range: nameTok.range,
+        message: "'mut' is not permitted on discard binding '_'",
+      });
+    }
     let annotation: string | null = null;
     if (this.isPunct(":")) {
       this.advance();
@@ -1209,7 +1226,9 @@ class BodyParser {
     const save = this.suppressBrace;
     this.suppressBrace = true;
     try {
-      return this.parseExpression();
+      const inner = this.parseExpression();
+      this.consumeTrailingAssignment();
+      return inner;
     } finally {
       this.suppressBrace = save;
     }
@@ -1688,9 +1707,25 @@ class BodyParser {
       return null;
     }
     const ops = this.tiers[tier] ?? [];
+    // Comparison and equality operators are non-associative and do not chain:
+    // `a < b < c` (and `a == b == c`) is `loom/parse/comparison-chaining`
+    // (expressions.md §"Operator precedence"). Every other tier is
+    // left-associative.
+    const nonAssociative = this.nonAssociativeTiers.has(tier);
+    let matched = false;
     for (;;) {
       const t = this.peek();
       if (t.kind !== "punct" || !ops.includes(t.text)) {
+        break;
+      }
+      if (nonAssociative && matched) {
+        this.diagnostics.push({
+          severity: "error",
+          code: "loom/parse/comparison-chaining",
+          file: this.file,
+          range: t.range,
+          message: "comparison operators do not chain; use &&",
+        });
         break;
       }
       this.advance();
@@ -1698,6 +1733,7 @@ class BodyParser {
       if (right === null) {
         break;
       }
+      matched = true;
       left = {
         kind: "binary",
         op: t.text,
@@ -1812,7 +1848,9 @@ class BodyParser {
     const save = this.suppressBrace;
     this.suppressBrace = false;
     try {
-      return this.parseExpression();
+      const inner = this.parseExpression();
+      this.consumeTrailingAssignment();
+      return inner;
     } finally {
       this.suppressBrace = save;
     }
@@ -1972,12 +2010,31 @@ class BodyParser {
         }
         const before = this.pos;
         const pattern = this.parsePattern();
+        // A guarded arm `Pattern if cond => …` is not supported in loom 1.0
+        // (expressions.md §"Pattern grammar"). Consume and discard the guard
+        // condition so the `=>` arrow still parses.
+        if (this.isKeyword("if")) {
+          const ifTok = this.advance();
+          this.diagnostics.push({
+            severity: "error",
+            code: "loom/parse/match-guard-not-supported",
+            file: this.file,
+            range: ifTok.range,
+            message: "match guards are not supported in loom 1.0",
+          });
+          this.parseExpression(); // consume + discard the guard condition
+        }
         // Consume the `=>` arm arrow (lexed as two punct tokens `=` `>`).
         if (this.isPunct("=") && this.isPunct(">", 1)) {
           this.advance();
           this.advance();
         }
-        const body = this.parseExpression() ?? nullExpr(kw.range);
+        // The arm body is an expression, not a bare statement (grammar.md
+        // §"match arm body").
+        const consumedStmt = this.tryConsumeArmBodyStatement();
+        const body = consumedStmt
+          ? nullExpr(kw.range)
+          : (this.parseExpression() ?? nullExpr(kw.range));
         arms.push({ pattern, body });
         if (this.isPunct(",")) {
           this.advance();
@@ -2006,7 +2063,136 @@ class BodyParser {
    * `Ident { field: p, … }`, an array pattern `[p, …]`, a literal
    * (`"s"` / `42` / `true` / `null`), or an identifier binding.
    */
+  /**
+   * If the cursor begins a bare statement in `match`-arm-body position
+   * (a leading `if` / `for` / `while` / `let` / `break` / `continue` /
+   * `return` keyword, or a bare assignment), emit
+   * `loom/parse/statement-in-arm-body`, consume the statement, and return
+   * true; otherwise return false. Arm bodies are expressions; statements are
+   * wrapped in a block expression `{ ... }` (grammar.md §"match arm body").
+   */
+  private tryConsumeArmBodyStatement(): boolean {
+    const t = this.peek();
+    const stmtKeyword =
+      t.kind === "keyword" &&
+      (t.text === "if" ||
+        t.text === "for" ||
+        t.text === "while" ||
+        t.text === "let" ||
+        t.text === "break" ||
+        t.text === "continue" ||
+        t.text === "return");
+    const next = this.peek(1);
+    const assignHead =
+      t.kind === "ident" &&
+      ((this.isPunct("=", 1) && !this.isPunct("=", 2)) ||
+        (next.kind === "punct" &&
+          COMPOUND_OPS.has(next.text) &&
+          this.isPunct("=", 2)));
+    if (!stmtKeyword && !assignHead) {
+      return false;
+    }
+    this.diagnostics.push({
+      severity: "error",
+      code: "loom/parse/statement-in-arm-body",
+      file: this.file,
+      range: t.range,
+      message:
+        "match arm body must be an expression; wrap statements in a block expression { ... }",
+    });
+    if (stmtKeyword) {
+      switch (t.text) {
+        case "if":
+          this.parseIf();
+          break;
+        case "while":
+          this.parseWhile();
+          break;
+        case "for":
+          this.parseFor();
+          break;
+        case "let":
+          this.parseLet();
+          break;
+        case "return":
+          this.parseReturn();
+          break;
+        default:
+          this.simpleKeyword(t.text === "break" ? "break" : "continue");
+          break;
+      }
+    } else {
+      this.tryParseReassign();
+    }
+    return true;
+  }
+
+  /**
+   * If the cursor begins a rest pattern (`...rest`, lexed as three `.` puncts
+   * optionally followed by a binding name), emit
+   * `loom/parse/rest-pattern-not-supported`, consume it, and return true; rest
+   * patterns are not in loom 1.0 (expressions.md §"Pattern grammar").
+   */
+  private tryConsumeRestPattern(): boolean {
+    if (
+      !(this.isPunct(".") && this.isPunct(".", 1) && this.isPunct(".", 2))
+    ) {
+      return false;
+    }
+    const dotTok = this.peek();
+    this.advance();
+    this.advance();
+    this.advance();
+    if (this.peek().kind === "ident") {
+      this.advance();
+    }
+    this.diagnostics.push({
+      severity: "error",
+      code: "loom/parse/rest-pattern-not-supported",
+      file: this.file,
+      range: dotTok.range,
+      message: "rest patterns are not supported in loom 1.0",
+    });
+    return true;
+  }
+
+  /**
+   * Assignment is statement-only; used in expression position it is
+   * `loom/parse/assignment-as-expression` (bindings.md §"Reassignment is a
+   * statement"). If a simple `=` (not `==`) or compound-assign operator trails
+   * the just-parsed value expression, emit the diagnostic and consume the RHS
+   * so the surrounding parse recovers.
+   */
+  private consumeTrailingAssignment(): void {
+    const simple = this.isPunct("=") && !this.isPunct("=", 1);
+    const opTok = this.peek();
+    const compound =
+      opTok.kind === "punct" &&
+      COMPOUND_OPS.has(opTok.text) &&
+      this.isPunct("=", 1);
+    if (!simple && !compound) {
+      return;
+    }
+    this.diagnostics.push({
+      severity: "error",
+      code: "loom/parse/assignment-as-expression",
+      file: this.file,
+      range: opTok.range,
+      message: "assignment is not an expression",
+    });
+    if (simple) {
+      this.advance(); // `=`
+    } else {
+      this.advance(); // op
+      this.advance(); // `=`
+    }
+    this.parseExpression(); // consume + discard the RHS
+  }
+
   private parsePattern(): PatternNode {
+    if (this.tryConsumeRestPattern()) {
+      return { kind: "wildcard" };
+    }
     if (this.isKeyword("mut")) {
       // A `mut` modifier on a `match` pattern binding is an always-immutable
       // context (bindings.md §Immutable contexts).
@@ -2070,6 +2256,12 @@ class BodyParser {
         this.advance();
         const fields: { readonly name: string; readonly pattern: PatternNode }[] = [];
         while (!this.isPunct("}") && !this.atEnd()) {
+          if (this.tryConsumeRestPattern()) {
+            if (this.isPunct(",")) {
+              this.advance();
+            }
+            continue;
+          }
           const nameTok = this.peek();
           if (nameTok.kind !== "ident" && nameTok.kind !== "string") {
             this.advance();
@@ -2107,6 +2299,12 @@ class BodyParser {
       this.advance();
       const fields: { readonly name: string; readonly pattern: PatternNode }[] = [];
       while (!this.isPunct("}") && !this.atEnd()) {
+        if (this.tryConsumeRestPattern()) {
+          if (this.isPunct(",")) {
+            this.advance();
+          }
+          continue;
+        }
         const nameTok = this.peek();
         if (nameTok.kind !== "ident" && nameTok.kind !== "string") {
           this.advance();
