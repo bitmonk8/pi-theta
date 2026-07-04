@@ -66,6 +66,7 @@ const PHASE_LABELS = {
 	V17: "Cancellation",
 	V18: "Release safety gates",
 	V19: "Running a whole loom program",
+	V20: "Hardening & production wiring",
 };
 const PHASE_ORDER = Object.keys(PHASE_LABELS);
 

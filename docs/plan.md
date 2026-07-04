@@ -241,6 +241,18 @@ Each slice is a coherent feature area (e.g. lexer, expressions, schemas, queries
 - [`V19d` — Effectful statement wiring: real query/tool/invoke hosts](./plan_topics/V19d-effectful-statement-wiring.md)
 - [`V19e` — Loom composition producer: parsed `.loom` → runnable slash command](./plan_topics/V19e-composition-producer.md)
 
+### V20 — Hardening & production wiring
+
+> **Hardening slice.** A live-testing campaign found that large, documented, user-facing behaviours were silently wrong or unwired in the shipped production composition even though 1539 isolated unit tests passed — the tests exercised isolated modules, not the shipped dispatch. This slice closes those gaps as integration/wiring realisations of already-closed code-keyed areas (each leaf closes **no new** spec REQ-ID and adds no coverage-matrix row, the same shape as [`H8a`](./plan_topics/H8a-live-production-acceptance.md)/[`H8b`](./plan_topics/H8b-live-tool-invoke-resolvers.md)), and adds a standing production-path conformance suite as the regression net. Each leaf's `Adds.` names its A/B/C bucket (A = implemented-not-wired, B = engine/check absent, C = implemented wrongly / architectural). `V20c` depends on the `V20b` static-type substrate; the conformance leaf `V20g` depends on the other new impl leaves so it lands last. Sequence by **Deps**, not slice number.
+
+- [`V20a` — `tools:` load-time resolution wiring](./plan_topics/V20a-tools-load-resolution.md) (Bucket A)
+- [`V20b` — Static type-inference substrate](./plan_topics/V20b-static-type-inference.md) (Bucket B)
+- [`V20c` — Type-layer diagnostics wiring and runtime string-index correction](./plan_topics/V20c-type-layer-diagnostics.md) (Buckets A + C)
+- [`V20d` — Unimplemented lexer/parser diagnostics](./plan_topics/V20d-lexer-parser-diagnostics.md) (Bucket B)
+- [`V20e` — Pure/async evaluator unification](./plan_topics/V20e-pure-async-unification.md) (Bucket C)
+- [`V20f` — CLI/settings non-`.loom` file → `invalid-extension`](./plan_topics/V20f-discovery-invalid-extension.md) (Bucket C)
+- [`V20g` — Production-path language-surface conformance suite](./plan_topics/V20g-production-conformance-suite.md)
+
 ---
 
 ## Release gate

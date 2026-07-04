@@ -20,7 +20,8 @@
     "V16": "Safety limits",
     "V17": "Stopping work cleanly",
     "V18": "Keeping up with host updates",
-    "V19": "Running a whole loom program"
+    "V19": "Running a whole loom program",
+    "V20": "Hardening & production wiring"
   },
   "tasks": {
     "V19a": { "name": "Read a whole loom file into a program", "blurb": "Parses an entire .loom file — every statement, not just one query — into a structured program the runner can execute." },
@@ -28,6 +29,13 @@
     "V19c": { "name": "Run a loom program step by step", "blurb": "Walks the parsed program top to bottom — bindings, loops, branches, matches — producing the final value, with clean cancellation points." },
     "V19d": { "name": "Connect running programs to real effects", "blurb": "Wires the runner to real model queries, tool calls, and nested loom invocations so a program's actions actually happen." },
     "V19e": { "name": "Turn a loom file into a working command", "blurb": "Assembles parsing, argument-binding, and running into the one step that makes a discovered loom file an executable slash command." },
+    "V20a": { "name": "Check a command's declared tools when loading", "blurb": "Runs the tool-list checks against the real host tool registry as a loom file loads, so unknown, clashing, or mis-renamed tools are caught up front." },
+    "V20b": { "name": "Work out the type of every expression", "blurb": "Adds the whole-file pass that gives each expression a type, so the type checks have something real to run against." },
+    "V20c": { "name": "Turn on the type checks and fix string indexing", "blurb": "Wires the type checks into the running product and makes indexing into a string report an error instead of returning a character." },
+    "V20d": { "name": "Add the missing text and structure checks", "blurb": "Implements and turns on the source checks that were never written, like unterminated strings and chained comparisons." },
+    "V20e": { "name": "Use one path to run every expression", "blurb": "Routes nested branches and effects through the real runner instead of a partial one that quietly returned nothing." },
+    "V20f": { "name": "Report the right error for a non-loom file", "blurb": "Makes pointing a command-line or settings entry at a non-loom file report a wrong-extension error rather than the wrong one." },
+    "V20g": { "name": "End-to-end language check through the real product", "blurb": "Drives the whole documented language through the shipped product, catching breakages that isolated unit tests miss." },
     "H1a": { "name": "Set up the project skeleton", "blurb": "Creates the base project, dependencies, and build and test commands everything else is built on." },
     "H2a": { "name": "Code-quality safety checks", "blurb": "Automatic checks that block risky coding patterns before they reach the project." },
     "H3a": { "name": "Wire up swappable host services", "blurb": "Sets up replaceable connections to host services so nothing reaches global state directly." },
