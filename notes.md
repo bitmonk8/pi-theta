@@ -2488,3 +2488,19 @@ Implemented the eight Bucket-B checks. Divergences / decisions:
 - Doc-update applied to CHANGELOG + the README gap list (removed the now-closed
   "Some parser/lexer diagnostics" bullet); README `## Status` kept as prose per
   the prior-leaf convention (no per-leaf status table exists in this repo).
+
+## V20e-T (2026-07-04)
+- V20e-T is a tests-task for the pure/async evaluator unification. The failing
+  tests live in tests/pure-async-unification.test.ts and drive the REAL
+  production dispatch (prompt-mode binding + executeBody).
+- DIVERGENCE: the bullet-2 obligation names "user-`fn` call, `@`-query" as the
+  effectful-expression examples. A prompt-mode `@`-query drives a live
+  user-visible turn (LivePromptQueryModel) that is not deterministic under the
+  `{}` pi/ctx test double and would red for a harness reason, not the intended
+  null-safety-net reason. So the effectful-expression case is witnessed by the
+  deterministic representative the leaf lists first — a user-`fn` call whose body
+  dispatches a code-side tool via an injected resolvePiTool double — which reds
+  today because evaluatePureFnCall runs the effectful body synchronously and its
+  tool-call reaches `evaluatePureExpression`'s `default: return null`.
+- Doc-update applied to CHANGELOG only; README `## Status` kept as prose per the
+  prior-leaf convention (no per-leaf status table exists in this repo).
