@@ -63,6 +63,7 @@ import {
   buildEnvironment,
   type EnumRegistration,
   type LexicalEnvironment,
+  type MaterializedImport,
 } from "../runtime/lexical-environment";
 import {
   executeBody,
@@ -385,7 +386,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     };
 
     const executeDeps: ExecuteBodyDeps = {
-      env: buildBoundEnvironment(loom.body, bindInput.paramBindings),
+      env: buildBoundEnvironment(loom.body, bindInput.paramBindings, loom.imports),
       host: createEffectfulStatementHost(hostDeps),
       checkpoint: root.checkpoint,
       signal,
@@ -534,7 +535,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     };
 
     const executeDeps: ExecuteBodyDeps = {
-      env: buildBoundEnvironment(loom.body, bindInput.paramBindings),
+      env: buildBoundEnvironment(loom.body, bindInput.paramBindings, loom.imports),
       host: createEffectfulStatementHost(hostDeps),
       checkpoint: root.checkpoint,
       signal,
@@ -789,7 +790,9 @@ class ProductionLoomProducer implements LoomProducerDeps {
         let childChain: InvokeChain;
         try {
           childChain = pushCountableFrame(chain, "direct-invoke");
-        } catch (panic) {
+        } catch (panic) { // allow-broad-catch: loom/runtime/invoke-depth-exceeded — hard-ceilings.md
+          // Narrow-and-rethrow: only the ceiling panic is handled (surfaced as
+          // the nested Err backstop); any other throw propagates unchanged.
           if (panic instanceof InvokeDepthExceededPanic) {
             const surfaced = surfaceDepthOverflow(panic, {
               topLevel: false,
@@ -969,6 +972,7 @@ function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<st
 function buildBoundEnvironment(
   body: LoomBody,
   paramBindings: ReadonlyMap<string, LoomValue> | undefined,
+  imports: readonly MaterializedImport[] | undefined,
 ): LexicalEnvironment {
   // Register top-level `enum` declarations (with their captured variant names
   // and any explicit `= "..."` wire values) so `Enum.Variant` access resolves
@@ -984,7 +988,11 @@ function buildBoundEnvironment(
       });
     }
   }
-  const env = buildEnvironment({ body, enums });
+  const env = buildEnvironment({
+    body,
+    enums,
+    ...(imports !== undefined ? { imports } : {}),
+  });
   if (paramBindings !== undefined) {
     for (const [name, value] of paramBindings) {
       env.defineLocal(name, value, false);
