@@ -2344,3 +2344,30 @@ the current prose. Minimal decision: append the CHANGELOG line (the maintained
 artifact) and keep the README `## Status` prose, consistent with every prior
 leaf. This is a divergence from the literal rule text, recorded here and in
 decisions.jsonl.
+
+## 2026-07-04 — V20b static-type-inference substrate: `nodes` scope decision
+
+The paired V20b-T fixture `everyKindBody()` builds one expression statement per
+node kind and asserts `inferred.nodes.length === NODE_KINDS.length` (15) — while
+reusing the same literal node objects as operands of the composite nodes
+(`binary.left = intLiteral`, `ternary.consequent = intLiteral`, …) and
+introducing three FRESH child identifiers (`arr` in `index.target`, `s` in
+`match.scrutinee`, `Status` in `enumAccess.target`) that are not among the 15
+top-level nodes. A fully-recursive dedup-by-identity walk would therefore
+publish 18 nodes, not 15.
+
+Decision (minimal, faithful to the test contract and the narrative intent): the
+pass records into the published lookup exactly the STATEMENT-LEVEL expression
+nodes it visits (each statement's direct `Expr` field(s) plus the block tail,
+descending into nested blocks). Composite-node types are still computed by a
+recursive `#typeExpr` walk that consults the V2b `⊑` engine for common-type
+narrowing (binary/ternary/match/array), but that recursion is PURE — it records
+no child nodes — so `nodes` and the `typeOf` map contain only the statement-level
+expressions. This yields exactly 15 for `everyKindBody()` and 3 for
+`readOnlyBody()` (two discarded statements + the `2 + 3` tail), matching both
+bullets. Statically-unresolvable expression results (identifier, member, index,
+call, invoke, query, object, `Ok`/`Err`, method-call) are assigned a `named`
+reference `CompatType` — the same shape the `⊑` engine treats as `"unknown"` and
+defers to the runtime AJV safety net — so `typeOf` is defined for every recorded
+node without inventing a resolved type the substrate cannot know. V20c refines
+these against a populated `TypeEnv`.
