@@ -2331,3 +2331,16 @@ recording (neither changes observable behaviour any V20a obligation pins):
   `resolveLoomCallee` reports it as `subagent` so the callee-has-errors
   rejection — not a spurious `prompt-mode-callable` / `unresolvable-loom-path`
   diagnostic — is the sole rejection for that callee.
+
+## 2026-07-04 — V20b-T doc-update divergence (README status table)
+
+The conventions.md *Doc updates* rule specifies a `README.md` status TABLE
+(`Leaf | Status | Date | Notes`) that on first write replaces the prose
+`## Status` section. In practice no prior leaf (through V20a) ever introduced
+that table — the repo maintains the CHANGELOG per-leaf and keeps the README
+`## Status` as a prose summary. Introducing a one-row table for V20b-T alone
+would leave ~100 completed leaves unrepresented, which is more misleading than
+the current prose. Minimal decision: append the CHANGELOG line (the maintained
+artifact) and keep the README `## Status` prose, consistent with every prior
+leaf. This is a divergence from the literal rule text, recorded here and in
+decisions.jsonl.
