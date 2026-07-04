@@ -1988,10 +1988,17 @@ class BodyParser {
             continue;
           }
           this.advance();
+          let fieldPattern: PatternNode;
           if (this.isPunct(":")) {
             this.advance();
+            fieldPattern = this.parsePattern();
+          } else {
+            // `{ field }` sugars `{ field: field }` (grammar.md §Pattern
+            // grammar): a colon-less field binds the field value to a
+            // same-named identifier, never a wildcard on the next token.
+            fieldPattern = { kind: "identifier", name: nameTok.text };
           }
-          fields.push({ name: nameTok.text, pattern: this.parsePattern() });
+          fields.push({ name: nameTok.text, pattern: fieldPattern });
           if (this.isPunct(",")) {
             this.advance();
           }
@@ -2018,10 +2025,17 @@ class BodyParser {
           continue;
         }
         this.advance();
+        let fieldPattern: PatternNode;
         if (this.isPunct(":")) {
           this.advance();
+          fieldPattern = this.parsePattern();
+        } else {
+          // `{ field }` sugars `{ field: field }` (grammar.md §Pattern
+          // grammar): a colon-less field binds the field value to a
+          // same-named identifier, never a wildcard on the next token.
+          fieldPattern = { kind: "identifier", name: nameTok.text };
         }
-        fields.push({ name: nameTok.text, pattern: this.parsePattern() });
+        fields.push({ name: nameTok.text, pattern: fieldPattern });
         if (this.isPunct(",")) {
           this.advance();
         }
