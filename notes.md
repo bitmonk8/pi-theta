@@ -2371,3 +2371,35 @@ reference `CompatType` — the same shape the `⊑` engine treats as `"unknown"`
 defers to the runtime AJV safety net — so `typeOf` is defined for every recorded
 node without inventing a resolved type the substrate cannot know. V20c refines
 these against a populated `TypeEnv`.
+
+## V20c-T — type-layer diagnostics production wiring (tests)
+
+The 11 type-phase parse diagnostics the V20c-T tests drive share one production
+entry point: `parseLoomDocument` (src/parser/loom-document.ts), whose
+`checkStructural` pass today runs only the AST-shape checkers (`fn` placement,
+`let` initialiser, control-flow, unreachable code, type-grammar over declared
+type sources). It never constructs the `V20b` `StaticTypeInferencePass`, never
+threads a per-expression static type, and so never calls the type-layer
+checkers (`checkBooleanPosition`, `checkForIterand`, `checkQuestionOperand`,
+`checkQuestionScope`, `checkMatchArmTypes`, `checkArrayCommonType`,
+`resolveReturnType`, `checkLetRhsCompat`, `checkArrayJoin`). Every V20c-T parse
+snippet therefore parses to an EMPTY diagnostic set (verified by a one-off
+dump), so each test reds on exactly the missing type diagnostic rather than on
+an unrelated parse error — the intended-reason gate.
+
+Two of the eleven codes (`loom/parse/non-indexable-receiver`,
+`loom/parse/non-string-object-index`) have no emitting checker in `src/**` at
+all today — only their registry rows (diagnostics/code-registry-parse.md) and
+their `V3a`/`V3h` charters exist. The paired `V20c` implementation both wires
+the existing checkers to the `V20b` static-type lookup AND supplies these two
+indexing checkers. The `-T` tests assert the production behaviour uniformly;
+the two missing-checker tests red identically to the unfed-checker tests, both
+for the intended reason (no such diagnostic surfaces in production).
+
+Bucket C: `evaluateIndexAccess("hello", 0)` returns `"h"` today. A `string`
+receiver is neither `null` nor an array, so it falls through to the
+object-index branch, where `Object.prototype.hasOwnProperty.call("hello", 0)`
+is `true` (JS strings carry indexed own-properties) and the branch returns the
+character. The V20c-T runtime test asserts the accessor throws instead; `V4b`'s
+correction (owned there) makes a string receiver surface the not-indexable
+error rather than a character.
