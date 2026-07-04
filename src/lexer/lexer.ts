@@ -305,6 +305,19 @@ function scanTokens(
   let line = 1;
   let column = 1;
 
+  // Query-template body state machine (grammar.md §Comments / §Lexical: "Text
+  // inside a `@`...`` query template is not a comment", and "stray backslash
+  // outside any string literal, path literal, or `@`...`` query-template body").
+  // Between the backticks of a `@`...`` template the text is PROSE, not code,
+  // so `//`, `/*`, and `\` are ordinary characters — NOT a line-comment,
+  // block-comment, or stray-backslash. `inTemplateProse` is set on the opening
+  // backtick and cleared on the matching closing backtick. A `${...}`
+  // interpolation temporarily leaves prose for normal code lexing (comments ARE
+  // valid inside `${...}`), tracked by `interpDepth` (brace nesting; 0 ⇒ not in
+  // an interpolation, so a `}` returning it to 0 resumes prose).
+  let inTemplateProse = false;
+  let interpDepth = 0;
+
   const pos = (): Pos => ({ line, column });
   const advance = (): string => {
     const c = text[i] ?? "";
@@ -322,6 +335,51 @@ function scanTokens(
     const c = text[i];
     if (c === undefined) {
       break;
+    }
+
+    // Template PROSE region: consume verbatim. The parser recovers the template
+    // by slicing the raw body between the backtick TOKENS (loom-document.ts
+    // parseQuery) and re-lexes `${...}` from that slice (query-render.ts
+    // lexQueryTemplate), so prose needs no interior tokens — only the backtick
+    // delimiters and interpolation `${` must still tokenise. Advancing keeps
+    // line/column correct for those delimiter spans.
+    if (inTemplateProse) {
+      if (c === "`") {
+        const start = pos();
+        advance();
+        tokens.push({ kind: "punct", text: "`", range: { start, end: pos() } });
+        inTemplateProse = false; // closing delimiter — resume code lexing
+        continue;
+      }
+      if (c === "\\") {
+        // A backslash escapes the next character in template prose (`\`` is a
+        // literal backtick, `\$` suppresses interpolation); consume the pair so
+        // an escaped backtick / `${` is never mistaken for a delimiter, mirroring
+        // query-render.ts lexQueryTemplate. It is NOT a stray backslash.
+        advance(); // the backslash
+        if (i < n && text[i] !== undefined) {
+          advance(); // the escaped character
+        }
+        continue;
+      }
+      if (c === "$" && text[i + 1] === "{") {
+        // Enter a `${...}` interpolation: emit the `$` and `{` delimiter puncts
+        // (the same tokens the code path would, so the continuation/bracket pass
+        // is unaffected) and resume normal code lexing.
+        const dollarStart = pos();
+        advance(); // `$`
+        tokens.push({ kind: "punct", text: "$", range: { start: dollarStart, end: pos() } });
+        const braceStart = pos();
+        advance(); // `{`
+        tokens.push({ kind: "punct", text: "{", range: { start: braceStart, end: pos() } });
+        inTemplateProse = false;
+        interpDepth = 1;
+        continue;
+      }
+      // Any other prose character (incl. `//`, `/*`, brackets, whitespace, and
+      // newlines): consume it with no token and no diagnostic.
+      advance();
+      continue;
     }
 
     if (c === "\n") {
@@ -598,6 +656,19 @@ function scanTokens(
     }
     advance();
     tokens.push({ kind: "punct", text: c, range: { start, end: pos() } });
+    if (c === "`" && interpDepth === 0) {
+      // Opening backtick of a `@`...`` template. Only at top-level code: inside a
+      // `${...}` interpolation a backtick is ordinary punctuation, matching the
+      // parser, which stops its template walk at the first backtick token.
+      inTemplateProse = true;
+    } else if (interpDepth > 0 && c === "{") {
+      interpDepth += 1;
+    } else if (interpDepth > 0 && c === "}") {
+      interpDepth -= 1;
+      if (interpDepth === 0) {
+        inTemplateProse = true; // interpolation closed — resume template prose
+      }
+    }
   }
 
   return { tokens, diagnostics };
