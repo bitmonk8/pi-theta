@@ -16,6 +16,10 @@ export default defineConfig({
       "tests/live/**",
       "tests/acceptance/**",
       "tests/conformance/**",
+      // Live-host hardening probes (own runner: vitest.hardening.config.ts);
+      // they boot a real session against a live provider, so they never run
+      // under the default offline `npm test`.
+      "tests/hardening/**",
     ],
     environment: "node",
   },
