@@ -40,12 +40,6 @@ implemented. Known gaps at this release:
 - **Type-layer diagnostics** — static checks that require type inference are
   partial (e.g. a non-boolean `if` condition, indexing a `string`, a
   non-array `for` iterand).
-- **CLI/settings non-`.loom` file entry** — a `--loom <file>` (and, on the
-  same shared classification path, any non-settings entry) naming a file whose
-  name does not end in `.loom` currently emits `loom/load/wrong-type-source`
-  where [Lexical — Extension matching](./docs/spec_topics/lexical.md) requires
-  `loom/load/invalid-extension`; the settings `loomPaths` path already emits the
-  correct code. (Failing tests land on `V20f-T`; the fix lands on `V20f`.)
 - **Nested control forms in an expression position** — a nested `match` and an
   effectful expression (a user-`fn` call, a tool-call, an `@`-query) in a `match`
   arm body now route through the single runtime executor, but the same forms

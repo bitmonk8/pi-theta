@@ -2563,3 +2563,23 @@ wrong-type-source count 0 — it reds today because the CLI entry emits
 wrong-type-source (1/1 observed). A CLI-only isolation test reds identically.
 The paired V20f fix must route the CLI non-`.loom` file entry to
 `invalid-extension` without breaking the already-correct settings path.
+
+## V20f — CLI non-`.loom` file → invalid-extension
+
+Fix scope: only the CLI `--loom` source needed changing; the settings `loomPaths`
+path (resolveSettingsSource/addFile) already emitted `loom/load/invalid-extension`.
+classifyForSource now distinguishes an *explicit file reference* (CLI `--loom`,
+explicitFile=true) — where a non-`.loom` regular file is `invalid-extension` —
+from a *conventional root* (project/global, directory-only, explicitFile=false) —
+where a regular file at the root path stays `wrong-type-source` (the root is
+neither a `.loom` file nor a directory, per discovery-sources.md line 68).
+
+DIVERGENCE: the diagnostics registry *Message* column for `loom/load/invalid-extension`
+is templated only for the settings case (`'loomPaths[<index>]' resolves to
+'<path>' which does not end in .loom`). Lexical §"Extension matching" routes both
+the settings and CLI extension checks through this one code, but the registry gives
+no CLI-specific template. The CLI diagnostic therefore reuses the shared code with a
+descriptor-appropriate prefix (`'--loom flag #N' resolves to '<path>' which does not
+end in .loom`), keeping the canonical "does not end in .loom" message tail. This is
+the same source-descriptor substitution pattern the failure-modes diagnostics already
+use ("--loom flag #1" vs "settings entry index N").

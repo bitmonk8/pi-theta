@@ -237,7 +237,8 @@ type PathClass =
   | { readonly kind: "file" }
   | { readonly kind: "missing" }
   | { readonly kind: "unreadable" }
-  | { readonly kind: "wrong-type" };
+  | { readonly kind: "wrong-type" }
+  | { readonly kind: "invalid-extension" };
 
 async function classifyPath(fs: FileSystem, path: string): Promise<PathClass> {
   const outcome = await lstatOutcome(fs, path);
@@ -348,15 +349,28 @@ async function resolveEntry(
   path: string,
   descriptor: string,
   modes: FailureModes,
+  explicitFile: boolean,
   diagnostics: Diagnostic[],
 ): Promise<RawCandidate[]> {
-  const resolved = classifyForSource(await classifyPath(fs, path), path);
+  const resolved = classifyForSource(await classifyPath(fs, path), path, explicitFile);
   switch (resolved.kind) {
     case "dir":
       return enumerateDirectory(fs, path, diagnostics);
     case "file":
       // A single `.loom` file entry contributes itself directly.
       return [{ path: normalizePath(path), stem: splitExtension(basename(path)).stem }];
+    case "invalid-extension":
+      // An explicit file reference (CLI `--loom` / settings `loomPaths`) that
+      // resolves to a non-`.loom` regular file is an `invalid-extension` error
+      // per Lexical §"Extension matching" — the settings/CLI extension check —
+      // not `wrong-type-source`. The file does not register.
+      diagnostics.push({
+        severity: "error",
+        code: INVALID_EXTENSION,
+        file: normalizePath(path),
+        message: `'${descriptor}' resolves to '${normalizePath(path)}' which does not end in .loom`,
+      });
+      return [];
     case "missing":
       emitSourceFailure(modes.missing, MISSING_SOURCE, descriptor, path, diagnostics, "missing");
       return [];
@@ -369,14 +383,18 @@ async function resolveEntry(
   }
 }
 
-/** A conventional root is directory-only: a regular file there is wrong-type.
- *  An explicit entry resolving to a non-`.loom` regular file is also wrong-type. */
+/** Classify a resolved path for a source. A regular file whose name does not
+ *  end in `.loom` is, for an *explicit file reference* (CLI `--loom` / settings
+ *  `loomPaths`), an `invalid-extension` error; for a *conventional root*
+ *  (directory-only) it is `wrong-type` — the root is neither a `.loom` file nor
+ *  a directory. */
 function classifyForSource(
   cls: PathClass,
   path: string,
+  explicitFile: boolean,
 ): PathClass {
   if (cls.kind === "file" && splitExtension(basename(path)).ext !== "loom") {
-    return { kind: "wrong-type" };
+    return explicitFile ? { kind: "invalid-extension" } : { kind: "wrong-type" };
   }
   return cls;
 }
@@ -711,6 +729,7 @@ export async function discoverLooms(input: DiscoveryInput): Promise<DiscoveryRes
     })),
     "cli",
     CLI_MODES,
+    true,
     candidates,
     diagnostics,
   );
@@ -729,6 +748,7 @@ export async function discoverLooms(input: DiscoveryInput): Promise<DiscoveryRes
     [{ path: joinPosix(fs.cwd(), ".pi/looms"), descriptor: "project .pi/looms/" }],
     "project",
     CONVENTIONAL_MODES,
+    false,
     candidates,
     diagnostics,
   );
@@ -741,6 +761,7 @@ export async function discoverLooms(input: DiscoveryInput): Promise<DiscoveryRes
     [{ path: joinPosix(fs.homedir(), ".pi/agent/looms"), descriptor: "global looms directory" }],
     "global",
     CONVENTIONAL_MODES,
+    false,
     candidates,
     diagnostics,
   );
@@ -759,12 +780,13 @@ async function collectFromEntries(
   entries: readonly { readonly path: string; readonly descriptor: string }[],
   source: DiscoverySource,
   modes: FailureModes,
+  explicitFile: boolean,
   out: SourcedCandidate[],
   diagnostics: Diagnostic[],
 ): Promise<void> {
   const sourceLabel = sourceLabelOf(source);
   for (const entry of entries) {
-    const raw = await resolveEntry(fs, entry.path, entry.descriptor, modes, diagnostics);
+    const raw = await resolveEntry(fs, entry.path, entry.descriptor, modes, explicitFile, diagnostics);
     for (const candidate of raw) {
       out.push({ ...candidate, source, sourceLabel });
     }
