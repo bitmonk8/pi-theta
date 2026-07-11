@@ -68,6 +68,39 @@ confirm before/after, and gated on `npm test` (1601) + `npm run typecheck` +
   first release?). Recommend a scoping decision before wiring. See
   `session-findings/discodyn.md` (DISCO-2).
 
+## Second sub-wave — subagent tool-loops + cancellation (probed after the 6 fixes landed)
+
+A follow-up wave re-probed the surface the SUBAG-2 fix newly unlocked (a
+subagent model can now call tools) plus the cancellation terminal outcome. Both
+surfaced more of the same **implemented-but-unwired / core-semantics** class;
+all are deferred (core executor change or a large unwired subsystem — not safe
+unsupervised):
+
+- **STL-2 (bug, defer)** — a subagent's `tool_loop.max_rounds` does not bound the
+  model's tool rounds for `max_rounds ≥ 1`: the spawned `AgentSession` runs its
+  OWN agentic tool loop inside a single loom-level query round, so ceiling #2
+  (`tool_loop_exhausted`) is unreachable (only `max_rounds: 0` fires, which
+  disables the query). Distinct code path from the prompt-mode QTL-4. Bounding it
+  needs a subagent tool-loop re-architecture (drive tools round-by-round rather
+  than delegating to the AgentSession loop). See `subagent-toolloop.md`.
+- **STL-6 (bug, defer)** — an UNHANDLED tail (`no-?`) `tool_loop_exhausted` breach
+  crosses `invoke` as `cancelled`, masking the true leaf kind and losing the
+  ERR-19 payload. Root: the executor's `fail` Flow drops the effect-`Err`
+  payload (only the `?`-`propagate` Flow carries it), so `BodyExecution.error` is
+  unset and the subagent `surface` fabricates a `CancelledError`. The
+  `?`-propagated form is conformant (bounds the blast radius). The fix is a core
+  executor change — make the `fail` Flow carry the effect-`Err` payload — with
+  broad regression surface; deferred. See `subagent-toolloop.md`.
+- **CANCEL-1…CANCEL-5 (bug, defer — source-inspection)** — large parts of the
+  cancellation subsystem have no production caller: the `loop-iter` checkpoint
+  (compute-bound loops uncancellable), the slash/`agent_end`→`loomAbort`
+  forwarding, the tool-call late-settlement discard + swallowing-handler, both
+  binder-call cancellation checkpoints, and `deriveChildLoomAbort` /
+  `forwardToolExposedCancel`. Same unwired class as DISCO-2; a scope decision on
+  cancellation coverage for 1.0. The SNK-f cancel-note routing and ERR-13
+  no-rollback ARE wired and conformant (bounded by source inspection). See
+  `cancellation.md`.
+
 ## Borderline (recorded, not pursued — per "ignore borderline")
 
 - **XMODE-2** — an interpolating backtick template / `match` inside `${…}` in a
