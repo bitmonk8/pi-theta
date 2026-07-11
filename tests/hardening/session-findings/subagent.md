@@ -23,15 +23,39 @@ prompt-mode tool findings QTL-2/QTL-4 are distinct code paths; the subagent
 
 | id | verdict | one-line |
 |---|---|---|
-| SUBAG-1 | bug | `system:` frontmatter is never injected into the spawned subagent conversation — the model does not receive it |
-| SUBAG-2 | bug | a subagent's `tools:` callable set is never installed — `customTools: []` is hardcoded, so the subagent model has no tools |
+| SUBAG-1 | bug (FIXED) | `system:` frontmatter is never injected into the spawned subagent conversation — the model does not receive it |
+| SUBAG-2 | bug (FIXED) | a subagent's `tools:` callable set is never installed — `customTools: []` is hardcoded, so the subagent model has no tools |
 | SUBAG-3 | bug (FIXED) | a top-level `Err` at the slash-dispatch boundary (SLSH-3) emits NO system note — a directly-slash-invoked subagent (or prompt) loom fails silently |
 
-Bug-verdict count: **3**.
+Bug-verdict count: **3** (all FIXED).
 
 ---
 
-## SUBAG-1 — `system:` frontmatter is not injected into the spawned subagent conversation
+## SUBAG-1 — FIXED — `system:` frontmatter is not injected into the spawned subagent conversation
+
+> **STATUS: FIXED.**
+> - **Before:** `/sysparent` (prompt parent `invoke`s `syschild.loom`, a
+>   `mode: subagent` child whose `system:` plants "secret code ZEPHYR7") →
+>   parent `userTexts` = `"Say ok. CODE=I don't have any secret code to share…"`
+>   — the subagent model had no knowledge of the code; `system:` was dropped at
+>   spawn.
+> - **After:** parent `userTexts` = `"Say ok. CODE=ZEPHYR7"` — the rendered
+>   `system:` reaches the spawned session and the child returns the planted
+>   secret. Verified live in `session-subagent.test.ts` (`SUBAG-system`,
+>   `secret-received: true`, 6/6 green).
+> - **Root cause / fix:** the parsed `system:` template was validated at load
+>   time but never retained on `ParsedFrontmatter`, and
+>   `spawnSubagentConversation` built a bare `DefaultResourceLoader` with no
+>   system prompt. Fix: `frontmatter.ts` now stores the
+>   `checkSystemInterpolation` template as `frontmatter.system`; the spawn
+>   renders it via `renderSystemPrompt({ template, params })` (params from
+>   `bindInput.paramBindings`) and passes it through
+>   `DefaultResourceLoaderOptions.systemPrompt` (a direct SDK option that flows
+>   through `getSystemPrompt()` — no custom adapter needed; the outdated
+>   "cannot supply the `ExtensionRuntime`" DIVERGENCE comment was removed). On
+>   the unexpected render-`!ok` path the spawn falls back to no system prompt
+>   (the load-time check already rejects a malformed `system:`).
+
 
 - **repro:**
   - `syschild.loom` (`mode: subagent`), frontmatter:
@@ -82,7 +106,30 @@ Bug-verdict count: **3**.
   omission intended — the dominant "implemented-in-an-isolated-module,
   never-wired-into-the-shipped-composition" defect class.
 
-## SUBAG-2 — a subagent's `tools:` callable set is not installed (`customTools: []` hardcoded)
+## SUBAG-2 — FIXED — a subagent's `tools:` callable set is not installed (`customTools: []` hardcoded)
+
+> **STATUS: FIXED.**
+> - **Before:** `/toolsparent` (prompt parent `invoke`s `toolschild.loom`, a
+>   `mode: subagent` child declaring `tools: read` asked to read
+>   `secret-doc.txt`) → parent `userTexts` = `"Say ok. DOC=I don't have
+>   file-reading tools available…"` — the subagent model was offered no tools.
+> - **After:** parent `userTexts` = `"Say ok. DOC=\nTOOLMARKER931"` — the
+>   subagent reads the planted file via its own `read` tool and returns the
+>   marker. Verified live in `session-subagent.test.ts` (`SUBAG-tools`,
+>   `marker-present: true`, 6/6 green).
+> - **Root cause / fix:** the spawn passed literal `tools: []` /
+>   `customTools: []` to `createAgentSession`. Fix: for each underlying Pi-tool
+>   name in the loom's callable set (`callableSetPiToolNames(loom)`) the spawn
+>   lowers the name to its full pi `ToolDefinition` via a new DI hook
+>   `resolvePiToolDefinition(name, cwd)` on `ProductionProducerInput` (wired at
+>   the composition root from `builtinToolDefinition`), and passes
+>   `customTools: [those definitions]` + `tools: [those names]` (subagent.md
+>   rules 1–3). Scope: Pi-tool callable-set entries (the common
+>   `tools: read, grep` case) are installed; a `.loom`-callable entry in a
+>   subagent's callable set (model-callable `.loom`) is not yet lowered to a
+>   model-callable `ToolDefinition` — tracked as a `TODO(SUBAG-2)` at the spawn
+>   site.
+
 
 - **repro:**
   - planted file `secret-doc.txt` (rel to cwd): `The document marker is TOOLMARKER931.`

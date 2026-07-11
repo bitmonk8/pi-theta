@@ -293,11 +293,13 @@ describe("subagent mode — direct slash dispatch", () => {
       // eslint-disable-next-line no-console
       console.log("SUBAG-system parent userTexts:", JSON.stringify(userText), "error:", t.error);
       expect(probe.registeredNames).toContain("sysparent");
-      // FINDING SUBAG-1: if the subagent's system: prompt reached the model, its
-      // returned value (r) would carry the planted secret and interpolate into
-      // the parent query. Observed: it does NOT — the spawn ignores `system:`.
       // eslint-disable-next-line no-console
       console.log("SUBAG-system secret-received:", userText.includes("ZEPHYR7"));
+      // SUBAG-1 FIXED: the subagent's `system:` prompt now reaches the model, so
+      // its returned value (r) carries the planted secret ZEPHYR7 and
+      // interpolates into the parent's observable final query. (Before the fix
+      // the spawn dropped `system:` and the model had no knowledge of the code.)
+      expect(userText).toContain("ZEPHYR7");
     } finally {
       await probe.dispose();
     }
@@ -355,6 +357,13 @@ describe("subagent mode — direct slash dispatch", () => {
       expect(probe.registeredNames).toContain("toolsparent");
       // eslint-disable-next-line no-console
       console.log("SUBAG-tools marker-present:", userText.includes("TOOLMARKER931"));
+      // SUBAG-2 FIXED: the subagent's own `tools: read` callable set is now
+      // installed as `customTools` on the spawned session, so the subagent reads
+      // secret-doc.txt and its returned value carries the file marker
+      // TOOLMARKER931, interpolated into the parent's observable final query.
+      // (Before the fix `customTools: []` was hardcoded and the model had no
+      // file-reading tool.)
+      expect(userText).toContain("TOOLMARKER931");
     } finally {
       await probe.dispose();
     }

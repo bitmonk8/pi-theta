@@ -23,6 +23,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { parseDocument } from "yaml";
@@ -126,6 +127,7 @@ import type {
   Stmt,
 } from "../parser/loom-document";
 import { parseExpressionSource } from "../parser/loom-document";
+import { renderSystemPrompt } from "../parser/system-interpolation";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
 import type { LoweredSchema } from "../seams/schema-validator";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
@@ -188,6 +190,19 @@ export interface ProductionProducerInput {
    * unknown host tool rather than fabricating a value.
    */
   readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
+  /**
+   * SUBAG-2: lower a subagent loom's callable-set Pi-tool name to its full pi
+   * `ToolDefinition`, so `spawnSubagentConversation` can install the loom's
+   * `tools:` set as `customTools` on the spawned `AgentSession` (subagent.md
+   * rules 1–3). Constructed at the composition root over the same built-in
+   * tool factories `resolvePiTool` uses. Absent on non-production harnesses, in
+   * which case the subagent spawns with no tools (the model cannot make a tool
+   * call — the pre-fix behaviour).
+   */
+  readonly resolvePiToolDefinition?: (
+    name: string,
+    cwd: string,
+  ) => ToolDefinition | undefined;
   /**
    * H8b: parse a `.loom`-callable / `invoke(...)` callee referenced from
    * `callerPath` into a runnable composition input (resolving the callee path
@@ -624,12 +639,54 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // single `signal` the interpreter's checkpoints gate on.
     const loomAbort = new AbortController();
 
+    // SUBAG-1: render the loom's `system:` frontmatter into the spawned
+    // conversation's system prompt (subagent.md §"Subagent state-isolation
+    // matrix": `system:` is inherited from frontmatter, with `${param}`
+    // interpolation resolved at conversation-creation time). The load-time
+    // `checkSystemInterpolation` already rejected a malformed `system:`, so the
+    // render is expected to succeed here; on the unexpected `!ok` path fall back
+    // to no system prompt rather than crashing the spawn.
+    let systemPrompt: string | undefined;
+    const systemTemplate = loom.frontmatter.system;
+    if (systemTemplate !== undefined) {
+      const params: Record<string, LoomValue> = {};
+      if (bindInput.paramBindings !== undefined) {
+        for (const [name, value] of bindInput.paramBindings) {
+          params[name] = value;
+        }
+      }
+      const rendered = renderSystemPrompt({ template: systemTemplate, params });
+      if (rendered.ok) {
+        systemPrompt = rendered.text;
+      }
+    }
+
+    // SUBAG-2: lower the loom's callable set to the spawned session's tools.
+    // `customTools` carries the full pi `ToolDefinition` for each underlying
+    // Pi-tool name in the callable set, and `tools` is the explicit allowlist of
+    // those same names (subagent.md rules 1–3; the allowlist enforces the
+    // "ambient Pi tools NOT inherited" invariant).
+    // TODO(SUBAG-2): a `.loom`-callable entry in a subagent's callable set
+    // (model-callable `.loom`) is not yet lowered to a model-callable
+    // `ToolDefinition` here — only Pi-tool entries are installed. The common
+    // `tools: read, grep` case is covered; the deeper model-callable-.loom case
+    // is tracked in tests/hardening/session-findings/subagent.md (SUBAG-2).
+    const customTools: ToolDefinition[] = [];
+    for (const toolName of callableSetPiToolNames(loom)) {
+      const definition = this.#input.resolvePiToolDefinition?.(toolName, ctx.cwd);
+      if (definition !== undefined) {
+        customTools.push(definition);
+      }
+    }
+    const toolNames = customTools.map((definition) => definition.name);
+
     // PIC-23 spawn: an isolated in-memory `AgentSession`. A loom-suppressing
     // `DefaultResourceLoader` (no extensions/skills/prompts/themes/context files)
     // is used deliberately: it prevents the spawned session from re-loading this
-    // very loom extension (which would recurse), and the hand-built adapter the
-    // spec sketches cannot supply the `ExtensionRuntime` that
-    // `LoadExtensionsResult.runtime` requires. See status DIVERGENCE.
+    // very loom extension (which would recurse). The loom's `system:` reaches the
+    // spawned session through `DefaultResourceLoaderOptions.systemPrompt` — a
+    // direct SDK option that flows through `getSystemPrompt()` — so a custom
+    // `ResourceLoader` adapter is not required for the `system:` channel.
     const agentDir = getAgentDir();
     const resourceLoader = new DefaultResourceLoader({
       cwd: ctx.cwd,
@@ -639,6 +696,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
+      ...(systemPrompt !== undefined ? { systemPrompt } : {}),
     });
     await resourceLoader.reload();
     const { session } = await createAgentSession({
@@ -646,10 +704,11 @@ class ProductionLoomProducer implements LoomProducerDeps {
       agentDir,
       modelRegistry,
       model,
-      // PIC-23 rule 2: an explicit (empty) allowlist suppresses Pi's default
-      // built-ins; the test loom carries no callables.
-      tools: [],
-      customTools: [],
+      // PIC-23 rule 2: an explicit allowlist restricts the active set to exactly
+      // the loom's callable-set Pi-tool names (empty when the loom declares no
+      // `tools:`), suppressing Pi's default built-ins (SUBAG-2).
+      tools: toolNames,
+      customTools,
       resourceLoader,
       // PIC-23 rule 6 / capability item 3: a fresh in-memory manager — the
       // spawned transcript is private and discarded on dispose.

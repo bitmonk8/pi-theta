@@ -280,6 +280,10 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "createBashToolDefinition", kind: "peer-named-import" },
     { id: "createEditToolDefinition", kind: "peer-named-import" },
     { id: "createWriteToolDefinition", kind: "peer-named-import" },
+    // SUBAG-2: the subagent spawn installs the loom's callable-set Pi tools as
+    // `customTools` on `createAgentSession`, and the composition root lowers each
+    // built-in name to its full `ToolDefinition` for that channel.
+    { id: "ToolDefinition", kind: "peer-named-import" },
     // The non-`namespace-function` operand rows the version-bump gates (`V18c`)
     // read. Each carries the pinned operand its gate reconciles against the
     // pinned SDK: the in-repo Node floor (operand (ii) of the `engines.node`

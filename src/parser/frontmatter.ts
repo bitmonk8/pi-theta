@@ -32,6 +32,7 @@ import {
 import {
   checkSystemInterpolation,
   type SystemParamType,
+  type SystemTemplate,
 } from "./system-interpolation";
 import { type BypassParamsField } from "../binder/binder-envelope";
 
@@ -142,6 +143,15 @@ export interface ParsedFrontmatter {
    * spawn-and-drive invoke path.
    */
   readonly tools?: readonly string[];
+  /**
+   * The parsed `system:` template (subagent-mode only). Present iff the loom
+   * declares a valid `system:` field (no error-severity interpolation
+   * diagnostic). Rendered at conversation-creation time via `renderSystemPrompt`
+   * and installed as the spawned subagent session's system prompt (SUBAG-1;
+   * subagent.md §"Subagent state-isolation matrix"). Absent → the spawned
+   * conversation runs under the model's training defaults.
+   */
+  readonly system?: SystemTemplate;
 }
 
 /** The outcome of a frontmatter parse: registration decision + diagnostics. */
@@ -939,6 +949,7 @@ export function parseFrontmatter(
 
   // `system:` subagent-mode-only rule + `${…}` interpolation checks, run against
   // the loom's typed `params` (`system:` on a `mode: prompt` loom is rejected).
+  let systemTemplate: SystemTemplate | undefined;
   if (systemPresent && systemValue !== undefined) {
     const systemParams = new Map<string, SystemParamType>();
     for (const fieldInput of fieldInputs) {
@@ -947,15 +958,18 @@ export function parseFrontmatter(
         toSystemParamType(fieldInput.typeSource, options.bodyTypes, new Set()),
       );
     }
-    diagnostics.push(
-      ...checkSystemInterpolation({
-        systemValue,
-        mode: modeValue === "prompt" ? "prompt" : "subagent",
-        params: systemParams,
-        file,
-        ...(systemRange !== undefined ? { range: systemRange } : {}),
-      }).diagnostics,
-    );
+    const systemResult = checkSystemInterpolation({
+      systemValue,
+      mode: modeValue === "prompt" ? "prompt" : "subagent",
+      params: systemParams,
+      file,
+      ...(systemRange !== undefined ? { range: systemRange } : {}),
+    });
+    diagnostics.push(...systemResult.diagnostics);
+    // The template is present only on a valid subagent `system:` (no
+    // error-severity interpolation diagnostic); retain it so the runtime spawn
+    // can render and install it (SUBAG-1).
+    systemTemplate = systemResult.template;
   }
 
   const registered = !diagnostics.some((d) => d.severity === "error");
@@ -981,6 +995,7 @@ export function parseFrontmatter(
     toolLoop,
     respondRepair,
     ...(toolsValue !== undefined ? { tools: toolsValue } : {}),
+    ...(systemTemplate !== undefined ? { system: systemTemplate } : {}),
   };
   return { registered: true, frontmatter, diagnostics };
 }

@@ -37,6 +37,7 @@ import {
 import type {
   ExtensionAPI,
   ExtensionContext,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { LoomFixture } from "./factory";
 import { PiFileSystem } from "../seams/pi-file-system";
@@ -210,6 +211,16 @@ export async function discoverAndComposeFixtures(
     // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
+    // SUBAG-2: lower a subagent loom's callable-set Pi-tool name to its full pi
+    // `ToolDefinition`, so the spawn installs it as a `customTools` entry the
+    // subagent model may call (subagent.md rule 1). The `cwd` is forwarded per
+    // invocation from the spawn site (`ctx.cwd`).
+    // The runtime value is the full pi `ToolDefinition` from the built-in
+    // factory; `builtinToolDefinition`'s static return type is deliberately
+    // narrowed to the loom-load-bearing `execute`-only shape, so widen it back
+    // for the spawn's `customTools` channel.
+    resolvePiToolDefinition: (name: string, cwd: string) =>
+      builtinToolDefinition(name, cwd) as unknown as ToolDefinition | undefined,
     // H8b: parse an `invoke` / `.loom`-callable callee against the caller's
     // directory, reusing the shared parser deps.
     parseCallee: (callerPath, calleePath) =>
