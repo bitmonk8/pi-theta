@@ -177,11 +177,14 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
         expect(U).toContain("SEEN-B2");
         // CONV-6: bare-value tail is the final value.
         expect(U).toContain("BARE=[DATE]");
-        // CONV-6 records (interpret in findings, do not hard-fail on model):
-        //   OK=[...]  -> KIWI (unwrapped) or OK-ERR (Result-as-final-value)
-        //   EMP=[...] -> EMPTY-ERR expected (empty tail => null; string validate fails)
-        console.log("CONV-6 OK segment contains KIWI?", U.includes("OK=[KIWI]"), "OK-ERR?", U.includes("OK=[OK-ERR]"));
-        console.log("CONV-6 EMP segment EMPTY-ERR?", U.includes("EMP=[EMPTY-ERR]"), "EMPTY-OK?", U.includes("EMP=[EMPTY-OK]"));
+        // CONV-6 (FIXED): a `Result`-typed tail `Ok("KIWI")` is the loom's
+        // terminal Result (FN-3: implicit Ok() only wraps a non-Result operand),
+        // so invoke<string> unwraps its success payload "KIWI" — NOT the pre-fix
+        // Ok(Ok("KIWI")) that failed return validation and hit the Err arm.
+        expect(U).toContain("OK=[KIWI]");
+        expect(U).not.toContain("OK=[OK-ERR]");
+        // An empty-tail body's null final value still fails invoke<string> (FN-4).
+        expect(U).toContain("EMP=[EMPTY-ERR]");
       } finally {
         await probe.dispose();
       }

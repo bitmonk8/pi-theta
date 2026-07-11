@@ -39,7 +39,16 @@ Bug-verdict count: **1** (CONV-6).
 
 ---
 
-## CONV-6 — a loom whose tail (or `return` operand) is `Ok(x)` is not unwrapped to its success payload; `invoke<T>` validates the `Ok(...)` wrapper against `T` and fails `return_validation`
+## CONV-6 — [FIXED] a loom whose tail (or `return` operand) is `Ok(x)` is not unwrapped to its success payload; `invoke<T>` validates the `Ok(...)` wrapper against `T` and fails `return_validation`
+
+**FIXED.** The subagent `surface` success path re-wrapped a `Result`-valued tail
+into `Ok(Ok(x))`. Per FN-3 the implicit `Ok()` wrap applies only to a
+*non-`Result`* operand, so a `Result`-typed tail IS the loom's terminal Result.
+Fix: `production-loom-producer.ts` subagent surface now passes a `Result` value
+through unchanged (`isResultValue(value) ? value : makeOk(value)`). Live probe
+after the fix: `OK=[KIWI]` (was `OK=[OK-ERR]`); empty-tail still `EMP=[EMPTY-ERR]`.
+npm test 1601 green.
+
 
 - **repro:**
   ```

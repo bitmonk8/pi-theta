@@ -105,6 +105,7 @@ import { makeCancelledError } from "../runtime/cancellation-core";
 import {
   brandSchemaValue,
   isEnumValue,
+  isResultValue,
   makeErr,
   makeOk,
   schemaTagOf,
@@ -810,7 +811,16 @@ class ProductionLoomProducer implements LoomProducerDeps {
         // other fail / cancel surfaces the terminal cancellation `Err` rather
         // than a fabricated `Ok(null)`.
         if (execution.outcome === "success") {
-          return makeOk(execution.result.value ?? null);
+          // CONV-6 / FN-3: the implicit `Ok(X)` wrap applies ONLY to a
+          // non-`Result` operand. A `Result`-typed tail / `return` operand
+          // (the canonical `return Ok(x)` / tail `Ok(x)` idiom in return.md) IS
+          // already the loom's terminal `Result`, so re-wrapping it would yield
+          // `Ok(Ok(x))` and break `invoke<T>` return validation (it would AJV-
+          // validate the `Ok(x)` wrapper against `T`) and mask a tail `Err(e)`
+          // as a success. Pass a `Result` value through unchanged; wrap only a
+          // non-`Result` value.
+          const value = execution.result.value ?? null;
+          return isResultValue(value) ? value : makeOk(value);
         }
         if (execution.outcome === "fail" && execution.error !== undefined) {
           return makeErr(execution.error);
