@@ -300,6 +300,7 @@ function harness(opts: {
     signal,
     mutator: opts.mutator ?? new RecordingMutator(),
     mode: "prompt" as DrivenConversationMode,
+    file: "test.loom",
   };
 }
 

@@ -219,6 +219,7 @@ function execDeps(body: LoomBody): ExecuteBodyDeps {
     signal: new AbortController().signal,
     mutator: new NoopMutator(),
     mode: "prompt",
+    file: "test.loom",
   };
 }
 

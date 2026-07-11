@@ -24,9 +24,9 @@ path). SUBAG-2 (`session-findings/subagent.md`) confirmed a **single** subagent
 | id | verdict | one-line |
 |---|---|---|
 | STL-2 | bug | a subagent's `tool_loop.max_rounds` does not bound the model's tool-call rounds — the spawned `AgentSession` runs its full agentic tool loop inside a single loom-level query round, so ceiling #2 (`tool_loop_exhausted`) is **unreachable for any `max_rounds ≥ 1`** no matter how many rounds the model runs (subagent twin of QTL-4, different mechanism) |
-| STL-6 | bug | an **unhandled tail** (`@`…``, no `?`) `tool_loop_exhausted` breach in a subagent is surfaced across an `invoke` boundary as `cancelled`, masking the true leaf kind; the parent's `e.kind` reads `"cancelled"` instead of `"invoke_callee"`/inner `tool_loop_exhausted` |
+| STL-6 | **FIXED** | an **unhandled tail** (`@`…``, no `?`) `tool_loop_exhausted` breach in a subagent was surfaced across an `invoke` boundary as `cancelled`, masking the true leaf kind; the parent's `e.kind` read `"cancelled"` instead of `"invoke_callee"`/inner `tool_loop_exhausted`. **Fixed** by threading the effect-`Err` payload through the executor's `fail` flow so `BodyExecution.error` is set for an unhandled effect-`Err` terminal. |
 
-Bug-verdict count: **2** (STL-2, STL-6).
+Bug-verdict count: **1** open (STL-2) + **1** FIXED (STL-6, Phase 2).
 
 ---
 
@@ -92,7 +92,32 @@ Bug-verdict count: **2** (STL-2, STL-6).
 
 ---
 
-## STL-6 — an unhandled tail `tool_loop_exhausted` breach is surfaced across `invoke` as `cancelled`, masking the true leaf kind
+## STL-6 — [FIXED] an unhandled tail `tool_loop_exhausted` breach was surfaced across `invoke` as `cancelled`, masking the true leaf kind
+
+**Status: FIXED** (Phase 2, maintainer decision 6). The executor's control-flow
+model had two Flow kinds for a terminal `Err`: `propagate` (from `?`, carried
+`err`) and `fail` (a bare unhandled effect-`Err`, carried NO payload). On the
+unhandled-tail path the effect's own `QueryError` was dropped, so
+`BodyExecution.error` was unset and the subagent `surface` fell through to
+`makeErr(makeCancelledError())`, fabricating a cancel. The fix threads the
+effect-`Err` payload through the `fail` path (`EvalResult`/`Flow` `fail` now
+carry the terminating `QueryError`; `executeBody` surfaces it as
+`BodyExecution.error`), exactly as `propagate` does. The subagent and prompt
+`surface`s now project `execution.error` for any `fail` outcome and reserve
+`CancelledError` for a genuine `cancel` outcome only.
+
+- **source:** `src/runtime/statement-executor.ts` (`EvalResult`/`Flow` `fail`
+  variants carry `error`; `evalExpr` non-cancel branch, `terminalFlow`,
+  `evalUserFnCall` `fail` arm, `executeBody` `fail` arm) +
+  `src/extension/production-loom-producer.ts` (both `surface`s: `fail` projects
+  `execution.error`, `cancel` alone yields `CancelledError`).
+- **unit coverage:** `tests/statement-executor.test.ts` — "STL-6 — unhandled-tail
+  effect Err carries its own error on the fail outcome" (prompt + subagent mode).
+- **live before/after** (`session-subagent-toolloop.test.ts`, `/nqparent`):
+  - **before:** `NQ[tl=cancelled empty=invoke_callee]` (masked-as-cancelled: true)
+  - **after:** `NQ[tl=invoke_callee empty=invoke_callee]` (masked-as-cancelled: false)
+
+### Original finding (retained for provenance)
 
 - **repro:**
   - `tl0nq.loom` (`mode: subagent`, `tools: read`, `tool_loop: { max_rounds: 0 }`),

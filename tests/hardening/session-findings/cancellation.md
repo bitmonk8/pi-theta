@@ -37,7 +37,7 @@ composition (`production-loom-producer.ts` / `statement-executor.ts` /
 | `routeToolCallLateSettlement` (CNCL-1/2/3) | cancellation-core.ts | **no** |
 | `attachSwallowingHandler` (swallow rule) | cancellation-core.ts | **no** |
 | `routeAbandonableSettlement` | cancellation-core.ts | **no** |
-| `runCheckpointedForLoop` (loop-iter checkpoint) | checkpoint-granularity.ts | **no** |
+| `runCheckpointedForLoop` (loop-iter checkpoint) | checkpoint-granularity.ts | **no** (unused — but the loop-iter checkpoint is now WIRED inline in `statement-executor.ts` `executeWhile`/`executeFor`; see CANCEL-1 FIXED) |
 | `runCheckpointedBinderCall` (binder-call checkpoint) | checkpoint-granularity.ts | **no** |
 | `runBinderCallWithCancellation` (in-flight binder) | binder/binder-cancellation.ts | **no** |
 | `handleNoRollbackTerminalEvent` (ERR-13) | no-rollback.ts | **no** (upheld by construction — see CANCEL-2) |
@@ -47,10 +47,41 @@ comment lines / import lines.
 
 ---
 
-## CANCEL-1 — the `loop-iter` cancellation checkpoint is unwired; a compute-bound `for`/`while` loop is not cancellable
+## CANCEL-1 — [FIXED] the `loop-iter` cancellation checkpoint was unwired; a compute-bound `for`/`while` loop was not cancellable
 
 **Tag:** source-inspection.
-**Verdict:** **bug**.
+**Verdict:** **FIXED** (Phase 2, maintainer decision 4, loop-iter facet).
+
+**Status: WIRED.** `executeWhile` and `executeFor` in
+`src/runtime/statement-executor.ts` now await the `loop-iter` checkpoint and
+read `signal.aborted` immediately before each iteration (via the shared
+`loopIterCheckpoint` helper, which stamps the site with `deps.file` +
+the loop statement's source line). On an observed abort the loop unwinds with
+the `cancel` terminal outcome, routed through `handlePartialTerminalOutcome`
+like the other checkpointed-effect cancel paths. `ExecuteBodyDeps` gained a
+`file` field to stamp the `CheckpointSite`; both production `executeDeps`
+constructions (prompt + subagent) pass `loom.slashName`.
+
+- **source pointer:** `src/runtime/statement-executor.ts` — `loopIterSite` /
+  `loopIterCheckpoint`, called at the head of each `executeWhile` iteration and
+  before each `executeFor` iteration; `ExecuteBodyDeps.file`.
+  `src/extension/production-loom-producer.ts` — `file: loom.slashName` in both
+  `executeDeps`. (The pre-existing `runCheckpointedForLoop` in
+  `checkpoint-granularity.ts` does not fit the executor's loop shape — its
+  `runIteration` returns `void` and cannot signal `break`/terminal flow — so
+  the equivalent checkpoint was wired inline against the same Checkpoint/signal
+  the executor already holds, per the finding's fix note.)
+- **new unit test:** `tests/statement-executor.test.ts` — "CANCEL-1 — the
+  loop-iter cancellation checkpoint fires per iteration and cancels on abort":
+  (a) one `loop-iter` checkpoint fires per `for`/`while` iteration; (b) an abort
+  observed at a loop-iter checkpoint drives the `cancel` terminal outcome and
+  preempts the remaining iterations.
+- CANCEL-1 is **not** live-reproducible via the harness (needs a real Esc / an
+  injected mid-loop abort, and an unbounded compute loop would hang the
+  harness); the deterministic `Checkpoint` seam unit test above is the
+  verification substrate.
+
+### Original finding (retained for provenance)
 
 **repro (source).** `src/runtime/checkpoint-granularity.ts` exports
 `runCheckpointedForLoop`, which awaits `checkpoint.before("loop-iter", site)` and
@@ -283,14 +314,16 @@ Not live-reproducible.
 
 ## Summary
 
-Bug-verdict findings: **4** (`bug`) + **1** (`borderline`, recorded not pursued).
+Bug-verdict findings: **3** open (`bug`) + **1** FIXED (CANCEL-1, Phase 2) + **1** (`borderline`, recorded not pursued).
 
 Live-reproduced findings: **0 bug** (1 conformant negative live probe — no
 spurious cancel).
 
-Source-inspection bug findings (4):
-1. **CANCEL-1** — `loop-iter` cancellation checkpoint unwired; a compute-bound
-   `for`/`while` loop is not cancellable.
+Source-inspection bug findings (3 open + 1 FIXED):
+1. **CANCEL-1** — **FIXED (Phase 2)** — `loop-iter` cancellation checkpoint now
+   WIRED in `statement-executor.ts` `executeWhile`/`executeFor`; a compute-bound
+   `for`/`while` loop is cancellable at the iteration boundary (unit test in
+   `statement-executor.test.ts`).
 2. **CANCEL-2** — slash-command / `agent_end` forwarding into `loomAbort`
    unwired; prompt-mode captures `ctx.signal` once (idle-entry → never-aborting),
    so Esc-during-`@`-query may never land.

@@ -42,6 +42,7 @@ import type {
   PatternNode,
   Stmt,
   TryExpr,
+  WhileStmt,
 } from "../parser/loom-document";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../seams/checkpoint";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
@@ -110,6 +111,13 @@ export interface ExecuteBodyDeps {
   readonly signal: AbortSignal;
   readonly mutator: CommittedConversationMutator;
   readonly mode: DrivenConversationMode;
+  /**
+   * The loom source file stamped onto the `loop-iter` `CheckpointSite` (the
+   * per-iteration cancellation checkpoint of `executeWhile` / `executeFor`);
+   * the other four checkpoint sites are stamped by the effect host from the
+   * same source file. Matches `EffectfulStatementHostDeps.file`.
+   */
+  readonly file: string;
 }
 
 /**
@@ -121,12 +129,15 @@ export interface BodyExecution {
   readonly outcome: TerminalOutcome;
   readonly result: FunctionResult;
   /**
-   * The `Err` payload of a `?`-propagation (ERR-18) that unwound the body — the
-   * loom's terminal `Result` on the fail path is `Err(error)`. Present only on
-   * the fail outcome when a `?` propagated an `Err`; absent for a panic /
-   * effect-`Err` fail, where no `Result` payload is carried. A mode's `surface`
-   * projects this onto the caller-visible `Err` (FN-5 fail path) instead of a
-   * fabricated cancel marker.
+   * The `Err` payload that unwound the body — the loom's terminal `Result` on
+   * the fail path is `Err(error)`. Present on the fail outcome for BOTH a
+   * `?`-propagation (ERR-18) and an unhandled non-cancel effect `Err` in
+   * tail/statement position (ERR-19 — e.g. a `tool_loop_exhausted` breach): the
+   * effect's own terminating `QueryError` is carried through so the caller sees
+   * the real leaf kind, not a fabricated `cancelled`. Absent for the cancel
+   * outcome (whose surface is `CancelledError`) and for a thrown `LoomPanic`
+   * (which never reaches a `fail` outcome). A mode's `surface` projects this
+   * onto the caller-visible `Err` (FN-5 fail path).
    */
   readonly error?: LoomValue;
 }
@@ -142,8 +153,14 @@ export interface BodyExecution {
  *     evaluated value (a block's tail value, or `null`).
  *   - `return`   — an explicit `return expr` short-circuits the body to `value`.
  *   - `break` / `continue` — steer the nearest enclosing loop.
- *   - `fail`     — a non-cancel effect `Err` (a `?`-propagation, a panic) — the
- *     `error-model.md` fail terminal outcome; no final value flows (FN-5).
+ *   - `fail`     — an unhandled non-cancel effect `Err` in tail/statement
+ *     position (an unhandled `@`-query exhaustion / validation breach not
+ *     consumed by a caller `match` and not `?`-propagated) — the
+ *     `error-model.md` fail terminal outcome. It carries the effect's own
+ *     terminating `QueryError` as `error` so the body's terminal `Result` is
+ *     `Err(error)`, exactly as `propagate` carries a `?`-propagated `Err`; no
+ *     FN-5 final value flows. (A runtime panic is a thrown `LoomPanic`, not a
+ *     `fail` flow, so it never reaches this variant.)
  *   - `cancel`   — a mid-body cancellation surfaced at a checkpoint — the cancel
  *     terminal outcome; no final value flows (FN-5).
  */
@@ -152,14 +169,14 @@ type Flow =
   | { readonly kind: "return"; readonly value: LoomValue }
   | { readonly kind: "break" }
   | { readonly kind: "continue" }
-  | { readonly kind: "fail" }
+  | { readonly kind: "fail"; readonly error: LoomValue }
   | { readonly kind: "propagate"; readonly err: LoomValue }
   | { readonly kind: "cancel" };
 
 /** The outcome of evaluating a single sub-expression (pure or checkpointed). */
 type EvalResult =
   | { readonly flow: "value"; readonly value: LoomValue }
-  | { readonly flow: "fail" }
+  | { readonly flow: "fail"; readonly error: LoomValue }
   | { readonly flow: "propagate"; readonly err: LoomValue }
   | { readonly flow: "cancel" };
 
@@ -170,7 +187,7 @@ type EvalResult =
  */
 function terminalFlow(result: Exclude<EvalResult, { flow: "value" }>): Flow {
   if (result.flow === "fail") {
-    return { kind: "fail" };
+    return { kind: "fail", error: result.error };
   }
   if (result.flow === "propagate") {
     return { kind: "propagate", err: result.err };
@@ -247,7 +264,7 @@ async function evalUserFnCall(
       // evaluates to that `Err` value so an enclosing `?`/`match` sees it.
       return { flow: "value", value: makeErr(flow.err) };
     case "fail":
-      return { flow: "fail" };
+      return { flow: "fail", error: flow.error };
     case "cancel":
       return { flow: "cancel" };
   }
@@ -355,7 +372,12 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
     handlePartialTerminalOutcome({ path: "cancelled", mode: deps.mode, committed: [] }, deps.mutator);
     return { flow: "cancel" };
   }
-  return { flow: "fail" };
+  // An unhandled non-cancel effect `Err` (e.g. a ceiling-#2 `tool_loop_exhausted`
+  // breach in tail/statement position, no `?`, not caught by a `match`). Carry
+  // the effect's own terminating `QueryError` through the `fail` flow so the
+  // body's terminal `Result` is `Err(error)` (ERR-19), exactly as a
+  // `?`-propagation carries its `Err` — not a fabricated `cancelled`.
+  return { flow: "fail", error: result.error as unknown as LoomValue };
 }
 
 /**
@@ -654,15 +676,53 @@ async function executeIf(stmt: IfStmt, env: LexicalEnvironment, deps: ExecuteBod
 }
 
 /**
+ * Build the `loop-iter` `CheckpointSite` for a loop statement from the loom
+ * source file (`deps.file`) and the loop's own source span (CTRL-1 loop
+ * construct), so a fired checkpoint identifies the loop by file + line.
+ */
+function loopIterSite(stmt: WhileStmt | ForStmt, deps: ExecuteBodyDeps): CheckpointSite {
+  return { file: deps.file, line: stmt.range.start.line, column: stmt.range.start.column };
+}
+
+/**
+ * Await the `loop-iter` cancellation checkpoint and read the abort signal
+ * immediately before a loop iteration (cancellation.md §Granularity). Returns
+ * `true` when the iteration must NOT run because the signal has fired — the
+ * caller unwinds the loop with the cancel terminal outcome; an aborted loop
+ * routes through `V4c`'s `handlePartialTerminalOutcome` so no Pi-committed
+ * surface is mutated and no compensating turn is injected (ERR-8 … ERR-12),
+ * mirroring the checkpointed-effect cancel path.
+ */
+async function loopIterCheckpoint(site: CheckpointSite, deps: ExecuteBodyDeps): Promise<boolean> {
+  await deps.checkpoint.before("loop-iter", site);
+  if (deps.signal.aborted) {
+    handlePartialTerminalOutcome({ path: "cancelled", mode: deps.mode, committed: [] }, deps.mutator);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Execute a statement-form `while` loop. `break` / `continue` steer the loop;
- * `return` / `fail` / `cancel` unwind out of it.
+ * `return` / `fail` / `cancel` unwind out of it. Immediately before each
+ * iteration the executor awaits the `loop-iter` cancellation checkpoint and
+ * reads `signal.aborted` (cancellation.md §Granularity): production wiring
+ * yields one macrotask turn there so a compute-bound body with no genuine
+ * `await` still lets the Pi-dispatched abort (a macrotask) flip
+ * `loomAbort.signal.aborted` and land before the next iteration; an observed
+ * abort unwinds the loop with the cancel terminal outcome.
  */
 async function executeWhile(
-  stmt: { readonly condition: Expr; readonly body: Block },
+  stmt: WhileStmt,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
 ): Promise<Flow> {
+  const site = loopIterSite(stmt, deps);
   for (;;) {
+    const aborted = await loopIterCheckpoint(site, deps);
+    if (aborted) {
+      return { kind: "cancel" };
+    }
     const condition = await evalExpr(stmt.condition, env, deps);
     if (condition.flow !== "value") {
       return terminalFlow(condition);
@@ -710,7 +770,12 @@ async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteB
   };
   evaluateForLoop(host);
 
+  const site = loopIterSite(stmt, deps);
   for (const { element } of plan) {
+    const aborted = await loopIterCheckpoint(site, deps);
+    if (aborted) {
+      return { kind: "cancel" };
+    }
     const iterationScope = env.bindIterationVariable(stmt.variable, element);
     const flow = await executeBlock(stmt.body, iterationScope, deps);
     if (flow.kind === "break") {
@@ -745,7 +810,11 @@ export async function executeBody(body: LoomBody, deps: ExecuteBodyDeps): Promis
     case "normal":
       return { outcome: "success", result: functionResult("success", flow.value) };
     case "fail":
-      return { outcome: "fail", result: functionResult("fail", null) };
+      // An unhandled non-cancel effect `Err` terminated the body. Surface the
+      // effect's own terminating error as `BodyExecution.error` so the mode's
+      // `surface` projects the real `Err` (ERR-19 payload preserved) instead of
+      // fabricating a `cancelled` — exactly as the `propagate` arm below.
+      return { outcome: "fail", result: functionResult("fail", null), error: flow.error };
     case "propagate":
       // A `?`-propagation (ERR-18): the body's terminal `Result` is `Err(err)`;
       // no FN-5 final value flows, but the propagated `Err` is carried so the

@@ -272,6 +272,7 @@ function boundExecuteDeps(
     signal: new AbortController().signal,
     mutator: new RecordingMutator(),
     mode,
+    file: "test.loom",
   };
 }
 

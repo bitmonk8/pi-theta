@@ -722,6 +722,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
       signal,
       mutator: new NoopConversationMutator(),
       mode: "prompt",
+      file: loom.slashName,
     };
 
     return {
@@ -739,8 +740,14 @@ class ProductionLoomProducer implements LoomProducerDeps {
         if (execution.outcome === "success") {
           return makeOk(extractTrailingTurnText(readMessages()));
         }
-        if (execution.outcome === "fail" && execution.error !== undefined) {
-          return makeErr(execution.error);
+        // A `fail` outcome carries the terminating `Err` — a `?`-propagation OR
+        // an unhandled non-cancel effect-`Err` in tail position (ERR-19, e.g. a
+        // `tool_loop_exhausted` breach). Project that real error so the caller
+        // reads the true leaf kind; NEVER fabricate a `cancelled` for a fail
+        // (STL-6). Only a genuine `cancel` outcome (an aborted checkpoint)
+        // yields `CancelledError`.
+        if (execution.outcome === "fail") {
+          return makeErr(execution.error ?? (makeCancelledError() as unknown as LoomValue));
         }
         return makeErr(makeCancelledError() as unknown as LoomValue);
       },
@@ -928,6 +935,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
       signal,
       mutator: new NoopConversationMutator(),
       mode: "subagent",
+      file: loom.slashName,
     };
 
     return {
@@ -957,8 +965,15 @@ class ProductionLoomProducer implements LoomProducerDeps {
           const value = execution.result.value ?? null;
           return isResultValue(value) ? value : makeOk(value);
         }
-        if (execution.outcome === "fail" && execution.error !== undefined) {
-          return makeErr(execution.error);
+        // A `fail` outcome carries the terminating `Err` — a `?`-propagation OR
+        // an unhandled non-cancel effect-`Err` in tail position (ERR-19, e.g. a
+        // `tool_loop_exhausted` breach that reaches the tail with no `?`).
+        // Project that real error so the parent's XMODE-1 wrap reads the true
+        // leaf kind (`invoke_callee` / inner `tool_loop_exhausted`) rather than
+        // a fabricated `cancelled` (STL-6). Only a genuine `cancel` outcome (an
+        // aborted checkpoint) yields `CancelledError`.
+        if (execution.outcome === "fail") {
+          return makeErr(execution.error ?? (makeCancelledError() as unknown as LoomValue));
         }
         return makeErr(makeCancelledError() as unknown as LoomValue);
       },

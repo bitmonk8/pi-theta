@@ -33,6 +33,7 @@ import type {
   ReturnStmt,
   Stmt,
   ToolCallStmt,
+  WhileStmt,
 } from "../src/parser/loom-document";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 
@@ -115,6 +116,10 @@ function ifStmt(condition: Expr, then: Block, otherwise: Block | IfStmt | null =
 
 function forStmt(variable: string, iterand: Expr, body: Block): ForStmt {
   return { kind: "for", variable, iterand, body, range: span() };
+}
+
+function whileStmt(condition: Expr, body: Block): WhileStmt {
+  return { kind: "while", condition, body, range: span() };
 }
 
 function block(statements: readonly Stmt[], tail: Expr | null = null): Block {
@@ -291,6 +296,7 @@ function deps(opts: {
   mutator?: CommittedConversationMutator;
   mode?: DrivenConversationMode;
   env?: LexicalEnvironment;
+  file?: string;
 }): ExecuteBodyDeps {
   return {
     env: opts.env ?? realEnv(),
@@ -299,6 +305,7 @@ function deps(opts: {
     signal: opts.signal ?? new AbortController().signal,
     mutator: opts.mutator ?? new RecordingMutator(),
     mode: opts.mode ?? "prompt",
+    file: opts.file ?? "test.loom",
   };
 }
 
@@ -803,3 +810,171 @@ describe("core-exec — `?` (try) dispatch-through and unwrap/propagate", () => 
 function nullLit(): Expr {
   return { kind: "null", range: span() };
 }
+
+// ===========================================================================
+// STL-6 — an unhandled non-cancel effect `Err` in tail/statement position
+// surfaces as that error on the fail outcome, NEVER a fabricated `cancelled`.
+// (errors-and-results.md §Terminal outcomes / ERR-19; subagent-toolloop.md STL-6)
+// ===========================================================================
+
+describe("STL-6 — unhandled-tail effect Err carries its own error on the fail outcome", () => {
+  it("a bare tail effect Err (no `?`, no `match`) drives to fail carrying the effect's own error", async () => {
+    const host = new RecordingHost();
+    // A ceiling-#2 `tool_loop_exhausted` breach returned by the effect host as a
+    // non-cancel `Err` (the untyped-query exhaustion arm of runQueryEffect).
+    const exhausted = {
+      kind: "tool_loop_exhausted",
+      rounds: 0,
+      last_tool_name: null,
+      message: "tool-call loop exhausted after 0 rounds",
+    } as unknown as QueryError;
+    host.results.set("q", { ok: false, error: exhausted });
+    // A bare tail effect statement: unhandled, not `?`-propagated, not caught.
+    const program = body([toolCallStmt("q")]);
+
+    const r = await executeBody(program, deps({ host }));
+
+    expect(r.outcome, "an unhandled non-cancel effect Err drives to the fail terminal outcome").toBe(
+      "fail",
+    );
+    expect(
+      r.error,
+      "STL-6: the effect's own tool_loop_exhausted error is carried through fail — NOT a fabricated cancelled",
+    ).toEqual(exhausted);
+    expect(
+      r.result.present,
+      "no FN-5 final value flows on the fail path",
+    ).toBe(false);
+  });
+
+  it("holds identically in subagent mode (the mode a real subagent invoke drives)", async () => {
+    const host = new RecordingHost();
+    const exhausted = {
+      kind: "tool_loop_exhausted",
+      rounds: 0,
+      last_tool_name: null,
+    } as unknown as QueryError;
+    host.results.set("q", { ok: false, error: exhausted });
+    const program = body([toolCallStmt("q")]);
+
+    const r = await executeBody(program, deps({ host, mode: "subagent" }));
+
+    expect(r.outcome).toBe("fail");
+    expect(
+      r.error,
+      "STL-6: the subagent-mode fail carries the real error, not a fabricated cancelled",
+    ).toEqual(exhausted);
+  });
+});
+
+// ===========================================================================
+// CANCEL-1 — the loop-iter cancellation checkpoint is wired into the executor's
+// `for` / `while` loops (cancellation.md §Granularity; cancellation.md CANCEL-1).
+// ===========================================================================
+
+describe("CANCEL-1 — the loop-iter cancellation checkpoint fires per iteration and cancels on abort", () => {
+  it("fires exactly one `loop-iter` checkpoint immediately before each `for` iteration", async () => {
+    const host = new RecordingHost();
+    const kinds: CheckpointKind[] = [];
+    const checkpoint = new ScriptedCheckpoint((_call, kind) => {
+      kinds.push(kind);
+    });
+    const program = body([
+      forStmt(
+        "x",
+        arrayExpr([numberExpr("1"), numberExpr("2"), numberExpr("3")]),
+        block([exprStmt(identExpr("x"))]),
+      ),
+    ]);
+
+    const r = await executeBody(program, deps({ host, checkpoint }));
+
+    expect(
+      kinds,
+      "one loop-iter checkpoint fired per element, before that iteration's body ran",
+    ).toEqual(["loop-iter", "loop-iter", "loop-iter"]);
+    expect(host.pureLog, "the body ran once per element").toEqual([
+      "ident:x",
+      "ident:x",
+      "ident:x",
+    ]);
+    expect(r.outcome).toBe("success");
+  });
+
+  it("an abort observed at a `for` loop-iter checkpoint cancels the loop before the next iteration", async () => {
+    const host = new RecordingHost();
+    const controller = new AbortController();
+    // Abort at the 2nd loop-iter checkpoint — after iteration 1's body ran,
+    // before iteration 2 (the body is pure, so every checkpoint is a loop-iter).
+    const checkpoint = new ScriptedCheckpoint((call, kind) => {
+      if (kind === "loop-iter" && call === 2) {
+        controller.abort();
+      }
+    });
+    const program = body([
+      forStmt(
+        "x",
+        arrayExpr([numberExpr("1"), numberExpr("2"), numberExpr("3")]),
+        block([exprStmt(identExpr("x"))]),
+      ),
+    ]);
+
+    const r = await executeBody(program, deps({ host, checkpoint, signal: controller.signal }));
+
+    expect(
+      host.pureLog,
+      "only iteration 1's body ran; iteration 2 was preempted at its loop-iter checkpoint",
+    ).toEqual(["ident:x"]);
+    expect(r.outcome, "a loop-iter abort drives to the cancel terminal outcome").toBe("cancel");
+  });
+
+  it("fires one `loop-iter` checkpoint per `while` condition-check and stops cleanly", async () => {
+    const host = new RecordingHost();
+    const kinds: CheckpointKind[] = [];
+    const checkpoint = new ScriptedCheckpoint((_call, kind) => {
+      kinds.push(kind);
+    });
+    // `let mut go = true; while go == true { go = false }` — one body run, two
+    // loop-iter checkpoints (the second condition-check exits the loop).
+    const program = body([
+      { kind: "let", name: "go", mutable: true, annotation: null, init: boolExpr(true), range: span() },
+      whileStmt(
+        eqExpr(identExpr("go"), boolExpr(true)),
+        block([{ kind: "reassign", target: "go", op: "=", value: boolExpr(false), range: span() }]),
+      ),
+    ]);
+
+    const r = await executeBody(program, deps({ host, checkpoint }));
+
+    expect(
+      kinds,
+      "one loop-iter checkpoint per while condition-check (2: run once, then exit)",
+    ).toEqual(["loop-iter", "loop-iter"]);
+    expect(r.outcome).toBe("success");
+  });
+
+  it("an abort observed at a `while` loop-iter checkpoint cancels the loop", async () => {
+    const host = new RecordingHost();
+    const controller = new AbortController();
+    // `while true { x }` — an otherwise-unbounded compute loop; abort at the 2nd
+    // loop-iter checkpoint is the only thing that lands (the spec's motivating
+    // case: no genuine await in the body).
+    const checkpoint = new ScriptedCheckpoint((call, kind) => {
+      if (kind === "loop-iter" && call === 2) {
+        controller.abort();
+      }
+    });
+    const program = body([
+      { kind: "let", name: "x", mutable: false, annotation: null, init: numberExpr("0"), range: span() },
+      whileStmt(boolExpr(true), block([exprStmt(identExpr("x"))])),
+    ]);
+
+    const r = await executeBody(program, deps({ host, checkpoint, signal: controller.signal }));
+
+    expect(
+      host.pureLog,
+      "iteration 1's body ran; the loop was cancelled at the 2nd loop-iter checkpoint",
+    ).toEqual(["ident:x"]);
+    expect(r.outcome, "a while loop-iter abort drives to the cancel terminal outcome").toBe("cancel");
+  });
+});
