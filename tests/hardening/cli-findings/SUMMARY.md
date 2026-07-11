@@ -38,10 +38,17 @@ composition." This pass surfaced two CLI-only classes on top of that:
 | DISCLI-1 | discovery | `readLoomFlagPaths` discarded an array-valued `--loom` flag wholesale (defensive hardening) | `59d557ed` |
 | BND-2 | binder | a declared `params:` default (`count: integer = 3`) reached the body as `null` when omitted | `d0270a35` |
 | FMC-1 / DISCLI-2 / IMPORTS-3 | diagnostics | in headless `-p`/RPC mode every dropped-loom error diagnostic vanished (silent chat, exit 0); now mirrored to stderr | `393d1abc` |
+| QTL-2 | tools (security) | the `tools:` callable set was never enforced at runtime — a loom with `tools:` absent could `bash`/`read`/`write` from code (ambient-tool inheritance / sandbox-bounding bypass); now dispatched only through the frozen per-loom snapshot | `29c72d76` |
+| QTL-2 (residual) | tools (security) | `invoke(...)` callees were parsed without a snapshot, re-opening the same bypass one invoke level down; callees now carry their own callable set | `a1939d40` |
+| QTL-4 | tools | in prompt mode the query driver hardcoded `setActiveTools([])`, so the model got no tools and a declared `tools:` entry was unusable; now installs the callable set's Pi-tool names | `29c72d76` |
 
 Each fix was verified against its spec anchor, re-run through the real CLI to
 confirm before/after, and gated on `npm test` (1595) + `npm run test:conformance`
 (26) + `npm run typecheck` + `npm run lint`, all green.
+
+The 7th lens (typed-query schema-validation / `respond_repair` / `tool_loop` /
+code-driven tool calls) is in `queries-toolloop.md`; QTL-2/QTL-4 fixed above, the
+rest documented below.
 
 ## Open / deferred (NOT fixed — documented for a decision)
 
@@ -70,6 +77,25 @@ confirm before/after, and gated on `npm test` (1595) + `npm run test:conformance
   visible on stderr via the FMC-1 fix), but the process exit code is a Pi-harness
   property the extension may not be able to set from a load diagnostic or an
   interpreter panic. Borderline; document.
+
+- **QTL-1 — prompt-mode chained queries run off-session (invisible).** Only the
+  first query in a prompt-mode dispatch drives a user-visible turn; every
+  subsequent query runs off-session (`complete()`) and executes but is invisible
+  in the caller's conversation, defeating the guide's "every prompt-mode turn is
+  user-visible" promise and the "final query shows the result" pattern. Same
+  self-documented `SLSH-2` DIVERGENCE as the binder turn; borderline, needs the
+  same design decision as BND-1/3.
+
+- **QTL-3 — depth-violation typed-query failures skip respond-repair.** A response
+  rejected by the schema depth ceiling (#4 row #1) reports `attempts: 0` and
+  issues no repair follow-up, even under the default budget of 3, whereas ordinary
+  AJV misses do repair. Plausibly an intentional "structural failure is
+  unrepairable" short-circuit but undocumented; borderline.
+
+- **QTL-5 — bare `array` in schema position accepted silently.** `schema Bad {
+  items: array }` (out of the documented subset — `array<T>` required) loads, runs,
+  and lowers `items` to an array with no load diagnostic on any channel. Adjacent
+  to the README's known type-layer diagnostic gap; borderline.
 
 - **EXPR-CLI-2 — `match` on enum-variant patterns.** `match c { Color.Red => … }`
   fails to parse (enum-variant is not a listed pattern form in `grammar.md`), and
