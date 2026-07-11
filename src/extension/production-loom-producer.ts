@@ -25,6 +25,7 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
+import { parseDocument } from "yaml";
 import {
   buildSessionContext,
   createAgentSession,
@@ -147,6 +148,7 @@ import {
   classifyBinderBypass,
   trimSlashArgumentWhitespace,
 } from "../binder/binder-envelope";
+import { fillDefaultsAndRevalidate, type DefaultedField } from "../binder/defaulting";
 import { renderNoParamsOverflowNote } from "../runtime/slash-dispatch";
 import { SYSTEM_NOTE_CHANNEL } from "./system-note-channel";
 
@@ -341,7 +343,106 @@ class ProductionLoomProducer implements LoomProducerDeps {
     if (!isOkEnvelope(text)) {
       return { bound: false };
     }
-    return { bound: true, args: await parseOkEnvelopeArgs(text) };
+    // §Defaulting (defaulting-system-note-echo.md#post-default-merge-ajv-validation;
+    // binder-bypass-and-envelope.md#binder-envelope): defaults are filled by the
+    // runtime AFTER the binder returns, not by the binder. The binder is told
+    // which fields have defaults and MAY omit them from `args`; the runtime then
+    // fills any defaulted wire name absent from `args` (fill-if-absent) and
+    // AJV-validates the merged result before the body runs. Without this merge a
+    // declared default (`count: integer = 3`) never reaches body scope and the
+    // body sees the field as absent (BND-2). Only the genuine binder pass reaches
+    // here — a defaulted field forces the `binder` classification (the
+    // single-string / no-params bypasses carry no defaults), so the bypass arms
+    // above are intentionally left unchanged.
+    const binderArgs = await parseOkEnvelopeArgs(text);
+    return { bound: true, args: await this.#mergeDeclaredDefaults(binderInput.loom, params, binderArgs) };
+  }
+
+  /**
+   * Fill-if-absent the loom's declared `params:` defaults into the binder-returned
+   * `args`, then run the post-default-merge AJV validation, reusing the
+   * unit-tested `fillDefaultsAndRevalidate` (`binder/defaulting.ts`). A wire name
+   * PRESENT in `args` is preserved unchanged (a user-supplied value wins over the
+   * default); a wire name ABSENT takes its declared default.
+   *
+   * The declared default VALUES are not carried on the parsed `ParsedParams`
+   * (it retains only the defaulted wire names, not their literals), so they are
+   * recovered here from the loom's own source: the `params:` field scalar is
+   * re-read via the `FileSystem` seam, its `= <literal>` default RHS is split
+   * off, and the literal is parsed + evaluated through the same pure evaluator
+   * the body uses. Recovery is best-effort — a loom with no on-disk `sourcePath`
+   * (an in-memory fixture), an unreadable file, or a default that does not parse
+   * simply leaves that field unfilled (the prior behaviour for it), never throws.
+   */
+  async #mergeDeclaredDefaults(
+    loom: ConversationBindInput["loom"],
+    params: NonNullable<ConversationBindInput["loom"]["frontmatter"]["params"]>,
+    binderArgs: Readonly<Record<string, unknown>>,
+  ): Promise<Readonly<Record<string, unknown>>> {
+    if (params.defaultedFields.length === 0 || params.loweredSchema === undefined) {
+      return binderArgs;
+    }
+    const defaults = await this.#recoverDeclaredDefaults(loom, params.defaultedFields);
+    if (defaults.length === 0) {
+      return binderArgs;
+    }
+    // Post-default-merge AJV validation runs against the MERGED args (§Defaulting).
+    // Its verdict routes, on failure, to the AJV-on-`args` retry class owned
+    // elsewhere in the runtime; this leaf owns only the fill-if-absent merge and
+    // invoking the named validation hook, so the merged args are returned
+    // regardless of the verdict (the body-run vs short-circuit routing is not
+    // this leaf's to change).
+    const validator = this.#input.root.schemaValidator.compile(params.loweredSchema);
+    const result = fillDefaultsAndRevalidate({ binderArgs, defaults, validator });
+    return result.args;
+  }
+
+  /**
+   * Recover the declared default literal VALUE for each defaulted wire name from
+   * the loom's source file. The parsed `ParsedParams` drops the default literals
+   * (retaining only the wire names), so this re-reads the `.loom`, extracts the
+   * frontmatter YAML, reads each `params:` field's scalar, splits its `= <literal>`
+   * default RHS, and parses + evaluates the literal with the body's pure evaluator
+   * (so an enum / schema-literal default resolves against the body's declarations).
+   */
+  async #recoverDeclaredDefaults(
+    loom: ConversationBindInput["loom"],
+    defaultedFields: readonly string[],
+  ): Promise<readonly DefaultedField[]> {
+    const sourcePath = loom.sourcePath;
+    if (sourcePath === undefined) {
+      return [];
+    }
+    const bytes = await this.#input.root.fileSystem.readBytes(sourcePath).then(
+      (value) => value,
+      () => undefined,
+    );
+    if (bytes === undefined) {
+      return [];
+    }
+    const yamlText = extractFrontmatterYaml(new TextDecoder().decode(bytes));
+    if (yamlText === undefined) {
+      return [];
+    }
+    const doc = parseDocument(yamlText);
+    const env = buildBoundEnvironment(loom.body, undefined, loom.imports);
+    const defaults: DefaultedField[] = [];
+    for (const wireName of defaultedFields) {
+      const raw = doc.getIn(["params", wireName]);
+      if (typeof raw !== "string") {
+        continue;
+      }
+      const defaultSource = splitParamDefaultSource(raw);
+      if (defaultSource === undefined) {
+        continue;
+      }
+      const parsed = parseExpressionSource(defaultSource);
+      if (parsed === null) {
+        continue;
+      }
+      defaults.push({ wireName, defaultValue: evaluatePureExpression(parsed, env) });
+    }
+    return defaults;
   }
 
   /**
@@ -1499,6 +1600,71 @@ function isOkEnvelope(text: string): boolean {
  * body still runs on the `ok` arm, with no param slots). The authoritative
  * envelope schema validation lives in the acceptance runner.
  */
+/**
+ * Extract the YAML frontmatter block (the text between the leading `---` fence
+ * and the next `---` line) from a `.loom` source, or `undefined` when the file
+ * carries no fenced frontmatter. Mirrors the parser's own block isolation so the
+ * re-read reads the same YAML the loader parsed; the `\r` trim handles CRLF
+ * files. Used only to recover declared `params:` default literals the parsed
+ * frontmatter does not retain.
+ */
+function extractFrontmatterYaml(source: string): string | undefined {
+  const lines = source.split("\n");
+  const isFence = (line: string | undefined): boolean =>
+    line !== undefined && line.replace(/\r$/, "") === "---";
+  if (!isFence(lines[0])) {
+    return undefined;
+  }
+  for (let i = 1; i < lines.length; i += 1) {
+    if (isFence(lines[i])) {
+      return lines.slice(1, i).join("\n");
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Split a `params:` field value scalar (`<type-expr>` optionally followed by
+ * `= <literal>`) at the first top-level `=` — one not nested inside `<...>`
+ * angles, `{...}` braces, `[...]` brackets, or a `"`/`'` string literal (so
+ * `array<string> = []` and `Author = { name: "x" }` split correctly, and an
+ * `==`/`>=` inside a default is not mistaken for the separator) — returning the
+ * default RHS, or `undefined` when the field declared no default. Kept in step
+ * with the parser's own `splitParamValue` so a recovered default matches the
+ * literal the loader validated.
+ */
+function splitParamDefaultSource(raw: string): string | undefined {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw[i];
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < raw.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "<" || c === "{" || c === "[") {
+      depth += 1;
+      continue;
+    }
+    if (c === ">" || c === "}" || c === "]") {
+      depth -= 1;
+      continue;
+    }
+    if (depth === 0 && c === "=" && raw[i + 1] !== "=" && raw[i - 1] !== "=") {
+      return raw.slice(i + 1).trim();
+    }
+  }
+  return undefined;
+}
+
 async function parseOkEnvelopeArgs(text: string): Promise<Readonly<Record<string, unknown>>> {
   const parse = await parseStructuredPayload(text);
   if (!parse.parsed || typeof parse.value !== "object" || parse.value === null) {
