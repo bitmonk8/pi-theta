@@ -34,8 +34,11 @@
 // error-model.md §"No rollback" (ERR-13); host-interfaces-services.md PIC-10.
 
 import type { Checkpoint, CheckpointSite } from "../seams/checkpoint";
-import type { ResultValue } from "./value";
+import type { LoomValue, ResultValue } from "./value";
+import { makeErr } from "./value";
 import type { CommittedSideEffect } from "./no-rollback";
+import { HostFatal, isLoomPanic } from "./runtime-panics";
+import type { InvokeInfraError } from "./query-error";
 
 /**
  * One `invoke` child driven on the live execution surface.
@@ -103,6 +106,43 @@ export async function runInvokeChild(
   // with the completed callee's committed side effects. Those side effects stay
   // final under any downstream `?` / panic / cancel (ERR-13) because the runtime
   // holds no compensating / rollback path — see `handleNoRollbackTerminalEvent`.
-  const result = await child.drive();
-  return { kind: "value", result, committed: child.committed };
+  //
+  // INVCEIL-2 (errors-and-results.md §Runtime panics; hard-ceilings.md
+  // ceiling-#1): a panic thrown inside the callee subtree is NOT a value at the
+  // callee's own surface — it bypasses the callee's `?`/`match` and unwinds as a
+  // thrown `LoomPanic`. At the invoke boundary it becomes a VALUE to the parent:
+  // the parent observes `Err(InvokeInfraError{ cause: "panic", ... })`, which its
+  // own `?` / `match Err(_)` can then catch. This narrow boundary catch exists
+  // only to re-wrap the callee's panic (and the runtime-defect surface) into that
+  // documented `Err` envelope; if the thrown value is not a loom panic it is an
+  // unexpected interpreter throw, which the same spec routes to the parent as
+  // `Err(InvokeInfraError{ cause: "internal_error", ... })`. An uncatchable host
+  // fatal (NOCEIL-3) must terminate the process and is rethrown unwrapped.
+  try {
+    const result = await child.drive();
+    return { kind: "value", result, committed: child.committed };
+  } catch (thrown) { // allow-broad-catch: invoke-boundary-panic-wrap — errors-and-results.md#runtime-panics
+    if (thrown instanceof HostFatal) {
+      throw thrown;
+    }
+    const error: InvokeInfraError = {
+      kind: "invoke_infra",
+      message: panicMessage(thrown),
+      callee_path: child.calleePath,
+      cause: isLoomPanic(thrown) ? "panic" : "internal_error",
+    };
+    return {
+      kind: "value",
+      result: makeErr(error as unknown as LoomValue),
+      committed: child.committed,
+    };
+  }
+}
+
+/** The message string carried by a thrown panic / interpreter throw at the invoke boundary. */
+function panicMessage(thrown: unknown): string {
+  if (thrown instanceof Error) {
+    return thrown.message;
+  }
+  return String(thrown);
 }

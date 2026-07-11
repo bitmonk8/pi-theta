@@ -46,7 +46,7 @@ import { makeCancelledError } from "./cancellation-core";
 import type { CheckpointDescriptor, StatementEvalHost } from "./statement-executor";
 import type { LexicalEnvironment } from "./lexical-environment";
 import type { LoomValue } from "./value";
-import { makeErr } from "./value";
+import { makeErr, makeOk } from "./value";
 import type {
   QueryModelDriver,
   QueryToolLoopConfig,
@@ -275,6 +275,18 @@ async function runInvokeEffect(
   const outcome = await runInvokeChild(deps.checkpoint, deps.signal, siteOf(expr, deps.file), child);
   switch (outcome.kind) {
     case "value":
+      // INVCEIL-3 (discovery-cli.md §Typed return; invocation.md §Typed return):
+      // an UNTYPED `invoke(...)` (no `<Schema>` annotation) returns
+      // `Result<null, QueryError>` — the runtime discards the callee's return
+      // value entirely, so the parent's `Ok` payload is `null`, not the child's
+      // final value. Only the success payload is discarded; an `Err` envelope
+      // (callee `?`-propagation, panic, ceiling) passes through unchanged so the
+      // parent's `?` / `match Err(_)` still observes it. A typed
+      // `invoke<Schema>(...)` keeps its AJV-validated value (returned unchanged
+      // by the callee-drive return-validation step).
+      if (expr.returnSchema === null && outcome.result.ok) {
+        return { ok: true, value: makeOk(null) };
+      }
       return { ok: true, value: outcome.result };
     case "cancelled":
       return { ok: false, error: makeCancelledError() };
