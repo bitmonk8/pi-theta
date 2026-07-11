@@ -20,9 +20,36 @@ Bug-verdict count: **2** (DISCO-1 live-repro; DISCO-2 source-inspection).
 
 ---
 
-## DISCO-1 — binder-model resolution is entirely unwired: `loom/load/binder-model-unresolved` never fires, and `bind_model:` / `looms.binderModel` are ignored at bind time
+## DISCO-1 (FIXED) — binder-model resolution is entirely unwired: `loom/load/binder-model-unresolved` never fires, and `bind_model:` / `looms.binderModel` are ignored at bind time
 
-**Verdict: BUG** (live-repro at load time; runtime facet is source-inspection).
+**Verdict: BUG (both facets) — FIXED** (Phase 1 production-conformance).
+
+> **STATUS: FIXED.** Load-time binder-model resolution is now wired into the
+> shipped composition root (`production-composition.ts`): each non-bypass loom
+> runs `resolveBinderModel` over the shared `modelMatcher` + merged
+> `looms.binderModel`; a loom whose chain resolves to no model fails to load with
+> `loom/load/binder-model-unresolved` and is not registered. The resolved
+> reference is carried onto the runnable loom, and `runBinder` resolves it to a
+> concrete `Model<Api>` and drives the binder OFF-session against it (runtime
+> facet) — not the ambient session model.
+>
+> **Before (buggy, live probe `session-discodyn.test.ts`):** `needsbind` (no
+> `bind_model`, no `looms.binderModel`) registered with `diagnostics === []`;
+> `viasettings` and `viafm` (unresolvable references) both registered,
+> `diagnostics === []`. Runtime facet: the binder ran against `ctx.model`,
+> ignoring `bind_model:` / `looms.binderModel`.
+>
+> **After (fixed, live probe):** `needsbind` fails to load — `registeredNames`
+> excludes it and `diagnostics` contains the `binder model unresolved` error;
+> `viasettings` + `viafm` likewise fail to load. With `looms.binderModel` set to
+> a resolvable model (`DISCO-B`), the loom registers. Runtime facet
+> (`session-binder.test.ts`): the binder is dispatched off-session against the
+> resolved `anthropic/claude-haiku-4-5` binder model while the session/prompt
+> model is opus — the two are now distinct, proving `bind_model:` /
+> `looms.binderModel` is honoured.
+
+Original verdict: **BUG** (live-repro at load time; runtime facet was
+source-inspection).
 
 ### Repro
 Three planted non-bypass looms (typed `params:` with two fields → not the

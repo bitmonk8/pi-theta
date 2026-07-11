@@ -152,6 +152,17 @@ import {
   trimSlashArgumentWhitespace,
 } from "../binder/binder-envelope";
 import { fillDefaultsAndRevalidate, type DefaultedField } from "../binder/defaulting";
+import { matchAvailableModel } from "../binder/binder-model";
+import {
+  renderBinderSystemNote,
+  type BinderFailureSurface,
+} from "../binder/retry-taxonomy";
+import { capSystemNote, classifyModelContent } from "../binder/system-note";
+import {
+  renderArgumentEcho,
+  type EchoParam,
+  type EchoType,
+} from "../render/argument-echo";
 import { renderNoParamsOverflowNote } from "../runtime/slash-dispatch";
 import { renderTopLevelErrNote } from "../runtime/err-note-render";
 import type { QueryError } from "../runtime/query-error";
@@ -329,13 +340,28 @@ class ProductionLoomProducer implements LoomProducerDeps {
       const bypass = applyBinderBypass({ decision, slashArguments: binderInput.args });
       return { bound: true, args: bypass.args };
     }
-    // A genuine binder pass over the declared params: construct the per-loom
-    // three-arm envelope schema (§Binder envelope) and drive ONE user-visible
-    // streamed turn that instructs the model to bind the raw slash arguments
-    // into the params object, emitting ONLY the minified envelope JSON. Under
-    // `pi -p` the streamed assistant text prints on stdout, so the envelope is
-    // the first JSON object the acceptance runner observes (the binder runs
-    // before the loom body).
+    // A genuine binder pass over the declared params. DECISION (production
+    // conformance): the binder runs OFF-session and INVISIBLE — no user-visible
+    // streamed turn, no transcript card, and the envelope JSON NEVER reaches the
+    // user session (BND-3). It runs against the RESOLVED BINDER MODEL
+    // (`bind_model:` → `looms.binderModel`, resolved at load time and carried on
+    // the loom), NOT the ambient session model (DISCO-1 runtime facet). The
+    // reference is resolved to a concrete `Model<Api>` via the model registry
+    // by the same exact-match rule the load-time resolution used; a registered
+    // non-bypass loom always carries a resolvable binder model (an unresolvable
+    // one failed to load), so `model === undefined` is a defensive guard only.
+    const binderModelRef = binderInput.loom.binderModel;
+    const model =
+      binderModelRef !== undefined
+        ? matchAvailableModel(binderModelRef, this.#input.modelRegistry.getAvailable())
+        : undefined;
+    if (model === undefined) {
+      // Defensive (unreachable for a registered non-bypass loom): surface the
+      // malformed failure note rather than crash the dispatch, and do not run
+      // the body.
+      this.#emitBinderFailureNote(binderInput.loom.slashName, { kind: "malformed" });
+      return { bound: false };
+    }
     const envelopeSchema = buildBinderEnvelopeSchema({
       paramsSchema: params.loweredSchema,
       defaultedFields: params.defaultedFields,
@@ -347,20 +373,21 @@ class ProductionLoomProducer implements LoomProducerDeps {
       defaultedFields: params.defaultedFields,
       envelopeSchema,
     });
-    const text = await driveStreamedUserTurn({
-      pi: this.#input.pi,
-      ctx: binderInput.ctx,
-      clock: this.#input.root.clock,
-      queryText: prompt,
-      // The binder turn emits a structured envelope and calls no tools.
-      activeTools: [],
-    });
-    // The loom body runs only on the `ok` arm; `needs_info` / `ambiguous`
-    // short-circuit (the loom body never runs). A reply that does not parse as
-    // an envelope object also short-circuits rather than throwing, so the run
-    // still exits cleanly (the printed reply is what the runner scores). On the
-    // `ok` arm the parsed envelope's `args` object is threaded into body scope.
-    if (!isOkEnvelope(text)) {
+    // OFF-session completion via pi-ai `complete()` against the resolved binder
+    // model (never `driveStreamedUserTurn`, never `ctx.model`): the reply text
+    // is parsed as the envelope but is NEVER sent to the user session. Auth is
+    // resolved off the model registry and passed as request options — the
+    // out-of-band `complete()` free function does not inherit the session's
+    // resolved credentials, so an un-authed call would return an empty
+    // error-stop reply.
+    const text = await this.#completeBinderOffSession(model, prompt);
+    // Route on the parsed envelope. The loom body runs only on the `ok` arm; a
+    // `needs_info` / `ambiguous` / non-parse (malformed) reply emits the mapped
+    // failure-mode system note and short-circuits (the body never runs). The
+    // envelope text is runtime-internal and is never surfaced verbatim.
+    const reply = await parseBinderEnvelope(text);
+    if (reply.kind !== "ok") {
+      this.#emitBinderFailureNote(binderInput.loom.slashName, reply);
       return { bound: false };
     }
     // §Defaulting (defaulting-system-note-echo.md#post-default-merge-ajv-validation;
@@ -375,7 +402,115 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // single-string / no-params bypasses carry no defaults), so the bypass arms
     // above are intentionally left unchanged.
     const binderArgs = await parseOkEnvelopeArgs(text);
-    return { bound: true, args: await this.#mergeDeclaredDefaults(binderInput.loom, params, binderArgs) };
+    const mergedArgs = await this.#mergeDeclaredDefaults(binderInput.loom, params, binderArgs);
+    // §"Echo policy" (BND-1): on a successful bind the runtime appends the
+    // one-line success echo note (`Running /<name>: …`) on the loom-system-note
+    // channel immediately before the loom starts, UNLESS `bind_echo: false`. The
+    // bypass arms auto-suppress the echo independently and never reach here.
+    this.#emitBinderEchoNote(binderInput.loom, params, binderArgs, mergedArgs);
+    return { bound: true, args: mergedArgs };
+  }
+
+  /**
+   * §"Echo policy" success echo (BND-1): render and emit the one-line
+   * `Running /<name>: <formatted-args>` system note on the loom-system-note
+   * channel — the SAME `pi.sendMessage` delivery the SLSH-1 overflow / SNOTE-1
+   * notes use — unless `bind_echo:` is `false`. Each top-level `params:` field
+   * renders in declaration order; a field that took its declared default this
+   * run (absent from the binder-supplied `args`) is tagged `(default)`. The echo
+   * is rendered off the resolved runtime values (value-driven `EchoType`
+   * derivation, disambiguating `integer` vs `number` from the lowered schema)
+   * and passed through the shared 120-code-point cap.
+   */
+  #emitBinderEchoNote(
+    loom: ConversationBindInput["loom"],
+    params: NonNullable<ConversationBindInput["loom"]["frontmatter"]["params"]>,
+    binderArgs: Readonly<Record<string, unknown>>,
+    mergedArgs: Readonly<Record<string, unknown>>,
+  ): void {
+    if (loom.frontmatter.bindEcho === false) {
+      return;
+    }
+    const defaulted = new Set(params.defaultedFields);
+    const properties =
+      params.loweredSchema !== undefined
+        ? ((params.loweredSchema as Record<string, unknown>)["properties"] as
+            | Record<string, unknown>
+            | undefined)
+        : undefined;
+    const echoParams: EchoParam[] = params.fields.map((field) => {
+      const value = (mergedArgs[field.wireName] ?? null) as LoomValue;
+      // The `(default)` tag fires only when the field took its declared default
+      // this run (fill-if-absent): a wire name ABSENT from the binder-supplied
+      // args and declared defaulted.
+      const tookDefault =
+        defaulted.has(field.wireName) &&
+        !Object.prototype.hasOwnProperty.call(binderArgs, field.wireName);
+      return {
+        name: field.wireName,
+        value,
+        type: echoTypeFromValue(value, properties?.[field.wireName]),
+        tookDefault,
+      };
+    });
+    const content = capSystemNote(
+      renderArgumentEcho({ loomName: loom.slashName, params: echoParams }),
+    );
+    this.#input.pi.sendMessage(
+      {
+        customType: SYSTEM_NOTE_CHANNEL,
+        content,
+        display: true,
+        details: { event: {} },
+      },
+      { triggerTurn: false },
+    );
+  }
+
+  /**
+   * Drive the binder turn OFF-session via pi-ai `complete()` against the
+   * resolved binder `Model<Api>`, returning its assistant text. Resolves the
+   * model's request auth (apiKey / headers) off the injected model registry and
+   * passes it as request options; the binder's fixed `context.messages` is the
+   * rendered prompt as a single `user` message. No user-session turn, no
+   * transcript card — the reply is runtime-internal (BND-3).
+   */
+  async #completeBinderOffSession(model: Model<Api>, prompt: string): Promise<string> {
+    const auth = await this.#input.modelRegistry.getApiKeyAndHeaders(model);
+    const options: Record<string, unknown> = {};
+    if (auth.ok) {
+      if (auth.apiKey !== undefined) {
+        options["apiKey"] = auth.apiKey;
+      }
+      if (auth.headers !== undefined) {
+        options["headers"] = auth.headers;
+      }
+    }
+    const reply: AssistantMessage = await complete(
+      model,
+      { messages: [{ role: "user", content: prompt, timestamp: 0 }] },
+      options,
+    );
+    return assistantText(reply);
+  }
+
+  /**
+   * Emit the mapped binder failure-mode system note (BND-3) on the
+   * loom-system-note channel: `needs_info` / `ambiguous` render their
+   * fixed-phrase row with the model's message; a non-parse / empty-message reply
+   * is the malformed-envelope row (`could not parse arguments`). The raw
+   * envelope JSON is NEVER surfaced.
+   */
+  #emitBinderFailureNote(loomName: string, surface: BinderFailureSurface): void {
+    this.#input.pi.sendMessage(
+      {
+        customType: SYSTEM_NOTE_CHANNEL,
+        content: renderBinderSystemNote(loomName, surface),
+        display: true,
+        details: { event: {} },
+      },
+      { triggerTurn: false },
+    );
   }
 
   /**
@@ -1767,17 +1902,121 @@ function renderBinderTurnPrompt(input: {
 }
 
 /**
- * Whether the binder reply is the `ok` envelope arm (the loom body runs only on
- * `ok`; a `needs_info` / `ambiguous` reply short-circuits). This is a tolerant,
- * NON-throwing structural read of the `kind` discriminator on the streamed
- * reply text — never a `JSON.parse` (whose malformed-input throw would need a
- * forbidden broad `catch` here). The acceptance test performs the authoritative
- * envelope schema validation on the streamed JSON; this gate only routes
- * body-run vs short-circuit, so matching the `"kind":"ok"` discriminator on the
- * reply is sufficient and cannot throw.
+ * The routed classification of the off-session binder reply. `ok` runs the loom
+ * body; `needs_info` / `ambiguous` carry the model's message for their
+ * failure-mode note; `malformed` is a reply that does not parse as an envelope
+ * object, carries an out-of-set `kind`, or whose model message is empty after
+ * rule-1 stripping (§"System-note rendering" rule 4).
  */
-function isOkEnvelope(text: string): boolean {
-  return /"kind"\s*:\s*"ok"/.test(text);
+type BinderReplyRouting =
+  | { readonly kind: "ok" }
+  | { readonly kind: "needs_info"; readonly message: string }
+  | { readonly kind: "ambiguous"; readonly message: string }
+  | { readonly kind: "malformed" };
+
+/**
+ * Parse and route the off-session binder reply text, NON-throwing (it reuses the
+ * `V13e` `parseStructuredPayload` promise-rejection handler, never a broad
+ * `catch`). A reply that does not parse as a JSON object, carries a `kind`
+ * outside `ok | needs_info | ambiguous`, or whose `message` is empty after
+ * rule-1 stripping is routed to `malformed`. The parsed text is never surfaced
+ * verbatim to the user (BND-3) — only the routed note is.
+ */
+async function parseBinderEnvelope(text: string): Promise<BinderReplyRouting> {
+  const parse = await parseStructuredPayload(text);
+  if (!parse.parsed || typeof parse.value !== "object" || parse.value === null) {
+    return { kind: "malformed" };
+  }
+  const obj = parse.value as Record<string, unknown>;
+  const kind = obj["kind"];
+  if (kind === "ok") {
+    return { kind: "ok" };
+  }
+  if (kind === "needs_info" || kind === "ambiguous") {
+    const message = typeof obj["message"] === "string" ? (obj["message"] as string) : "";
+    // Rule 4: a message empty after rule-1 stripping is a malformed envelope,
+    // not an empty note.
+    if (classifyModelContent({ message }) === "empty-malformed") {
+      return { kind: "malformed" };
+    }
+    return { kind, message };
+  }
+  return { kind: "malformed" };
+}
+
+/**
+ * Derive the argument-echo `EchoType` for a bound value, VALUE-driven so it can
+ * never mismatch the value's runtime shape and crash the renderer. The lowered
+ * params property (when available) disambiguates `integer` from `number`; every
+ * other arm is decided from the runtime value. An enum value is a string at
+ * runtime and renders identically to a string through the quote predicate, so
+ * the `string` arm is used for it. Object fields are taken from the value's own
+ * keys in insertion order (declaration order for a binder-returned object).
+ */
+function echoTypeFromValue(value: LoomValue, property: unknown): EchoType {
+  if (typeof value === "string") {
+    return { kind: "string" };
+  }
+  if (typeof value === "number") {
+    return { kind: loweredSchemaKindIsInteger(property, value) ? "integer" : "number" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "boolean" };
+  }
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (Array.isArray(value)) {
+    const itemProp =
+      typeof property === "object" && property !== null
+        ? (property as Record<string, unknown>)["items"]
+        : undefined;
+    const element =
+      value.length > 0
+        ? echoTypeFromValue(value[0] as LoomValue, itemProp)
+        : ({ kind: "string" } as EchoType);
+    return { kind: "array", element };
+  }
+  // A plain object value: render by its own keys in insertion order.
+  const props =
+    typeof property === "object" && property !== null
+      ? ((property as Record<string, unknown>)["properties"] as
+          | Record<string, unknown>
+          | undefined)
+      : undefined;
+  const fields = Object.entries(value as Record<string, LoomValue>).map(
+    ([name, fieldValue]) => ({
+      name,
+      type: echoTypeFromValue(fieldValue, props?.[name]),
+    }),
+  );
+  return { kind: "object", fields };
+}
+
+/**
+ * Whether the lowered params property declares `integer` (BNDR-4 renders
+ * `integer` vs `number` from the static kind, never runtime integrality). Falls
+ * back to the runtime value's integrality when the property is unavailable.
+ */
+function loweredSchemaKindIsInteger(property: unknown, value: number): boolean {
+  if (typeof property === "object" && property !== null) {
+    const type = (property as Record<string, unknown>)["type"];
+    if (type === "integer") {
+      return true;
+    }
+    if (type === "number") {
+      return false;
+    }
+    if (Array.isArray(type)) {
+      if (type.includes("integer") && !type.includes("number")) {
+        return true;
+      }
+      if (type.includes("number")) {
+        return false;
+      }
+    }
+  }
+  return Number.isInteger(value);
 }
 
 /**

@@ -25,16 +25,42 @@ describe("discovery-dynamics hardening", () => {
 
   // ---- (1) binderModel resolution -----------------------------------------
 
-  it("DISCO-A: non-bypass loom, NO binderModel configured — does binder-model-unresolved fire?", async () => {
+  it("DISCO-A (FIXED): non-bypass loom, NO binderModel configured — binder-model-unresolved fires and the loom fails to load", async () => {
     const probe = await runProbe({
       provider,
       files: [{ source: "project", path: "needsbind.loom", text: NON_BYPASS_LOOM }],
     });
     try {
-      // BUG (DISCO-1): spec DISC-7/binder-model mandates a non-bypass loom with
-      // no bind_model and no looms.binderModel FAILS load with
-      // loom/load/binder-model-unresolved. Observed: it registers, no diagnostic.
-      expect(probe.registeredNames).toContain("needsbind");
+      // DISCO-1 FIXED. binder-model resolution is now wired into the shipped
+      // composition root: a non-bypass loom with no bind_model and no
+      // looms.binderModel FAILS load with loom/load/binder-model-unresolved
+      // (error, surfaced through ctx.ui.notify) and is NOT registered.
+      //   Before (buggy): registeredNames contained "needsbind"; diagnostics []
+      //     (binder-model resolution entirely unwired).
+      //   After (fixed):  registeredNames excludes "needsbind"; a
+      //     "binder model unresolved" error diagnostic is present.
+      expect(probe.registeredNames).not.toContain("needsbind");
+      expect(
+        probe.diagnostics.some((d) => d.message.includes("binder model unresolved")),
+      ).toBe(true);
+    } finally {
+      await probe.dispose();
+    }
+  });
+
+  it("DISCO-B (FIXED): non-bypass loom WITH looms.binderModel set — resolves and registers", async () => {
+    const probe = await runProbe({
+      provider,
+      files: [{ source: "project", path: "hasbind.loom", text: NON_BYPASS_LOOM }],
+      projectSettings: { looms: { binderModel: provider.modelId } },
+    });
+    try {
+      // DISCO-1 FIXED. With looms.binderModel set to a resolvable model, the
+      // two-step chain (bind_model: → looms.binderModel) resolves over the
+      // shared model matcher and the loom registers (the strict-capability
+      // probe is the universal-W branch under the Pi-SDK pin — a warning,
+      // suppressed by the error-only route, and the loom still registers).
+      expect(probe.registeredNames).toContain("hasbind");
       expect(
         probe.diagnostics.some((d) => d.message.includes("binder model unresolved")),
       ).toBe(false);
@@ -43,22 +69,7 @@ describe("discovery-dynamics hardening", () => {
     }
   });
 
-  it("DISCO-B: non-bypass loom WITH looms.binderModel set — registers?", async () => {
-    const probe = await runProbe({
-      provider,
-      files: [{ source: "project", path: "hasbind.loom", text: NON_BYPASS_LOOM }],
-      projectSettings: { looms: { binderModel: provider.modelId } },
-    });
-    try {
-      // Registers (as it would regardless of binderModel, since load-time
-      // binder-model resolution is unwired — see DISCO-1).
-      expect(probe.registeredNames).toContain("hasbind");
-    } finally {
-      await probe.dispose();
-    }
-  });
-
-  it("DISCO-A2: non-bypass looms with UNRESOLVABLE binder model (settings + bind_model) — fail load?", async () => {
+  it("DISCO-A2 (FIXED): non-bypass looms with UNRESOLVABLE binder model (settings + bind_model) — fail load", async () => {
     const viaSettings = NON_BYPASS_LOOM; // relies on looms.binderModel
     const viaFrontmatter = [
       "---",
@@ -79,12 +90,18 @@ describe("discovery-dynamics hardening", () => {
       projectSettings: { looms: { binderModel: "no-such-model-xyz-does-not-exist" } },
     });
     try {
-      // BUG (DISCO-1): both an unresolvable looms.binderModel AND a misspelled
-      // bind_model: referencing no available model are silently accepted.
-      expect(probe.registeredNames).toEqual(
-        expect.arrayContaining(["viafm", "viasettings"]),
-      );
-      expect(probe.diagnostics).toEqual([]);
+      // DISCO-1 FIXED. A bind_model / looms.binderModel reference matching no
+      // available model resolves to no model, so both looms FAIL load with
+      // loom/load/binder-model-unresolved and neither registers.
+      //   Before (buggy): both registered; diagnostics [].
+      //   After (fixed):  neither registers; a binder-model-unresolved error
+      //     diagnostic is present for each.
+      expect(probe.registeredNames).not.toContain("viafm");
+      expect(probe.registeredNames).not.toContain("viasettings");
+      expect(
+        probe.diagnostics.filter((d) => d.message.includes("binder model unresolved"))
+          .length,
+      ).toBeGreaterThanOrEqual(2);
     } finally {
       await probe.dispose();
     }

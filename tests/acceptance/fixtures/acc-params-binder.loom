@@ -1,14 +1,18 @@
 ---
 mode: prompt
-bind_model: claude-haiku-4-5
+bind_model: anthropic/claude-haiku-4-5
 params:
   topic: string
   count: number = 3
 ---
 // H9a acceptance area (d) — a params loom forcing a real binder pass.
 // Two `params:` fields (one defaulted) route to the binder (NOT a bypass), so a
-// genuine binder pass over the declared params runs before the body and streams
-// the three-arm binder envelope JSON as its user-visible turn. The body is a
-// pure-literal `respond`, which drives no streamed turn, so nothing else prints
-// a JSON object around the envelope.
+// genuine binder pass over the declared params runs before the body. DECISION
+// (production conformance): the binder runs OFF-session and INVISIBLE — its
+// three-arm envelope JSON is NEVER streamed to the user / stdout. On a
+// successful bind the observable proof is the `bind_echo` success note
+// (`Running /acc-params-binder: …`). The `bind_model:` is provider-qualified
+// (`anthropic/claude-haiku-4-5`) because the bare id can be ambiguous across
+// configured providers; a non-bypass loom with no resolvable binder model fails
+// to load. The body is a pure-literal `respond`.
 respond "ok"

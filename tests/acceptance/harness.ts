@@ -116,9 +116,13 @@ export interface FeatureInvariants {
    */
   readonly typedQuerySchema?: LoweredSchema;
   /**
-   * (d) The binder pass output must validate against the per-loom binder
-   * envelope schema. Present iff a binder pass fires; carries the inputs the
-   * envelope schema is constructed from.
+   * (d) DECISION (production conformance): the binder now runs OFF-session and
+   * INVISIBLE — its `ok | needs_info | ambiguous` envelope MUST NOT reach the
+   * user session / `pi -p` stdout (BND-3). On a successful bind the observable
+   * proof is instead the `bind_echo` success note (`Running /<stem>: …`).
+   * Present iff a binder pass fires; carries the per-loom envelope schema inputs
+   * used to detect a leak (any emitted envelope validating against it is a
+   * regression).
    */
   readonly binderEnvelope?: BuildBinderEnvelopeSchemaInput;
   /**

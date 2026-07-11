@@ -9,10 +9,12 @@ Driven through the SHIPPED extension against the LIVE model with
 `tests/hardening/session-binder.test.ts`
 (`npx vitest run --config vitest.hardening.config.ts tests/hardening/session-binder.test.ts`).
 
-Observation channels: `turn.userTexts` (the binder-prompt turn + the loom body's
-computed query — the body's `${param}` echo reveals what the binder extracted),
-`turn.systemNotes` (SLSH-1 overflow + binder notes), `turn.assistantText`
-(binder envelope leak, for confirming known state), `probe.registeredNames`,
+Observation channels: `turn.userTexts` (the loom body's computed query — the
+body's `${param}` echo reveals what the binder extracted; the binder now runs
+OFF-session and contributes NO user turn, so a bound single-query body shows
+exactly ONE user turn), `turn.systemNotes` (SLSH-1 overflow + the bind_echo
+success note + binder failure notes), `turn.assistantText` (asserted EMPTY of
+any leaked envelope on a non-binding arm — BND-3 FIXED), `probe.registeredNames`,
 `probe.diagnostics`.
 
 Because the binder is model-driven, only CLEAR mis-binding is reported (wrong
@@ -20,10 +22,10 @@ value / crash / dropped param / wrong default); a defensible model
 interpretation is not a finding.
 
 **Dedupe.** BND-1 (success echo never emitted) and BND-3 (failure-envelope leak)
-are KNOWN + deferred (need a design decision) in `cli-findings/binder.md` /
-`cli-findings/SUMMARY.md`; BND-2 (defaulted param → null) is FIXED. This pass
-confirms their current state briefly and does not re-report them. The finding
-below (BIND-1) is a distinct, previously-unreported defect.
+are now FIXED (Phase 1 production-conformance) in `cli-findings/binder.md`;
+BND-2 (defaulted param → null) is FIXED. The confirmations below record the
+fixed live-probe state. The finding below (BIND-1) is a distinct,
+previously-unreported defect (also FIXED).
 
 ---
 
@@ -46,12 +48,17 @@ below (BIND-1) is a distinct, previously-unreported defect.
 > `systemNotes == ["loom /triage: ignoring extra arguments — this loom takes no
 > parameters"]`. Schema `/shape …` → same false no-params note.
 >
-> **After (fixed, live probe)** `/triage …` → `turn.userTexts.length === 2`
-> (binder-prompt turn + body turn), body `TRI s=High`, `systemNotes == []`.
-> Schema `/shape …` → registers clean, `userTexts.length === 2`,
-> `systemNotes == []`. Mixed `sev: Severity, note: string | null` →
-> `TRI2 s=High n=the login page crashes on submit` (both bound, neither null),
-> `userTexts.length === 2`, no note. Regression cases (primitive multi-param,
+> **After (fixed, live probe)** — updated for the OFF-session binder (Phase 1):
+> the binder no longer drives a user-visible prompt turn, so a bound
+> single-query body shows `turn.userTexts.length === 1` (the body turn only),
+> and the loom sets `looms.binderModel` so it resolves a binder model. `/triage
+> …` → `userTexts.length === 1`, body `TRI s=High`, `systemNotes ==
+> ["Running /triage: sev=High"]` (the bind_echo success note). Schema `/shape
+> …` → registers clean, `userTexts.length === 1`, `systemNotes ==
+> ["Running /shape: p={hello, …}"]`. Mixed `sev: Severity, note: string | null`
+> → `TRI2 s=High n=the login page crashes on submit` (both bound, neither
+> null), `userTexts.length === 1`. No false SLSH-1 note in any case. Regression
+> cases (primitive multi-param,
 > string/boolean defaults, single-string bypass, `array<string>`,
 > `string | null`, no-params SLSH-1 control, key=value) unchanged. Verified by
 > `tests/hardening/session-binder.test.ts` (10/10 live probes green) and the
@@ -143,20 +150,24 @@ below (BIND-1) is a distinct, previously-unreported defect.
 
 ## Confirmations of KNOWN / deferred state (not re-reported)
 
-- **BND-1 (success echo never emitted) — confirmed still present.** The `greet`
-  loom (`bind_echo: true`, default) and the `forecast` loom bound successfully;
-  `turn.systemNotes` was `[]` in every success case — no `Running /<name>: …`
-  echo note. Matches `cli-findings/binder.md` BND-1 (deferred; needs a design
-  decision on binder-turn visibility). Not re-reported.
+- **BND-1 (success echo) — FIXED (live probe).** With `looms.binderModel` set
+  (`anthropic/claude-haiku-4-5`), the `greet` loom (`bind_echo: true`) now emits
+  `Running /greet: topic=cats, tone=neutral (default), verbose=false (default)`
+  and `forecast` emits `Running /forecast: city=Paris, days=3` on
+  `turn.systemNotes`. A `bind_echo: false` loom (`/geo`) emits no echo note.
+  Before: `turn.systemNotes` was `[]` in every success case. Matches the FIXED
+  `cli-findings/binder.md` BND-1.
 
-- **BND-3 (failure envelope leak) — confirmed still present.** The `register`
-  loom (`params: { name: string, age: integer }`) invoked as `/register` (no
-  bindable args) did NOT run its body (correct), but the binder's raw envelope
-  leaked verbatim as `turn.assistantText`:
-  `{"kind":"needs_info","message":"Please provide a name and age, e.g. /register
-  name=Alice age=30"}`, and `turn.systemNotes` was `[]` (the spec-mandated
-  `loom /register: argument binding needs more info — …` note was not emitted).
-  Matches `cli-findings/binder.md` BND-3 (deferred). Not re-reported.
+- **BND-3 (failure envelope leak) — FIXED (live probe).** The `register` loom
+  (`params: { name: string, age: integer }`) invoked as `/register` (no bindable
+  args) does NOT run its body (correct) and no longer leaks the envelope:
+  `turn.assistantText` is empty and `turn.systemNotes` carries
+  `loom /register: argument binding needs more info — Missing required
+  parameters: name (string), age (integer)`. Before: the raw
+  `{"kind":"needs_info",…}` envelope leaked as `assistantText` and `systemNotes`
+  was `[]`. Also note the binder now runs OFF-session, so a bound loom shows
+  ONE user turn (the body), not the pre-fix two (binder-prompt + body). Matches
+  the FIXED `cli-findings/binder.md` BND-3.
 
 ---
 

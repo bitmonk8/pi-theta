@@ -200,13 +200,24 @@ describe("H9a-T (c) typed query with an inline object type (QRY-22; Convention: 
 
 // ===========================================================================
 // (d) a params loom that forces a real BINDER pass.
-// A `params:` loom invoked with raw slash text drives a real binder pass; the
-// binder output MUST validate against the per-loom binder envelope schema
-// (the three-arm `ok | needs_info | ambiguous` envelope — structural validity).
+// A `params:` loom invoked with raw slash text drives a real binder pass.
+// DECISION (production conformance): the binder runs OFF-session and INVISIBLE
+// — its three-arm `ok | needs_info | ambiguous` envelope MUST NOT reach the user
+// session / `pi -p` stdout (BND-3). The invariant set is therefore: no-error
+// exit + codes ⊆ permitted, the envelope does NOT leak to stdout, and (on a
+// successful bind) the `bind_echo` success note `Running /<stem>: …` surfaces.
+//
+// WHY the contract changed: the pre-decision runBinder drove the binder as a
+// USER-VISIBLE streamed turn that printed the raw envelope JSON to stdout, and
+// this test asserted `validatesAgainstBinderEnvelope(parseEmittedJson(stdout))`.
+// The maintainer decision makes the binder invisible: the envelope is
+// runtime-internal and never surfaced, so the old assertion (envelope on stdout)
+// is now a LEAK detector rather than a success criterion — rewritten, not
+// weakened, to the correct post-decision contract.
 // ===========================================================================
 
-describe("H9a-T (d) params loom forcing a binder pass (binder envelope; Convention: Phase 1)", () => {
-  it("validates the binder pass output against the per-loom binder envelope schema", async () => {
+describe("H9a-T (d) params loom forcing an OFF-session binder pass (no envelope leak; Convention: Phase 1)", () => {
+  it("runs the binder off-session: no envelope leak to stdout, and a success echo note surfaces", async () => {
     const spec = featureLoom("params-binder");
     const loomPath = requireAuthoredLoom(spec);
     expect(loomPath).toBeDefined();
@@ -226,12 +237,30 @@ describe("H9a-T (d) params loom forcing a binder pass (binder envelope; Conventi
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
 
-    const value = parseEmittedJson(result.stdout);
-    const check = validatesAgainstBinderEnvelope(value, envelope);
+    // BND-3: the runtime-internal envelope must NEVER reach stdout. A parseable
+    // top-level object that validates against the per-loom envelope schema on
+    // stdout is a leak regression.
+    const leaked = parseEmittedJson(result.stdout);
+    const asEnvelope = validatesAgainstBinderEnvelope(leaked, envelope);
     expect(
-      check.ok,
-      `${spec.label}: binder pass output failed binder-envelope validation: ` +
-        `${JSON.stringify(check.errors)}. stdout: ${result.stdout}`,
+      asEnvelope.ok,
+      `${spec.label}: the off-session binder envelope leaked to stdout: ` +
+        `${result.stdout}`,
+    ).toBe(false);
+    expect(
+      /"kind"\s*:\s*"(ok|needs_info|ambiguous)"/.test(result.stdout),
+      `${spec.label}: a raw binder envelope discriminator leaked to stdout: ${result.stdout}`,
+    ).toBe(false);
+
+    // BND-1: on a successful bind the bind_echo success note surfaces (the
+    // observable proof of binding, replacing the old visible envelope). A
+    // non-binding arm would instead surface a `loom /<stem>: argument binding …`
+    // failure note; either way the raw envelope stays internal.
+    expect(
+      /Running \/acc-params-binder:/.test(result.stdout) ||
+        /loom \/acc-params-binder: argument binding/.test(result.stdout),
+      `${spec.label}: expected a bind_echo success note or a binder failure note ` +
+        `on stdout, got: ${result.stdout}`,
     ).toBe(true);
   });
 });

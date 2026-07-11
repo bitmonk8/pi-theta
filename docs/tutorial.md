@@ -111,7 +111,14 @@ New pieces:
 - `${path}` and `${audience}` interpolate those parameters into the query text.
   The interpoland renders by its Loom static type per the [template
   interpolation](./reference/frontmatter.md#template-interpolation) rules.
-- `bind_echo: true` prints a one-line envelope showing what the binder resolved,
+- `bind_model: claude-haiku` selects the model the binder runs against. A loom
+  with a multi-field `params:` block is **not** bypass-eligible, so it needs a
+  resolvable binder model — `bind_model:` here, or the project-wide
+  `looms.binderModel` setting. With neither resolvable the loom fails to load
+  with `loom/load/binder-model-unresolved` and its slash command is not
+  registered.
+- `bind_echo: true` (the default) emits a one-line **success echo note** showing
+  what the binder resolved, on the loom's system-note channel, immediately
   before the loom runs.
 
 Run it with an argument string:
@@ -120,16 +127,24 @@ Run it with an argument string:
 pi --loom docs/examples -p "/arg-binding README.md for new hires"
 ```
 
-Observed: exit 0. The bind echo is printed to stdout:
+Observed: exit 0. The binder runs **off-session and invisibly** — it dispatches
+against the resolved binder model out of band (no user-visible turn, no
+transcript card), and its internal `ok | needs_info | ambiguous` envelope is
+never surfaced to you. On a successful bind the observable proof is the
+`bind_echo` success note:
 
-```json
-{"kind":"ok","args":{"path":"README.md","audience":"new hires"}}
+```
+Running /arg-binding: path=README.md, audience="new hires"
 ```
 
-That envelope is the observable proof that the binder mapped the free-form string
-onto the two typed `params`. This loom is `mode: subagent`, so its trailing query
-runs inside an isolated conversation; the query's own turn is not on stdout, and
-the run ends at exit 0. The bind echo is the part you see.
+That note is the observable proof that the binder mapped the free-form string
+onto the two typed `params`; the raw envelope JSON stays runtime-internal. If the
+binder cannot bind (a missing required parameter, or a genuinely ambiguous
+argument string), it instead emits a one-line failure note
+(`loom /arg-binding: argument binding needs more info — …`) and the loom does not
+run. This loom is `mode: subagent`, so its trailing query also runs inside an
+isolated conversation; the query's own turn is not on stdout, and the run ends at
+exit 0.
 
 ## Step 3 — Return a typed value with a schema
 
@@ -295,7 +310,7 @@ reach a success terminal outcome (exit 0, no runtime panic).
 | Step | Example stem | Mode | Observable on stdout | Runtime status |
 |---|---|---|---|---|
 | 1 | `hello` | prompt | Streamed assistant turn (illustrative; model-generated, non-deterministic) | pass (exit 0) |
-| 2 | `arg-binding` | subagent | Bind echo `{"kind":"ok","args":{"path":"README.md","audience":"new hires"}}` | pass (exit 0) |
+| 2 | `arg-binding` | subagent | Bind echo note `Running /arg-binding: path=README.md, audience="new hires"` (the off-session binder's envelope is never surfaced) | pass (exit 0) |
 | 3 | `sentiment` | subagent | None on success (typed final value not on the `pi -p` text channel) | pass (exit 0) |
 | 4 | `call-tool` | subagent | None on success | pass (exit 0) |
 | 5 | `typed-return` | subagent (invokes `sentiment.loom`) | None on success (typed final value propagated across the subagent boundary, not to stdout) | pass (exit 0) |

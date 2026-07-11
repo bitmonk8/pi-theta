@@ -36,6 +36,7 @@ string params and echoes the bound values before running:
 description: "Summarise a file for a given audience"
 argument-hint: "<path> for <audience>"
 mode: subagent
+bind_model: claude-haiku
 bind_echo: true
 params:
   path: string
@@ -43,6 +44,11 @@ params:
 ---
 @`Summarise the file at ${path} for an audience of: ${audience}.`
 ```
+
+Because this loom's `params:` block is not bypass-eligible (two fields), it needs
+a resolvable binder model — `bind_model:` here, or `looms.binderModel` in
+settings. With neither resolvable the loom fails to load with
+`loom/load/binder-model-unresolved` and does not register.
 
 Run it:
 
@@ -52,11 +58,15 @@ pi --loom docs/examples -p "/arg-binding README.md for new hires"
 
 ## Result
 
-The binder maps `README.md for new hires` onto `{ path: "README.md", audience:
-"new hires" }`, AJV validates the envelope, and an echo system note summarises the
-bound arguments before the loom's query runs. Binding that cannot resolve the
-arguments does not run the loom — it surfaces a one-line system note in the
-session instead.
+The binder runs **off-session and invisibly** against the resolved binder model
+(no user-visible turn, no transcript card): it maps `README.md for new hires`
+onto `{ path: "README.md", audience: "new hires" }`, the runtime AJV-validates the
+merged args, and — with `bind_echo` on — an echo system note
+(`Running /arg-binding: path=README.md, audience="new hires"`) summarises the
+bound arguments before the loom's query runs. The binder's internal
+`ok | needs_info | ambiguous` envelope never reaches the session. Binding that
+cannot resolve the arguments does not run the loom — it surfaces a one-line
+failure note (`loom /arg-binding: argument binding needs more info — …`) instead.
 
 ## Reference
 

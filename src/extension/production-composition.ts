@@ -72,6 +72,12 @@ import {
 } from "./invoke-static-checks";
 import { checkLoomImports } from "./import-static-checks";
 import type { LoomMode } from "../parser/frontmatter";
+import {
+  matchAvailableModel,
+  resolveBinderModel,
+  type StrictCapableProbe,
+} from "../binder/binder-model";
+import { classifyBinderBypass } from "../binder/binder-envelope";
 import { createModelReferenceMatcher } from "./reload-wiring";
 import type { SystemNoteChannelDeps } from "./system-note-channel";
 import { SYSTEM_NOTE_CHANNEL } from "./system-note-channel";
@@ -192,6 +198,20 @@ export async function discoverAndComposeFixtures(
   const modelMatcher = createModelReferenceMatcher({
     getAvailable: () => ctx.modelRegistry.getAvailable() as never,
   });
+  // The merged `looms.binderModel` setting (chain step 2 of binder-model
+  // resolution). Threaded, alongside the shared `modelMatcher`, into every
+  // non-bypass loom's load-time binder-model resolution below.
+  const settingsBinderModel = settings.looms?.binderModel;
+  // The duck-typed strict-capability probe (binder-model-and-context.md
+  // #strict-capability-requirement): resolve the reference to a concrete
+  // `Model<Api>` and read `strictCapable`. Under the loom 1.0 Pi-SDK pin the
+  // field is absent on every model, so this is the universal-W branch and the
+  // loom still registers; the probe is short-circuited by `resolveBinderModel`
+  // when the reference resolves to no model.
+  const probeStrictCapable = (reference: string): StrictCapableProbe | undefined => {
+    const model = matchAvailableModel(reference, ctx.modelRegistry.getAvailable());
+    return model === undefined ? undefined : (model as unknown as StrictCapableProbe);
+  };
   const systemNote = buildSystemNoteDeps(pi, ctx, emitDiagnostic);
   const parseDeps = { systemNote, modelMatcher };
 
@@ -311,16 +331,50 @@ export async function discoverAndComposeFixtures(
       continue;
     }
 
+    // Binder-model resolution (binder-model-and-context.md §"Binder model"): a
+    // NON-bypass loom's binder model resolves at LOAD time from the two-step
+    // chain (`bind_model:` → `looms.binderModel`) over the SAME shared
+    // `modelMatcher` the `model:` resolution binds. A non-bypass loom whose
+    // chain resolves to no model fails to load with
+    // `loom/load/binder-model-unresolved` (E) — the diagnostic surfaces through
+    // `emitDiagnostic` and the loom does NOT register. Bypass-eligible looms
+    // (no-params / single-string) skip resolution entirely (they never call the
+    // binder). The resolved reference is carried onto the runnable loom so the
+    // runtime dispatches the binder OFF-session against it.
+    const bypassEligible =
+      classifyBinderBypass(input.frontmatter.params?.fields).kind !== "binder";
+    const binderModelResolution = resolveBinderModel({
+      file: input.sourcePath ?? input.slashName,
+      ...(input.frontmatter.bindModel !== undefined
+        ? { bindModel: input.frontmatter.bindModel }
+        : {}),
+      ...(settingsBinderModel !== undefined ? { settingsBinderModel } : {}),
+      bypassEligible,
+      matcher: modelMatcher,
+      probeStrictCapable,
+    });
+    for (const diagnostic of binderModelResolution.diagnostics) {
+      emitDiagnostic(diagnostic);
+    }
+    if (!binderModelResolution.resolved) {
+      // A non-bypass loom with no resolvable binder model fails to load.
+      continue;
+    }
+
     // Thread the frozen callable-set snapshot resolved above onto the runnable
     // loom so the runtime enforces the per-loom `tools:` set (QTL-2: code-driven
     // calls dispatch only through a held reference; QTL-4: prompt-mode query
     // turns install exactly this set's underlying Pi-tool names as the model's
-    // active tools).
+    // active tools), plus the resolved binder-model reference (absent for a
+    // bypass-eligible loom).
     const composedInput: LoomCompositionInput = {
       ...input,
       ...(importCheck.imports.length > 0 ? { imports: importCheck.imports } : {}),
       ...(toolResult.callableSet !== undefined
         ? { callableSet: toolResult.callableSet }
+        : {}),
+      ...(binderModelResolution.binderModel !== undefined
+        ? { binderModel: binderModelResolution.binderModel }
         : {}),
     };
     fixtures.push(composeLoomFixture(composedInput, producerDeps));

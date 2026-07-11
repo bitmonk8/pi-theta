@@ -81,6 +81,18 @@ export interface ParsedLoom {
    */
   readonly callableSet?: CallableSetSnapshot;
   /**
+   * The binder-model reference resolved at load time from the two-step chain
+   * (`bind_model:` → `looms.binderModel`) via `resolveBinderModel`
+   * (binder-model-and-context.md §"Binder model"). Present for a registered
+   * non-bypass loom whose binder model resolved (a non-bypass loom with no
+   * resolvable binder model fails to load and never reaches here); absent for a
+   * bypass-eligible loom (no-params / single-string), which never calls the
+   * binder. The runtime binder dispatch resolves this reference to a concrete
+   * `Model<Api>` via the model registry and drives the binder OFF-session
+   * against it.
+   */
+  readonly binderModel?: string;
+  /**
    * The per-loom runnable the `V19e` composition producer composes: it runs the
    * binder (when applicable) and then drives `V19d`'s effectful executor against
    * the mode's conversation. `H8a`'s `session_start` handler registers this as

@@ -99,6 +99,36 @@ export interface StrictCapableProbe {
   readonly strictCapable?: boolean;
 }
 
+// --- concrete-model resolution (reference → Model<Api>) ----------------------
+
+/**
+ * Match a resolved binder-model reference string to a single concrete available
+ * model, by the same exact-match rule
+ * (binder-model-and-context.md#binder-model-parse-rule) the shared
+ * `ModelReferenceMatcher` applies: a bare `modelId` matches each available
+ * model's `id`; a `provider/modelId` reference matches the short provider-id
+ * `provider` plus `id`. Returns the single matched model, or `undefined` when
+ * zero or more than one available model matches (the load-time resolver already
+ * decided such a reference resolves to no model). Generic over the model shape
+ * so both the strict-capability probe and the runtime binder dispatch reuse it
+ * against `ctx.modelRegistry.getAvailable()`.
+ */
+export function matchAvailableModel<M extends { readonly id: string; readonly provider: string }>(
+  reference: string,
+  available: readonly M[],
+): M | undefined {
+  const slash = reference.indexOf("/");
+  const matches =
+    slash >= 0
+      ? available.filter(
+          (m) =>
+            m.provider === reference.slice(0, slash) &&
+            m.id === reference.slice(slash + 1),
+        )
+      : available.filter((m) => m.id === reference);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 // --- single-loom binder-model resolution ------------------------------------
 
 /** Inputs to binder-model resolution for a single loom load. */

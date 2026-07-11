@@ -2,6 +2,7 @@
 description: "Summarise a file for a given audience"
 argument-hint: "<path> for <audience>"
 mode: subagent
+bind_model: claude-haiku
 bind_echo: true
 params:
   path: string

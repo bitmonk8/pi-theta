@@ -5,15 +5,19 @@ import { requireLiveProvider, runProbe, type PlantedFile } from "./probe-harness
 // (docs/spec_topics/binder.md + binder/*, docs/reference/frontmatter.md,
 // docs/reference/discovery-cli.md §Slash-command invocation / SLSH-1).
 //
-// Observation: the binder is model-driven and drives a user-visible turn, then
-// the loom body runs. `turn.userTexts` contains BOTH the binder prompt AND the
-// body's computed query — we grep the body's sentinel echo line (distinct
-// prefix) to read what the binder extracted into `params`. `turn.systemNotes`
-// carries the SLSH-1 overflow note and (per spec) the bind_echo / failure notes.
+// Observation: DECISION (production conformance) — the binder now runs
+// OFF-session and INVISIBLE: it dispatches via pi-ai `complete()` against the
+// resolved binder model, adds NO user-visible turn, and its envelope JSON never
+// reaches the user session. So `turn.userTexts` contains ONLY the loom body's
+// computed query (length 1 for a single-query body) — NOT a binder-prompt turn.
+// We grep the body's sentinel echo line to read what the binder extracted into
+// `params`. `turn.systemNotes` carries the SLSH-1 overflow note, the bind_echo
+// success echo (BND-1), and the needs_info/ambiguous failure notes (BND-3).
 //
-// Dedupe: BND-1 (success echo never emitted) / BND-3 (failure envelope leak)
-// are KNOWN + deferred (need a design decision); BND-2 (defaulted param → null)
-// is FIXED. We confirm current state briefly, do not re-report the leak.
+// Dedupe: BND-1 (success echo) / BND-3 (failure-envelope leak) are now FIXED
+// (this pass); BND-2 (defaulted param → null) is FIXED. A non-bypass loom now
+// requires a resolvable binder model (bind_model: or looms.binderModel) or it
+// FAILS to load (DISCO-1); these probes set looms.binderModel via projectSettings.
 //
 // Model latitude: the binder is an LLM. Only CLEAR mis-binding (wrong value,
 // crash, dropped param, wrong default) is a finding — not a defensible model
@@ -29,6 +33,16 @@ describe("binder — typed-param extraction from free-form slash args", () => {
       text: ["---", `description: ${name}`, "mode: prompt", ...extraFm, "---", body].join("\n"),
     };
   }
+
+  // A non-bypass loom needs a resolvable binder model at load time (DISCO-1) or
+  // it fails to load. Pin the provider-qualified cli-findings binder model
+  // `anthropic/claude-haiku-4-5` — the bare id is ambiguous across providers
+  // (anthropic + two local gateways), so the qualified form is required to
+  // resolve to exactly one model (binder-model-parse-rule). It is distinct from
+  // the session/prompt model the harness drives (opus), so this doubles as the
+  // DISCO-1 runtime-facet check that the binder runs against the RESOLVED binder
+  // model, not the ambient session model. Bypass looms ignore this setting.
+  const binderModelSettings = { looms: { binderModel: "anthropic/claude-haiku-4-5" } };
 
   const bodyLine = (probe: { turns: readonly { userTexts: readonly string[] }[] }, i: number): string =>
     probe.turns[i]?.userTexts.join("\n") ?? "";
@@ -48,6 +62,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
             ["params:", "  city: string", "  days: integer"],
           ),
         ],
+        projectSettings: binderModelSettings,
         drives: [
           "/forecast weather in Paris for three days",
           "/forecast weather in Paris for 3 days",
@@ -95,6 +110,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
             ],
           ),
         ],
+        projectSettings: binderModelSettings,
         drives: ["/greet cats"],
       });
       try {
@@ -108,6 +124,15 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         // Omitted string default fills to "neutral"; omitted boolean default to false.
         expect(body).toContain("tone=neutral");
         expect(body).toContain("v=false");
+        // BND-1 FIXED: bind_echo:true (default) now emits the one-line success
+        // echo note (`Running /greet: …`) on the loom-system-note channel before
+        // the body runs. Before (buggy): systemNotes was [] on every success.
+        expect(
+          (t?.systemNotes ?? []).some((n) => n.startsWith("Running /greet:")),
+        ).toBe(true);
+        // The binder is OFF-session: exactly one user turn (the body), no binder
+        // prompt turn.
+        expect(t?.userTexts.length).toBe(1);
       } finally {
         await probe.dispose();
       }
@@ -128,6 +153,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
             ["params:", "  name: string", "  age: integer"],
           ),
         ],
+        projectSettings: binderModelSettings,
         drives: ["/register"],
       });
       try {
@@ -139,6 +165,15 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         console.log("BIND failure assistantText:", JSON.stringify(t?.assistantText?.slice(0, 200)));
         // The loom body must not run when required params cannot be bound.
         expect(body).not.toContain("REGRAN");
+        // BND-3 FIXED: the runtime-internal envelope never leaks to the user
+        // session (no `"kind"` discriminator in the streamed assistant text), and
+        // the non-binding arm emits a formatted `loom /register:` failure note
+        // (needs_info / ambiguous) instead of the raw envelope. Before (buggy):
+        // assistantText was the raw `{"kind":"needs_info",…}` and systemNotes [].
+        expect(t?.assistantText ?? "").not.toContain('"kind"');
+        expect(
+          (t?.systemNotes ?? []).some((n) => n.startsWith("loom /register:")),
+        ).toBe(true);
       } finally {
         await probe.dispose();
       }
@@ -193,6 +228,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
             ["params:", "  sev: Severity"],
           ),
         ],
+        projectSettings: binderModelSettings,
         drives: ["/triage the login page crashes on submit, high severity"],
       });
       try {
@@ -204,9 +240,10 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         console.log("BIND enum body:", JSON.stringify(body.match(/TRI[^\n]*/)?.[0]));
         console.log("BIND enum nUserTexts:", t?.userTexts.length);
         console.log("BIND enum systemNotes:", JSON.stringify(t?.systemNotes));
-        // Binder ran (binder-prompt turn + body turn) and the enum bound to a
-        // valid variant — never the no-params-misclassification null.
-        expect(t?.userTexts.length).toBe(2);
+        // Binder ran OFF-session (no binder-prompt user turn) and the enum bound
+        // to a valid variant — never the no-params-misclassification null. Exactly
+        // one user turn (the body).
+        expect(t?.userTexts.length).toBe(1);
         expect(body).toMatch(/TRI s=(High|Low)\b/);
         expect(body).not.toContain("TRI s=null");
         expect((t?.systemNotes ?? []).join("\n")).not.toContain("this loom takes no parameters");
@@ -230,6 +267,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
       const probe = await runProbe({
         provider,
         files: [loom("shape", "schema P { a: string }\n@`Reply with exactly: OK. SHAPERAN`", ["params:", "  p: P"])],
+        projectSettings: binderModelSettings,
         drives: ["/shape make a equal to hello"],
       });
       try {
@@ -239,11 +277,12 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         console.log("BIND schema-param diagnostics:", JSON.stringify(probe.diagnostics));
         console.log("BIND schema-param nUserTexts:", t?.userTexts.length);
         console.log("BIND schema-param systemNotes:", JSON.stringify(t?.systemNotes));
-        // Registers clean, and the binder runs (no no-params misclassification):
-        // a binder-prompt turn precedes the constant body turn, and no false note.
+        // Registers clean (the binder-model strict-capability-unknown warning is
+        // suppressed by the error-only route), and the binder runs OFF-session:
+        // exactly one user turn (the constant body), no false SLSH-1 note.
         expect(probe.registeredNames).toContain("shape");
         expect(probe.diagnostics).toHaveLength(0);
-        expect(t?.userTexts.length).toBe(2);
+        expect(t?.userTexts.length).toBe(1);
         expect((t?.systemNotes ?? []).join("\n")).not.toContain("this loom takes no parameters");
       } finally {
         await probe.dispose();
@@ -268,6 +307,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
             ["params:", "  sev: Severity", "  note: string | null"],
           ),
         ],
+        projectSettings: binderModelSettings,
         drives: ["/triage2 the login page crashes on submit, high severity"],
       });
       try {
@@ -277,7 +317,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         console.log("BIND mixed body:", JSON.stringify(body.match(/TRI2[^\n]*/)?.[0]));
         console.log("BIND mixed nUserTexts:", t?.userTexts.length);
         console.log("BIND mixed systemNotes:", JSON.stringify(t?.systemNotes));
-        expect(t?.userTexts.length).toBe(2);
+        expect(t?.userTexts.length).toBe(1);
         expect(body).toMatch(/TRI2 s=(High|Low)\b/);
         expect(body).not.toContain("s=null");
         expect((t?.systemNotes ?? []).join("\n")).not.toContain("this loom takes no parameters");
@@ -296,6 +336,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
       const probe = await runProbe({
         provider,
         files: [loom("annotate", "@`Reply with exactly: OK. ANN n=${note}`", ["params:", "  note: string | null"])],
+        projectSettings: binderModelSettings,
         drives: ["/annotate add a note about the crash"],
       });
       try {
@@ -303,9 +344,9 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         if (t?.error !== undefined) throw new Error(`transport/drive error: ${t.error}`);
         console.log("BIND nullable nUserTexts:", t?.userTexts.length);
         console.log("BIND nullable body:", JSON.stringify(bodyLine(probe, 0).match(/ANN[^\n]*/)?.[0]));
-        // Binder ran (binder-prompt turn + body turn) and the param is not the
-        // no-params-misclassification null: it carries the bound string.
-        expect(t?.userTexts.length).toBe(2);
+        // Binder ran OFF-session and the param is not the no-params-
+        // misclassification null: it carries the bound string. One user turn.
+        expect(t?.userTexts.length).toBe(1);
         expect(bodyLine(probe, 0)).toMatch(/ANN n=\S/);
         expect((t?.systemNotes ?? []).join("\n")).not.toContain("this loom takes no parameters");
       } finally {
@@ -353,6 +394,7 @@ describe("binder — typed-param extraction from free-form slash args", () => {
             ["bind_echo: false", "params:", "  city: string", "  country: string"],
           ),
         ],
+        projectSettings: binderModelSettings,
         drives: ["/geo city=Paris country=France"],
       });
       try {
@@ -363,6 +405,11 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         console.log("BIND keyvalue systemNotes(bind_echo:false):", JSON.stringify(t?.systemNotes));
         // Loosely: some binding must reach the body (body ran with two params).
         expect(body).toMatch(/GEO c=/);
+        // bind_echo:false suppresses the success echo note (BND-1): no
+        // `Running /geo:` note is emitted even on a successful bind.
+        expect(
+          (t?.systemNotes ?? []).some((n) => n.startsWith("Running /geo:")),
+        ).toBe(false);
       } finally {
         await probe.dispose();
       }

@@ -117,6 +117,13 @@ export interface ParsedFrontmatter {
    */
   readonly bindModel?: string;
   /**
+   * The `bind_echo:` flag (defaulting-system-note-echo.md §"Echo policy";
+   * default `true`). Present only when explicitly declared as a boolean; the
+   * binder pass suppresses the success echo when this is `false` (the bypass
+   * arms auto-suppress independently). Absent → the default-on behaviour.
+   */
+  readonly bindEcho?: boolean;
+  /**
    * The lowered `params:` schema + bypass inputs, present iff the loom declares
    * a `params:` block. Consumed by the binder pass to classify bypass and build
    * the per-loom envelope schema.
@@ -678,6 +685,7 @@ export function parseFrontmatter(
   let bindContextValue: string | undefined;
   let bindContextRange: SourceRange | undefined;
   let bindModelValue: string | undefined;
+  let bindEchoValue: boolean | undefined;
   let toolLoopNode: Node | null | undefined;
   let respondRepairNode: Node | null | undefined;
   let paramsNode: Node | null | undefined;
@@ -721,6 +729,13 @@ export function parseFrontmatter(
         bindModelValue = isScalar(item.value)
           ? String(item.value.value)
           : undefined;
+        continue;
+      }
+      if (key === "bind_echo") {
+        // §"Echo policy": `bind_echo:` (`true` | `false`; default `true`). Only a
+        // boolean scalar is captured; a non-boolean value leaves the default-on
+        // behaviour (the dedicated no-params / bypass warnings are out of scope).
+        bindEchoValue = typeof rawValue === "boolean" ? rawValue : undefined;
         continue;
       }
       if (key === "params") {
@@ -991,6 +1006,7 @@ export function parseFrontmatter(
     mode: modeValue as LoomMode,
     ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
     ...(bindModelValue !== undefined ? { bindModel: bindModelValue } : {}),
+    ...(bindEchoValue !== undefined ? { bindEcho: bindEchoValue } : {}),
     ...(params !== undefined ? { params } : {}),
     toolLoop,
     respondRepair,

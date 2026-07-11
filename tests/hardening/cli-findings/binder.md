@@ -11,20 +11,42 @@ path is passed to the Windows `pi.exe` verbatim and silently matches nothing
 (the loom never registers; the raw `/stem` text is sent to the model). All repros
 below use a **repo-relative** `--loom ./dir` path, which works.
 
-Shared root cause. All three findings trace to the production binder path
+> **STATUS: BND-1 and BND-3 FIXED** (Phase 1 production-conformance). The
+> genuine binder pass in `src/extension/production-loom-producer.ts` `runBinder`
+> now runs OFF-session and INVISIBLE via pi-ai `complete()` against the RESOLVED
+> binder model (`bind_model:` → `looms.binderModel`), not a user-visible streamed
+> turn against `ctx.model`. On a successful bind it emits the `renderArgumentEcho`
+> success echo note (BND-1) unless `bind_echo: false`; on a non-binding
+> (`needs_info` / `ambiguous` / malformed) reply it emits the mapped
+> `renderBinderSystemNote` failure note (BND-3) and the body does not run. The
+> envelope JSON never reaches the user session. BND-2 was already fixed. See the
+> per-finding before/after below and `session-findings/binder.md`.
+
+Shared root cause. All three findings traced to the production binder path
 (`src/extension/production-loom-producer.ts` `runBinder` →
-`parseOkEnvelopeArgs`): on a non-bypass loom the runtime renders a binder prompt,
-dispatches it as an ordinary **on-session** agent turn, then returns
+`parseOkEnvelopeArgs`): on a non-bypass loom the runtime rendered a binder prompt,
+dispatched it as an ordinary **on-session** agent turn, then returned
 `{ bound: true, args: <the reply's `args` object, extracted verbatim> }`. The
 entire spec-mandated post-binder pipeline — the success echo note, the
 default-merge, the post-merge AJV validation, and the `needs_info`/`ambiguous`
-→ system-note rendering with envelope suppression — is absent from the shipped
+→ system-note rendering with envelope suppression — was absent from the shipped
 composition. (The single-string and no-params bypasses, and the SLSH-1 overflow
-note, *are* correctly wired — verified below.)
+note, *are* correctly wired — verified below.) The Phase 1 fix wires the whole
+pipeline; BND-1/BND-3 are now FIXED.
 
 ---
 
-## FINDING BND-1: `bind_echo` success echo note is never emitted
+## FINDING BND-1 (FIXED): `bind_echo` success echo note is never emitted
+
+> **FIXED.** `runBinder` now calls `renderArgumentEcho` on the OK arm (unless
+> `bind_echo: false`) and delivers it on the `loom-system-note` channel.
+> **Before:** the BND-1 two-string-param loom bound `{path, audience}`, the body
+> ran, and the run emitted zero `loom-system-note` messages (no `Running /`
+> echo). **After (live probe, `session-binder.test.ts`):** the same loom (with
+> `looms.binderModel` set) emits `Running /forecast: city=Paris, days=3` /
+> `Running /greet: topic=cats, tone=neutral (default), verbose=false (default)`
+> on `systemNotes`, with `(default)` tagging on default-filled fields; a
+> `bind_echo: false` loom (`/geo`) emits no echo note.
 
 - repro:
   ```loom
@@ -96,7 +118,17 @@ note, *are* correctly wired — verified below.)
 
 ---
 
-## FINDING BND-3: on `needs_info`/`ambiguous`, the raw binder envelope JSON leaks to the user and no failure note is emitted
+## FINDING BND-3 (FIXED): on `needs_info`/`ambiguous`, the raw binder envelope JSON leaks to the user and no failure note is emitted
+
+> **FIXED.** The binder runs off-session, so its envelope never reaches the user
+> session; a non-binding reply now emits the mapped failure-mode note via
+> `renderBinderSystemNote` and the body does not run. **Before:** `/register`
+> (no bindable args) left the raw `{"kind":"needs_info","message":…}` as the
+> assistant reply on stdout and emitted zero `loom-system-note` messages.
+> **After (live probe):** `/register` yields `assistantText === ""` (no envelope
+> leak) and `systemNotes` carries
+> `loom /register: argument binding needs more info — Missing required
+> parameters: name (string), age (integer)`; the body does not run.
 
 - repro: the BND-1 two-param loom, invoked with arguments that cannot fill the
   required params:
