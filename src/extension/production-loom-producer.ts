@@ -19,7 +19,6 @@
 // binder/binder-model-and-context.md, subagent.md.
 
 import type {
-  AgentSession,
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
@@ -36,15 +35,17 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   attachSubagentAbortForwarding,
-  awaitTerminalAgentEnd,
-  extractSubagentQueryResult,
   makeIdempotentDispose,
-  type AgentEndEvent,
-  type GlobalEventBus,
-  type SubagentEventSource,
-  type SubagentSessionEvent,
 } from "../runtime/subagent-isolation";
-import type { Api, AssistantMessage, Message, Model } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  Message,
+  Model,
+  Tool,
+  ToolCall,
+  ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai";
 import type { Clock } from "../seams/clock";
 import type { RuntimeRoot } from "../runtime-root";
@@ -85,6 +86,7 @@ import type {
   CodeSideToolCall,
   ToolLoweringSink,
 } from "../runtime/tool-call-execute";
+import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
 import type { InvokeInfraError } from "../runtime/query-error";
@@ -929,6 +931,120 @@ class ProductionLoomProducer implements LoomProducerDeps {
     }
     const toolNames = customTools.map((definition) => definition.name);
 
+    // STAGE A (STL-2 / ceiling #2): the loom OWNS the subagent's model tool
+    // loop. The model-facing tool schemas (SUBAG-2 callable set) conveyed on
+    // every `complete()` turn are the loom's frozen callable-set Pi-tool
+    // entries, presented under their post-rename callable-set name (the name
+    // the model calls and `#resolvePiToolForLoom` resolves), with the
+    // description/parameters taken from the SUBAG-2 `customTools` lowering
+    // (matched by the underlying Pi-tool name). A loom with no snapshot (an
+    // in-memory fixture) presents no tool schemas — the model cannot make a
+    // tool call, mirroring the pre-`tools:` behaviour.
+    const toolSchemas: Tool[] = [];
+    const callableSet = loom.callableSet;
+    if (callableSet !== undefined) {
+      for (const [presentedName, entry] of callableSet.entries) {
+        if (entry.kind !== "pi-tool") {
+          continue;
+        }
+        const underlying = (entry.toolDefinition as PiToolDispatch).toolName;
+        const definition = customTools.find((tool) => tool.name === underlying);
+        if (definition === undefined) {
+          continue;
+        }
+        toolSchemas.push({
+          name: presentedName,
+          description: definition.description,
+          parameters: definition.parameters,
+        });
+      }
+    }
+
+    // STAGE A: execute ONE model tool call through the loom's callable set,
+    // reusing the SAME `#resolvePiToolForLoom` / `execute` path the code-driven
+    // `<name>(args)` calls use, and lower the outcome to the tool-result message
+    // fed back on the next `complete()` turn. A clean resolve lowers to the
+    // V14g filter/join text; an `execute()` throw lowers to the V14g execution
+    // message on an `isError` result so the model observes the failure and the
+    // loop continues (ceiling #4 model-driven row). A name outside the callable
+    // set is an unavailable-tool `isError` result — ambient tools are never
+    // inherited (frontmatter.md §`tools:`).
+    const executeSubagentTool = async (
+      call: ToolCall,
+      toolSignal: AbortSignal,
+    ): Promise<ToolResultMessage> => {
+      const dispatch = this.#resolvePiToolForLoom(loom, call.name);
+      if (dispatch === undefined) {
+        return subagentToolResult(
+          call,
+          `tool '${call.name}' is not available in this loom's callable set`,
+          true,
+        );
+      }
+      try {
+        const envelope = await dispatch.execute(call.id, call.arguments, toolSignal);
+        return subagentToolResult(call, filterJoinToolText(envelope.content), false);
+      } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — execute() throw lowered to an error tool-result
+        // A model-driven tool `execute()` throw is fed back as an `isError`
+        // tool-result (ceiling #4 model-driven row); the loop continues under
+        // the same `tool_loop.max_rounds` cap.
+        return subagentToolResult(call, lowerToolExecuteThrow(thrown, call.name).message, true);
+      }
+    };
+
+    // STAGE A: the out-of-band `complete()` free function does NOT inherit the
+    // session's request auth, so — exactly as the binder off-session path does —
+    // resolve the model's `apiKey` / `headers` off the injected model registry
+    // and pass them as request options. Resolved lazily (only when a query
+    // actually issues a completion) and cached, so a `max_rounds: 0` query (no
+    // provider turn) and a pre-dispatch cancel never touch the registry.
+    let cachedAuthOptions: Record<string, unknown> | undefined;
+    const resolveAuthOptions = async (): Promise<Record<string, unknown>> => {
+      if (cachedAuthOptions !== undefined) {
+        return cachedAuthOptions;
+      }
+      const options: Record<string, unknown> = {};
+      const auth = await modelRegistry.getApiKeyAndHeaders(model);
+      if (auth.ok) {
+        if (auth.apiKey !== undefined) {
+          options["apiKey"] = auth.apiKey;
+        }
+        if (auth.headers !== undefined) {
+          options["headers"] = auth.headers;
+        }
+      }
+      cachedAuthOptions = options;
+      return options;
+    };
+
+    // STAGE A: issue ONE model completion via pi-ai `complete()` against the
+    // resolved subagent model, seeding the completion context with the loom's
+    // rendered `system:` prompt (SUBAG-1) and the loom's callable-set tool
+    // schemas (SUBAG-2), and threading `loomAbort.signal` (CANCEL-2/4). The
+    // private conversation `messages` are owned by the query driver and
+    // discarded with the invocation (subagent isolation). The provider Promise
+    // carries the construction-site swallowing handler so a late rejection after
+    // a cancellation checkpoint is absorbed (CANCEL-3).
+    const runCompletion = async (
+      messages: readonly Message[],
+      completionSignal: AbortSignal,
+    ): Promise<AssistantMessage> => {
+      const authOptions = await resolveAuthOptions();
+      return guardQueryProviderPromise(
+        complete(
+          model,
+          {
+            ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+            messages: [...messages],
+            ...(toolSchemas.length > 0 ? { tools: [...toolSchemas] } : {}),
+          },
+          { ...authOptions, signal: completionSignal },
+        ),
+        signalGuard(completionSignal),
+        noopSwallowChannels(),
+      );
+    };
+
     // PIC-23 spawn: an isolated in-memory `AgentSession`. A loom-suppressing
     // `DefaultResourceLoader` (no extensions/skills/prompts/themes/context files)
     // is used deliberately: it prevents the spawned session from re-loading this
@@ -978,26 +1094,27 @@ class ProductionLoomProducer implements LoomProducerDeps {
       file: loom.slashName,
       evaluatePure: (expr, env) => evaluatePureExpression(expr, env),
       resolveQuery: (expr, env) => {
-        // A subagent `@`-query drives the freshly spawned private session via
-        // `V9i`'s compliant completion driver: send the rendered query as one
-        // real turn, await the terminal `agent_end`, and map
-        // `extractSubagentQueryResult` onto the query loop's terminating turn.
-        // A typed query conveys the declared JSON shape and parses the extracted
-        // structured payload so a typed return crosses the subagent boundary
-        // (FN-5); the `maxRounds: 0` boundary routes it straight to the
+        // STAGE A: a subagent `@`-query is driven as a LOOM-OWNED round-by-round
+        // tool loop through the existing `runUntypedQueryLoop` /
+        // `runTypedQueryLoop` machinery, which enforces `tool_loop.max_rounds`
+        // and surfaces `Err(tool_loop_exhausted)` on exhaustion (ceiling #2 /
+        // FRNT-1). Each free-phase round is ONE `complete()` turn against the
+        // resolved subagent model; the loop — not the SDK's opaque internal
+        // agentic loop — decides whether to advance another round. A typed query
+        // conveys the declared JSON shape on its forced-respond terminator and
+        // parses the structured payload so a typed return crosses the subagent
+        // boundary (FN-5); the `maxRounds: 0` boundary routes it straight to the
         // forced-respond terminator, mirroring the prompt-mode typed path.
         const typed = expr.schema !== null;
-        // QRY-22: a typed subagent query drives respond-repair follow-ups as new
-        // user turns against the SAME private session (never re-issuing the
-        // original query), extracting each follow-up's reply text.
-        const driveFollowUp = async (prompt: string): Promise<string> => {
-          const terminal = await driveSubagentTurn(session, prompt);
-          const followUp = extractSubagentQueryResult(terminal, {
-            aborted: loomAbort.signal.aborted,
-            provider: String(model.provider),
-          });
-          return followUp.ok ? followUp.value : "";
-        };
+        // QRY-22: a typed subagent query drives respond-repair follow-ups as
+        // fresh auth-aware `complete()` turns against the resolved model
+        // (mirroring the prompt-mode off-session follow-up), never re-issuing the
+        // original query. Threads `loomAbort.signal` so an abort propagates.
+        const driveFollowUp = (prompt: string): Promise<string> =>
+          runCompletion(
+            [{ role: "user", content: prompt, timestamp: 0 }],
+            loomAbort.signal,
+          ).then(assistantText);
         const validation = typed
           ? this.#buildTypedValidation(expr, env, loom, driveFollowUp)
           : undefined;
@@ -1007,8 +1124,9 @@ class ProductionLoomProducer implements LoomProducerDeps {
           // the empty-template short-circuit is evaluated over before any turn.
           renderedText: renderQueryText(expr, env),
           model: createSubagentQueryModel({
-            driveTurn: () =>
-              driveSubagentTurn(session, renderTypedAwareQueryText(expr, env, validation?.lowered)),
+            queryText: renderTypedAwareQueryText(expr, env, validation?.lowered),
+            runCompletion,
+            executeTool: executeSubagentTool,
             loomAbort,
             provider: String(model.provider),
           }),
@@ -1841,121 +1959,156 @@ class OffSessionQueryModel implements QueryModelDriver {
 /** The off-session `complete()` path has no resolved model to dispatch against. */
 class OffSessionModelUnavailableError extends Error {}
 
-/** Construction inputs for the production subagent-mode `QueryModelDriver`. */
+/**
+ * Construction inputs for the production subagent-mode `QueryModelDriver`
+ * (STAGE A). The loom OWNS the tool loop: the driver holds the subagent's
+ * PRIVATE conversation and drives it one `complete()` turn per free-phase round,
+ * so the enclosing `runUntypedQueryLoop` / `runTypedQueryLoop` machinery
+ * enforces `tool_loop.max_rounds` and surfaces `Err(tool_loop_exhausted)` on
+ * exhaustion (ceiling #2 / FRNT-1). Injected so a test scripts the model turns
+ * and tool results deterministically.
+ */
 export interface SubagentQueryModelDeps {
   /**
-   * Drive ONE real subagent turn against the private session and resolve to its
-   * terminal (`willRetry: false`) `agent_end` event: `session.sendUserMessage`
-   * then `V9i`'s session-local `awaitTerminalAgentEnd` (see `driveSubagentTurn`).
-   * Injected so a test scripts the terminal event deterministically.
+   * The rendered (typed-aware) query text seeding the private conversation as
+   * the first user message. The SUBAG-1 `system:` prompt is carried by
+   * `runCompletion`'s completion context, not this list.
    */
-  readonly driveTurn: () => Promise<AgentEndEvent>;
+  readonly queryText: string;
+  /**
+   * Issue ONE model completion given the accumulated private conversation and
+   * the loop's cancellation signal, resolving to the assistant message. The
+   * production closure calls pi-ai `complete()` against the resolved subagent
+   * model with the loom's `system:` prompt (SUBAG-1) and callable-set tool
+   * schemas (SUBAG-2), threading `loomAbort.signal` (CANCEL).
+   */
+  readonly runCompletion: (
+    messages: readonly Message[],
+    signal: AbortSignal,
+  ) => Promise<AssistantMessage>;
+  /**
+   * Execute ONE model-emitted tool call through the loom's callable set and
+   * lower the outcome to the tool-result message fed back on the next turn.
+   */
+  readonly executeTool: (call: ToolCall, signal: AbortSignal) => Promise<ToolResultMessage>;
   /** The per-invocation cancel controller the loop's `signal` gates on. */
   readonly loomAbort: AbortController;
-  /** The resolved-model provider, for `V9i`'s transport-failure `Err`. */
+  /** The resolved-model provider (reserved for transport-shaped surfaces). */
   readonly provider: string;
 }
 
 /**
- * Build the production subagent-mode `QueryModelDriver` (`V9i`): it drives a real
- * `@`-query turn against the freshly spawned isolated `AgentSession`, awaits the
- * terminal `agent_end`, and maps `extractSubagentQueryResult` onto the query
- * loop's terminating turn. On success the extracted trailing-turn assistant text
- * is the untyped query's plain-text result (or, for a typed query, the parsed
- * structured payload of the forced-respond terminator, so a typed return crosses
- * the subagent boundary — FN-5). `extractSubagentQueryResult`'s CONDITIONAL
- * short-circuits surface an `Err` only when they genuinely occur: a real
- * `loomAbort` abort (the `signal` the loop gates on) drives the cancellation
- * path; there is NO production driver self-cancel.
+ * Build the production subagent-mode `QueryModelDriver` (STAGE A). The driver
+ * owns the subagent's private conversation and advances it one `complete()`
+ * turn per free-phase round, so the enclosing query-tool-loop enforces
+ * `tool_loop.max_rounds`: a turn emitting `tool_use` blocks is one free-phase
+ * round (its tool results are fed back), and a plain-text turn terminates the
+ * loop. The subagent conversation is private and discarded with the invocation
+ * (isolation). A typed query's `forcedRespondTurn` drives the structured
+ * terminator and parses the payload so a typed return crosses the subagent
+ * boundary (FN-5).
  */
 export function createSubagentQueryModel(deps: SubagentQueryModelDeps): QueryModelDriver {
   return new SubagentQueryModel(deps);
 }
 
 class SubagentQueryModel implements QueryModelDriver {
-  readonly #driveTurn: () => Promise<AgentEndEvent>;
+  readonly #runCompletion: SubagentQueryModelDeps["runCompletion"];
+  readonly #executeTool: SubagentQueryModelDeps["executeTool"];
   readonly #loomAbort: AbortController;
-  readonly #provider: string;
-  // The round-0 extraction result, cached so a bounce round does not re-drive a
-  // second real subagent turn (per-invocation state, not module-level).
-  #firstResult: ReturnType<typeof extractSubagentQueryResult> | undefined;
+  // The subagent's PRIVATE conversation, owned by this driver and discarded
+  // with the invocation (subagent isolation): the seeding user query, each
+  // assistant turn, and each tool-result turn fed back.
+  readonly #messages: Message[];
+  // The tool calls emitted by the most recent `tool_use` turn, keyed by
+  // tool-use id, so `runToolBatch` recovers each call's arguments (the loop's
+  // `ToolCallRequest` carries only the name + id).
+  #pending: Map<string, ToolCall> = new Map();
 
   constructor(deps: SubagentQueryModelDeps) {
-    this.#driveTurn = deps.driveTurn;
+    this.#runCompletion = deps.runCompletion;
+    this.#executeTool = deps.executeTool;
     this.#loomAbort = deps.loomAbort;
-    this.#provider = deps.provider;
+    this.#messages = [{ role: "user", content: deps.queryText, timestamp: 0 }];
   }
 
-  async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
-    if (round === 0) {
-      const terminal = await this.#driveTurn();
-      this.#firstResult = extractSubagentQueryResult(terminal, {
-        aborted: this.#loomAbort.signal.aborted,
-        provider: this.#provider,
-      });
+  async nextFreePhaseTurn(_round: number): Promise<FreePhaseTurn> {
+    let reply: AssistantMessage;
+    try {
+      reply = await this.#runCompletion(this.#messages, this.#loomAbort.signal);
+    } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — a cancellation abort bounces to the loop's cancelled surface
+      // CANCEL: a completion aborted by `loomAbort` rejects; bounce an empty
+      // `tool_use` round so the loop's next round-boundary checkpoint surfaces
+      // `Err(cancelled)`. A non-cancel rejection (transport) propagates.
+      if (this.#loomAbort.signal.aborted) {
+        return { kind: "tool_use", batch: [] };
+      }
+      throw thrown;
     }
-    const result = this.#firstResult;
-    if (result !== undefined && result.ok) {
-      // PIC-43: on success the trailing-turn assistant text is the untyped
-      // query's terminating plain-text turn.
-      return { kind: "text", text: result.value };
+    // CANCEL: a cancellation that fired DURING the completion bounces an empty
+    // round so the loop surfaces `Err(cancelled)` rather than binding a stale
+    // reply as the terminating text.
+    if (this.#loomAbort.signal.aborted) {
+      return { kind: "tool_use", batch: [] };
     }
-    // A non-`ok` extraction. A GENUINE cancellation aborted `loomAbort` (== the
-    // loop's `signal`), so bounce one empty round; the loop's next round-boundary
-    // cancellation checkpoint surfaces `Err(cancelled)`. A non-cancel (transport)
-    // extraction cannot cross the untyped loop's outcome types (`text` /
-    // `tool_loop_exhausted` / `cancelled`), so it degrades to
-    // `tool_loop_exhausted` — an `Err`, never a false success; faithful transport
-    // carriage on the untyped path is owned by `V13c` / `V9i`, out of scope here.
-    return { kind: "tool_use", batch: [] };
+    this.#messages.push(reply);
+    const calls = reply.content.filter((part): part is ToolCall => part.type === "toolCall");
+    if (calls.length > 0) {
+      // A `tool_use` round: one free-phase round consuming exactly one slot
+      // (CIO-4 — a parallel batch counts as one slot).
+      this.#pending = new Map(calls.map((call) => [call.id, call]));
+      return {
+        kind: "tool_use",
+        batch: calls.map((call) => ({ toolName: call.name, toolUseId: call.id })),
+      };
+    }
+    // A plain-text turn terminates the free phase — the untyped query's result.
+    return { kind: "text", text: assistantText(reply) };
   }
 
-  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
-    // The bounced round carries an empty batch — no tool call executes.
-    return Promise.resolve([]);
+  async runToolBatch(
+    batch: readonly { readonly toolName: string; readonly toolUseId: string }[],
+  ): Promise<readonly CommittedSideEffect[]> {
+    // Execute each sibling in the round's batch through the loom's callable set
+    // and feed every result (successful and failing alike) back into the
+    // conversation as a tool-result turn, so the next `complete()` turn sees the
+    // outcomes. The driver commits no loom-level side effects here.
+    for (const request of batch) {
+      const call = this.#pending.get(request.toolUseId);
+      if (call === undefined) {
+        continue;
+      }
+      const result = await this.#executeTool(call, this.#loomAbort.signal);
+      this.#messages.push(result);
+    }
+    this.#pending = new Map();
+    return [];
   }
 
   async forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    // A typed subagent query drives one turn, extracts its result, and parses the
-    // extracted text as the candidate structured payload (mirroring the
+    // The typed-query terminator: drive one completion that must return the
+    // structured JSON (the query text already carries the lowered-shape
+    // instruction) and parse it as the candidate payload (mirroring the
     // prompt-mode `LivePromptQueryModel.forcedRespondTurn`) so the typed value
-    // crosses the subagent boundary (FN-5).
-    const terminal = await this.#driveTurn();
-    const result = extractSubagentQueryResult(terminal, {
-      aborted: this.#loomAbort.signal.aborted,
-      provider: this.#provider,
-    });
-    if (result.ok) {
-      const parse = await parseStructuredPayload(result.value);
-      return { kind: "respond", payload: payloadForRespond(parse) };
-    }
-    // A genuine cancellation / transport failure carries no structured payload;
-    // an inert `null` lets the typed loop's depth-walk / value projection yield
-    // the absent value rather than a fabricated structured result.
-    return { kind: "respond", payload: null };
+    // crosses the subagent boundary (FN-5). A non-JSON reply parses to its raw
+    // text so the schema validation reports the mismatch.
+    const reply = await this.#runCompletion(this.#messages, this.#loomAbort.signal);
+    this.#messages.push(reply);
+    const parse = await parseStructuredPayload(assistantText(reply));
+    return { kind: "respond", payload: payloadForRespond(parse) };
   }
 }
 
-/**
- * Drive ONE real subagent turn against the private spawned session and resolve
- * to its terminal `agent_end` event. PIC-42: the completion is awaited via the
- * SESSION-LOCAL `subscribe` API (`awaitTerminalAgentEnd`), never the process-
- * global `pi.on`. The subscription is attached BEFORE the turn is sent so the
- * terminal event cannot be missed; the send is fire-and-forget (a late rejection
- * of an aborted turn is swallowed per Cancellation's swallowing-handler rule —
- * the terminal `agent_end` is the completion signal the driver resolves from).
- */
-function driveSubagentTurn(session: AgentSession, queryText: string): Promise<AgentEndEvent> {
-  const eventSource: SubagentEventSource = {
-    subscribe: (listener) =>
-      session.subscribe((event) => listener(event as unknown as SubagentSessionEvent)),
+/** Lower a subagent model tool call's outcome text to a fed-back tool-result turn. */
+function subagentToolResult(call: ToolCall, text: string, isError: boolean): ToolResultMessage {
+  return {
+    role: "toolResult",
+    toolCallId: call.id,
+    toolName: call.name,
+    content: [{ type: "text", text }],
+    isError,
+    timestamp: 0,
   };
-  // The global bus is required by the seam signature but deliberately unused
-  // (PIC-42 forbids it); an inert bus documents that it is never consulted.
-  const inertGlobalBus: GlobalEventBus = { on: (): void => {} };
-  const terminal = awaitTerminalAgentEnd(eventSource, inertGlobalBus);
-  void session.sendUserMessage(queryText).catch(() => {});
-  return terminal;
 }
 
 /**

@@ -1,9 +1,9 @@
 # Session-semantics hardening — lens: SUBAGENT MODEL-DRIVEN TOOL LOOPS + ceiling #2 (tool_loop_exhausted)
 
-Probe file: `tests/hardening/session-subagent-toolloop.test.ts` (6 probes; STL-1/3/4/5
-green, STL-2/6 red = the two conformance targets below). Live model: the
-harness-resolved provider model. Each live drive retries once on transport/429.
-Finding ids reuse the probe ids: STL-2 and STL-6 are the two bugs; STL-1/3/4/5
+Probe file: `tests/hardening/session-subagent-toolloop.test.ts` (6 probes; all 6
+green after the Phase-4 STAGE-A fix). Live model: the harness-resolved provider
+model. Each live drive retries once on transport/429. Finding ids reuse the
+probe ids: STL-2 and STL-6 were the two bugs (both now **FIXED**); STL-1/3/4/5
 are the conformant probes recorded under Verified-conformant.
 
 Scope: the surface reachable **only after the SUBAG-2 fix** (commit `a0dcf942`)
@@ -23,14 +23,46 @@ path). SUBAG-2 (`session-findings/subagent.md`) confirmed a **single** subagent
 
 | id | verdict | one-line |
 |---|---|---|
-| STL-2 | bug | a subagent's `tool_loop.max_rounds` does not bound the model's tool-call rounds — the spawned `AgentSession` runs its full agentic tool loop inside a single loom-level query round, so ceiling #2 (`tool_loop_exhausted`) is **unreachable for any `max_rounds ≥ 1`** no matter how many rounds the model runs (subagent twin of QTL-4, different mechanism) |
+| STL-2 | **FIXED** | a subagent's `tool_loop.max_rounds` did not bound the model's tool-call rounds — the spawned `AgentSession` ran its full agentic tool loop inside a single loom-level query round, so ceiling #2 (`tool_loop_exhausted`) was **unreachable for any `max_rounds ≥ 1`** (subagent twin of QTL-4, different mechanism). **Fixed** (Phase 4 STAGE A, maintainer decision 5 = A′) by re-architecting the subagent query driver to OWN the agentic loop: it now drives the private conversation one pi-ai `complete()` turn per free-phase round through `runUntypedQueryLoop`/`runTypedQueryLoop`, so `tool_loop.max_rounds` is enforced and ceiling #2 is reachable |
 | STL-6 | **FIXED** | an **unhandled tail** (`@`…``, no `?`) `tool_loop_exhausted` breach in a subagent was surfaced across an `invoke` boundary as `cancelled`, masking the true leaf kind; the parent's `e.kind` read `"cancelled"` instead of `"invoke_callee"`/inner `tool_loop_exhausted`. **Fixed** by threading the effect-`Err` payload through the executor's `fail` flow so `BodyExecution.error` is set for an unhandled effect-`Err` terminal. |
 
-Bug-verdict count: **1** open (STL-2) + **1** FIXED (STL-6, Phase 2).
+Bug-verdict count: **0** open + **2** FIXED (STL-2, Phase 4 STAGE A; STL-6, Phase 2).
 
 ---
 
-## STL-2 — a subagent `tool_loop.max_rounds` does not bound the model's tool rounds; ceiling #2 is unreachable for `max_rounds ≥ 1`
+## STL-2 — [FIXED] a subagent `tool_loop.max_rounds` does not bound the model's tool rounds; ceiling #2 is unreachable for `max_rounds ≥ 1`
+
+**Status: FIXED** (Phase 4 STAGE A, maintainer decision 5 = A′ full re-architecture).
+The subagent query driver now OWNS the agentic tool loop. The pi SDK exposes no
+per-turn tool-round cap and no round-by-round stepping — `AgentSession.prompt`
+runs an opaque internal loop — so the old `driveSubagentTurn(session, prompt)`
+driver (which ran the whole internal loop and returned the terminal `agent_end`)
+could never enforce the loom's `max_rounds`. The rewritten
+`SubagentQueryModel` (`src/extension/production-loom-producer.ts`) holds the
+subagent's PRIVATE conversation and issues ONE pi-ai `complete()` turn per
+free-phase round against the resolved subagent model, conveying the SUBAG-1
+`system:` prompt and the SUBAG-2 callable-set tool schemas and threading
+`loomAbort.signal`; each `tool_use` turn's calls are executed through the loom's
+callable set (the same `resolvePiTool`/`execute` path used by code-driven calls)
+and fed back as tool-result turns. The loop runs through the existing
+`runUntypedQueryLoop`/`runTypedQueryLoop` machinery under
+`config.maxRounds = loom.frontmatter.toolLoop?.maxRounds ?? 25`, so reaching the
+cap surfaces `Err(QueryError { kind: "tool_loop_exhausted", rounds, last_tool_name })`
+per ceiling #2 / CIO-4. The `AgentSession` spawn is retained for the PIC-40
+model guard, PIC-9 dispose, and PIC-41 abort forwarding; the query path no
+longer drives it.
+
+- **live before/after** (`session-subagent-toolloop.test.ts`, `/capparent`,
+  subagent `tools: read`, `tool_loop.max_rounds: 1`, forced 3-file read chain):
+  - **before:** `OUTCOME[\n\n\nCHAINDONE777]` (cap-enforced: false,
+    cap-absorbed: true — the ≥3-round chain completed under a cap of 1)
+  - **after:** `OUTCOME[tool_loop_exhausted]` (cap-enforced: true,
+    cap-absorbed: false — ceiling #2 fires after round 1)
+- STL-1 control (default `max_rounds: 25`) still completes the chain and returns
+  `CHAINDONE777`; SUBAG-1/SUBAG-2, XMODE-1 (crossmode), and CONV-6/STL-6
+  (convdrive) still pass.
+
+### Original finding (retained for provenance)
 
 - **repro:**
   - Three chained files (each names the next → forces SEQUENTIAL read rounds):

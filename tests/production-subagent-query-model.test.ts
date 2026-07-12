@@ -1,31 +1,37 @@
-// H8a (bug-fix) — the production subagent-mode `QueryModelDriver` regression lock.
+// STAGE A (STL-2 / ceiling #2) — the production subagent-mode `QueryModelDriver`
+// regression + conformance lock.
 //
-// The shipped composition root's `spawnSubagentConversation` previously wired an
-// H9a acceptance-only DEMONSTRATION driver (`LiveSubagentQueryModel`) that fired
-// an UNCONDITIONAL mid-stream `loomAbort.abort(...)` on every subagent `@`-query,
-// so no subagent-mode loom could ever reach a success terminal outcome — every
-// subagent query surfaced `Err(QueryError { kind: "cancelled" })`. The fix wires
-// `V9i`'s compliant `awaitTerminalAgentEnd` + `extractSubagentQueryResult`
-// through a `createSubagentQueryModel(...)` driver.
+// The subagent query driver now OWNS the agentic tool loop: it holds the
+// subagent's private conversation and advances it one `complete()` turn per
+// free-phase round, so the enclosing query-tool-loop (`runUntypedQueryLoop` /
+// `runTypedQueryLoop`) enforces `tool_loop.max_rounds` and can reach ceiling #2
+// (`tool_loop_exhausted`). Before STAGE A the driver ran the spawned
+// `AgentSession`'s whole internal loop inside a single loom-level round, so the
+// cap was a no-op for any `max_rounds >= 1` (STL-2).
 //
-// These tests drive that driver through the REAL query loop
-// (`runUntypedQueryLoop` / `runTypedQueryLoop`) against the loom's `loomAbort`
-// signal — exactly as the production host does — so they green-lock:
-//   - an untyped subagent query drives to a SUCCESS terminal (regression: no
-//     forced self-cancel);
-//   - a typed subagent query VALIDATES its structured payload against the
-//     declared schema across the subagent boundary (FN-5 + QRY-22): a conforming
-//     payload binds the typed value; a non-conforming payload surfaces
-//     `Err(validation, schema_validation)` (Defect B — it no longer binds the
-//     raw payload unvalidated);
-//   - a GENUINE mid-stream `loomAbort` fire surfaces `Err(cancelled)` — the real
-//     cancellation path is preserved.
+// These tests drive the real driver through the real loop against the loom's
+// `loomAbort` signal — exactly as the production host does — so they green-lock:
+//   - an untyped subagent query that finishes early (a plain-text turn) returns
+//     its text (FN-5, no forced self-cancel);
+//   - an untyped subagent query that keeps emitting tool rounds past its cap
+//     terminates with `Err(tool_loop_exhausted)` — the STL-2 conformance target
+//     (rounds == max_rounds, last_tool_name is the last round's tool);
+//   - a multi-round tool loop that finishes within the cap returns its text;
+//   - a typed subagent query VALIDATES its structured payload across the
+//     subagent boundary (FN-5 + QRY-22): a conforming payload binds the typed
+//     value; a non-conforming payload surfaces `Err(validation)`;
+//   - a GENUINE mid-stream `loomAbort` fire surfaces `Err(cancelled)`.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-42/PIC-43, FN-5), cancellation.md,
-// query/query-failure-and-repair.md (QRY-22).
+// Spec: frontmatter.md §`tool_loop` (FRNT-1), hard-ceilings.md ceiling #2 /
+// CIO-4, errors-and-results.md ERR-19, pi-integration-contract/subagent.md
+// (FN-5), cancellation.md, query/query-failure-and-repair.md (QRY-22).
 
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type {
+  AssistantMessage,
+  ToolCall,
+  ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import { createSubagentQueryModel } from "../src/extension/production-loom-producer";
 import {
   runTypedQueryLoop,
@@ -40,7 +46,6 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import type { AgentEndEvent } from "../src/runtime/subagent-isolation";
 import type { Checkpoint } from "../src/seams/checkpoint";
 
 /**
@@ -74,30 +79,53 @@ const NOOP_CHECKPOINT: Checkpoint = {
   },
 };
 
+const USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
 /** An assistant message carrying `text` with a normal (`stop`) stop reason. */
-function assistantMessage(text: string): AssistantMessage {
+function textReply(text: string): AssistantMessage {
   return {
     role: "assistant",
     content: [{ type: "text", text }],
     api: "anthropic-messages",
     provider: "anthropic",
     model: "claude-test",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
+    usage: USAGE,
     stopReason: "stop",
     timestamp: 0,
   };
 }
 
-/** A terminal (`willRetry: false`) `agent_end` event over `messages`. */
-function agentEnd(messages: readonly Message[]): AgentEndEvent {
-  return { type: "agent_end", messages, willRetry: false };
+/** An assistant message that calls one tool (a `tool_use` turn). */
+function toolCallReply(name: string, id: string): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "toolCall", id, name, arguments: {} }],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: "claude-test",
+    usage: USAGE,
+    stopReason: "toolUse",
+    timestamp: 0,
+  };
+}
+
+/** A tool-result turn as `executeTool` would lower one. */
+function toolResult(call: ToolCall, text: string): ToolResultMessage {
+  return {
+    role: "toolResult",
+    toolCallId: call.id,
+    toolName: call.name,
+    content: [{ type: "text", text }],
+    isError: false,
+    timestamp: 0,
+  };
 }
 
 function config(maxRounds: number): QueryToolLoopConfig {
@@ -110,36 +138,100 @@ function config(maxRounds: number): QueryToolLoopConfig {
   };
 }
 
-describe("H8a — production subagent QueryModelDriver (regression lock)", () => {
-  it("untyped subagent query drives to a SUCCESS terminal outcome (no forced self-cancel)", async () => {
+describe("STAGE A — production subagent QueryModelDriver (loom-owned tool loop)", () => {
+  it("an untyped subagent query that finishes early returns its text (FN-5, no self-cancel)", async () => {
     const loomAbort = new AbortController();
     const model = createSubagentQueryModel({
-      driveTurn: () => Promise.resolve(agentEnd([assistantMessage("SUBAGENT-OK")])),
+      queryText: "hello",
+      runCompletion: () => Promise.resolve(textReply("SUBAGENT-OK")),
+      executeTool: () => Promise.reject(new Error("no tool call expected")),
       loomAbort,
       provider: "anthropic",
     });
 
     const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, loomAbort.signal, model, config(25));
 
-    // Regression: the old wiring cancelled every subagent query; the fixed
-    // driver reaches the success terminal with the extracted trailing-turn text.
     expect(outcome.kind).toBe("text");
     if (outcome.kind === "text") {
       expect(outcome.text).toBe("SUBAGENT-OK");
     }
   });
 
-  it("typed subagent query VALIDATES its structured payload and binds a conforming value (FN-5 + QRY-22)", async () => {
+  it("an untyped subagent query that keeps emitting tool rounds past its cap exhausts ceiling #2 (STL-2)", async () => {
     const loomAbort = new AbortController();
+    let toolCalls = 0;
+    let completions = 0;
     const model = createSubagentQueryModel({
-      driveTurn: () =>
-        Promise.resolve(agentEnd([assistantMessage('{"ok":true,"label":"blue"}')])),
+      queryText: "chase the chain",
+      // The model always requests another `read` — a tool loop that never
+      // terminates on its own, so the loom's `max_rounds` cap must bound it.
+      runCompletion: () => {
+        completions += 1;
+        return Promise.resolve(toolCallReply("read", `call-${completions}`));
+      },
+      executeTool: (call) => {
+        toolCalls += 1;
+        return Promise.resolve(toolResult(call, "next"));
+      },
       loomAbort,
       provider: "anthropic",
     });
 
-    // The fixed producer supplies the schema-validation collaborator; the
-    // conforming payload validates against the declared schema and binds.
+    const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, loomAbort.signal, model, config(2));
+
+    expect(outcome.kind, "the cap must fire — ceiling #2 is reachable").toBe("tool_loop_exhausted");
+    if (outcome.kind === "tool_loop_exhausted") {
+      // ERR-19: rounds == max_rounds; last_tool_name is the last round's tool.
+      expect(outcome.error.rounds).toBe(2);
+      expect(outcome.error.last_tool_name).toBe("read");
+    }
+    // Exactly `max_rounds` free-phase rounds ran (each executed its tool batch);
+    // the cap fired at the round boundary before a third free-phase turn.
+    expect(toolCalls).toBe(2);
+    expect(completions).toBe(2);
+  });
+
+  it("a multi-round tool loop that finishes within the cap returns its text", async () => {
+    const loomAbort = new AbortController();
+    let completions = 0;
+    let toolCalls = 0;
+    const model = createSubagentQueryModel({
+      queryText: "read the chain then answer",
+      // Two tool rounds, then a terminating plain-text turn.
+      runCompletion: () => {
+        completions += 1;
+        if (completions <= 2) {
+          return Promise.resolve(toolCallReply("read", `call-${completions}`));
+        }
+        return Promise.resolve(textReply("CHAINDONE"));
+      },
+      executeTool: (call) => {
+        toolCalls += 1;
+        return Promise.resolve(toolResult(call, "next"));
+      },
+      loomAbort,
+      provider: "anthropic",
+    });
+
+    const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, loomAbort.signal, model, config(25));
+
+    expect(outcome.kind).toBe("text");
+    if (outcome.kind === "text") {
+      expect(outcome.text).toBe("CHAINDONE");
+    }
+    expect(toolCalls).toBe(2);
+  });
+
+  it("typed subagent query VALIDATES its structured payload and binds a conforming value (FN-5 + QRY-22)", async () => {
+    const loomAbort = new AbortController();
+    const model = createSubagentQueryModel({
+      queryText: "answer",
+      runCompletion: () => Promise.resolve(textReply('{"ok":true,"label":"blue"}')),
+      executeTool: () => Promise.reject(new Error("no tool call expected")),
+      loomAbort,
+      provider: "anthropic",
+    });
+
     const outcome = await runTypedQueryLoop(
       NOOP_CHECKPOINT,
       loomAbort.signal,
@@ -157,9 +249,10 @@ describe("H8a — production subagent QueryModelDriver (regression lock)", () =>
   it("typed subagent query with a non-conforming payload surfaces Err(validation) — no unvalidated bind (Defect B)", async () => {
     const loomAbort = new AbortController();
     const model = createSubagentQueryModel({
+      queryText: "answer",
       // Missing the required `label`, and carrying an undeclared property.
-      driveTurn: () =>
-        Promise.resolve(agentEnd([assistantMessage('{"ok":true,"extra":1}')])),
+      runCompletion: () => Promise.resolve(textReply('{"ok":true,"extra":1}')),
+      executeTool: () => Promise.reject(new Error("no tool call expected")),
       loomAbort,
       provider: "anthropic",
     });
@@ -181,13 +274,15 @@ describe("H8a — production subagent QueryModelDriver (regression lock)", () =>
   it("a GENUINE mid-stream loomAbort fire surfaces Err(cancelled), not a success value", async () => {
     const loomAbort = new AbortController();
     const model = createSubagentQueryModel({
-      // The scripted cancel point: `loomAbort` fires while the turn is in flight
-      // (a real cancellation, not a production driver self-cancel), so by the
-      // time the terminal event resolves the loop's signal is aborted.
-      driveTurn: () => {
+      queryText: "answer",
+      // The scripted cancel point: `loomAbort` fires while the completion is in
+      // flight (a real cancellation, not a driver self-cancel), so by the time
+      // the completion resolves the loop's signal is aborted.
+      runCompletion: () => {
         loomAbort.abort(new Error("loom subagent query cancelled mid-stream"));
-        return Promise.resolve(agentEnd([assistantMessage("ignored")]));
+        return Promise.resolve(textReply("ignored"));
       },
+      executeTool: () => Promise.reject(new Error("no tool call expected")),
       loomAbort,
       provider: "anthropic",
     });
