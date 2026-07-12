@@ -11,6 +11,7 @@ import {
 import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
 import { LoomRegistry, type ParsedLoom } from "../src/extension/reload-wiring";
 import { FakeClock } from "./helpers/fake-clock";
+import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
 
 // PIC-29..32 — factory-level drain-gated dispatch integration.
 //
@@ -156,6 +157,7 @@ async function boot(
     composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
       looms,
       registry,
+      activeInvocations: new ActiveInvocationRegistry(),
       clock: new FakeClock(),
       installHotReload: () => ({ detach: (): void => {} }),
     }),

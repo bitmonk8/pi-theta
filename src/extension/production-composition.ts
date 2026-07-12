@@ -96,6 +96,7 @@ import {
   type LoomCompositionInput,
 } from "./loom-composition-producer";
 import { createProductionProducerDeps } from "./production-loom-producer";
+import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 
 /** Seam overrides for test injection — the FAKE FileWatcher / Clock the
  * watcher-hot-reload integration test drives through the real composition. */
@@ -186,7 +187,16 @@ export async function discoverAndComposeFixtures(
 ): Promise<readonly LoomFixture[]> {
   const emitDiagnostic = makeLoadEmit(ctx);
   const root = buildRuntimeRoot(ctx, emitDiagnostic);
-  const pass = await runComposePass(pi, ctx, root, emitDiagnostic);
+  // The H8a `discoverFixtures` path has no `session_shutdown` wiring reading a
+  // shared registry (that is the `composeInstance` path), so it composes against
+  // a throwaway registry no teardown observes.
+  const pass = await runComposePass(
+    pi,
+    ctx,
+    root,
+    emitDiagnostic,
+    new ActiveInvocationRegistry(),
+  );
   return pass.looms;
 }
 
@@ -210,6 +220,12 @@ async function runComposePass(
   ctx: ExtensionContext,
   root: RuntimeRoot,
   emitDiagnostic: (diagnostic: Diagnostic) => void,
+  // Decision 6 / Increment B1: the extension-instance-scoped shared registry of
+  // in-flight invocations, threaded into every composed loom's producer so the
+  // bind choke points register into the SAME instance the factory's
+  // `session_shutdown` teardown reads. A reload pass reuses the same instance so
+  // re-composed looms register there too.
+  activeInvocations: ActiveInvocationRegistry,
   excludeOwnedNames?: ReadonlySet<string>,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
@@ -297,6 +313,10 @@ async function runComposePass(
     pi,
     root,
     modelRegistry: ctx.modelRegistry,
+    // Decision 6 / Increment B1: share the in-flight-invocation registry so the
+    // producer's bind choke points register entries the factory's
+    // `session_shutdown` sub-steps 2/3 operate on.
+    activeInvocations,
     // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
@@ -474,6 +494,15 @@ export interface ExtensionInstanceWiring {
    */
   readonly registry: LoomRegistry;
   /**
+   * Decision 6 / Increment B1 (active-invocation-registry.md): the live
+   * extension-instance-scoped registry of in-flight invocations, shared with
+   * every composed loom's producer. Threaded to the factory so its
+   * `session_shutdown` teardown reads the SAME instance the bind choke points
+   * register into — making sub-step 2 (cancel in-flight) + sub-step 3 (await
+   * dispose) operate on REAL entries rather than a fresh empty registry.
+   */
+  readonly activeInvocations: ActiveInvocationRegistry;
+  /**
    * The live `Clock` seam the composition root built once and the step-5
    * watcher / 250 ms debounce measure against. Threaded so the factory's
    * `session_shutdown` teardown reads the SAME clock instance the watcher used
@@ -508,6 +537,14 @@ export async function composeExtensionInstance(
   const emitLoad = makeLoadEmit(ctx);
   const root = buildRuntimeRoot(ctx, emitLoad, overrides);
 
+  // Decision 6 / Increment B1 (active-invocation-registry.md): ONE
+  // extension-instance-scoped registry of in-flight invocations, constructed
+  // beside `root` and shared with (a) every composed loom's producer via
+  // `runComposePass` and (b) the factory's `session_shutdown` teardown via the
+  // returned wiring — so sub-steps 2/3 operate on the SAME entries the bind
+  // choke points register. Reused across hot-reload passes.
+  const activeInvocations = new ActiveInvocationRegistry();
+
   // The `loom-system-note` delivery channel: carries the informational
   // structural-change note and the ERR-7 watcher-time reload failures
   // (`triggerTurn:false`).
@@ -519,7 +556,7 @@ export async function composeExtensionInstance(
     emitDiagnosticBatch([diagnostic], channel);
   };
 
-  const initial = await runComposePass(pi, ctx, root, emitLoad);
+  const initial = await runComposePass(pi, ctx, root, emitLoad, activeInvocations);
 
   // The watched set: the active discovery-root union plus the two settings-file
   // paths (project `.pi/settings.json`, global `~/.pi/agent/settings.json`).
@@ -537,6 +574,7 @@ export async function composeExtensionInstance(
   return {
     looms: initial.looms,
     registry,
+    activeInvocations,
     clock: root.clock,
     installHotReload(reRegister): HotReloadHandle {
       return installHotReload({
@@ -552,6 +590,7 @@ export async function composeExtensionInstance(
               ctx,
               root,
               emitErr7,
+              activeInvocations,
               new Set(registry.snapshot().keys()),
             )
           ).looms,

@@ -247,6 +247,11 @@ export function createLoomExtension(
     // handler treats as "nothing to tear down".
     let liveRegistry: LoomRegistry | undefined;
     let liveClock: Clock | undefined;
+    // Decision 6 / Increment B1: the live shared in-flight-invocation registry
+    // published by compose. `undefined` until compose runs; the shutdown handler
+    // falls back to a fresh empty registry (a no-op teardown) when compose never
+    // ran, keeping the compose-never-ran path safe.
+    let liveActiveInvocations: ActiveInvocationRegistry | undefined;
     // Step 1 — `--loom` flag. Synchronous-void; per-call wrapped. A
     // `registerFlag` throw is FATAL to the whole extension: step 1's `--loom`
     // flag is what every subsequent discovery / `resources_discover` walk reads
@@ -466,6 +471,10 @@ export function createLoomExtension(
       // Publish the live resources for the lazy `session_shutdown` teardown read.
       liveRegistry = wiring.registry;
       liveClock = wiring.clock;
+      // Decision 6 / Increment B1: publish the shared registry the producer's
+      // bind choke points register in-flight invocations into, so the teardown's
+      // sub-steps 2/3 operate on REAL entries.
+      liveActiveInvocations = wiring.activeInvocations;
       registerFixtures([...deps.fixtures, ...wiring.looms], wiring.registry);
       try {
         hotReloadHandle = wiring.installHotReload(
@@ -518,10 +527,12 @@ export function createLoomExtension(
 
           const shutdownDeps: SessionShutdownDeps = {
             registry,
-            // Increment A: an empty `ActiveInvocationRegistry` drives sub-steps
-            // 2/3 as instant no-ops (`snapshot()` is `[]`); Increment B threads
-            // the real shared registry.
-            activeInvocations: new ActiveInvocationRegistry(),
+            // Increment B1: the live shared registry the producer's bind choke
+            // points register in-flight invocations into, so sub-step 2 (cancel
+            // in-flight) + sub-step 3 (await dispose) operate on REAL entries.
+            // Falls back to a fresh empty registry only when compose never ran
+            // (nothing was ever registered), keeping that path an instant no-op.
+            activeInvocations: liveActiveInvocations ?? new ActiveInvocationRegistry(),
             clock,
             // ClosableWatcher ADAPTER — documented spec-vs-impl drift: the spec
             // deps model TWO watchers (`discoveryWatcher` + `settingsWatcher`)

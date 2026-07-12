@@ -14,17 +14,21 @@ import {
   type ParsedLoom,
 } from "../src/extension/reload-wiring";
 import { FakeClock } from "./helpers/fake-clock";
+import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
 
-// Increment A — the factory-level `session_shutdown` wiring integration.
+// Increment A/B1 — the factory-level `session_shutdown` wiring integration.
 //
-// Proves the just-landed wiring in `factory.ts`: the `session_shutdown` handler
-// reads the live `LoomRegistry` + `Clock` lazily (threaded from the
-// `composeInstance` path), runs the handler-entry short-circuit under the
-// PIC-31 read-failover, and delegates to `runSessionShutdown`. This increment
-// wires the factory half: sub-step 1 (drain + init-tag) and sub-step 4
-// (watcher-close via the `HotReloadHandle.detach()` adapter) are REAL; sub-steps
-// 2/3/5 are live-but-empty (an empty `ActiveInvocationRegistry` +
-// `forwardingSignals: []` make them instant no-ops).
+// Proves the wiring in `factory.ts`: the `session_shutdown` handler reads the
+// live `LoomRegistry` + `Clock` + `ActiveInvocationRegistry` lazily (threaded
+// from the `composeInstance` path), runs the handler-entry short-circuit under
+// the PIC-31 read-failover, and delegates to `runSessionShutdown`. Sub-step 1
+// (drain + init-tag) and sub-step 4 (watcher-close via the
+// `HotReloadHandle.detach()` adapter) are REAL. Increment B1 makes sub-steps 2
+// (cancel in-flight) + 3 (await dispose) REAL too: the factory now reads the
+// SHARED `ActiveInvocationRegistry` the composition threads through the producer
+// (`liveActiveInvocations`) rather than a fresh empty one, so entries in that
+// registry are aborted + awaited at teardown. Sub-step 5 (forwarding listeners)
+// stays empty (Increment B2).
 //
 // The harness mirrors the fake-pi harness in
 // `tests/drain-gated-dispatch-integration.test.ts` /
@@ -109,6 +113,7 @@ interface Booted {
   readonly harness: Harness;
   readonly registry: LoomRegistry;
   readonly detach: ReturnType<typeof vi.fn>;
+  readonly activeInvocations: ActiveInvocationRegistry;
 }
 
 /**
@@ -117,7 +122,10 @@ interface Booted {
  * `installHotReload().detach`, then fire `session_start` so the live resources
  * are threaded onto the factory-scoped mutables the shutdown handler reads.
  */
-async function boot(registry: LoomRegistry): Promise<Booted> {
+async function boot(
+  registry: LoomRegistry,
+  activeInvocations: ActiveInvocationRegistry = new ActiveInvocationRegistry(),
+): Promise<Booted> {
   const harness = makeHarness();
   const detach = vi.fn();
   const looms = [makeLoom("foo")];
@@ -126,13 +134,14 @@ async function boot(registry: LoomRegistry): Promise<Booted> {
     composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
       looms,
       registry,
+      activeInvocations,
       clock: new FakeClock(),
       installHotReload: () => ({ detach }),
     }),
   };
   createLoomExtension(deps)(harness.pi);
   await harness.fireSessionStart();
-  return { harness, registry, detach };
+  return { harness, registry, detach, activeInvocations };
 }
 
 describe("Increment A — session_shutdown wired through the real factory", () => {

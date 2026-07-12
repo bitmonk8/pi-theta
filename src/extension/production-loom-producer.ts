@@ -52,6 +52,10 @@ import { complete } from "@earendil-works/pi-ai";
 import type { Clock } from "../seams/clock";
 import type { RuntimeRoot } from "../runtime-root";
 import type {
+  ActiveInvocationEntry,
+  ActiveInvocationRegistry,
+} from "../runtime/active-invocation-registry";
+import type {
   BinderRunInput,
   BinderRunResult,
   ConversationBinding,
@@ -271,6 +275,19 @@ export interface ProductionProducerInput {
    */
   readonly fileSystem?: Pick<FileSystem, "realpath">;
   readonly activeRoots?: readonly string[];
+  /**
+   * Decision 6 / Increment B1 (active-invocation-registry.md §"Active
+   * invocation registry"): the extension-instance-scoped registry of in-flight
+   * loom invocations, shared with the factory's `session_shutdown` teardown so
+   * its sub-step 2 (cancel in-flight) + sub-step 3 (await dispose) operate on
+   * REAL entries. Each `bindPromptConversation` / `spawnSubagentConversation`
+   * choke point registers one `ActiveInvocationEntry` here (covering all four
+   * invocation types: top-level prompt/subagent + nested prompt/subagent
+   * callees via `#driveCallee`). Absent on non-production harnesses, in which
+   * case the choke points register nothing (the `?.` no-ops) — the pre-B1
+   * behaviour.
+   */
+  readonly activeInvocations?: ActiveInvocationRegistry;
 }
 
 /**
@@ -1005,6 +1022,42 @@ class ProductionLoomProducer implements LoomProducerDeps {
       file: loom.slashName,
     };
 
+    // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
+    // invocation registry"): register this invocation in the shared registry
+    // the factory's `session_shutdown` teardown reads, so sub-step 2 (cancel
+    // in-flight) can abort THIS `loomAbort` and sub-step 3 (await dispose) can
+    // await its `disposeBarrier`. The per-invocation `loomAbort` above is reused
+    // verbatim (never a fresh controller). `invocationId` is minted through the
+    // PIC-20 `IdSource` seam and `loom` is the canonical slash name (no leading
+    // `/`). The entry is added LAST — this method is synchronous and cannot
+    // throw between here and the return — and its removal is deferred to
+    // `finishInvocation`, which the DRIVE seam calls in a `finally` AFTER the
+    // body runs, so the entry SPANS the real in-flight window. Prompt mode has
+    // no `AgentSession.dispose()` analogue, so the barrier settles immediately
+    // at finish.
+    const activeInvocations = this.#input.activeInvocations;
+    let settleDispose: () => void = (): void => {};
+    const disposeBarrier = new Promise<void>((resolve) => {
+      settleDispose = resolve;
+    });
+    const entry: ActiveInvocationEntry = {
+      loomAbort,
+      disposeBarrier,
+      shutdownReason: undefined,
+      loom: loom.slashName,
+      invocationId: root.idSource.newInvocationId(),
+    };
+    activeInvocations?.add(entry);
+    let finished = false;
+    // Idempotent: the DRIVE `finally` calls this once; a defensive caller may
+    // call again with no effect.
+    const finishInvocation = (): void => {
+      if (finished) return;
+      finished = true;
+      settleDispose();
+      activeInvocations?.remove(entry);
+    };
+
     return {
       drivenAgainst: "prompt-user-session",
       executeDeps,
@@ -1031,6 +1084,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
         }
         return makeErr(makeCancelledError() as unknown as LoomValue);
       },
+      finishInvocation,
     };
   }
 
@@ -1349,6 +1403,43 @@ class ProductionLoomProducer implements LoomProducerDeps {
       file: loom.slashName,
     };
 
+    // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
+    // invocation registry"): register this invocation in the shared registry
+    // the factory's `session_shutdown` teardown reads, so sub-step 2 (cancel
+    // in-flight) can abort THIS `loomAbort` and sub-step 3 (await dispose) can
+    // await its `disposeBarrier`. The per-invocation `loomAbort` above is reused
+    // verbatim (never a fresh controller). Registered LAST — after the final
+    // awaitable spawn step (`createAgentSession` / tool lowering) has already
+    // resolved — so a spawn failure rejects BEFORE any entry is added and never
+    // leaves a leak. Removal is deferred to `finishInvocation`, which the DRIVE
+    // seam calls in a `finally` AFTER `executeBody` + `surface`; because
+    // `surface()` runs the spawned session's `dispose()` before that `finally`,
+    // settling the barrier in `finishInvocation` correctly reflects post-dispose
+    // (sub-step 3 sees a disposed session), and the entry SPANS the real
+    // in-flight window.
+    const activeInvocations = this.#input.activeInvocations;
+    let settleDispose: () => void = (): void => {};
+    const disposeBarrier = new Promise<void>((resolve) => {
+      settleDispose = resolve;
+    });
+    const entry: ActiveInvocationEntry = {
+      loomAbort,
+      disposeBarrier,
+      shutdownReason: undefined,
+      loom: loom.slashName,
+      invocationId: root.idSource.newInvocationId(),
+    };
+    activeInvocations?.add(entry);
+    let finished = false;
+    // Idempotent: the DRIVE `finally` calls this once; a defensive caller may
+    // call again with no effect.
+    const finishInvocation = (): void => {
+      if (finished) return;
+      finished = true;
+      settleDispose();
+      activeInvocations?.remove(entry);
+    };
+
     return {
       drivenAgainst: "subagent-private-session",
       executeDeps,
@@ -1364,6 +1455,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
         // the boundary the same way in either mode, invocation.md §Final-value).
         return surfaceCalleeFinalValue(execution);
       },
+      finishInvocation,
     };
   }
 
@@ -1794,26 +1886,35 @@ class ProductionLoomProducer implements LoomProducerDeps {
         chain,
         parentSignal,
       });
-      const outcome = await runPromptSuspendInvoke<ResultValue>({
-        cell: { callerMode: "prompt", calleeMode: "prompt" },
-        childCallableSet: callableSetPiToolNames(callee),
-        pi: this.#input.pi,
-        childBody: async () => {
-          const execution = await executeBody(callee.body, childBinding.executeDeps);
-          // FN-5 (invocation.md §Final-value propagation across callees): an
-          // invoke callee returns its body's terminal FINAL VALUE across the
-          // boundary — NOT the PIC-53 trailing-turn text that
-          // `childBinding.surface` computes for a top-level prompt dispatch.
-          // The callee's user-visible turns already streamed into the shared
-          // session; the value that flows back to the parent is the tail
-          // expression, surfaced by the same FN-5 projection as the subagent
-          // path.
-          return surfaceCalleeFinalValue(execution);
-        },
-      });
-      // INV-6 (invocation.md §Typed return): apply the `invoke<Schema>` return
-      // validation to the child's `Ok` payload, exactly as the spawn path below.
-      return this.#validateInvokeReturn(loom, calleePath, returnSchema, outcome.result);
+      // Decision 6 / Increment B1: the child bind registered an
+      // ActiveInvocationRegistry entry; the `finally` calls its
+      // `finishInvocation` AFTER the child body (`runPromptSuspendInvoke`, whose
+      // `childBody` runs `executeBody`) + the INV-6 return validation, so the
+      // entry SPANS the nested callee's real in-flight window.
+      try {
+        const outcome = await runPromptSuspendInvoke<ResultValue>({
+          cell: { callerMode: "prompt", calleeMode: "prompt" },
+          childCallableSet: callableSetPiToolNames(callee),
+          pi: this.#input.pi,
+          childBody: async () => {
+            const execution = await executeBody(callee.body, childBinding.executeDeps);
+            // FN-5 (invocation.md §Final-value propagation across callees): an
+            // invoke callee returns its body's terminal FINAL VALUE across the
+            // boundary — NOT the PIC-53 trailing-turn text that
+            // `childBinding.surface` computes for a top-level prompt dispatch.
+            // The callee's user-visible turns already streamed into the shared
+            // session; the value that flows back to the parent is the tail
+            // expression, surfaced by the same FN-5 projection as the subagent
+            // path.
+            return surfaceCalleeFinalValue(execution);
+          },
+        });
+        // INV-6 (invocation.md §Typed return): apply the `invoke<Schema>` return
+        // validation to the child's `Ok` payload, exactly as the spawn path below.
+        return this.#validateInvokeReturn(loom, calleePath, returnSchema, outcome.result);
+      } finally {
+        childBinding.finishInvocation?.();
+      }
     }
 
     // CANCEL-5 (cancellation.md §`invoke(...)` entry): hand the parent's
@@ -1828,13 +1929,23 @@ class ProductionLoomProducer implements LoomProducerDeps {
       chain,
       parentSignal,
     });
-    const execution = await executeBody(callee.body, binding.executeDeps);
-    const result = binding.surface(execution);
-    // INV-6 (invocation.md §Typed return; hard-ceilings ceiling #4): AJV-validate
-    // the child's returned value against the `invoke<Schema>` annotation. A
-    // mismatch (e.g. a `string` under `invoke<number>`) is
-    // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
-    return this.#validateInvokeReturn(loom, calleePath, returnSchema, result);
+    // Decision 6 / Increment B1: the spawn bind registered an
+    // ActiveInvocationRegistry entry; the `finally` calls its `finishInvocation`
+    // AFTER `executeBody` + `surface` (which runs the spawned session's
+    // `dispose()`) + the INV-6 return validation, so the entry SPANS the nested
+    // subagent callee's real in-flight window and its barrier settles
+    // post-dispose.
+    try {
+      const execution = await executeBody(callee.body, binding.executeDeps);
+      const result = binding.surface(execution);
+      // INV-6 (invocation.md §Typed return; hard-ceilings ceiling #4): AJV-validate
+      // the child's returned value against the `invoke<Schema>` annotation. A
+      // mismatch (e.g. a `string` under `invoke<number>`) is
+      // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
+      return this.#validateInvokeReturn(loom, calleePath, returnSchema, result);
+    } finally {
+      binding.finishInvocation?.();
+    }
   }
 
   /**

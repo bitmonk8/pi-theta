@@ -172,6 +172,17 @@ export interface ConversationBinding {
   readonly drivenAgainst: DrivenConversation;
   readonly executeDeps: ExecuteBodyDeps;
   surface(execution: BodyExecution): ResultValue;
+  /**
+   * Decision 6 / Increment B1 (active-invocation-registry.md §"Active
+   * invocation registry"): settles the invocation's `disposeBarrier` and
+   * removes its `ActiveInvocationRegistry` entry. Idempotent. The DRIVE seam
+   * (`composeLoomFixture.run` / `#driveCallee`) calls it in a `finally` AFTER
+   * `executeBody` + `surface`, so the registry entry SPANS the real in-flight
+   * window rather than being added and removed inside the bind that only
+   * constructs the binding. Optional so non-production bindings (which register
+   * nothing) omit it — a `?.()` caller is then a no-op.
+   */
+  readonly finishInvocation?: () => void;
 }
 
 /**
@@ -262,19 +273,31 @@ export function composeLoomFixture(
           ? await deps.spawnSubagentConversation(bindInput)
           : deps.bindPromptConversation(bindInput);
       // 3. Drive `V19d`'s effectful executor against the bound conversation and
-      //    surface the mode's return value.
-      const execution: BodyExecution = await executeBody(loom.body, binding.executeDeps);
-      // 4. SLSH-3: a top-level `Err(QueryError)` returned to THIS boundary (a
-      //    slash caller, no invoke parent — invoke-reached looms never go through
-      //    `run`) gets a one-line `loom-system-note` formatted from the error
-      //    (SLSH-4 SNK templates). A loom that HANDLES its `Err` terminates with
-      //    `outcome === "success"`, so only a genuinely-unhandled top-level `Err`
-      //    surfaces here. `chain: []` renders the correct leaf row for every
-      //    reachable kind; the SLSH-5 invoke_callee suffix is a deferred
-      //    refinement (no readily-usable invoke provenance at this boundary).
-      const terminal: ResultValue = binding.surface(execution);
-      if (!terminal.ok) {
-        deps.emitTopLevelErrNote(loom.slashName, terminal.error as unknown as QueryError);
+      //    surface the mode's return value. Decision 6 / Increment B1: the
+      //    ActiveInvocationRegistry entry the bind registered SPANS this body
+      //    window — `binding.finishInvocation?.()` in the `finally` settles the
+      //    entry's `disposeBarrier` + removes it AFTER `executeBody` + `surface`
+      //    (and the err-note), so a genuinely in-flight invocation is present in
+      //    the registry when `session_shutdown` fires. The binder short-circuit
+      //    above returns BEFORE `binding` exists, so no entry was added — nothing
+      //    to finish on that path.
+      try {
+        const execution: BodyExecution = await executeBody(loom.body, binding.executeDeps);
+        // 4. SLSH-3: a top-level `Err(QueryError)` returned to THIS boundary (a
+        //    slash caller, no invoke parent — invoke-reached looms never go
+        //    through `run`) gets a one-line `loom-system-note` formatted from the
+        //    error (SLSH-4 SNK templates). A loom that HANDLES its `Err`
+        //    terminates with `outcome === "success"`, so only a
+        //    genuinely-unhandled top-level `Err` surfaces here. `chain: []`
+        //    renders the correct leaf row for every reachable kind; the SLSH-5
+        //    invoke_callee suffix is a deferred refinement (no readily-usable
+        //    invoke provenance at this boundary).
+        const terminal: ResultValue = binding.surface(execution);
+        if (!terminal.ok) {
+          deps.emitTopLevelErrNote(loom.slashName, terminal.error as unknown as QueryError);
+        }
+      } finally {
+        binding.finishInvocation?.();
       }
     },
   };
