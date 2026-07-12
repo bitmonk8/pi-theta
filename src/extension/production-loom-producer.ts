@@ -37,6 +37,8 @@ import {
   attachSubagentAbortForwarding,
   makeIdempotentDispose,
 } from "../runtime/subagent-isolation";
+import { runPromptSuspendInvoke } from "../runtime/invoke-prompt-suspend";
+import type { LoomMode } from "../parser/frontmatter";
 import type {
   Api,
   AssistantMessage,
@@ -775,7 +777,16 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // fresh controller here. A second `forwardSlashCommandCancel` is idempotent
     // (the one-shot guard on `loomAbort.abort()` makes a re-forward a no-op) and
     // re-observes `ctx.signal` in case it became defined after run-entry.
-    const loomAbort = bindInput.loomAbort ?? createLoomAbort();
+    // CANCEL-5 (cancellation.md §`invoke(...)` entry): a prompt→prompt child
+    // invoke attaches to this user session but must still derive its `loomAbort`
+    // downward-only from the parent's signal (child aborts when the parent
+    // aborts, never the reverse — `deriveChildLoomAbort`). A top-level prompt
+    // dispatch (or in-memory harness) carries no `parentSignal` and gets the
+    // dispatch-owned controller (or a fresh one).
+    const loomAbort =
+      bindInput.parentSignal !== undefined
+        ? deriveChildLoomAbort(bindInput.parentSignal)
+        : bindInput.loomAbort ?? createLoomAbort();
     forwardSlashCommandCancel(loomAbort, ctx.signal);
     const signal = loomAbort.signal;
 
@@ -818,9 +829,12 @@ class ProductionLoomProducer implements LoomProducerDeps {
         });
       },
       resolveToolCall: (expr, env) => this.#resolveToolCall(loom, expr, env, signal),
-      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain, signal),
+      // CANCEL-5 / cross-mode: the caller's mode (`prompt`) is threaded to
+      // `#driveCallee` so an `invoke`d prompt-mode callee attaches to this user
+      // session (prompt→prompt) rather than spawning fresh.
+      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain, signal, "prompt"),
       classifyCall: (expr) => this.#classifyCall(loom, expr),
-      resolveCallAsInvoke: (expr, env) => this.#resolveCallAsInvoke(loom, expr, env, ctx, chain, signal),
+      resolveCallAsInvoke: (expr, env) => this.#resolveCallAsInvoke(loom, expr, env, ctx, chain, signal, "prompt"),
     };
 
     const executeDeps: ExecuteBodyDeps = {
@@ -1158,10 +1172,13 @@ class ProductionLoomProducer implements LoomProducerDeps {
         };
       },
       resolveToolCall: (expr, env) => this.#resolveToolCall(loom, expr, env, signal),
-      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain, signal),
+      // Cross-mode: the caller is subagent-mode, so a prompt-mode callee is
+      // reached only via inline `invoke(...)` (prompt callees are load-rejected
+      // from `tools:`); the prompt→prompt user-session attach never engages here.
+      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain, signal, "subagent"),
       classifyCall: (expr) => this.#classifyCall(loom, expr),
       resolveCallAsInvoke: (expr, env) =>
-        this.#resolveCallAsInvoke(loom, expr, env, ctx, chain, signal),
+        this.#resolveCallAsInvoke(loom, expr, env, ctx, chain, signal, "subagent"),
     };
 
     const executeDeps: ExecuteBodyDeps = {
@@ -1184,34 +1201,10 @@ class ProductionLoomProducer implements LoomProducerDeps {
         // cancel path routes through the inert `NoopConversationMutator`.
         forwarding.detach();
         dispose();
-        // FN-5: surface the subagent body's terminal final value. On the success
-        // path the produced value flows as `Ok`; a `?`-propagation fail carries
-        // its `Err` payload, so the caller observes that `Err` (ERR-18); any
-        // other fail / cancel surfaces the terminal cancellation `Err` rather
-        // than a fabricated `Ok(null)`.
-        if (execution.outcome === "success") {
-          // CONV-6 / FN-3: the implicit `Ok(X)` wrap applies ONLY to a
-          // non-`Result` operand. A `Result`-typed tail / `return` operand
-          // (the canonical `return Ok(x)` / tail `Ok(x)` idiom in return.md) IS
-          // already the loom's terminal `Result`, so re-wrapping it would yield
-          // `Ok(Ok(x))` and break `invoke<T>` return validation (it would AJV-
-          // validate the `Ok(x)` wrapper against `T`) and mask a tail `Err(e)`
-          // as a success. Pass a `Result` value through unchanged; wrap only a
-          // non-`Result` value.
-          const value = execution.result.value ?? null;
-          return isResultValue(value) ? value : makeOk(value);
-        }
-        // A `fail` outcome carries the terminating `Err` — a `?`-propagation OR
-        // an unhandled non-cancel effect-`Err` in tail position (ERR-19, e.g. a
-        // `tool_loop_exhausted` breach that reaches the tail with no `?`).
-        // Project that real error so the parent's XMODE-1 wrap reads the true
-        // leaf kind (`invoke_callee` / inner `tool_loop_exhausted`) rather than
-        // a fabricated `cancelled` (STL-6). Only a genuine `cancel` outcome (an
-        // aborted checkpoint) yields `CancelledError`.
-        if (execution.outcome === "fail") {
-          return makeErr(execution.error ?? (makeCancelledError() as unknown as LoomValue));
-        }
-        return makeErr(makeCancelledError() as unknown as LoomValue);
+        // FN-5: surface the subagent body's terminal final value (shared with
+        // the prompt→prompt invoke-attach path — a callee's final value crosses
+        // the boundary the same way in either mode, invocation.md §Final-value).
+        return surfaceCalleeFinalValue(execution);
       },
     };
   }
@@ -1455,6 +1448,8 @@ class ProductionLoomProducer implements LoomProducerDeps {
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
     parentSignal: AbortSignal,
+    /** The invoking loom's own `mode:` — selects the cross-mode attach cell. */
+    callerMode: LoomMode,
   ): InvokeChild {
     // `expr.args[0]` is the callee path literal; the remaining args are the
     // positional invocation arguments bound to the callee's params.
@@ -1470,6 +1465,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
       chain,
       expr.returnSchema,
       parentSignal,
+      callerMode,
     );
   }
 
@@ -1486,13 +1482,15 @@ class ProductionLoomProducer implements LoomProducerDeps {
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
     parentSignal: AbortSignal,
+    /** The invoking loom's own `mode:` — threaded to `#driveCallee`. */
+    callerMode: LoomMode,
   ): InvokeChild {
     const calleePath = loomCalleePath(loom, expr.callee) ?? `./${expr.callee}.loom`;
     const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env));
     // A `.loom`-callable call through `tools:` carries no `invoke<Schema>`
     // annotation, so there is no parse-time return-type site; the runtime AJV
     // net still applies at the query/typed boundary inside the callee.
-    return this.#buildInvokeChild(loom, calleePath, argValues, ctx, chain, null, parentSignal);
+    return this.#buildInvokeChild(loom, calleePath, argValues, ctx, chain, null, parentSignal, callerMode);
   }
 
   /** Build the `InvokeChild` whose `drive()` parses, spawns, and drives the callee. */
@@ -1504,6 +1502,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     chain: InvokeChain,
     returnSchema: string | null,
     parentSignal: AbortSignal,
+    callerMode: LoomMode,
   ): InvokeChild {
     return {
       calleePath,
@@ -1545,6 +1544,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
             childChain,
             returnSchema,
             parentSignal,
+            callerMode,
           ),
           signalGuard(parentSignal),
           noopSwallowChannels(),
@@ -1569,6 +1569,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     chain: InvokeChain,
     returnSchema: string | null,
     parentSignal: AbortSignal,
+    callerMode: LoomMode,
   ): Promise<ResultValue> {
     // INV-5 (invocation.md §Resolution, INV-1 seam): re-run the realpath +
     // discovery-root containment check at the moment the runtime opens the
@@ -1594,6 +1595,50 @@ class ProductionLoomProducer implements LoomProducerDeps {
     paramNames.forEach((name, index) => {
       paramBindings.set(name, argValues[index] ?? null);
     });
+    // Prompt→prompt cross-mode cell (invocation.md §Cross-mode semantics): an
+    // `invoke`d prompt-mode callee whose caller is ALSO prompt-mode ATTACHES to
+    // the caller's current user session — its queries stream as user-visible
+    // turns in the same conversation, not a fresh isolated spawn. The parent
+    // suspends at the call site until the child settles (the executor awaits
+    // this Promise, so the suspend is structural), and the child's callable set
+    // replaces the parent's for the child's WHOLE body (the PIC-17 per-query
+    // snapshot/restore generalised to the body window, owned by
+    // `runPromptSuspendInvoke`); the ambient snapshot is restored on every settle
+    // path — success, returned `Err`, cancel, or throw — with the inner failure
+    // surfaced unmasked. CANCEL-5: the child binding derives its `loomAbort` from
+    // `parentSignal` (downward-only). Every other cell (a subagent-mode callee,
+    // or a subagent-mode caller) spawns fresh below.
+    if (callerMode === "prompt" && callee.frontmatter.mode === "prompt") {
+      const childBinding = this.bindPromptConversation({
+        loom: callee,
+        args: "",
+        ctx,
+        paramBindings,
+        chain,
+        parentSignal,
+      });
+      const outcome = await runPromptSuspendInvoke<ResultValue>({
+        cell: { callerMode: "prompt", calleeMode: "prompt" },
+        childCallableSet: callableSetPiToolNames(callee),
+        pi: this.#input.pi,
+        childBody: async () => {
+          const execution = await executeBody(callee.body, childBinding.executeDeps);
+          // FN-5 (invocation.md §Final-value propagation across callees): an
+          // invoke callee returns its body's terminal FINAL VALUE across the
+          // boundary — NOT the PIC-53 trailing-turn text that
+          // `childBinding.surface` computes for a top-level prompt dispatch.
+          // The callee's user-visible turns already streamed into the shared
+          // session; the value that flows back to the parent is the tail
+          // expression, surfaced by the same FN-5 projection as the subagent
+          // path.
+          return surfaceCalleeFinalValue(execution);
+        },
+      });
+      // INV-6 (invocation.md §Typed return): apply the `invoke<Schema>` return
+      // validation to the child's `Ok` payload, exactly as the spawn path below.
+      return this.#validateInvokeReturn(loom, calleePath, returnSchema, outcome.result);
+    }
+
     // CANCEL-5 (cancellation.md §`invoke(...)` entry): hand the parent's
     // `loomAbort.signal` to the child binding so it constructs its `loomAbort`
     // as a DERIVED controller (downward-only: the child aborts when the parent
@@ -1688,6 +1733,35 @@ class ProductionLoomProducer implements LoomProducerDeps {
  * fixture) or no Pi tools yields `[]`, so the prompt-mode active set stays empty
  * and no ambient tool is installed.
  */
+/**
+ * FN-5 (invocation.md §Final-value propagation across callees): project an
+ * `invoke` callee body's terminal execution onto the `Result` value that crosses
+ * the invoke boundary. Shared by the subagent spawn path and the prompt→prompt
+ * attach path — a callee's final value crosses the boundary identically in
+ * either mode (the prompt callee's user-visible turns stream into the shared
+ * session, but the value that flows BACK is still the body's final value, not
+ * the PIC-53 trailing-turn text of a top-level prompt dispatch).
+ *
+ * On success the produced value flows as `Ok`, with the CONV-6 / FN-3 implicit
+ * wrap applied ONLY to a non-`Result` operand (a `Result`-typed tail passes
+ * through unchanged so `invoke<T>` return validation sees `T`, not `Ok(T)`, and
+ * a tail `Err(e)` is not masked as success). A `fail` outcome carries the
+ * terminating `Err` (a `?`-propagation or an unhandled non-cancel effect-`Err`
+ * in tail position, ERR-19) so the parent's XMODE-1 wrap reads the true leaf
+ * kind rather than a fabricated `cancelled` (STL-6); only a genuine `cancel`
+ * yields `CancelledError`.
+ */
+function surfaceCalleeFinalValue(execution: BodyExecution): ResultValue {
+  if (execution.outcome === "success") {
+    const value = execution.result.value ?? null;
+    return isResultValue(value) ? value : makeOk(value);
+  }
+  if (execution.outcome === "fail") {
+    return makeErr(execution.error ?? (makeCancelledError() as unknown as LoomValue));
+  }
+  return makeErr(makeCancelledError() as unknown as LoomValue);
+}
+
 function callableSetPiToolNames(
   loom: ConversationBindInput["loom"],
 ): readonly string[] {

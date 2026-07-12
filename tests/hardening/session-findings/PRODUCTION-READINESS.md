@@ -46,6 +46,7 @@ commit: `npm test` 1606, `npm run test:conformance` 26, typecheck + lint clean.
 | 4b | STL-2 (prompt) | Prompt-mode `max_rounds` enforced via pi's `tool_call` **block** hook + round counting, preserving native streaming | `74b91091` |
 | 5 | DISCO-2 | Hot-reload/watcher subsystem wired (arm watcher → 250 ms debounce → rebuild-and-swap → re-register + structural-change note + ERR-7; shutdown detaches) | `f970c200` |
 | 6 | decision 7 | Dead-code audit: deleted 4 provably-superseded modules (+4 leaf tests); kept 7 gates; flagged 16 unwired (Part B) | `552545b9` |
+| 7 | INV-9 (Part B decision 1) | prompt→prompt `invoke` attaches to the caller's user session (`runPromptSuspendInvoke` wired; caller-mode threaded; callee final value via shared `surfaceCalleeFinalValue`; CANCEL-5 derived child); subagent→prompt attach deferred | pending |
 
 Earlier standalone hardening fixes on `main` (same program, pre-decisions):
 XMODE-1 `d3db448c`, BIND-1 `e9d17ffd`, SNOTE-1/SUBAG-3 `fe3594c4`,
@@ -62,11 +63,26 @@ detail + spec anchors + unwired evidence: `dead-code-audit.md` (FLAGGED-UNWIRED)
 
 ### B1 — user-facing behaviour gaps (recommend deciding first)
 
-- **INV-9 — prompt→prompt `invoke` never attaches.** `src/runtime/invoke-prompt-suspend.ts`.
-  Production `#driveCallee` **always** spawns a fresh isolated session for every
-  invoke callee; the spec's cross-mode cell "prompt→prompt: child attaches to the
-  caller's conversation, parent suspends" does not exist. (`invoke-cross-mode.ts`
-  is itself unreached.) Spec: `discovery-cli.md` §`invoke` Cross-mode table.
+- **INV-9 — prompt→prompt `invoke` never attaches. ✅ FIXED (decision 1, Option A, commit pending push).**
+  **Before:** production `#driveCallee` **always** spawned a fresh isolated subagent
+  session for every invoke callee (`spawnSubagentConversation`); a prompt-mode callee
+  invoked from a prompt-mode caller ran invisibly in a private session and could not
+  see the user's conversation. **After:** the prompt→prompt cross-mode cell is wired —
+  `#driveCallee` now threads the caller's mode and, when caller+callee are both
+  `prompt`, drives the callee via `bindPromptConversation` (user-session attach:
+  the callee's `@`-queries stream as user-visible turns in the SAME conversation)
+  under `runPromptSuspendInvoke` (V15d active-set snapshot → install child callable
+  set → suspend parent by awaiting the child body → restore in `finally`). The
+  callee's FINAL VALUE (not PIC-53 trailing-turn text) crosses the boundary via a
+  new shared `surfaceCalleeFinalValue` FN-5 projection (also adopted by the subagent
+  surface). CANCEL-5 parity: `bindPromptConversation` now derives its `loomAbort`
+  from `parentSignal` for a child invoke. Live-proved by
+  `tests/hardening/session-invoke-attach.test.ts` (child query appears in the parent
+  drive's `userTexts`; typed `invoke<number>` returns 42). Deferred (separate lower-
+  impact decision): the **subagent→prompt** attach cell (still spawns fresh; the
+  difference is invisible to the user — both are private to the grandparent).
+  Modules wired: `src/runtime/invoke-prompt-suspend.ts`. Spec: `invocation.md`
+  §Cross-mode semantics (prompt→prompt row + prompt→prompt paragraph).
 - **Prompt-mode transport errors are swallowed.** `src/runtime/prompt-transport-mapping.ts`
   (PIC-50/51). A trailing `assistant` turn with `stopReason:"error"` maps to
   `Ok(text)`, never `Err(TransportError)`; `LivePromptQueryModel.nextFreePhaseTurn`
