@@ -227,6 +227,11 @@ export function composeLoomFixture(
 ): LoomFixture {
   return {
     slashName: loom.slashName,
+    // Thread the loom's `description:` onto the fixture so factory registration
+    // passes it to `pi.registerCommand` (frontmatter-fields-a.md autocomplete).
+    ...(loom.frontmatter.description !== undefined
+      ? { description: loom.frontmatter.description }
+      : {}),
     run: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       // CANCEL-2 (cancellation.md §Signal source): the dispatch entry OWNS the
       // per-invocation `loomAbort`; its `loomAbort.signal` — never `ctx.signal`

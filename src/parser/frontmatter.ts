@@ -167,6 +167,13 @@ export interface ParsedFrontmatter {
    * (binder/binder-model-and-context.md §Binder context). Absent ⇒ `"none"`.
    */
   readonly bindContext?: "none" | "session";
+  /**
+   * The loom's `description:` frontmatter (frontmatter-fields-a.md) — mirrors
+   * Pi's prompt-template spelling. Populates the slash-command autocomplete
+   * entry via `pi.registerCommand(name, { description, handler })`. Absent when
+   * omitted or empty (the command registers without description text).
+   */
+  readonly description?: string;
 }
 
 /** The outcome of a frontmatter parse: registration decision + diagnostics. */
@@ -692,6 +699,7 @@ export function parseFrontmatter(
   let modelRange: SourceRange | undefined;
   let bindContextValue: string | undefined;
   let bindContextRange: SourceRange | undefined;
+  let descriptionValue: string | undefined;
   let bindModelValue: string | undefined;
   let bindEchoValue: boolean | undefined;
   let toolLoopNode: Node | null | undefined;
@@ -737,6 +745,14 @@ export function parseFrontmatter(
         bindModelValue = isScalar(item.value)
           ? String(item.value.value)
           : undefined;
+        continue;
+      }
+      if (key === "description") {
+        // frontmatter-fields-a.md: `description` mirrors Pi's prompt-template
+        // spelling and populates the slash-command autocomplete entry (passed to
+        // `pi.registerCommand(name, { description, handler })`). Retained here so
+        // the composition can thread it onto the `LoomFixture`.
+        descriptionValue = isScalar(item.value) ? String(item.value.value) : undefined;
         continue;
       }
       if (key === "bind_echo") {
@@ -1025,6 +1041,11 @@ export function parseFrontmatter(
     // warning was emitted above) and is normalised to `none`.
     ...(bindContextValue === "session" && modeValue === "prompt"
       ? { bindContext: "session" as const }
+      : {}),
+    // frontmatter-fields-a.md: a non-empty `description` populates the
+    // slash-command autocomplete entry.
+    ...(descriptionValue !== undefined && descriptionValue !== ""
+      ? { description: descriptionValue }
       : {}),
   };
   return { registered: true, frontmatter, diagnostics };

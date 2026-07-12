@@ -127,6 +127,12 @@ function bootstrapFailedDiagnostic(
 export interface LoomFixture {
   /** The slash-command name this loom registers under. */
   readonly slashName: string;
+  /**
+   * The loom's `description:` frontmatter, passed to `pi.registerCommand` so it
+   * populates the slash-command autocomplete entry (frontmatter-fields-a.md).
+   * Absent when the loom declares no (non-empty) `description:`.
+   */
+  readonly description?: string;
   /** The command body, run by the registered slash handler on dispatch. */
   readonly run: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 }
@@ -325,6 +331,9 @@ export function createLoomExtension(
       for (const fixture of fixtures) {
         try {
           pi.registerCommand(fixture.slashName, {
+            // frontmatter-fields-a.md: `description` populates the autocomplete
+            // entry. Omitted when the loom declares none (registers untexted).
+            ...(fixture.description !== undefined ? { description: fixture.description } : {}),
             handler: (args, ctx: ExtensionCommandContext) => fixture.run(args, ctx),
           });
         } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only

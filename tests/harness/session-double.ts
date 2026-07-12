@@ -41,6 +41,8 @@ interface SentMessage {
 }
 
 interface RegisteredCommandRecord {
+  /** The autocomplete description passed to `pi.registerCommand` (optional). */
+  readonly description?: string;
   readonly handler: (
     args: string,
     ctx: ExtensionCommandContext,
@@ -231,7 +233,10 @@ export class SessionDouble {
       name: string,
       options: RegisteredCommandRecord,
     ): void => {
-      this.commands.set(name, { handler: options.handler });
+      this.commands.set(name, {
+        ...(options.description !== undefined ? { description: options.description } : {}),
+        handler: options.handler,
+      });
     },
     on: (event: string, handler: EventHandler): void => {
       const list = this.subscriptions.get(event) ?? [];

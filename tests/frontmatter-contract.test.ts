@@ -183,3 +183,19 @@ describe("BNDR-10 — `bind_context:` retention on ParsedFrontmatter", () => {
     expect(r.frontmatter?.bindContext, "subagent-mode session is normalised away").toBeUndefined();
   });
 });
+
+// --- `description` retention (frontmatter-fields-a.md — autocomplete entry) ---
+
+describe("frontmatter `description` retention", () => {
+  it("retains a non-empty `description` for the slash-command autocomplete entry", () => {
+    const r = parse(loom("mode: prompt", "description: Programmatic code review"));
+    expect(r.registered).toBe(true);
+    expect(r.frontmatter?.description).toBe("Programmatic code review");
+  });
+
+  it("an absent `description` leaves it undefined (command registers untexted)", () => {
+    const r = parse(loom("mode: prompt"));
+    expect(r.registered).toBe(true);
+    expect(r.frontmatter?.description).toBeUndefined();
+  });
+});

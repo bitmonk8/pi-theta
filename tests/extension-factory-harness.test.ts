@@ -169,6 +169,22 @@ describe("H4a — end-to-end harness (Convention: end-to-end harness)", () => {
     expect(ran).toBe(true);
   });
 
+  it("passes the loom's `description` to pi.registerCommand (autocomplete entry; frontmatter-fields-a.md)", () => {
+    const described: LoomFixture = {
+      slashName: "review",
+      description: "Programmatic, parameterised code review",
+      run: async () => {},
+    };
+    const undescribed: LoomFixture = { slashName: "bare", run: async () => {} };
+    const loaded = loadExtension({ fixtures: [described, undescribed] });
+    // The described loom's autocomplete text reaches the registration seam...
+    expect(loaded.double.commands.get("review")?.description).toBe(
+      "Programmatic, parameterised code review",
+    );
+    // ...and a loom with no description registers untexted (no fabricated text).
+    expect(loaded.double.commands.get("bare")?.description).toBeUndefined();
+  });
+
   it("supplies fixtures in memory with no real filesystem read (in-memory fixture-supply)", () => {
     const loaded = loadExtension({
       fixtures: [{ slashName: "a", run: async () => {} }],
