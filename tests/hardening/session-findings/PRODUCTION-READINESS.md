@@ -1,5 +1,39 @@
 # pi-loom production-readiness program — findings & state
 
+---
+
+## ⏭️ RESUME HERE — current state, open work, pending decisions
+
+**Baseline at handoff:** HEAD `e1702c87`; `npm test` **1619**, `npm run test:conformance` **26**, `npm run typecheck` + `npm run lint` clean, working tree clean, on `main` (all pushed). Confirm this on start.
+
+**How to work (see CONTINUE.md for the full bootstrap):** verify each finding against source; present every scope/architecture choice as a multiple-choice question with a recommendation and await the maintainer; if investigation changes a scope estimate you gave, STOP and re-present; one phase at a time (shared composition files) — each phase green on typecheck+lint+`npm test`+conformance+the relevant live probe, then commit+push (you own commits; workers do not). **Delegate aggressively to `worker` subagents — recursively.** Live probes emit harmless `stale ctx` / `registry-swap-failed` teardown stderr noise; ignore it (it never sets `turn.error`).
+
+### PENDING DECISION (unanswered — ask the maintainer first thing)
+
+**Decision 5 remainder — B2 diagnostics/quality gaps.** The clearest user-facing B2 bug (slash-command `description` → `registerCommand` autocomplete) is already FIXED (`e1702c87`). Two candidates remain, both larger/narrower than first estimated (scope corrected against source):
+
+- **`drain-state` routing (PIC-29..32).** Module `src/extension/drain-state.ts` is complete; `LoomRegistry.readDrainState()` storage is wired but has **no dispatch consumer**. `rebuildAndSwap` only `registry.publish()`s and `reRegister` re-registers per-fixture **raw closures** — there is no registry-backed dispatch indirection. Wiring needs the registration path restructured so the **registered handler** is a drain-state-gated, registry-backed wrapper (`readDrainState` → `resolveSlashDispatch(name, snapshot, registry)` → dispatch `registry.get(name).run` **or** emit shutting-down/degraded/superseded note), while the registry stores the **raw** run (avoid wrapper→wrapper recursion). Crosses the generic-`factory.ts` ↔ `production-composition.ts` boundary. Impact: hot-reload-failure-recovery UX edge (a slash dispatched during/after a failed swap, or on a dropped entry, gets a proper note instead of running stale). Architecture surgery on the shared dispatch/registration path.
+- **`query-schema-inference` (V13b, QRY-2).** Documented feature. The **common form** `let x: T = @`…`` is ALREADY wired (the parser propagates the binding annotation onto `QueryExpr.schema` at `src/parser/loom-document.ts` ~line 1326, incl. the `?`-form). Only the **fuller outward walk** for *indirect* positions is unwired: function-call-argument position, enclosing-function return-type context, array-literal element, ternary branch, match-arm. Wiring = replace/augment the inline annotation propagation with `src/parser/query-schema-inference.ts`'s shallow outward-walk-to-nearest-sink (crossing transparent constructs), + `loom/parse/explicit-schema-mismatch` warning + per-query `$defs` pruning. Medium-large parser change; impact limited to advanced positions.
+
+The 4-option question posed (and awaiting an answer) was: **(a)** do both (each its own green+committed phase, then decision 6); **(b)** query-schema-inference only, record drain-state as follow-up; **(c)** drain-state only; **(d)** record both as follow-ups and go to decision 6. No recommendation was re-issued after the scope correction — ask fresh.
+
+**Other B2 items = accepted 1.0 cuts** (record rationale, do not fix unless the maintainer reopens): `tool-batch` (sequential is safe; matches CLAUDE.md "sequential by default"; only timing-observable), `load-pre-eval` (README-acknowledged load-phase toast+stderr; reload-phase note routing IS wired), `tool-call-off-surface` (shape-validation robustness edge), `forwarding-listener-trap` (low-severity robustness), `query-discard` (minor diagnostic), `tool-registration` residues PIC-8/19/44 (robustness edges), `argument-hint` (no Pi `RegisteredCommand` autocomplete slot — SDK gap deferred to Future Considerations), `ToolDefinition.label` (internal tool-bridge label; low-severity).
+
+### NEXT DECISION (after 5) — Decision 6: `runSessionShutdown` five-step teardown
+
+`src/extension/session-shutdown.ts` `runSessionShutdown` is unwired for its full five-step teardown. Today `factory.ts`'s `session_shutdown` handler only detaches the hot-reload watcher + cancels the debounce timer; the **registry-drain** and **forwarding-listener-detach** steps need the cancellation-path resources threaded in. The drain-state module's `evalShutdownShortCircuitWithReadFailover` (PIC-31 read-failover; the `session_shutdown` handler-entry short-circuit) also belongs to this decision. Investigate the five steps against `session-shutdown.ts` + the spec, present options, then wire.
+
+### Verified facts — do NOT re-discover
+
+- **Binder forced-tool mechanism is NOT realizable** against the available provider (anthropic-messages / claude-haiku). The spec pins a forced-tool structured-output `complete()` whose tool `parameters` are the three-arm **`anyOf`** binder envelope — but a top-level `anyOf` is not a valid Anthropic tool `input_schema` (must be `type:object`), so the model force-calls the tool with **empty `arguments`** and every bind fails malformed (live-confirmed: `stopReason=toolUse … arguments:{}`). The shipped **free-text envelope binder** is retained as pragmatically correct; `src/binder/binder-inference.ts` + `binder-seed.ts` (forced-tool + FNV-1a seed) stay **intentionally unwired**. The provider-error **retry taxonomy** and **`bind_context: session`** were wired on the free-text binder (b2/b3).
+- **`invoke-cross-mode.ts` was NOT needed** for INV-9 — production keys on caller-mode + `callee.frontmatter.mode` directly; only `runPromptSuspendInvoke` was wired. `invoke-cross-mode.ts` remains an unreached helper.
+- **A callee's final value crosses the invoke boundary via `surfaceCalleeFinalValue`** (FN-5), shared by the subagent spawn path and the prompt→prompt attach path — NOT the PIC-53 trailing-turn text (that is a top-level prompt-dispatch return only).
+- **Prompt-mode transport failures** now surface via a `transport` error variant on `FreePhaseTurn`/`ForcedRespondTurn` + `Untyped/TypedQueryOutcome` (query-tool-loop.ts) → host `Err`. **Subagent-mode has the identical gap** (`extractSubagentQueryResult` unwired) — flagged, out of scope so far.
+- **A real transport 429 / provider `stopReason:"error"` / depth-6 value cannot be forced deterministically** against a live provider; verify those paths with deterministic unit tests + a live *no-regression* probe (loom's static schema-subset gate also rejects depth-6 *schemas* at parse).
+- Prompt callees are load-rejected from `tools:` (`loom/load/prompt-mode-callable`), so a prompt callee is reachable only via inline `invoke(...)`.
+
+---
+
 **Goal.** Make Loom fully production-ready **as defined by the spec**
 (`docs/spec.md` + `docs/spec_topics/`, more normative than `docs/` guide/tutorial/
 reference; the spec is not assumed 100% correct — bug-ness is a judgement call:
