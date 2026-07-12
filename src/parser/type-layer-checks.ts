@@ -101,7 +101,7 @@ export function checkTypeLayer(body: LoomBody, file: string): Diagnostic[] {
  * RHS, so they too default to the nominal shape — a conservative classification
  * that never manufactures a spurious `type`-phase reject.
  */
-function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
+export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
   const env: Record<string, NamedDecl> = {};
   for (const stmt of statements) {
     if (stmt.kind === "schema") {
@@ -119,7 +119,7 @@ function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
  * type) resolves to a nominal `named` reference — the same shape the `⊑` engine
  * treats as deferred.
  */
-function annotationToCompatType(src: string): CompatType | undefined {
+export function annotationToCompatType(src: string): CompatType | undefined {
   const text = src.trim();
   if (text.length === 0) {
     return undefined;

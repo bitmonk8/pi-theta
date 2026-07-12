@@ -70,6 +70,7 @@ import {
 } from "./schema-declarations";
 import { parseTypeExpression } from "./type-grammar";
 import { checkTypeLayer } from "./type-layer-checks";
+import { resolveQuerySchemas } from "./query-schema-resolve";
 import { buildBodyTypeSchemas } from "./body-type-lowering";
 
 // --------------------------------------------------------------------------
@@ -593,7 +594,22 @@ export function parseLoomDocument(
   // delegated to V5c's `checkDocCommentPlacement` over the following
   // production.
   const docScan = scanDocComments(split.bodyText, file);
-  const statements = mergeByLine(body.statements, docScan.nodes);
+  const mergedStatements = mergeByLine(body.statements, docScan.nodes);
+
+  // V13b integration — resolve each INDIRECT typed query's response schema from
+  // its surrounding type context (QRY-2) and collect the QRY-4 explicit-schema-
+  // mismatch warnings, BEFORE the downstream checkers and producers read
+  // `QueryExpr.schema`. Option B (tree-rebuild): the returned body carries the
+  // inferred `schema` on each resolvable null-schema query, so
+  // `QueryExpr.schema: string` stays the single source of truth. The direct
+  // `let x: T = @` fast path was already propagated by `parseLet`, so only
+  // null-schema queries at a resolvable sink change here.
+  const resolvedQuery = resolveQuerySchemas(
+    { statements: mergedStatements, tail: body.tail },
+    file,
+  );
+  const statements = resolvedQuery.body.statements;
+  const resolvedTail = resolvedQuery.body.tail;
 
   const bodyTypes = collectBodyTypes(statements);
 
@@ -626,7 +642,7 @@ export function parseLoomDocument(
   // schemas, and the position-sensitive type-grammar checks over declared type
   // sources).
   const structuralDiags = checkStructural(
-    { statements, tail: body.tail },
+    { statements, tail: resolvedTail },
     file,
   );
 
@@ -635,7 +651,7 @@ export function parseLoomDocument(
   // (non-boolean condition, non-array iterand, `?` misuse, array/return LUB,
   // integer narrowing, match-arm mismatch, non-indexable / object-index /
   // array-join).
-  const typeLayerDiags = checkTypeLayer({ statements, tail: body.tail }, file);
+  const typeLayerDiags = checkTypeLayer({ statements, tail: resolvedTail }, file);
 
   // imports.md §"`.warp` file rules": a `.warp` top level may contain only
   // `import` / `export` / `schema` / `enum` / `fn` declarations; a bare
@@ -644,7 +660,7 @@ export function parseLoomDocument(
   // `.warp` extension (byte-exact lowercase), so it never fires for a `.loom`
   // (IMP-4).
   const warpTopLevelDiags = file.endsWith(".warp")
-    ? checkWarpTopLevel({ statements, tail: body.tail }, file)
+    ? checkWarpTopLevel({ statements, tail: resolvedTail }, file)
     : [];
 
   const diagnostics = assembleDiagnostics([
@@ -655,11 +671,12 @@ export function parseLoomDocument(
     structuralDiags,
     typeLayerDiags,
     warpTopLevelDiags,
+    resolvedQuery.diagnostics,
   ]);
 
   return {
     frontmatter,
-    body: { statements, tail: body.tail },
+    body: { statements, tail: resolvedTail },
     diagnostics,
   };
 }

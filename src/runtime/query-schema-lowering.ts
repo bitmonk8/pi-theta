@@ -28,6 +28,10 @@ import {
   lowerObjectFields,
   lowerTypeSource,
 } from "../parser/body-type-lowering";
+import {
+  prunePerQueryDefs,
+  type QueryDefsDocument,
+} from "../parser/query-schema-inference";
 
 /** An identifier-shaped atom (a bare `NamedType` reference). */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -54,13 +58,15 @@ export function lowerQueryResponseSchema(
   if (IDENTIFIER.test(s)) {
     const named = bodyTypeMap.get(s);
     if (named !== undefined) {
-      return named as LoweredSchema;
+      return pruneDocumentDefs(named) as LoweredSchema;
     }
   }
 
   // An inline object type `{ field: Type, … }`.
   if (s.startsWith("{") && s.endsWith("}")) {
-    return lowerInlineObject(s.slice(1, -1), bodyTypeMap) as LoweredSchema;
+    return pruneDocumentDefs(
+      lowerInlineObject(s.slice(1, -1), bodyTypeMap),
+    ) as LoweredSchema;
   }
 
   // An inline primitive / union / `array<T>` type.
@@ -70,7 +76,7 @@ export function lowerQueryResponseSchema(
   if (Object.keys(defs).length > 0) {
     result["$defs"] = defs;
   }
-  return result as LoweredSchema;
+  return pruneDocumentDefs(result) as LoweredSchema;
 }
 
 /**
@@ -90,4 +96,81 @@ function buildBodyTypeMap(
     map.set(decl.name, lowerObjectFields(decl.fields, map));
   }
   return map;
+}
+
+/**
+ * schema-subset.md §"Lowering Algorithm" step 4 — build the per-query request
+ * schema document's `$defs`: keep only the `$defs` transitively reachable from
+ * the response-schema root, pruning the unreachable ones (`prunePerQueryDefs`).
+ * A document with no top-level `$defs` is returned unchanged; the input is not
+ * mutated (the `bodyTypeMap` fragments are shared across queries), so a shallow
+ * clone carries the pruned `$defs`.
+ */
+function pruneDocumentDefs(
+  document: Record<string, unknown>,
+): Record<string, unknown> {
+  const defs = document["$defs"];
+  if (defs === undefined || defs === null || typeof defs !== "object") {
+    return document;
+  }
+  const defsMap = defs as Record<string, Record<string, unknown>>;
+
+  // The response-schema root's own `$ref` targets (everything but the `$defs`
+  // section) seed the reachability walk; each `$def` contributes the `$ref`
+  // targets found anywhere in its body (a conservative over-approximation that
+  // never prunes a reachable def).
+  const rootBody: Record<string, unknown> = { ...document };
+  delete rootBody["$defs"];
+  const graph: Record<string, string[]> = {};
+  for (const [name, body] of Object.entries(defsMap)) {
+    graph[name] = collectDefRefs(body);
+  }
+  const doc: QueryDefsDocument = { rootRefs: collectDefRefs(rootBody), defs: graph };
+  const reachable = prunePerQueryDefs(doc);
+
+  const prunedDefs: Record<string, Record<string, unknown>> = {};
+  for (const name of Object.keys(reachable)) {
+    const body = defsMap[name];
+    if (body !== undefined) {
+      prunedDefs[name] = body;
+    }
+  }
+
+  const result: Record<string, unknown> = { ...rootBody };
+  if (Object.keys(prunedDefs).length > 0) {
+    result["$defs"] = prunedDefs;
+  }
+  return result;
+}
+
+/**
+ * Collect the `$def` names a JSON-Schema fragment references, from every
+ * `{ "$ref": "#/$defs/<Name>" }` occurrence anywhere within it (a recursive
+ * scan over nested objects and arrays).
+ */
+function collectDefRefs(value: unknown): string[] {
+  const names: string[] = [];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        visit(item);
+      }
+      return;
+    }
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+      if (key === "$ref" && typeof child === "string") {
+        const match = /^#\/\$defs\/(.+)$/.exec(child);
+        if (match !== null && match[1] !== undefined) {
+          names.push(match[1]);
+        }
+      } else {
+        visit(child);
+      }
+    }
+  };
+  visit(value);
+  return names;
 }
