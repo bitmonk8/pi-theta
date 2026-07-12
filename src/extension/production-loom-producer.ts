@@ -181,6 +181,10 @@ import { renderNoParamsOverflowNote } from "../runtime/slash-dispatch";
 import { renderTopLevelErrNote } from "../runtime/err-note-render";
 import type { QueryError } from "../runtime/query-error";
 import { SYSTEM_NOTE_CHANNEL } from "./system-note-channel";
+import {
+  PromptToolLoopGovernor,
+  type PromptToolLoopExhaustion,
+} from "./prompt-tool-loop-governor";
 
 /**
  * H8b: one resolved host Pi tool the code-side tool-call path dispatches
@@ -351,6 +355,13 @@ function loomCallableName(path: string): string {
  */
 class ProductionLoomProducer implements LoomProducerDeps {
   readonly #input: ProductionProducerInput;
+  /**
+   * STAGE B (ceiling #2): bounds pi's native prompt-mode agentic tool loop to
+   * the loom's `tool_loop.max_rounds`. Registered once on the host `pi` (lazily,
+   * on the first prompt-mode query drive) and guarded by a per-drive active
+   * state, so it never affects unrelated user turns.
+   */
+  readonly #promptToolLoopGovernor = new PromptToolLoopGovernor();
 
   constructor(input: ProductionProducerInput) {
     this.#input = input;
@@ -1254,6 +1265,16 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // same).
     const queryText = renderTypedAwareQueryText(expr, env, validation?.lowered);
 
+    // STAGE B (ceiling #2): bound the native prompt-mode agentic tool loop to
+    // the loom's `tool_loop.max_rounds` for the untyped free-phase turn. A typed
+    // query's forced-respond turn is the exempt-routed terminator (FRNT-1) and
+    // is NOT bounded. `max_rounds: 0` untyped is handled upstream by
+    // `runUntypedQueryLoop` (it exhausts at query start before any turn), so the
+    // governor is only consulted for `max_rounds >= 1` free-phase turns.
+    const maxRounds = deps.loom.frontmatter.toolLoop?.maxRounds ?? 25;
+    if (!typed && deps.userVisible) {
+      this.#promptToolLoopGovernor.ensureRegistered(deps.pi);
+    }
     const model = deps.userVisible
       ? new LivePromptQueryModel({
           pi: deps.pi,
@@ -1263,6 +1284,9 @@ class ProductionLoomProducer implements LoomProducerDeps {
           readMessages: deps.readMessages,
           activeTools,
           loomAbort: deps.loomAbort,
+          // Only the untyped free-phase native turn is bounded (typed → exempt).
+          governor: typed ? undefined : this.#promptToolLoopGovernor,
+          maxRounds,
         })
       : new OffSessionQueryModel({ model: deps.ctx.model, queryText, signal: deps.signal });
 
@@ -1767,6 +1791,11 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #readMessages: () => readonly Message[];
   readonly #activeTools: readonly string[];
   readonly #loomAbort: AbortController;
+  /** STAGE B: bounds the native tool loop; `undefined` for the exempt typed path. */
+  readonly #governor: PromptToolLoopGovernor | undefined;
+  readonly #maxRounds: number;
+  /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
+  #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
 
   constructor(deps: {
     readonly pi: ExtensionAPI;
@@ -1778,6 +1807,10 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly activeTools: readonly string[];
     /** CANCEL-2: the per-invocation controller `ctx.signal` is re-forwarded into per turn. */
     readonly loomAbort: AbortController;
+    /** STAGE B: the round-cap governor for the untyped free-phase turn (undefined = exempt/typed). */
+    readonly governor: PromptToolLoopGovernor | undefined;
+    /** STAGE B: the loom's `tool_loop.max_rounds` for this query. */
+    readonly maxRounds: number;
   }) {
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
@@ -1786,26 +1819,59 @@ class LivePromptQueryModel implements QueryModelDriver {
     this.#readMessages = deps.readMessages;
     this.#activeTools = deps.activeTools;
     this.#loomAbort = deps.loomAbort;
+    this.#governor = deps.governor;
+    this.#maxRounds = deps.maxRounds;
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
     if (round === 0) {
       // SLSH-2: issue the rendered query as one streamed user-visible turn and
       // await its completion so the assistant text is committed before the
-      // interpreter resumes. The driver requests no frontmatter tools, so the
-      // model's reply is the terminating plain-text turn — the free phase
-      // advances no further round.
-      await this.#driveUserVisibleTurn();
+      // interpreter resumes. pi runs its NATIVE agentic tool loop for this turn;
+      // the governor (STAGE B) bounds it to `tool_loop.max_rounds` by blocking
+      // any tool-use round beyond the cap (ceiling #2 / CIO-4).
+      await this.#driveUserVisibleTurn(true);
+      if (this.#exhaustion?.exhausted === true) {
+        // The native loop attempted a round beyond `max_rounds`; the governor
+        // blocked it. Represent that as a `tool_use` round so the enclosing
+        // `runUntypedQueryLoop` reaches its `max_rounds`-final branch and
+        // surfaces the canonical `Err(ToolLoopExhaustedError)` with the recorded
+        // `last_tool_name` (ERR-19). The native turn already committed its side
+        // effects (ERR-13 no-rollback); this batch is not re-executed
+        // (`runToolBatch` is a no-op below).
+        return this.#exhaustionTurn();
+      }
+      // Completed within the cap: the terminating plain-text turn.
       return { kind: "text", text: extractTrailingTurnText(this.#readMessages()) };
     }
-    // No `tool_use` round was ever returned, so a round beyond the first cannot
-    // be reached; a defensive terminating turn keeps the loop total.
+    // Only reachable on the exhausted path: keep returning the synthetic
+    // `tool_use` round until `runUntypedQueryLoop`'s slot count reaches
+    // `max_rounds` and it surfaces `tool_loop_exhausted`.
+    if (this.#exhaustion?.exhausted === true) {
+      return this.#exhaustionTurn();
+    }
+    // Defensive: a non-exhausted round beyond the first is unreachable (round 0
+    // returned text) — a terminating turn keeps the loop total.
     return { kind: "text", text: "" };
   }
 
+  /**
+   * The synthetic single-call `tool_use` round that drives `runUntypedQueryLoop`
+   * to its `max_rounds`-final branch on the exhausted path. Its `toolName` is the
+   * last tool the model tried (surfaced as ERR-19 `last_tool_name`).
+   */
+  #exhaustionTurn(): FreePhaseTurn {
+    const toolName = this.#exhaustion?.lastToolName ?? "respond";
+    return {
+      kind: "tool_use",
+      batch: [{ toolName, toolUseId: "loom-prompt-loop-exhausted" }],
+    };
+  }
+
   runToolBatch(): Promise<readonly CommittedSideEffect[]> {
-    // The driver emits no `tool_use` batch (no frontmatter callable set is
-    // installed for these looms), so no batch is ever executed.
+    // pi's native loop executes and commits the real tool calls inside the
+    // streamed turn; the loom-level batch (only ever the STAGE-B synthetic
+    // exhaustion round) executes nothing.
     return Promise.resolve([]);
   }
 
@@ -1817,7 +1883,10 @@ class LivePromptQueryModel implements QueryModelDriver {
     // depth-walks and validates the payload against it. A non-JSON reply is
     // surfaced as its raw text (never a thrown `JSON.parse`, never a bound
     // `null`) so the schema validation reports the mismatch.
-    await this.#driveUserVisibleTurn();
+    //
+    // STAGE B: the forced-respond turn is the exempt-routed terminator (FRNT-1)
+    // and is NOT bounded by `tool_loop.max_rounds` — driven UNBOUNDED.
+    await this.#driveUserVisibleTurn(false);
     const text = extractTrailingTurnText(this.#readMessages());
     const parse = await parseStructuredPayload(text);
     return { kind: "respond", payload: payloadForRespond(parse) };
@@ -1833,7 +1902,16 @@ class LivePromptQueryModel implements QueryModelDriver {
    * the injected `Clock` macrotask queue, so a turn that never starts cannot
    * hang), then awaits idle for the run's `agent_end`.
    */
-  async #driveUserVisibleTurn(): Promise<void> {
+  async #driveUserVisibleTurn(bound: boolean): Promise<void> {
+    // STAGE B: when `bound`, arm the governor around the native turn so pi's
+    // internal agentic tool loop is capped at `tool_loop.max_rounds`. The bound
+    // is armed IMMEDIATELY before `sendUserMessage` and disarmed right after the
+    // turn settles, so it never affects unrelated turns or other queries. The
+    // exhaustion snapshot is read by `nextFreePhaseTurn` after this resolves.
+    // A typed query's forced-respond turn passes `bound: false` (exempt).
+    if (bound && this.#governor !== undefined) {
+      this.#governor.begin(this.#maxRounds);
+    }
     // `pi.sendUserMessage` is fire-and-forget: it schedules a fresh agent run
     // but returns before that run installs its active-run handle. `waitForIdle`
     // is not a reliable barrier here — in a session bound without
@@ -1875,6 +1953,11 @@ class LivePromptQueryModel implements QueryModelDriver {
       }
     } finally {
       this.#pi.setActiveTools(ambientTools);
+      // STAGE B: disarm the governor and capture the exhaustion snapshot the
+      // moment the turn settles, even on an error/abort path.
+      if (bound && this.#governor !== undefined) {
+        this.#exhaustion = this.#governor.end();
+      }
     }
   }
 

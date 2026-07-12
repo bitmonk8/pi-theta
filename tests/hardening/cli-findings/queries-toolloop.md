@@ -181,7 +181,17 @@ Original finding (retained for provenance):
 
 ---
 
-## FINDING QTL-4: in prompt mode the model receives no tools during a query — the driver forces the active set to `[]`, so `tools:` is unusable by the model and ceiling #2 is unreachable
+## FINDING QTL-4 [FIXED]: in prompt mode the model receives no tools during a query — the driver forces the active set to `[]`, so `tools:` is unusable by the model and ceiling #2 is unreachable
+
+**STATUS: FIXED.** The `setActiveTools([])` under-permission was fixed in Phase 3a
+(prompt-mode query turns now install the loom's callable set — see the QTL-4
+repro line about `production-loom-producer.ts`). The follow-on
+**ceiling #2 unreachability** ("model-driven tool loops … therefore ceiling #2
+… are unreachable") is fixed in Phase 4 STAGE B: pi's native prompt-mode agentic
+tool loop is now bounded to `tool_loop.max_rounds` through pi's `tool_call` /
+`before_provider_request` hooks. See `session-findings/promptloop.md` (PL-1) for
+the hook mechanism and live before/after.
+
 
 - repro:
   ```loom

@@ -232,6 +232,11 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "ExtensionAPI", kind: "peer-named-import" },
     { id: "ExtensionContext", kind: "peer-named-import" },
     { id: "ExtensionCommandContext", kind: "peer-named-import" },
+    // STAGE B (ceiling #2): the prompt-mode tool-loop governor bounds pi's
+    // native agentic loop through the `tool_call` interception hook, whose
+    // event and `{ block, reason }` result are these two peer surfaces.
+    { id: "ToolCallEvent", kind: "peer-named-import" },
+    { id: "ToolCallEventResult", kind: "peer-named-import" },
     // The H8a production composition root imports the host `ModelRegistry` type
     // (binder-model resolution + structured-output turns).
     { id: "ModelRegistry", kind: "peer-named-import" },
