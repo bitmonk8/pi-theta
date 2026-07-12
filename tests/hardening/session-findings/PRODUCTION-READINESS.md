@@ -46,7 +46,8 @@ commit: `npm test` 1606, `npm run test:conformance` 26, typecheck + lint clean.
 | 4b | STL-2 (prompt) | Prompt-mode `max_rounds` enforced via pi's `tool_call` **block** hook + round counting, preserving native streaming | `74b91091` |
 | 5 | DISCO-2 | Hot-reload/watcher subsystem wired (arm watcher → 250 ms debounce → rebuild-and-swap → re-register + structural-change note + ERR-7; shutdown detaches) | `f970c200` |
 | 6 | decision 7 | Dead-code audit: deleted 4 provably-superseded modules (+4 leaf tests); kept 7 gates; flagged 16 unwired (Part B) | `552545b9` |
-| 7 | INV-9 (Part B decision 1) | prompt→prompt `invoke` attaches to the caller's user session (`runPromptSuspendInvoke` wired; caller-mode threaded; callee final value via shared `surfaceCalleeFinalValue`; CANCEL-5 derived child); subagent→prompt attach deferred | pending |
+| 7 | INV-9 (Part B decision 1) | prompt→prompt `invoke` attaches to the caller's user session (`runPromptSuspendInvoke` wired; caller-mode threaded; callee final value via shared `surfaceCalleeFinalValue`; CANCEL-5 derived child); subagent→prompt attach deferred | `5dec2a70` |
+| 8 | Prompt-mode transport mapping (Part B decision 2) | PIC-50/51 wired: `transport` outcome variant through query-tool-loop + host; `LivePromptQueryModel` probes `stopReason` (untyped + typed) + maps `sendUserMessage` sync-throw; subagent-mode parity gap flagged | pending |
 
 Earlier standalone hardening fixes on `main` (same program, pre-decisions):
 XMODE-1 `d3db448c`, BIND-1 `e9d17ffd`, SNOTE-1/SUBAG-3 `fe3594c4`,
@@ -83,10 +84,25 @@ detail + spec anchors + unwired evidence: `dead-code-audit.md` (FLAGGED-UNWIRED)
   difference is invisible to the user — both are private to the grandparent).
   Modules wired: `src/runtime/invoke-prompt-suspend.ts`. Spec: `invocation.md`
   §Cross-mode semantics (prompt→prompt row + prompt→prompt paragraph).
-- **Prompt-mode transport errors are swallowed.** `src/runtime/prompt-transport-mapping.ts`
-  (PIC-50/51). A trailing `assistant` turn with `stopReason:"error"` maps to
-  `Ok(text)`, never `Err(TransportError)`; `LivePromptQueryModel.nextFreePhaseTurn`
-  never probes `stopReason`. A failed provider turn is indistinguishable from success.
+- **Prompt-mode transport errors are swallowed. ✅ FIXED (decision 2, Option A, commit pending push).**
+  `src/runtime/prompt-transport-mapping.ts` (PIC-50/51) is now WIRED. **Before:** a
+  trailing `assistant` turn with `stopReason:"error"` mapped to `Ok(text)` and a
+  `sendUserMessage` sync-throw escaped as `loom/runtime/internal-error` — a failed
+  provider turn was indistinguishable from success. **After:** `query-tool-loop.ts`
+  gained an error-bearing `transport` variant on `FreePhaseTurn`/`ForcedRespondTurn`
+  and on `UntypedQueryOutcome`/`TypedQueryOutcome` (mirroring `tool_loop_exhausted`);
+  `effectful-statement-host.ts` maps it to `Err`; `LivePromptQueryModel` probes the
+  trailing `stopReason` via `extractPromptModeQueryResult` in both
+  `nextFreePhaseTurn` (untyped) and `forcedRespondTurn` (typed), and maps a
+  `sendUserMessage` sync-throw via `mapPromptModeSyncThrow`. Provider threaded from
+  `ctx.model.provider`. Verified: new deterministic end-to-end unit tests
+  (`tests/query-tool-loop.test.ts` +3 — scripted `transport` turn → `Err(transport)`),
+  the module's own `tests/prompt-transport-mapping.test.ts` (6), and a live
+  no-regression probe (`tests/hardening/session-prompt-transport.test.ts`: normal
+  untyped + typed prompt turns still bind `Ok`, no false-positive transport `Err`;
+  a real transport failure cannot be forced deterministically). **Subagent-mode has
+  the identical gap** (`extractSubagentQueryResult` also unwired) — out of this
+  finding's named scope; flag for a later decision.
 - **Ceiling #4 not enforced on `invoke` boundaries.** `src/runtime/invoke-ceiling-depth.ts`.
   JSON-document depth ≤5 (`"JSON document depth exceeds 5"`) at the `invoke(...)`
   `params` boundary and the `invoke<T>` return boundary — production runs AJV only

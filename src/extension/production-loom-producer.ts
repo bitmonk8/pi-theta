@@ -77,6 +77,10 @@ import {
   type ExecuteBodyDeps,
 } from "../runtime/statement-executor";
 import { extractTrailingTurnText } from "../runtime/conversation-drive";
+import {
+  extractPromptModeQueryResult,
+  mapPromptModeSyncThrow,
+} from "../runtime/prompt-transport-mapping";
 import type {
   ForcedRespondTurn,
   FreePhaseTurn,
@@ -91,7 +95,7 @@ import type {
 import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
-import type { InvokeInfraError } from "../runtime/query-error";
+import type { InvokeInfraError, TransportError } from "../runtime/query-error";
 import {
   newInvokeChain,
   pushCountableFrame,
@@ -1280,6 +1284,9 @@ class ProductionLoomProducer implements LoomProducerDeps {
           // Only the untyped free-phase native turn is bounded (typed → exempt).
           governor: typed ? undefined : this.#promptToolLoopGovernor,
           maxRounds,
+          // PIC-50/51: the resolved provider for the synthesised `TransportError`
+          // (mirrors the subagent path's `provider: String(model.provider)`).
+          provider: String(deps.ctx.model?.provider ?? "unknown"),
         })
       : new OffSessionQueryModel({ model: deps.ctx.model, queryText, signal: deps.signal });
 
@@ -1868,8 +1875,12 @@ class LivePromptQueryModel implements QueryModelDriver {
   /** STAGE B: bounds the native tool loop; `undefined` for the exempt typed path. */
   readonly #governor: PromptToolLoopGovernor | undefined;
   readonly #maxRounds: number;
+  /** PIC-50/51: the resolved provider for a synthesised `TransportError`. */
+  readonly #provider: string;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
+  /** PIC-50: a `TransportError` synthesised from a `sendUserMessage` sync-throw. */
+  #transportFromThrow: TransportError | undefined = undefined;
 
   constructor(deps: {
     readonly pi: ExtensionAPI;
@@ -1885,6 +1896,8 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly governor: PromptToolLoopGovernor | undefined;
     /** STAGE B: the loom's `tool_loop.max_rounds` for this query. */
     readonly maxRounds: number;
+    /** PIC-50/51: the resolved provider for a synthesised `TransportError`. */
+    readonly provider: string;
   }) {
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
@@ -1895,6 +1908,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     this.#loomAbort = deps.loomAbort;
     this.#governor = deps.governor;
     this.#maxRounds = deps.maxRounds;
+    this.#provider = deps.provider;
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
@@ -1905,6 +1919,12 @@ class LivePromptQueryModel implements QueryModelDriver {
       // the governor (STAGE B) bounds it to `tool_loop.max_rounds` by blocking
       // any tool-use round beyond the cap (ceiling #2 / CIO-4).
       await this.#driveUserVisibleTurn(true);
+      // PIC-50: a synchronous throw from `pi.sendUserMessage` was mapped to a
+      // `TransportError` (no turn was issued); surface it as the free-phase
+      // transport failure ahead of any exhaustion / text extraction.
+      if (this.#transportFromThrow !== undefined) {
+        return { kind: "transport", error: this.#transportFromThrow };
+      }
       if (this.#exhaustion?.exhausted === true) {
         // The native loop attempted a round beyond `max_rounds`; the governor
         // blocked it. Represent that as a `tool_use` round so the enclosing
@@ -1914,6 +1934,18 @@ class LivePromptQueryModel implements QueryModelDriver {
         // effects (ERR-13 no-rollback); this batch is not re-executed
         // (`runToolBatch` is a no-op below).
         return this.#exhaustionTurn();
+      }
+      // PIC-51: probe the driven turn's trailing `assistant` `stopReason` before
+      // extracting text. A `stopReason: "error"` turn maps to
+      // `Err(TransportError)` (never masked as `Ok(text)`); the cancellation and
+      // plain-text paths are unchanged (cancellation is handled by the loop's
+      // checkpoint, so only a `transport` verdict diverts here).
+      const probe = extractPromptModeQueryResult(this.#readMessages(), {
+        aborted: this.#loomAbort.signal.aborted,
+        provider: this.#provider,
+      });
+      if (!probe.ok && probe.error.kind === "transport") {
+        return { kind: "transport", error: probe.error as TransportError };
       }
       // Completed within the cap: the terminating plain-text turn.
       return { kind: "text", text: extractTrailingTurnText(this.#readMessages()) };
@@ -1961,6 +1993,19 @@ class LivePromptQueryModel implements QueryModelDriver {
     // STAGE B: the forced-respond turn is the exempt-routed terminator (FRNT-1)
     // and is NOT bounded by `tool_loop.max_rounds` — driven UNBOUNDED.
     await this.#driveUserVisibleTurn(false);
+    // PIC-50/51: a transport failure on the forced-respond turn (send sync-throw
+    // or trailing `stopReason: "error"`) surfaces as the typed query's
+    // `Err(TransportError)` rather than being parsed as a structured payload.
+    if (this.#transportFromThrow !== undefined) {
+      return { kind: "transport", error: this.#transportFromThrow };
+    }
+    const probe = extractPromptModeQueryResult(this.#readMessages(), {
+      aborted: this.#loomAbort.signal.aborted,
+      provider: this.#provider,
+    });
+    if (!probe.ok && probe.error.kind === "transport") {
+      return { kind: "transport", error: probe.error as TransportError };
+    }
     const text = extractTrailingTurnText(this.#readMessages());
     const parse = await parseStructuredPayload(text);
     return { kind: "respond", payload: payloadForRespond(parse) };
@@ -2005,7 +2050,17 @@ class LivePromptQueryModel implements QueryModelDriver {
     const ambientTools = this.#pi.getActiveTools();
     this.#pi.setActiveTools([...this.#activeTools]);
     try {
-      this.#pi.sendUserMessage(this.#queryText);
+      // PIC-50: `pi.sendUserMessage` is the only failure the call surface itself
+      // can signal synchronously. Map such a throw to a `TransportError` (never
+      // `loom/runtime/internal-error`, never a swallowed `Ok("")`) and return
+      // without issuing a turn; the driver surfaces it as the query's transport
+      // `Err`. The `finally` still restores the ambient active set.
+      try {
+        this.#pi.sendUserMessage(this.#queryText);
+      } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — PIC-50 sendUserMessage sync-throw → TransportError
+        this.#transportFromThrow = mapPromptModeSyncThrow(thrown, this.#provider);
+        return;
+      }
       await this.#pollWhile(() => this.#ctx.isIdle(), TURN_START_POLL_BOUND);
       // CANCEL-2 (cancellation.md §Forwarding into `loomAbort`, slash-command
       // entry): the turn is now streaming, so `ctx.signal` is defined for THIS

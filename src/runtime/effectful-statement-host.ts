@@ -190,6 +190,11 @@ async function runQueryEffect(
         // non-validation failure respond-repair propagated (QRY-11) surfaces as
         // the typed query's `Err`.
         return { ok: false, error: outcome.error };
+      case "transport":
+        // PIC-50/51: a prompt-mode provider transport failure on the typed
+        // query's forced-respond (or free-phase) turn surfaces as the query's
+        // `Err(TransportError)` — never masked as a bound value.
+        return { ok: false, error: outcome.error };
       case "cancelled":
         return { ok: false, error: makeCancelledError() };
     }
@@ -199,6 +204,10 @@ async function runQueryEffect(
     case "text":
       return { ok: true, value: outcome.text };
     case "tool_loop_exhausted":
+      return { ok: false, error: outcome.error };
+    case "transport":
+      // PIC-50/51: a prompt-mode provider transport failure on the untyped
+      // query's free-phase turn surfaces as the query's `Err(TransportError)`.
       return { ok: false, error: outcome.error };
     case "cancelled":
       return { ok: false, error: makeCancelledError() };

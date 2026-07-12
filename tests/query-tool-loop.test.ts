@@ -32,6 +32,7 @@ import {
   type QueryToolLoopConfig,
   type ToolCallRequest,
 } from "../src/runtime/query-tool-loop";
+import type { TransportError } from "../src/runtime/query-error";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import {
   handleNoRollbackTerminalEvent,
@@ -159,6 +160,19 @@ const toolUse = (...ids: string[]): FreePhaseTurn => ({
 });
 const textTurn = (text: string): FreePhaseTurn => ({ kind: "text", text });
 const respond = (payload: unknown): ForcedRespondTurn => ({ kind: "respond", payload });
+
+/** PIC-50/51: a driver-signalled transport failure (free-phase or forced-respond). */
+const transportError = (message: string): TransportError => ({
+  kind: "transport",
+  message,
+  http_status: null,
+  provider: "anthropic",
+  retryable: false,
+});
+const transportTurn = (message: string): FreePhaseTurn => ({
+  kind: "transport",
+  error: transportError(message),
+});
 
 // ===========================================================================
 // CIO-4 — free-phase slot accounting: rounds advance, a parallel batch is one
@@ -425,5 +439,64 @@ describe("V13c-T — ERR-13 completed-callee finality on the live V13c surface (
     expect(spy.calls).toEqual([]);
     // The side effect is still present — nothing was compensated or enumerated.
     expect(outcome.committed).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// PIC-50/51 — a driver-signalled transport failure surfaces as the query's
+// `transport` outcome (never masked as `text`/`value`). The prompt-mode driver
+// synthesises the `transport` free-phase / forced-respond turn from a
+// `stopReason: "error"` turn or a `sendUserMessage` sync-throw; here a scripted
+// driver signals it directly to prove the loop → outcome channel.
+// ===========================================================================
+
+describe("PIC-50/51 — prompt-mode transport-error surfacing (conversation-drive.md)", () => {
+  it("untyped: a transport free-phase turn surfaces Err(transport), never Ok(text)", async () => {
+    const model = new ScriptedModel([], [transportTurn("provider 529")], respond(null));
+    const outcome = await runUntypedQueryLoop(
+      new RecordingCheckpoint([]),
+      liveSignal(),
+      model,
+      config(4),
+    );
+    expect(outcome.kind).toBe("transport");
+    if (outcome.kind !== "transport") return;
+    expect(outcome.error.kind).toBe("transport");
+    expect(outcome.error.message).toBe("provider 529");
+    expect(outcome.error.retryable).toBe(false);
+  });
+
+  it("typed: a transport forced-respond turn surfaces Err(transport), never parsed as a value", async () => {
+    // `max_rounds: 0` routes straight to the forced-respond terminator.
+    const model = new ScriptedModel([], [], { kind: "transport", error: transportError("forced-respond error") });
+    const outcome = await runTypedQueryLoop(
+      new RecordingCheckpoint([]),
+      liveSignal(),
+      model,
+      config(0),
+    );
+    expect(outcome.kind).toBe("transport");
+    if (outcome.kind !== "transport") return;
+    expect(outcome.error.message).toBe("forced-respond error");
+    // The forced-respond terminator was dispatched but its payload was never
+    // parsed into a value.
+    expect(outcome.forcedRespond.dispatched).toBe(true);
+    expect(model.forcedRespondCalls).toBe(1);
+  });
+
+  it("typed: a transport free-phase turn aborts before the forced-respond terminator", async () => {
+    const model = new ScriptedModel([], [transportTurn("free-phase error")], respond({ ok: true }));
+    const outcome = await runTypedQueryLoop(
+      new RecordingCheckpoint([]),
+      liveSignal(),
+      model,
+      config(4),
+    );
+    expect(outcome.kind).toBe("transport");
+    if (outcome.kind !== "transport") return;
+    expect(outcome.error.message).toBe("free-phase error");
+    // The forced-respond terminator was never dispatched.
+    expect(outcome.forcedRespond.dispatched).toBe(false);
+    expect(model.forcedRespondCalls).toBe(0);
   });
 });

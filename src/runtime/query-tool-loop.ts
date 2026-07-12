@@ -63,6 +63,7 @@ import {
   makeToolLoopExhaustedError,
   type QueryError,
   type ToolLoopExhaustedError,
+  type TransportError,
   type ValidationError,
   type ValidationIssue,
 } from "./query-error";
@@ -87,7 +88,11 @@ export interface ToolCallRequest {
  */
 export type FreePhaseTurn =
   | { readonly kind: "tool_use"; readonly batch: readonly ToolCallRequest[] }
-  | { readonly kind: "text"; readonly text: string };
+  | { readonly kind: "text"; readonly text: string }
+  // PIC-51: the driven free-phase provider turn carried `stopReason: "error"`
+  // (or PIC-50: a synchronous throw from the send surface). The loop surfaces
+  // this as a `transport` outcome (never masked as `Ok(text)`).
+  | { readonly kind: "transport"; readonly error: TransportError };
 
 /**
  * The forced respond turn a typed query issues after the free phase: the model
@@ -95,10 +100,12 @@ export type FreePhaseTurn =
  * candidate structured value the respond tool's `execute` depth-walks and
  * AJV-validates against the lowered response schema).
  */
-export interface ForcedRespondTurn {
-  readonly kind: "respond";
-  readonly payload: unknown;
-}
+export type ForcedRespondTurn =
+  | { readonly kind: "respond"; readonly payload: unknown }
+  // PIC-50/51: the forced-respond provider turn failed at the transport layer
+  // (`stopReason: "error"` / send sync-throw). Surfaced as a `transport`
+  // typed-query outcome, never parsed as a structured payload.
+  | { readonly kind: "transport"; readonly error: TransportError };
 
 // ---------------------------------------------------------------------------
 // The injected model driver — the deterministic scripted surface a test drives.
@@ -180,6 +187,12 @@ export type UntypedQueryOutcome =
       readonly rounds: readonly FreePhaseRoundLog[];
       readonly committed: readonly CommittedSideEffect[];
     }
+  | {
+      readonly kind: "transport";
+      readonly error: TransportError;
+      readonly rounds: readonly FreePhaseRoundLog[];
+      readonly committed: readonly CommittedSideEffect[];
+    }
   | { readonly kind: "cancelled"; readonly committed: readonly CommittedSideEffect[] };
 
 /** The outcome of a typed `@<T>`-query two-phase tool loop. */
@@ -204,6 +217,13 @@ export type TypedQueryOutcome =
       readonly kind: "propagated";
       /** A proximate non-validation `QueryError` respond-repair surfaced (QRY-11). */
       readonly error: QueryError;
+      readonly rounds: readonly FreePhaseRoundLog[];
+      readonly forcedRespond: ForcedRespondDispatch;
+      readonly committed: readonly CommittedSideEffect[];
+    }
+  | {
+      readonly kind: "transport";
+      readonly error: TransportError;
       readonly rounds: readonly FreePhaseRoundLog[];
       readonly forcedRespond: ForcedRespondDispatch;
       readonly committed: readonly CommittedSideEffect[];
@@ -345,6 +365,12 @@ export async function runUntypedQueryLoop(
     }
 
     const turn = await model.nextFreePhaseTurn(round);
+    if (turn.kind === "transport") {
+      // PIC-50/51: the free-phase provider turn failed at the transport layer.
+      // Surface it as the untyped query's `Err(TransportError)` — never masked
+      // as a terminating `Ok(text)`.
+      return { kind: "transport", error: turn.error, rounds, committed };
+    }
     if (turn.kind === "text") {
       // Terminating plain-text turn: this is the untyped query's final response.
       return { kind: "text", text: turn.text, rounds, committed };
@@ -420,6 +446,17 @@ export async function runTypedQueryLoop(
       break;
     }
     const turn = await model.nextFreePhaseTurn(round);
+    if (turn.kind === "transport") {
+      // PIC-50/51: a free-phase transport failure aborts the typed query before
+      // the forced-respond terminator is dispatched.
+      return {
+        kind: "transport",
+        error: turn.error,
+        rounds,
+        forcedRespond: { dispatched: false, countedAgainstMaxRounds: false, slotCountAtDispatch: slotCount },
+        committed,
+      };
+    }
     if (turn.kind === "text") {
       break;
     }
@@ -453,6 +490,12 @@ export async function runTypedQueryLoop(
     countedAgainstMaxRounds: false,
     slotCountAtDispatch,
   };
+  if (forced.kind === "transport") {
+    // PIC-50/51: the forced-respond provider turn failed at the transport layer;
+    // surface `Err(TransportError)` rather than parsing an empty/partial payload
+    // as a structured value (which would mis-surface as a validation failure).
+    return { kind: "transport", error: forced.error, rounds, forcedRespond, committed };
+  }
 
   // CIO-3: the loom-owned depth walk (`V5e`) runs at the typed-query response
   // AJV boundary *before* AJV. A depth-6 payload trips ceiling #4 and surfaces
