@@ -50,6 +50,7 @@ import {
 import type { LoomValue, ResultValue } from "../runtime/value";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
+import { createLoomAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
 
 /**
  * Project the binder's bound `args` object onto the executor's `paramBindings`
@@ -87,6 +88,14 @@ export interface BinderRunInput {
   readonly args: string;
   /** The dispatch context (the binder reads `ctx.modelRegistry` / `ctx.signal`). */
   readonly ctx: ExtensionCommandContext;
+  /**
+   * CANCEL-2/CANCEL-4 (cancellation.md §Signal source): the per-invocation
+   * `loomAbort` the dispatch entry (`composeLoomFixture.run`) owns, so the
+   * binder-call checkpoint and the loom body gate on ONE shared controller
+   * (`loomAbort.signal` — never `ctx.signal` directly). Absent on in-memory
+   * harnesses that call `runBinder` directly; the producer defaults a fresh one.
+   */
+  readonly loomAbort?: AbortController;
 }
 
 /** The outcome of the `V11a` binder step. */
@@ -128,6 +137,20 @@ export interface ConversationBindInput {
    * dispatch (whose args are bound by the frontmatter binder).
    */
   readonly paramBindings?: ReadonlyMap<string, LoomValue>;
+  /**
+   * CANCEL-2 (cancellation.md §Signal source): the per-invocation `loomAbort`
+   * the dispatch entry owns, shared with the binder so body + binder gate on
+   * ONE controller. Absent on in-memory harnesses that build a binding
+   * directly; the producer defaults a fresh `createLoomAbort()`.
+   */
+  readonly loomAbort?: AbortController;
+  /**
+   * CANCEL-5 (cancellation.md §`invoke(...)` entry): the parent's
+   * `loomAbort.signal` handed to a child `invoke` binding so the child
+   * constructs its `loomAbort` as a DERIVED controller (downward-only:
+   * `deriveChildLoomAbort`). Absent for a top-level slash dispatch.
+   */
+  readonly parentSignal?: AbortSignal;
   /**
    * INV-4 / ceiling #1 (invocation.md §"Invocation depth bound"): the per-chain
    * invoke-depth counter carried into this binding. Present only when this
@@ -205,9 +228,22 @@ export function composeLoomFixture(
   return {
     slashName: loom.slashName,
     run: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+      // CANCEL-2 (cancellation.md §Signal source): the dispatch entry OWNS the
+      // per-invocation `loomAbort`; its `loomAbort.signal` — never `ctx.signal`
+      // directly — is the single source of truth the binder-call checkpoint and
+      // the loom body both gate on. `forwardSlashCommandCancel` subscribes Pi's
+      // per-handler `ctx.signal` INTO `loomAbort` (tolerating the documented
+      // idle-entry `undefined`), so an aborted `ctx.signal` triggers
+      // `loomAbort.abort(ctx.signal.reason)` (CNCL-4). The one-shot listener is
+      // auto-removed on fire; `ctx.signal` is a per-turn transient object, so
+      // no long-lived controller leaks across the Pi session.
+      const loomAbort = createLoomAbort();
+      forwardSlashCommandCancel(loomAbort, ctx.signal);
       // 1. Binder before interpreter: bind `args` first. A non-binding envelope
-      //    short-circuits — the loom body never runs.
-      const binderResult = await deps.runBinder({ loom, args, ctx });
+      //    (needs-info / ambiguous / cancelled) short-circuits — the loom body
+      //    never runs. The binder shares THIS `loomAbort` so the binder-call
+      //    checkpoint (CANCEL-4) observes the same abort the body would.
+      const binderResult = await deps.runBinder({ loom, args, ctx, loomAbort });
       if (!binderResult.bound) {
         return;
       }
@@ -215,7 +251,7 @@ export function composeLoomFixture(
       //    binder's bound `params:` object is threaded into the executor
       //    environment as `paramBindings` so top-level `params:` reach body scope.
       const paramBindings = paramBindingsFrom(binderResult.args);
-      const bindInput: ConversationBindInput = { loom, args, ctx, ...(paramBindings !== undefined ? { paramBindings } : {}) };
+      const bindInput: ConversationBindInput = { loom, args, ctx, loomAbort, ...(paramBindings !== undefined ? { paramBindings } : {}) };
       const binding: ConversationBinding =
         loom.frontmatter.mode === "subagent"
           ? await deps.spawnSubagentConversation(bindInput)

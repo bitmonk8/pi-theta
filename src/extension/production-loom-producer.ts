@@ -101,7 +101,19 @@ import type {
   CommittedConversationMutator,
   CommittedSurface,
 } from "../runtime/terminal-outcomes";
-import { makeCancelledError } from "../runtime/cancellation-core";
+import {
+  createLoomAbort,
+  deriveChildLoomAbort,
+  forwardSlashCommandCancel,
+  abortForAgentEnd,
+  makeCancelledError,
+} from "../runtime/cancellation-core";
+import { runCheckpointedBinderCall } from "../runtime/checkpoint-granularity";
+import { runBinderCallWithCancellation } from "../binder/binder-cancellation";
+import { guardToolExecutePromise } from "../runtime/tool-call-swallowing-handler";
+import { guardQueryProviderPromise } from "../runtime/query-swallowing-handler";
+import { guardInvokeExecutionPromise } from "../runtime/invoke-swallowing-handler";
+import type { CheckpointSite } from "../seams/checkpoint";
 import {
   brandSchemaValue,
   isEnumValue,
@@ -257,6 +269,40 @@ export function createProductionProducerDeps(
  */
 class SubagentModelUnresolvedError extends Error {}
 
+/**
+ * CANCEL-3 (cancellation.md §"Race semantics — swallowing-handler attachment on
+ * every abandonable Promise"): the two emit channels a late abandonable-Promise
+ * settlement could reach. The `unhandledRejection` channel is closed
+ * structurally by attaching the swallowing handler at construction, so it takes
+ * no member; these two are noops because the runtime's primary `await` owns the
+ * timely settlement and a discarded late settlement emits nothing on any
+ * channel (no second `RuntimeEvent`, no diagnostic of any severity).
+ */
+function noopSwallowChannels(): {
+  readonly emitRuntimeEvent: () => void;
+  readonly emitDiagnostic: () => void;
+} {
+  return {
+    emitRuntimeEvent: (): void => {},
+    emitDiagnostic: (): void => {},
+  };
+}
+
+/**
+ * CANCEL-3: a live cancellation-guard view backed by the loom `signal`, read at
+ * settlement time (not snapshotted at construction) — the checkpoint that
+ * surfaces `cause: "cancelled"` reads the same `signal.aborted`, so a late
+ * settlement observed while it is aborted is the abandoned case the swallowing
+ * handler discards.
+ */
+function signalGuard(signal: AbortSignal): { readonly cancellationSurfaced: boolean } {
+  return {
+    get cancellationSurfaced(): boolean {
+      return signal.aborted;
+    },
+  };
+}
+
 /** A fresh `ToolLoweringSink` that discards every channel — the test looms carry no code-tool calls. */
 function noopSink(): ToolLoweringSink {
   return {
@@ -380,7 +426,50 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // out-of-band `complete()` free function does not inherit the session's
     // resolved credentials, so an un-authed call would return an empty
     // error-stop reply.
-    const text = await this.#completeBinderOffSession(model, prompt);
+    //
+    // CANCEL-4 (cancellation.md §Granularity binder-call clause; §Surfacing
+    // cancelled-binder arm): the `binder-call` checkpoint fires immediately
+    // before the LLM call (`runCheckpointedBinderCall`) and `loomAbort.signal`
+    // is forwarded INTO the provider invocation as `options.signal`
+    // (`runBinderCallWithCancellation` threads it per attempt), so an abort
+    // observed BEFORE or DURING the binder call suppresses it. A cancelled
+    // binder never surfaces a `Result` to loom code — the loom does not run —
+    // and produces the cancelled-binder system note instead.
+    const signal = binderInput.loomAbort?.signal ?? createLoomAbort().signal;
+    const binderSite: CheckpointSite = {
+      file: binderInput.loom.slashName,
+      line: 1,
+      column: 1,
+    };
+    let text = "";
+    const phase = await runCheckpointedBinderCall(
+      this.#input.root.checkpoint,
+      signal,
+      binderSite,
+      () =>
+        runBinderCallWithCancellation({
+          loomName: binderInput.loom.slashName,
+          signal,
+          attempt: async (_attemptIndex, attemptSignal) => {
+            text = await this.#completeBinderOffSession(model, prompt, attemptSignal);
+            // The parse routing below owns needs_info / ambiguous / malformed;
+            // a reached attempt is terminal here (no retry-taxonomy re-drive),
+            // so the driver's before/after abort checks are the only
+            // cancellation gate over the in-flight call.
+            return { kind: "ok" };
+          },
+        }),
+    );
+    if (phase.cancelled) {
+      // Pre-call checkpoint abort: the LLM call was never issued.
+      this.#emitBinderFailureNote(binderInput.loom.slashName, { kind: "cancelled" });
+      return { bound: false };
+    }
+    if (phase.value.kind === "cancelled") {
+      // In-flight abort: the provider observed the forwarded `options.signal`.
+      this.#emitBinderFailureNote(binderInput.loom.slashName, { kind: "cancelled" });
+      return { bound: false };
+    }
     // Route on the parsed envelope. The loom body runs only on the `ok` arm; a
     // `needs_info` / `ambiguous` / non-parse (malformed) reply emits the mapped
     // failure-mode system note and short-circuits (the body never runs). The
@@ -475,9 +564,17 @@ class ProductionLoomProducer implements LoomProducerDeps {
    * rendered prompt as a single `user` message. No user-session turn, no
    * transcript card — the reply is runtime-internal (BND-3).
    */
-  async #completeBinderOffSession(model: Model<Api>, prompt: string): Promise<string> {
+  async #completeBinderOffSession(
+    model: Model<Api>,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<string> {
     const auth = await this.#input.modelRegistry.getApiKeyAndHeaders(model);
     const options: Record<string, unknown> = {};
+    // CANCEL-4 in-flight forwarding: thread `loomAbort.signal` into the binder
+    // provider invocation as `options.signal` (pi-ai `StreamOptions.signal`), so
+    // an abort observed during the call propagates to the provider's abort path.
+    options["signal"] = signal;
     if (auth.ok) {
       if (auth.apiKey !== undefined) {
         options["apiKey"] = auth.apiKey;
@@ -657,11 +754,17 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // a nested invoke carries the parent's pushed chain in `bindInput.chain`.
     const chain = bindInput.chain ?? newInvokeChain();
 
-    // The `loomAbort`-equivalent signal the executor and every checkpoint gate
-    // on: the dispatch context's signal when the agent is streaming, else a
-    // fresh non-aborting controller so a straight-line run is never spuriously
-    // cancelled.
-    const signal = ctx.signal ?? new AbortController().signal;
+    // CANCEL-2 (cancellation.md §Signal source): the executor and every
+    // checkpoint gate on the per-invocation `loomAbort.signal` — NEVER
+    // `ctx.signal` directly, and NEVER a pinned never-aborting fallback. The
+    // dispatch entry (`composeLoomFixture.run`) owns `loomAbort` and forwards
+    // `ctx.signal` into it; an in-memory harness that binds directly gets a
+    // fresh controller here. A second `forwardSlashCommandCancel` is idempotent
+    // (the one-shot guard on `loomAbort.abort()` makes a re-forward a no-op) and
+    // re-observes `ctx.signal` in case it became defined after run-entry.
+    const loomAbort = bindInput.loomAbort ?? createLoomAbort();
+    forwardSlashCommandCancel(loomAbort, ctx.signal);
+    const signal = loomAbort.signal;
 
     // The user session's resolved chronological message list — the PIC-53
     // trailing-turn read surface. Recomputed per read from the live
@@ -696,14 +799,15 @@ class ProductionLoomProducer implements LoomProducerDeps {
           ctx,
           loom,
           signal,
+          loomAbort,
           readMessages,
           userVisible,
         });
       },
       resolveToolCall: (expr, env) => this.#resolveToolCall(loom, expr, env, signal),
-      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain),
+      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain, signal),
       classifyCall: (expr) => this.#classifyCall(loom, expr),
-      resolveCallAsInvoke: (expr, env) => this.#resolveCallAsInvoke(loom, expr, env, ctx, chain),
+      resolveCallAsInvoke: (expr, env) => this.#resolveCallAsInvoke(loom, expr, env, ctx, chain, signal),
     };
 
     const executeDeps: ExecuteBodyDeps = {
@@ -771,7 +875,18 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // source). The mid-stream cancel fires through it and the one-shot PIC-41
     // listener forwards it into the spawned session's `abort()`; it is also the
     // single `signal` the interpreter's checkpoints gate on.
-    const loomAbort = new AbortController();
+    //
+    // CANCEL-5 (cancellation.md §`invoke(...)` entry): a child `invoke` binding
+    // (carrying `parentSignal`) constructs its `loomAbort` as a DERIVED
+    // controller — downward-only: the child aborts when the parent aborts
+    // (carrying the parent's reason, CNCL-4), never the reverse. A top-level
+    // subagent dispatch (or an in-memory harness) with no parent gets a fresh
+    // controller (shared with the dispatch entry when `bindInput.loomAbort` is
+    // present). Both paths honour a per-invocation abort the same way.
+    const loomAbort =
+      bindInput.parentSignal !== undefined
+        ? deriveChildLoomAbort(bindInput.parentSignal)
+        : bindInput.loomAbort ?? createLoomAbort();
 
     // SUBAG-1: render the loom's `system:` frontmatter into the spawned
     // conversation's system prompt (subagent.md §"Subagent state-isolation
@@ -914,9 +1029,10 @@ class ProductionLoomProducer implements LoomProducerDeps {
         };
       },
       resolveToolCall: (expr, env) => this.#resolveToolCall(loom, expr, env, signal),
-      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain),
+      resolveInvoke: (expr, env) => this.#resolveInvoke(loom, expr, env, ctx, chain, signal),
       classifyCall: (expr) => this.#classifyCall(loom, expr),
-      resolveCallAsInvoke: (expr, env) => this.#resolveCallAsInvoke(loom, expr, env, ctx, chain),
+      resolveCallAsInvoke: (expr, env) =>
+        this.#resolveCallAsInvoke(loom, expr, env, ctx, chain, signal),
     };
 
     const executeDeps: ExecuteBodyDeps = {
@@ -986,6 +1102,8 @@ class ProductionLoomProducer implements LoomProducerDeps {
       readonly ctx: ExtensionCommandContext;
       readonly loom: ConversationBindInput["loom"];
       readonly signal: AbortSignal;
+      /** CANCEL-2: the per-invocation controller the live turn driver re-forwards `ctx.signal` into. */
+      readonly loomAbort: AbortController;
       readonly readMessages: () => readonly Message[];
       readonly userVisible: boolean;
     },
@@ -1026,8 +1144,9 @@ class ProductionLoomProducer implements LoomProducerDeps {
           queryText,
           readMessages: deps.readMessages,
           activeTools,
+          loomAbort: deps.loomAbort,
         })
-      : new OffSessionQueryModel({ model: deps.ctx.model, queryText });
+      : new OffSessionQueryModel({ model: deps.ctx.model, queryText, signal: deps.signal });
 
     // QRY-6: the bare rendered template body (typed-query schema conveyance
     // excluded) the empty-template short-circuit is evaluated over before any
@@ -1135,7 +1254,17 @@ class ProductionLoomProducer implements LoomProducerDeps {
             new UnknownHostToolError(`code-side call names no resolvable host tool '${toolName}'`),
           );
         }
-        return tool.execute(toolCallId, params, signal);
+        // CANCEL-3 (cancellation.md §swallowing-handler attachment): attach the
+        // swallowing handler to the underlying code-side `execute()` Promise at
+        // its construction site, before the first microtask boundary, so a late
+        // rejection arriving after the `tool-call` checkpoint surfaced
+        // `cause: "cancelled"` is absorbed and never reaches Node's
+        // `unhandledRejection` process event.
+        return guardToolExecutePromise(
+          tool.execute(toolCallId, params, signal),
+          signalGuard(signal),
+          noopSwallowChannels(),
+        );
       },
     };
   }
@@ -1183,6 +1312,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     env: LexicalEnvironment,
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
+    parentSignal: AbortSignal,
   ): InvokeChild {
     // `expr.args[0]` is the callee path literal; the remaining args are the
     // positional invocation arguments bound to the callee's params.
@@ -1190,7 +1320,15 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // INV-6: the `invoke<Schema>` return annotation drives the runtime AJV
     // return-value validation on the child's `Ok` payload (invocation.md §Typed
     // return; hard-ceilings ceiling #4).
-    return this.#buildInvokeChild(loom, expr.path, argValues, ctx, chain, expr.returnSchema);
+    return this.#buildInvokeChild(
+      loom,
+      expr.path,
+      argValues,
+      ctx,
+      chain,
+      expr.returnSchema,
+      parentSignal,
+    );
   }
 
   /**
@@ -1205,13 +1343,14 @@ class ProductionLoomProducer implements LoomProducerDeps {
     env: LexicalEnvironment,
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
+    parentSignal: AbortSignal,
   ): InvokeChild {
     const calleePath = loomCalleePath(loom, expr.callee) ?? `./${expr.callee}.loom`;
     const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env));
     // A `.loom`-callable call through `tools:` carries no `invoke<Schema>`
     // annotation, so there is no parse-time return-type site; the runtime AJV
     // net still applies at the query/typed boundary inside the callee.
-    return this.#buildInvokeChild(loom, calleePath, argValues, ctx, chain, null);
+    return this.#buildInvokeChild(loom, calleePath, argValues, ctx, chain, null, parentSignal);
   }
 
   /** Build the `InvokeChild` whose `drive()` parses, spawns, and drives the callee. */
@@ -1222,6 +1361,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
     returnSchema: string | null,
+    parentSignal: AbortSignal,
   ): InvokeChild {
     return {
       calleePath,
@@ -1249,7 +1389,24 @@ class ProductionLoomProducer implements LoomProducerDeps {
           }
           throw panic;
         }
-        return this.#driveCallee(loom, calleePath, argValues, ctx, childChain, returnSchema);
+        // CANCEL-3 (cancellation.md §swallowing-handler attachment): attach the
+        // swallowing handler to the `invoke` child's top-level execution Promise
+        // at its construction site, before the first microtask boundary, so a
+        // late rejection after the `invoke` checkpoint surfaced cancellation is
+        // absorbed and never reaches Node's `unhandledRejection` process event.
+        return guardInvokeExecutionPromise(
+          this.#driveCallee(
+            loom,
+            calleePath,
+            argValues,
+            ctx,
+            childChain,
+            returnSchema,
+            parentSignal,
+          ),
+          signalGuard(parentSignal),
+          noopSwallowChannels(),
+        );
       },
     };
   }
@@ -1269,6 +1426,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
     returnSchema: string | null,
+    parentSignal: AbortSignal,
   ): Promise<ResultValue> {
     // INV-5 (invocation.md §Resolution, INV-1 seam): re-run the realpath +
     // discovery-root containment check at the moment the runtime opens the
@@ -1294,12 +1452,17 @@ class ProductionLoomProducer implements LoomProducerDeps {
     paramNames.forEach((name, index) => {
       paramBindings.set(name, argValues[index] ?? null);
     });
+    // CANCEL-5 (cancellation.md §`invoke(...)` entry): hand the parent's
+    // `loomAbort.signal` to the child binding so it constructs its `loomAbort`
+    // as a DERIVED controller (downward-only: the child aborts when the parent
+    // aborts, never the reverse — `deriveChildLoomAbort`).
     const binding = await this.spawnSubagentConversation({
       loom: callee,
       args: "",
       ctx,
       paramBindings,
       chain,
+      parentSignal,
     });
     const execution = await executeBody(callee.body, binding.executeDeps);
     const result = binding.surface(execution);
@@ -1485,6 +1648,7 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #queryText: string;
   readonly #readMessages: () => readonly Message[];
   readonly #activeTools: readonly string[];
+  readonly #loomAbort: AbortController;
 
   constructor(deps: {
     readonly pi: ExtensionAPI;
@@ -1494,6 +1658,8 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly readMessages: () => readonly Message[];
     /** QTL-4: the loom's callable-set underlying Pi-tool names to install for the turn. */
     readonly activeTools: readonly string[];
+    /** CANCEL-2: the per-invocation controller `ctx.signal` is re-forwarded into per turn. */
+    readonly loomAbort: AbortController;
   }) {
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
@@ -1501,6 +1667,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     this.#queryText = deps.queryText;
     this.#readMessages = deps.readMessages;
     this.#activeTools = deps.activeTools;
+    this.#loomAbort = deps.loomAbort;
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
@@ -1570,8 +1737,24 @@ class LivePromptQueryModel implements QueryModelDriver {
     try {
       this.#pi.sendUserMessage(this.#queryText);
       await this.#pollWhile(() => this.#ctx.isIdle(), TURN_START_POLL_BOUND);
+      // CANCEL-2 (cancellation.md §Forwarding into `loomAbort`, slash-command
+      // entry): the turn is now streaming, so `ctx.signal` is defined for THIS
+      // turn (it is `undefined` at idle slash-entry). Re-forward it INTO
+      // `loomAbort` so an Esc during the `@`-query turn flips the single source
+      // of truth every checkpoint gates on — the end-to-end "Esc during
+      // `@`-query" path. Idempotent: the one-shot guard on `loomAbort.abort()`
+      // makes a repeat forward a no-op, and the listener is `{ once: true }` on
+      // the per-turn transient `ctx.signal`, so no long-lived controller leaks.
+      forwardSlashCommandCancel(this.#loomAbort, this.#ctx.signal);
       await this.#pollWhile(() => !this.#ctx.isIdle(), TURN_END_POLL_BOUND);
       await this.#ctx.waitForIdle();
+      // CANCEL-2 (agent_end user-cancel trigger, CNCL-4 synthesised reason): a
+      // turn that ended aborted without a forwarded source reason flips
+      // `loomAbort` with the synthesised `"loom cancelled by agent_end"` reason,
+      // so the next checkpoint observes the cancellation.
+      if (this.#ctx.signal?.aborted === true && !this.#loomAbort.signal.aborted) {
+        abortForAgentEnd(this.#loomAbort);
+      }
     } finally {
       this.#pi.setActiveTools(ambientTools);
     }
@@ -1611,10 +1794,17 @@ function macrotask(clock: Clock, ms: number): Promise<void> {
 class OffSessionQueryModel implements QueryModelDriver {
   readonly #model: Model<Api> | undefined;
   readonly #queryText: string;
+  readonly #signal: AbortSignal;
 
-  constructor(deps: { readonly model: Model<Api> | undefined; readonly queryText: string }) {
+  constructor(deps: {
+    readonly model: Model<Api> | undefined;
+    readonly queryText: string;
+    /** CANCEL-3: the loom signal the provider-Promise swallowing guard reads at settlement. */
+    readonly signal: AbortSignal;
+  }) {
     this.#model = deps.model;
     this.#queryText = deps.queryText;
+    this.#signal = deps.signal;
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
@@ -1634,7 +1824,17 @@ class OffSessionQueryModel implements QueryModelDriver {
   }
 
   #complete(): Promise<string> {
-    return offSessionComplete(this.#model, this.#queryText);
+    // CANCEL-3 (cancellation.md §"Race semantics — swallowing-handler
+    // attachment on every abandonable Promise"): attach the swallowing handler
+    // to the underlying `@`-query provider Promise at its construction site,
+    // before the first microtask boundary, so a late rejection arriving after
+    // the query checkpoint surfaced `cause: "cancelled"` is absorbed and never
+    // reaches Node's `unhandledRejection` process event.
+    return guardQueryProviderPromise(
+      offSessionComplete(this.#model, this.#queryText),
+      signalGuard(this.#signal),
+      noopSwallowChannels(),
+    );
   }
 }
 

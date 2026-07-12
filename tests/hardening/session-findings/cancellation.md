@@ -29,17 +29,20 @@ composition (`production-loom-producer.ts` / `statement-executor.ts` /
 | `makeCancelledError` | cancellation-core.ts | **yes** — production-loom-producer.ts, effectful-statement-host.ts, subagent-isolation.ts, prompt-transport-mapping.ts |
 | `runInvokeChild` | invoke-cancellation.ts | **yes** — effectful-statement-host.ts:232,277 |
 | `renderTopLevelErrNote` (SNK-f) | err-note-render.ts | **yes** — production-loom-producer.ts:510 |
-| `createLoomAbort` | cancellation-core.ts | **no** |
-| `forwardSlashCommandCancel` | cancellation-core.ts | **no** |
-| `abortForAgentEnd` | cancellation-core.ts | **no** |
-| `forwardToolExposedCancel` | cancellation-core.ts | **no** |
-| `deriveChildLoomAbort` | cancellation-core.ts | **no** |
-| `routeToolCallLateSettlement` (CNCL-1/2/3) | cancellation-core.ts | **no** |
-| `attachSwallowingHandler` (swallow rule) | cancellation-core.ts | **no** |
-| `routeAbandonableSettlement` | cancellation-core.ts | **no** |
+| `createLoomAbort` | cancellation-core.ts | **yes** (Phase 3b) — loom-composition-producer.ts `composeLoomFixture.run`; production-loom-producer.ts (`runBinder` / `spawnSubagentConversation` fallback) |
+| `forwardSlashCommandCancel` | cancellation-core.ts | **yes** (Phase 3b) — loom-composition-producer.ts `run`; production-loom-producer.ts `bindPromptConversation` + `LivePromptQueryModel.#driveUserVisibleTurn` (per-turn re-forward) |
+| `abortForAgentEnd` | cancellation-core.ts | **yes** (Phase 3b) — production-loom-producer.ts `LivePromptQueryModel.#driveUserVisibleTurn` (agent_end user-cancel trigger) |
+| `forwardToolExposedCancel` | cancellation-core.ts | **no** — no production tool-exposed surface exists yet (a `.loom` is not lowered to a model-callable `ToolDefinition` with an `execute(signal)`; see SUBAG-2 TODO and CANCEL-5) |
+| `deriveChildLoomAbort` | cancellation-core.ts | **yes** (Phase 3b) — production-loom-producer.ts `spawnSubagentConversation` (invoke child, `bindInput.parentSignal`) |
+| `routeToolCallLateSettlement` (CNCL-1/2/3) | cancellation-core.ts | **no** — the per-site `guardToolExecutePromise` / `routeToolExecuteLateSettlement` (tool-call-swallowing-handler.ts) is the wired production wrapper; the generic core version stays unwired |
+| `attachSwallowingHandler` (swallow rule) | cancellation-core.ts | **no** — the per-site `guard*Promise` modules are the wired production wrappers (see CANCEL-3) |
+| `routeAbandonableSettlement` | cancellation-core.ts | **no** — superseded by the per-site route functions |
+| `guardToolExecutePromise` (swallow, code-side) | tool-call-swallowing-handler.ts | **yes** (Phase 3b) — production-loom-producer.ts `#resolveToolCall` dispatch |
+| `guardQueryProviderPromise` (swallow, @-query) | query-swallowing-handler.ts | **yes** (Phase 3b) — production-loom-producer.ts `OffSessionQueryModel.#complete` |
+| `guardInvokeExecutionPromise` (swallow, invoke) | invoke-swallowing-handler.ts | **yes** (Phase 3b) — production-loom-producer.ts `#buildInvokeChild` drive() |
 | `runCheckpointedForLoop` (loop-iter checkpoint) | checkpoint-granularity.ts | **no** (unused — but the loop-iter checkpoint is now WIRED inline in `statement-executor.ts` `executeWhile`/`executeFor`; see CANCEL-1 FIXED) |
-| `runCheckpointedBinderCall` (binder-call checkpoint) | checkpoint-granularity.ts | **no** |
-| `runBinderCallWithCancellation` (in-flight binder) | binder/binder-cancellation.ts | **no** |
+| `runCheckpointedBinderCall` (binder-call checkpoint) | checkpoint-granularity.ts | **yes** (Phase 3b) — production-loom-producer.ts `runBinder` |
+| `runBinderCallWithCancellation` (in-flight binder) | binder/binder-cancellation.ts | **yes** (Phase 3b) — production-loom-producer.ts `runBinder` |
 | `handleNoRollbackTerminalEvent` (ERR-13) | no-rollback.ts | **no** (upheld by construction — see CANCEL-2) |
 
 Grep used: `grep -rn <symbol> src --include=*.ts` minus the defining file /
@@ -118,10 +121,47 @@ class. Not live-reproducible: injecting the abort needs a real Esc / the
 
 ---
 
-## CANCEL-2 — the slash-command / `agent_end` forwarding into `loomAbort` is unwired; prompt-mode captures `ctx.signal` once
+## CANCEL-2 — [WIRED] the slash-command / `agent_end` forwarding into `loomAbort`
 
 **Tag:** source-inspection.
-**Verdict:** **bug** (prompt-mode Esc may never land), with a spec-contract note.
+**Verdict:** **WIRED** (Phase 3b, maintainer decision 4, full coverage).
+
+**Status: WIRED.** The dispatch entry (`composeLoomFixture.run`,
+loom-composition-producer.ts) now OWNS a per-invocation `loomAbort` via
+`createLoomAbort()` and forwards Pi's per-handler `ctx.signal` INTO it with
+`forwardSlashCommandCancel` (tolerating the documented idle-entry `undefined`).
+`bindPromptConversation` gates every checkpoint on `loomAbort.signal` — the old
+`const signal = ctx.signal ?? new AbortController().signal` single-shot capture
+with its never-aborting fallback is gone. The live turn driver
+(`LivePromptQueryModel.#driveUserVisibleTurn`) re-forwards `ctx.signal` once the
+turn is streaming (the moment Pi defines it) — the end-to-end "Esc during
+`@`-query" path — and calls `abortForAgentEnd(loomAbort)` on a turn that ended
+aborted without a forwarded source reason (the reason-less agent_end trigger,
+CNCL-4 synthesised `"loom cancelled by agent_end"`). The binder shares the SAME
+`loomAbort` (threaded through `BinderRunInput.loomAbort`), so binder + body gate
+on one controller. CNCL-4 reason identity is preserved by the seam helper
+(`loomAbort.signal.reason === ctx.signal.reason`).
+
+- **source pointer:** `src/extension/loom-composition-producer.ts` —
+  `composeLoomFixture.run` (`createLoomAbort` + `forwardSlashCommandCancel`, both
+  inputs carry `loomAbort`); `src/extension/production-loom-producer.ts` —
+  `bindPromptConversation` (`loomAbort.signal` is the executor/checkpoint
+  signal), `LivePromptQueryModel.#driveUserVisibleTurn` (per-turn re-forward +
+  `abortForAgentEnd`), `ConversationBindInput.loomAbort` /
+  `BinderRunInput.loomAbort`.
+- **new unit tests:** `tests/production-cancellation-wiring.test.ts` —
+  "CANCEL-2 — prompt binding gates on a fresh loomAbort": (a) an aborted
+  `ctx.signal` at bind time forwards into `loomAbort` (executor signal IS
+  `loomAbort.signal`, reason preserved); (b) an idle `undefined` `ctx.signal`
+  yields no spurious abort and the `agent_end` trigger flips the SAME controller
+  the executor holds (proving the never-aborting-fallback defect is gone).
+- Not live-reproducible (no injected Esc / no live Checkpoint seam); the
+  per-turn re-forward and the agent_end trigger inside the live driver are
+  source-only (they run only under a real streamed turn). Listener cleanup: the
+  forwarder attaches `{ once: true }` on the per-turn transient `ctx.signal`, so
+  no long-lived controller leaks across the Pi session.
+
+### Original finding (retained for provenance)
 
 **repro (source).** cancellation.md §Signal source mandates a fresh
 `loomAbort` `AbortController` per invocation whose `loomAbort.signal` — "never
@@ -168,10 +208,51 @@ than asserting total inertness.
 
 ---
 
-## CANCEL-3 — the tool-call late-settlement discard (CNCL-1/2/3) and the swallowing-handler suppression are unwired
+## CANCEL-3 — [WIRED] the tool-call late-settlement discard (CNCL-1/2/3) and the swallowing-handler suppression
 
 **Tag:** source-inspection.
-**Verdict:** **bug** (race-safety obligation not enforced).
+**Verdict:** **WIRED** (Phase 3b, maintainer decision 4, full coverage).
+
+**Status: WIRED.** The construction-time swallowing handler is now attached at
+all three abandonable-Promise sites the spec names, via the per-site guard
+modules (the wired production wrappers, not the generic core `attachSwallowingHandler`):
+
+- code-side `execute()` — `guardToolExecutePromise` wraps
+  `tool.execute(toolCallId, params, signal)` inside `#resolveToolCall`'s
+  `dispatch()` (the construction site, before the first microtask boundary);
+- `@`-query provider Promise — `guardQueryProviderPromise` wraps
+  `offSessionComplete(...)` in `OffSessionQueryModel.#complete`;
+- `invoke` callee top-level execution Promise — `guardInvokeExecutionPromise`
+  wraps `#driveCallee(...)` in `#buildInvokeChild`'s `drive()`.
+
+Each guard reads a live `signalGuard(signal)` view (`cancellationSurfaced ===
+signal.aborted`, read at settlement), so a late settlement observed after the
+checkpoint surfaced `cause: "cancelled"` is discarded on all three side channels
+(the `.then` closes the `unhandledRejection` channel structurally; the route
+functions emit no second `RuntimeEvent` and no diagnostic).
+
+- **source pointer:** `src/extension/production-loom-producer.ts` —
+  `#resolveToolCall` (`guardToolExecutePromise`), `OffSessionQueryModel.#complete`
+  (`guardQueryProviderPromise`), `#buildInvokeChild` drive()
+  (`guardInvokeExecutionPromise`); `signalGuard` / `noopSwallowChannels` helpers.
+- **new unit test:** `tests/production-cancellation-wiring.test.ts` —
+  "CANCEL-3 — code-side execute() dispatch attaches a construction-site
+  swallowing handler": a rejecting tool `execute()` driven through the real
+  production dispatch raises no Node `unhandledRejection` and surfaces
+  `Err(code_tool, cause:"execution")` exactly once.
+- The pure CNCL-1/2/3 discard + three-channel suppression semantics are covered
+  at the seam level in `tests/tool-calls-swallowing-handler.test.ts`,
+  `tests/query-swallowing-handler.test.ts`,
+  `tests/invoke-swallowing-handler.test.ts`, and
+  `tests/cancellation-core.test.ts`. NOTE: genuine mid-flight ABANDONMENT of a
+  tool `execute()` Promise is not reachable through the current sequential
+  executor (each effect is awaited fully; the `tool-call` checkpoint precedes
+  dispatch, so a surfaced cancel SKIPS dispatch rather than abandoning it) — the
+  swallowing handler is forward-compatible/defensive at the production sites and
+  is verified for no-leak via the wired path + the deterministic Checkpoint-seam
+  discard tests. Not live-reproducible.
+
+### Original finding (retained for provenance)
 
 **repro (source).** `routeToolCallLateSettlement` (CNCL-1 no-rebind / CNCL-2
 no-second-`Err` / CNCL-3 no-second-`RuntimeEvent`), `attachSwallowingHandler`,
@@ -202,10 +283,43 @@ late settlement deterministically.
 
 ---
 
-## CANCEL-4 — both binder-call cancellation checkpoints are unwired
+## CANCEL-4 — [WIRED] both binder-call cancellation checkpoints
 
 **Tag:** source-inspection.
-**Verdict:** **bug**, but subsumed by the deferred binder re-architecture (DISCO-1 / BND-1/BND-3).
+**Verdict:** **WIRED** (Phase 3b, maintainer decision 4, full coverage — now
+unblocked by the Phase 1 off-session binder `#completeBinderOffSession`).
+
+**Status: WIRED.** `runBinder`'s genuine-binder pass now gates the binder LLM
+call behind the pre-call `binder-call` checkpoint (`runCheckpointedBinderCall`)
+and drives the call through the in-flight forwarding driver
+(`runBinderCallWithCancellation`), which threads `loomAbort.signal` into the
+provider invocation as `options.signal` (pi-ai `StreamOptions.signal`, threaded
+through `#completeBinderOffSession(model, prompt, signal)`) and checks the abort
+before and after the attempt. An abort observed BEFORE the call (pre-call
+checkpoint) or DURING it (in-flight) synthesises the cancelled-binder system
+note (`loom /<name>: argument binding cancelled`, via `#emitBinderFailureNote({
+kind: "cancelled" })`) and returns `{ bound: false }` — the loom does not run,
+and no `Result` reaches loom code. The binder shares the dispatch entry's ONE
+`loomAbort` (`BinderRunInput.loomAbort`, owned in `composeLoomFixture.run`).
+
+- **source pointer:** `src/extension/production-loom-producer.ts` — `runBinder`
+  (the `runCheckpointedBinderCall` → `runBinderCallWithCancellation` phase, the
+  `phase.cancelled` / `phase.value.kind === "cancelled"` arms),
+  `#completeBinderOffSession` (`options.signal` threading);
+  `src/extension/loom-composition-producer.ts` — `run` (shared `loomAbort`).
+- **new unit test:** `tests/production-cancellation-wiring.test.ts` —
+  "CANCEL-4 — binder-call checkpoint gates the binder LLM call": a pre-call
+  abort fires the `binder-call` checkpoint, SKIPS the `complete()` call (a
+  throwing `getApiKeyAndHeaders` stub proves it is never reached), synthesises
+  the cancelled-binder note, and returns `{ bound: false }`.
+- The in-flight abort surfacing is unit-covered at the seam level in
+  `tests/binder-call-cancellation.test.ts` (`runBinderCallWithCancellation`
+  forwards the signal into every attempt and surfaces the cancelled note on a
+  mid-flight abort). The production in-flight path (abort landing during the
+  real `complete()` call) is source-only — it needs a live provider round-trip.
+  Not live-reproducible.
+
+### Original finding (retained for provenance)
 
 **repro (source).** `runCheckpointedBinderCall` (the pre-call `binder-call`
 checkpoint, checkpoint-granularity.ts) and `runBinderCallWithCancellation` (the
@@ -232,10 +346,43 @@ live-reproducible.
 
 ---
 
-## CANCEL-5 — `deriveChildLoomAbort` (downward-only derived child controller) and `forwardToolExposedCancel` are unwired
+## CANCEL-5 — [PARTIALLY WIRED] `deriveChildLoomAbort` (derived child controller) wired; `forwardToolExposedCancel` has no production surface
 
 **Tag:** source-inspection.
-**Verdict:** borderline.
+**Verdict:** **WIRED** (invoke facet, Phase 3b, decision 4 full coverage);
+**no production surface** (tool-exposed facet).
+
+**Status: invoke facet WIRED.** An `invoke` child now constructs its `loomAbort`
+as a DERIVED controller via `deriveChildLoomAbort(parentSignal)` (downward-only:
+the child aborts when the parent aborts, carrying the parent's reason per CNCL-4,
+never the reverse) instead of reusing the parent's `deps.signal` object. The
+parent's `loomAbort.signal` is threaded through
+`#resolveInvoke`/`#resolveCallAsInvoke` → `#buildInvokeChild` → `#driveCallee` →
+`spawnSubagentConversation({ parentSignal })`, which builds the child controller
+via `deriveChildLoomAbort` when `parentSignal` is present (else
+`bindInput.loomAbort ?? createLoomAbort()`).
+
+**tool-exposed facet: no production surface.** `forwardToolExposedCancel`
+remains unwired because no production surface exists yet where a `.loom` is
+registered into another loom's `tools:` as a model-callable `ToolDefinition`
+with an `execute(toolCallId, params, signal, ...)` — the SUBAG-2 TODO in
+`spawnSubagentConversation` records that a `.loom`-callable entry is not yet
+lowered to a `ToolDefinition`. When that surface lands, the `signal` passed to
+its `execute(...)` must forward via `forwardToolExposedCancel(loomAbort,
+signal)`. Recorded, not fabricated (no site to wire against).
+
+- **source pointer:** `src/extension/production-loom-producer.ts` —
+  `spawnSubagentConversation` (`deriveChildLoomAbort(bindInput.parentSignal)`),
+  `#buildInvokeChild` / `#driveCallee` (parent-signal threading);
+  `src/extension/loom-composition-producer.ts` — `ConversationBindInput.parentSignal`.
+- **unit coverage:** the downward-only derived-controller semantics are
+  seam-tested in `tests/cancellation-core.test.ts` (`deriveChildLoomAbort`
+  aborts on parent-abort, not vice versa, reason preserved). The production
+  invoke-child derivation is source-only at the composition level — exercising
+  it end-to-end spawns a real isolated `AgentSession` (needs a resolved model),
+  feasible only in the opt-in live suite. Not live-reproducible.
+
+### Original finding (retained for provenance)
 
 **repro (source).** `deriveChildLoomAbort` and `forwardToolExposedCancel` have
 **no production caller**. The invoke child receives the parent's `deps.signal`
@@ -314,27 +461,43 @@ Not live-reproducible.
 
 ## Summary
 
-Bug-verdict findings: **3** open (`bug`) + **1** FIXED (CANCEL-1, Phase 2) + **1** (`borderline`, recorded not pursued).
+All open cancellation findings are now WIRED (Phase 3b, maintainer decision 4,
+full coverage) or FIXED (CANCEL-1, Phase 2). No open `bug`-verdict finding
+remains; the one previously-`borderline` finding (CANCEL-5) is wired on its
+invoke facet, with the tool-exposed facet blocked only by a not-yet-built
+production surface (SUBAG-2).
 
 Live-reproduced findings: **0 bug** (1 conformant negative live probe — no
-spurious cancel).
+spurious cancel). Cancellation remains NOT live-reproducible via the probe
+harness (no injected Esc / no live Checkpoint seam); every WIRED verdict is
+verified against the Checkpoint / AbortController seams + the production
+composition (unit) plus source-inspection, per the lens tag.
 
-Source-inspection bug findings (3 open + 1 FIXED):
-1. **CANCEL-1** — **FIXED (Phase 2)** — `loop-iter` cancellation checkpoint now
-   WIRED in `statement-executor.ts` `executeWhile`/`executeFor`; a compute-bound
-   `for`/`while` loop is cancellable at the iteration boundary (unit test in
+Status:
+1. **CANCEL-1** — **FIXED (Phase 2)** — `loop-iter` cancellation checkpoint
+   WIRED in `statement-executor.ts` `executeWhile`/`executeFor` (unit test in
    `statement-executor.test.ts`).
-2. **CANCEL-2** — slash-command / `agent_end` forwarding into `loomAbort`
-   unwired; prompt-mode captures `ctx.signal` once (idle-entry → never-aborting),
-   so Esc-during-`@`-query may never land.
-3. **CANCEL-3** — tool-call late-settlement discard (CNCL-1/2/3) and the
-   construction-time swallowing-handler suppression unwired (probabilistic
-   `unhandledRejection` / double-emit under mid-tool-call cancel).
-4. **CANCEL-4** — both binder-call cancellation checkpoints unwired (subsumed by
-   the deferred DISCO-1 / BND-1/BND-3 binder re-architecture).
+2. **CANCEL-2** — **WIRED (Phase 3b)** — per-invocation `loomAbort` owned at the
+   dispatch entry; `forwardSlashCommandCancel` + `abortForAgentEnd` route
+   `ctx.signal` / the agent_end trigger into it; the never-aborting single-shot
+   capture is gone. Unit-verified in `production-cancellation-wiring.test.ts`.
+3. **CANCEL-3** — **WIRED (Phase 3b)** — construction-site swallowing handlers
+   (`guard{ToolExecute,QueryProvider,InvokeExecution}Promise`) attached at the
+   three abandonable-Promise sites. Unit-verified (no-leak production path) +
+   seam tests. Genuine mid-flight abandonment is not reachable in the sequential
+   executor (defensive/forward-compat wiring).
+4. **CANCEL-4** — **WIRED (Phase 3b)** — pre-call `binder-call` checkpoint
+   (`runCheckpointedBinderCall`) + in-flight forwarding
+   (`runBinderCallWithCancellation`) + `options.signal` threading + cancelled-
+   binder note. Pre-call abort unit-verified in
+   `production-cancellation-wiring.test.ts`; in-flight seam-tested.
+5. **CANCEL-5** — **WIRED (invoke facet, Phase 3b)** — invoke child gets a
+   downward-only `deriveChildLoomAbort` controller (source-only at composition;
+   seam-tested). Tool-exposed `forwardToolExposedCancel` has no production
+   surface yet (SUBAG-2) — recorded, not fabricated.
 
-Borderline (1): **CANCEL-5** — derived child controller / tool-exposed forwarder
-unwired (invoke facet behaviourally equivalent; tool-exposed facet niche).
+New unit tests (Phase 3b): `tests/production-cancellation-wiring.test.ts`
+(4 tests — CANCEL-2 ×2, CANCEL-4 ×1, CANCEL-3 ×1).
 
 Conformant (bounds the search): SNK-f cancel note routing, ERR-13 no-rollback
 (CANCEL-6), the three wired pre-dispatch checkpoints, CNCL-5/6 in the wired
