@@ -196,6 +196,7 @@ import {
   renderCustomTypeUnsafeNote,
 } from "../binder/compact-transcript";
 import { coerceUnderlyingString } from "../diagnostics/placeholder";
+import { renderDiagnosticBatch, type Diagnostic } from "../diagnostics/diagnostic";
 import { capSystemNote, classifyModelContent } from "../binder/system-note";
 import {
   renderArgumentEcho,
@@ -205,7 +206,11 @@ import {
 import { renderNoParamsOverflowNote } from "../runtime/slash-dispatch";
 import { renderTopLevelErrNote } from "../runtime/err-note-render";
 import type { QueryError } from "../runtime/query-error";
-import { SYSTEM_NOTE_CHANNEL } from "./system-note-channel";
+import {
+  SYSTEM_NOTE_CHANNEL,
+  sendSystemNote,
+  type SystemNoteChannelDeps,
+} from "./system-note-channel";
 import {
   PromptToolLoopGovernor,
   type PromptToolLoopExhaustion,
@@ -308,6 +313,22 @@ export interface ProductionProducerInput {
    * would only add per-turn push/splice churn for no lifetime benefit.
    */
   readonly forwardingSignals?: ForwardingSignalSource[];
+  /**
+   * The `loom-system-note` delivery channel (V7d). Threaded so a runtime-defect
+   * diagnostic surfaced during a code-side tool call — `routeToolReturnShape`'s
+   * `loom/runtime/internal-error{tool-return-shape}` — reaches the operator on
+   * the SAME channel + group-B `details: { diagnostics: [Diagnostic] }` shape
+   * the load-phase pre-eval diagnostics use (errors-and-results/error-model.md
+   * §"Runtime panics" routes a runtime-defect diagnostic through the
+   * `diagnostics` shape), rather than being discarded by a `noopSink()` at the
+   * lowering seam. Absent on a non-production harness, in which case the
+   * tool-lowering sink's `diagnostic` emit is skipped (the diagnostic still
+   * rides the thrown `ToolReturnShapeDefectError` carrier, so behaviour is
+   * unchanged for the in-memory producer doubles). Reusable by any future
+   * producer-scope runtime-defect emitter (e.g. the deferred PIC-9
+   * subagent-dispose-failure advisory, swallowed for the same seam reason).
+   */
+  readonly systemNote?: SystemNoteChannelDeps;
 }
 
 /**
@@ -364,11 +385,49 @@ function signalGuard(signal: AbortSignal): { readonly cancellationSurfaced: bool
   };
 }
 
-/** A fresh `ToolLoweringSink` that discards every channel — the test looms carry no code-tool calls. */
-function noopSink(): ToolLoweringSink {
+/**
+ * The production `ToolLoweringSink` for a loom's code-side tool calls. Only the
+ * `diagnostic` channel is live: a non-conforming tool return-shape defect
+ * (`routeToolReturnShape`) routes its
+ * `loom/runtime/internal-error{tool-return-shape}` diagnostic here, and this
+ * surfaces it on the `loom-system-note` channel as the group-B
+ * `details: { diagnostics: [Diagnostic] }` note — the SAME channel + shape the
+ * load-phase pre-eval diagnostics use (errors-and-results/error-model.md
+ * §"Runtime panics": a runtime-defect diagnostic surfaces through the
+ * `diagnostics` shape; runtime-event-channel.md §"system-note-details-shapes").
+ * The conforming lowering path (`lowerResolvedToolEnvelope`) never touches the
+ * sink, so the hot path stays byte-identical to the prior `noopSink()`.
+ *
+ * `runtimeEvent` / `systemNote` stay no-ops: no live code-side lowering path
+ * calls them — `routeToolReturnShape` touches only `diagnostic`, and the one
+ * `systemNote` caller (`routeLoomCallableSetupThrow`, the `.loom`-callable
+ * parallel-batch adapter) is not yet wired into production.
+ *
+ * `systemNote` (the delivery channel) is absent on a non-production harness, in
+ * which case the emit is skipped — the diagnostic still rides the thrown
+ * `ToolReturnShapeDefectError` carrier, so behaviour is unchanged for the
+ * in-memory producer doubles.
+ */
+function runtimeDefectSink(
+  systemNote: SystemNoteChannelDeps | undefined,
+): ToolLoweringSink {
   return {
     runtimeEvent(): void {},
-    diagnostic(): void {},
+    diagnostic(diag: Diagnostic): void {
+      if (systemNote === undefined) {
+        return;
+      }
+      // Best-effort group-B delivery — the channel owns the
+      // `ctx.ui.notify` → `console.error` fallback chain (PIC-54).
+      sendSystemNote(
+        {
+          content: renderDiagnosticBatch([diag]),
+          display: true,
+          details: { diagnostics: [diag] },
+        },
+        systemNote,
+      );
+    },
     systemNote(): void {},
   };
 }
@@ -1047,7 +1106,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     const hostDeps: EffectfulStatementHostDeps = {
       checkpoint: root.checkpoint,
       signal,
-      sink: noopSink(),
+      sink: runtimeDefectSink(this.#input.systemNote),
       file: loom.slashName,
       evaluatePure: (expr, env) => evaluatePureExpression(expr, env),
       resolveQuery: (expr, env) => {
@@ -1405,7 +1464,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     const hostDeps: EffectfulStatementHostDeps = {
       checkpoint: root.checkpoint,
       signal,
-      sink: noopSink(),
+      sink: runtimeDefectSink(this.#input.systemNote),
       file: loom.slashName,
       evaluatePure: (expr, env) => evaluatePureExpression(expr, env),
       resolveQuery: (expr, env) => {

@@ -369,6 +369,11 @@ async function runComposePass(
     pi,
     root,
     modelRegistry: ctx.modelRegistry,
+    // Runtime-defect surface: the `loom-system-note` delivery channel, so a
+    // code-side tool-return-shape defect's `loom/runtime/internal-error`
+    // diagnostic reaches the operator on the same channel the load-phase
+    // pre-eval diagnostics use rather than being discarded at the lowering seam.
+    systemNote,
     // Decision 6 / Increment B1: share the in-flight-invocation registry so the
     // producer's bind choke points register entries the factory's
     // `session_shutdown` sub-steps 2/3 operate on.
