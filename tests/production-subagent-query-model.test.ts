@@ -32,7 +32,11 @@ import type {
   ToolCall,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
-import { createSubagentQueryModel } from "../src/extension/production-loom-producer";
+import {
+  createSubagentQueryModel,
+  lowerModelDrivenToolCall,
+  type PiToolDispatch,
+} from "../src/extension/production-loom-producer";
 import {
   runTypedQueryLoop,
   runUntypedQueryLoop,
@@ -435,6 +439,102 @@ describe("PIC-50/51 — production subagent transport-error surfacing", () => {
     }
   });
 
+});
+
+// ===========================================================================
+// Ceiling #4 (ceilings-3-and-4.md#ceiling-4-table, MODEL-DRIVEN row;
+// schema-subset.md §Depth Enforcement point #2; CIO-3 depth-walk-before-AJV) —
+// the loom-owned model-driven `tool_use` dispatch seam.
+//
+// `lowerModelDrivenToolCall` is the extracted STAGE-A seam the subagent driver
+// runs for each model-produced tool call over the loom's callable set. A
+// depth-6 model-produced argument is fed back to the model as an `isError`
+// tool-result carrying the canonical depth message and the tool NEVER executes;
+// a within-cap (depth-5) argument dispatches normally. This proves the
+// model-driven ceiling-#4 obligation is enforced at the loom-owned seam — AJV
+// against the presented tool schema cannot catch it (JSON Schema 2020-12 has no
+// `maxDepth` keyword, so the presented schema carries no depth bound).
+// ===========================================================================
+
+/** A model-emitted `tool_use` call carrying `args` as its arguments. */
+function modelToolCall(name: string, id: string, args: unknown): ToolCall {
+  return { type: "toolCall", id, name, arguments: args as Record<string, unknown> };
+}
+
+/**
+ * A scripted `PiToolDispatch` that records whether `execute()` was called, so a
+ * test can witness the depth-6 short-circuit never reaches the tool body.
+ */
+function recordingDispatch(toolName: string): {
+  readonly dispatch: PiToolDispatch;
+  executed(): boolean;
+} {
+  let executed = false;
+  return {
+    dispatch: {
+      toolName,
+      execute: () => {
+        executed = true;
+        return Promise.resolve({ content: [{ type: "text", text: "TOOL-RAN" }] });
+      },
+    },
+    executed: () => executed,
+  };
+}
+
+// A depth-6 model argument: {a:{b:{c:{d:{e:1}}}}} — one level over the cap
+// (schema-subset.md §Depth worked example).
+const DEPTH_6_MODEL_ARG = { a: { b: { c: { d: { e: 1 } } } } };
+// A depth-5 model argument: {a:{b:{c:{d:1}}}} — at the cap (within ceiling #4).
+const DEPTH_5_MODEL_ARG = { a: { b: { c: { d: 1 } } } };
+
+describe("ceiling #4 (model-driven row) — loom-owned `tool_use` dispatch seam", () => {
+  it("a depth-6 model arg is fed back to the model as an isError tool-result and the tool NEVER executes (ceiling-4-table model-driven row / CIO-3)", async () => {
+    const rec = recordingDispatch("read");
+    const call = modelToolCall("read", "call-deep", DEPTH_6_MODEL_ARG);
+
+    const result = await lowerModelDrivenToolCall(call, rec.dispatch, new AbortController().signal);
+
+    // Primary: the depth-6 breach is fed back as an `isError` tool-result — the
+    // model-driven row surfaces to the model, never as a loom `Err`.
+    expect(result.isError, "a depth-6 model arg surfaces as an isError tool-result").toBe(true);
+    // CIO-3 (depth-walk before the tool body): the host tool `execute()` is
+    // NEVER called on the depth-6 path.
+    expect(rec.executed(), "the tool body must NOT run on a depth-6 model arg").toBe(false);
+    // The tool-result text carries the canonical depth message the model reads.
+    const text = result.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+    expect(text).toContain("JSON document depth exceeds 5");
+    // The result is correlated to the model's tool-use id / name.
+    expect(result.toolCallId).toBe("call-deep");
+    expect(result.toolName).toBe("read");
+  });
+
+  it("a within-cap (depth-5) model arg dispatches normally to the tool body (no false-trip)", async () => {
+    const rec = recordingDispatch("read");
+    const call = modelToolCall("read", "call-ok", DEPTH_5_MODEL_ARG);
+
+    const result = await lowerModelDrivenToolCall(call, rec.dispatch, new AbortController().signal);
+
+    // The depth-5 argument is within the cap: the tool body runs and the clean
+    // result is fed back (not an error).
+    expect(rec.executed(), "the tool body must run for a within-cap model arg").toBe(true);
+    expect(result.isError).toBe(false);
+    const text = result.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+    expect(text).toBe("TOOL-RAN");
+  });
+
+  it("a name outside the callable set is an unavailable-tool isError result (ambient tools never inherited)", async () => {
+    const call = modelToolCall("forbidden", "call-x", { ok: true });
+
+    const result = await lowerModelDrivenToolCall(call, undefined, new AbortController().signal);
+
+    expect(result.isError).toBe(true);
+    const text = result.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+    expect(text).toContain("not available in this loom's callable set");
+  });
+});
+
+describe("STAGE A — production subagent QueryModelDriver (mid-stream cancel)", () => {
   it("a mid-stream cancel is NOT reclassified as transport (cancel wins over the reject map)", async () => {
     const loomAbort = new AbortController();
     const model = createSubagentQueryModel({

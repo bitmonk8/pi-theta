@@ -12,7 +12,16 @@
 //   - `before_provider_request` — fires once per model round (provider request);
 //     used to detect round boundaries.
 //   - `tool_call` — fires before each tool executes; its `ToolCallEventResult`
-//     can `block` a call with a `reason`.
+//     can `block` a call with a `reason`. Because `event.input` carries the
+//     MODEL-produced tool arguments and the hook fires pre-execution, this is
+//     also the prompt-mode loom-owned enforcement point for ceiling #4's
+//     MODEL-DRIVEN tool-call args row (ceilings-3-and-4.md#ceiling-4-table;
+//     schema-subset.md §Depth Enforcement point #2; CIO-3 depth-walk-before-AJV):
+//     a depth-6+ argument document is blocked here with the canonical depth
+//     message as the `reason`, fed back to the model as a tool-error result so
+//     the loop continues (never a loom `Err`, never `ModelToolError`). AJV
+//     against the presented tool schema cannot catch this — JSON Schema 2020-12
+//     has no `maxDepth` keyword, so the presented schema carries no depth bound.
 //
 // A ROUND = one model turn issuing >= 1 tool call (a single round can issue
 // several parallel tool calls). The governor counts ROUNDS, not individual
@@ -35,6 +44,7 @@ import type {
   ToolCallEvent,
   ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { enforceModelToolArgDepth } from "../runtime/tool-call";
 
 /** The reason string blocked tool calls carry once the round cap is reached. */
 export const TOOL_LOOP_EXHAUSTED_REASON = "tool_loop_exhausted";
@@ -162,8 +172,23 @@ export class PromptToolLoopGovernor {
       }
     }
     if (active.currentRoundBlocked) {
+      // Ceiling #2 governs the over-cap round: the round-boundary decision ends
+      // the round, so per CIO-6 (one ceiling per event) the exhaustion block
+      // wins over a co-satisfied per-call depth breach — the tool never runs
+      // either way.
       active.lastToolName = event.toolName;
       return { block: true, reason: TOOL_LOOP_EXHAUSTED_REASON };
+    }
+    // Ceiling #4 (model-driven row / CIO-3): within an allowed round, depth-walk
+    // the MODEL-produced arguments (`event.input`) before the tool body runs. A
+    // depth-6+ argument document is blocked with the canonical depth message as
+    // the `reason`; pi feeds that back to the model as a tool-error result and
+    // the loop continues (the round already counted). A parallel sibling with a
+    // within-cap argument is unaffected (each sibling's `tool_call` fires its
+    // own hook, so depth is enforced per argument document).
+    const argDepthBreach = enforceModelToolArgDepth(event.input);
+    if (argDepthBreach !== undefined) {
+      return { block: true, reason: argDepthBreach.message };
     }
     return undefined;
   }

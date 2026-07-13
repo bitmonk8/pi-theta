@@ -103,7 +103,7 @@ import type {
   ToolLoweringSink,
 } from "../runtime/tool-call-execute";
 import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
-import { enforceCodeToolArgDepth } from "../runtime/tool-call";
+import { enforceCodeToolArgDepth, enforceModelToolArgDepth } from "../runtime/tool-call";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
 import type { InvokeInfraError, TransportError } from "../runtime/query-error";
@@ -1301,28 +1301,11 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // loop continues (ceiling #4 model-driven row). A name outside the callable
     // set is an unavailable-tool `isError` result — ambient tools are never
     // inherited (frontmatter.md §`tools:`).
-    const executeSubagentTool = async (
+    const executeSubagentTool = (
       call: ToolCall,
       toolSignal: AbortSignal,
-    ): Promise<ToolResultMessage> => {
-      const dispatch = this.#resolvePiToolForLoom(loom, call.name);
-      if (dispatch === undefined) {
-        return subagentToolResult(
-          call,
-          `tool '${call.name}' is not available in this loom's callable set`,
-          true,
-        );
-      }
-      try {
-        const envelope = await dispatch.execute(call.id, call.arguments, toolSignal);
-        return subagentToolResult(call, filterJoinToolText(envelope.content), false);
-      } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — execute() throw lowered to an error tool-result
-        // A model-driven tool `execute()` throw is fed back as an `isError`
-        // tool-result (ceiling #4 model-driven row); the loop continues under
-        // the same `tool_loop.max_rounds` cap.
-        return subagentToolResult(call, lowerToolExecuteThrow(thrown, call.name).message, true);
-      }
-    };
+    ): Promise<ToolResultMessage> =>
+      lowerModelDrivenToolCall(call, this.#resolvePiToolForLoom(loom, call.name), toolSignal);
 
     // STAGE A: the out-of-band `complete()` free function does NOT inherit the
     // session's request auth, so — exactly as the binder off-session path does —
@@ -2778,6 +2761,63 @@ class SubagentQueryModel implements QueryModelDriver {
     }
     const parse = await parseStructuredPayload(assistantText(reply));
     return { kind: "respond", payload: payloadForRespond(parse) };
+  }
+}
+
+/**
+ * STAGE A / ceiling #4 (model-driven row): lower ONE model-driven `tool_use`
+ * call over the loom's callable set to the tool-result turn fed back on the
+ * next `complete()` turn, reusing the SAME `#resolvePiToolForLoom` / `execute`
+ * path the code-driven `<name>(args)` calls use. Extracted from the STAGE-A
+ * closure so the model-driven ceiling-#4 seam is deterministically testable
+ * against a scripted `PiToolDispatch`.
+ *
+ * Dispositions, in order:
+ *   - a name outside the callable set (`dispatch === undefined`) is an
+ *     unavailable-tool `isError` result — ambient tools are never inherited
+ *     (frontmatter.md §`tools:`);
+ *   - CEILING #4 (ceilings-3-and-4.md#ceiling-4-table, model-driven row;
+ *     schema-subset.md §Depth Enforcement point #2; CIO-3 depth-walk-before-AJV):
+ *     the loom-owned depth walk runs over the MODEL-produced `call.arguments`
+ *     *before* the tool body runs. A depth-6+ argument is fed back to the model
+ *     as an `isError` tool-result carrying the canonical depth message — NEVER
+ *     dispatched (the host tool's `execute()` is not called), NEVER surfaced as
+ *     a loom `Err` or `ModelToolError`. The round still counts against
+ *     `tool_loop.max_rounds` (this call runs inside a counted free-phase round)
+ *     and the loop continues, re-trying naturally on the model's next turn. AJV
+ *     against the presented tool schema cannot catch this — JSON Schema 2020-12
+ *     has no `maxDepth` keyword, so the presented schema carries no depth bound;
+ *   - a clean resolve lowers to the V14g filter/join text;
+ *   - an `execute()` throw lowers to the V14g execution message on an `isError`
+ *     result so the model observes the failure and the loop continues.
+ */
+export async function lowerModelDrivenToolCall(
+  call: ToolCall,
+  dispatch: PiToolDispatch | undefined,
+  toolSignal: AbortSignal,
+): Promise<ToolResultMessage> {
+  if (dispatch === undefined) {
+    return subagentToolResult(
+      call,
+      `tool '${call.name}' is not available in this loom's callable set`,
+      true,
+    );
+  }
+  // Ceiling #4 model-driven row (CIO-3): depth-walk the model-produced
+  // arguments before the tool body runs; a breach is fed back to the model and
+  // the tool never executes.
+  const argDepthBreach = enforceModelToolArgDepth(call.arguments);
+  if (argDepthBreach !== undefined) {
+    return subagentToolResult(call, argDepthBreach.message, true);
+  }
+  try {
+    const envelope = await dispatch.execute(call.id, call.arguments, toolSignal);
+    return subagentToolResult(call, filterJoinToolText(envelope.content), false);
+  } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — execute() throw lowered to an error tool-result
+    // A model-driven tool `execute()` throw is fed back as an `isError`
+    // tool-result (ceiling #4 model-driven row); the loop continues under the
+    // same `tool_loop.max_rounds` cap.
+    return subagentToolResult(call, lowerToolExecuteThrow(thrown, call.name).message, true);
   }
 }
 

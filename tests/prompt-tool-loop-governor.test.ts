@@ -58,13 +58,17 @@ class FakePi {
     this.#bpr?.();
   }
 
-  /** Replay one `tool_call` and return the governor's block decision. */
-  toolCall(toolName: string): ToolCallEventResult | undefined {
+  /**
+   * Replay one `tool_call` and return the governor's block decision. `input`
+   * defaults to the shallow `{}` (depth-1, within the ceiling-#4 cap); a caller
+   * exercising the model-driven depth row passes a deeper argument document.
+   */
+  toolCall(toolName: string, input: Record<string, unknown> = {}): ToolCallEventResult | undefined {
     const event = {
       type: "tool_call",
       toolCallId: `tc-${toolName}-${Math.random()}`,
       toolName,
-      input: {},
+      input,
     } as unknown as TCE;
     return this.#toolCall?.(event);
   }
@@ -196,5 +200,97 @@ describe("PromptToolLoopGovernor — round-counting & block logic (ceiling #2)",
     expect(ex.exhausted).toBe(true);
     expect(ex.rounds).toBe(0);
     expect(ex.lastToolName).toBe("read");
+  });
+});
+
+// ===========================================================================
+// Ceiling #4 (ceilings-3-and-4.md#ceiling-4-table, MODEL-DRIVEN row;
+// schema-subset.md §Depth Enforcement point #2; CIO-3 depth-walk-before-AJV) —
+// the prompt-mode `tool_call` hook is the loom-owned pre-execution enforcement
+// point for the model-driven depth cap. `event.input` carries the
+// MODEL-produced arguments; a depth-6+ document is blocked with the canonical
+// depth message as the `reason` (fed back to the model as a tool-error result),
+// the tool never runs, and the loop continues — this is a `block`, NOT a
+// round-cap exhaustion.
+// ===========================================================================
+
+// A depth-6 model argument document: {a:{b:{c:{d:{e:1}}}}} — one level over the
+// cap (schema-subset.md §Depth worked example).
+const DEPTH_6_INPUT = { a: { b: { c: { d: { e: 1 } } } } };
+// A depth-5 model argument document: {a:{b:{c:{d:1}}}} — at the cap.
+const DEPTH_5_INPUT = { a: { b: { c: { d: 1 } } } };
+const DEPTH_MESSAGE = "JSON document depth exceeds 5";
+
+describe("PromptToolLoopGovernor — ceiling #4 model-driven depth cap (tool_call hook)", () => {
+  it("within an allowed round, a depth-6 model arg is blocked with the canonical depth reason and is NOT a round-cap exhaustion", () => {
+    const pi = new FakePi();
+    const gov = new PromptToolLoopGovernor();
+    gov.ensureRegistered(pi.api);
+    gov.begin(5);
+    pi.providerRequest();
+    const decision = pi.toolCall("read", DEPTH_6_INPUT);
+
+    // Primary: the depth-6 argument is blocked before the tool runs, carrying
+    // the canonical depth message (not the exhaustion reason).
+    expect(decision?.block).toBe(true);
+    expect(decision?.reason).toContain(DEPTH_MESSAGE);
+    expect(decision?.reason).not.toBe(TOOL_LOOP_EXHAUSTED_REASON);
+
+    // The depth block is ceiling #4, not ceiling #2: the drive is NOT exhausted.
+    const ex = gov.end();
+    expect(ex.exhausted, "a depth block must NOT mark the drive exhausted").toBe(false);
+  });
+
+  it("a within-cap (depth-5) model arg in an allowed round passes through untouched (no false-trip)", () => {
+    const pi = new FakePi();
+    const gov = new PromptToolLoopGovernor();
+    gov.ensureRegistered(pi.api);
+    gov.begin(5);
+    pi.providerRequest();
+    expect(pi.toolCall("read", DEPTH_5_INPUT)).toBeUndefined();
+    expect(gov.end().exhausted).toBe(false);
+  });
+
+  it("CIO-6: in an over-cap round the ceiling-#2 exhaustion block wins over a co-satisfied depth-6 arg", () => {
+    const pi = new FakePi();
+    const gov = new PromptToolLoopGovernor();
+    gov.ensureRegistered(pi.api);
+    gov.begin(1);
+    // Round 1 (allowed): a within-cap call.
+    pi.providerRequest();
+    expect(pi.toolCall("read", DEPTH_5_INPUT)).toBeUndefined();
+    // Round 2 (beyond cap of 1) whose call ALSO carries a depth-6 arg: the
+    // round-cap block wins (the tool never runs either way).
+    pi.providerRequest();
+    const decision = pi.toolCall("grep", DEPTH_6_INPUT);
+    expect(decision).toEqual({ block: true, reason: TOOL_LOOP_EXHAUSTED_REASON });
+    const ex = gov.end();
+    expect(ex.exhausted).toBe(true);
+    expect(ex.lastToolName).toBe("grep");
+  });
+
+  it("parallel siblings: a depth-6 sibling is blocked while a within-cap sibling in the SAME allowed round passes", () => {
+    const pi = new FakePi();
+    const gov = new PromptToolLoopGovernor();
+    gov.ensureRegistered(pi.api);
+    gov.begin(5);
+    pi.providerRequest();
+    // First sibling within cap — allowed; second sibling depth-6 — blocked.
+    expect(pi.toolCall("read", DEPTH_5_INPUT)).toBeUndefined();
+    const blocked = pi.toolCall("read", DEPTH_6_INPUT);
+    expect(blocked?.block).toBe(true);
+    expect(blocked?.reason).toContain(DEPTH_MESSAGE);
+    // A depth block does not exhaust the drive.
+    expect(gov.end().exhausted).toBe(false);
+  });
+
+  it("is inert between drives — a depth-6 arg passes through untouched when no drive is armed", () => {
+    const pi = new FakePi();
+    const gov = new PromptToolLoopGovernor();
+    gov.ensureRegistered(pi.api);
+    // No begin(): the governor never touches an unrelated turn's tool calls,
+    // depth-6 or not (model-driven enforcement is scoped to driven query turns).
+    pi.providerRequest();
+    expect(pi.toolCall("read", DEPTH_6_INPUT)).toBeUndefined();
   });
 });

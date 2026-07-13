@@ -176,8 +176,17 @@ detail + spec anchors + unwired evidence: `dead-code-audit.md` (FLAGGED-UNWIRED)
   preempts). Reject carrier verified against ceilings-3-and-4.md ceiling-4 table
   (`CodeToolError`, not `InvokeInfraError`). Tests: `production-live-resolvers.test.ts`
   +3 (depth-6 rejected pre-execute, depth-5 within-cap dispatches, shallow-wrapper
-  not false-tripped). **Still open (follow-up):** the MODEL-driven tool-args row of
-  the ceiling-#4 table (a separate dispatch seam).
+  not false-tripped). **The MODEL-driven tool-args row is ALSO now wired**
+  (follow-up phase, commit pending): `enforceModelToolArgDepth` (model-facing
+  carrier, NO loom `Err`) depth-walks model-produced args at BOTH model-driven
+  seams — the subagent loom-owned loop (`lowerModelDrivenToolCall` → depth-6 fed
+  back as an `isError` tool-result, tool never executes) and the prompt-mode pi
+  loop via the governor's `tool_call` hook (`#onToolCall` → `{block, reason:<canonical
+  depth msg>}`, loop continues, round already counted; CIO-6: ceiling-#2 exhaustion
+  wins in an over-cap round). AJV proven not to catch it (lowered schemas carry no
+  `maxDepth`). Adversarial-reviewed SOUND (governor round-counting untouched).
+  Ceiling-#4 table now fully enforced across all four rows (invoke params, invoke
+  return, code-driven tool args, model-driven tool args). Tests +10.
 - **Binder context subsystem (5 modules). 🔶 PARTIAL (decision 4, sub-phases): b1 NOT realizable; b2 FIXED; b3 pending.**
   **Corrected spec analysis:** the spec pins the binder call as a forced-tool
   structured-output `complete()` whose tool `parameters` are the three-arm

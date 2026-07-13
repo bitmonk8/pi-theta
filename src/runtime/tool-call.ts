@@ -331,6 +331,87 @@ export function enforceCodeToolArgDepth(
 }
 
 // --------------------------------------------------------------------------
+// Ceiling-#4 depth-6 MODEL-DRIVEN tool-args carrier (the `@`-query loop's
+// `tool_use` args row).
+//
+// Distinct from the code-driven carrier above: the model-driven row of the
+// ceiling-#4 per-boundary table (ceilings-3-and-4.md#ceiling-4-table;
+// schema-subset.md §Depth Enforcement point #2) routes to *the model*, NOT to
+// loom code. A depth-6 model-produced argument does NOT surface as a loom
+// `Err` and specifically NOT as `ModelToolError` (reserved for non-recoverable
+// adapter-layer failures); it is materialised as a tool-error result fed back
+// to the model as the next turn, the round still counts against
+// `tool_loop.max_rounds`, and the loop continues (re-trying naturally on the
+// model's next turn). No `QueryError` reaches loom code unless the loop later
+// exhausts under ceiling #2.
+//
+// AJV against the presented tool schema cannot catch this: JSON Schema 2020-12
+// has no `maxDepth` keyword, so the lowered/presented schema carries no depth
+// bound (schema-subset.md §Depth Enforcement) — the same reason the code-driven
+// and invoke paths need an explicit walk. Hence this loom-owned walk runs
+// *before* the tool body (CIO-3) at the model-driven dispatch seam.
+// --------------------------------------------------------------------------
+
+/**
+ * A depth-6 MODEL-DRIVEN tool-args ceiling-#4 breach, materialised at the
+ * model-driven `tool_use` dispatch seam (ceilings-3-and-4.md#ceiling-4-table,
+ * model-driven row):
+ *
+ *   - `issue`   — the loom-owned depth walk's `ValidationIssue`, carrying
+ *     `schema_keyword: "maxDepth"` and the canonical
+ *     `"JSON document depth exceeds 5"` message with the RFC-6901 JSON Pointer
+ *     to the first too-deep node;
+ *   - `message` — the text materialised in the tool-error result fed back to
+ *     the model: the canonical depth message, prefixed with the JSON Pointer to
+ *     the offending argument node when it is not the root, so the model can
+ *     locate and shrink the over-deep argument on its natural in-loop retry.
+ *
+ * Deliberately carries NO `Err`/`CodeToolError`/`ModelToolError` — the surface
+ * is a model-facing tool-result, not a loom-code `Result`.
+ */
+export interface ModelToolArgDepthBreach {
+  readonly issue: DepthViolationIssue;
+  readonly message: string;
+}
+
+/**
+ * Enforce ceiling #4 at the MODEL-DRIVEN `tool_use` argument boundary: run
+ * `V5e`'s loom-owned depth walk over the model-produced argument value *before*
+ * the tool body runs (CIO-3), and — on a depth-6+ breach — return the
+ * model-facing carrier the dispatch seam feeds back to the model as a
+ * tool-error result per the model-driven row of the ceiling-#4 per-boundary
+ * table (ceilings-3-and-4.md#ceiling-4-table). Returns `undefined` for a
+ * within-cap argument, deferring to the tool body / downstream provider
+ * validation.
+ *
+ * Unlike `enforceCodeToolArgDepth`, this produces no loom `Err`: the model-
+ * driven row's destination is the model (the loop continues, the round counts
+ * against `tool_loop.max_rounds`), so the breach carries only the model-facing
+ * feedback text and the canonical depth issue.
+ */
+export function enforceModelToolArgDepth(
+  argValue: unknown,
+): ModelToolArgDepthBreach | undefined {
+  const walk = depthWalk(argValue);
+  if (walk.ok) {
+    // Within the depth cap — no ceiling-#4 breach at this site; defer to the
+    // tool body / downstream provider validation.
+    return undefined;
+  }
+
+  // Depth-6+ breach: materialise the model-facing feedback. Prefix the
+  // canonical message with the JSON Pointer to the offending node (matching the
+  // slash-load row's `<JSON-Pointer> JSON document depth exceeds 5` form) so
+  // the model can shrink that argument on its natural in-loop retry; a
+  // root-level breach (empty pointer) feeds the bare canonical message.
+  const message =
+    walk.issue.path === ""
+      ? DEPTH_VIOLATION_MESSAGE
+      : `${walk.issue.path} ${DEPTH_VIOLATION_MESSAGE}`;
+  return { issue: walk.issue, message };
+}
+
+// --------------------------------------------------------------------------
 // `.loom`-callable failure surface (Invoke*Error, never CodeToolError)
 // --------------------------------------------------------------------------
 

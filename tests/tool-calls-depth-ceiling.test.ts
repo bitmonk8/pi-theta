@@ -18,7 +18,10 @@
 // missing fixture, or a harness throw.
 
 import { describe, expect, it } from "vitest";
-import { enforceCodeToolArgDepth } from "../src/runtime/tool-call";
+import {
+  enforceCodeToolArgDepth,
+  enforceModelToolArgDepth,
+} from "../src/runtime/tool-call";
 import type { CodeToolError } from "../src/runtime/query-error";
 
 // A depth-5 code-driven argument value: {a:{b:{c:{d:1}}}} — five nesting
@@ -89,6 +92,58 @@ describe("V14e-T — depth-6 code-driven tool-call args live carrier (ceiling-4-
     expect(
       enforceCodeToolArgDepth(TOOL_NAME, DEPTH_6_ARG),
       "a depth-6 code-driven argument trips ceiling #4",
+    ).toBeDefined();
+  });
+});
+
+// ceilings-3-and-4.md#ceiling-4-table (MODEL-DRIVEN row) / schema-subset.md
+// §Depth Enforcement point #2 / CIO-3: the model-driven `tool_use` args row
+// routes to *the model*, not to loom code — a depth-6 model-produced argument
+// is materialised as a tool-error result fed back to the model (the loop
+// continues; the round counts against `tool_loop.max_rounds`), never as a loom
+// `Err` and never as `ModelToolError`. The helper produces the model-facing
+// carrier (canonical depth issue + feedback message) and no `Result`.
+describe("depth-6 MODEL-DRIVEN tool-call args carrier (ceiling-4-table model-driven row)", () => {
+  it("ceiling-4-table (model-driven row) / CIO-3: a depth-6 model arg trips the loom-owned depth walk before the tool body and yields the canonical maxDepth issue with a model-facing feedback message — no loom Err", () => {
+    const breach = enforceModelToolArgDepth(DEPTH_6_ARG);
+
+    // Primary: a depth-6 model-produced argument trips ceiling #4 at this site.
+    expect(breach, "a depth-6 model-driven tool-call argument must trip ceiling #4").toBeDefined();
+    if (breach === undefined) {
+      throw new Error("unreachable: a depth-6 model-driven argument must breach the depth ceiling");
+    }
+
+    // The depth violation carries the canonical `schema_keyword` / message
+    // anchored to schema-subset.md §Error shape (sourced via `V5e`).
+    expect(breach.issue.schema_keyword).toBe("maxDepth");
+    expect(breach.issue.message).toBe("JSON document depth exceeds 5");
+
+    // The model-facing feedback message carries the canonical depth string,
+    // prefixed with the RFC-6901 JSON Pointer to the first too-deep node so the
+    // model can shrink that argument on its natural in-loop retry.
+    expect(breach.message).toBe(`${breach.issue.path} JSON document depth exceeds 5`);
+    expect(breach.message).toContain("JSON document depth exceeds 5");
+
+    // The carrier is model-facing only: it exposes NO `Result`/`CodeToolError`/
+    // `ModelToolError` shape (the model-driven row does not surface to loom
+    // code). `issue` + `message` are the only members.
+    expect(Object.keys(breach).sort()).toEqual(["issue", "message"]);
+    expect("result" in breach, "the model-driven row surfaces no loom Result").toBe(false);
+    expect("error" in breach, "the model-driven row surfaces no CodeToolError/ModelToolError").toBe(false);
+  });
+
+  it("ceiling-4-table (model-driven row) / CIO-3: the depth walk runs before the tool body — a within-cap (depth-5) model arg produces no breach and a root-level over-deep value feeds the bare canonical message", () => {
+    // A depth-5 model argument is within the cap: no breach, defers to the tool
+    // body / downstream provider validation.
+    expect(
+      enforceModelToolArgDepth(DEPTH_5_ARG),
+      "a within-cap (depth-5) model-driven argument produces no depth breach",
+    ).toBeUndefined();
+
+    // A depth-6 argument trips the ceiling here, before any tool body runs.
+    expect(
+      enforceModelToolArgDepth(DEPTH_6_ARG),
+      "a depth-6 model-driven argument trips ceiling #4",
     ).toBeDefined();
   });
 });
