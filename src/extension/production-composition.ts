@@ -51,7 +51,11 @@ import { AjvSchemaValidator } from "../seams/schema-validator";
 import { ProductionCheckpoint } from "../seams/production-checkpoint";
 import { createRuntimeRoot, type RuntimeRoot } from "../runtime-root";
 import type { FileSystem } from "../seams/file-system";
-import { renderDiagnosticLine, type Diagnostic } from "../diagnostics/diagnostic";
+import {
+  renderDiagnosticBatch,
+  renderDiagnosticLine,
+  type Diagnostic,
+} from "../diagnostics/diagnostic";
 import type { LoweredSchema } from "../seams/schema-validator";
 import {
   discoverLooms,
@@ -86,10 +90,13 @@ import {
   type ParsedLoom,
 } from "./reload-wiring";
 import {
-  emitDiagnosticBatch,
   SYSTEM_NOTE_CHANNEL,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
+import {
+  createLoadFailurePreEvalRouter,
+  type PreEvalFailureCause,
+} from "./load-pre-eval";
 import { installHotReload, type HotReloadHandle } from "./hot-reload";
 import {
   composeLoomFixture,
@@ -133,6 +140,44 @@ function makeLoadEmit(ctx: ExtensionContext): (diagnostic: Diagnostic) => void {
       process.stderr.write(`loom: ${renderDiagnosticLine(diagnostic)}\n`);
     }
   };
+}
+
+/**
+ * Map a load-phase diagnostic's registry code to its pre-evaluation failure
+ * cause discriminant (errors-and-results/error-model.md ERR-1…ERR-6/ERR-16).
+ * The V4e router shares ONE delivery surface across all seven causes, so the
+ * discriminant is carried for caller / reload-integration reuse rather than
+ * driving routing (WHY: `routePreEvalFailure` applies the fixed
+ * `triggerTurn:false` option uniformly); an honest mapping documents which
+ * pre-eval cause each shipped load-path diagnostic realises. ERR-5
+ * (binder-arg-binding) and ERR-16 (slash-load `params`) are runtime/slash-load
+ * cross-routes, not load-scan diagnostics, so they are not produced here. An
+ * unmatched code falls to the ERR-2 lex/parse/type batch (the default
+ * load-phase failure family).
+ */
+function preEvalCauseOf(code: string): PreEvalFailureCause {
+  if (code === "loom/load/host-incompatible") {
+    return "capability-probe"; // ERR-1
+  }
+  if (code === "loom/load/binder-model-unresolved") {
+    return "binder-model"; // ERR-4
+  }
+  if (
+    code === "loom/load/unknown-tool" ||
+    code === "loom/load/tool-name-collision" ||
+    code === "loom/load/invalid-tool-rename" ||
+    code === "loom/load/prompt-mode-callable" ||
+    code === "loom/load/callee-has-errors"
+  ) {
+    return "tools-resolution"; // ERR-6
+  }
+  if (code.startsWith("loom/parse/")) {
+    return "lex-parse-type"; // ERR-2
+  }
+  if (code.startsWith("loom/load/")) {
+    return "frontmatter"; // ERR-3 (frontmatter / params value rejections)
+  }
+  return "lex-parse-type"; // ERR-2 default batch
 }
 
 /**
@@ -560,8 +605,43 @@ export async function composeExtensionInstance(
   ctx: ExtensionContext,
   overrides?: ComposeSeamOverrides,
 ): Promise<ExtensionInstanceWiring> {
-  const emitLoad = makeLoadEmit(ctx);
-  const root = buildRuntimeRoot(ctx, emitLoad, overrides);
+  // The transient toast + stderr emit. Retained ONLY as the `loom-system-note`
+  // channel's own delivery-failure fallback: it MUST stay off-channel so a
+  // throwing `pi.sendMessage` does not re-enter the channel (the PIC-54
+  // terminal arm of the System-notes fallback chain).
+  const emitToast = makeLoadEmit(ctx);
+
+  // The `loom-system-note` delivery channel: carries the informational
+  // structural-change note, the LOAD-phase pre-evaluation failures
+  // (ERR-1…ERR-6/ERR-16), and the watcher-time reload failures (ERR-7) — all
+  // `triggerTurn:false`. Its fallback emit is the off-channel toast.
+  const channel = buildSystemNoteDeps(pi, ctx, emitToast);
+
+  // V4e — the load-time pre-evaluation failure router. Each error-severity
+  // load-phase diagnostic routes onto the `loom-system-note` channel with the
+  // fixed `triggerTurn:false` option, so the shipped LOAD path surfaces load
+  // failures on the SAME channel the wired RELOAD path uses (hot-reload.ts),
+  // rather than the transient toast (closing notes.md's "known load-phase
+  // routing gap"). error-model.md pins that every pre-evaluation failure
+  // "surfaces per Diagnostics on the loom-system-note channel, does not fire a
+  // new turn (triggerTurn:false)". WHY error-severity only: the eight pre-eval
+  // FAILURES are all error-severity; a load-phase warning is not a pre-eval
+  // failure and does not surface at load (unchanged). A routed note is
+  // best-effort and never aborts `session_start` (the loom is dropped, not the
+  // session).
+  const preEvalRouter = createLoadFailurePreEvalRouter({ channel });
+  const emitLoadNote = (diagnostic: Diagnostic): void => {
+    if (diagnostic.severity !== "error") {
+      return;
+    }
+    preEvalRouter.routePreEvalFailure(preEvalCauseOf(diagnostic.code), {
+      content: renderDiagnosticBatch([diagnostic]),
+      display: true,
+      details: { diagnostics: [diagnostic] },
+    });
+  };
+
+  const root = buildRuntimeRoot(ctx, emitLoadNote, overrides);
 
   // Decision 6 / Increment B1 (active-invocation-registry.md): ONE
   // extension-instance-scoped registry of in-flight invocations, constructed
@@ -580,22 +660,18 @@ export async function composeExtensionInstance(
   // passes.
   const forwardingSignals: ForwardingSignalSource[] = [];
 
-  // The `loom-system-note` delivery channel: carries the informational
-  // structural-change note and the ERR-7 watcher-time reload failures
-  // (`triggerTurn:false`).
-  const channel = buildSystemNoteDeps(pi, ctx, emitLoad);
-  // Watcher-time diagnostics (re-parse / re-merge / swap failures) surface as
-  // ERR-7 on the `loom-system-note` channel rather than a load-time toast
-  // (package-and-settings.md §"Watcher-time reload failures").
-  const emitErr7 = (diagnostic: Diagnostic): void => {
-    emitDiagnosticBatch([diagnostic], channel);
-  };
+  // Watcher-time re-compose diagnostics (re-parse / re-merge failures) reuse the
+  // same channel routing as the initial load pass, so load and reload surface
+  // load-phase failures identically (the ERR-7 `loom/runtime/registry-swap-failed`
+  // failure proper is emitted separately inside hot-reload.ts).
+  // package-and-settings.md §"Watcher-time reload failures".
+  const emitErr7 = emitLoadNote;
 
   const initial = await runComposePass(
     pi,
     ctx,
     root,
-    emitLoad,
+    emitLoadNote,
     activeInvocations,
     forwardingSignals,
   );
