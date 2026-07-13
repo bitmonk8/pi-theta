@@ -34,14 +34,16 @@ describe("discovery-dynamics hardening", () => {
       // DISCO-1 FIXED. binder-model resolution is now wired into the shipped
       // composition root: a non-bypass loom with no bind_model and no
       // looms.binderModel FAILS load with loom/load/binder-model-unresolved
-      // (error, surfaced through ctx.ui.notify) and is NOT registered.
-      //   Before (buggy): registeredNames contained "needsbind"; diagnostics []
+      // (error). V4e: error-severity load diagnostics route onto the
+      // `loom-system-note` channel (probe.systemNotes), NOT ctx.ui.notify
+      // (probe.diagnostics), and the loom is NOT registered.
+      //   Before (buggy): registeredNames contained "needsbind"; no diagnostic
       //     (binder-model resolution entirely unwired).
       //   After (fixed):  registeredNames excludes "needsbind"; a
-      //     "binder model unresolved" error diagnostic is present.
+      //     "binder model unresolved" error note is on the load systemNotes.
       expect(probe.registeredNames).not.toContain("needsbind");
       expect(
-        probe.diagnostics.some((d) => d.message.includes("binder model unresolved")),
+        probe.systemNotes.some((n) => n.includes("binder model unresolved")),
       ).toBe(true);
     } finally {
       await probe.dispose();
@@ -92,14 +94,15 @@ describe("discovery-dynamics hardening", () => {
     try {
       // DISCO-1 FIXED. A bind_model / looms.binderModel reference matching no
       // available model resolves to no model, so both looms FAIL load with
-      // loom/load/binder-model-unresolved and neither registers.
-      //   Before (buggy): both registered; diagnostics [].
+      // loom/load/binder-model-unresolved and neither registers. V4e: those
+      // error notes land on the `loom-system-note` channel (probe.systemNotes).
+      //   Before (buggy): both registered; no diagnostics.
       //   After (fixed):  neither registers; a binder-model-unresolved error
-      //     diagnostic is present for each.
+      //     note is present for each on the load systemNotes.
       expect(probe.registeredNames).not.toContain("viafm");
       expect(probe.registeredNames).not.toContain("viasettings");
       expect(
-        probe.diagnostics.filter((d) => d.message.includes("binder model unresolved"))
+        probe.systemNotes.filter((n) => n.includes("binder model unresolved"))
           .length,
       ).toBeGreaterThanOrEqual(2);
     } finally {
@@ -149,8 +152,11 @@ describe("discovery-dynamics hardening", () => {
         expect.arrayContaining(["mypkgloom", "barloom"]),
       );
       expect(probe.registeredNames).not.toContain("sneaky");
+      // V4e: the manifest-invalid (D) error note routes onto the
+      // `loom-system-note` channel (probe.systemNotes), not ctx.ui.notify. The
+      // escape entry (E) is a warning and surfaces on neither channel.
       expect(
-        probe.diagnostics.some((d) => d.message.includes("invalid 'pi.looms'")),
+        probe.systemNotes.some((n) => n.includes("invalid 'pi.looms'")),
       ).toBe(true);
     } finally {
       await probe.dispose();
@@ -195,13 +201,15 @@ describe("discovery-dynamics hardening", () => {
     });
     try {
       // Verified-conformant: dir entry registers; non-.loom → invalid-extension;
-      // missing path → missing-source error (confirms the fixed DISC-1).
+      // missing path → missing-source error (confirms the fixed DISC-1). V4e:
+      // both error notes route onto the `loom-system-note` channel
+      // (probe.systemNotes), not ctx.ui.notify.
       expect(probe.registeredNames).toContain("extra");
       expect(
-        probe.diagnostics.some((d) => d.message.includes("does not end in .loom")),
+        probe.systemNotes.some((n) => n.includes("does not end in .loom")),
       ).toBe(true);
       expect(
-        probe.diagnostics.some((d) => d.message.includes("does not exist")),
+        probe.systemNotes.some((n) => n.includes("does not exist")),
       ).toBe(true);
     } finally {
       await probe.dispose();
@@ -224,10 +232,14 @@ describe("discovery-dynamics hardening", () => {
     });
     try {
       // Verified-conformant: string/null/negative scalar values → out-of-range
-      // error (per key, non-fatal); the plain loom still registers.
+      // error (per key, non-fatal); the plain loom still registers. V4e: the
+      // three per-key out-of-range error notes route onto the
+      // `loom-system-note` channel (probe.systemNotes), not ctx.ui.notify
+      // (count verified live = 3: scanPackages, scanPackagesMaxFiles,
+      // scanPackagesTimeoutMs).
       expect(probe.registeredNames).toContain("plain");
       expect(
-        probe.diagnostics.filter((d) => d.message.includes("out of range")).length,
+        probe.systemNotes.filter((n) => n.includes("out of range")).length,
       ).toBe(3);
     } finally {
       await probe.dispose();

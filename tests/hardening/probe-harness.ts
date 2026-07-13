@@ -13,7 +13,18 @@
 //     pipeline registered (observes discovery/validity/collision outcomes with
 //     ZERO model turns).
 //   * `diagnostics`     — every `ctx.ui.notify(message, type)` the load phase
-//     emitted (discovery/parse/load diagnostics).
+//     emitted. NOTE (V4e): the shipped load path
+//     (`composeExtensionInstance`) routes ALL error-severity load-phase
+//     diagnostics (discovery / settings / binder-model / parse) through
+//     `emitLoadNote` → the `loom-system-note` channel, NOT through
+//     `ctx.ui.notify`. So `diagnostics` is normally EMPTY at load time; the
+//     error-severity load failures land on the load-phase `systemNotes` field
+//     below. Load-phase WARNINGS (e.g. invalid-json settings) are not pre-eval
+//     failures and route to neither surface — `emitLoadNote` is error-only.
+//   * `systemNotes`     — the LOAD-PHASE `loom-system-note` channel entries
+//     (error-severity load/parse/settings/binder diagnostics) appended during
+//     bind / session_start, before any drive. Read off the in-memory
+//     SessionManager (deterministic; no dependence on event timing).
 //   * per-drive `userTexts` — the exact user-turn text the loom CODE computed
 //     and sent to the model (deterministic; reveals control-flow / expression /
 //     stdlib evaluation without depending on the model's reply).
@@ -110,8 +121,39 @@ export interface ProbeTurn {
 export interface ProbeResult {
   readonly registeredNames: readonly string[];
   readonly diagnostics: readonly Diagnostic[];
+  /**
+   * LOAD-PHASE `loom-system-note` channel entries (V4e): the error-severity
+   * load/parse/settings/binder-model diagnostics the shipped
+   * `composeExtensionInstance` pass routed onto the channel during bind /
+   * session_start, before any drive. Snapshotted off the in-memory
+   * SessionManager after `registeredNames` is computed. Per-drive notes stay on
+   * `turn.systemNotes`.
+   */
+  readonly systemNotes: readonly string[];
   readonly turns: readonly ProbeTurn[];
   dispose(): Promise<void>;
+}
+
+/**
+ * Extract the `loom-system-note` channel contents from a slice of in-memory
+ * SessionManager entries (their `content`, string or text-part array).
+ */
+function collectSystemNotes(
+  entries: readonly unknown[],
+): readonly string[] {
+  const notes: string[] = [];
+  for (const entry of entries) {
+    const e = entry as { customType?: string; content?: unknown };
+    if (e.customType !== "loom-system-note") continue;
+    if (typeof e.content === "string") notes.push(e.content);
+    else if (Array.isArray(e.content)) {
+      for (const part of e.content) {
+        const t = (part as { text?: string }).text;
+        if (typeof t === "string") notes.push(t);
+      }
+    }
+  }
+  return notes;
 }
 
 /**
@@ -195,6 +237,14 @@ export async function runProbe(options: {
 
   const registeredNames = runner.getRegisteredCommands().map((c) => c.name);
 
+  // Snapshot the LOAD-PHASE `loom-system-note` entries: every error-severity
+  // load diagnostic (discovery / settings / binder-model) the bind /
+  // session_start compose pass routed onto the channel (V4e), read off the
+  // in-memory SessionManager AFTER `registeredNames` is computed but BEFORE any
+  // drive runs, so it captures only load-time notes (per-drive notes live on
+  // `turn.systemNotes`). See the header note on the V4e routing change.
+  const systemNotes = collectSystemNotes(sessionManager.getEntries());
+
   const turns: ProbeTurn[] = [];
   for (const invocation of drives) {
     const userTexts: string[] = [];
@@ -233,24 +283,16 @@ export async function runProbe(options: {
     }
     // Read the `loom-system-note` entries appended during this drive off the
     // in-memory session manager (deterministic; no dependence on event timing).
-    const systemNotes: string[] = [];
-    for (const entry of sessionManager.getEntries().slice(notesBefore)) {
-      const e = entry as { customType?: string; content?: unknown };
-      if (e.customType !== "loom-system-note") continue;
-      if (typeof e.content === "string") systemNotes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") systemNotes.push(t);
-        }
-      }
-    }
+    const systemNotes = collectSystemNotes(
+      sessionManager.getEntries().slice(notesBefore),
+    );
     turns.push({ invocation, userTexts, assistantText, toolCalls, systemNotes, error });
   }
 
   return {
     registeredNames,
     diagnostics,
+    systemNotes,
     turns,
     dispose: async (): Promise<void> => {
       session.dispose();
