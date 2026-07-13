@@ -16,7 +16,8 @@ Dedupe: INV-1..9 (`findings/invoke-crossmode-ceilings.md`) and INVCEIL-1/2/3
 INVCEIL-2 (callee **panic** not wrapped) is distinct from XMODE-1 below (callee
 **Err** not wrapped).
 
-Bug-verdict count: **1** (XMODE-1). Plus one borderline (XMODE-2).
+Bug-verdict count: **1** (XMODE-1). Plus one borderline (XMODE-2) and one
+accepted-cut / not-realizable decision (XMODE-3).
 
 ---
 
@@ -168,6 +169,105 @@ Bug-verdict count: **1** (XMODE-1). Plus one borderline (XMODE-2).
 
 ---
 
+## XMODE-3 — subagent→prompt callee stays on the spawn-fresh path (does NOT attach to the caller subagent's session) — **NOT-REALIZABLE + observably-conformant, NOT a bug**
+
+> **DECISION: keep spawn-fresh; do not force an attach.** The prompt→prompt cell
+> was wired to attach to the user session (V15d / `invoke-prompt-suspend.ts`);
+> the symmetric subagent→prompt cell was left on `spawnSubagentConversation`
+> (the `#driveCallee` else branch). Investigation confirms this is correct:
+> attach is **not realizable** at the loom 1.0 Pi-SDK pin, and the difference is
+> **unobservable** in every deterministic channel, with the callee final value
+> already crossing correctly.
+
+- **spec quote (`invocation.md` §Cross-mode semantics).** The intro: "The
+  callee's mode controls whether it gets a fresh conversation or attaches to its
+  caller's current conversation. The caller's mode is irrelevant to that decision
+  — a subagent's 'current conversation' is already its own private one, so a
+  prompt-mode child writing into it stays inside that private context." The cell
+  row: "| subagent | prompt | Child attaches to the caller's current
+  conversation — which is the caller subagent's own private one. **Nothing leaks
+  to the grandparent.** |". The tool-registration clause that pins the *mechanism*
+  for this cell: "For the other three cells (any callee in subagent mode, **or a
+  subagent caller invoking a prompt-mode child into the subagent's own private
+  session**), the child's tools reach the model through `customTools` on the
+  spawned `AgentSession` and die with the session; no active-set mutation is
+  involved." And §Final-value propagation: "the final value still propagates
+  through the same return surface."
+
+- **the seam (`production-loom-producer.ts` `#driveCallee`, ~L1983).** The attach
+  branch is guarded by BOTH modes: `if (callerMode === "prompt" &&
+  callee.frontmatter.mode === "prompt") { bindPromptConversation +
+  runPromptSuspendInvoke }`. A subagent caller (`callerMode === "subagent"`) fails
+  the guard and falls to the else branch — `spawnSubagentConversation({ loom:
+  callee, … })` — which installs the callee's `tools:` as `customTools` on a
+  fresh in-memory `AgentSession`. That is exactly the mechanism the spec's
+  tool-registration clause pins for this cell.
+
+- **realizability proof — a prompt callee CANNOT attach to a subagent caller's
+  `AgentSession` (two independent grounds).**
+  1. *No `ExtensionCommandContext`/`ExtensionAPI` for the spawned session.* The
+     prompt-mode query mechanism is hard-tied to the user session: a prompt
+     query drives "real user-visible turns into the shared session" via
+     `LivePromptQueryModel` → `driveStreamedUserTurn({ pi, ctx, … })` (pi's
+     native turn loop), its read surface is `readMessages = () =>
+     buildSessionContext(ctx.sessionManager.getEntries(),
+     ctx.sessionManager.getLeafId())` (the user session transcript), its
+     tool-loop bound is `#promptToolLoopGovernor.ensureRegistered(pi)` (pi's
+     native prompt-mode loop), and its callable-set swap is `pi.setActiveTools`
+     (the user session's ambient set). `bindPromptConversation` takes no session
+     handle — it closes over the caller's user-session `pi`+`ctx`. A subagent
+     caller runs in an in-memory `AgentSession` created by
+     `spawnSubagentConversation` via `createAgentSession({ … noExtensions:true,
+     noSkills:true, … sessionManager: SessionManager.inMemory(ctx.cwd) })`. That
+     session has NO `ExtensionCommandContext` and NO loaded loom extension —
+     `noExtensions:true` is deliberate (the comment: "it prevents the spawned
+     session from re-loading this very loom extension (which would recurse)").
+     There is therefore no `pi`+`ctx` bound to the subagent's session for a
+     prompt-mode callee to stream into.
+  2. *No "caller's current conversation" object to attach to.* A subagent
+     caller's body queries resolve through `createSubagentQueryModel` →
+     out-of-band `complete()` with query-driver-owned private `messages`
+     (`SubagentQueryModel.#messages = [{ role:"user", content: queryText }]`),
+     minted FRESH per `@`-query. Unlike the user session (where `readMessages`
+     returns the whole accumulated transcript so query N sees turns 1..N-1), the
+     subagent caller retains no accumulated conversation across queries. There is
+     no transcript artifact for a prompt callee to "attach to" and see.
+
+- **observability.** The attach-vs-spawn distinction has no deterministic
+  observable consequence for this cell: (a) the callee's transcript is private
+  and discarded in BOTH cases — spec "Nothing leaks to the grandparent"; a fresh
+  in-memory `AgentSession` is equally private and invisible to the grandparent as
+  a hypothetical attach would be; (b) the callee FINAL VALUE crosses identically
+  — `spawnSubagentConversation.surface` and the prompt→prompt attach path both
+  call the SAME `surfaceCalleeFinalValue` FN-5 projection. The only aspect attach
+  would add — the callee's `@`-queries seeing the caller's prior turns as model
+  context — is unreachable (no retained caller transcript, ground 2 above) and
+  would in any case only manifest through non-deterministic model behaviour, not
+  a deterministic channel. The live probe already confirms the value crosses
+  correctly on the spawn path: **`top(prompt) → mid(subagent) → leaf(prompt)`**
+  renders `SP=107` (see Verified-conformant below).
+
+- **verdict: NOT-REALIZABLE + observably-conformant — accepted cut, not a bug.**
+  Production's spawn-fresh satisfies every *observable* clause of the
+  subagent→prompt cell (private context invisible to the grandparent;
+  `customTools`-on-spawned-`AgentSession` tool registration; final value crosses
+  via the shared FN-5 surface). The literal "attaches to the caller's current
+  conversation" wording is a conceptual privacy framing whose only
+  realizability-distinct consequence (callee sees caller's prior subagent turns)
+  is architecturally unreachable at the loom 1.0 Pi-SDK pin — same shape as the
+  binder forced-tool cut ("not realizable against the available provider") and
+  the PIC-8 restore-failure cut ("not realizable at the loom 1.0 Pi-SDK pin").
+  Forcing an attach would require either (a) loading the loom extension inside
+  the spawned `AgentSession` (the exact recursion `noExtensions:true` prevents)
+  or (b) retaining a subagent-caller transcript the current per-query ephemeral
+  execution model does not build — both out of scope for 1.0 and neither
+  producing an observable difference. **Deferral seam:** if a future architecture
+  retains subagent-caller transcripts AND exposes a session-bound `pi`+`ctx` for
+  a spawned `AgentSession`, the callee-sees-caller-turns aspect could be
+  revisited; until then spawn-fresh is the conformant realization.
+
+---
+
 ## Verified-conformant (bounds the search)
 
 Confirmed working via deterministic `userTexts` (child looms spend zero tokens):
@@ -183,8 +283,10 @@ Confirmed working via deterministic `userTexts` (child looms spend zero tokens):
   `leaf` returns `5`, `mid` returns `w + 100`, top renders `SS=105`. Value flows up
   through two subagent boundaries.
 - **subagent→prompt value flow.** `top(prompt) → mid(subagent) → leaf(prompt)`;
-  `leaf` (prompt, literal tail `7`, attaches to `mid`'s private conversation)
-  returns `7`, `mid` returns `107`, top renders `SP=107`.
+  `leaf` (prompt, literal tail `7`, spawned fresh into `mid`'s private context
+  via the `#driveCallee` else branch — see XMODE-3) returns `7`, `mid` returns
+  `107`, top renders `SP=107`. The literal tail makes attach-vs-spawn invisible;
+  the final value crosses via the shared `surfaceCalleeFinalValue` either way.
 - **Typed-return validation is catchable (INV-6 holds).** `invoke<number>` of a
   subagent returning the string `"a-string"` → catchable
   `Err(InvokeInfraError{kind:"invoke_infra", cause:"return_validation"})`; parent
