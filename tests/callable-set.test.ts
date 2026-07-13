@@ -37,8 +37,12 @@ function piTool(name: string): ResolvedPiTool {
   return { kind: "pi-tool", toolDefinition: { name } };
 }
 
-/** A resolved `.loom` callee stand-in with a given declared mode. */
-function loomCallee(mode: "prompt" | "subagent"): ResolvedLoomCallee {
+/**
+ * A resolved `.loom` callee stand-in with a given declared mode. The
+ * `calleePath` is injected by the `deps` factory from the resolution-table key
+ * (mirroring production: `resolveEntry` overwrites it from the entry `spec`).
+ */
+function loomCallee(mode: "prompt" | "subagent"): Omit<ResolvedLoomCallee, "calleePath"> {
   return { kind: "loom", mode, callee: { mode } };
 }
 
@@ -49,14 +53,17 @@ function loomCallee(mode: "prompt" | "subagent"): ResolvedLoomCallee {
  */
 function deps(opts?: {
   piTools?: readonly string[];
-  loomCallees?: Readonly<Record<string, ResolvedLoomCallee>>;
+  loomCallees?: Readonly<Record<string, Omit<ResolvedLoomCallee, "calleePath">>>;
   reservedNames?: readonly string[];
 }): CallableSetDeps {
   const piTools = new Set(opts?.piTools ?? []);
   const loomCallees = opts?.loomCallees ?? {};
   return {
     resolvePiTool: (name) => (piTools.has(name) ? piTool(name) : undefined),
-    resolveLoomCallee: (loomPath) => loomCallees[loomPath],
+    resolveLoomCallee: (loomPath) => {
+      const callee = loomCallees[loomPath];
+      return callee === undefined ? undefined : { ...callee, calleePath: loomPath };
+    },
     reservedNames: new Set(opts?.reservedNames ?? []),
   };
 }
@@ -285,5 +292,57 @@ describe("V6c-T — resolution snapshot (frozen, no ambient inheritance) and bot
     const listNames = [...(list.callableSet?.entries.keys() ?? [])].sort();
     expect(scalarNames, "the short form parses all three Pi tools").toEqual(["bash", "grep", "read"]);
     expect(listNames, "both spellings parse to the same callable set").toEqual(scalarNames);
+  });
+});
+
+// --- Gap-2: the frozen `.loom` entry carries its authoritative callee path ----
+//     so the runtime resolves the callee by presented name (shared by the
+//     code-driven `<name>(args)` path and the model-driven `.loom` adapter),
+//     instead of re-deriving it from the basename — which dropped renamed
+//     (`as foo`) and hyphenated (`code_review`) callees, silently omitting them.
+
+describe("Gap-2 — snapshot `.loom` entry carries the authoritative calleePath", () => {
+  /** The `calleePath` on the resolved `.loom` entry bound under `name`. */
+  function calleePathOf(r: CallableSetResult, name: string): string | undefined {
+    const entry = r.callableSet?.entries.get(name);
+    return entry !== undefined && entry.kind === "loom" ? entry.calleePath : undefined;
+  }
+
+  it("a bare-basename callee: presented name `child` carries calleePath `./child.loom`", () => {
+    const r = resolveList(
+      ["./child.loom"],
+      deps({ loomCallees: { "./child.loom": loomCallee("subagent") } }),
+    );
+    expect(r.registered).toBe(true);
+    expect(r.callableSet?.entries.has("child")).toBe(true);
+    expect(calleePathOf(r, "child"), "the entry carries the path as written").toBe("./child.loom");
+  });
+
+  it("a HYPHENATED callee `./my-tool.loom` → presented `my_tool` STILL carries calleePath `./my-tool.loom`", () => {
+    // The presented name applies the hyphen→underscore rewrite; the calleePath
+    // must remain the real hyphenated path (a basename re-derivation of
+    // `my_tool` would look for the nonexistent `./my_tool.loom` and drop it).
+    const r = resolveList(
+      ["./my-tool.loom"],
+      deps({ loomCallees: { "./my-tool.loom": loomCallee("subagent") } }),
+    );
+    expect(r.registered).toBe(true);
+    expect(r.callableSet?.entries.has("my_tool")).toBe(true);
+    expect(
+      calleePathOf(r, "my_tool"),
+      "the hyphenated real path is retained under the underscore-presented name",
+    ).toBe("./my-tool.loom");
+  });
+
+  it("a RENAMED callee `./c.loom as foo` carries calleePath `./c.loom` under `foo`", () => {
+    // `foo` does not end in `.loom`; a basename `.endsWith('.loom')` match would
+    // never find it and drop the renamed callable.
+    const r = resolveList(
+      ["./c.loom as foo"],
+      deps({ loomCallees: { "./c.loom": loomCallee("subagent") } }),
+    );
+    expect(r.registered).toBe(true);
+    expect(r.callableSet?.entries.has("foo")).toBe(true);
+    expect(calleePathOf(r, "foo"), "the renamed entry carries the real path").toBe("./c.loom");
   });
 });

@@ -19,6 +19,7 @@
 // binder/binder-model-and-context.md, subagent.md.
 
 import type {
+  AgentToolResult,
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
@@ -30,9 +31,16 @@ import {
   buildSessionContext,
   createAgentSession,
   DefaultResourceLoader,
+  defineTool,
   getAgentDir,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+// SUBAG-2 (extension-bootstrap-and-per-loom.md §Per-loom registration): a
+// `.loom`-as-tool `ToolDefinition.parameters` wraps the callee's lowered JSON
+// Schema via `Type.Unsafe<unknown>(...)` — the same TypeBox pattern the binder
+// envelope tool uses (`binder-inference.ts`), so TypeBox carries the JSON Schema
+// through to the provider lowering layer.
+import { Type } from "typebox";
 import {
   attachSubagentAbortForwarding,
   extractSubagentQueryResult,
@@ -106,6 +114,7 @@ import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-
 import { enforceCodeToolArgDepth, enforceModelToolArgDepth } from "../runtime/tool-call";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
+import { runInvokeChild } from "../runtime/invoke-cancellation";
 import type { InvokeInfraError, TransportError } from "../runtime/query-error";
 import {
   newInvokeChain,
@@ -168,7 +177,9 @@ import {
   parseStructuredPayload,
   payloadForRespond,
 } from "../runtime/typed-query-validation";
-import { evaluateIndexAccess, evaluateMemberAccess } from "../runtime/runtime-panics";
+import { evaluateIndexAccess, evaluateMemberAccess, HostFatal } from "../runtime/runtime-panics";
+import { routeLoomCallableSetupThrow } from "../runtime/tool-call-off-surface";
+import { deriveToolLabel } from "../runtime/tool-registration";
 import {
   lexQueryTemplate,
   renderEmptyShortCircuit,
@@ -196,7 +207,7 @@ import {
   renderCustomTypeUnsafeNote,
 } from "../binder/compact-transcript";
 import { coerceUnderlyingString } from "../diagnostics/placeholder";
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { capSystemNote, classifyModelContent } from "../binder/system-note";
 import {
   renderArgumentEcho,
@@ -986,6 +997,50 @@ class ProductionLoomProducer implements LoomProducerDeps {
   }
 
   /**
+   * SUBAG-2 / tool-calls.md:30 (`.loom`-callable adapter pre-eval setup-throw
+   * row). A GENUINE pre-dispatch dispatch-setup throw inside the model-driven
+   * `.loom` adapter (raised before the callee body runs) is routed through
+   * `routeLoomCallableSetupThrow`. Gap-1: a callee-BODY panic no longer reaches
+   * here — `driveCallee` drives through `runInvokeChild`, which converts a
+   * callee-subtree throw into an `Err(InvokeInfraError{cause:"panic"|
+   * "internal_error"})` VALUE that lowers as a plain `isError` result with no
+   * operator note. This routes only the true setup throw:
+   * `routeLoomCallableSetupThrow` returns the clean `{ isError: true }`
+   * envelope carrying the BARE callable-set name (never `/<name>`), and emits
+   * exactly one `loom/runtime/internal-error` diagnostic + one
+   * `loom-system-note`. The sink captures the diagnostic and delivers the ONE
+   * framed note through `emitPanicNote` — the SAME group-B
+   * `details: { diagnostics: [Diagnostic] }` `loom-system-note` shape/channel
+   * the top-level internal-error surface uses — so the model observes the tool
+   * failure while the operator observes the framed defect.
+   */
+  #emitLoomCallableSetupThrow(
+    thrown: unknown,
+    callableName: string,
+    loom: ConversationBindInput["loom"],
+  ): LoweredLoomCallableResult {
+    let captured: Diagnostic | undefined;
+    const sink: ToolLoweringSink = {
+      runtimeEvent: (): void => {},
+      diagnostic: (diag): void => {
+        captured = diag;
+      },
+      systemNote: (framing): void => {
+        if (captured !== undefined) {
+          this.emitPanicNote(framing, captured);
+        }
+      },
+    };
+    const routed = routeLoomCallableSetupThrow(
+      thrown,
+      callableName,
+      { file: loom.sourcePath ?? loom.slashName, range: ZERO_BODY_RANGE },
+      sink,
+    );
+    return { text: routed.content[0]?.text ?? "", isError: routed.isError };
+  }
+
+  /**
    * Decision 6 / Increment B2: push the invocation-scoped forwarding sources
    * onto the shared `forwardingSignals` sink and return a teardown closure that
    * detaches each listener and splices it back off. `finishInvocation` runs the
@@ -1277,11 +1332,7 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // Pi-tool name in the callable set, and `tools` is the explicit allowlist of
     // those same names (subagent.md rules 1–3; the allowlist enforces the
     // "ambient Pi tools NOT inherited" invariant).
-    // TODO(SUBAG-2): a `.loom`-callable entry in a subagent's callable set
-    // (model-callable `.loom`) is not yet lowered to a model-callable
-    // `ToolDefinition` here — only Pi-tool entries are installed. The common
-    // `tools: read, grep` case is covered; the deeper model-callable-.loom case
-    // is tracked in tests/hardening/session-findings/subagent.md (SUBAG-2).
+    // SUBAG-2 (WIRED): both Pi-tool AND `.loom`-callable entries are lowered.
     const customTools: ToolDefinition[] = [];
     for (const toolName of callableSetPiToolNames(loom)) {
       const definition = this.#input.resolvePiToolDefinition?.(toolName, ctx.cwd);
@@ -1289,6 +1340,156 @@ class ProductionLoomProducer implements LoomProducerDeps {
         customTools.push(definition);
       }
     }
+
+    // SUBAG-2 model-callable `.loom` (tool-calls.md: the callable set is SHARED
+    // between the model-driven and code-driven paths — the model sees the same
+    // `.loom` callables it can call from code). The frozen callable-set entry
+    // holds no parsed callee in production (`callee: undefined`), so resolve
+    // each `.loom` callee here via the SAME `parseCallee` seam `#driveCallee`
+    // uses, capturing the callee's declared `params:` order (for the model
+    // object-arg → positional mapping), its lowered `params:` schema (the
+    // model-facing tool `parameters`), and its `description`. A callee that no
+    // longer resolves (or a harness without `parseCallee`) simply omits the
+    // model-facing tool — the code-driven `<name>(args)` path re-resolves the
+    // callee independently, so it is never widened here.
+    const loomCallables: ResolvedLoomCallable[] = [];
+    for (const { presentedName, calleePath } of callableSetLoomEntries(loom)) {
+      const callee = await this.#input.parseCallee?.(loom.sourcePath, calleePath);
+      if (callee === undefined) {
+        continue;
+      }
+      const params = callee.frontmatter.params;
+      loomCallables.push({
+        presentedName,
+        calleePath,
+        paramOrder: params?.fields.map((field) => field.wireName) ?? [],
+        loweredSchema: params?.loweredSchema,
+        description: callee.frontmatter.description ?? "",
+      });
+    }
+
+    // SUBAG-2 / tool-calls.md §Concurrency: the RE-ENTRANT `.loom`-callable model
+    // adapter, shared by BOTH the loom-owned `complete()` loop (via
+    // `executeSubagentTool`) and the SDK `customTools` surface below. It maps the
+    // model's object arguments to positional `argValues` in the callee's declared
+    // `params:` order, then drives the callee through the SAME invoke machinery
+    // (`#buildInvokeChild` → `runInvokeChild` → `#driveCallee`) a code-driven
+    // `.loom` call (`#resolveCallAsInvoke`) / `invoke(...)` uses — so a
+    // model-driven `.loom` call inherits EXACTLY the same guarantees as a
+    // code-driven invoke. No shared mutable closure state: each call re-enters
+    // the machinery, which spawns its own `AgentSession`, so two concurrent
+    // calls execute as independent invocations on the event loop.
+    const driveLoomCallableModelCall = (
+      callable: ResolvedLoomCallable,
+      args: Record<string, unknown>,
+      toolSignal: AbortSignal,
+    ): Promise<LoweredLoomCallableResult> =>
+      lowerModelDrivenLoomCall(
+        args,
+        {
+          paramOrder: callable.paramOrder,
+          // Gap-1: drive the callee through the SAME `runInvokeChild` invoke
+          // trampoline the CODE-driven `.loom` path uses
+          // (effectful-statement-host.ts:242/309), NOT `#buildInvokeChild(...)
+          // .drive()` raw. `runInvokeChild` fires the pre-dispatch
+          // `checkpoint.before("invoke", site)` + aborted-skip, then drives the
+          // child and CONVERTS a callee-subtree throw into a VALUE at the invoke
+          // boundary: a `LoomPanic` → `Err(InvokeInfraError{cause:"panic"})`,
+          // any other non-`HostFatal` interpreter throw →
+          // `Err(InvokeInfraError{cause:"internal_error"})`, a `HostFatal`
+          // re-raised (NOCEIL-3). `.drive()` alone only converts the ceiling-#1
+          // depth-overflow panic — every OTHER callee-BODY panic (non-exhaustive
+          // `match`, index / member / null access) would unwind as a raw throw
+          // and be mis-framed by `onSetupThrow` as a pre-eval dispatch-setup
+          // failure. Routing through `runInvokeChild` means a callee-body panic
+          // lowers as a plain `isError` result (from the returned `Err`) with NO
+          // operator note; only a GENUINE pre-dispatch dispatch-setup throw
+          // (raised before the body runs) still rejects and reaches
+          // `onSetupThrow`. `#buildInvokeChild(...)` also pushes the countable
+          // INVOKE-DEPTH frame (ceiling #1 / INV-4) and attaches the CANCEL-3
+          // swallowing handler, THEN `#driveCallee` runs the containment
+          // re-check, ceiling-#4 `params` depth, CANCEL propagation (the
+          // derived-child `loomAbort`), the ActiveInvocationRegistry entry (B1),
+          // the PIC-9 teardown, and the FN-5 final-value surface — identical to
+          // the code-driven invoke.
+          driveCallee: async (argValues, callSignal): Promise<ResultValue> => {
+            const child = this.#buildInvokeChild(
+              loom,
+              callable.calleePath,
+              argValues,
+              ctx,
+              chain,
+              /*returnSchema*/ null,
+              callSignal,
+              /*callerMode*/ "subagent",
+            );
+            const outcome = await runInvokeChild(
+              root.checkpoint,
+              callSignal,
+              { file: loom.sourcePath ?? loom.slashName, line: 0, column: 0 },
+              child,
+            );
+            // A pre-dispatch cancel observed at the `invoke` checkpoint surfaces
+            // as `Err(CancelledError)` — the same terminal the code-driven
+            // `runToolCallEffect` maps `cancelled` to; the body panic / infra
+            // conversions are already VALUES inside `outcome.result`.
+            return outcome.kind === "cancelled"
+              ? makeErr(makeCancelledError() as unknown as LoomValue)
+              : outcome.result;
+          },
+          // tool-calls.md:30 (`.loom`-callable adapter pre-eval setup-throw row):
+          // reached ONLY by a genuine pre-dispatch dispatch-setup throw (a
+          // callee-body panic is already a value from `runInvokeChild`). Such a
+          // throw becomes a clean `isError` result carrying the BARE
+          // callable-set name + one `loom/runtime/internal-error` diagnostic +
+          // one `loom-system-note`.
+          onSetupThrow: (thrown) =>
+            this.#emitLoomCallableSetupThrow(thrown, callable.presentedName, loom),
+        },
+        toolSignal,
+      );
+
+    // SUBAG-2 (tool-registration-lifetime.md §"Subagent mode"): the SDK-visible
+    // surface must match the loom-owned `complete()` loop surface, so each
+    // `.loom` callable is ALSO installed as a `defineTool` `customTool` (and
+    // allowlisted in `tools` below). Its `execute` is the SAME re-entrant adapter
+    // — no shared mutable closure state across concurrent calls. The
+    // `ToolDefinition` shape is mode-independent
+    // (extension-bootstrap-and-per-loom.md §Per-loom registration): `label` is
+    // the callee basename with hyphens preserved + leading-cap; `parameters` is
+    // the lowered schema wrapped `Type.Unsafe<unknown>`; `description` is the
+    // callee frontmatter description.
+    for (const callable of loomCallables) {
+      customTools.push(
+        defineTool({
+          name: callable.presentedName,
+          label: deriveToolLabel({
+            kind: "loom-file",
+            basename: loomCallableName(callable.calleePath),
+          }),
+          description: callable.description,
+          parameters: Type.Unsafe<unknown>(callable.loweredSchema ?? {}),
+          execute: async (
+            _toolCallId: string,
+            params: unknown,
+            execSignal: AbortSignal | undefined,
+          ): Promise<AgentToolResult<unknown>> => {
+            const lowered = await driveLoomCallableModelCall(
+              callable,
+              (params ?? {}) as Record<string, unknown>,
+              execSignal ?? loomAbort.signal,
+            );
+            // `AgentToolResult` carries no `isError` field; the error framing is
+            // conveyed as the content text. The loom-owned `complete()` loop
+            // (the actual subagent query driver) is the surface that sets
+            // `ToolResultMessage.isError` — this SDK surface exists for
+            // registration-lifetime parity, not to drive the query.
+            return { content: [{ type: "text", text: lowered.text }], details: undefined };
+          },
+        }),
+      );
+    }
+
     const toolNames = customTools.map((definition) => definition.name);
 
     // STAGE A (STL-2 / ceiling #2): the loom OWNS the subagent's model tool
@@ -1319,6 +1520,19 @@ class ProductionLoomProducer implements LoomProducerDeps {
         });
       }
     }
+    // SUBAG-2: the model ALSO sees the `.loom` callables (tool-calls.md: the
+    // callable set is SHARED between the model-driven and code-driven paths).
+    // Each presents under its callable-set name, with the callee's lowered
+    // `params:` schema wrapped `Type.Unsafe<unknown>` and the callee's
+    // frontmatter `description`, so the model can emit a `tool_use` block for it
+    // exactly as `executeSubagentTool`'s `.loom` branch resolves it.
+    for (const callable of loomCallables) {
+      toolSchemas.push({
+        name: callable.presentedName,
+        description: callable.description,
+        parameters: Type.Unsafe<unknown>(callable.loweredSchema ?? {}),
+      });
+    }
 
     // STAGE A: execute ONE model tool call through the loom's callable set,
     // reusing the SAME `#resolvePiToolForLoom` / `execute` path the code-driven
@@ -1329,11 +1543,34 @@ class ProductionLoomProducer implements LoomProducerDeps {
     // loop continues (ceiling #4 model-driven row). A name outside the callable
     // set is an unavailable-tool `isError` result — ambient tools are never
     // inherited (frontmatter.md §`tools:`).
-    const executeSubagentTool = (
+    const loomCallableByName = new Map(
+      loomCallables.map((callable) => [callable.presentedName, callable] as const),
+    );
+    const executeSubagentTool = async (
       call: ToolCall,
       toolSignal: AbortSignal,
-    ): Promise<ToolResultMessage> =>
-      lowerModelDrivenToolCall(call, this.#resolvePiToolForLoom(loom, call.name), toolSignal);
+    ): Promise<ToolResultMessage> => {
+      // A `.loom`-callable branch BEFORE the Pi-tool `#resolvePiToolForLoom`
+      // path: a callable-set name bound to a `.loom` callee spawns a fresh
+      // subagent invocation through the re-entrant `#driveCallee` adapter
+      // (equivalent to `invoke<T>`), then lowers its `Result` to the fed-back
+      // tool-result (Ok → text; Err → `isError`). A name outside `loomCallables`
+      // falls through to the Pi-tool lowering.
+      const callable = loomCallableByName.get(call.name);
+      if (callable !== undefined) {
+        const lowered = await driveLoomCallableModelCall(
+          callable,
+          call.arguments,
+          toolSignal,
+        );
+        return subagentToolResult(call, lowered.text, lowered.isError);
+      }
+      return lowerModelDrivenToolCall(
+        call,
+        this.#resolvePiToolForLoom(loom, call.name),
+        toolSignal,
+      );
+    };
 
     // STAGE A: the out-of-band `complete()` free function does NOT inherit the
     // session's request auth, so — exactly as the binder off-session path does —
@@ -2237,14 +2474,121 @@ function callableSetPiToolNames(
   return names;
 }
 
+/** SUBAG-2: a resolved model-callable `.loom` in a subagent's callable set. */
+interface ResolvedLoomCallable {
+  /** The callable-set name the model calls (post-`as`, post-hyphen→underscore). */
+  readonly presentedName: string;
+  /** The callee `.loom` path relative to the caller's directory. */
+  readonly calleePath: string;
+  /** The callee's declared `params:` wire names, in DECLARATION ORDER. */
+  readonly paramOrder: readonly string[];
+  /** The callee's lowered `params:` object schema (the model-facing `parameters`). */
+  readonly loweredSchema: LoweredSchema | undefined;
+  /** The callee's frontmatter `description` (the model-facing tool description). */
+  readonly description: string;
+}
+
+/** SUBAG-2: the model-facing text/`isError` pair a `.loom` model call lowers to. */
+export interface LoweredLoomCallableResult {
+  readonly text: string;
+  readonly isError: boolean;
+}
+
+/**
+ * SUBAG-2: the `.loom`-callable entries in the loom's frozen `tools:` callable
+ * set — each carrying its presented (post-`as` / post-hyphen→underscore)
+ * callable name and the resolved callee `.loom` path (relative to the caller's
+ * directory) read from the frozen entry's `calleePath` (Gap-2: the load-time
+ * resolver recorded it from the `tools:` `spec`, so renamed / hyphenated callees
+ * carry their real path). Mirrors `callableSetPiToolNames`; the callee schema /
+ * param order / description are resolved asynchronously at spawn time via
+ * `parseCallee` (production freezes each entry with `callee: undefined`, so the
+ * parsed callee itself is not held on the snapshot). A loom with no snapshot
+ * yields `[]`.
+ */
+function callableSetLoomEntries(
+  loom: ConversationBindInput["loom"],
+): readonly { readonly presentedName: string; readonly calleePath: string }[] {
+  const set = loom.callableSet;
+  if (set === undefined) {
+    return [];
+  }
+  const entries: { readonly presentedName: string; readonly calleePath: string }[] = [];
+  for (const [presentedName, entry] of set.entries) {
+    if (entry.kind !== "loom") {
+      continue;
+    }
+    // Gap-2: read the authoritative callee path the load-time resolver recorded
+    // on the frozen entry (from the `tools:` `spec`), NOT a basename
+    // re-derivation — so renamed / hyphenated callees are presented + dispatchable.
+    entries.push({ presentedName, calleePath: entry.calleePath });
+  }
+  return entries;
+}
+
+/**
+ * SUBAG-2: lower a `.loom`-callable's returned `Result` (FN-5) to the
+ * model-facing tool-result text / `isError` pair. `Ok(string)` surfaces the
+ * string verbatim; `Ok(<other>)` its JSON form; an `Err` surfaces
+ * `isError: true` carrying the error's `message` (or its JSON form) so the model
+ * observes the failure and the loop continues — the same disposition a failing
+ * Pi-tool sibling receives (tool-calls.md §Concurrency).
+ */
+function lowerLoomCallableModelResult(result: ResultValue): LoweredLoomCallableResult {
+  if (result.ok) {
+    const value = result.value ?? null;
+    return {
+      text: typeof value === "string" ? value : JSON.stringify(value),
+      isError: false,
+    };
+  }
+  const error = result.error as unknown;
+  const message = (error as { readonly message?: unknown }).message;
+  return {
+    text: typeof message === "string" ? message : JSON.stringify(error),
+    isError: true,
+  };
+}
+
+/**
+ * The zero-width body range for a `.loom`-adapter internal-error diagnostic that
+ * carries no source position of its own (mirrors the top-level panic-note site's
+ * `ZERO_BODY_RANGE` in `loom-composition-producer.ts`).
+ */
+const ZERO_BODY_RANGE: SourceRange = {
+  start: { line: 0, column: 0 },
+  end: { line: 0, column: 0 },
+} as const;
+
 /**
  * The callable-set entry (a `./x.loom` path) that a call name resolves to, or
  * `undefined` when the name binds to no `.loom`-callable (so it is a Pi tool).
+ *
+ * Gap-2: resolve the callee path from the FROZEN callable-set snapshot keyed by
+ * the presented (post-`as` / post-hyphen→underscore) name, using the
+ * `calleePath` the load-time resolver (`resolveCallableSet`) recorded from the
+ * entry's `spec`. This replaces the previous basename string-match against
+ * `frontmatter.tools`, which dropped renamed (`./c.loom as foo`) and hyphenated
+ * (`./my-tool.loom` → `my_tool`) callees — silently omitting them from BOTH the
+ * code-driven `<name>(args)` path and the model-driven adapter.
+ *
+ * A loom carrying NO snapshot (an in-memory harness fixture built with
+ * `frontmatter.tools` but no `callableSet`) falls back to the pre-Gap-2 basename
+ * match against `frontmatter.tools` — the same snapshot-absent fallback pattern
+ * `#resolvePiToolForLoom` uses. Production discovered looms always carry a
+ * (possibly empty) snapshot, so the fallback never serves a real loom and thus
+ * cannot re-open the Gap-2 hole for production (renamed / hyphenated resolve
+ * from the snapshot).
  */
 function loomCalleePath(
   loom: ConversationBindInput["loom"],
   calleeName: string,
 ): string | undefined {
+  const set = loom.callableSet;
+  if (set !== undefined) {
+    const entry = set.entries.get(calleeName);
+    return entry !== undefined && entry.kind === "loom" ? entry.calleePath : undefined;
+  }
   const tools = loom.frontmatter.tools ?? [];
   return tools.find(
     (entry) => entry.endsWith(".loom") && loomCallableName(entry) === calleeName,
@@ -2890,6 +3234,82 @@ function subagentToolResult(call: ToolCall, text: string, isError: boolean): Too
     isError,
     timestamp: 0,
   };
+}
+
+/**
+ * SUBAG-2 model-callable `.loom`: the injected drive + setup-throw + param-order
+ * collaborators the model-driven `.loom` adapter core dispatches through.
+ * Extracted so the model-driven `.loom` seam (arg-mapping declaration order,
+ * ceiling-#4 depth block, `Result` lowering, setup-throw translation,
+ * re-entrancy) is deterministically testable against scripted collaborators —
+ * the same extraction rationale as `lowerModelDrivenToolCall` for the Pi-tool
+ * seam.
+ */
+export interface ModelDrivenLoomCall {
+  /** The callee's declared `params:` wire names, in DECLARATION ORDER. */
+  readonly paramOrder: readonly string[];
+  /**
+   * Drive the callee (equivalent to `#driveCallee` bound to the caller loom /
+   * ctx / chain) over the positional `argValues` mapped from the model's object
+   * arguments, returning the callee's top-level `Result` (FN-5).
+   */
+  readonly driveCallee: (
+    argValues: readonly LoomValue[],
+    toolSignal: AbortSignal,
+  ) => Promise<ResultValue>;
+  /**
+   * Translate a non-`HostFatal` pre-eval setup / body throw into the model-facing
+   * `{ text, isError: true }` pair, emitting the paired
+   * `loom/runtime/internal-error` diagnostic + `loom-system-note` as a side
+   * effect (tool-calls.md:30). A `HostFatal` is NEVER passed here — the core
+   * re-raises it (NOCEIL-3) before calling.
+   */
+  readonly onSetupThrow: (thrown: unknown) => LoweredLoomCallableResult;
+}
+
+/**
+ * SUBAG-2 model-callable `.loom` (tool-calls.md §"Argument shape" / §Concurrency;
+ * ceiling #4 model-driven row). Lower ONE model-driven `.loom`-callable
+ * `tool_use` call to the model-facing text / `isError` pair, in order:
+ *
+ *   - CEILING #4 (ceilings-3-and-4.md#ceiling-4-table, model-driven row; CIO-3):
+ *     the loom-owned depth walk runs over the MODEL-produced `args` document
+ *     BEFORE the callee spawns — a depth-6+ argument is fed back as an `isError`
+ *     result and the callee never spawns (identical to `lowerModelDrivenToolCall`
+ *     for the Pi-tool arm; `#driveCallee`'s own per-arg `enforceInvokeParamsDepth`
+ *     is the separate code-path net);
+ *   - the model's object arguments are bound to positional `argValues` in the
+ *     callee's `params:` DECLARATION ORDER (the SAME binding a code-side
+ *     `<name>(args)` / `invoke(...)` uses) and the callee is driven;
+ *   - a clean `Result` lowers via `lowerLoomCallableModelResult` (Ok → text;
+ *     Err → `isError`);
+ *   - a non-`HostFatal` setup / body throw routes through `onSetupThrow`
+ *     (tool-calls.md:30); a `HostFatal` re-raises (NOCEIL-3).
+ *
+ * Re-entrant: it holds no state; two concurrent calls dispatch through their own
+ * `spec.driveCallee`, which spawns an independent `AgentSession` each
+ * (tool-calls.md §Concurrency).
+ */
+export async function lowerModelDrivenLoomCall(
+  args: Record<string, unknown>,
+  spec: ModelDrivenLoomCall,
+  toolSignal: AbortSignal,
+): Promise<LoweredLoomCallableResult> {
+  const argDepthBreach = enforceModelToolArgDepth(args);
+  if (argDepthBreach !== undefined) {
+    return { text: argDepthBreach.message, isError: true };
+  }
+  const argValues = spec.paramOrder.map((name) => (args[name] ?? null) as LoomValue);
+  try {
+    return lowerLoomCallableModelResult(await spec.driveCallee(argValues, toolSignal));
+  } catch (thrown: unknown) { // allow-broad-catch: loom/runtime/internal-error — `.loom`-adapter pre-eval setup throw (tool-calls.md §"Outcome enumeration")
+    // NOCEIL-3 (hard-ceilings): a host fatal is the ONLY thing that propagates
+    // (fail-fast); every other throw routes to the internal-error framing.
+    if (thrown instanceof HostFatal) {
+      throw thrown;
+    }
+    return spec.onSetupThrow(thrown);
+  }
 }
 
 /**

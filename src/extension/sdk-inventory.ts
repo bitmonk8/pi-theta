@@ -289,6 +289,15 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // `customTools` on `createAgentSession`, and the composition root lowers each
     // built-in name to its full `ToolDefinition` for that channel.
     { id: "ToolDefinition", kind: "peer-named-import" },
+    // SUBAG-2 (model-callable `.loom`): the subagent spawn materialises each
+    // `.loom`-callable in the loom's callable set as a `defineTool`-wrapped
+    // `customTool` (extension-bootstrap-and-per-loom.md §Per-loom registration),
+    // so the SDK-visible surface matches the loom-owned `complete()` loop's
+    // `.loom` tool schemas.
+    { id: "defineTool", kind: "peer-named-import" },
+    // SUBAG-2: the `defineTool` `.loom` adapter returns an `AgentToolResult`
+    // envelope from its `execute` — the SDK tool-result shape.
+    { id: "AgentToolResult", kind: "peer-named-import" },
     // The non-`namespace-function` operand rows the version-bump gates (`V18c`)
     // read. Each carries the pinned operand its gate reconciles against the
     // pinned SDK: the in-repo Node floor (operand (ii) of the `engines.node`

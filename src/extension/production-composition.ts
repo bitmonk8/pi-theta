@@ -889,7 +889,11 @@ async function resolveLoomToolsAtLoad(
       if (callee === undefined || !callee.fileExists) {
         return undefined;
       }
-      return { kind: "loom", mode: callee.mode, callee: undefined };
+      // Retain the callee path literal on the snapshot (SUBAG-2 / Gap-2): the
+      // runtime resolves the callee by presented name from the frozen entry
+      // rather than re-deriving it from the basename, which would drop the
+      // hyphen→underscore + `as` rewrites and silently omit the callable.
+      return { kind: "loom", mode: callee.mode, callee: undefined, calleePath: loomPath };
     },
     reservedNames: collectReservedNames(parsed.body),
   };

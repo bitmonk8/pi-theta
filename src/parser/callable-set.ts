@@ -66,6 +66,15 @@ export interface ResolvedLoomCallee {
   readonly kind: "loom";
   /** The callee loom file's declared `mode:`. */
   readonly mode: LoomMode;
+  /**
+   * The callee `.loom` path literal AS WRITTEN in `tools:` (relative to the
+   * caller's directory), carried onto the frozen snapshot so the runtime
+   * resolves the callee by its presented (post-`as` / post-hyphen→underscore)
+   * name rather than re-deriving it from the basename — which would drop both
+   * the `as` rename and the hyphen→underscore rewrite and silently omit the
+   * callable. Set authoritatively from the entry's `spec` by `resolveEntry`.
+   */
+  readonly calleePath: string;
   /** Strong reference to the parsed callee + lowered tool spec (opaque here). */
   readonly callee: unknown;
 }
@@ -292,7 +301,7 @@ function resolveEntry(
   const defaultName = loomDefaultName(spec);
   if (resolved === undefined) {
     return {
-      callable: { kind: "loom", mode: "subagent", callee: undefined },
+      callable: { kind: "loom", mode: "subagent", callee: undefined, calleePath: spec },
       defaultName,
       diagnostic: {
         severity: "error",
@@ -302,9 +311,14 @@ function resolveEntry(
       },
     };
   }
+  // Carry the authoritative callee path literal (the entry's `spec`, as written)
+  // onto the snapshot entry. The deps lookup is keyed by that same literal, so
+  // this is the single source of truth for how the runtime later reopens the
+  // callee — independent of the presented name's hyphen/rename rewrites.
+  const withPath: ResolvedLoomCallee = { ...resolved, calleePath: spec };
   if (resolved.mode === "prompt") {
     return {
-      callable: resolved,
+      callable: withPath,
       defaultName,
       diagnostic: {
         severity: "error",
@@ -314,7 +328,7 @@ function resolveEntry(
       },
     };
   }
-  return { callable: resolved, defaultName };
+  return { callable: withPath, defaultName };
 }
 
 /**

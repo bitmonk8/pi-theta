@@ -243,6 +243,79 @@ describe("core-exec — `?` unwrap over a real dispatched effect", () => {
 });
 
 // ===========================================================================
+// Gap-2 (code-driven) — a RENAMED / HYPHENATED `.loom`-callable `<name>(args)`
+// call classifies as loom-callable and resolves the callee path from the frozen
+// snapshot (shared with the model-driven adapter), NOT a basename re-derivation.
+// A `parseCallee` returning `undefined` surfaces Err(load_failure) WITHOUT
+// spawning a session, so the routing + resolved calleePath are asserted
+// synchronously (the successful spawn path needs the live suite).
+// ===========================================================================
+
+describe("core-exec — code-driven renamed/hyphenated `.loom` callee resolves (Gap-2)", () => {
+  function loomWithCallable(
+    loomBody: LoomBody,
+    presentedName: string,
+    calleePath: string,
+  ): LoomCompositionInput {
+    const entries = new Map([
+      [
+        presentedName,
+        { kind: "loom" as const, mode: "subagent" as const, calleePath, callee: undefined },
+      ],
+    ]);
+    const frontmatter = {
+      mode: "prompt",
+      tools: [calleePath === `./${presentedName}.loom` ? calleePath : `${calleePath} as ${presentedName}`],
+    } as unknown as ParsedFrontmatter;
+    return {
+      slashName: "demo",
+      sourcePath: "/looms/demo.loom",
+      frontmatter,
+      body: loomBody,
+      callableSet: { entries },
+    } as unknown as LoomCompositionInput;
+  }
+
+  async function driveCallAndCapture(
+    presentedName: string,
+    calleePath: string,
+  ): Promise<{ readonly calls: string[]; readonly value: LoomValue | undefined }> {
+    const calls: string[] = [];
+    const deps = producer({
+      parseCallee: (_caller, path) => {
+        calls.push(path);
+        // Callee "could not be loaded" → Err(InvokeInfraError{load_failure}); the
+        // call still resolved THROUGH the invoke path (never the Pi-tool path).
+        return Promise.resolve(undefined);
+      },
+    });
+    const call = callExpr(presentedName, [objectExpr(null, [{ name: "a", value: stringExpr("A") }])]);
+    const loom = loomWithCallable(body([], call), presentedName, calleePath);
+    const r = await runBody(deps, loom);
+    return { calls, value: r.value };
+  }
+
+  it("a RENAMED call `foo({...})` resolves to `./c.loom` via the invoke path", async () => {
+    const { calls, value } = await driveCallAndCapture("foo", "./c.loom");
+    // Routed to the invoke path (loom-callable), reopening the REAL callee path.
+    expect(calls, "parseCallee saw the renamed callee's real path").toContain("./c.loom");
+    expect(calls).not.toContain("./foo.loom");
+    // FN-5: the callee's top-level Result flows back (an Err(load_failure) here,
+    // proving invoke routing rather than a Pi-tool execute mis-dispatch).
+    expect((value as { ok?: boolean }).ok).toBe(false);
+    expect((value as { error?: { cause?: string } }).error?.cause).toBe("load_failure");
+  });
+
+  it("a HYPHENATED call `my_tool({...})` resolves to `./my-tool.loom` via the invoke path", async () => {
+    const { calls, value } = await driveCallAndCapture("my_tool", "./my-tool.loom");
+    expect(calls, "parseCallee saw the hyphenated callee's real path").toContain("./my-tool.loom");
+    expect(calls).not.toContain("./my_tool.loom");
+    expect((value as { ok?: boolean }).ok).toBe(false);
+    expect((value as { error?: { cause?: string } }).error?.cause).toBe("load_failure");
+  });
+});
+
+// ===========================================================================
 // Top-level `params:` reach body scope (binder → executor-env threading).
 // ===========================================================================
 

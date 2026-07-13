@@ -125,10 +125,21 @@ Bug-verdict count: **3** (all FIXED).
 >   the composition root from `builtinToolDefinition`), and passes
 >   `customTools: [those definitions]` + `tools: [those names]` (subagent.md
 >   rules 1–3). Scope: Pi-tool callable-set entries (the common
->   `tools: read, grep` case) are installed; a `.loom`-callable entry in a
->   subagent's callable set (model-callable `.loom`) is not yet lowered to a
->   model-callable `ToolDefinition` — tracked as a `TODO(SUBAG-2)` at the spawn
->   site.
+>   `tools: read, grep` case) are installed. A `.loom`-callable entry in a
+>   subagent's callable set (model-callable `.loom`) is now ALSO WIRED: the
+>   spawn resolves each `.loom` callee (the same `parseCallee` seam `#driveCallee`
+>   uses), presents it in BOTH the loom-owned `complete()` loop tool schemas AND
+>   as a `defineTool` `customTool` (+ `tools` allowlist) on `createAgentSession`,
+>   and `executeSubagentTool` → `lowerModelDrivenLoomCall` maps the model's
+>   object args → positional `argValues` in `params:` declaration order and
+>   drives the callee through the SAME `#driveCallee` a code-driven `invoke(...)`
+>   uses (inheriting depth ceiling #1, containment re-check, ceiling-#4 depth,
+>   CANCEL, the B1 registry entry, PIC-9 teardown, FN-5). A pre-eval setup-throw
+>   → clean `isError` tool-result + one `loom/runtime/internal-error` diagnostic
+>   + one `loom-system-note` (tool-calls.md:30). Verified by
+>   `tests/subagent-model-loom-tool.test.ts` (seam) +
+>   `tests/hardening/session-subagent-loom-tool.test.ts` (live probe — the live
+>   model emits the `tool_use` and the child sentinel surfaces end-to-end).
 
 
 - **repro:**
