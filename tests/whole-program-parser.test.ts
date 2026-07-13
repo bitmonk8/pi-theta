@@ -18,9 +18,14 @@ import {
   type MatchExpr,
   type ObjectExpr,
   type ParseLoomDocumentDeps,
+  type QueryStmt,
   type ReassignStmt,
   type TryExpr,
 } from "../src/parser/loom-document";
+import {
+  DISCARDED_QUERY_RESULT_CODE,
+  DISCARDED_QUERY_RESULT_MESSAGE,
+} from "../src/runtime/query-discard";
 
 // V19a-T — failing tests for the paired `V19a` whole-program parser.
 //
@@ -550,5 +555,84 @@ describe("core-exec: postfix `?` still terminates and composes with access", () 
     const init = let_?.init as TryExpr | undefined;
     expect(init?.kind).toBe("try");
     expect(init?.operand.kind).toBe("call");
+  });
+});
+
+// --------------------------------------------------------------------------
+// QRY-19 — discarded-query-result parse error, wired through checkStructural
+// --------------------------------------------------------------------------
+
+describe("QRY-19: bare `@`...`` expression-statement fires loom/parse/discarded-query-result", () => {
+  const discards = (doc: LoomDocument): readonly Diagnostic[] =>
+    doc.diagnostics.filter((d) => d.code === DISCARDED_QUERY_RESULT_CODE);
+
+  it("a bare non-tail `@`...`` statement fires the error at the query's location", () => {
+    // query-escapes-stringification.md#qry-19: the bare expression-statement
+    // position drops the must-use `Result`. A trailing `let` keeps the query in
+    // NON-tail statement position (parseForms only promotes a trailing
+    // line-start EXPRESSION form to the tail), so it parses as a `QueryStmt`.
+    const doc = parse(
+      ["@`Summarise the discussion above.`", "let x = 1"].join("\n"),
+    );
+    const stmt = doc.body.statements.find(
+      (s): s is QueryStmt => s.kind === "query",
+    );
+    expect(stmt).toBeDefined();
+
+    const hits = discards(doc);
+    expect(hits).toHaveLength(1);
+    const diag = hits[0]!;
+    expect(diag.severity).toBe("error");
+    expect(diag.code).toBe(DISCARDED_QUERY_RESULT_CODE);
+    // Message anchored to the registry (code-registry-parse.md), NOT the prose.
+    expect(diag.message).toBe(DISCARDED_QUERY_RESULT_MESSAGE);
+    expect(diag.file).toBe("test.loom");
+    // Located at the `QueryStmt` node (the bare query on line 1, column 1).
+    expect(diag.range).toEqual(stmt!.range);
+    expect(diag.range?.start.line).toBe(1);
+    expect(diag.range?.start.column).toBe(1);
+  });
+
+  it("a `let _ = @`...`` explicit discard does NOT fire (negative pin)", () => {
+    // QRY-19 accepts the `let _ =` discard: the `Result` is acknowledged at the
+    // call site. It parses as a `LetStmt` (name `_`), never a `QueryStmt`.
+    const doc = parse(["let _ = @`Summarise.`", "let x = 1"].join("\n"));
+    expect(doc.body.statements.some((s) => s.kind === "query")).toBe(false);
+    expect(discards(doc)).toHaveLength(0);
+  });
+
+  it("a `?`-propagated bare `@`...``? does NOT fire (negative pin)", () => {
+    // The `?`-propagate form acknowledges the `Result` (early-return); it parses
+    // as an `ExprStmt` wrapping a `try`, never a `QueryStmt`.
+    const doc = parse(["@`Summarise.`?", "let x = 1"].join("\n"));
+    expect(doc.body.statements.some((s) => s.kind === "query")).toBe(false);
+    expect(discards(doc)).toHaveLength(0);
+  });
+
+  it("a query USED in an expression (match scrutinee / binding) does NOT fire (negative pin)", () => {
+    // A query bound (`let r = @`...``) or consumed as a `match` scrutinee is not
+    // a discarded result — the value is used at the call site.
+    const bound = parse(["let r = @`Summarise.`", "let x = 1"].join("\n"));
+    expect(discards(bound)).toHaveLength(0);
+
+    const scrutinee = parse(
+      [
+        "let outcome = match @`Summarise.` {",
+        "  Ok(t) => t,",
+        "  Err(_) => \"e\",",
+        "}",
+      ].join("\n"),
+    );
+    expect(discards(scrutinee)).toHaveLength(0);
+  });
+
+  it("a trailing bare `@`...`` (the void/final-value tail) does NOT fire (negative pin)", () => {
+    // A trailing line-start query is promoted to the body tail (FN-5 final value
+    // / void-tail discard, QRY-20 territory), not a bare expression-statement,
+    // so QRY-19 must not fire.
+    const doc = parse(["let x = 1", "@`Summarise.`"].join("\n"));
+    expect(doc.body.tail?.kind).toBe("query");
+    expect(doc.body.statements.some((s) => s.kind === "query")).toBe(false);
+    expect(discards(doc)).toHaveLength(0);
   });
 });

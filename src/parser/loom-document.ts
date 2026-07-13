@@ -72,6 +72,12 @@ import { parseTypeExpression } from "./type-grammar";
 import { checkTypeLayer } from "./type-layer-checks";
 import { resolveQuerySchemas } from "./query-schema-resolve";
 import { buildBodyTypeSchemas } from "./body-type-lowering";
+// QRY-19 lives in the runtime discard module (it owns the discarded-query
+// discipline shared with the QRY-20 runtime obligation); the parser reuses its
+// pure parse-time check rather than re-deriving the diagnostic. Parser→runtime
+// type/pure-function imports are an established pattern (system-interpolation,
+// type-layer-checks).
+import { checkDiscardedQueryResult } from "../runtime/query-discard";
 
 // --------------------------------------------------------------------------
 // Expression AST (the `Expr` node family; grammar.md §Expression sublanguage)
@@ -3150,6 +3156,23 @@ function walkStatement(
       }
       return;
     case "query":
+      // QRY-19 (query-escapes-stringification.md#qry-19): a bare `@`...`` in
+      // expression-statement position drops the must-use `Result` without
+      // acknowledgement. A `QueryStmt` is produced only for a NON-tail bare
+      // query — `parseForms` promotes a trailing line-start query to the
+      // body/void tail (the accepted void-tail discard, QRY-20 territory), and
+      // the `?`-propagate / `let _ =`-discard / `let x = …` binding forms parse
+      // to `try` / `let` nodes — so its disposition is always
+      // `bare-expr-statement`, the sole QRY-19 trigger.
+      pushDiag(
+        out,
+        checkDiscardedQueryResult({
+          isQuery: true,
+          disposition: "bare-expr-statement",
+          file,
+          range: s.range,
+        }),
+      );
       walkExpr(s.query, refs, file, out);
       return;
     case "tool-call":

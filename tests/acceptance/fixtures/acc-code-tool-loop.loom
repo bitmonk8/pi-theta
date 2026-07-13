@@ -7,4 +7,6 @@ tools:
 // A code-side Pi-tool call feeds a follow-up query; invariant set: no-error exit
 // + permitted codes only.
 let contents = read({ path: "acc-code-tool-loop.loom" })?
-respond @`Summarise in one short sentence what this file is: ${contents}`
+// QRY-19: acknowledge the query `Result` at the call site with `?` (propagate
+// failure) rather than discarding it in bare expression-statement position.
+respond @`Summarise in one short sentence what this file is: ${contents}`?
