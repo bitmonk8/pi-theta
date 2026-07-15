@@ -36,9 +36,9 @@ re-runs the model and hopes it eventually declares itself done. In Loom the loop
 is real code, so your code owns the stop condition and the model just does the
 work inside each round.
 
-The worker does one round of work on a fresh context and hands back a typed
-result. State lives on disk — the files it edits, the commits it makes — not in
-the conversation:
+The worker [`docs/examples/ralph-step.loom`](./docs/examples/ralph-step.loom) does
+one round of work on a fresh context and hands back a typed result. State lives on
+disk — the files it edits, the commits it makes — not in the conversation:
 
 ```loom
 ---
@@ -63,8 +63,9 @@ is now fully met.`?
 status
 ```
 
-The loop takes an objective, passes it to the worker, and re-runs the worker on a
-fresh context until it reports `done` — or hits the round ceiling:
+The loop [`docs/examples/ralph.loom`](./docs/examples/ralph.loom) takes an
+objective, passes it to the worker, and re-runs the worker on a fresh context
+until it reports `done` — or hits the round ceiling:
 
 ```loom
 ---
@@ -84,6 +85,20 @@ while round < 20 {
   }
 }
 "stopped at the 20-round ceiling"
+```
+
+Put both files on the discovery path with `--loom`, and `ralph.loom` is available
+as the `/ralph` slash command — the argument becomes its `objective`:
+
+```
+pi --loom docs/examples -p "/ralph get the integration tests passing"
+```
+
+Or, from inside a running `pi` session (once the directory is on your loom
+discovery path), just type the slash command:
+
+```
+/ralph get the integration tests passing
 ```
 
 The `while` bound, the `done` check, and the round ceiling are ordinary code —
