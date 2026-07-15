@@ -1,6 +1,8 @@
 ---
-description: Do the next task from PLAN.md on a fresh context, then report status
+description: Do the next task toward the objective on a fresh context, then report status
 mode: subagent
+params:
+  objective: string
 tools:
   - read
   - bash
@@ -10,7 +12,9 @@ schema Progress {
   summary: string
 }
 
-let status: Progress = @`Read PLAN.md, do the single most important unfinished
-task, run the test suite with bash, commit the result, and report whether every
-task is now complete.`?
+let status: Progress = @`Objective: ${objective}
+
+Read PLAN.md, do the single most important unfinished task toward the objective,
+run the test suite with bash, commit the result, and report whether the objective
+is now fully met.`?
 status

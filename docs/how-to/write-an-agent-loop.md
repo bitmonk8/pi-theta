@@ -32,14 +32,17 @@ loop needs:
 
 ## Working example — a Ralph loop
 
-The worker [`docs/examples/ralph-step.loom`](../examples/ralph-step.loom) does one
-task and reports whether the whole job is done. State lives on disk (the files it
-edits, the commits it makes), not in the conversation:
+The worker [`docs/examples/ralph-step.loom`](../examples/ralph-step.loom) takes an
+`objective`, does one task toward it, and reports whether the objective is met.
+State lives on disk (the files it edits, the commits it makes), not in the
+conversation:
 
 ```loom
 ---
-description: Do the next task from PLAN.md on a fresh context, then report status
+description: Do the next task toward the objective on a fresh context, then report status
 mode: subagent
+params:
+  objective: string
 tools:
   - read
   - bash
@@ -49,26 +52,31 @@ schema Progress {
   summary: string
 }
 
-let status: Progress = @`Read PLAN.md, do the single most important unfinished
-task, run the test suite with bash, commit the result, and report whether every
-task is now complete.`?
+let status: Progress = @`Objective: ${objective}
+
+Read PLAN.md, do the single most important unfinished task toward the objective,
+run the test suite with bash, commit the result, and report whether the objective
+is now fully met.`?
 status
 ```
 
-The loop [`docs/examples/ralph.loom`](../examples/ralph.loom) re-runs that worker
-on a fresh context until it reports `done`, or until it hits the ceiling:
+The loop [`docs/examples/ralph.loom`](../examples/ralph.loom) takes the same
+`objective`, passes it to the worker, and re-runs the worker on a fresh context
+until it reports `done`, or until it hits the ceiling:
 
 ```loom
 ---
-description: Re-run the worker on a fresh context until it reports done (a Ralph loop)
+description: Re-run the worker on a fresh context until the objective is met (a Ralph loop)
 mode: subagent
+params:
+  objective: string
 tools:
   - ./ralph-step.loom
 ---
 let mut round = 0
 while round < 20 {
   round += 1
-  let status = ralph_step()?
+  let status = ralph_step(objective)?
   if status.done {
     return status.summary
   }
@@ -76,16 +84,18 @@ while round < 20 {
 "stopped at the 20-round ceiling"
 ```
 
-Run it against a project that has a `PLAN.md`:
+Run it against a project that has a `PLAN.md`, passing the objective as the
+argument:
 
 ```
-pi --loom docs/examples -p "/ralph"
+pi --loom docs/examples -p "/ralph get the integration tests passing"
 ```
 
-Each `ralph_step()` call is a fresh subagent conversation — the worker never sees
-the previous round's turns, only what it reads back off disk. The `while` bound,
-the completion check, and the ceiling are all ordinary code: the model does the
-work, your loom decides whether to keep going.
+Each `ralph_step(objective)` call is a fresh subagent conversation — the worker
+never sees the previous round's turns, only the objective it is handed and what it
+reads back off disk. The `while` bound, the completion check, and the ceiling are
+all ordinary code: the model does the work, your loom decides whether to keep
+going.
 
 ## Variant — refine until approved
 

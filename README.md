@@ -34,20 +34,51 @@ The pattern people call an *agent loop* (or a *Ralph loop*) is: run the model,
 check the result, then stop or go again. The usual version is a shell loop that
 re-runs the model and hopes it eventually declares itself done. In Loom the loop
 is real code, so your code owns the stop condition and the model just does the
-work inside each round. Each call to a subagent worker starts on a fresh context,
-and the worker hands back a typed result the loop can branch on:
+work inside each round.
+
+The worker does one round of work on a fresh context and hands back a typed
+result. State lives on disk — the files it edits, the commits it makes — not in
+the conversation:
 
 ```loom
 ---
-description: Re-run the worker on a fresh context until it reports done (a Ralph loop)
+description: Do the next task toward the objective on a fresh context, then report status
 mode: subagent
+params:
+  objective: string
+tools:
+  - read
+  - bash
+---
+schema Progress {
+  done: boolean,
+  summary: string
+}
+
+let status: Progress = @`Objective: ${objective}
+
+Read PLAN.md, do the single most important unfinished task toward the objective,
+run the test suite with bash, commit the result, and report whether the objective
+is now fully met.`?
+status
+```
+
+The loop takes an objective, passes it to the worker, and re-runs the worker on a
+fresh context until it reports `done` — or hits the round ceiling:
+
+```loom
+---
+description: Re-run the worker on a fresh context until the objective is met (a Ralph loop)
+mode: subagent
+params:
+  objective: string
 tools:
   - ./ralph-step.loom
 ---
 let mut round = 0
 while round < 20 {
   round += 1
-  let status = ralph_step()?
+  let status = ralph_step(objective)?
   if status.done {
     return status.summary
   }
@@ -57,8 +88,8 @@ while round < 20 {
 
 The `while` bound, the `done` check, and the round ceiling are ordinary code —
 not a magic "done" string grepped out of the model's prose. See
-[How to write an agent loop](./docs/how-to/write-an-agent-loop.md) for the worker
-file and a second, self-contained example.
+[How to write an agent loop](./docs/how-to/write-an-agent-loop.md) for a second,
+self-contained example you can run without any external tools.
 
 ## Status
 

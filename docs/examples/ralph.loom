@@ -1,13 +1,15 @@
 ---
-description: Re-run the worker on a fresh context until it reports done (a Ralph loop)
+description: Re-run the worker on a fresh context until the objective is met (a Ralph loop)
 mode: subagent
+params:
+  objective: string
 tools:
   - ./ralph-step.loom
 ---
 let mut round = 0
 while round < 20 {
   round += 1
-  let status = ralph_step()?
+  let status = ralph_step(objective)?
   if status.done {
     return status.summary
   }
