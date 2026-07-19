@@ -26,9 +26,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   - Runtime identifiers `Loom*` → `Theta*`, `Warp*` → `ThetaLib*`.
   - Release-version literal `loom X.Y` → `theta X.Y`; governance anchors
     `loom-1-0-*` → `theta-1-0-*`.
-  - See [`docs/rename-to-theta.md`](docs/rename-to-theta.md) for the full plan
-    and the deferred follow-up (retiring the legacy `v1-*` version-token
-    anchor aliases).
+  - Retired the legacy `v1-*` HTML-anchor dual-anchor governance machinery
+    (GOV-25–GOV-29) wholesale, repointing all inbound `#v1-*` cross-references
+    to their `theta-1-0-*` canonical arms.
+  - See [`docs/rename-to-theta.md`](docs/rename-to-theta.md) for the full plan.
 
 - Pre-release. No published version yet; the package is on a `0.x` line under
   active hardening. Release notes begin at the first published version.
