@@ -978,3 +978,119 @@ describe("CANCEL-1 — the loop-iter cancellation checkpoint fires per iteration
     expect(r.outcome, "a while loop-iter abort drives to the cancel terminal outcome").toBe("cancel");
   });
 });
+
+// ===========================================================================
+// RFC 0002 / Finding #3 — the pre-evaluation of a Pi-tool call's computed
+// field values (`preEvaluateToolArgs`) is GATED on the callee classifying as a
+// Pi tool. A `.theta`-callable call routes through the invoke trampoline
+// (`runToolCallEffect`), which ignores `evaluatedToolArgs` and re-lowers its
+// argument itself; pre-evaluating it in the executor would dispatch effectful
+// field values twice (a latent double-eval). The executor must therefore NOT
+// pre-evaluate a call the host classifies as `.theta`-callable.
+// ===========================================================================
+
+/**
+ * A `StatementEvalHost` double that records every dispatched effect (by callee)
+ * and the `evaluatedToolArgs` each `runEffect` was handed, and classifies calls
+ * by a configured callee→kind map. `runEffect` does NOT itself lower arguments
+ * — exactly like the invoke trampoline's opacity to `evaluatedToolArgs` — so a
+ * nested field effect is dispatched only if the EXECUTOR pre-evaluates it.
+ */
+class ClassifyingHost implements StatementEvalHost {
+  readonly dispatched: string[] = [];
+  readonly argsSeen: (Record<string, ThetaValue> | undefined)[] = [];
+  readonly #kinds: ReadonlyMap<string, "pi-tool" | "theta-callable">;
+
+  constructor(kinds: ReadonlyMap<string, "pi-tool" | "theta-callable">) {
+    this.#kinds = kinds;
+  }
+
+  evaluatePure(expr: Expr): ThetaValue {
+    if (expr.kind === "string") {
+      return expr.value;
+    }
+    if (expr.kind === "number") {
+      return Number(expr.text);
+    }
+    return null;
+  }
+
+  checkpointFor(expr: Expr): CheckpointDescriptor | null {
+    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
+      return { kind: "tool-call", site: SITE };
+    }
+    return null;
+  }
+
+  classifyCall(expr: CallExpr): "pi-tool" | "theta-callable" {
+    return this.#kinds.get(expr.callee) ?? "pi-tool";
+  }
+
+  runEffect(
+    expr: Expr,
+    _env: LexicalEnvironment,
+    evaluatedToolArgs?: Record<string, ThetaValue>,
+  ): Promise<OperationResult> {
+    if (expr.kind === "call") {
+      this.dispatched.push(expr.callee);
+      this.argsSeen.push(evaluatedToolArgs);
+    }
+    return Promise.resolve(ok(null));
+  }
+}
+
+describe("RFC 0002 / Finding #3 — pre-evaluation gated on the Pi-tool callee kind", () => {
+  it("a `.theta`-callable call with an object-literal arg is NOT pre-evaluated (no field double-dispatch)", async () => {
+    // `summarise({ x: probe({}) })` — `summarise` is a `.theta`-callable, its
+    // field `x` is a nested Pi-tool call `probe`.
+    const host = new ClassifyingHost(
+      new Map([
+        ["summarise", "theta-callable"],
+        ["probe", "pi-tool"],
+      ]),
+    );
+    const program = body([
+      toolCallStmt("summarise", [objectExpr([{ name: "x", value: callExpr("probe", [objectExpr([])]) }])]),
+    ]);
+
+    await executeBody(program, deps({ host }));
+
+    // The nested `probe` field effect must NOT be dispatched by the executor's
+    // pre-evaluation — the invoke trampoline owns the `.theta`-callable's
+    // argument lowering. Only the outer `.theta`-callable dispatched here.
+    expect(host.dispatched, "probe was not pre-evaluated for a .theta-callable call").toEqual([
+      "summarise",
+    ]);
+    // And the `.theta`-callable `runEffect` received no pre-evaluated args.
+    expect(host.argsSeen, "a .theta-callable call carries no evaluatedToolArgs").toEqual([undefined]);
+  });
+
+  it("a Pi-tool call with the SAME object-literal arg IS pre-evaluated (field dispatched, args threaded)", async () => {
+    // `store({ x: probe({}) })` — `store` is a Pi tool: its computed field value
+    // `probe({})` evaluates left-to-right before dispatch, so `probe` dispatches
+    // during pre-evaluation and the concrete args reach `store`'s `runEffect`.
+    const host = new ClassifyingHost(
+      new Map<string, "pi-tool" | "theta-callable">([
+        ["store", "pi-tool"],
+        ["probe", "pi-tool"],
+      ]),
+    );
+    const program = body([
+      toolCallStmt("store", [objectExpr([{ name: "x", value: callExpr("probe", [objectExpr([])]) }])]),
+    ]);
+
+    await executeBody(program, deps({ host }));
+
+    expect(host.dispatched, "the Pi-tool field effect dispatched before the outer tool").toEqual([
+      "probe",
+      "store",
+    ]);
+    // `probe`'s own empty object-literal arg pre-evaluated to `{}`; `store`
+    // received the pre-evaluated field object, `x` bound to probe's returned
+    // value (`ok(null)` → the unwrapped `null`).
+    expect(host.argsSeen[0], "the nested Pi-tool field effect got its own pre-evaluated args").toEqual({});
+    expect(host.argsSeen[1], "the outer Pi tool receives the pre-evaluated field object").toEqual({
+      x: null,
+    });
+  });
+});

@@ -66,6 +66,10 @@ function stringExpr(value: string): Expr {
   return { kind: "string", value, range: span() };
 }
 
+function binaryExpr(op: string, left: Expr, right: Expr): Expr {
+  return { kind: "binary", op, left, right, range: span() };
+}
+
 function objectExpr(typeName: string | null, fields: readonly ObjectFieldNode[]): Expr {
   return { kind: "object", typeName, fields, range: span() };
 }
@@ -359,6 +363,115 @@ describe("core-exec — top-level params reach body scope (single-string bypass)
 
     expect(result.bound).toBe(true);
     expect(result.args, "no params → empty bound args").toEqual({});
+  });
+});
+
+// ===========================================================================
+// RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) — computed field values
+// in Pi-tool arguments, exercised end-to-end through the real production host.
+//
+// Behavior 1 (runtime): a computed field-value expression evaluates at call time
+// and lowers to the concrete argument the tool receives — the exact RFC example
+// `read({ path: base + "/findings/" + id + ".md" })`.
+// Behavior 5 (runtime): field-value expressions evaluate left-to-right in source
+// order before dispatch; an early-returning `?` inside a field expression aborts
+// the call and the tool is NOT dispatched.
+// ===========================================================================
+
+describe("RFC 0002 — computed Pi-tool field values (runtime dispatch semantics)", () => {
+  it("behavior 1: the RFC example `read({ path: base + \"/findings/\" + id + \".md\" })` dispatches the computed path", async () => {
+    let received: unknown;
+    const resolvePiTool = (name: string): PiToolDispatch => ({
+      toolName: name,
+      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
+        received = params;
+        return Promise.resolve({ content: [{ type: "text", text: "contents" }] });
+      },
+    });
+    // let body = read({ path: base + "/findings/" + id + ".md" })?  ; tail `body`
+    const pathExpr = binaryExpr(
+      "+",
+      binaryExpr(
+        "+",
+        binaryExpr("+", identExpr("base"), stringExpr("/findings/")),
+        identExpr("id"),
+      ),
+      stringExpr(".md"),
+    );
+    const read = callExpr("read", [objectExpr(null, [{ name: "path", value: pathExpr }])]);
+    const theta = promptTheta(body([letStmt("body", tryExpr(read))], identExpr("body")), ["read"]);
+    const params = new Map<string, ThetaValue>([
+      ["base", "src"],
+      ["id", "42"],
+    ]);
+
+    const r = await runBody(producer({ resolvePiTool }), theta, params);
+
+    expect(
+      received,
+      "the computed field value lowered to the concatenated path string",
+    ).toEqual({ path: "src/findings/42.md" });
+    expect(r.outcome).toBe("success");
+    expect(r.value, "`?` unwrapped the tool's Ok(text)").toBe("contents");
+  });
+
+  it("behavior 5: field-value expressions evaluate left-to-right, then the outer tool dispatches", async () => {
+    const order: string[] = [];
+    const resolvePiTool = (name: string): PiToolDispatch => ({
+      toolName: name,
+      execute: (_id, _params): Promise<AgentToolResultEnvelope> => {
+        order.push(name);
+        return Promise.resolve({ content: [{ type: "text", text: name }] });
+      },
+    });
+    // sink({ a: first({})?, b: second({})?, c: third({})? })
+    const field = (name: string): Expr => tryExpr(callExpr(name, [objectExpr(null, [])]));
+    const sink = callExpr("sink", [
+      objectExpr(null, [
+        { name: "a", value: field("first") },
+        { name: "b", value: field("second") },
+        { name: "c", value: field("third") },
+      ]),
+    ]);
+    const theta = promptTheta(body([], tryExpr(sink)), ["first", "second", "third", "sink"]);
+
+    await runBody(producer({ resolvePiTool }), theta);
+
+    expect(
+      order,
+      "field values dispatch left-to-right in source order, then the outer tool",
+    ).toEqual(["first", "second", "third", "sink"]);
+  });
+
+  it("behavior 5: an early-returning `?` inside a field expression aborts the call — the tool is not dispatched", async () => {
+    const calls: string[] = [];
+    const resolvePiTool = (name: string): PiToolDispatch => ({
+      toolName: name,
+      execute: (_id, _params): Promise<AgentToolResultEnvelope> => {
+        calls.push(name);
+        // `probe` fails at dispatch (an `execute()` throw lowers to
+        // Err(CodeToolError { cause: "execution" })), so the `?` on its
+        // field-value use early-returns before `sink` is dispatched.
+        if (name === "probe") {
+          return Promise.reject(new Error("boom"));
+        }
+        return Promise.resolve({ content: [{ type: "text", text: "ok" }] });
+      },
+    });
+    // sink({ x: probe({})? })
+    const sink = callExpr("sink", [
+      objectExpr(null, [{ name: "x", value: tryExpr(callExpr("probe", [objectExpr(null, [])])) }]),
+    ]);
+    const theta = promptTheta(body([], sink), ["probe", "sink"]);
+
+    const r = await runBody(producer({ resolvePiTool }), theta);
+
+    expect(calls, "the aborting field expression was evaluated (probe dispatched)").toContain("probe");
+    expect(
+      calls,
+      "the tool is not dispatched when a field `?` early-returns",
+    ).not.toContain("sink");
+    expect(r.outcome, "the body fails via the propagated `?`").not.toBe("success");
   });
 });
 

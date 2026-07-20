@@ -2,18 +2,23 @@
 //
 // This module owns the "is-literal" check of grammar.md §"Theta literal
 // sublanguage": the strict subset of the expression grammar admitted at a
-// `params:` default RHS and at the single positional argument of a Pi-tool
-// call. Every literal is a legal theta expression, but only the enumerated
-// productions (primitive / named-value `Enum.Variant` / array / bare- and
-// named-object literals) are admitted; the parser runs the is-literal check
-// after parsing the AST in those positions.
+// `params:` default RHS. Every literal is a legal theta expression, but only the
+// enumerated productions (primitive / named-value `Enum.Variant` / array / bare-
+// and named-object literals) are admitted; the parser runs the is-literal check
+// after parsing the AST in that position.
+//
+// RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) retired the Pi-tool
+// argument as a literal-sublanguage position: a Pi-tool call's single bare-object
+// argument now admits full Theta expressions for its field values, so
+// `theta/parse/tool-arg-not-literal` is no longer emitted (a DIAG-2 code
+// removal). The `params:` default arm below is unaffected. The bare-object
+// *shape* rule that survives that retirement is enforced by `isBareObjectLiteral`
+// (used by the Pi-tool argument check in `../runtime/tool-call.ts`).
 //
 //   - `theta/parse/default-not-literal` — a `params:` default RHS contains a
 //     form outside the literal sublanguage (an operator other than the unary-`-`
 //     numeric carve-out, a function/tool call, an identifier reference other
 //     than `Enum.Variant`, `${...}` interpolation, or an `@`...`` template).
-//   - `theta/parse/tool-arg-not-literal` — the Pi-tool-call argument contains
-//     such a form.
 //   - `theta/parse/missing-object-field` — a bare- or named-object literal omits
 //     a declared (required) field of its LHS / variant schema (partial defaults
 //     are not supported).
@@ -26,13 +31,12 @@
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 
 /**
- * Which literal position an expression occupies — selects the diagnostic code
- * the is-literal failure reports.
- *
- *   - `default`  — a `params:` frontmatter default RHS → `theta/parse/default-not-literal`.
- *   - `tool-arg` — a Pi-tool call's single positional argument → `theta/parse/tool-arg-not-literal`.
+ * Which literal position an expression occupies. RFC 0002 retired the Pi-tool
+ * argument position, so `default` (a `params:` frontmatter default RHS →
+ * `theta/parse/default-not-literal`) is the sole remaining literal-sublanguage
+ * position.
  */
-export type LiteralPosition = "default" | "tool-arg";
+export type LiteralPosition = "default";
 
 /** A located site at which a literal-sublanguage check is run. */
 export interface LiteralCheckSite {
@@ -43,13 +47,12 @@ export interface LiteralCheckSite {
 /**
  * Run the is-literal check against an expression as written in source at a
  * literal position, returning every diagnostic raised. A form outside the
- * literal sublanguage fires `theta/parse/default-not-literal` (defaults position)
- * or `theta/parse/tool-arg-not-literal` (Pi-tool argument position); the
- * diagnostic names the offending sub-expression.
+ * literal sublanguage fires `theta/parse/default-not-literal`; the diagnostic
+ * names the offending sub-expression.
  */
 export function checkLiteralSublanguage(
   source: string,
-  position: LiteralPosition,
+  _position: LiteralPosition,
   site: LiteralCheckSite,
 ): Diagnostic[] {
   const tokens = tokeniseExpr(source);
@@ -63,23 +66,31 @@ export function checkLiteralSublanguage(
     return [];
   }
   const expr = source.slice(offending.start, offending.end).trim();
-  const code =
-    position === "default"
-      ? "theta/parse/default-not-literal"
-      : "theta/parse/tool-arg-not-literal";
-  const prefix =
-    position === "default"
-      ? "params default RHS must be a literal-sublanguage form"
-      : "Pi-tool argument must be a literal-sublanguage form";
   return [
     {
       severity: "error",
-      code,
+      code: "theta/parse/default-not-literal",
       file: site.file,
       range: site.range,
-      message: `${prefix}; offending sub-expression: ${expr}`,
+      message: `params default RHS must be a literal-sublanguage form; offending sub-expression: ${expr}`,
     },
   ];
+}
+
+/**
+ * Whether `source` is written as a bare object literal `{ ... }` at its top
+ * level — the surviving *shape* rule for a Pi-tool call's single positional
+ * argument (RFC 0002; grammar.md §"Pi-tool argument grammar"). A whole
+ * `let`-bound object passed positionally (`read(args)`) parses to a bare
+ * identifier, not a `{ ... }` literal, so it does not satisfy `ToolArg`. The
+ * field *values* inside the literal are full Theta expressions and are NOT
+ * checked here.
+ */
+export function isBareObjectLiteral(source: string): boolean {
+  const tokens = tokeniseExpr(source);
+  const parser = new ExprParser(tokens, source);
+  const node = parser.parse();
+  return node !== undefined && node.kind === "object";
 }
 
 /** An expression AST node; `start`/`end` are char offsets into the source. */

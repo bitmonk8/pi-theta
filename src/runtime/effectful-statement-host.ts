@@ -111,7 +111,19 @@ export interface EffectfulStatementHostDeps {
   readonly file: string;
   evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue;
   resolveQuery(expr: QueryExpr, env: LexicalEnvironment): QueryHostDispatch;
-  resolveToolCall(expr: CallExpr, env: LexicalEnvironment): CodeSideToolCall;
+  /**
+   * Bind one code-side `<name>(args)` call to its `CodeSideToolCall`.
+   * `evaluatedToolArgs` (RFC 0002) carries the Pi-tool argument's field values
+   * already evaluated left-to-right by the executor; when present it is the
+   * concrete params object the tool receives (the resolver skips the pure
+   * argument lowering). Absent for a `.theta`-callable / non-object-literal
+   * call, where the ordinary lowering applies.
+   */
+  resolveToolCall(
+    expr: CallExpr,
+    env: LexicalEnvironment,
+    evaluatedToolArgs?: Record<string, ThetaValue>,
+  ): CodeSideToolCall;
   resolveInvoke(expr: InvokeExpr, env: LexicalEnvironment): InvokeChild;
   /**
    * H8b live-resolver routing. Classify a `<name>(args)` call by its resolved
@@ -228,6 +240,7 @@ async function runToolCallEffect(
   expr: CallExpr,
   env: LexicalEnvironment,
   deps: EffectfulStatementHostDeps,
+  evaluatedToolArgs?: Record<string, ThetaValue>,
 ): Promise<OperationResult> {
   // A `<name>(args)` call bound to a `.theta`-callable (frontmatter `tools:`) is
   // semantically an invoke: drive it through the real invoke trampoline and
@@ -252,7 +265,7 @@ async function runToolCallEffect(
         return { ok: false, error: makeCancelledError() };
     }
   }
-  const call = deps.resolveToolCall(expr, env);
+  const call = deps.resolveToolCall(expr, env, evaluatedToolArgs);
   const outcome = await runCodeSideToolCall(
     deps.checkpoint,
     deps.signal,
@@ -368,10 +381,25 @@ async function runInvokeEffect(
  * integration assertion reds. The paired `V19d` leaf fills it in.
  */
 export function createEffectfulStatementHost(deps: EffectfulStatementHostDeps): StatementEvalHost {
+  const classify = deps.classifyCall;
   return {
     evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
       return deps.evaluatePure(expr, env);
     },
+    // RFC 0002 pre-evaluation gate: expose the H8b call classifier so the
+    // executor's `preEvaluateToolArgs` only pre-evaluates a Pi-tool call's
+    // computed field values. A `.theta`-callable call routes through the invoke
+    // trampoline (`runToolCallEffect`) which ignores `evaluatedToolArgs` and
+    // re-lowers, so pre-evaluating it would double-dispatch effectful field
+    // values. An absent `deps.classifyCall` leaves this undefined, and the
+    // executor then treats every call as a Pi tool (the double behaviour).
+    ...(classify !== undefined
+      ? {
+          classifyCall(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable" {
+            return classify(expr, env);
+          },
+        }
+      : {}),
     checkpointFor(expr: Expr): CheckpointDescriptor | null {
       switch (expr.kind) {
         case "query":
@@ -384,7 +412,11 @@ export function createEffectfulStatementHost(deps: EffectfulStatementHostDeps): 
           return null;
       }
     },
-    async runEffect(expr: Expr, env: LexicalEnvironment): Promise<OperationResult> {
+    async runEffect(
+      expr: Expr,
+      env: LexicalEnvironment,
+      evaluatedToolArgs?: Record<string, ThetaValue>,
+    ): Promise<OperationResult> {
       // Dispatch the checkpointed effect through the REAL host against the
       // driven conversation, threading the SAME `checkpoint` + `signal` the
       // `V19c` executor gates on (so the invoke-dispatch cancellation checkpoint
@@ -394,7 +426,7 @@ export function createEffectfulStatementHost(deps: EffectfulStatementHostDeps): 
         case "query":
           return runQueryEffect(expr, env, deps);
         case "call":
-          return runToolCallEffect(expr, env, deps);
+          return runToolCallEffect(expr, env, deps, evaluatedToolArgs);
         case "invoke":
           return runInvokeEffect(expr, env, deps);
         default:

@@ -90,8 +90,9 @@ namespace, **not** runtime diagnostics — no registry row, out of scope. Severi
 | `theta/parse/bare-object-literal` | E | parse | `bare object literal not permitted in this position; name the schema (Schema { ... })` |
 | `theta/parse/default-not-literal` | E | parse | `params default RHS must be a literal-sublanguage form; offending sub-expression: <expr>` |
 | `theta/parse/non-trailing-default` | E | parse | `non-defaulted param '<field>' follows a defaulted param; defaulted params must be trailing` |
-| `theta/parse/tool-arg-not-literal` | E | parse | `Pi-tool argument must be a literal-sublanguage form; offending sub-expression: <expr>` |
 | `theta/parse/tool-arg-arity` | E | parse | `Pi tool '<name>' takes a single object argument; got <count>` |
+| `theta/parse/tool-arg-not-object-literal` | E | parse | `Pi tool '<name>' argument must be written inline as a bare object literal { ... }; a let-bound value cannot supply the field shape` |
+| `theta/parse/tool-arg-schema-conflict` | E | type | `Pi tool '<name>' argument field '<field>' type is provably disjoint from the input schema: expected <expected>, got <actual>` |
 | `theta/parse/let-without-initialiser` | E | parse | `let binding '<name>' has no initialiser` |
 | `theta/parse/let-rhs-type-mismatch` | E | type | `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/statement-in-arm-body` | E | parse | `match arm body must be an expression; wrap statements in a block expression { ... }` |

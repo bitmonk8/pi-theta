@@ -403,11 +403,12 @@ variables, `match` pattern bindings, the discard `let _` (also
 
 ## Theta literal sublanguage
 
-A strict subset of the expression grammar admitted in two positions: the RHS of a
-`params:` default, and the single positional argument of a Pi-tool call. An
-is-literal check runs at parse time; failures are `theta/parse/default-not-literal`
-(defaults) or `theta/parse/tool-arg-not-literal` (Pi-tool argument), naming the
-offending sub-expression.
+A strict subset of the expression grammar admitted in one position: the RHS of a
+`params:` default. An is-literal check runs at parse time; a failure is
+`theta/parse/default-not-literal`, naming the offending sub-expression. The single
+positional argument of a Pi-tool call is **not** a literal-sublanguage position for
+its field values — its bare-object shape is fixed but the field values are full
+expressions; see the [Pi-tool argument grammar](#pi-tool-argument-grammar) below.
 
 ```
 Literal       ::= PrimitiveLit | NamedValueLit | ArrayLit | BareObjectLit | NamedObjectLit
@@ -419,8 +420,10 @@ FieldEntry    ::= Ident ":" Literal
 NamedObjectLit::= Ident "{" (FieldEntry ("," FieldEntry)* ","?)? "}"
 ```
 
-- `BareObjectLit` is admitted only when an external schema supplies the type (the
-  `params:` default's declared type, or a Pi-tool's registered input schema).
+- `BareObjectLit` is admitted only when an external schema supplies the type (in
+  the literal sublanguage, the `params:` default's declared type; the Pi-tool
+  argument's bare object is externally typed too but uses the `ToolArg` grammar
+  below).
 - `NamedObjectLit` is used where the type is not supplied externally, including
   discriminated-union variants (`Cat { name: "x" }`, never
   `Animal { species: "cat", ... }`).
@@ -432,11 +435,39 @@ NamedObjectLit::= Ident "{" (FieldEntry ("," FieldEntry)* ","?)? "}"
   numeric literal; function and tool calls; `${...}` and `@`...`` templates;
   member access other than `Enum.Variant`.
 
+<a id="pi-tool-argument-grammar"></a>
+
+## Pi-tool argument grammar
+
+The single positional argument of a Pi-tool call is a bare object literal whose
+field *values* are full Theta expressions. The bare-object *shape* is fixed (the
+tool's registered input schema supplies the field names); the literal-sublanguage
+value restriction does **not** apply.
+
+```
+ToolArg   ::= "{" (ToolField ("," ToolField)* ","?)? "}"
+ToolField ::= Ident ":" Expr
+```
+
+- Shape: single bare object literal written inline. A `let`-bound object passed
+  positionally (`read(args)`) does not satisfy `ToolArg`; multi-argument forms are
+  `theta/parse/tool-arg-arity`.
+- Field values are any `Expr` (identifiers, operators, calls, `?`, `${...}`,
+  nested arrays/objects). They evaluate left-to-right in source order at call
+  time, before dispatch; a panic or early-returning `?` aborts dispatch.
+- Field values are AJV-validated at runtime
+  (`Err(CodeToolError { cause: "validation" })`). The parser additionally emits
+  `theta/parse/tool-arg-schema-conflict` when a field value's static type is
+  provably disjoint from the schema field type mapped through the schema subset
+  — a sound front-run of a certain runtime rejection; anything the subset cannot
+  represent falls through to the runtime AJV check.
+
 ## Provenance
 
-- Grammar productions, literal sublanguage, `let` form, block productions, `fn`,
-  `match` arm body, `schema X by <field>`, `///` placement, newline continuation,
-  `array<T>` type-sink rule: `docs/spec_topics/grammar.md` (transcribed verbatim
+- Grammar productions, literal sublanguage, Pi-tool argument grammar, `let` form,
+  block productions, `fn`, `match` arm body, `schema X by <field>`, `///`
+  placement, newline continuation, `array<T>` type-sink rule:
+  `docs/spec_topics/grammar.md` (transcribed verbatim
   where mechanical).
 - Lexical rules (encoding, newline normalisation, identifiers, reserved keywords,
   comments, string/number literals, statement terminators, extension matching):

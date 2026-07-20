@@ -104,7 +104,29 @@ export interface CheckpointDescriptor {
 export interface StatementEvalHost {
   evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue;
   checkpointFor(expr: Expr): CheckpointDescriptor | null;
-  runEffect(expr: Expr, env: LexicalEnvironment): Promise<OperationResult>;
+  /**
+   * Run one checkpointed effect. `evaluatedToolArgs` (RFC 0002) carries a
+   * Pi-tool call's field values already evaluated left-to-right by the executor
+   * (`preEvaluateToolArgs`); the tool-call host lowers those concrete values
+   * instead of re-deriving them purely. Absent for queries, invokes, and
+   * `.theta`-callable / non-object-literal calls.
+   */
+  runEffect(
+    expr: Expr,
+    env: LexicalEnvironment,
+    evaluatedToolArgs?: Record<string, ThetaValue>,
+  ): Promise<OperationResult>;
+  /**
+   * RFC 0002 pre-evaluation gate. Classify a `<name>(args)` call by its resolved
+   * callee: a Pi-tool call consumes the executor-pre-evaluated `evaluatedToolArgs`
+   * on its `runEffect`, whereas a `.theta`-callable call routes through the
+   * invoke trampoline, which ignores `evaluatedToolArgs` and re-lowers the
+   * argument itself. Pre-evaluating a `.theta`-callable call would therefore
+   * double-evaluate effectful field values, so `preEvaluateToolArgs` skips it.
+   * Absent ⇒ the call is treated as a Pi tool (the `V19d`-double behaviour,
+   * where every checkpointed call is a code tool).
+   */
+  classifyCall?(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable";
 }
 
 /**
@@ -205,6 +227,57 @@ function terminalFlow(result: Exclude<EvalResult, { flow: "value" }>): Flow {
     return { kind: "propagate", err: result.err };
   }
   return { kind: "cancel" };
+}
+
+/**
+ * RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) — evaluate a Pi-tool
+ * call's single bare-object argument field values through the effectful executor
+ * BEFORE the outer tool dispatches. Each field value is a full Theta expression
+ * (identifier, operator, nested tool call, `?`, `${...}` interpolation, or a
+ * nested array/object whose leaves are expressions), evaluated left-to-right in
+ * source order so nested effects dispatch in order and a panic or early-returning
+ * `?` inside a field aborts the call before dispatch (the outer tool is not
+ * dispatched). Returns the concrete lowered params on `{ ok: true, args }`, or
+ * carries a field's non-`value` short-circuit flow verbatim on
+ * `{ ok: false, flow }`. A non-`call` effect, or a call whose sole positional
+ * argument is not an inline object literal, yields `args: undefined` so the host
+ * lowers arguments on its ordinary path (a `.theta`-callable / query / invoke
+ * effect is unchanged).
+ */
+async function preEvaluateToolArgs(
+  expr: Expr,
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+): Promise<
+  | { readonly ok: true; readonly args: Record<string, ThetaValue> | undefined }
+  | { readonly ok: false; readonly flow: EvalResult }
+> {
+  if (expr.kind !== "call") {
+    return { ok: true, args: undefined };
+  }
+  // RFC 0002 / Finding #3: only a Pi-tool call consumes the pre-evaluated
+  // `evaluatedToolArgs`. A `.theta`-callable call dispatches through the invoke
+  // trampoline (`runToolCallEffect`'s `resolveCallAsInvoke` path), which ignores
+  // `evaluatedToolArgs` and re-lowers its argument — pre-evaluating here would
+  // dispatch effectful field values twice. Skip it (args left to the invoke
+  // path). An absent classifier treats the call as a Pi tool, preserving the
+  // executor-double behaviour.
+  if (deps.host.classifyCall?.(expr, env) === "theta-callable") {
+    return { ok: true, args: undefined };
+  }
+  const first = expr.args[0];
+  if (first === undefined || first.kind !== "object") {
+    return { ok: true, args: undefined };
+  }
+  const args: Record<string, ThetaValue> = {};
+  for (const field of first.fields) {
+    const evaluated = await evalExpr(field.value, env, deps);
+    if (evaluated.flow !== "value") {
+      return { ok: false, flow: evaluated };
+    }
+    args[field.name] = evaluated.value;
+  }
+  return { ok: true, args };
 }
 
 /**
@@ -483,11 +556,20 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
   // signal read. Each checkpointed effect is its own single-statement sequence
   // so a preceding effect's completed `Err` short-circuits the walk before the
   // next effect is entered (see notes.md — per-effect sequencing decision).
+  //
+  // RFC 0002: a Pi-tool call's computed field values evaluate left-to-right
+  // before dispatch. Pre-evaluating them here (before the outer effect's
+  // checkpoint fires) makes a field's nested effect dispatch in source order and
+  // a field `?` early-return abort the outer call before it is dispatched.
+  const preArgs = await preEvaluateToolArgs(expr, env, deps);
+  if (!preArgs.ok) {
+    return preArgs.flow;
+  }
   const statement: CancellableStatement = {
     binding: "_effect",
     kind: checkpoint.kind,
     site: checkpoint.site,
-    run: () => deps.host.runEffect(expr, env),
+    run: () => deps.host.runEffect(expr, env, preArgs.args),
   };
   const outcome = await runCancellableSequence(
     { checkpoint: deps.checkpoint, signal: deps.signal },
@@ -699,11 +781,19 @@ async function evalAsResult(
     return { flow: "value", value: deps.host.evaluatePure(operand, env) };
   }
 
+  // RFC 0002: pre-evaluate a Pi-tool call's computed field values left-to-right
+  // before the outer effect dispatches (see `preEvaluateToolArgs`), so a
+  // `?`- or `match`-wrapped Pi-tool call honours the same field ordering and
+  // field-`?` abort as a bare call.
+  const preArgs = await preEvaluateToolArgs(operand, env, deps);
+  if (!preArgs.ok) {
+    return preArgs.flow;
+  }
   const statement: CancellableStatement = {
     binding: "_effect",
     kind: checkpoint.kind,
     site: checkpoint.site,
-    run: () => deps.host.runEffect(operand, env),
+    run: () => deps.host.runEffect(operand, env, preArgs.args),
   };
   const outcome = await runCancellableSequence(
     { checkpoint: deps.checkpoint, signal: deps.signal },

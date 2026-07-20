@@ -42,11 +42,11 @@ The registry's *Message* column carries `<…>` placeholders that the renderer i
 
 ### 3. Syntactic-construct placeholder
 
-**Placeholders.** `<construct>` in `theta/parse/unsupported-feature`; `<expr>` in `theta/parse/default-not-literal` and `theta/parse/tool-arg-not-literal`.
+**Placeholders.** `<construct>` in `theta/parse/unsupported-feature`; `<expr>` in `theta/parse/default-not-literal`.
 
 **Rule.**
 
-- For `<expr>` in the two literal-sublanguage codes, render the offending source span verbatim, copied byte-for-byte from the source file between the offending sub-expression's start and end token positions (post-newline-normalisation per [Lexical — Encoding](../lexical.md)), with internal whitespace preserved.
+- For `<expr>` in `theta/parse/default-not-literal`, render the offending source span verbatim, copied byte-for-byte from the source file between the offending sub-expression's start and end token positions (post-newline-normalisation per [Lexical — Encoding](../lexical.md)), with internal whitespace preserved.
 - For `<construct>` in `theta/parse/unsupported-feature`, the offending site is a whole node category with no single source-span anchor (e.g. `=>` lambdas span the entire arrow form, including the body). Use the closed token-name table below.
 
 | Construct | Token name |

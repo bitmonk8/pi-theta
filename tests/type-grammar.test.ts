@@ -139,14 +139,19 @@ describe("V2a-T — literal-sublanguage violations", () => {
     );
   });
 
-  it("theta/parse/tool-arg-not-literal: a non-literal Pi-tool argument (a function call) fires", () => {
-    const position: LiteralPosition = "tool-arg";
-    // `f(x)` is a function call — forbidden inside a literal.
+  it("RFC 0002: the literal-sublanguage restriction is retired at Pi-tool sites but UNCHANGED for params: defaults", () => {
+    // RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) retires
+    // `theta/parse/tool-arg-not-literal` for Pi-tool call sites (their field
+    // values are now full expressions — asserted via `checkToolCallArguments` in
+    // tests/tool-calls.test.ts). The `params:`-default arm of the literal
+    // sublanguage is explicitly unaffected: the SAME function-call form still
+    // fires `theta/parse/default-not-literal` in a `params:` default.
+    const position: LiteralPosition = "default";
     const diags = checkLiteralSublanguage("{ k: f(x) }", position, site());
-    const d = withCode(diags, "theta/parse/tool-arg-not-literal");
-    expect(d, "theta/parse/tool-arg-not-literal").toBeDefined();
+    const d = withCode(diags, "theta/parse/default-not-literal");
+    expect(d, "a function-call form is still non-literal in a params: default").toBeDefined();
     expect(d?.message).toMatch(
-      /^Pi-tool argument must be a literal-sublanguage form; offending sub-expression: /,
+      /^params default RHS must be a literal-sublanguage form; offending sub-expression: /,
     );
   });
 

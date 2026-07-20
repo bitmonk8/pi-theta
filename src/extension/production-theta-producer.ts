@@ -1158,7 +1158,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           userVisible,
         });
       },
-      resolveToolCall: (expr, env) => this.#resolveToolCall(theta, expr, env, signal),
+      resolveToolCall: (expr, env, evaluatedToolArgs) =>
+        this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
       // CANCEL-5 / cross-mode: the caller's mode (`prompt`) is threaded to
       // `#driveCallee` so an `invoke`d prompt-mode callee attaches to this user
       // session (prompt→prompt) rather than spawning fresh.
@@ -1736,7 +1737,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             : {}),
         };
       },
-      resolveToolCall: (expr, env) => this.#resolveToolCall(theta, expr, env, signal),
+      resolveToolCall: (expr, env, evaluatedToolArgs) =>
+        this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
       // Cross-mode: the caller is subagent-mode, so a prompt-mode callee is
       // reached only via inline `invoke(...)` (prompt callees are load-rejected
       // from `tools:`); the prompt→prompt user-session attach never engages here.
@@ -2013,10 +2015,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     expr: CallExpr,
     env: LexicalEnvironment,
     signal: AbortSignal,
+    evaluatedToolArgs?: Record<string, ThetaValue>,
   ): CodeSideToolCall {
     const toolName = expr.callee;
     const tool = this.#resolvePiToolForTheta(theta, toolName);
-    const params = lowerToolCallParams(expr, env);
+    // RFC 0002: when the executor has already evaluated the Pi-tool argument's
+    // computed field values left-to-right (nested effects / `?`), those concrete
+    // values ARE the params object; otherwise lower the inline object literal's
+    // pure field values here.
+    const params = evaluatedToolArgs ?? lowerToolCallParams(expr, env);
     // Ceiling #4 (hard-ceilings/ceilings-3-and-4.md#ceiling-4-table, the
     // code-driven tool-call args row; schema-subset.md §Depth Enforcement
     // point #3; CIO-3 depth-walk-before-AJV): enforce the JSON-document

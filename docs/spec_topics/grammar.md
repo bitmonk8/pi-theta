@@ -1,12 +1,14 @@
 # Grammar Appendix
 
-This appendix is normative for the productions it covers. It exists for the few surface-syntax forms that no single topic page owns end-to-end, and for the **literal sublanguage** that Theta uses wherever a value is written outside expression context (frontmatter `params:` defaults and Pi-tool call arguments). Other surfaces are owned by their topic pages and are not restated here.
+This appendix is normative for the productions it covers. It exists for the few surface-syntax forms that no single topic page owns end-to-end, for the **literal sublanguage** that Theta uses for frontmatter `params:` defaults, and for the **Pi-tool argument** grammar (whose bare-object *shape* it fixes while admitting full expressions for the field *values*). Other surfaces are owned by their topic pages and are not restated here.
 
 Notation: `::=` defines a production; `|` separates alternatives; `?` marks an optional element; `*` zero-or-more, `+` one-or-more; quoted strings are terminal tokens. Lexical productions (`Ident`, `STRING`, `NUMBER`, `BOOLEAN`, `NULL`) are defined in [Lexical Structure](./lexical.md).
 
 ## Theta literal sublanguage
 
-The Theta literal sublanguage is a strict subset of the expression grammar admitted in two positions: the RHS of a `params:` default (see [Parameters and Frontmatter — Defaults](./frontmatter.md)) and the single positional argument of a call whose callee resolves to a Pi tool (see [Tool Calls — Argument shape](./tool-calls.md), [Expression Sublanguage — Object construction](./expressions.md)). It is **not** a separate dialect — every literal is a legal Theta expression — but only the productions enumerated below are admitted, and the parser performs an "is-literal" check after parsing the AST in those positions. Failures are `theta/parse/default-not-literal` (defaults position) or `theta/parse/tool-arg-not-literal` (Pi-tool argument position); the diagnostic names the offending sub-expression.
+The Theta literal sublanguage is a strict subset of the expression grammar admitted in one position: the RHS of a `params:` default (see [Parameters and Frontmatter — Defaults](./frontmatter.md)). It is **not** a separate dialect — every literal is a legal Theta expression — but only the productions enumerated below are admitted, and the parser performs an "is-literal" check after parsing the AST in that position. A failure is `theta/parse/default-not-literal`; the diagnostic names the offending sub-expression.
+
+The single positional argument of a Pi-tool call is **no longer** a literal-sublanguage position for its field *values*. Its bare-object *shape* is still fixed — the argument is written inline as a bare object literal whose field names come from the tool's registered input schema — but each field *value* is a full Theta expression, governed by the [`ToolArg` grammar](#pi-tool-argument-grammar) below rather than by the literal sublanguage.
 
 ```
 Literal      ::= PrimitiveLit
@@ -34,7 +36,7 @@ NamedObjectLit ::= Ident "{" (FieldEntry ("," FieldEntry)* ","?)? "}"
 
 **Position rules.**
 
-- `BareObjectLit` is admitted only when an external schema supplies the type — the LHS of a `params:` default supplies it via the param's declared type; a Pi-tool call argument supplies it via the Pi tool's registered input schema.
+- `BareObjectLit` is admitted only when an external schema supplies the type — in the literal sublanguage this is the LHS of a `params:` default, which supplies it via the param's declared type. (The bare-object argument of a Pi-tool call is also externally typed, but its field values are full expressions and are governed by the [`ToolArg` grammar](#pi-tool-argument-grammar) below, not by this production.)
 - `NamedObjectLit` is the form used wherever the type is not supplied externally — including discriminated-union variants (`Cat { name: "x" }`, never `Animal { species: "cat", name: "x" }`).
 
 **Field rules** (apply identically to `BareObjectLit` and `NamedObjectLit`):
@@ -51,7 +53,23 @@ NamedObjectLit ::= Ident "{" (FieldEntry ("," FieldEntry)* ","?)? "}"
 - Template interpolation `${...}` and `@`...`` query templates.
 - Member access on anything other than `Enum.Variant` (no `obj.field`, no `arr[i]`).
 
-The is-literal check runs at parse time against the Theta AST; it does not require a separate parser. Authors who need expressions inside a value should bind them via `let` first and pass them through a typed `params:` callee or use `invoke(...)`.
+The is-literal check runs at parse time against the Theta AST; it does not require a separate parser. Authors who need expressions inside a `params:` default should bind them via `let` first and pass them through a typed `params:` callee or use `invoke(...)`. (Inside a Pi-tool argument, field-value expressions are admitted directly — see the [`ToolArg` grammar](#pi-tool-argument-grammar) below.)
+
+<a id="pi-tool-argument-grammar"></a>
+
+## Pi-tool argument grammar
+
+The single positional argument of a call whose callee resolves to a Pi tool (see [Tool Calls — Argument shape](./tool-calls.md), [Expression Sublanguage — Object construction](./expressions.md)) is a bare object literal whose field *values* are full Theta expressions. The bare-object *shape* is fixed — the tool's registered input schema supplies the field names — but the value restriction that the literal sublanguage imposes on a `params:` default does **not** apply here.
+
+```
+ToolArg   ::= "{" (ToolField ("," ToolField)* ","?)? "}"
+ToolField ::= Ident ":" Expr             // field value is a full Theta expression
+```
+
+- **Shape rule.** The argument is a single bare object literal written inline at the call site; the callee's registered input schema supplies the shape. A whole `let`-bound object passed positionally (`read(args)`) does not satisfy `ToolArg` and is rejected — the inline literal is what lets the external schema supply the field names. A multi-argument form (`read({...}, {...})`) is `theta/parse/tool-arg-arity`.
+- **Field values are full expressions.** Each `ToolField` value is any `Expr` — identifier references, operators, function and tool calls, `?`, `${...}` interpolation, and nested arrays and objects whose leaves are themselves expressions. Nothing in the literal sublanguage's *Forbidden inside a literal* list is forbidden here.
+- **Evaluation order.** Field-value expressions evaluate left-to-right in source order, at call time, before dispatch; a panic or an early-returning `?` inside a field expression aborts the call and the tool is not dispatched.
+- **Type checking.** Field values are AJV-validated at runtime against the tool's input schema, surfacing as `Err(CodeToolError { cause: "validation", ... })`. The parser additionally emits `theta/parse/tool-arg-schema-conflict` when a field value's static type is *provably disjoint* from the schema field type mapped through the [schema subset](./schema-subset.md) — a sound front-run of a certain runtime rejection; anything the subset cannot represent falls through to the runtime AJV check (see [Tool Calls — Argument shape](./tool-calls.md)).
 
 ## `let` form
 

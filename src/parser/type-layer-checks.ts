@@ -269,8 +269,13 @@ export function annotationToCompatType(src: string): CompatType | undefined {
   return { kind: "named", name: text };
 }
 
-/** Split a type source on top-level `|` (outside any `<…>` bracket depth). */
-function splitTopLevelUnion(text: string): string[] {
+/**
+ * Split a type source on top-level `|` (outside any `<…>` bracket depth).
+ * Exported so the runtime schema-subset disjointness computation
+ * (`../runtime/tool-call.ts` — RFC 0002) reuses this single copy rather than
+ * carrying a duplicate; the two must agree on where a top-level union arm begins.
+ */
+export function splitTopLevelUnion(text: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let start = 0;

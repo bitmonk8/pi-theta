@@ -14,8 +14,10 @@ the distinction from an `@`...`` query.
 1. List the tool in frontmatter `tools:` — the callable set is empty by default
    and the host session's ambient tools are not inherited.
 2. Call it with `<name>(args)`. A Pi tool takes a single bare object literal
-   matching its input schema; the argument must be a literal, so bind computed
-   values with `let` and pass them through a typed callee instead.
+   matching its input schema, written inline at the call site; its field values
+   may be full expressions (identifier references, operators, calls, `${...}`
+   interpolation), so computed values can be passed directly —
+   `read({ path: base + "/main.ts" })`.
 3. The call returns `Result<string, QueryError>` (a Pi tool) — unwrap with `?` or
    handle with `match`.
 

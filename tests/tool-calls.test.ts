@@ -4,6 +4,7 @@ import {
   checkToolCallArguments,
   codeToolErrorCauses,
   codeToolErrorKind,
+  enforceCodeToolArgDepth,
   lowerAcceptedThetaCallableReturn,
   lowerAcceptedPiToolReturn,
   modelToolErrorKind,
@@ -46,6 +47,23 @@ function argSite(
   return { file: FILE, range: span(), ...overrides };
 }
 
+// RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) — the parse-time
+// provable-disjointness facts threaded into the argument check, mirroring the
+// existing `ToolCallStaticResolution` precomputed-facts pattern already used for
+// the `.theta`-callable `tool-arg-type-mismatch` arm. `checkToolCallArguments`
+// emits the new `theta/parse/tool-arg-schema-conflict` error *iff*
+// `provablyDisjoint` is true; an unprovable mismatch falls through to the
+// runtime AJV check and raises nothing at parse time.
+interface ToolArgSchemaConflictFacts {
+  readonly field: string;
+  readonly provablyDisjoint: boolean;
+  readonly expected: string;
+  readonly actual: string;
+}
+interface SchemaAwareToolCallArgCheckInput extends ToolCallArgCheckInput {
+  readonly schemaConflict?: ToolArgSchemaConflictFacts;
+}
+
 // --- Parse-time argument checks (arity → not-literal → type) ---------------
 
 describe("code-side tool-call argument checks (tool-calls.md §Argument shape)", () => {
@@ -62,9 +80,11 @@ describe("code-side tool-call argument checks (tool-calls.md §Argument shape)",
     expect(d?.message).toBe("Pi tool 'read' takes a single object argument; got 2");
   });
 
-  it("theta/parse/tool-arg-not-literal: a non-literal single Pi-tool argument fires", () => {
-    // The single positional argument contains a function call — outside the
-    // theta literal sublanguage.
+  it("RFC 0002 retirement: theta/parse/tool-arg-not-literal is NOT emitted for a computed Pi-tool argument", () => {
+    // RFC 0002 retires `theta/parse/tool-arg-not-literal` for Pi-tool call sites
+    // (a DIAG-2 code removal). The single positional argument's field values are
+    // now full Theta expressions; a function-call field value is admitted.
+    // (Updated from the pre-RFC expectation that this case *fired* the code.)
     const diags = checkToolCallArguments(
       argSite({
         toolName: "read",
@@ -73,13 +93,10 @@ describe("code-side tool-call argument checks (tool-calls.md §Argument shape)",
         argumentSource: "{ path: resolve(x) }",
       }),
     );
-    const d = withCode(diags, "theta/parse/tool-arg-not-literal");
-    expect(d, "theta/parse/tool-arg-not-literal").toBeDefined();
-    // Message template prefix from code-registry-parse.md:
-    //   `Pi-tool argument must be a literal-sublanguage form; offending sub-expression: <expr>`
-    expect(d?.message).toMatch(
-      /^Pi-tool argument must be a literal-sublanguage form; offending sub-expression: /,
-    );
+    expect(
+      withCode(diags, "theta/parse/tool-arg-not-literal"),
+      "tool-arg-not-literal is retired for Pi-tool call sites",
+    ).toBeUndefined();
   });
 
   it("theta/parse/tool-arg-type-mismatch: a statically-resolvable `.theta`-callable argument mismatch fires", () => {
@@ -126,6 +143,170 @@ describe("code-side tool-call argument checks (tool-calls.md §Argument shape)",
       withCode(diags, "theta/parse/tool-arg-type-mismatch"),
       "type-mismatch suppressed by earlier arity failure",
     ).toBeUndefined();
+  });
+});
+
+// --- RFC 0002 behavior 1 — parse acceptance of computed field values --------
+
+// RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) admits the full
+// expression grammar for the *field values* of a Pi-tool call's single
+// bare-object argument. Each of these was previously a
+// `theta/parse/tool-arg-not-literal` parse error; under RFC 0002 the call parses
+// without error (no not-literal diagnostic, and no schema-conflict for these
+// non-disjoint forms). Asserted against the `checkToolCallArguments` call-site
+// seam — the Pi-tool argument position at which the literal check ran pre-RFC.
+describe("RFC 0002 behavior 1 — computed Pi-tool field values parse without error", () => {
+  const ACCEPTED: ReadonlyArray<readonly [string, string]> = [
+    ["identifier reference to a let binding", "{ path: base }"],
+    ["operator form (string concat)", '{ path: base + "/" + id }'],
+    ["function call in a field value", "{ path: resolve(x) }"],
+    ["`?` propagation operator", "{ body: read(p)? }"],
+    ["`${...}` string interpolation", "{ note: `at ${id}` }"],
+    ["nested array whose leaves are expressions", '{ items: [base, id + "1"] }'],
+    ["nested object whose leaves are expressions", "{ nested: { key: resolve(x) } }"],
+    // The exact example from RFC 0002 §Summary.
+    ["the RFC 0002 example", '{ path: base + "/findings/" + id + ".md" }'],
+  ];
+
+  for (const [label, argumentSource] of ACCEPTED) {
+    it(`accepts ${label}: no tool-arg-not-literal, no schema-conflict`, () => {
+      const diags = checkToolCallArguments(
+        argSite({ toolName: "read", calleeKind: "pi-tool", positionalCount: 1, argumentSource }),
+      );
+      expect(
+        withCode(diags, "theta/parse/tool-arg-not-literal"),
+        `tool-arg-not-literal must not fire for ${argumentSource}`,
+      ).toBeUndefined();
+      expect(
+        withCode(diags, "theta/parse/tool-arg-schema-conflict"),
+        `no provable disjointness for ${argumentSource}`,
+      ).toBeUndefined();
+    });
+  }
+});
+
+// --- RFC 0002 behavior 2 — the bare-object *shape* rule is still enforced -----
+
+describe("RFC 0002 behavior 2 — the Pi-tool argument shape rule survives the retirement", () => {
+  it("theta/parse/tool-arg-arity: a multi-argument Pi-tool call `read({...}, {...})` is still rejected", () => {
+    const diags = checkToolCallArguments(
+      argSite({ toolName: "read", calleeKind: "pi-tool", positionalCount: 2 }),
+    );
+    const d = withCode(diags, "theta/parse/tool-arg-arity");
+    expect(d, "tool-arg-arity remains live for Pi-tool calls").toBeDefined();
+    expect(d?.message).toBe("Pi tool 'read' takes a single object argument; got 2");
+  });
+
+  it("a whole let-bound object `read(args)` (not an inline bare object literal) is still rejected", () => {
+    // RFC 0002 keeps the bare-object *shape* rule: the argument must be an
+    // inline `{ ... }` literal so the tool's registered input schema supplies
+    // the field names. A bare identifier does not satisfy `ToolArg`. The
+    // specific code changed with the RFC (tool-arg-not-literal retired), so this
+    // asserts the shape rejection remains an error, and that it is NOT the
+    // retired code.
+    const diags = checkToolCallArguments(
+      argSite({ toolName: "read", calleeKind: "pi-tool", positionalCount: 1, argumentSource: "args" }),
+    );
+    expect(
+      diags.some((d) => d.severity === "error"),
+      "read(args) shape rejection remains an error at the Pi-tool call site",
+    ).toBe(true);
+    expect(
+      withCode(diags, "theta/parse/tool-arg-not-literal"),
+      "the shape rejection is not the retired tool-arg-not-literal code",
+    ).toBeUndefined();
+    // Finding #2: the shape rejection uses the dedicated
+    // `theta/parse/tool-arg-not-object-literal` code whose message names the
+    // actual violation — inline the object literal — rather than the misdirecting
+    // `theta/parse/bare-object-literal` "name the schema (Schema { ... })"
+    // remedy, which is wrong here (the tool's registered input schema already
+    // supplies the shape).
+    const shape = withCode(diags, "theta/parse/tool-arg-not-object-literal");
+    expect(shape, "the shape rejection uses the dedicated tool-arg shape code").toBeDefined();
+    expect(shape?.severity).toBe("error");
+    expect(shape?.message).toBe(
+      "Pi tool 'read' argument must be written inline as a bare object literal { ... }; a let-bound value cannot supply the field shape",
+    );
+    // It must NOT reuse the misdirecting bare-object-literal remedy.
+    expect(
+      withCode(diags, "theta/parse/bare-object-literal"),
+      "the shape rejection is not the misdirecting bare-object-literal code",
+    ).toBeUndefined();
+    expect(shape?.message, "the message does not tell the author to name a schema").not.toContain(
+      "name the schema",
+    );
+  });
+});
+
+// --- RFC 0002 behavior 6 — provable-disjointness parse-time diagnostic --------
+
+describe("RFC 0002 behavior 6 — theta/parse/tool-arg-schema-conflict (provable disjointness only)", () => {
+  it("fires (error) when a field expression's static type is provably disjoint from the schema field type", () => {
+    // A `number`-typed expression passed to a `string`-typed schema field: the
+    // accepted-value sets are disjoint under the schema subset, so the runtime
+    // AJV check is certain to reject — the parser front-runs it (sound).
+    const input: SchemaAwareToolCallArgCheckInput = {
+      file: FILE,
+      range: span(),
+      toolName: "read",
+      calleeKind: "pi-tool",
+      positionalCount: 1,
+      argumentSource: "{ path: 42 }",
+      schemaConflict: { field: "path", provablyDisjoint: true, expected: "string", actual: "number" },
+    };
+    const diags = checkToolCallArguments(input);
+    const d = withCode(diags, "theta/parse/tool-arg-schema-conflict");
+    expect(d, "provable disjointness fires the parse-time error").toBeDefined();
+    expect(d?.severity).toBe("error");
+    // Message template from code-registry-parse.md.
+    expect(d?.message).toBe(
+      "Pi tool 'read' argument field 'path' type is provably disjoint from the input schema: expected string, got number",
+    );
+  });
+
+  it("does NOT fire when disjointness is not provable (falls through to the runtime AJV check)", () => {
+    // The subset cannot prove disjointness (e.g. a union with a satisfiable arm,
+    // or a value the subset cannot represent). RFC 0002 mandates this MUST fall
+    // through to the runtime AJV `Err(CodeToolError { cause: "validation" })`
+    // path rather than erroring at parse time — the check never rejects a
+    // program AJV would accept.
+    const input: SchemaAwareToolCallArgCheckInput = {
+      file: FILE,
+      range: span(),
+      toolName: "read",
+      calleeKind: "pi-tool",
+      positionalCount: 1,
+      argumentSource: "{ path: maybe }",
+      schemaConflict: { field: "path", provablyDisjoint: false, expected: "string", actual: "string | number" },
+    };
+    const diags = checkToolCallArguments(input);
+    expect(
+      withCode(diags, "theta/parse/tool-arg-schema-conflict"),
+      "an unprovable mismatch is not a parse error",
+    ).toBeUndefined();
+  });
+});
+
+// --- RFC 0002 behavior 7 — runtime validation surface (CodeToolError) --------
+
+describe("RFC 0002 behavior 7 — runtime validation surfaces as Err(CodeToolError { cause: 'validation' })", () => {
+  // The generic AJV type-check for code-side arguments is delegated to Pi's
+  // tool runtime (`PiToolDispatch` carries no input schema); the theta-observable
+  // code-side `cause: "validation"` surface is the pre-dispatch ceiling-#4 check.
+  // A value that is wrong only at runtime (here, over-deep — not provably
+  // disjoint at parse time) surfaces on exactly the runtime validation path that
+  // behavior 6's unprovable arm falls through to, and the tool is not dispatched.
+  it("a runtime-only-wrong argument surfaces validation Err (kind code_tool, cause validation)", () => {
+    const breach = enforceCodeToolArgDepth("read", { a: { b: { c: { d: { e: 1 } } } } });
+    expect(breach, "a depth-6 argument trips the runtime validation surface").toBeDefined();
+    expect(breach?.error.kind).toBe("code_tool");
+    expect(breach?.error.cause).toBe("validation");
+    expect(breach?.result.ok, "surfaces as Err(CodeToolError)").toBe(false);
+  });
+
+  it("a within-cap argument does not front-run at this boundary (defers to the downstream AJV check)", () => {
+    const ok = enforceCodeToolArgDepth("read", { a: { b: { c: { d: 1 } } } });
+    expect(ok, "a within-cap argument defers to the runtime AJV boundary").toBeUndefined();
   });
 });
 
