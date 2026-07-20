@@ -101,9 +101,17 @@ body restrictions, and value.
   For that no-`invoke` case, the `InvokeInfraError`'s required `callee_path` is
   the path of the `.theta` file containing the `par for` body, since there is no
   invoked callee to name.
-- **Cancellation.** Cancelling the enclosing theta cancels in-flight
-  iterations; not-yet-started iterations do not start. Cancelled elements
-  carry the cancellation `Err` envelope.
+- **Cancellation.** Two distinct forms. *Whole-theta cancellation* (the
+  enclosing theta's `AbortSignal` fires) is a terminal `Cancelled` outcome:
+  in-flight iterations are cancelled, not-yet-started iterations do not start,
+  and no final value flows — the partial result array is not surfaced as a
+  top-level value (consistent with FN-5 and the cancellation trichotomy,
+  ERR-8…ERR-13). *Per-element cancellation* is observed only when the loop
+  runs to completion: an iteration whose child work is cancelled carries
+  `Err(QueryError { kind: "cancelled", ... })` as its element value in the
+  collected array, exactly like any other per-element `Err` — this envelope is
+  the element value a consumer (or an enclosing nested `par for` iteration)
+  observes, never the top-level outcome under whole-theta cancellation.
 - **Width throttle.** Fan-out width is bounded by a throttle of **64**
   in-flight iterations — a throttle, not a routing-class hard ceiling. Excess
   iterations queue and start as slots free, so a large iterand runs to
