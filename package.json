@@ -1,6 +1,7 @@
 {
   "name": "@bitmonk8/pi-theta",
-  "version": "0.3.0",
+  "version": "0.4.0",
+  "private": false,
   "description": "A scripting language for Pi agents: write the predictable parts of an agent task as code and leave only the fuzzy parts to the model.",
   "files": [
     "extensions",
@@ -21,7 +22,8 @@
     "dsl",
     "agent",
     "subagent",
-    "prompt-engineering"
+    "prompt-engineering",
+    "loop-engineering"
   ],
   "author": "Thomas Andersen <thomas.andersen@gmail.com>",
   "license": "MIT OR Apache-2.0",
