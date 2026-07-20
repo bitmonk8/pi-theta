@@ -117,6 +117,22 @@ surface. Panics surface to the caller as: **slash-command / prompt-mode** — on
 message: <message>, ... })`. Panics are not values — they do not flow through `?`
 and cannot be caught by `match`.
 
+<a id="err-20"></a> **ERR-20 (`par for` iteration boundary — panic downgrade).** The
+`par for` iteration boundary ([Control flow](../spec_topics/control-flow.md#par-for))
+is a panic-downgrade point. A runtime panic raised inside one iteration — from any
+of the six panic sources above — does not abort the theta: it is downgraded to that
+element's `Err(QueryError { kind: "invoke_infra", cause: "panic", message: <message>,
+... })`, siblings run to completion, and the loop still yields a full
+`array<Result<T, QueryError>>`. This extends the existing invoke-boundary downgrade
+(an `invoke` parent already observes a callee panic as `Err(InvokeInfraError { cause:
+"panic", ... })`) to the iteration boundary, so a pure-computation panic in a
+`par for` body that runs no `invoke` is downgraded the same way. In that
+no-callee case there is no invoked callee to name, so the required
+`callee_path` field is set to the path of the `.theta` file containing the
+`par for` body (the enclosing source file). The closed
+panic-source list above is unchanged — `par for` adds a downgrade *boundary*, not a
+panic source.
+
 ## `QueryError` variants
 
 ```theta
@@ -319,6 +335,8 @@ observes only the `Err` envelope.
   (ERR-15), `ValidationIssue` ordering (ERR-14), forced-respond non-compliance
   (ERR-17), `ToolLoopExhaustedError` (ERR-19):
   `docs/spec_topics/errors-and-results/queryerror-variants.md`.
+- `par for` iteration-boundary panic downgrade (ERR-20):
+  `docs/rfcs/0003-parallel-fanout.md` (accepted; Specification impact — Errors and results).
 - Final value (FN-5): `docs/spec_topics/functions.md#final-value-language-definition`.
 - Errors hub: `docs/spec_topics/errors-and-results.md`.
 - Query forms / empty-template short-circuit / typed-query loop:

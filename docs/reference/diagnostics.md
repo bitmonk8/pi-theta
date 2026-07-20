@@ -1,6 +1,6 @@
 # Reference — Diagnostics registry
 
-The closed theta 1.0 diagnostic-code registry, sharded by namespace. This page
+The closed theta 1.1.0 diagnostic-code registry, sharded by namespace. This page
 transcribes the stable-contract columns — **Code**, **Sev**, **Phase**, and the
 normative **Message** — verbatim from the four spec registry pages (see
 Provenance). The Message column is normative per **DIAG-4**: renderers emit it
@@ -107,6 +107,9 @@ namespace, **not** runtime diagnostics — no registry row, out of scope. Severi
 | `theta/parse/break-outside-loop` | E | parse | `'break' outside of a loop` |
 | `theta/parse/continue-outside-loop` | E | parse | `'continue' outside of a loop` |
 | `theta/parse/break-with-value` | E | parse | `'break' takes no value in theta 1.0` |
+| `theta/parse/par-query-in-body` | E | parse | `` `@` query against the enclosing conversation is not permitted inside a 'par for' body `` |
+| `theta/parse/par-shared-mutation` | E | parse | `cannot assign to outer binding '<name>' from inside a 'par for' body` |
+| `theta/parse/par-break-continue` | E | parse | `'<keyword>' is not permitted inside a 'par for' body` |
 | `theta/parse/illegal-template-escape` | E | lex | `` illegal escape sequence in @`...` template: \<char> `` |
 | `theta/parse/unterminated-template` | E | lex | `` unterminated @`...` query template `` |
 | `theta/parse/discarded-query-result` | E | parse | `query result discarded; use ? to propagate failure or 'let _ = ...' to discard explicitly` |
@@ -265,6 +268,9 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
 
 - `theta/parse/*` table (Code/Sev/Phase/Message transcribed verbatim):
   `docs/spec_topics/diagnostics/code-registry-parse.md`.
+- The three `theta/parse/par-*` codes (`par-query-in-body`, `par-shared-mutation`,
+  `par-break-continue`) originate in `docs/rfcs/0003-parallel-fanout.md` (accepted;
+  Specification impact — Diagnostics) and are registered here for theta 1.1.
 - `theta/load/*` table: `docs/spec_topics/diagnostics/code-registry-load.md`.
 - `theta/runtime/*` table: `docs/spec_topics/diagnostics/code-registry-runtime.md`.
 - `theta/host/*` table: `docs/spec_topics/diagnostics/code-registry-host.md`.

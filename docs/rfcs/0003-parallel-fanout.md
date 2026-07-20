@@ -98,6 +98,9 @@ body restrictions, and value.
   to completion, and the loop still yields a full array. This extends the
   existing invoke-boundary downgrade to the iteration boundary, so a
   pure-computation panic in a body with no `invoke` is downgraded the same way.
+  For that no-`invoke` case, the `InvokeInfraError`'s required `callee_path` is
+  the path of the `.theta` file containing the `par for` body, since there is no
+  invoked callee to name.
 - **Cancellation.** Cancelling the enclosing theta cancels in-flight
   iterations; not-yet-started iterations do not start. Cancelled elements
   carry the cancellation `Err` envelope.

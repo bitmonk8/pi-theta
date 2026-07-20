@@ -1,7 +1,8 @@
 # Reference — Hard runtime ceilings & invariants
 
 The four theta 1.0.0 runtime ceilings, their routing classes, the fixed evaluation
-order, the `masked` co-fire field, and the four enumerated non-existence claims.
+order, the `masked` co-fire field, and the five enumerated non-existence claims
+(NOCEIL-5 added in theta 1.1 for the `par for` width throttle).
 See [Errors and results](./errors-and-results.md) for `QueryError` shapes,
 [Schema subset](./schema-subset.md) for depth enforcement, [Diagnostics](./diagnostics.md)
 for codes.
@@ -111,6 +112,31 @@ evaluated. Fixed evaluation order:
   ceiling #4's query-terminating arms reach *fail* only via unhandled
   query-terminating `Err`; ceiling #3 is load-time and off the trichotomy.
 
+## `par for` width throttle (not a ceiling)
+
+<a id="par-for-width-throttle"></a> `par for`
+([Control flow](../spec_topics/control-flow.md#par-for), theta 1.1) bounds fan-out
+width by a throttle of **64** in-flight iterations. The throttle is a *scheduling
+bound*, not a routing-class hard ceiling, and is deliberately kept outside the
+four-ceiling model:
+
+- It is **not** a fifth ceiling and does **not** appear in the four-ceiling
+  routing-class table above. Excess iterations queue and start as slots free, so a
+  large iterand runs to completion 64-at-a-time with no breach surface — there is
+  no routing class, no `masked` token, and no diagnostic for reaching the throttle.
+- The [Ceiling-#1 panic-uniqueness invariant](#ceiling-set-invariants) is
+  untouched: ceiling #1 remains the only ceiling whose breach reaches the *fail*
+  arm via the panic path.
+- CIO-1 … CIO-6 and the `masked` enumeration (`"ceiling#1"` … `"ceiling#4"`) are
+  unchanged; the throttle adds no member to either.
+- The throttle applies **per loop, not per theta**, mirroring Ceiling #1's
+  per-chain (not per-process) accounting and avoiding a contended process-global
+  counter. Nesting `par for` within `par for` is therefore legal; worst-case
+  concurrency multiplies (64×64).
+- The **depth-32 `invoke`-chain ceiling (Ceiling #1) applies per iteration
+  unchanged** — sibling iterations do not share depth budget, exactly as sibling
+  `invoke`s do not.
+
 ## `masked` field
 
 Each entry is one of `"ceiling#1"`, `"ceiling#2"`, `"ceiling#3"`, `"ceiling#4"`;
@@ -123,7 +149,7 @@ whose forced respond turn's origin round left `slot_count == max_rounds` after
 CIO-4's increment. `masked` is never populated on a diagnostic-shape surface in
 theta 1.0.
 
-## No additional runtime ceiling (NOCEIL-1 … NOCEIL-4)
+## No additional runtime ceiling (NOCEIL-1 … NOCEIL-5)
 
 - **NOCEIL-1.** No wall-clock timeout per query / tool-call / invoke. Per-call
   timeouts are deferred; the absence is enforced at parse time by rejecting any
@@ -140,6 +166,10 @@ theta 1.0.
   32-level `invoke`-chain bound. The host's native call-stack bound is not
   separately ceilinged; exhaustion surfaces through NOCEIL-3's catchable-`RangeError`
   arm.
+- **NOCEIL-5.** The `par for` width throttle (64 in-flight iterations, per loop) is
+  a scheduling bound, not a runtime ceiling: reaching it queues iterations rather
+  than breaching, so it has no routing class, no `masked` token, and no failure
+  surface (theta 1.1; [`par for` width throttle](#par-for-width-throttle)).
 
 Provider-side rate-limit / quota exhaustion is outside the ceiling closure and
 surfaces as `Err(kind: "transport", http_status: 429, ...)`. Host-tool resource
@@ -155,6 +185,9 @@ exhaustion is outside the closure and surfaces as `Err(kind: "code_tool", ...)`.
 - NOCEIL-1…NOCEIL-4, audit methodology:
   `docs/spec_topics/hard-ceilings/ceiling-invariants-and-audit.md`.
 - Ceiling #1 depth bound (INV-4): `docs/spec_topics/invocation.md#inv-4`.
+- `par for` width throttle (NOCEIL-5; throttle-not-a-ceiling, per-loop accounting,
+  multiplicative nesting, per-iteration Ceiling #1): `docs/rfcs/0003-parallel-fanout.md`
+  (accepted; Specification impact — Hard ceilings).
 - Ceiling #4 depth counting/enforcement: `docs/spec_topics/schema-subset.md`.
 - Implementation confirmation: `INVOKE_DEPTH_CAP = 32`
   (`src/runtime/runtime-panics.ts:51`); `MAX_JSON_DEPTH = 5`

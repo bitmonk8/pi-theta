@@ -55,6 +55,13 @@ string number integer boolean array void
 The discard binding `_` is also reserved. `array` and `Result` double as the
 closed set of generic-type constructor keywords in type position.
 
+**Contextual keywords.** `par` is a *contextual keyword* (theta 1.1): recognised
+as a keyword only immediately before `for` (introducing the `par for` expression,
+[Blocks](#blocks) / [Control flow](#control-flow)) and an ordinary identifier
+everywhere else. It is **not** in the reserved-keyword set above, so existing
+bindings named `par` keep parsing. `par` is the only contextual keyword in
+theta 1.1.0.
+
 ## Comments
 
 Line comments only. `//` regular; `///` doc comment (lowers to JSON Schema
@@ -162,6 +169,9 @@ IfStmt    ::= "if" Expr StmtBlock ElseClause?
 ElseClause::= "else" (IfStmt | StmtBlock)
 WhileStmt ::= "while" Expr StmtBlock
 ForStmt   ::= "for" Ident "in" Expr StmtBlock
+ParForExpr ::= "par" "for" Ident "in" Expr MaxClause? ParForBody  // expression position (theta 1.1)
+MaxClause  ::= "max" Expr
+ParForBody ::= "{" Stmt* Expr? "}"      // per-iteration body; tail Expr optional, absent → element type null
 ```
 
 - Expression-position blocks require a trailing tail `Expr`. Function bodies, the
@@ -174,6 +184,14 @@ ForStmt   ::= "for" Ident "in" Expr StmtBlock
   expression position (the ternary `cond ? a : b` is the expression form). A tail
   `Expr` in a `StmtBlock` is evaluated and discarded — except a tail expression
   ending in postfix `?`, which still early-returns on failure.
+- **`par for` is the expression form of `for`** (theta 1.1). Plain `for` remains a
+  statement (`ForStmt`, no value); `par for` is an expression whose value is
+  `array<Result<T, QueryError>>`, `T` the `ParForBody` tail type (absent tail →
+  `null`). `ParForBody` behaves as a `Result<T, QueryError>` scope: a postfix `?`
+  inside it propagates to that iteration's element, not out of the loop. A
+  discarded-value `par for` is legal as an expression statement. Scheduling,
+  ordering, body restrictions, and failure semantics are owned by
+  [Control flow](../spec_topics/control-flow.md#par-for).
 
 ## `fn` declarations
 
@@ -256,7 +274,8 @@ Supported forms: literals; identifiers; member access `a.b`; indexed access
 `== != < <= > >=`; logical `&& ||`; ternary `cond ? a : b`; postfix `?`;
 parenthesisation; `@`...`` query templates; array literals `[]` / `[a, b]`;
 schema constructors `Schema { field: expr }`; enum access `Enum.Variant`;
-`Result` constructors `Ok(e)` / `Err(e)`.
+`Result` constructors `Ok(e)` / `Err(e)`; the `par for` expression (theta 1.1,
+[Control flow](#control-flow)).
 
 Not supported (→ `theta/parse/unsupported-feature` unless a more specific code
 applies): assignment in expression position; field/index mutation
@@ -363,6 +382,18 @@ Anything not on this list is `theta/parse/unknown-method`.
   `theta/parse/non-array-iterand`. The iterand is evaluated **exactly once** at
   loop entry (CTRL-1), before the first iteration, including when the array is
   empty. The iteration variable is a fresh immutable local per iteration.
+- **`par for x in expr [max n] { ... }`** — the parallel, value-producing form of
+  `for` (theta 1.1). Same iterand rules as `for` (`array<T>` iterand, evaluated
+  once at loop entry, fresh immutable loop variable — CTRL-1); a non-array iterand
+  is `theta/parse/non-array-iterand`. Produces `array<Result<T, QueryError>>` in
+  input-index order. The optional `max n` clause admits any `integer`-typed
+  expression, evaluated once at loop entry; the operand is an `integer` sink, so a
+  `number`-typed operand triggers `theta/parse/integer-narrowing` as in any
+  integer position. Body restrictions (parse-time): a query against the enclosing
+  conversation is `theta/parse/par-query-in-body`; assignment to a binding declared
+  outside the body is `theta/parse/par-shared-mutation`; `break` / `continue` are
+  `theta/parse/par-break-continue`. Scheduling, ordering, isolation, and failure
+  semantics: [Control flow](../spec_topics/control-flow.md#par-for).
 - **`while expr`** — condition must be `boolean` (no coercion).
 - **`break` / `continue`** — bare statements, legal only inside a loop
   (`theta/parse/break-outside-loop`, `theta/parse/continue-outside-loop`). Carry no
@@ -474,7 +505,10 @@ ToolField ::= Ident ":" Expr
   `docs/spec_topics/lexical.md`.
 - Expression forms, operator precedence, truthiness, short-circuiting, built-in
   methods, object/array construction, `?`: `docs/spec_topics/expressions.md`.
-- Control flow (CTRL-1): `docs/spec_topics/control-flow.md`.
+- Control flow (CTRL-1; `par for` CTRL-2…CTRL-5): `docs/spec_topics/control-flow.md`.
+- `par for` grammar (contextual `par` keyword, `ParForExpr` / `MaxClause` /
+  `ParForBody`, expression-position `par for`, `max` clause, `par for` body parse
+  errors): `docs/rfcs/0003-parallel-fanout.md` (accepted; Specification impact).
 - `fn` placement/inference (FN-1…FN-5): `docs/spec_topics/functions.md`.
 - `return` (RET-1…RET-3): `docs/spec_topics/return.md`.
 - Bindings & mutability: `docs/spec_topics/bindings.md`.
