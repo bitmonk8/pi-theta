@@ -1328,10 +1328,10 @@ class BodyParser {
       }
     }
     // A `par for` in statement position is a discarded-value expression
-    // statement (grammar.md §Blocks): it is NOT promoted to the body tail (its
-    // value is still produced — the executor's trailing-expr rule carries it as
-    // the final value — but it is recorded as an `ExprStmt`, so a standalone
-    // `par for` reads as an expression statement rather than a bare tail node).
+    // statement (grammar.md §Blocks): it is NOT promoted to the body tail, so
+    // its value is discarded (`tailExpr = null`). It is recorded as an
+    // `ExprStmt`, so a standalone `par for` reads as an expression statement
+    // rather than a bare tail node whose value would flow on as the body tail.
     const tailExpr = expr.kind === "par-for" ? null : expr;
     return this.wrap(this.exprToStmt(expr), tailExpr, lineStart);
   }

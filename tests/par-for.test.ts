@@ -38,6 +38,7 @@ import type {
 } from "../src/runtime/terminal-outcomes";
 import { isResultValue, type ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
+import { HostFatal, IndexOutOfBoundsPanic } from "../src/runtime/runtime-panics";
 
 // ===========================================================================
 // RFC 0003 (`par for`) — test-first (RED) obligation suite.
@@ -527,8 +528,12 @@ class ParForHost implements StatementEvalHost {
   readonly results = new Map<string, OperationResult>();
   /** Per-first-argument-value microtask delay before the effect resolves. */
   readonly delays = new Map<string, number>();
-  /** First-argument values whose effect should throw (simulate a runtime panic). */
+  /** First-argument values whose effect throws a real `ThetaPanic` (one of the six closed panic sources → cause:"panic"). */
   readonly panics = new Set<string>();
+  /** First-argument values whose effect throws an UNEXPECTED plain `Error` (runtime defect, not a panic source → cause:"internal_error"). */
+  readonly defects = new Set<string>();
+  /** First-argument values whose effect throws an uncatchable `HostFatal` (NOCEIL-3 → must propagate, never downgraded). */
+  readonly hostFatals = new Set<string>();
   /** An optional gate every effect awaits before resolving (concurrency probe). */
   gate: Promise<void> | null = null;
 
@@ -564,9 +569,22 @@ class ParForHost implements StatementEvalHost {
       }
       await tick(this.delays.get(key) ?? 0);
       if (this.panics.has(key)) {
-        // A runtime panic inside the iteration (ERR-20). It must not abort the
-        // theta: the `par for` boundary downgrades it to that element's Err.
-        throw new Error(`theta panic in iteration ${key}`);
+        // A genuine runtime panic inside the iteration: one of the six closed
+        // panic sources, modelled as a real `ThetaPanic` subclass. ERR-20
+        // downgrades it to that element's Err(invoke_infra, cause:"panic"); it
+        // must not abort the theta.
+        throw new IndexOutOfBoundsPanic(`theta panic in iteration ${key}`);
+      }
+      if (this.defects.has(key)) {
+        // An UNEXPECTED interpreter throw (a runtime defect, NOT one of the six
+        // panic sources). ERR-20 downgrades it to that element's
+        // Err(invoke_infra, cause:"internal_error") — not "panic".
+        throw new Error(`unexpected interpreter throw in iteration ${key}`);
+      }
+      if (this.hostFatals.has(key)) {
+        // An uncatchable host fatal (NOCEIL-3). It must propagate unwrapped out
+        // of the loop — never downgraded to an Err element.
+        throw new HostFatal(`host fatal in iteration ${key}`);
       }
       return this.results.get(key) ?? ok(payload ?? null);
     } finally {
@@ -626,9 +644,12 @@ class ParForHost implements StatementEvalHost {
         if (Array.isArray(target)) {
           const arr = target as readonly ThetaValue[];
           if (typeof idx === "number" && (idx < 0 || idx >= arr.length)) {
-            // An out-of-bounds index is a runtime panic source; inside a
-            // `par for` body it is downgraded per ERR-20.
-            throw new Error("index out of range");
+            // An out-of-bounds index is a genuine runtime panic source, modelled
+            // as a real `IndexOutOfBoundsPanic`; inside a `par for` body it is
+            // downgraded per ERR-20 to Err(invoke_infra, cause:"panic").
+            throw new IndexOutOfBoundsPanic(
+              `index out of bounds: ${idx} not in 0..${arr.length}`,
+            );
           }
           return arr[idx as number] ?? null;
         }
@@ -905,8 +926,87 @@ describe("RFC-0003 par-for — per-iteration panic downgrade (ERR-20)", () => {
     expect(el1.error?.kind, "ERR-20: kind is 'invoke_infra'").toBe("invoke_infra");
     expect(
       (el1.error as { cause?: string } | undefined)?.cause,
-      "ERR-20: cause is 'panic'",
+      "ERR-20: a genuine ThetaPanic downgrades with cause 'panic'",
     ).toBe("panic");
+    expect(
+      (el1.error as { message?: string } | undefined)?.message,
+      "ERR-20: the downgrade carries the thrown panic's message",
+    ).toBe("theta panic in iteration 1");
+  });
+
+  it("ERR-20: an UNEXPECTED throw (runtime defect, not a panic source) downgrades to that element's Err(invoke_infra, cause:'internal_error')", async () => {
+    // Mirrors the invoke boundary (`runInvokeChild`): a thrown value that is NOT
+    // a `ThetaPanic` is an interpreter defect routed to the parent as
+    // Err(invoke_infra, cause:"internal_error") — NOT "panic". This locks in the
+    // fix for the collapse defect where every throw became cause:"panic".
+    const host = new ParForHost();
+    host.defects.add("1"); // iteration for input `1` throws a plain Error.
+
+    const body = bodyOf(
+      "par for f in [0, 1, 2] { invoke(\"./child.theta\", f) }",
+    );
+
+    let threw = false;
+    let exec: Awaited<ReturnType<typeof executeBody>> | undefined;
+    try {
+      exec = await executeBody(body, execDeps(body, host));
+    } catch {
+      threw = true;
+    }
+    expect(
+      threw,
+      "ERR-20: an unexpected iteration throw must NOT abort the theta (it is downgraded)",
+    ).toBe(false);
+
+    const arr = asResultArray(
+      exec?.result.value as ThetaValue,
+      "ERR-20: the loop still yields a full array<Result<…>>",
+    );
+    expect(arr.length, "ERR-20: siblings run to completion, full array yielded").toBe(3);
+
+    const el1 = arr[1] as { ok: boolean; error?: QueryError };
+    expect(el1.ok, "ERR-20: the defecting element is an Err").toBe(false);
+    expect(el1.error?.kind, "ERR-20: kind is 'invoke_infra'").toBe("invoke_infra");
+    expect(
+      (el1.error as { cause?: string } | undefined)?.cause,
+      "ERR-20: a non-panic (defect) throw downgrades with cause 'internal_error', NOT 'panic'",
+    ).toBe("internal_error");
+    expect(
+      (el1.error as { message?: string } | undefined)?.message,
+      "ERR-20: the internal_error downgrade carries the thrown error's message",
+    ).toBe("unexpected interpreter throw in iteration 1");
+    // Siblings are ordinary Ok values.
+    expect((arr[0] as { ok: boolean }).ok, "ERR-20: sibling 0 completes Ok").toBe(true);
+    expect((arr[2] as { ok: boolean }).ok, "ERR-20: sibling 2 completes Ok").toBe(true);
+  });
+
+  it("ERR-20/NOCEIL-3: a HostFatal thrown in an iteration is NOT downgraded — it propagates unwrapped", async () => {
+    // NOCEIL-3 (hard-ceilings.md): an uncatchable host fatal terminates the
+    // process; the iteration boundary must rethrow it (as the invoke boundary
+    // does), never collapse it into an Err element. Modelled via the `HostFatal`
+    // marker so the carve-out is testable without a production V8 OOM.
+    const host = new ParForHost();
+    host.hostFatals.add("1"); // iteration for input `1` raises a host fatal.
+
+    const body = bodyOf(
+      "par for f in [0, 1, 2] { invoke(\"./child.theta\", f) }",
+    );
+
+    let thrown: unknown;
+    let exec: Awaited<ReturnType<typeof executeBody>> | undefined;
+    try {
+      exec = await executeBody(body, execDeps(body, host));
+    } catch (e) {
+      thrown = e;
+    }
+    expect(
+      exec,
+      "ERR-20/NOCEIL-3: a HostFatal must NOT be downgraded to a value/Err element",
+    ).toBeUndefined();
+    expect(
+      thrown instanceof HostFatal,
+      "ERR-20/NOCEIL-3: the HostFatal propagates unwrapped out of the loop",
+    ).toBe(true);
   });
 
   it("ERR-20: a pure-computation panic (no invoke) downgrades with callee_path = enclosing .theta path (RED — feature absent)", async () => {

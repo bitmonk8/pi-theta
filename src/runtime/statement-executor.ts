@@ -51,7 +51,7 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
 import { makeCancelledError, runCancellableSequence } from "./cancellation-core";
-import { isThetaPanic } from "./runtime-panics";
+import { HostFatal, isThetaPanic } from "./runtime-panics";
 import type { QueryError } from "./query-error";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
 import { functionResult, type FunctionResult, type TerminalOutcome } from "./function-result";
@@ -950,16 +950,20 @@ type ParForIterationOutcome =
   | { readonly kind: "whole-theta-cancel" };
 
 /**
- * Build the element `Err` for a `par for` iteration panic (ERR-20 downgrade).
+ * Build the element `Err` for a `par for` iteration downgrade (ERR-20, which
+ * extends the invoke-boundary downgrade). The `cause` discriminates exactly as
+ * the invoke boundary does (`runInvokeChild`): a thrown `ThetaPanic` (one of the
+ * six closed panic sources) is a genuine panic → `cause:"panic"`; any other
+ * unexpected interpreter throw is a runtime defect → `cause:"internal_error"`.
  * For the no-invoke case the enclosing `.theta` source file names the
- * `callee_path` (there is no invoked callee to name).
+ * `callee_path` (there is no invoked callee to name) for BOTH causes.
  */
 function parForPanicError(thrown: unknown, file: string): QueryError {
   const message =
     thrown instanceof Error ? thrown.message : String(thrown);
   return {
     kind: "invoke_infra",
-    cause: "panic",
+    cause: isThetaPanic(thrown) ? "panic" : "internal_error",
     message,
     callee_path: file,
   };
@@ -1014,10 +1018,16 @@ async function runParForIteration(
   try {
     flow = await executeBlock(expr.body, scope, iterationDeps);
   } catch (thrown) { // allow-broad-catch: ERR-20 — errors-and-results.md#err-20
-    // ERR-20 panic-downgrade boundary. A host-fatal (NOCEIL-3) is uncatchable
-    // and terminates the process before reaching here, so any thrown value at
-    // this boundary is a per-iteration panic downgraded to that element's Err;
-    // siblings run to completion and the loop still yields a full array.
+    // ERR-20 iteration-boundary downgrade (extends the invoke-boundary downgrade
+    // of `runInvokeChild`). An uncatchable host fatal (NOCEIL-3) must terminate
+    // the process and is rethrown unwrapped — it is never downgraded to an Err
+    // element. Any other thrown value becomes that element's Err, discriminated
+    // by `parForPanicError`: a `ThetaPanic` → cause:"panic", any other
+    // unexpected interpreter throw → cause:"internal_error". Siblings run to
+    // completion and the loop still yields a full array.
+    if (thrown instanceof HostFatal) {
+      throw thrown;
+    }
     return {
       kind: "result",
       result: makeErr(parForPanicError(thrown, deps.file) as unknown as ThetaValue),
