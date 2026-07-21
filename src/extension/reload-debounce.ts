@@ -77,6 +77,18 @@ export class ReloadDebouncer {
   #inFlight = false;
   /** True when a debounce window closed while a rebuild was in flight (PIC-49). */
   #deferred = false;
+  /**
+   * PIC-57 torn-down flag: once the `session_shutdown` teardown marks it, no
+   * *new* rebuild may start (a debounce fire or a PIC-49 deferred re-arm becomes
+   * a no-op) so no watcher-driven rebuild runs against the about-to-be-
+   * invalidated runtime. An already-in-flight rebuild is left to settle.
+   */
+  #tornDown = false;
+  /**
+   * Idle-waiter resolvers parked by `whenIdle()` while a rebuild is in flight;
+   * all resolved when the in-flight rebuild settles (`#onRebuildSettled`).
+   */
+  #idleWaiters: Array<() => void> = [];
 
   constructor(deps: ReloadDebouncerDeps) {
     this.#clock = deps.clock;
@@ -113,6 +125,35 @@ export class ReloadDebouncer {
   }
 
   /**
+   * PIC-57: mark the debouncer torn-down for the `session_shutdown` teardown so
+   * no *new* watcher-driven rebuild starts against the invalidated runtime. Sets
+   * the torn-down flag, clears any pending debounce timer (`cancel()`), and
+   * drops any PIC-49 deferred re-arm so a rebuild deferred while another was in
+   * flight does not run once the in-flight one settles. An already-in-flight
+   * rebuild is NOT interrupted — `whenIdle()` lets it quiesce. Idempotent.
+   */
+  markTornDown(): void {
+    this.#tornDown = true;
+    this.cancel();
+    this.#deferred = false;
+  }
+
+  /**
+   * PIC-57 quiesce hook: resolves immediately when no rebuild is in flight,
+   * otherwise resolves once the current in-flight rebuild settles (its single
+   * synchronous publish or its `registry-swap-failed` discard). Safe to call
+   * repeatedly and after `markTornDown()`.
+   */
+  whenIdle(): Promise<void> {
+    if (!this.#inFlight) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.#idleWaiters.push(resolve);
+    });
+  }
+
+  /**
    * The debounce window closed: drop the fired handle, then either start the
    * rebuild or — if a prior window's rebuild is still in flight — defer it
    * (PIC-49: at most one rebuild against the live registry / validator cache /
@@ -122,6 +163,10 @@ export class ReloadDebouncer {
    */
   #onWindowClosed(): void {
     this.#pending = undefined;
+    // PIC-57: a window that closes after teardown starts no rebuild.
+    if (this.#tornDown) {
+      return;
+    }
     if (this.#inFlight) {
       this.#deferred = true;
       return;
@@ -136,6 +181,11 @@ export class ReloadDebouncer {
    * returned promise — after which a deferred window's rebuild runs.
    */
   #startRebuild(): void {
+    // PIC-57: no new rebuild once torn-down (belt-and-suspenders with the
+    // `#onWindowClosed` / `#onRebuildSettled` guards).
+    if (this.#tornDown) {
+      return;
+    }
     this.#inFlight = true;
     void this.#rebuild().then(
       () => this.#onRebuildSettled(),
@@ -146,6 +196,17 @@ export class ReloadDebouncer {
   /** Release the PIC-49 in-flight guard, then run any deferred rebuild. */
   #onRebuildSettled(): void {
     this.#inFlight = false;
+    // Resolve any `whenIdle()` waiters now the in-flight rebuild has settled.
+    const waiters = this.#idleWaiters;
+    this.#idleWaiters = [];
+    for (const resolve of waiters) {
+      resolve();
+    }
+    // PIC-57: once torn-down, drop the deferred re-arm instead of starting it.
+    if (this.#tornDown) {
+      this.#deferred = false;
+      return;
+    }
     if (this.#deferred) {
       this.#deferred = false;
       this.#startRebuild();

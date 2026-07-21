@@ -109,6 +109,20 @@ export interface EmissionSink {
   serialise(diagnostic: Diagnostic): string;
 }
 
+/**
+ * The teardown-aware hot-reload debouncer sub-step 4 quiesces (PIC-57). The
+ * handler marks it torn-down so no *new* watcher-driven rebuild starts, then
+ * awaits `whenIdle()` so an already-in-flight rebuild completes (or no-ops)
+ * against the still-live `ctx` before the handler returns and Pi invalidates the
+ * runtime. `whenIdle` takes an optional cap purely for label symmetry with the
+ * closed-set `details.call: "debouncer.whenIdle(awaitCap)"`; the handler bounds
+ * the await itself against the shared deadline rather than passing a budget in.
+ */
+export interface TeardownAwareDebouncer {
+  markTornDown(): void;
+  whenIdle(awaitCapMs?: number): Promise<void>;
+}
+
 /** Construction dependencies for the `session_shutdown` teardown handler. */
 export interface SessionShutdownDeps {
   readonly registry: ThetaRegistry;
@@ -118,6 +132,12 @@ export interface SessionShutdownDeps {
   readonly settingsWatcher: ClosableWatcher;
   /** The pending debounce timer handle sub-step 4 clears, if any. */
   readonly debounceHandle: TimerHandle | undefined;
+  /**
+   * The hot-reload debouncer sub-step 4 quiesces (PIC-57). Optional: absent on
+   * the compose-never-ran path and on harnesses that do not exercise the
+   * watcher-rebuild quiesce, where sub-step 4's quiesce is a no-op.
+   */
+  readonly debouncer?: TeardownAwareDebouncer | undefined;
   /** The sub-step 5 forwarding-signal sources, in detach order. */
   readonly forwardingSignals: readonly ForwardingSignalSource[];
   /** The injected `SDK_SURFACE_INVENTORY` the unknown-reason rule reads (V9h). */
@@ -437,7 +457,12 @@ export async function runSessionShutdown(
   }
 
   // ── Sub-step 3: bounded await over every entry's disposeBarrier ──
-  await runBoundedDisposeAwait(entries, deps);
+  // The result carries the single absolute `deadline = Clock.now() +
+  // SHUTDOWN_AWAIT_CAP_MS` captured at handler entry (sub-steps 1/2 perform no
+  // Clock reads, so sub-step 3's capture is the handler-entry capture) and
+  // whether the bounded await consumed that deadline, both read by sub-step 4's
+  // PIC-57 quiesce.
+  const disposeAwait = await runBoundedDisposeAwait(entries, deps);
 
   // ── Sub-step 4: close watchers, cancel the pending debounce timer ──
   runIsolatedCall(4, "discoveryWatcher.close", deps.sink, () => {
@@ -451,6 +476,33 @@ export async function runSessionShutdown(
       deps.clock.clearTimeout(deps.debounceHandle);
     }
   });
+
+  // ── Sub-step 4 (PIC-57): quiesce the hot-reload debouncer ──
+  // (a) mark it torn-down (a cheap synchronous act that runs even when the
+  //     quiesce await is skipped) so no *new* rebuild starts and any PIC-49
+  //     deferred re-arm is cleared; (b) `await debouncer.whenIdle(...)` bounded
+  //     by the SAME shared `deadline` sub-step 3 captured — NOT a fresh
+  //     SHUTDOWN_AWAIT_CAP_MS budget — so an already-in-flight watcher rebuild
+  //     completes (or no-ops) against the still-live ctx before the handler
+  //     returns. DEGRADE-TO-SKIP the quiesce await when sub-step 3's bounded
+  //     await already consumed the shared deadline (or the deadline could not be
+  //     captured), symmetric to sub-step 3's skipped-await degradation. A throw
+  //     from the quiesce-await emits exactly one teardown-step-failed under the
+  //     closed-set label and MUST NOT prevent sub-step 5.
+  const debouncer = deps.debouncer;
+  if (debouncer !== undefined) {
+    try {
+      debouncer.markTornDown();
+      if (!disposeAwait.timedOut && disposeAwait.deadline !== undefined) {
+        await quiesceDebouncer(debouncer, disposeAwait.deadline, deps.clock);
+      }
+    } catch (quiesceError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
+      emitTeardownDiagnostic(
+        deps.sink,
+        teardownStepFailedDiagnostic(4, "debouncer.whenIdle(awaitCap)", quiesceError),
+      );
+    }
+  }
 
   // ── Sub-step 5: detach forwarding listeners ──
   for (const signal of deps.forwardingSignals) {
@@ -500,7 +552,7 @@ function runIsolatedCall(
 async function runBoundedDisposeAwait(
   entries: readonly ActiveInvocationEntry[],
   deps: SessionShutdownDeps,
-): Promise<void> {
+): Promise<{ readonly timedOut: boolean; readonly deadline: number | undefined }> {
   const { clock, sink } = deps;
 
   // Track still-in-flight entries synchronously — one microtask hop after a
@@ -523,6 +575,9 @@ async function runBoundedDisposeAwait(
     emitTeardownDiagnostic(sink, teardownStepFailedDiagnostic(3, "Clock.now()", nowError));
     armed = false;
   }
+  // The shared absolute deadline sub-step 4's PIC-57 quiesce reuses for its
+  // bound; `undefined` when the deadline could not be captured (degrade-to-skip).
+  const deadline = armed ? start + SHUTDOWN_AWAIT_CAP_MS : undefined;
 
   let timerHandle: TimerHandle | undefined;
   let timerFired = false;
@@ -547,9 +602,10 @@ async function runBoundedDisposeAwait(
   }
 
   // When the cap cannot be armed, degrade to a skipped await rather than an
-  // unbounded one: proceed directly to sub-step 4.
+  // unbounded one: proceed directly to sub-step 4. A failed deadline capture
+  // also degrades sub-step 4's quiesce to a skip (deadline `undefined`).
   if (!armed) {
-    return;
+    return { timedOut: false, deadline: undefined };
   }
 
   // The settle-all barrier the cka-31 obligation mandates: resolve the race on
@@ -571,7 +627,9 @@ async function runBoundedDisposeAwait(
       sink,
       reloadTeardownTimeoutDiagnostic(stillInFlight, elapsed),
     );
-    return;
+    // The bounded await ran the shared deadline out with work still in flight:
+    // sub-step 4's PIC-57 quiesce degrades to a skip (deadline already elapsed).
+    return { timedOut: true, deadline };
   }
 
   // Success path: clear the pending cap timer so a completed reload does not
@@ -581,4 +639,33 @@ async function runBoundedDisposeAwait(
       clock.clearTimeout(timerHandle);
     }
   });
+  return { timedOut: false, deadline };
+}
+
+/**
+ * Sub-step 4's PIC-57 quiesce await: resolve on the earlier of
+ * `debouncer.whenIdle()` settling or the SHARED absolute `deadline` (the same
+ * `Clock.now() + SHUTDOWN_AWAIT_CAP_MS` sub-step 3 captured at handler entry) —
+ * NOT a fresh budget. A rebuild still in flight at the shared deadline is
+ * abandoned safely under the torn-down flag with NO new diagnostic code; only a
+ * *throw* out of this await surfaces (caught by the caller as one
+ * teardown-step-failed). The bounding timer is always cleared so a resolved
+ * quiesce does not leak a timer onto the about-to-be-invalidated runtime.
+ */
+async function quiesceDebouncer(
+  debouncer: TeardownAwareDebouncer,
+  deadline: number,
+  clock: Clock,
+): Promise<void> {
+  const remaining = deadline - clock.now();
+  let resolveCap: () => void = (): void => {};
+  const capRace = new Promise<void>((resolve) => {
+    resolveCap = resolve;
+  });
+  const capHandle = clock.setTimeout(() => resolveCap(), Math.max(0, remaining));
+  try {
+    await Promise.race([debouncer.whenIdle(), capRace]); // allow: PIC-57 — pi-integration-contract/session-shutdown-semantics.md
+  } finally {
+    clock.clearTimeout(capHandle);
+  }
 }

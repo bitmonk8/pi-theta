@@ -77,8 +77,22 @@ export interface InstallHotReloadDeps {
 
 /** The teardown handle the `session_shutdown` handler holds. */
 export interface HotReloadHandle {
-  /** Tear the watcher down and cancel any pending debounce timer. */
+  /**
+   * Tear the watcher down, cancel any pending debounce timer, and mark the
+   * debouncer torn-down (PIC-57) so no new watcher-driven rebuild starts.
+   */
   detach(): void;
+  /**
+   * PIC-57: mark the hot-reload debouncer torn-down without awaiting quiesce
+   * (sub-step 4 (a)). Idempotent; also performed by `detach()`. Optional so
+   * lightweight test doubles that only exercise `detach()` need not supply it.
+   */
+  markTornDown?(): void;
+  /**
+   * PIC-57: resolve once any already-in-flight watcher rebuild has quiesced
+   * (sub-step 4 (b)). Optional for the same reason as `markTornDown`.
+   */
+  whenIdle?(): Promise<void>;
 }
 
 /**
@@ -103,7 +117,20 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
     emitDiagnosticBatch([diagnostic], deps.channel);
   };
 
+  // PIC-57 torn-down flag: set by `markTornDown()` / `detach()` so a rebuild
+  // that would otherwise start after teardown early-returns before touching the
+  // (about-to-be-invalidated) `ctx` / `pi.*` surface. The debouncer itself also
+  // suppresses new rebuilds once torn-down; this guard is the in-closure defence
+  // for `runReload` per PIC-57.
+  let tornDown = false;
+
   const runReload = async (): Promise<RebuildOutcome> => {
+    // PIC-57: a rebuild must not run against an invalidated runtime — once
+    // torn-down, no-op (no rediscover / rebuildAndSwap) and release the guard
+    // via the discard outcome.
+    if (tornDown) {
+      return "discarded";
+    }
     // Re-run discovery + compose (the "hot-reload re-runs the computation" of
     // discovery-sources.md §"Discovery roots"). A throw out of the re-parse /
     // re-merge / re-compose pass (a `pi.registerTool` step, an AJV recompile,
@@ -176,10 +203,22 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
   return {
     detach(): void {
       // Sub-step-4 teardown order: tear the watcher down, then cancel the
-      // pending debounce timer so a window that closed during teardown does not
-      // run a rebuild against the about-to-be-invalidated runtime.
+      // pending debounce timer and mark the debouncer torn-down (PIC-57) so a
+      // window that closed during teardown does not run a rebuild against the
+      // about-to-be-invalidated runtime.
       unsub();
       debouncer.cancel();
+      tornDown = true;
+      debouncer.markTornDown();
+    },
+    markTornDown(): void {
+      // PIC-57 sub-step 4 (a): suppress new rebuilds without awaiting quiesce.
+      tornDown = true;
+      debouncer.markTornDown();
+    },
+    whenIdle(): Promise<void> {
+      // PIC-57 sub-step 4 (b): let an already-in-flight rebuild quiesce.
+      return debouncer.whenIdle();
     },
   };
 }

@@ -563,6 +563,23 @@ export function createThetaExtension(
             },
             settingsWatcher: { close: (): void => {} },
             debounceHandle: undefined,
+            // PIC-57 sub-step 4: quiesce the REAL hot-reload debouncer through
+            // the same `HotReloadHandle` the watcher-close adapter detaches.
+            // `markTornDown()` suppresses new watcher rebuilds; `whenIdle()`
+            // lets an already-in-flight rebuild complete against the still-live
+            // ctx before the handler returns and Pi invalidates the runtime.
+            // Both members are optional on `HotReloadHandle`, so a lightweight
+            // handle that only supplies `detach()` degrades to a no-op quiesce.
+            debouncer:
+              hotReloadHandle !== undefined
+                ? {
+                    markTornDown: (): void => {
+                      hotReloadHandle?.markTornDown?.();
+                    },
+                    whenIdle: (): Promise<void> =>
+                      hotReloadHandle?.whenIdle?.() ?? Promise.resolve(),
+                  }
+                : undefined,
             // Increment B2: the live shared forwarding-listener sink the producer's
             // bind choke points push invocation-scoped sources onto, so sub-step 5
             // detaches the listeners still attached for an invocation in-flight at
