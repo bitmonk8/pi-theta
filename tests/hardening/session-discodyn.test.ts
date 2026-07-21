@@ -54,7 +54,7 @@ describe("discovery-dynamics hardening", () => {
     const probe = await runProbe({
       provider,
       files: [{ source: "project", path: "hasbind.theta", text: NON_BYPASS_THETA }],
-      projectSettings: { theta: { binderModel: provider.modelId } },
+      projectSettings: { theta: { binderModel: (await provider.resolved).modelId } },
     });
     try {
       // DISCO-1 FIXED. With theta.binderModel set to a resolvable model, the

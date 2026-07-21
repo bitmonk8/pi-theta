@@ -40,9 +40,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert } from "vitest";
 import {
-  AuthStorage,
   DefaultResourceLoader,
   ModelRegistry,
+  ModelRuntime,
   SessionManager,
   createAgentSession,
   getAgentDir,
@@ -58,22 +58,38 @@ export function failLoudly(message: string): never {
   throw new Error(message);
 }
 
-export interface LiveProvider {
-  readonly authStorage: ReturnType<typeof AuthStorage.create>;
+export interface ResolvedProvider {
+  readonly modelRuntime: ModelRuntime;
   readonly modelRegistry: ModelRegistry;
   readonly model: unknown;
   readonly modelId: string;
 }
 
-/** Resolve the configured live provider/model; fail loudly if none (never a silent skip). */
-export function requireLiveProvider(): LiveProvider {
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
+// The provider handle stays synchronous so the ~33 module-scope
+// `const provider = requireLiveProvider();` call sites are unchanged; the async
+// credential/model resolution is memoized behind `resolved` and awaited only by
+// the async consumers (`runProbe`, and the one `modelId` reader). Fail-loud on a
+// missing provider surfaces when `resolved` is awaited — never a silent skip.
+export interface LiveProvider {
+  readonly resolved: Promise<ResolvedProvider>;
+}
+
+async function resolveLiveProvider(): Promise<ResolvedProvider> {
+  // 0.80.x: `ModelRegistry.create` is gone and `AuthStorage` is no longer a
+  // public root export. Build the canonical `ModelRuntime` (its default
+  // credential store reads the operator's `agentDir/auth.json`), wrap it in the
+  // synchronous `ModelRegistry` facade, and `refresh()` before the synchronous
+  // `getAvailable()` read. `ModelRuntime` is what `createAgentSession` now takes
+  // to supply credentials (the `authStorage`/`modelRegistry` options were removed).
+  const modelRuntime = await ModelRuntime.create();
+  const modelRegistry = new ModelRegistry(modelRuntime);
+  await modelRegistry.refresh();
   const available = modelRegistry.getAvailable();
   if (available.length === 0) {
     failLoudly(
-      "live-host precondition unmet: no live provider/model is configured. " +
-        "Configure a provider and credentials; this harness never silently skips.",
+      "live-host precondition unmet: no live provider/model is configured " +
+        "(ModelRegistry.getAvailable() is empty). Configure a provider and " +
+        "credentials; this harness never silently skips.",
     );
   }
   const idOf = (m: unknown): string => (m as { id?: string }).id ?? "";
@@ -82,7 +98,16 @@ export function requireLiveProvider(): LiveProvider {
     available.find((m) => idOf(m).includes("opus")) ??
     available[0];
   if (model === undefined) failLoudly("no resolvable live model");
-  return { authStorage, modelRegistry, model, modelId: idOf(model) };
+  return { modelRuntime, modelRegistry, model, modelId: idOf(model) };
+}
+
+/** Resolve the configured live provider/model; fail loudly if none (never a silent skip). */
+export function requireLiveProvider(): LiveProvider {
+  // Kick off resolution eagerly and memoize so every `runProbe` shares one runtime.
+  const resolved = resolveLiveProvider();
+  // Avoid an unhandled-rejection warning before the first `await options.provider.resolved`.
+  resolved.catch(() => undefined);
+  return { resolved };
 }
 
 /** A file to plant before discovery runs. */
@@ -170,6 +195,7 @@ export async function runProbe(options: {
   readonly projectSettings?: unknown;
 }): Promise<ProbeResult> {
   const { provider, files, drives = [], projectSettings } = options;
+  const resolvedProvider = await provider.resolved;
   const cwd = mkdtempSync(join(tmpdir(), "theta-harden-"));
   const cliDirs = new Map<string, string>();
   const cleanup: string[] = [cwd];
@@ -215,9 +241,8 @@ export async function runProbe(options: {
   const { session } = await createAgentSession({
     cwd,
     agentDir,
-    authStorage: provider.authStorage,
-    modelRegistry: provider.modelRegistry,
-    model: provider.model as never,
+    modelRuntime: resolvedProvider.modelRuntime,
+    model: resolvedProvider.model as never,
     resourceLoader,
     sessionManager,
   });
