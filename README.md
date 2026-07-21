@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bitmonk8/pi-theta/main/ThetaBlackLogo.jpg">
+    <img alt="Theta" src="https://raw.githubusercontent.com/bitmonk8/pi-theta/main/ThetaWhiteLogo.jpg" width="220">
+  </picture>
+</p>
+
 # pi-theta
 
 `pi-theta` is a [Pi Coding Agent](https://github.com/earendil-works/pi-mono)
