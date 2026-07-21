@@ -40,7 +40,7 @@ Surface and semantics of the Theta language (shared by `.theta` and `.thetalib` 
 - [Control Flow](./control-flow.md) — `if`, `for`, `while`, `break`, `continue`, `par for` (parallel fan-out).
 - [Errors and Results](./errors-and-results.md) — `Result`, terminal outcomes, runtime panics, no-rollback contract.
 - [Return Statement](./return.md) — `return expr` rules.
-- [Function Definitions](./functions.md) — `fn`, hoisting, tail-expression returns.
+- [Function Definitions](./functions.md) — `fn`, hoisting, tail-expression returns, `subagent fn` (inline subagent callables).
 - [Tool Calls](./tool-calls.md) — `<name>(args)`, `CodeToolError`.
 - [Invocation](./invocation.md) — `invoke(...)`, cross-mode matrix, invoke errors, cycle detection.
 - [Imports](./imports.md) — `.thetalib` library files, `import`/`export`, cycles.

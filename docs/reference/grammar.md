@@ -55,12 +55,18 @@ string number integer boolean array void
 The discard binding `_` is also reserved. `array` and `Result` double as the
 closed set of generic-type constructor keywords in type position.
 
-**Contextual keywords.** `par` is a *contextual keyword* (theta 1.1): recognised
-as a keyword only immediately before `for` (introducing the `par for` expression,
-[Blocks](#blocks) / [Control flow](#control-flow)) and an ordinary identifier
-everywhere else. It is **not** in the reserved-keyword set above, so existing
-bindings named `par` keep parsing. `par` is the only contextual keyword in
-theta 1.1.0.
+**Contextual keywords.** A *contextual keyword* is recognised as a keyword only in
+one syntactic position and is an ordinary identifier everywhere else; none is in
+the reserved-keyword set above, so existing bindings of the same name keep
+parsing. `par` (theta 1.1) is recognised only immediately before `for`
+(introducing the `par for` expression, [Blocks](#blocks) / [Control flow](#control-flow)).
+`subagent` (theta 1.2) is recognised only immediately before a top-level `fn`
+(the `subagent fn` modifier, [`fn` declarations](#fn-declarations)); note the
+same word is the `mode: subagent` frontmatter value, which is unaffected. `with`
+(theta 1.2) is recognised only between a `subagent fn`'s parameter list (or its
+optional `: ReturnType`) and its body block (the session-config clause,
+[`fn` declarations](#fn-declarations)). `par`, `subagent`, and `with` are the
+three contextual keywords in theta 1.2.0.
 
 ## Comments
 
@@ -196,9 +202,14 @@ ParForBody ::= "{" Stmt* Expr? "}"      // per-iteration body; tail Expr optiona
 ## `fn` declarations
 
 ```
-FnDecl   ::= "fn" Ident "(" FnParams? ")" (":" ReturnType)? FnBody
-FnParams ::= FnParam ("," FnParam)* ","?
-FnParam  ::= Ident ":" Type
+FnDecl     ::= SubagentMod? "fn" Ident "(" FnParams? ")" (":" ReturnType)? WithClause? FnBody
+SubagentMod::= "subagent"                               // top-level fn only (theta 1.2)
+WithClause ::= "with" "{" WithField ("," WithField)* ","? "}"  // subagent fn only (theta 1.2)
+WithField  ::= WithKey ":" WithValue
+WithKey    ::= "system" | "model" | "tools" | "tool_loop" | "respond_repair"
+WithValue  ::= <value matching the like-named frontmatter field's shape/validation>
+FnParams   ::= FnParam ("," FnParam)* ","?
+FnParam    ::= Ident ":" Type
 ```
 
 Top-level only (nested is `theta/parse/nested-fn`). Parameter list always
@@ -207,6 +218,18 @@ carry no default and are immutable — `mut` on one is
 `theta/parse/mut-on-immutable-context`. Functions are not first-class; a name used
 outside call position is `theta/parse/function-as-value`. `: ReturnType` optional;
 absent → return type inferred (see [Type system](./type-system.md)).
+
+**`subagent fn` (theta 1.2).** The `subagent` modifier is admissible **only** on a
+top-level `fn` (in both `.theta` and `.thetalib` files) and makes each call spawn a
+fresh isolated subagent session for the body; it does not change the parameter
+list, positional call form, or inferred-and-validated return type. The optional
+`WithClause` overrides any subset of the five inherited session-config keys
+(`system`, `model`, `tools`, `tool_loop`, `respond_repair`); each `WithField`
+value obeys the same grammar and validation as the like-named frontmatter field,
+reusing those fields' diagnostics. Semantics (isolation, argument-by-value,
+return, query targeting, inherit-vs-`with`, prompt-mode admissibility, `.thetalib`
+helpers, self-reference ban, depth accounting) are owned by
+[Functions — FN-6…FN-9](../spec_topics/functions.md#subagent-fn).
 
 ## `match` arm body
 
@@ -510,6 +533,10 @@ ToolField ::= Ident ":" Expr
   `ParForBody`, expression-position `par for`, `max` clause, `par for` body parse
   errors): `docs/rfcs/0003-parallel-fanout.md` (accepted; Specification impact).
 - `fn` placement/inference (FN-1…FN-5): `docs/spec_topics/functions.md`.
+- `subagent fn` grammar (contextual `subagent` / `with` keywords, `SubagentMod` /
+  `WithClause` / `WithField`, top-level-only modifier, five session-config keys)
+  and semantics (FN-6…FN-9): `docs/spec_topics/functions.md#subagent-fn`;
+  `docs/rfcs/0001-subagent-fn.md` (accepted; Proposal — Semantics).
 - `return` (RET-1…RET-3): `docs/spec_topics/return.md`.
 - Bindings & mutability: `docs/spec_topics/bindings.md`.
 - Implementation confirmation: reserved-keyword set in `src/lexer/lexer.ts:152`

@@ -19,8 +19,10 @@ for codes.
 ## Ceiling #1 — invoke-chain depth (INV-4)
 
 Caps the nesting depth of an `invoke` chain at **32**. A *countable frame* is any
-direct `invoke(...)`, any `.theta` callable call through a `tools:` entry, or any
-cross-file `.thetalib` `fn` call (intra-file `fn` calls are not countable). Per-chain,
+direct `invoke(...)`, any `.theta` callable call through a `tools:` entry, any
+cross-file `.thetalib` `fn` call, or any `subagent fn` call (theta 1.2; ordinary
+intra-file `fn` calls remain not countable — a `subagent fn` counts because it
+spawns a fresh subagent session, [Functions — FN-6](../spec_topics/functions.md#fn-6)). Per-chain,
 not per-process — sibling invokes do not share budget. The slash-invoked top-level
 theta is depth 0; the first nested frame is depth 1; legal range `1 ≤ depth ≤ 32`.
 The cap is breached when the runtime is about to push a 33rd frame; the diagnostic

@@ -173,6 +173,17 @@ just an inline one. The diagnostic's message rendering handles the inline case,
 where the "callee" is a function name in the same file rather than a separate
 `.theta` path.
 
+The self-reference ban (a `subagent fn` cannot reference itself) is likewise
+enforced without a new code: because a `subagent fn` call is a countable `invoke`
+frame, a self-reference is a length-1 invocation cycle and surfaces through the
+existing `theta/load/invocation-cycle` code. The `with { … }` session-config clause
+adds no code either — each key reuses the corresponding frontmatter field's
+load-time diagnostics (with `theta/parse/system-on-prompt-mode` explicitly NOT
+applying to a `with`-clause `system`, since that configures the function's own
+spawned session). This RFC therefore introduces **no new diagnostic code** — the
+corpus transcription records it against theta 1.2 by reuse only
+([Functions — FN-6…FN-9](../spec_topics/functions.md#subagent-fn)).
+
 ## Prior art in this repository
 
 - Isolation, typed return, and depth accounting:
