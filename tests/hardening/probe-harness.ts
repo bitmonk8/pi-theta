@@ -342,6 +342,35 @@ export async function runProbe(options: {
     systemNotes,
     turns,
     dispose: async (): Promise<void> => {
+      // FAITHFULNESS (models real-Pi teardown ordering). Real Pi emits
+      // `session_shutdown` (via the agent-session runtime's `teardownCurrent`)
+      // BEFORE `AgentSession.dispose()`, so the shipped theta extension's
+      // graceful `session_shutdown` handler runs while the ctx is still active:
+      // it closes the chokidar discovery/settings watcher and (PIC-57) marks the
+      // reload debouncer torn-down + awaits the bounded `whenIdle` quiesce.
+      // `AgentSession.dispose()` itself is synchronous and ONLY calls
+      // `ExtensionRunner.invalidate(...)` — it does NOT emit `session_shutdown`.
+      // So without driving the emit here, the file watcher leaks per probe and
+      // the subsequent `rmSync` of the watched temp dir fires a debounced
+      // rebuild against the already-invalidated ctx → the recurring stderr
+      // noise (`registry-swap-failed` / `stale after session replacement` /
+      // `system-note delivery failed`). Emit-then-dispose-then-rmSync models the
+      // faithful ordering and quiesces the watcher first.
+      //
+      // `session.extensionRunner.emit(...)` is the reachable public trigger:
+      // `session_shutdown` is NOT excluded from the runner's generic
+      // `RunnerEmitEvent` union (only events with a dedicated `emitXxx()` are),
+      // and `emit()` AWAITS each registered handler — including the theta
+      // handler's returned `runSessionShutdown` promise, so sub-step 4's bounded
+      // `whenIdle` completes before we dispose. (The standalone
+      // `emitSessionShutdownEvent(runner, event)` helper is NOT re-exported from
+      // the package root and its deep import is blocked by the exports map, so
+      // it is not a reachable API.)
+      try {
+        await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      } catch { // allow-broad-catch: test-harness teardown — prefer the faithful graceful emit, but never leave a probe undisposed if it is unavailable
+        // Fall through to dispose + cleanup below regardless.
+      }
       session.dispose();
       for (const p of cleanup) rmSync(p, { recursive: true, force: true });
       await Promise.resolve();

@@ -31,6 +31,18 @@
 //     returns is surfaced, proving the computed argument resolved and the real
 //     tool executed.
 
+// PIC-57 WITNESS (teardown ordering). Every `probe.dispose()` here now drives a
+// real `session_shutdown` emit (via `ExtensionRunner.emit`) BEFORE
+// `AgentSession.dispose()` and the watched-tmp-dir `rmSync` — see
+// probe-harness.ts's `dispose` closure. That runs the shipped extension's
+// graceful `session_shutdown` handler while the ctx is still active, so the
+// chokidar watcher is closed and the PIC-57 reload debouncer is quiesced
+// (`markTornDown` + bounded `whenIdle`) end-to-end. The observable proof is
+// negative and deterministic: with the fix, tearing these live probes down no
+// longer leaks a watcher or fires a post-invalidate debounced rebuild, so the
+// run is free of the `registry-swap-failed` / `stale after session replacement`
+// / `system-note delivery failed` stderr noise it previously emitted.
+
 import { describe, it, expect } from "vitest";
 import { requireLiveProvider, runProbe } from "./probe-harness";
 import type { ProbeResult, PlantedFile } from "./probe-harness";
