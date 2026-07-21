@@ -6,6 +6,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-21
+
+### Added
+
+- **`subagent fn` — in-file subagent callables (RFC 0001).** A `subagent`
+  modifier on the top-level `fn` form whose body evaluates in a fresh, isolated
+  subagent session — the same boundary an `invoke("./child.theta", ...)` crosses,
+  without a second file. Identical to an ordinary `fn` in its parameter list,
+  positional call form, and inferred-and-validated return type; the sole
+  difference is the per-call session boundary. `@` queries in the body target the
+  spawned session, not the caller's conversation (the caller's conversation stays
+  unpolluted). Arguments cross by value with no closure capture; the return value
+  crosses the boundary as the `Ok` payload, a callee `Err` surfaces as
+  `InvokeCalleeError`, and a body panic as `InvokeInfraError`. The spawned
+  session inherits the enclosing theta's configuration by default; an optional
+  `with { ... }` clause overrides any subset of `{ system, model, tools,
+  tool_loop, respond_repair }` (an unresolvable `with { model }` is rejected at
+  load with `theta/load/model-unresolved`). A `subagent fn` call is a countable
+  frame under the depth-32 `invoke` ceiling, and a self-referencing `subagent fn`
+  is rejected at load as a length-1 `theta/load/invocation-cycle`; a body that
+  fails to parse or type-check surfaces `theta/load/callee-has-errors` (inline,
+  naming the function). Callable from a `mode: prompt` theta (the prompt→subagent
+  cross-mode cell) and admissible on a `.thetalib` fn (a shared, isolated library
+  helper whose session inherits the calling theta's configuration and whose
+  `with { tools }` narrows against the calling theta's callable set). `subagent`
+  and `with` are contextual keywords, so existing identifiers are unaffected. No
+  new runtime or parse diagnostic codes are introduced (all reuse existing
+  codes). Bumps the theta language surface to **theta 1.2**.
+
 ## [0.6.0] - 2026-07-20
 
 ### Added
