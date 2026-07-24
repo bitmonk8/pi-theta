@@ -1,3 +1,16 @@
+// LIVE hardening lens — RFC-0005 subagent drive (child-process mechanism, landed).
+//
+// This lens boots a real Pi session. Under RFC-0005 the subagent drive spawns a
+// real child `pi --mode rpc` process (docs/spec_topics/pi-integration-contract/
+// subagent.md §"Conversation drive — subagent mode"); this suite therefore
+// exercises REAL child spawns and the RPC wire on its best-effort model-turn
+// probe. It is NOT silently skipped — it runs under `npm run test:live` against
+// a live provider (the module-level `requireLiveProvider()` gate skips the whole
+// file when no provider is configured, without executing a live spawn here).
+// The DETERMINISTIC channels asserted below (all thetas register with no
+// rejecting diagnostic; the `.theta`-in-`tools:` resolved and became a child
+// `--tools` allowlist entry) are hard assertions and hold across the mechanism.
+//
 // Hardening lens: MODEL-CALLABLE `.theta` (SUBAG-2 residual) end-to-end.
 //
 // Probes the runtime behaviour a subagent-mode theta that lists another `.theta`
@@ -12,9 +25,11 @@
 // Spec anchors:
 //   * tool-calls.md — the callable set is SHARED between the model-driven and
 //     code-driven paths; the model sees the same `.theta` callables.
-//   * pi-integration-contract/extension-bootstrap-and-per-theta.md §Per-theta
-//     registration — a `.theta`-as-tool `ToolDefinition` (subagent mode:
-//     installed as a `defineTool` customTool on `createAgentSession`).
+//   * pi-integration-contract/subagent.md §"Launch contract" +
+//     #subagent-tools-allowlist-suppression — a `.theta` callable in a
+//     subagent's `tools:` crosses the boundary as a child `--tools <name>`
+//     allowlist entry (resolved child-side by name, content-hash verified), NOT
+//     as an executable tool definition.
 //   * pi-integration-contract/tool-registration-lifetime.md §"Subagent mode".
 //
 // Determinism posture: the DETERMINISTIC channels (all three thetas register
@@ -23,7 +38,7 @@
 // LIVE model actually emits the `tool_use` for the `.theta` is best-effort
 // (logged), matching the file's twin deterministic seam test
 // (`tests/subagent-model-theta-tool.test.ts`), which proves the adapter + the
-// exposed customTools/tools/tool-schemas surface without a live model.
+// exposed child `--tools` allowlist / tool-schemas surface without a live model.
 //
 // Token discipline: the child body is a literal tail (0 child model turns); the
 // only live turns are the parent subagent's tool-loop and the grandparent's
@@ -79,8 +94,9 @@ describe("model-callable `.theta` (SUBAG-2): a subagent parent exposes a `.theta
             ),
           },
           {
-            // Subagent parent exposing the `.theta` callable to its MODEL. The
-            // query instructs the model to CALL the tool and echo its return.
+            // Subagent parent exposing the `.theta` callable to its MODEL via
+            // the child `--tools` allowlist. The query instructs the model to
+            // CALL the tool and echo its return.
             source: "project",
             path: "subtoolparent.theta",
             text: theta(

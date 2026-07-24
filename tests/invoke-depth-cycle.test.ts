@@ -15,6 +15,8 @@ import {
   detectInvocationCycle,
   invocationCycleMessage,
   newInvokeChain,
+  newInvokeChainAtDepth,
+  parseInboundInvokeDepth,
   pushCountableFrame,
   surfaceDepthOverflow,
   thetalibFnFrameKind,
@@ -170,6 +172,42 @@ describe("INV-4 — invoke-chain depth bound (invocation.md §INV-4)", () => {
       siblingB.depth,
       "INV-4: sibling B is independent of sibling A's budget (depth 2, not 5)",
     ).toBe(2);
+  });
+});
+
+// --------------------------------------------------------------------------
+// INV-4 — wire-level invoke-depth carriage across the subagent process boundary
+// --------------------------------------------------------------------------
+
+describe("INV-4 — subagent-child invoke-depth seeding (wire-level carriage)", () => {
+  it("seeds a fresh chain at the marshalled parent depth so the ceiling continues across the hop", () => {
+    // The parent marshalled depth 5 on the child env; the child's top-level
+    // chain continues there rather than resetting to 0.
+    const seeded = newInvokeChainAtDepth(parseInboundInvokeDepth("5"));
+    expect(seeded.depth).toBe(5);
+    // A single further countable frame in the child is depth 6 — the count did
+    // not reset at the subagent boundary (crossSubagentBoundary is a no-op).
+    expect(pushCountableFrame(crossSubagentBoundary(seeded), "direct-invoke").depth).toBe(6);
+  });
+
+  it("a marshalled depth of 32 (the cap) trips the ceiling on the child's first nested frame", () => {
+    const seeded = newInvokeChainAtDepth(parseInboundInvokeDepth("32"));
+    // Pushing the 33rd frame breaches the depth-32 cap inside the child.
+    expect(() => pushCountableFrame(seeded, "direct-invoke")).toThrow(
+      InvokeDepthExceededPanic,
+    );
+  });
+
+  it("absent or malformed carriage seeds a FRESH chain at depth 0 (INV-4 pins no fail-closed rule)", () => {
+    // Absent → 0.
+    expect(parseInboundInvokeDepth(undefined)).toBe(0);
+    // Non-integer / garbage → 0 (not a throw, not fail-closed).
+    expect(parseInboundInvokeDepth("not-a-number")).toBe(0);
+    expect(parseInboundInvokeDepth("3.5")).toBe(0);
+    expect(parseInboundInvokeDepth("")).toBe(0);
+    // Negative → 0.
+    expect(parseInboundInvokeDepth("-4")).toBe(0);
+    expect(newInvokeChainAtDepth(parseInboundInvokeDepth("garbage")).depth).toBe(0);
   });
 });
 

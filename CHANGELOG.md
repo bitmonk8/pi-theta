@@ -6,6 +6,65 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-24
+
+### Changed
+
+- **Subagent mode now runs each invocation in a spawned child `pi` process
+  (RFC 0005).** The in-process `createAgentSession` subagent session is
+  replaced by a per-invocation child `pi --mode rpc --no-session` process
+  driven over Pi's documented RPC JSONL protocol. The observable theta
+  language semantics are unchanged (isolated conversation, private transcript
+  discarded on return, only the return value propagates, no ambient tool
+  inheritance), with one stated adjustment: installed extensions'
+  contributions (system-prompt appends, handlers, providers) are present in
+  the child, as in any Pi session — no user/project context (files, skills,
+  templates) is inherited. Executable resolution re-launches the running
+  parent binary (entry-script or compiled-binary rung; no `PATH` fallback;
+  fail-closed at load with `theta/load/subagent-executable-unresolved`).
+  Spec: `pi-integration-contract/subagent.md` rewritten (PIC-9/22/40/41/42/43
+  successors; PIC-23 retired) plus satellite pages.
+
+### Added
+
+- **Extension-registered Pi tools are reachable by a subagent theta's model.**
+  A subagent-mode `tools:` list now resolves against `pi.getAllTools()` —
+  extension-supplied tools included — and is passed to the child as a
+  `--tools` allowlist (empty callable set maps to `--no-tools`). Child trust
+  follows necessity-inference: `--approve` iff the callable set contains a
+  project-local extension tool, `--no-approve` otherwise. Code-side dispatch
+  of extension tools from theta code remains out of scope (RFC 0006) and
+  fails, surfacing as `Err(CodeToolError)` to theta code — never a silent
+  fallthrough.
+- **`.theta` callable content-hash verification across the process boundary.**
+  The parent records a transitive-closure content hash of each `.theta`
+  callable at load and marshals it to the child; the child verifies after its
+  own parse and refuses diverged callees fail-closed
+  (`theta/runtime/subagent-callable-hash-mismatch`).
+- **Model pre-flight for inherited session models.** When a subagent theta
+  inherits the caller's live session model, the runtime confirms via the
+  child's RPC state surface that the marshalled `--provider`/`--model`
+  reference resolved to the intended model before the first query
+  (`theta/runtime/subagent-model-preflight-mismatch` on divergence).
+- **Invoke-depth carriage across processes.** The `invoke`-chain depth
+  counter is marshalled to subagent children on
+  `PI_THETA_SUBAGENT_INVOKE_DEPTH`, so the depth-32 hard ceiling continues
+  across process hops instead of resetting.
+- New diagnostics: `subagent-spawn-failed`, `subagent-child-crashed`,
+  `subagent-wire-parse-failed`, `subagent-teardown-timeout`,
+  `subagent-callable-hash-mismatch`, `subagent-model-preflight-mismatch`
+  (runtime) and `subagent-executable-unresolved` (load);
+  `subagent-dispose-failure` re-scoped to child teardown.
+
+### Removed
+
+- The in-process subagent machinery: `createAgentSession` spawn block, the
+  closed seven-name `customTools` materialisation, the `ResourceLoader`
+  adapter (PIC-23), and `SessionManager.inMemory` transcript privacy (now
+  `--no-session` ephemeral per the pinned CLI contract). The capability
+  probe's factory-probable member set shrinks nine → seven and gains a
+  Step 0 (f) executable-resolution probe.
+
 ## [0.7.1] - 2026-07-21
 
 ### Fixed

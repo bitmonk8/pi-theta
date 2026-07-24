@@ -77,6 +77,17 @@ export interface ResolvedThetaCallee {
   readonly calleePath: string;
   /** Strong reference to the parsed callee + lowered tool spec (opaque here). */
   readonly callee: unknown;
+  /**
+   * RFC-0005 #subagent-theta-callable-hash: the transitive-closure content hash
+   * (root `.theta` + its `.thetalib` imports) captured at LOAD time, from the
+   * on-disk bytes read during this resolution pass — NOT recomputed at spawn.
+   * The subagent launch marshals this STORED value to the child, so a file edit
+   * between parent load and child spawn is detected as divergence (the child
+   * recomputes from its own disk bytes and refuses on mismatch). `undefined`
+   * when the closure root could not be read at load, or on a prompt-mode /
+   * non-subagent resolution that never marshals hashes.
+   */
+  readonly closureHash?: string;
 }
 
 /** One resolved callable in the snapshot. */

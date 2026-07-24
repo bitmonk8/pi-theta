@@ -1,30 +1,32 @@
-// STAGE A (STL-2 / ceiling #2) — the production subagent-mode `QueryModelDriver`
-// regression + conformance lock.
+// RFC-0005 re-base — the production subagent-mode `QueryModelDriver` over the
+// child-process drive.
 //
-// The subagent query driver now OWNS the agentic tool loop: it holds the
-// subagent's private conversation and advances it one `complete()` turn per
-// free-phase round, so the enclosing query-tool-loop (`runUntypedQueryLoop` /
-// `runTypedQueryLoop`) enforces `tool_loop.max_rounds` and can reach ceiling #2
-// (`tool_loop_exhausted`). Before STAGE A the driver ran the spawned
-// `AgentSession`'s whole internal loop inside a single theta-level round, so the
-// cap was a no-op for any `max_rounds >= 1` (STL-2).
+// Under RFC-0005 (docs/rfcs/0005-child-process-subagent-sessions.md;
+// pi-integration-contract/subagent.md PIC-42/43) the CHILD `pi` process owns its
+// agentic tool loop. The subagent driver's `nextFreePhaseTurn` issues ONE RPC
+// `prompt` command onto the child's stdin and resolves the query from the
+// child's terminal (`willRetry:false`) `agent_end` event — a single parent-loop
+// round. The typed-query `forcedRespondTurn` continues to run OFF-SESSION in the
+// PARENT via pi-ai `complete()` (`runCompletion`), exactly as before.
 //
-// These tests drive the real driver through the real loop against the theta's
-// `thetaAbort` signal — exactly as the production host does — so they green-lock:
-//   - an untyped subagent query that finishes early (a plain-text turn) returns
-//     its text (FN-5, no forced self-cancel);
-//   - an untyped subagent query that keeps emitting tool rounds past its cap
-//     terminates with `Err(tool_loop_exhausted)` — the STL-2 conformance target
-//     (rounds == max_rounds, last_tool_name is the last round's tool);
-//   - a multi-round tool loop that finishes within the cap returns its text;
+// These tests drive the real driver through the real loop against a fake child
+// (`tests/helpers/fake-rpc-child.ts`), so they lock:
+//   - an untyped subagent query resolves the child's terminal `agent_end` text
+//     (PIC-43, FN-5);
+//   - the child's transport failures (trailing `stopReason:"error"`; child crash
+//     mid-query) surface `Err(transport)`, never `Ok(text)` (PIC-43 /
+//     #subagent-error-fidelity);
 //   - a typed subagent query VALIDATES its structured payload across the
-//     subagent boundary (FN-5 + QRY-22): a conforming payload binds the typed
-//     value; a non-conforming payload surfaces `Err(validation)`;
-//   - a GENUINE mid-stream `thetaAbort` fire surfaces `Err(cancelled)`.
+//     boundary via the parent-side forced-respond terminator (FN-5 + QRY-22);
+//   - a GENUINE mid-stream `thetaAbort` fire surfaces `Err(cancelled)` and wins
+//     over a concurrent transport failure (PIC-41/43, cancellation.md).
 //
-// Spec: frontmatter.md §`tool_loop` (FRNT-1), hard-ceilings.md ceiling #2 /
-// CIO-4, errors-and-results.md ERR-19, pi-integration-contract/subagent.md
-// (FN-5), cancellation.md, query/query-failure-and-repair.md (QRY-22).
+// Spec: pi-integration-contract/subagent.md PIC-42/43 / #subagent-error-fidelity,
+// errors-and-results.md, cancellation.md, query/query-failure-and-repair.md
+// (QRY-22). The `tool_loop.max_rounds` ceiling-#2 exhaustion is now the CHILD's
+// concern (its internal loop), not the parent driver's, so the former STL-2
+// parent-side exhaustion witnesses are retired here (PIC-42: the child owns the
+// loop; the parent resolves in a single round).
 
 import { describe, expect, it } from "vitest";
 import type {
@@ -37,6 +39,8 @@ import {
   lowerModelDrivenToolCall,
   type PiToolDispatch,
 } from "../src/extension/production-theta-producer";
+import { FakeRpcChild } from "./helpers/fake-rpc-child";
+import type { SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import {
   runTypedQueryLoop,
   runUntypedQueryLoop,
@@ -161,16 +165,36 @@ function config(maxRounds: number): QueryToolLoopConfig {
   };
 }
 
-describe("STAGE A — production subagent QueryModelDriver (theta-owned tool loop)", () => {
-  it("an untyped subagent query that finishes early returns its text (FN-5, no self-cancel)", async () => {
+/** A microtask+macrotask flush so the loop reaches its `readTerminalAgentEnd` await. */
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Build the production subagent query model over a fake child (+ optional parent forced-respond). */
+function makeModel(opts: {
+  readonly child: SubagentChildProcess;
+  readonly thetaAbort: AbortController;
+  readonly queryText?: string;
+  readonly runCompletion?: () => Promise<AssistantMessage>;
+}): ReturnType<typeof createSubagentQueryModel> {
+  return createSubagentQueryModel({
+    queryText: opts.queryText ?? "q",
+    child: opts.child,
+    // The forced-respond terminator only; untyped free-phase drives the child.
+    runCompletion: opts.runCompletion ?? (() => Promise.reject(new Error("runCompletion not expected"))),
+    thetaAbort: opts.thetaAbort,
+    provider: "anthropic",
+    emitDiagnostic: () => {},
+  });
+}
+
+describe("RFC-0005 — production subagent QueryModelDriver (child owns the tool loop)", () => {
+  it("an untyped subagent query resolves the child's terminal agent_end text (PIC-43, FN-5)", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "hello",
-      runCompletion: () => Promise.resolve(textReply("SUBAGENT-OK")),
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
-    });
+    const child = new FakeRpcChild();
+    // The child ran its own agentic loop and produced a terminal plain-text turn.
+    child.scriptAgentEnd([textReply("SUBAGENT-OK")]);
+    const model = makeModel({ child, thetaAbort });
 
     const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
 
@@ -180,79 +204,14 @@ describe("STAGE A — production subagent QueryModelDriver (theta-owned tool loo
     }
   });
 
-  it("an untyped subagent query that keeps emitting tool rounds past its cap exhausts ceiling #2 (STL-2)", async () => {
-    const thetaAbort = new AbortController();
-    let toolCalls = 0;
-    let completions = 0;
-    const model = createSubagentQueryModel({
-      queryText: "chase the chain",
-      // The model always requests another `read` — a tool loop that never
-      // terminates on its own, so the theta's `max_rounds` cap must bound it.
-      runCompletion: () => {
-        completions += 1;
-        return Promise.resolve(toolCallReply("read", `call-${completions}`));
-      },
-      executeTool: (call) => {
-        toolCalls += 1;
-        return Promise.resolve(toolResult(call, "next"));
-      },
-      thetaAbort,
-      provider: "anthropic",
-    });
-
-    const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(2));
-
-    expect(outcome.kind, "the cap must fire — ceiling #2 is reachable").toBe("tool_loop_exhausted");
-    if (outcome.kind === "tool_loop_exhausted") {
-      // ERR-19: rounds == max_rounds; last_tool_name is the last round's tool.
-      expect(outcome.error.rounds).toBe(2);
-      expect(outcome.error.last_tool_name).toBe("read");
-    }
-    // Exactly `max_rounds` free-phase rounds ran (each executed its tool batch);
-    // the cap fired at the round boundary before a third free-phase turn.
-    expect(toolCalls).toBe(2);
-    expect(completions).toBe(2);
-  });
-
-  it("a multi-round tool loop that finishes within the cap returns its text", async () => {
-    const thetaAbort = new AbortController();
-    let completions = 0;
-    let toolCalls = 0;
-    const model = createSubagentQueryModel({
-      queryText: "read the chain then answer",
-      // Two tool rounds, then a terminating plain-text turn.
-      runCompletion: () => {
-        completions += 1;
-        if (completions <= 2) {
-          return Promise.resolve(toolCallReply("read", `call-${completions}`));
-        }
-        return Promise.resolve(textReply("CHAINDONE"));
-      },
-      executeTool: (call) => {
-        toolCalls += 1;
-        return Promise.resolve(toolResult(call, "next"));
-      },
-      thetaAbort,
-      provider: "anthropic",
-    });
-
-    const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
-
-    expect(outcome.kind).toBe("text");
-    if (outcome.kind === "text") {
-      expect(outcome.text).toBe("CHAINDONE");
-    }
-    expect(toolCalls).toBe(2);
-  });
-
   it("typed subagent query VALIDATES its structured payload and binds a conforming value (FN-5 + QRY-22)", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "answer",
-      runCompletion: () => Promise.resolve(textReply('{"ok":true,"label":"blue"}')),
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
+    // max_rounds:0 routes straight to the parent-side forced-respond terminator;
+    // the child is spawned but never prompted for the query.
+    const model = makeModel({
+      child: new FakeRpcChild(),
       thetaAbort,
-      provider: "anthropic",
+      runCompletion: () => Promise.resolve(textReply('{"ok":true,"label":"blue"}')),
     });
 
     const outcome = await runTypedQueryLoop(
@@ -271,13 +230,11 @@ describe("STAGE A — production subagent QueryModelDriver (theta-owned tool loo
 
   it("typed subagent query with a non-conforming payload surfaces Err(validation) — no unvalidated bind (Defect B)", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "answer",
+    const model = makeModel({
+      child: new FakeRpcChild(),
+      thetaAbort,
       // Missing the required `label`, and carrying an undeclared property.
       runCompletion: () => Promise.resolve(textReply('{"ok":true,"extra":1}')),
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
     });
 
     const outcome = await runTypedQueryLoop(
@@ -296,21 +253,17 @@ describe("STAGE A — production subagent QueryModelDriver (theta-owned tool loo
 
   it("a GENUINE mid-stream thetaAbort fire surfaces Err(cancelled), not a success value", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "answer",
-      // The scripted cancel point: `thetaAbort` fires while the completion is in
-      // flight (a real cancellation, not a driver self-cancel), so by the time
-      // the completion resolves the loop's signal is aborted.
-      runCompletion: () => {
-        thetaAbort.abort(new Error("theta subagent query cancelled mid-stream"));
-        return Promise.resolve(textReply("ignored"));
-      },
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
-    });
+    const child = new FakeRpcChild({ exitOnStdinEof: false });
+    const model = makeModel({ child, thetaAbort });
 
-    const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
+    const pending = runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
+    // Mid-stream cancel: the abort fires while the driver awaits the child's
+    // terminal event; the child then responds AFTER the cancel. The driver's
+    // post-read abort re-check bounces to the loop's cancelled surface (PIC-43).
+    await tick();
+    thetaAbort.abort(new Error("theta subagent query cancelled mid-stream"));
+    child.emitAgentEnd([textReply("ignored")]);
+    const outcome = await pending;
 
     expect(outcome.kind).toBe("cancelled");
   });
@@ -324,16 +277,14 @@ describe("STAGE A — production subagent QueryModelDriver (theta-owned tool loo
 // `complete()` sync-throw / reject mapping.
 // ===========================================================================
 
-describe("PIC-50/51 — production subagent transport-error surfacing", () => {
-  it("untyped: a free-phase completion with stopReason:'error' surfaces Err(transport), never Ok(text)", async () => {
+describe("PIC-50/51 / PIC-43 — production subagent transport-error surfacing", () => {
+  it("untyped: a child terminal turn with stopReason:'error' surfaces Err(transport), never Ok(text)", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "hello",
-      runCompletion: () => Promise.resolve(errorReply("provider 529")),
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
-    });
+    const child = new FakeRpcChild();
+    // The child's terminal `agent_end` carries a trailing assistant
+    // `stopReason:"error"` — PIC-43's transport short-circuit maps it to transport.
+    child.scriptAgentEnd([errorReply("provider 529")]);
+    const model = makeModel({ child, thetaAbort });
 
     const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
 
@@ -346,15 +297,11 @@ describe("PIC-50/51 — production subagent transport-error surfacing", () => {
     }
   });
 
-  it("untyped: an errored turn with no errorMessage falls back to 'provider transport failure'", async () => {
+  it("untyped: an errored terminal turn with no errorMessage falls back to 'provider transport failure'", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "hello",
-      runCompletion: () => Promise.resolve(errorReply()),
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
-    });
+    const child = new FakeRpcChild();
+    child.scriptAgentEnd([errorReply()]);
+    const model = makeModel({ child, thetaAbort });
 
     const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
 
@@ -364,39 +311,36 @@ describe("PIC-50/51 — production subagent transport-error surfacing", () => {
     }
   });
 
-  it("untyped: a non-cancel complete() reject surfaces Err(transport), never theta/runtime/internal-error", async () => {
+  it("untyped: a child crash mid-query surfaces Err(transport), never theta/runtime/internal-error (subagent-child-crashed)", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "hello",
-      runCompletion: () => Promise.reject(new Error("socket hang up")),
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
-    });
+    const child = new FakeRpcChild({ exitOnStdinEof: false });
+    const model = makeModel({ child, thetaAbort });
 
-    const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
+    const pending = runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
+    // The child crashes / nonzero-exits mid-query before any terminal event.
+    await tick();
+    child.crashWith(1, null, "socket hang up");
+    const outcome = await pending;
 
     expect(outcome.kind).toBe("transport");
     if (outcome.kind === "transport") {
       expect(outcome.error.kind).toBe("transport");
-      expect(outcome.error.message).toBe("socket hang up");
       expect(outcome.error.provider).toBe("anthropic");
+      expect(outcome.error.retryable).toBe(false);
     }
   });
 
   it("typed: a forced-respond turn with stopReason:'error' surfaces Err(transport), never parsed as a value", async () => {
     const thetaAbort = new AbortController();
     let forcedCalls = 0;
-    const model = createSubagentQueryModel({
-      queryText: "answer",
-      // `max_rounds: 0` routes straight to the forced-respond terminator.
+    const model = makeModel({
+      child: new FakeRpcChild(),
+      thetaAbort,
+      // `max_rounds: 0` routes straight to the parent-side forced-respond terminator.
       runCompletion: () => {
         forcedCalls += 1;
         return Promise.resolve(errorReply("forced-respond error"));
       },
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
     });
 
     const outcome = await runTypedQueryLoop(
@@ -417,12 +361,10 @@ describe("PIC-50/51 — production subagent transport-error surfacing", () => {
 
   it("typed: a non-cancel forced-respond reject surfaces Err(transport)", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "answer",
-      runCompletion: () => Promise.reject(new Error("connection reset")),
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
+    const model = makeModel({
+      child: new FakeRpcChild(),
       thetaAbort,
-      provider: "anthropic",
+      runCompletion: () => Promise.reject(new Error("connection reset")),
     });
 
     const outcome = await runTypedQueryLoop(
@@ -534,23 +476,20 @@ describe("ceiling #4 (model-driven row) — theta-owned `tool_use` dispatch seam
   });
 });
 
-describe("STAGE A — production subagent QueryModelDriver (mid-stream cancel)", () => {
-  it("a mid-stream cancel is NOT reclassified as transport (cancel wins over the reject map)", async () => {
+describe("RFC-0005 — production subagent QueryModelDriver (mid-stream cancel)", () => {
+  it("a mid-stream cancel is NOT reclassified as transport (cancel wins over a concurrent child crash)", async () => {
     const thetaAbort = new AbortController();
-    const model = createSubagentQueryModel({
-      queryText: "answer",
-      // Abort fires, then the completion rejects (the abort-driven reject): the
-      // cancel bounce must win, not the transport map.
-      runCompletion: () => {
-        thetaAbort.abort(new Error("cancelled"));
-        return Promise.reject(new Error("aborted"));
-      },
-      executeTool: () => Promise.reject(new Error("no tool call expected")),
-      thetaAbort,
-      provider: "anthropic",
-    });
+    const child = new FakeRpcChild({ exitOnStdinEof: false });
+    const model = makeModel({ child, thetaAbort });
 
-    const outcome = await runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
+    const pending = runUntypedQueryLoop(NOOP_CHECKPOINT, thetaAbort.signal, model, config(25));
+    // The abort fires, then the child crashes (the abort-driven exit): the cancel
+    // bounce must win over the child-crash transport map (PIC-43 short-circuit
+    // order — cancellation before transport).
+    await tick();
+    thetaAbort.abort(new Error("cancelled"));
+    child.crashWith(1);
+    const outcome = await pending;
 
     expect(outcome.kind).toBe("cancelled");
   });

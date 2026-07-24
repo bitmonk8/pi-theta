@@ -7,11 +7,13 @@
 //
 //   • `CAPABILITY_OBLIGATIONS` — the seven named SDK capabilities (items 1–7),
 //     each carrying a `verification` partition flag classifying it as
-//     factory-probed (Step 0) vs verified-otherwise. Items 1/2/3/4/6 are the
-//     factory-probable subset `V9a` pins as `FACTORY_PROBABLE_CAPABILITIES`;
-//     items 5/7 are verified otherwise. The build-time assertions reconcile the
-//     factory-probed-flagged subset against that imported constant (not against
-//     a literal list re-stated here) and pin the cardinality at seven.
+//     factory-probed (Step 0) vs verified-otherwise. Items 1/2/4/6 are the
+//     factory-probable subset `V9a` pins as `FACTORY_PROBABLE_CAPABILITIES`
+//     (RFC-0005 dropped capability 3 — its in-process `createAgentSession`
+//     `typeof` pin retired; it is verified by the Step 0 (f) executable probe);
+//     items 3/5/7 are verified otherwise. The build-time assertions reconcile
+//     the factory-probed-flagged subset against that imported constant (not
+//     against a literal list re-stated here) and pin the cardinality at seven.
 //
 //   • `SDK_SURFACE_INVENTORY` — the full Pi-side surface set, strictly broader
 //     than the seven capabilities (inventory-audit-intro.md §SDK capability
@@ -123,8 +125,9 @@ export interface SurfaceInventoryEntry {
  * `FACTORY_PROBABLE_CAPABILITIES` set `V9a` exports — not re-listed literally —
  * so the factory-probed/verified-otherwise classification cannot drift from the
  * Step-0 probe's own factory-probable set: any change to that set re-partitions
- * these rows in lockstep. Items 1/2/3/4/6 are factory-probed; 5/7 verified
- * otherwise (capability-inventory-items.md items 5 and 7).
+ * these rows in lockstep. Items 1/2/4/6 are factory-probed; 3/5/7 verified
+ * otherwise (RFC-0005: capability 3's in-process members retired, verified by
+ * the Step 0 (f) executable probe; capability-inventory-items.md items 3, 5, 7).
  *
  * `Object.freeze` keeps this module-level constant off the *No globals,
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
@@ -154,8 +157,10 @@ export const CAPABILITY_OBLIGATIONS: readonly CapabilityObligation[] =
  * The full Pi-side surface inventory — strictly broader than the seven
  * capabilities (inventory-audit-intro.md §SDK capability inventory). It holds:
  *
- *   • the nine `namespace-function` members of the factory-probable capability
- *     subset (capabilities 1/2/3/4/6, per Step 0 (c) of the capability probe);
+ *   • the seven `namespace-function` members of the factory-probable capability
+ *     subset (capabilities 1/2/4/6, per Step 0 (c) of the capability probe;
+ *     RFC-0005 retired capability 3's `createAgentSession` /
+ *     `AgentSession.prototype.abort` members);
  *   • the two non-capability category-(1) `pi.<member>` `namespace-function`
  *     surfaces `pi.registerFlag` / `pi.getFlag` (inventory-audit-intro.md
  *     §"Non-capability `pi.<member>` surfaces"); and
@@ -181,16 +186,23 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
       path: "SessionShutdownEvent.reason",
       literals: ["quit", "reload", "new", "resume", "fork"],
     },
-    // The nine factory-probable capability function members (Step 0 (c)).
+    // The seven factory-probable capability function members (Step 0 (c)).
+    // RFC-0005 retired capability 3's `AgentSession.prototype.abort` member from
+    // the probe loop (verified by Step 0 (f) instead). `createAgentSession`
+    // stays catalogued below as a still-imported surface until the producer's
+    // RFC-0005 child-process retirement lands (production-theta-producer.ts).
     { id: "pi.registerCommand", kind: "namespace-function" },
     { id: "pi.sendUserMessage", kind: "namespace-function" },
-    { id: "createAgentSession", kind: "namespace-function" },
-    { id: "AgentSession.prototype.abort", kind: "namespace-function" },
     { id: "pi.registerTool", kind: "namespace-function" },
     { id: "pi.setActiveTools", kind: "namespace-function" },
     { id: "pi.getActiveTools", kind: "namespace-function" },
     { id: "pi.registerMessageRenderer", kind: "namespace-function" },
     { id: "pi.sendMessage", kind: "namespace-function" },
+    // RFC-0005: `createAgentSession` and the former in-process subagent
+    // satellites (`SessionManager` / `DefaultResourceLoader` / `getAgentDir` /
+    // `defineTool` / `AgentToolResult` / `ToolDefinition`) have LEFT the
+    // inventory entirely (capability-inventory-items.md item 3) — the subagent
+    // drive spawns a child `pi` process and no `src/**` file imports them.
     // The two non-capability category-(1) `pi.<member>` surfaces.
     { id: "pi.registerFlag", kind: "namespace-function" },
     { id: "pi.getFlag", kind: "namespace-function" },
@@ -200,6 +212,10 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // surface and the `pi.getCommands()` collision-pass read.
     { id: "pi.on", kind: "pi-member" },
     { id: "pi.getCommands", kind: "pi-member" },
+    // RFC-0005 (#subagent-isolation-and-trust): the subagent launch reads
+    // `pi.getAllTools()` (name + `sourceInfo.scope`) for the project-local trust
+    // inference (`--approve` / `--no-approve`).
+    { id: "pi.getAllTools", kind: "pi-member" },
     // The category-(3) canonical-`ctx` member-access surfaces the runtime
     // touches (`V18b`, audit-target-categories.md category (3)), derived from
     // the `ExtensionContext` / `ExtensionCommandContext` `.d.ts` declarations.
@@ -246,16 +262,6 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // The H8a per-theta run-drive resolves a chained (non-first) query off-session
     // through pi-ai's `complete()` free function.
     { id: "complete", kind: "peer-named-import" },
-    // The H9a subagent-mode drive spawns an isolated in-memory `AgentSession`
-    // (`createAgentSession`) whose spawn consumes three further peer surfaces:
-    // the fresh in-memory transcript manager (`SessionManager.inMemory`), the
-    // theta-suppressing resource loader that prevents the spawned session from
-    // re-loading this extension (`DefaultResourceLoader` with `noExtensions`),
-    // and the global config directory the loader/session resolve against
-    // (`getAgentDir`).
-    { id: "SessionManager", kind: "peer-named-import" },
-    { id: "DefaultResourceLoader", kind: "peer-named-import" },
-    { id: "getAgentDir", kind: "peer-named-import" },
     { id: "MessageRenderer", kind: "peer-named-import" },
     { id: "SlashCommandInfo", kind: "peer-named-import" },
     { id: "estimateTokens", kind: "peer-named-import" },
@@ -285,19 +291,6 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "createBashToolDefinition", kind: "peer-named-import" },
     { id: "createEditToolDefinition", kind: "peer-named-import" },
     { id: "createWriteToolDefinition", kind: "peer-named-import" },
-    // SUBAG-2: the subagent spawn installs the theta's callable-set Pi tools as
-    // `customTools` on `createAgentSession`, and the composition root lowers each
-    // built-in name to its full `ToolDefinition` for that channel.
-    { id: "ToolDefinition", kind: "peer-named-import" },
-    // SUBAG-2 (model-callable `.theta`): the subagent spawn materialises each
-    // `.theta`-callable in the theta's callable set as a `defineTool`-wrapped
-    // `customTool` (extension-bootstrap-and-per-theta.md §Per-theta registration),
-    // so the SDK-visible surface matches the theta-owned `complete()` loop's
-    // `.theta` tool schemas.
-    { id: "defineTool", kind: "peer-named-import" },
-    // SUBAG-2: the `defineTool` `.theta` adapter returns an `AgentToolResult`
-    // envelope from its `execute` — the SDK tool-result shape.
-    { id: "AgentToolResult", kind: "peer-named-import" },
     // The non-`namespace-function` operand rows the version-bump gates (`V18c`)
     // read. Each carries the pinned operand its gate reconciles against the
     // pinned SDK: the in-repo Node floor (operand (ii) of the `engines.node`

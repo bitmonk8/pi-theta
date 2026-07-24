@@ -27,55 +27,23 @@
 // panics"; runtime-event-channel.md §"system-note-details-shapes" (group B);
 // host-interfaces-core.md §"Tool execution from theta code".
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 
-// The subagent spawn reaches the REAL isolation helpers
-// (`attachSubagentAbortForwarding` + `makeIdempotentDispose`) over a spy
-// session; the theta-suppressing resource loader / in-memory session manager /
-// agent dir are inert stubs. Mirrors tests/subagent-drive-teardown.test.ts so
-// the spawn resolves without real provider infra. `executeBody` is DELIBERATELY
-// NOT mocked here — the whole point is to exercise the real tool-lowering seam.
-const sdkHook = vi.hoisted(() => ({ disposeCalls: 0, abortCalls: 0 }));
-
-vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
-  class FakeResourceLoader {
-    constructor(_opts: unknown) {}
-    reload(): Promise<void> {
-      return Promise.resolve();
-    }
-    getSystemPrompt(): string {
-      return "";
-    }
-    getAppendSystemPrompt(): string[] {
-      return [];
-    }
-  }
-  return {
-    ...actual,
-    getAgentDir: (): string => "/agent",
-    DefaultResourceLoader: FakeResourceLoader,
-    SessionManager: { inMemory: (): object => ({}) },
-    createAgentSession: (): Promise<{ session: unknown }> =>
-      Promise.resolve({
-        session: {
-          abort: (): Promise<void> => {
-            sdkHook.abortCalls += 1;
-            return Promise.resolve();
-          },
-          dispose: (): void => {
-            sdkHook.disposeCalls += 1;
-          },
-        },
-      }),
-  };
-});
+// RFC-0005 re-base: the subagent bind spawns a child `pi` process, so this suite
+// drives the REAL `launchSubagentChild` over a fake process launcher
+// (`makeFakeChildLauncher`) rather than the retired in-process `createAgentSession`
+// mock. `executeBody` is DELIBERATELY NOT mocked — the whole point is to exercise
+// the real code-side tool-lowering seam (`runCodeSideToolCall`) from the subagent
+// body, which runs PARENT-side regardless of the child.
+import {
+  fakeExecutableHost,
+  makeFakeChildLauncher,
+} from "./helpers/fake-rpc-child";
 
 import {
   createProductionProducerDeps,
@@ -104,7 +72,13 @@ function rootDouble(): RuntimeRoot {
   return {
     checkpoint: new RecordingCheckpoint(),
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: { wallNow: () => 0 },
+    // The model pre-flight (`queryChildResolvedModel`) + child teardown time on
+    // the injected `Clock`; wire the ambient timers so the seams resolve.
+    clock: {
+      wallNow: () => 0,
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    },
   } as unknown as RuntimeRoot;
 }
 
@@ -132,7 +106,10 @@ function subagentToolTheta(callee: string): ThetaCompositionInput {
 
 function driveCtx(): ExtensionCommandContext {
   return {
-    model: "claude-test",
+    // A resolved `Model`-like handle (the subagent launch reads `.id`/`.provider`);
+    // the fake child reports the matching resolved model so the PIC-40 pre-flight
+    // passes on the inherited-model path.
+    model: { id: "claude-test", provider: "anthropic" },
     cwd: "/tmp",
     signal: undefined,
   } as unknown as ExtensionCommandContext;
@@ -157,6 +134,7 @@ function fakeTool(
 interface Harness {
   readonly notes: Array<{ customType: unknown; content: unknown; details: unknown }>;
   readonly dispatched: { dispatched: number };
+  readonly launcher: ReturnType<typeof makeFakeChildLauncher>;
   run(): Promise<void>;
 }
 
@@ -178,26 +156,29 @@ function makeHarness(callee: string, resolved: unknown): Harness {
     },
   } as unknown as ExtensionAPI;
 
+  const launcher = makeFakeChildLauncher();
   const deps = createProductionProducerDeps({
     pi,
     root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
+    modelRegistry: {
+      getApiKeyAndHeaders: () => Promise.resolve({ ok: false }),
+    } as unknown as ModelRegistry,
     resolvePiTool: (name: string): PiToolDispatch | undefined =>
       name === callee ? fakeTool(name, resolved, dispatched) : undefined,
+    subagentSpawn: launcher.spawn,
+    subagentExecutableHost: fakeExecutableHost(),
+    subagentParentEnv: {},
+    subagentParentPid: 4242,
   });
 
   const fixture = composeThetaFixture(subagentToolTheta(callee), deps);
   return {
     notes,
     dispatched,
+    launcher,
     run: () => fixture.run("", driveCtx()),
   };
 }
-
-beforeEach(() => {
-  sdkHook.disposeCalls = 0;
-  sdkHook.abortCalls = 0;
-});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -216,9 +197,10 @@ describe("one-note proof (production-wired) — a top-level tool-return-shape de
     // The malformed return genuinely reached the REAL dispatch seam (so the sink
     // WAS on the executed path and would have fired a second note if wired).
     expect(h.dispatched.dispatched, "the fake tool's execute() was dispatched").toBe(1);
-    // The subagent session was disposed on teardown (leak-free), NOT masking the
-    // in-flight defect.
-    expect(sdkHook.disposeCalls).toBe(1);
+    // The subagent child was torn down on teardown (PIC-9: stdin-EOF exit),
+    // leak-free, NOT masking the in-flight defect.
+    expect(h.launcher.spawns).toHaveLength(1);
+    expect(h.launcher.spawns[0]!.child.exited).toBe(true);
 
     // EXACTLY ONE note on the `theta-system-note` channel — the framed panic note.
     // If the lowering sink still delivered its own group-B note (the reverted
@@ -246,7 +228,7 @@ describe("one-note proof (production-wired) — a top-level tool-return-shape de
 
     // The conforming tool genuinely ran through the real seam...
     expect(h.dispatched.dispatched, "the conforming tool's execute() was dispatched").toBe(1);
-    expect(sdkHook.disposeCalls).toBe(1);
+    expect(h.launcher.spawns[0]!.child.exited).toBe(true);
     // ...and lowered to a value with NO operator note (neither a sink note nor a
     // panic note): the hot path is byte-identical to the prior `noopSink()`.
     expect(h.notes).toEqual([]);

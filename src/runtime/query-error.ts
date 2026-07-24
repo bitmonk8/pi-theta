@@ -125,13 +125,38 @@ export type InvokeInfraCause =
   | "return_validation"
   | "panic"
   | "internal_error"
-  | "subagent_model_unresolved";
+  | "subagent_model_unresolved"
+  // RFC-0005 / PIC-40: the child-side model pre-flight found the marshalled
+  // `--provider`/`--model` reference resolved to a different model than intended
+  // (subagent.md #pic-40; diagnostics/code-registry-runtime.md
+  // `theta/runtime/subagent-model-preflight-mismatch`). Terminal, non-retryable;
+  // surfaces to an `invoke` parent as this `invoke_infra` cause.
+  | "subagent_model_preflight_mismatch";
 
 export interface InvokeInfraError {
   kind: string;
   message: string;
   callee_path: string;
   cause: InvokeInfraCause;
+}
+
+/**
+ * A thrown carrier that pins the `InvokeInfraCause` the invoke boundary MUST
+ * surface for this failure, rather than defaulting to the `internal_error`
+ * classification a bare interpreter throw receives. RFC-0005 uses it for the
+ * child-side model pre-flight mismatch (`subagent_model_preflight_mismatch`),
+ * which is raised from the subagent bind (before the callee body runs) yet must
+ * still reach an `invoke` parent as its precise `invoke_infra` cause rather than
+ * as `internal_error` (subagent.md #pic-40). `invoke-cancellation.ts` reads
+ * `invokeInfraCause` in its boundary catch.
+ */
+export class InvokeInfraCauseError extends Error {
+  constructor(
+    message: string,
+    readonly invokeInfraCause: InvokeInfraCause,
+  ) {
+    super(message);
+  }
 }
 
 export interface InvokeCalleeError {

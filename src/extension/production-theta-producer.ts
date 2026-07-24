@@ -19,33 +19,40 @@
 // binder/binder-model-and-context.md, subagent.md.
 
 import type {
-  AgentToolResult,
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
-  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { parseDocument } from "yaml";
-import {
-  buildSessionContext,
-  createAgentSession,
-  DefaultResourceLoader,
-  defineTool,
-  getAgentDir,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-// SUBAG-2 (extension-bootstrap-and-per-theta.md §Per-theta registration): a
-// `.theta`-as-tool `ToolDefinition.parameters` wraps the callee's lowered JSON
-// Schema via `Type.Unsafe<unknown>(...)` — the same TypeBox pattern the binder
-// envelope tool uses (`binder-inference.ts`), so TypeBox carries the JSON Schema
-// through to the provider lowering layer.
-import { Type } from "typebox";
+// RFC-0005: `buildSessionContext` remains for the prompt-mode drive; the former
+// in-process subagent satellites (`createAgentSession` / `DefaultResourceLoader`
+// / `SessionManager` / `getAgentDir` / `defineTool`) are retired — the subagent
+// drive spawns a child `pi` process (subagent.md, RFC-0005).
+import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import {
   attachSubagentAbortForwarding,
   extractSubagentQueryResult,
-  makeIdempotentDispose,
+  preFlightModelCheck,
+  preSpawnModelGuard,
+  renderModelPreflightMismatchMessage,
+  runSubagentChildTeardown,
+  SUBAGENT_MODEL_PREFLIGHT_MISMATCH_CODE,
+  SUBAGENT_MODEL_UNRESOLVED_MESSAGE,
 } from "../runtime/subagent-isolation";
+import type { SubagentChildProcess } from "../runtime/subagent-launcher";
+import {
+  inferChildTrust,
+  launchSubagentChild,
+  routeSubagentSpawnFailure,
+} from "../runtime/subagent-launcher";
+import {
+  queryChildResolvedModel,
+  readTerminalAgentEnd,
+  sendAbortCommand,
+  serializePromptCommand,
+} from "../runtime/subagent-rpc-driver";
+import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
 import { runPromptSuspendInvoke } from "../runtime/invoke-prompt-suspend";
 import type { ThetaMode } from "../parser/frontmatter";
 import type {
@@ -120,8 +127,9 @@ import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
 import { runInvokeChild } from "../runtime/invoke-cancellation";
 import type { InvokeInfraError, TransportError } from "../runtime/query-error";
+import { InvokeInfraCauseError } from "../runtime/query-error";
 import {
-  newInvokeChain,
+  newInvokeChainAtDepth,
   pushCountableFrame,
   surfaceDepthOverflow,
   InvokeDepthExceededPanic,
@@ -264,18 +272,35 @@ export interface ProductionProducerInput {
    */
   readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
   /**
-   * SUBAG-2: lower a subagent theta's callable-set Pi-tool name to its full pi
-   * `ToolDefinition`, so `spawnSubagentConversation` can install the theta's
-   * `tools:` set as `customTools` on the spawned `AgentSession` (subagent.md
-   * rules 1–3). Constructed at the composition root over the same built-in
-   * tool factories `resolvePiTool` uses. Absent on non-production harnesses, in
-   * which case the subagent spawns with no tools (the model cannot make a tool
-   * call — the pre-fix behaviour).
+   * RFC-0005 subagent launch seams (subagent.md #subagent-launch-contract). The
+   * child-`pi`-process spawn function, the executable-resolution host snapshot,
+   * the parent environment inherited by the child (full inheritance is the
+   * credential mechanism), and the parent PID carried on the env marker. All are
+   * wired at the production composition root; absent on non-production harnesses
+   * (where a subagent bind fails with an internal error rather than launching).
    */
-  readonly resolvePiToolDefinition?: (
-    name: string,
-    cwd: string,
-  ) => ToolDefinition | undefined;
+  readonly subagentSpawn?: import("../runtime/subagent-launcher").SpawnFn;
+  readonly subagentExecutableHost?: import("../runtime/subagent-launcher").ExecutableHost;
+  readonly subagentParentEnv?: Readonly<Record<string, string | undefined>>;
+  readonly subagentParentPid?: number;
+  /**
+   * INV-4 (invocation.md §INV-4): the inbound per-chain invoke depth this
+   * process was launched at. Non-zero only when THIS process is a subagent
+   * child `pi` process: the parent marshalled its current chain depth on the
+   * child env (`SUBAGENT_INVOKE_DEPTH_ENV`) and the composition root parsed it
+   * (fresh chain at depth 0 on a malformed carriage). The child's top-level
+   * invoke chain seeds from it so the depth-32 ceiling continues across the
+   * process hop. Absent (→ 0) on the parent / harness paths.
+   */
+  readonly subagentInboundInvokeDepth?: number;
+  /**
+   * #subagent-isolation-and-trust: the `pi.getAllTools()` name+`sourceInfo.scope`
+   * snapshot the project-local trust inference (`--approve` / `--no-approve`)
+   * reads. Absent on non-production harnesses (yields `--no-approve`).
+   */
+  readonly getAllTools?: () => readonly import("../runtime/subagent-launcher").ToolSourceScope[];
+  /** Runtime-defect diagnostic sink (advisory teardown / spawn-failure / wire failures). */
+  readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
   /**
    * H8b: parse a `.theta`-callable / `invoke(...)` callee referenced from
    * `callerPath` into a runnable composition input (resolving the callee path
@@ -339,14 +364,12 @@ export function createProductionProducerDeps(
 }
 
 /**
- * PIC-40. Raised (a specific type, never a broad throw) when a subagent-mode
- * theta is dispatched with no resolvable model: frontmatter `model:` is absent
- * and the inherited `ctx.model` is `undefined`, so `createAgentSession` cannot
- * be called. The shipped acceptance host pins `--model`, so this branch is not
- * reached there; it keeps the no-model gap explicit rather than spawning a
- * modelless session.
+ * PIC-9 spawn-failure. Raised (a specific type, never a broad throw) when the
+ * subagent child `pi` process cannot be launched (executable unresolved / spawn
+ * throw / missing spawn seam). It unwinds the bind so the invocation fails and
+ * routes as an unanticipated SDK reject (`theta/runtime/internal-error`).
  */
-class SubagentModelUnresolvedError extends Error {}
+class SubagentSpawnFailedError extends Error {}
 
 /**
  * CANCEL-3 (cancellation.md §"Race semantics — swallowing-handler attachment on
@@ -1078,9 +1101,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   bindPromptConversation(bindInput: ConversationBindInput): ConversationBinding {
     const { pi, root } = this.#input;
     const { theta, ctx } = bindInput;
-    // INV-4 / ceiling #1: a top-level dispatch starts a fresh chain at depth 0;
-    // a nested invoke carries the parent's pushed chain in `bindInput.chain`.
-    const chain = bindInput.chain ?? newInvokeChain();
+    // INV-4 / ceiling #1: a top-level dispatch starts a fresh chain, seeded at
+    // the inbound subagent-child depth (0 on the parent / harness paths, the
+    // marshalled parent depth inside a subagent child — invocation.md §INV-4
+    // wire-level carriage); a nested invoke carries the parent's pushed chain in
+    // `bindInput.chain`.
+    const chain = bindInput.chain ?? newInvokeChainAtDepth(this.#input.subagentInboundInvokeDepth ?? 0);
 
     // CANCEL-2 (cancellation.md §Signal source): the executor and every
     // checkpoint gate on the per-invocation `thetaAbort.signal` — NEVER
@@ -1270,18 +1296,30 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const { theta, ctx } = bindInput;
     // INV-4 / ceiling #1: carry the parent's pushed chain into the spawned
     // subagent session so the per-chain depth counter crosses the subagent
-    // boundary unchanged; a top-level subagent dispatch starts at depth 0.
-    const chain = bindInput.chain ?? newInvokeChain();
+    // boundary unchanged; a top-level subagent dispatch starts a fresh chain
+    // seeded at the inbound subagent-child depth (0 on the parent / harness
+    // paths, the marshalled parent depth inside a subagent child).
+    const chain = bindInput.chain ?? newInvokeChainAtDepth(this.#input.subagentInboundInvokeDepth ?? 0);
 
-    // PIC-40 pre-spawn model guard: the subagent's resolved model is the theta's
-    // frontmatter `model:` resolved into the inherited session model — here the
-    // inherited `ctx.model`. Refuse the spawn (specific type, no `createAgentSession`
-    // call) when it is `undefined` rather than spawning a modelless session.
+    // PIC-40 obligation 1 (pre-spawn model guard): the subagent's resolved model
+    // is the theta's frontmatter `model:` resolved into the inherited session
+    // model — here the inherited `ctx.model`. Refuse the spawn when it is
+    // `undefined` rather than launching a modelless child, emitting the pinned
+    // `theta/runtime/subagent-model-unresolved` diagnostic on the production
+    // path and surfacing the precise `invoke_infra` cause
+    // `subagent_model_unresolved` to an `invoke` parent (via
+    // `InvokeInfraCauseError`, the boundary-cause carrier the pre-flight-mismatch
+    // arm below also uses) rather than the default `internal_error`. The guard
+    // decision is owned by the reusable `preSpawnModelGuard` seam.
     const model = ctx.model;
-    if (model === undefined) {
-      throw new SubagentModelUnresolvedError(
-        "subagent invocation has no resolved model: frontmatter 'model:' is absent " +
-          "and the inherited session model is undefined",
+    const modelGuard = preSpawnModelGuard(model?.id);
+    if (!modelGuard.proceed || model === undefined) {
+      if (modelGuard.diagnostic !== undefined) {
+        (this.#input.emitDiagnostic ?? ((): void => {}))(modelGuard.diagnostic);
+      }
+      throw new InvokeInfraCauseError(
+        SUBAGENT_MODEL_UNRESOLVED_MESSAGE,
+        "subagent_model_unresolved",
       );
     }
 
@@ -1343,257 +1381,170 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       }
     }
 
-    // SUBAG-2: lower the theta's callable set to the spawned session's tools.
-    // `customTools` carries the full pi `ToolDefinition` for each underlying
-    // Pi-tool name in the callable set, and `tools` is the explicit allowlist of
-    // those same names (subagent.md rules 1–3; the allowlist enforces the
-    // "ambient Pi tools NOT inherited" invariant).
-    // SUBAG-2 (WIRED): both Pi-tool AND `.theta`-callable entries are lowered.
-    const customTools: ToolDefinition[] = [];
-    for (const toolName of callableSetPiToolNames(theta)) {
-      const definition = this.#input.resolvePiToolDefinition?.(toolName, ctx.cwd);
-      if (definition !== undefined) {
-        customTools.push(definition);
+    // RFC-0005 launch contract (subagent.md #subagent-launch-contract): the
+    // theta's callable set becomes the child's `--tools` allowlist (Pi-tool
+    // underlying names + `.theta` callable presented names). The child registers
+    // built-ins and extension tools natively at its own startup and resolves
+    // `.theta` callables against its own registry by name; no executable tool
+    // definition crosses the boundary. `tools: []` maps to `--no-tools` (empty ≠
+    // omission — omission would re-enable Pi's default built-ins).
+    const piToolNames = callableSetPiToolNames(theta);
+    const thetaCallableEntries = callableSetThetaEntries(theta);
+    const callableNames = [
+      ...piToolNames,
+      ...thetaCallableEntries.map((entry) => entry.presentedName),
+    ];
+    const emptyCallableSet = callableNames.length === 0;
+
+    // #subagent-isolation-and-trust: pass `--approve` iff the callable set holds a
+    // project-local tool (the operator already trusted its extension in the
+    // parent session, so the child inherits a decision already made), else
+    // `--no-approve` (least privilege).
+    const allTools = this.#input.getAllTools?.() ?? [];
+    const approve = inferChildTrust(callableNames, allTools);
+
+    // #subagent-theta-callable-hash: marshal each `.theta` callable's
+    // transitive-closure content hash to the child through the env carrier (not
+    // argv). The hash is the value CAPTURED AT LOAD on the frozen callable-set
+    // entry (`entry.closureHash`, read from the on-disk bytes at resolution
+    // time), NOT recomputed here from current disk bytes — marshalling the fresh
+    // disk hash would defeat the load-to-spawn divergence detection the child's
+    // recompute-and-compare relies on. The child verifies each marshalled hash
+    // after its own parse and refuses the invocation on mismatch (fail-closed,
+    // child-side).
+    const callableHashes: Record<string, string> = {};
+    for (const entry of thetaCallableEntries) {
+      if (entry.closureHash !== undefined) {
+        callableHashes[entry.presentedName] = entry.closureHash;
       }
     }
+    const baseParentEnv = this.#input.subagentParentEnv ?? {};
+    const parentEnv =
+      Object.keys(callableHashes).length > 0
+        ? {
+            ...baseParentEnv,
+            [SUBAGENT_CALLABLE_HASHES_ENV]: JSON.stringify(callableHashes),
+          }
+        : baseParentEnv;
 
-    // SUBAG-2 model-callable `.theta` (tool-calls.md: the callable set is SHARED
-    // between the model-driven and code-driven paths — the model sees the same
-    // `.theta` callables it can call from code). The frozen callable-set entry
-    // holds no parsed callee in production (`callee: undefined`), so resolve
-    // each `.theta` callee here via the SAME `parseCallee` seam `#driveCallee`
-    // uses, capturing the callee's declared `params:` order (for the model
-    // object-arg → positional mapping), its lowered `params:` schema (the
-    // model-facing tool `parameters`), and its `description`. A callee that no
-    // longer resolves (or a harness without `parseCallee`) simply omits the
-    // model-facing tool — the code-driven `<name>(args)` path re-resolves the
-    // callee independently, so it is never widened here.
-    const thetaCallables: ResolvedThetaCallable[] = [];
-    for (const { presentedName, calleePath } of callableSetThetaEntries(theta)) {
-      const callee = await this.#input.parseCallee?.(theta.sourcePath, calleePath);
-      if (callee === undefined) {
-        continue;
-      }
-      const params = callee.frontmatter.params;
-      thetaCallables.push({
-        presentedName,
-        calleePath,
-        paramOrder: params?.fields.map((field) => field.wireName) ?? [],
-        loweredSchema: params?.loweredSchema,
-        description: callee.frontmatter.description ?? "",
-      });
+    // The runtime-defect diagnostic sink (advisory teardown / spawn-failure /
+    // wire failures). Absent on non-production harnesses (a no-op).
+    const emitDiagnostic = this.#input.emitDiagnostic ?? ((): void => {});
+
+    // PIC-9 launch. The spawn seam + executable host are wired at the composition
+    // root; their absence on a non-production harness is a configuration defect
+    // surfaced as an internal error (never a modelless / childless drive).
+    const spawn = this.#input.subagentSpawn;
+    const executableHost = this.#input.subagentExecutableHost;
+    if (spawn === undefined || executableHost === undefined) {
+      throw new SubagentSpawnFailedError(
+        "subagent child launch is unavailable: no spawn seam / executable host wired",
+      );
     }
-
-    // SUBAG-2 / tool-calls.md §Concurrency: the RE-ENTRANT `.theta`-callable model
-    // adapter, shared by BOTH the theta-owned `complete()` loop (via
-    // `executeSubagentTool`) and the SDK `customTools` surface below. It maps the
-    // model's object arguments to positional `argValues` in the callee's declared
-    // `params:` order, then drives the callee through the SAME invoke machinery
-    // (`#buildInvokeChild` → `runInvokeChild` → `#driveCallee`) a code-driven
-    // `.theta` call (`#resolveCallAsInvoke`) / `invoke(...)` uses — so a
-    // model-driven `.theta` call inherits EXACTLY the same guarantees as a
-    // code-driven invoke. No shared mutable closure state: each call re-enters
-    // the machinery, which spawns its own `AgentSession`, so two concurrent
-    // calls execute as independent invocations on the event loop.
-    const driveThetaCallableModelCall = (
-      callable: ResolvedThetaCallable,
-      args: Record<string, unknown>,
-      toolSignal: AbortSignal,
-    ): Promise<LoweredThetaCallableResult> =>
-      lowerModelDrivenThetaCall(
-        args,
-        {
-          paramOrder: callable.paramOrder,
-          // Gap-1: drive the callee through the SAME `runInvokeChild` invoke
-          // trampoline the CODE-driven `.theta` path uses
-          // (effectful-statement-host.ts:242/309), NOT `#buildInvokeChild(...)
-          // .drive()` raw. `runInvokeChild` fires the pre-dispatch
-          // `checkpoint.before("invoke", site)` + aborted-skip, then drives the
-          // child and CONVERTS a callee-subtree throw into a VALUE at the invoke
-          // boundary: a `ThetaPanic` → `Err(InvokeInfraError{cause:"panic"})`,
-          // any other non-`HostFatal` interpreter throw →
-          // `Err(InvokeInfraError{cause:"internal_error"})`, a `HostFatal`
-          // re-raised (NOCEIL-3). `.drive()` alone only converts the ceiling-#1
-          // depth-overflow panic — every OTHER callee-BODY panic (non-exhaustive
-          // `match`, index / member / null access) would unwind as a raw throw
-          // and be mis-framed by `onSetupThrow` as a pre-eval dispatch-setup
-          // failure. Routing through `runInvokeChild` means a callee-body panic
-          // lowers as a plain `isError` result (from the returned `Err`) with NO
-          // operator note; only a GENUINE pre-dispatch dispatch-setup throw
-          // (raised before the body runs) still rejects and reaches
-          // `onSetupThrow`. `#buildInvokeChild(...)` also pushes the countable
-          // INVOKE-DEPTH frame (ceiling #1 / INV-4) and attaches the CANCEL-3
-          // swallowing handler, THEN `#driveCallee` runs the containment
-          // re-check, ceiling-#4 `params` depth, CANCEL propagation (the
-          // derived-child `thetaAbort`), the ActiveInvocationRegistry entry (B1),
-          // the PIC-9 teardown, and the FN-5 final-value surface — identical to
-          // the code-driven invoke.
-          driveCallee: async (argValues, callSignal): Promise<ResultValue> => {
-            const child = this.#buildInvokeChild(
-              theta,
-              callable.calleePath,
-              argValues,
-              ctx,
-              chain,
-              /*returnSchema*/ null,
-              callSignal,
-              /*callerMode*/ "subagent",
-            );
-            const outcome = await runInvokeChild(
-              root.checkpoint,
-              callSignal,
-              { file: theta.sourcePath ?? theta.slashName, line: 0, column: 0 },
-              child,
-            );
-            // A pre-dispatch cancel observed at the `invoke` checkpoint surfaces
-            // as `Err(CancelledError)` — the same terminal the code-driven
-            // `runToolCallEffect` maps `cancelled` to; the body panic / infra
-            // conversions are already VALUES inside `outcome.result`.
-            return outcome.kind === "cancelled"
-              ? makeErr(makeCancelledError() as unknown as ThetaValue)
-              : outcome.result;
-          },
-          // tool-calls.md:30 (`.theta`-callable adapter pre-eval setup-throw row):
-          // reached ONLY by a genuine pre-dispatch dispatch-setup throw (a
-          // callee-body panic is already a value from `runInvokeChild`). Such a
-          // throw becomes a clean `isError` result carrying the BARE
-          // callable-set name + one `theta/runtime/internal-error` diagnostic +
-          // one `theta-system-note`.
-          onSetupThrow: (thrown) =>
-            this.#emitThetaCallableSetupThrow(thrown, callable.presentedName, theta),
+    const launch = launchSubagentChild(
+      {
+        argv: {
+          systemPrompt: systemPrompt ?? "",
+          tools: callableNames,
+          emptyCallableSet,
+          provider: String(model.provider),
+          model: model.id,
+          approve,
         },
-        toolSignal,
-      );
-
-    // SUBAG-2 (tool-registration-lifetime.md §"Subagent mode"): the SDK-visible
-    // surface must match the theta-owned `complete()` loop surface, so each
-    // `.theta` callable is ALSO installed as a `defineTool` `customTool` (and
-    // allowlisted in `tools` below). Its `execute` is the SAME re-entrant adapter
-    // — no shared mutable closure state across concurrent calls. The
-    // `ToolDefinition` shape is mode-independent
-    // (extension-bootstrap-and-per-theta.md §Per-theta registration): `label` is
-    // the callee basename with hyphens preserved + leading-cap; `parameters` is
-    // the lowered schema wrapped `Type.Unsafe<unknown>`; `description` is the
-    // callee frontmatter description.
-    for (const callable of thetaCallables) {
-      customTools.push(
-        defineTool({
-          name: callable.presentedName,
-          label: deriveToolLabel({
-            kind: "theta-file",
-            basename: thetaCallableName(callable.calleePath),
-          }),
-          description: callable.description,
-          parameters: Type.Unsafe<unknown>(callable.loweredSchema ?? {}),
-          execute: async (
-            _toolCallId: string,
-            params: unknown,
-            execSignal: AbortSignal | undefined,
-          ): Promise<AgentToolResult<unknown>> => {
-            const lowered = await driveThetaCallableModelCall(
-              callable,
-              (params ?? {}) as Record<string, unknown>,
-              execSignal ?? thetaAbort.signal,
-            );
-            // `AgentToolResult` carries no `isError` field; the error framing is
-            // conveyed as the content text. The theta-owned `complete()` loop
-            // (the actual subagent query driver) is the surface that sets
-            // `ToolResultMessage.isError` — this SDK surface exists for
-            // registration-lifetime parity, not to drive the query.
-            return { content: [{ type: "text", text: lowered.text }], details: undefined };
-          },
-        }),
-      );
-    }
-
-    const toolNames = customTools.map((definition) => definition.name);
-
-    // STAGE A (STL-2 / ceiling #2): the theta OWNS the subagent's model tool
-    // loop. The model-facing tool schemas (SUBAG-2 callable set) conveyed on
-    // every `complete()` turn are the theta's frozen callable-set Pi-tool
-    // entries, presented under their post-rename callable-set name (the name
-    // the model calls and `#resolvePiToolForTheta` resolves), with the
-    // description/parameters taken from the SUBAG-2 `customTools` lowering
-    // (matched by the underlying Pi-tool name). A theta with no snapshot (an
-    // in-memory fixture) presents no tool schemas — the model cannot make a
-    // tool call, mirroring the pre-`tools:` behaviour.
-    const toolSchemas: Tool[] = [];
-    const callableSet = theta.callableSet;
-    if (callableSet !== undefined) {
-      for (const [presentedName, entry] of callableSet.entries) {
-        if (entry.kind !== "pi-tool") {
-          continue;
-        }
-        const underlying = (entry.toolDefinition as PiToolDispatch).toolName;
-        const definition = customTools.find((tool) => tool.name === underlying);
-        if (definition === undefined) {
-          continue;
-        }
-        toolSchemas.push({
-          name: presentedName,
-          description: definition.description,
-          parameters: definition.parameters,
-        });
-      }
-    }
-    // SUBAG-2: the model ALSO sees the `.theta` callables (tool-calls.md: the
-    // callable set is SHARED between the model-driven and code-driven paths).
-    // Each presents under its callable-set name, with the callee's lowered
-    // `params:` schema wrapped `Type.Unsafe<unknown>` and the callee's
-    // frontmatter `description`, so the model can emit a `tool_use` block for it
-    // exactly as `executeSubagentTool`'s `.theta` branch resolves it.
-    for (const callable of thetaCallables) {
-      toolSchemas.push({
-        name: callable.presentedName,
-        description: callable.description,
-        parameters: Type.Unsafe<unknown>(callable.loweredSchema ?? {}),
-      });
-    }
-
-    // STAGE A: execute ONE model tool call through the theta's callable set,
-    // reusing the SAME `#resolvePiToolForTheta` / `execute` path the code-driven
-    // `<name>(args)` calls use, and lower the outcome to the tool-result message
-    // fed back on the next `complete()` turn. A clean resolve lowers to the
-    // V14g filter/join text; an `execute()` throw lowers to the V14g execution
-    // message on an `isError` result so the model observes the failure and the
-    // loop continues (ceiling #4 model-driven row). A name outside the callable
-    // set is an unavailable-tool `isError` result — ambient tools are never
-    // inherited (frontmatter.md §`tools:`).
-    const thetaCallableByName = new Map(
-      thetaCallables.map((callable) => [callable.presentedName, callable] as const),
+        cwd: ctx.cwd,
+        parentEnv,
+        parentPid: this.#input.subagentParentPid ?? 0,
+        // INV-4: marshal the CURRENT per-chain depth so the child continues the
+        // depth-32 ceiling across the process hop (wire-level carriage).
+        invokeDepth: chain.depth,
+        host: executableHost,
+      },
+      { spawn, emitDiagnostic },
     );
-    const executeSubagentTool = async (
-      call: ToolCall,
-      toolSignal: AbortSignal,
-    ): Promise<ToolResultMessage> => {
-      // A `.theta`-callable branch BEFORE the Pi-tool `#resolvePiToolForTheta`
-      // path: a callable-set name bound to a `.theta` callee spawns a fresh
-      // subagent invocation through the re-entrant `#driveCallee` adapter
-      // (equivalent to `invoke<T>`), then lowers its `Result` to the fed-back
-      // tool-result (Ok → text; Err → `isError`). A name outside `thetaCallables`
-      // falls through to the Pi-tool lowering.
-      const callable = thetaCallableByName.get(call.name);
-      if (callable !== undefined) {
-        const lowered = await driveThetaCallableModelCall(
-          callable,
-          call.arguments,
-          toolSignal,
-        );
-        return subagentToolResult(call, lowered.text, lowered.isError);
-      }
-      return lowerModelDrivenToolCall(
-        call,
-        this.#resolvePiToolForTheta(theta, call.name),
-        toolSignal,
-      );
-    };
+    if (!launch.ok) {
+      // PIC-9 spawn-failure rule (with PIC-41): `launchSubagentChild` already
+      // emitted the operator-triage diagnostic; dually route the failure as an
+      // unanticipated SDK reject (theta/runtime/internal-error) with no child to
+      // tear down, then throw so the invocation fails.
+      const reason =
+        launch.reason === "unresolved"
+          ? "subagent child executable unresolved"
+          : "subagent child spawn failed";
+      routeSubagentSpawnFailure(new Error(reason), theta.sourcePath ?? theta.slashName, {
+        emitDiagnostic,
+      });
+      throw new SubagentSpawnFailedError(reason);
+    }
+    const child = launch.child;
 
-    // STAGE A: the out-of-band `complete()` free function does NOT inherit the
-    // session's request auth, so — exactly as the binder off-session path does —
-    // resolve the model's `apiKey` / `headers` off the injected model registry
-    // and pass them as request options. Resolved lazily (only when a query
-    // actually issues a completion) and cached, so a `max_rounds: 0` query (no
-    // provider turn) and a pre-dispatch cancel never touch the registry.
+    // PIC-41: forward `thetaAbort` into the child via a one-shot listener that
+    // sends the RPC `abort` command. `attachSubagentAbortForwarding` handles the
+    // spawn-then-immediate-cancel path (an already-aborted signal fires the abort
+    // synchronously before the listener is registered and before the first
+    // `prompt`), so correctness does not depend on microtask ordering.
+    const forwarding = attachSubagentAbortForwarding(thetaAbort, {
+      abort: (): Promise<void> => {
+        sendAbortCommand(child, { emitDiagnostic });
+        return Promise.resolve();
+      },
+    });
+
+    // PIC-40 child-side model pre-flight (inherited-model path only): when the
+    // theta declares no frontmatter `model:`, the marshalled `--provider`/`--model`
+    // reference is the caller's inherited session model — confirm the child
+    // resolved the intended model before the first query. A mismatch (or a state
+    // query with no reply) fails the invocation terminally with
+    // `theta/runtime/subagent-model-preflight-mismatch` and, to an `invoke`
+    // parent, `cause: "subagent_model_preflight_mismatch"`.
+    if (theta.frontmatter.model === undefined && !thetaAbort.signal.aborted) {
+      let resolvedModelId: string;
+      try {
+        resolvedModelId = await queryChildResolvedModel(child, root.clock);
+      } catch (preflightError: unknown) { // allow-broad-catch: PIC-40 model pre-flight — a no-reply / send failure fails the invocation (subagent.md #pic-40)
+        forwarding.detach();
+        await runSubagentChildTeardown(child, {
+          emitDiagnostic,
+          detachAbortListener: (): void => {},
+          settleDisposeBarrier: (): void => {},
+          clock: root.clock,
+        });
+        const detail =
+          preflightError instanceof Error ? preflightError.message : String(preflightError);
+        emitDiagnostic({
+          severity: "error",
+          code: SUBAGENT_MODEL_PREFLIGHT_MISMATCH_CODE,
+          message: `subagent model pre-flight failed: ${detail}`,
+        });
+        throw new InvokeInfraCauseError(
+          `subagent model pre-flight failed: ${detail}`,
+          "subagent_model_preflight_mismatch",
+        );
+      }
+      const preflight = preFlightModelCheck(model.id, resolvedModelId);
+      if (!preflight.proceed) {
+        if (preflight.diagnostic !== undefined) {
+          emitDiagnostic(preflight.diagnostic);
+        }
+        forwarding.detach();
+        await runSubagentChildTeardown(child, {
+          emitDiagnostic,
+          detachAbortListener: (): void => {},
+          settleDisposeBarrier: (): void => {},
+          clock: root.clock,
+        });
+        throw new InvokeInfraCauseError(
+          renderModelPreflightMismatchMessage(model.id, resolvedModelId),
+          "subagent_model_preflight_mismatch",
+        );
+      }
+    }
+
+    // PIC-42: the forced-respond terminator (typed queries) continues to run
+    // off-session in the PARENT via pi-ai `complete()` — its provider failures
+    // never cross the wire and classify through the provider-error mapping. The
+    // out-of-band `complete()` free function does not inherit the session's
+    // request auth, so resolve the model's `apiKey` / `headers` off the injected
+    // registry lazily (cached; a `max_rounds: 0` query never touches it).
     let cachedAuthOptions: Record<string, unknown> | undefined;
     const resolveAuthOptions = async (): Promise<Record<string, unknown>> => {
       if (cachedAuthOptions !== undefined) {
@@ -1612,15 +1563,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       cachedAuthOptions = options;
       return options;
     };
-
-    // STAGE A: issue ONE model completion via pi-ai `complete()` against the
-    // resolved subagent model, seeding the completion context with the theta's
-    // rendered `system:` prompt (SUBAG-1) and the theta's callable-set tool
-    // schemas (SUBAG-2), and threading `thetaAbort.signal` (CANCEL-2/4). The
-    // private conversation `messages` are owned by the query driver and
-    // discarded with the invocation (subagent isolation). The provider Promise
-    // carries the construction-site swallowing handler so a late rejection after
-    // a cancellation checkpoint is absorbed (CANCEL-3).
+    // The forced-respond terminator conveys NO tools (it is the exempt-routed
+    // structured terminator, not a free-phase turn — free-phase tool calls are
+    // owned by the child); it seeds the theta's rendered `system:` prompt and
+    // threads `thetaAbort.signal`.
     const runCompletion = async (
       messages: readonly Message[],
       completionSignal: AbortSignal,
@@ -1632,7 +1578,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           {
             ...(systemPrompt !== undefined ? { systemPrompt } : {}),
             messages: [...messages],
-            ...(toolSchemas.length > 0 ? { tools: [...toolSchemas] } : {}),
           },
           { ...authOptions, signal: completionSignal },
         ),
@@ -1640,54 +1585,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         noopSwallowChannels(),
       );
     };
-
-    // PIC-23 spawn: an isolated in-memory `AgentSession`. A theta-suppressing
-    // `DefaultResourceLoader` (no extensions/skills/prompts/themes/context files)
-    // is used deliberately: it prevents the spawned session from re-loading this
-    // very theta extension (which would recurse). The theta's `system:` reaches the
-    // spawned session through `DefaultResourceLoaderOptions.systemPrompt` — a
-    // direct SDK option that flows through `getSystemPrompt()` — so a custom
-    // `ResourceLoader` adapter is not required for the `system:` channel.
-    const agentDir = getAgentDir();
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: ctx.cwd,
-      agentDir,
-      noExtensions: true,
-      noSkills: true,
-      noPromptTemplates: true,
-      noThemes: true,
-      noContextFiles: true,
-      ...(systemPrompt !== undefined ? { systemPrompt } : {}),
-    });
-    await resourceLoader.reload();
-    const { session } = await createAgentSession({
-      cwd: ctx.cwd,
-      agentDir,
-      // pi-coding-agent 0.80.x renamed the model option from a `ModelRegistry`
-      // facade to `modelRuntime: ModelRuntime` (core/sdk.d.ts). Extensions only
-      // receive the sync `ModelRegistry` facade (ExtensionContext.modelRegistry),
-      // whose underlying `ModelRuntime` is private with no public accessor, so we
-      // cannot forward it. Omitting `modelRuntime` makes createAgentSession build
-      // its default runtime from the shared `agentDir` (auth.json/models.json) —
-      // the same config source the host registry reads — preserving model/auth
-      // resolution for the explicit `model` passed below.
-      model,
-      // PIC-23 rule 2: an explicit allowlist restricts the active set to exactly
-      // the theta's callable-set Pi-tool names (empty when the theta declares no
-      // `tools:`), suppressing Pi's default built-ins (SUBAG-2).
-      tools: toolNames,
-      customTools,
-      resourceLoader,
-      // PIC-23 rule 6 / capability item 3: a fresh in-memory manager — the
-      // spawned transcript is private and discarded on dispose.
-      sessionManager: SessionManager.inMemory(ctx.cwd),
-    });
-
-    // PIC-41: forward `thetaAbort` into the spawned session via a one-shot
-    // listener that calls `AgentSession.abort()`; PIC-9: an idempotent dispose
-    // for the return-path teardown.
-    const forwarding = attachSubagentAbortForwarding(thetaAbort, session);
-    const dispose = makeIdempotentDispose(session);
 
     const signal = thetaAbort.signal;
     const hostDeps: EffectfulStatementHostDeps = {
@@ -1728,10 +1625,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           renderedText: renderQueryText(expr, env),
           model: createSubagentQueryModel({
             queryText: renderTypedAwareQueryText(expr, env, validation?.lowered),
+            child,
             runCompletion,
-            executeTool: executeSubagentTool,
             thetaAbort,
             provider: String(model.provider),
+            emitDiagnostic,
           }),
           config: {
             maxRounds: typed ? 0 : theta.frontmatter.toolLoop?.maxRounds ?? 25,
@@ -1819,34 +1717,25 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       activeInvocations?.remove(entry);
     };
 
-    // PIC-9 session teardown (SINGLE site). Detach the one-shot PIC-41 abort
-    // listener, then dispose the spawned session. Moved OUT of `surface()` so it
-    // runs on EVERY exit of the invocation drive — the DRIVE seam's `finally`
-    // calls it BEFORE `finishInvocation` on the normal-return, returned-`Err`,
-    // AND throw paths. Previously these ran only inside `surface()`, so a genuine
-    // throw unwinding past `surface` (a `ToolReturnShapeDefectError` / `ThetaPanic`
-    // defect) skipped them and leaked the provider connection + abort listener.
-    // Idempotent: `dispose` is a `makeIdempotentDispose` latch and
-    // `forwarding.detach` is a `removeEventListener` no-op on a second call, so a
-    // defensive double-call from a caller is inert. The subagent's committed
-    // turns are never mutated by a cancel (ERR-8 / ERR-12) — the executor's
-    // cancel path routes through the inert `NoopConversationMutator`.
+    // PIC-9 child-process teardown (SINGLE site). Runs on EVERY exit of the
+    // invocation drive — the DRIVE seam's `finally` awaits it BEFORE
+    // `finishInvocation` on the normal-return, returned-`Err`, AND throw paths.
+    // Detaches the one-shot PIC-41 abort listener, closes the child's stdin,
+    // bounded-awaits child exit within `SHUTDOWN_AWAIT_CAP_MS`, and process-tree
+    // kills it on timeout; `disposeBarrier` settles on observed child exit (via
+    // `settleDisposeBarrier`). Idempotent + non-throwing (a teardown-step throw
+    // is trapped inside `runSubagentChildTeardown` as an advisory diagnostic and
+    // never masks an in-flight body defect / promotes an `Ok`/`Err` to a throw).
     let toreDown = false;
-    const teardown = (): void => {
+    const teardown = async (): Promise<void> => {
       if (toreDown) return;
       toreDown = true;
-      forwarding.detach();
-      try {
-        dispose();
-      } catch (disposeError: unknown) { // allow-broad-catch: theta/runtime/subagent-dispose-failure — pi-integration-contract/subagent.md
-        // PIC-9: a `dispose()` throw is advisory only — because `teardown` runs
-        // in the DRIVE `finally`, letting it propagate would MASK an in-flight
-        // body defect (or promote an `Ok`/`Err` value to a throw), disturbing the
-        // ERR-13 value path. The production producer threads no advisory-
-        // diagnostic sink at this seam (a pre-existing gap tracked separately),
-        // so the throw is swallowed rather than surfaced.
-        void disposeError;
-      }
+      await runSubagentChildTeardown(child, {
+        emitDiagnostic,
+        detachAbortListener: forwarding.detach,
+        settleDisposeBarrier: settleDispose,
+        clock: root.clock,
+      });
     };
 
     return {
@@ -1874,7 +1763,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * host routes the body's `@`-queries / calls / invokes through while the
    * session is active (FN-6 isolation), plus a `dispose()` that discards it on
    * return. This mirrors the `invoke`d subagent-callee spawn
-   * (`spawnSubagentConversation`) verbatim — same fresh `AgentSession`, same
+   * (`spawnSubagentConversation`) verbatim — same fresh child `pi` process, same
    * PIC-9 teardown, same ActiveInvocationRegistry finish — differing only in
    * that the body is the INLINE `subagent fn` body (run by the caller's executor
    * against these swapped resolvers) rather than a separate `.theta` callee.
@@ -1954,19 +1843,21 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       parentSignal,
     });
     if (binding.effectHostDeps === undefined) {
-      // Defensive: the production subagent bind always exposes its resolvers.
-      throw new SubagentModelUnresolvedError(
+      // Defensive: the production subagent bind always exposes its resolvers. A
+      // missing resolver set is an internal defect (not a model-resolution
+      // failure), so it routes as an unanticipated SDK reject.
+      throw new SubagentSpawnFailedError(
         "subagent fn spawn produced no effect-host resolvers",
       );
     }
     return {
       deps: binding.effectHostDeps,
-      dispose: (): void => {
-        // PIC-9: run the (idempotent, non-throwing) session teardown, then the
-        // ActiveInvocationRegistry finish — the same order the invoke DRIVE
-        // `finally` uses, so the spawned session's `dispose()` runs before the
-        // barrier settles (sub-step 3 sees a disposed session).
-        binding.teardown?.();
+      dispose: async (): Promise<void> => {
+        // PIC-9: await the (idempotent, non-throwing) child-process teardown, then
+        // the ActiveInvocationRegistry finish — the same order the invoke DRIVE
+        // `finally` uses, so the child is torn down (barrier settled on observed
+        // exit) before the registry entry is removed.
+        await binding.teardown?.();
         binding.finishInvocation?.();
       },
     };
@@ -2481,11 +2372,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
       return this.#validateInvokeReturn(theta, calleePath, returnSchema, result);
     } finally {
-      // PIC-9: run the (idempotent, non-throwing) session teardown BEFORE
-      // `finishInvocation`, so the spawned session's `dispose()`/abort-listener
-      // detach run on EVERY exit — including a genuine throw unwinding past
-      // `surface` — and the `disposeBarrier` settles post-dispose.
-      binding.teardown?.();
+      // PIC-9: await the (idempotent, non-throwing) child-process teardown BEFORE
+      // `finishInvocation`, so the child is killed / has exited (abort listener
+      // detached, `disposeBarrier` settled on observed exit) on EVERY exit —
+      // including a genuine throw unwinding past `surface` — before the registry
+      // entry is removed.
+      await binding.teardown?.();
       binding.finishInvocation?.();
     }
   }
@@ -2682,12 +2574,20 @@ export interface LoweredThetaCallableResult {
  */
 function callableSetThetaEntries(
   theta: ConversationBindInput["theta"],
-): readonly { readonly presentedName: string; readonly calleePath: string }[] {
+): readonly {
+  readonly presentedName: string;
+  readonly calleePath: string;
+  readonly closureHash?: string;
+}[] {
   const set = theta.callableSet;
   if (set === undefined) {
     return [];
   }
-  const entries: { readonly presentedName: string; readonly calleePath: string }[] = [];
+  const entries: {
+    readonly presentedName: string;
+    readonly calleePath: string;
+    readonly closureHash?: string;
+  }[] = [];
   for (const [presentedName, entry] of set.entries) {
     if (entry.kind !== "theta") {
       continue;
@@ -2695,7 +2595,13 @@ function callableSetThetaEntries(
     // Gap-2: read the authoritative callee path the load-time resolver recorded
     // on the frozen entry (from the `tools:` `spec`), NOT a basename
     // re-derivation — so renamed / hyphenated callees are presented + dispatchable.
-    entries.push({ presentedName, calleePath: entry.calleePath });
+    // #subagent-theta-callable-hash: carry the LOAD-TIME closure hash the
+    // resolution snapshot captured, so the launch marshals the stored value.
+    entries.push({
+      presentedName,
+      calleePath: entry.calleePath,
+      ...(entry.closureHash !== undefined ? { closureHash: entry.closureHash } : {}),
+    });
   }
   return entries;
 }
@@ -3164,25 +3070,27 @@ export interface SubagentQueryModelDeps {
    */
   readonly queryText: string;
   /**
-   * Issue ONE model completion given the accumulated private conversation and
-   * the loop's cancellation signal, resolving to the assistant message. The
-   * production closure calls pi-ai `complete()` against the resolved subagent
-   * model with the theta's `system:` prompt (SUBAG-1) and callable-set tool
-   * schemas (SUBAG-2), threading `thetaAbort.signal` (CANCEL).
+   * RFC-0005 / PIC-42: the spawned child `pi` process. `nextFreePhaseTurn` sends
+   * the RPC `prompt` command onto its stdin and resolves from the terminal
+   * `agent_end` event on its stdout — the child owns its agentic tool loop.
+   */
+  readonly child: SubagentChildProcess;
+  /**
+   * Issue ONE off-session model completion (the typed-query forced-respond
+   * terminator only — PIC-42) via pi-ai `complete()` against the resolved
+   * subagent model with the theta's `system:` prompt (SUBAG-1), threading
+   * `thetaAbort.signal`. Free-phase turns do NOT use this — they drive the child.
    */
   readonly runCompletion: (
     messages: readonly Message[],
     signal: AbortSignal,
   ) => Promise<AssistantMessage>;
-  /**
-   * Execute ONE model-emitted tool call through the theta's callable set and
-   * lower the outcome to the tool-result message fed back on the next turn.
-   */
-  readonly executeTool: (call: ToolCall, signal: AbortSignal) => Promise<ToolResultMessage>;
   /** The per-invocation cancel controller the loop's `signal` gates on. */
   readonly thetaAbort: AbortController;
   /** PIC-50/51: the resolved-model provider for a synthesised `TransportError`. */
   readonly provider: string;
+  /** Diagnostic sink for the child-crash / wire-parse failures (PIC-43). */
+  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
 }
 
 /**
@@ -3201,26 +3109,25 @@ export function createSubagentQueryModel(deps: SubagentQueryModelDeps): QueryMod
 }
 
 class SubagentQueryModel implements QueryModelDriver {
+  readonly #queryText: string;
+  readonly #child: SubagentChildProcess;
   readonly #runCompletion: SubagentQueryModelDeps["runCompletion"];
-  readonly #executeTool: SubagentQueryModelDeps["executeTool"];
   readonly #thetaAbort: AbortController;
   // PIC-50/51: the resolved-model provider for a synthesised `TransportError`
   // (mirrors `LivePromptQueryModel.#provider`).
   readonly #provider: string;
-  // The subagent's PRIVATE conversation, owned by this driver and discarded
-  // with the invocation (subagent isolation): the seeding user query, each
-  // assistant turn, and each tool-result turn fed back.
+  readonly #emitDiagnostic: (diagnostic: Diagnostic) => void;
+  // The forced-respond terminator's private conversation seed (typed queries).
+  // Free-phase turns are driven over the child and do NOT accumulate here.
   readonly #messages: Message[];
-  // The tool calls emitted by the most recent `tool_use` turn, keyed by
-  // tool-use id, so `runToolBatch` recovers each call's arguments (the loop's
-  // `ToolCallRequest` carries only the name + id).
-  #pending: Map<string, ToolCall> = new Map();
 
   constructor(deps: SubagentQueryModelDeps) {
+    this.#queryText = deps.queryText;
+    this.#child = deps.child;
     this.#runCompletion = deps.runCompletion;
-    this.#executeTool = deps.executeTool;
     this.#thetaAbort = deps.thetaAbort;
     this.#provider = deps.provider;
+    this.#emitDiagnostic = deps.emitDiagnostic;
     this.#messages = [{ role: "user", content: deps.queryText, timestamp: 0 }];
   }
 
@@ -3243,66 +3150,55 @@ class SubagentQueryModel implements QueryModelDriver {
   }
 
   async nextFreePhaseTurn(_round: number): Promise<FreePhaseTurn> {
-    let reply: AssistantMessage;
-    try {
-      reply = await this.#runCompletion(this.#messages, this.#thetaAbort.signal);
-    } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — cancel bounces to the loop's cancelled surface; a non-cancel complete() reject is a PIC-50 transport failure
-      // CANCEL: a completion aborted by `thetaAbort` rejects; bounce an empty
-      // `tool_use` round so the loop's next round-boundary checkpoint surfaces
-      // `Err(cancelled)`.
-      if (this.#thetaAbort.signal.aborted) {
-        return { kind: "tool_use", batch: [] };
-      }
-      // PIC-50 (mirror of the prompt path's `sendUserMessage` sync-throw
-      // mapping): a non-cancel `complete()` rejection is a provider transport
-      // failure. Surface it as the free-phase `transport` turn — never escape as
-      // `theta/runtime/internal-error`, never mask as a terminating `Ok(text)`.
-      return { kind: "transport", error: mapPromptModeSyncThrow(thrown, this.#provider) };
-    }
-    // CANCEL: a cancellation that fired DURING the completion bounces an empty
-    // round so the loop surfaces `Err(cancelled)` rather than binding a stale
-    // reply as the terminating text.
+    // RFC-0005 / PIC-42/43: the CHILD owns its agentic tool loop. Issue ONE RPC
+    // `prompt` command and resolve the query from the child's terminal
+    // (`willRetry:false`) `agent_end` event; the child's internal loop handled
+    // every tool call. This resolves the parent loop in a single round (the
+    // returned `text` terminates the free phase; free-phase tool calls are the
+    // child's, so no `tool_use` batch ever crosses back to the parent).
+    //
+    // CANCEL: an already-aborted `thetaAbort` bounces an empty `tool_use` round
+    // so the loop's round-boundary checkpoint surfaces `Err(cancelled)` (the
+    // PIC-41 abort command has already been / is being sent to the child).
     if (this.#thetaAbort.signal.aborted) {
       return { kind: "tool_use", batch: [] };
     }
-    this.#messages.push(reply);
-    // PIC-51 (mirror of the prompt path): probe the settled turn's trailing
-    // `assistant` `stopReason` before extracting tool calls or text. A
-    // `stopReason: "error"` turn diverts to `Err(TransportError)`.
-    const transport = this.#probeTransport();
-    if (transport !== undefined) {
-      return { kind: "transport", error: transport };
+    try {
+      this.#child.writeStdin(serializePromptCommand(this.#queryText));
+    } catch (sendError: unknown) { // allow-broad-catch: pi-sdk-boundary — a cancel bounces; a non-cancel stdin-send throw is a PIC-50 transport failure
+      if (this.#thetaAbort.signal.aborted) {
+        return { kind: "tool_use", batch: [] };
+      }
+      return { kind: "transport", error: mapPromptModeSyncThrow(sendError, this.#provider) };
     }
-    const calls = reply.content.filter((part): part is ToolCall => part.type === "toolCall");
-    if (calls.length > 0) {
-      // A `tool_use` round: one free-phase round consuming exactly one slot
-      // (CIO-4 — a parallel batch counts as one slot).
-      this.#pending = new Map(calls.map((call) => [call.id, call]));
-      return {
-        kind: "tool_use",
-        batch: calls.map((call) => ({ toolName: call.name, toolUseId: call.id })),
-      };
+    const result = await readTerminalAgentEnd(this.#child, {
+      aborted: this.#thetaAbort.signal.aborted,
+      provider: this.#provider,
+      emitDiagnostic: this.#emitDiagnostic,
+    });
+    // CANCEL: a cancellation that fired DURING the wait bounces to the loop's
+    // cancelled surface rather than binding a stale terminal event as the result.
+    if (this.#thetaAbort.signal.aborted) {
+      return { kind: "tool_use", batch: [] };
     }
-    // A plain-text turn terminates the free phase — the untyped query's result.
-    return { kind: "text", text: assistantText(reply) };
+    if (result.ok) {
+      // A terminal text turn — the untyped query's `Ok(string)` result (PIC-43).
+      return { kind: "text", text: result.value };
+    }
+    if (result.error.kind === "cancelled") {
+      return { kind: "tool_use", batch: [] };
+    }
+    // The two new transport failure classes (child crash / nonzero exit
+    // mid-query; unparseable wire output) and the trailing `stopReason:"error"`
+    // short-circuit all arrive as a `transport` `QueryError`
+    // (subagent.md PIC-43 / #subagent-error-fidelity) — never masked as Ok(text).
+    return { kind: "transport", error: result.error as TransportError };
   }
 
-  async runToolBatch(
-    batch: readonly { readonly toolName: string; readonly toolUseId: string }[],
-  ): Promise<readonly CommittedSideEffect[]> {
-    // Execute each sibling in the round's batch through the theta's callable set
-    // and feed every result (successful and failing alike) back into the
-    // conversation as a tool-result turn, so the next `complete()` turn sees the
-    // outcomes. The driver commits no theta-level side effects here.
-    for (const request of batch) {
-      const call = this.#pending.get(request.toolUseId);
-      if (call === undefined) {
-        continue;
-      }
-      const result = await this.#executeTool(call, this.#thetaAbort.signal);
-      this.#messages.push(result);
-    }
-    this.#pending = new Map();
+  async runToolBatch(): Promise<readonly CommittedSideEffect[]> {
+    // RFC-0005: the child owns its tool loop, so `nextFreePhaseTurn` never
+    // returns a non-empty `tool_use` batch (only the cancel-bounce empty batch
+    // reaches here); it commits nothing.
     return [];
   }
 

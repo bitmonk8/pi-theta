@@ -1,84 +1,32 @@
-// PIC-9 subagent teardown on the DRIVE seam — the leak-on-throw fix.
+// RFC-0005 re-base — PIC-9 subagent teardown on the DRIVE seam.
 //
-// Regression pin for the Decision-6 B1 leak: on the subagent invocation drive,
-// the spawned session's `dispose()` and the one-shot PIC-41 abort-forwarding
-// `detach()` used to run ONLY inside `surface()`. When `executeBody` THREW a
-// genuine defect (a `ToolReturnShapeDefectError` / `ThetaPanic`) before `surface`
-// was reached, `surface` was skipped, so `dispose()`/`detach()` never ran —
-// leaking the provider connection + the abort listener. (The B1 `finally` runs
-// `finishInvocation`, which settles the barrier + removes the registry entry,
-// but does NOT dispose/detach.)
+// Regression pin for the Decision-6 B1 leak, carried onto the RFC-0005
+// child-process drive. On the subagent invocation drive, the per-invocation
+// teardown (`binding.teardown`) must run on EVERY exit path — throw / normal /
+// returned-`Err` — BEFORE `finishInvocation` (so the `disposeBarrier` still
+// settles post-teardown), with `surface()` skipped on the throw path and the
+// in-flight throw never masked.
 //
-// The fix moves dispose/detach OUT of `surface()` into a single idempotent
-// binding-level `teardown()` the DRIVE `finally` calls BEFORE `finishInvocation`
-// (so the `disposeBarrier` still settles post-dispose). This file proves both
-// seams of the fix:
-//   1. the REAL subagent binding (`spawnSubagentConversation`) exposes a
-//      `teardown` that disposes exactly once + detaches the abort listener
-//      exactly once (idempotent on a second call), a `dispose()` throw is
-//      swallowed, and `surface()` no longer disposes;
-//   2. the DRIVE seam (`composeThetaFixture.run`) runs `binding.teardown()` on
-//      the throw / normal / returned-`Err` paths — before `finishInvocation`,
-//      surface skipped on the throw path — without masking the in-flight throw.
+// WHAT CHANGED FROM THE IN-PROCESS SUITE. The former part (1) drove the REAL
+// `spawnSubagentConversation` over a mocked in-process `createAgentSession` and
+// asserted `session.dispose()` / `session.abort()` counters. Under RFC-0005 the
+// spawned in-process `AgentSession` is replaced by a child `pi` process, so
+// those in-process assertions are retired. The child-process teardown mechanism
+// (stdin close → bounded await SHUTDOWN_AWAIT_CAP_MS → process-tree kill;
+// disposeBarrier settles on observed child exit; dispose-failure advisory on a
+// teardown-step throw) is now covered as a pure seam by
+// `runSubagentChildTeardown` in `tests/subagent-isolation.test.ts` (PIC-9). This
+// suite retains the DRIVE-seam obligation below, which is MECHANISM-NEUTRAL: it
+// asserts that the drive runs `binding.teardown()` on every exit — independent
+// of whether teardown disposes an in-process handle or kills a child process.
+//
+// Spec: pi-integration-contract/subagent.md PIC-9 (child-process lifecycle);
+// docs/rfcs/0005-child-process-subagent-sessions.md.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-// --- (1) REAL subagent binding: mock only the SDK spawn surface -------------
-// The spawned session is a spy double (abort/dispose counters); the rest of the
-// SDK module is preserved (spread). `createAgentSession` yields the spy session,
-// and the theta-suppressing resource loader / in-memory session manager / agent
-// dir are inert stubs — the spawn reaches `attachSubagentAbortForwarding` +
-// `makeIdempotentDispose` (the REAL isolation helpers) over the spy session.
-const sdkHook = vi.hoisted(() => ({
-  disposeCalls: 0,
-  abortCalls: 0,
-  disposeThrows: false,
-}));
-
-vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
-  class FakeResourceLoader {
-    constructor(_opts: unknown) {}
-    reload(): Promise<void> {
-      return Promise.resolve();
-    }
-    getSystemPrompt(): string {
-      return "";
-    }
-    getAppendSystemPrompt(): string[] {
-      return [];
-    }
-  }
-  return {
-    ...actual,
-    getAgentDir: (): string => "/agent",
-    DefaultResourceLoader: FakeResourceLoader,
-    SessionManager: { inMemory: (): object => ({}) },
-    createAgentSession: (): Promise<{ session: unknown }> =>
-      Promise.resolve({
-        session: {
-          abort: (): Promise<void> => {
-            sdkHook.abortCalls += 1;
-            return Promise.resolve();
-          },
-          dispose: (): void => {
-            sdkHook.disposeCalls += 1;
-            if (sdkHook.disposeThrows) {
-              throw new Error("dispose exploded");
-            }
-          },
-        },
-      }),
-  };
-});
-
-// --- (2) DRIVE seam: mock the module-level executeBody the drive calls -------
+// --- DRIVE seam: mock the module-level executeBody the drive calls ----------
 const executorHook = vi.hoisted(() => ({
   impl: undefined as
     | ((...args: readonly unknown[]) => Promise<unknown>)
@@ -98,11 +46,9 @@ vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
   };
 });
 
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import { composeThetaFixture } from "../src/extension/theta-composition-producer";
 import type {
   ConversationBinding,
-  ConversationBindInput,
   ThetaCompositionInput,
   ThetaProducerDeps,
 } from "../src/extension/theta-composition-producer";
@@ -115,30 +61,10 @@ import type { QueryError } from "../src/runtime/query-error";
 import { HostFatal, IndexOutOfBoundsPanic } from "../src/runtime/runtime-panics";
 import { ToolReturnShapeDefectError } from "../src/runtime/tool-call-off-surface";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import type { ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 
 // --- shared scaffolding ------------------------------------------------------
-
-class RecordingCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: new RecordingCheckpoint(),
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: { wallNow: () => 0 },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {} } as unknown as ExtensionAPI;
-}
 
 function emptyBody(): ThetaBody {
   return { statements: [], tail: null } as unknown as ThetaBody;
@@ -155,89 +81,9 @@ function subagentTheta(): ThetaCompositionInput {
 }
 
 // =============================================================================
-// (1) The REAL subagent binding: teardown disposes+detaches once; surface does
-//     not dispose; a dispose() throw is swallowed.
-// =============================================================================
-
-describe("PIC-9 — the subagent binding's teardown (real spawnSubagentConversation)", () => {
-  beforeEach(() => {
-    sdkHook.disposeCalls = 0;
-    sdkHook.abortCalls = 0;
-    sdkHook.disposeThrows = false;
-  });
-
-  /** Spawn a REAL subagent binding over the SDK spy session, threading a
-   *  test-owned `thetaAbort` so the abort-listener detach is observable. */
-  async function makeRealBinding(): Promise<{
-    binding: ConversationBinding;
-    thetaAbort: AbortController;
-    removeSpy: ReturnType<typeof vi.spyOn>;
-  }> {
-    const deps: ThetaProducerDeps = createProductionProducerDeps({
-      pi: noopPi(),
-      root: rootDouble(),
-      modelRegistry: {} as unknown as ModelRegistry,
-    });
-    const thetaAbort = new AbortController();
-    const removeSpy = vi.spyOn(thetaAbort.signal, "removeEventListener");
-    const ctx = {
-      model: "claude-test",
-      cwd: "/tmp",
-      signal: undefined,
-    } as unknown as ExtensionCommandContext;
-    const bindInput: ConversationBindInput = {
-      theta: subagentTheta(),
-      args: "",
-      ctx,
-      thetaAbort,
-    };
-    const binding = await deps.spawnSubagentConversation(bindInput);
-    return { binding, thetaAbort, removeSpy };
-  }
-
-  it("exposes a teardown, and surface() does NOT dispose (teardown moved out of surface)", async () => {
-    const { binding } = await makeRealBinding();
-    expect(binding.teardown).toBeDefined();
-
-    // surface() is now a pure final-value projection — it must not dispose.
-    binding.surface({ outcome: "success", result: { value: "ok" } } as unknown as BodyExecution);
-    expect(sdkHook.disposeCalls).toBe(0);
-    expect(sdkHook.abortCalls).toBe(0);
-  });
-
-  it("teardown() disposes exactly once AND detaches the abort listener exactly once; a second call is a no-op", async () => {
-    const { binding, thetaAbort, removeSpy } = await makeRealBinding();
-
-    binding.teardown?.();
-    expect(sdkHook.disposeCalls).toBe(1);
-    // The one-shot PIC-41 abort-forwarding listener was detached exactly once.
-    expect(removeSpy).toHaveBeenCalledTimes(1);
-    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
-
-    // Detach is real: after teardown, aborting thetaAbort no longer forwards into
-    // the spawned session's abort().
-    thetaAbort.abort(new Error("late"));
-    expect(sdkHook.abortCalls).toBe(0);
-
-    // Idempotent: a defensive second call disposes/detaches nothing further.
-    binding.teardown?.();
-    expect(sdkHook.disposeCalls).toBe(1);
-    expect(removeSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("a dispose() throw inside teardown is swallowed (never propagates out of the teardown)", async () => {
-    sdkHook.disposeThrows = true;
-    const { binding } = await makeRealBinding();
-
-    // The dispose() throw must NOT escape teardown (it would mask an in-flight
-    // body defect when teardown runs in the DRIVE `finally`).
-    expect(() => binding.teardown?.()).not.toThrow();
-    expect(sdkHook.disposeCalls).toBe(1);
-  });
-});
-
-// =============================================================================
-// (2) The DRIVE seam runs teardown on EVERY exit: throw / normal / returned-Err.
+// The DRIVE seam runs the subagent teardown on EVERY exit: throw / normal /
+// returned-Err. Mechanism-neutral under RFC-0005 (teardown kills the child
+// process rather than disposing an in-process handle).
 // =============================================================================
 
 /** A subagent binding double whose surface/teardown/finishInvocation are spied,
@@ -332,43 +178,26 @@ afterEach(() => {
   executorHook.impl = undefined;
 });
 
-describe("PIC-9 — the DRIVE seam runs the subagent teardown on every exit", () => {
-  it("(throw path) executeBody THROWS -> teardown runs once BEFORE finish, surface is skipped, and the defect is caught + framed as ONE internal-error panic-note (error-model.md#runtime-panics)", async () => {
-    // SPEC-CONTRACT REWRITE. This test previously asserted
-    //   `await expect(fixture.run(...)).rejects.toBeInstanceOf(InjectedBodyDefect)`
-    // — i.e. it PINNED the old buggy escape where a top-level runtime defect
-    // thrown at slash dispatch propagated uncaught out of `run()` to the Pi
-    // host. That was a spec violation: error-model.md §"Runtime panics" requires
-    // a top-level defect to be CAUGHT in `composeThetaFixture.run` and surfaced
-    // as ONE framed `theta-system-note`, with the session NOT torn down. The
-    // rewrite is NOT a weakening — the old assertion encoded the bug; this one
-    // encodes the contract. The teardown/finish assertions are unchanged (the
-    // inner finally is INSIDE the outer catch, so teardown + finish still run).
+describe("RFC-0005 PIC-9 — the DRIVE seam runs the subagent teardown on every exit", () => {
+  it("(throw path) executeBody THROWS -> teardown runs once BEFORE finish, surface is skipped, and the defect is framed as ONE internal-error panic-note", async () => {
     const probe = makeDriveProbe(makeOk("unused"));
     executorHook.impl = (): Promise<unknown> =>
       Promise.reject(new InjectedBodyDefect("tool-return-shape defect"));
 
     const fixture = composeThetaFixture(subagentTheta(), probe.deps);
 
-    // run() RESOLVES — the defect no longer escapes to the host.
     await expect(fixture.run("", driveCtx())).resolves.toBeUndefined();
 
-    // surface was skipped (the throw unwound past it); teardown STILL ran
-    // exactly once, before finishInvocation (inner finally inside outer catch).
     expect(probe.surfaceCalls).toBe(0);
     expect(probe.teardownCalls).toBe(1);
     expect(probe.finishCalls).toBe(1);
     expect(probe.log).toEqual(["teardown", "finish"]);
 
-    // The defect was framed as exactly ONE internal-error panic-note (a generic
-    // throw is not a `ThetaPanic`, so it routes through the runtime-defect
-    // surface with the `aborted with internal error:` framing).
     expect(probe.panicNoteCalls).toBe(1);
     expect(probe.panicNote?.framing).toBe(
       "theta /classify aborted with internal error: tool-return-shape defect",
     );
     expect(probe.panicNote?.diagnostic.code).toBe("theta/runtime/internal-error");
-    // The err-note surface (SLSH-3) is for a returned `Err` VALUE, not a throw.
     expect(probe.errNote).toBeUndefined();
   });
 
@@ -386,7 +215,6 @@ describe("PIC-9 — the DRIVE seam runs the subagent teardown on every exit", ()
     expect(probe.panicNote?.framing).toBe(
       "theta /classify aborted: index out of bounds: 5 not in 0..3",
     );
-    // The panic's registered `theta/runtime/*` code rides the diagnostic.
     expect(probe.panicNote?.diagnostic.code).toBe("theta/runtime/index-out-of-bounds");
     expect(probe.panicNote?.diagnostic.message).toBe("index out of bounds: 5 not in 0..3");
   });
@@ -409,13 +237,10 @@ describe("PIC-9 — the DRIVE seam runs the subagent teardown on every exit", ()
 
     expect(probe.teardownCalls).toBe(1);
     expect(probe.finishCalls).toBe(1);
-    // Exactly ONE note (not two).
     expect(probe.panicNoteCalls).toBe(1);
-    // The framing carries the BARE message (the `internal error: ` prefix stripped).
     expect(probe.panicNote?.framing).toBe(
       "theta /classify aborted with internal error: tool grep returned a non-conforming result envelope",
     );
-    // The defect's own precise-site diagnostic is preferred verbatim.
     expect(probe.panicNote?.diagnostic).toBe(diagnostic);
   });
 
@@ -442,10 +267,8 @@ describe("PIC-9 — the DRIVE seam runs the subagent teardown on every exit", ()
     const fixture = composeThetaFixture(subagentTheta(), probe.deps);
     await expect(fixture.run("", driveCtx())).rejects.toBe(fatal);
 
-    // Teardown/finish still ran (inner finally) before the outer catch re-raised.
     expect(probe.teardownCalls).toBe(1);
     expect(probe.finishCalls).toBe(1);
-    // The runtime-defect surface never framed it — HostFatal is re-raised.
     expect(probe.panicNoteCalls).toBe(0);
     expect(probe.panicNote).toBeUndefined();
   });
@@ -461,11 +284,8 @@ describe("PIC-9 — the DRIVE seam runs the subagent teardown on every exit", ()
     expect(probe.surfaceCalls).toBe(1);
     expect(probe.teardownCalls).toBe(1);
     expect(probe.finishCalls).toBe(1);
-    // Value path intact; teardown runs after surface, before finish.
     expect(probe.log).toEqual(["surface", "teardown", "finish"]);
-    // Ok surface emits no top-level err-note.
     expect(probe.errNote).toBeUndefined();
-    // A normal completion is a VALUE path — the panic-note surface is untouched.
     expect(probe.panicNoteCalls).toBe(0);
   });
 
@@ -481,11 +301,7 @@ describe("PIC-9 — the DRIVE seam runs the subagent teardown on every exit", ()
     expect(probe.surfaceCalls).toBe(1);
     expect(probe.teardownCalls).toBe(1);
     expect(probe.finishCalls).toBe(1);
-    // The returned Err surfaced the one-line note (SLSH-3) — teardown did not
-    // suppress it.
     expect(probe.errNote?.thetaName).toBe("classify");
-    // A returned `Err` is a VALUE (not a throw) — the outer catch never sees it,
-    // so the panic-note surface stays untouched (SLSH-3 err-note still emitted).
     expect(probe.panicNoteCalls).toBe(0);
   });
 });

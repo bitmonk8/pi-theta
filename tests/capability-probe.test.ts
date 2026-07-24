@@ -24,9 +24,12 @@ import {
 // A passing host whose checks all succeed. The Pi-side function members are
 // zero-arity `() => {}` thunks: a conformant probe checks only
 // `typeof === "function"`, never arity (PIC-4), so a zero-arg thunk passes.
-class FakeAgentSession {
-  abort(): void {}
-}
+//
+// RFC-0005 (capability-probe.md Step 0 (c)): capability 3's former in-process
+// `createAgentSession` / `AgentSession.prototype.abort` `typeof` members are
+// retired (capability 3 is now verified by the Step 0 (f) executable probe), so
+// the passing host no longer carries them and the seven-member (c) loop covers
+// capabilities 1/2/4/6 only.
 
 function makePiNamespace(): Record<string, unknown> {
   return {
@@ -48,8 +51,6 @@ function makePassingHost(overrides: Partial<ProbeHost> = {}): ProbeHost {
     // based probe passes while a `typeof`-read probe would throw (PIC-3/PIC-4).
     abortController: AbortController,
     abortSignal: AbortSignal,
-    createAgentSession: () => {},
-    agentSession: FakeAgentSession,
     pi: makePiNamespace(),
     typeboxType: { Unsafe: () => {} },
     // All four lock-step peers report an in-range version (>=0.80.8).
@@ -213,14 +214,6 @@ describe("V9a capability probe — PIC-5 (exactly five checks)", () => {
         log.push("c:sdk-capability");
         return base.pi;
       },
-      get createAgentSession() {
-        log.push("c:sdk-capability");
-        return base.createAgentSession;
-      },
-      get agentSession() {
-        log.push("c:sdk-capability");
-        return base.agentSession;
-      },
       readPeerVersion(pkg: string): string | undefined {
         log.push("d:peer-dep");
         return base.readPeerVersion(pkg);
@@ -241,9 +234,12 @@ describe("V9a capability probe — PIC-5 (exactly five checks)", () => {
     ]);
   });
 
-  it("PIC-5: FACTORY_PROBABLE_CAPABILITIES enumerates exactly inventory items 1/2/3/4/6 and nothing else", () => {
-    expect([...FACTORY_PROBABLE_CAPABILITIES]).toEqual([1, 2, 3, 4, 6]);
-    expect(FACTORY_PROBABLE_CAPABILITIES).toHaveLength(5);
+  it("PIC-5: FACTORY_PROBABLE_CAPABILITIES enumerates exactly inventory items 1/2/4/6 and nothing else", () => {
+    // RFC-0005 re-base (capability-probe.md Step 0 (c): "items 1, 2, 4, and 6
+    // (four capabilities, seven function members)"). Capability 3's in-process
+    // `createAgentSession` member is retired — it is verified by Step 0 (f).
+    expect([...FACTORY_PROBABLE_CAPABILITIES]).toEqual([1, 2, 4, 6]);
+    expect(FACTORY_PROBABLE_CAPABILITIES).toHaveLength(4);
   });
 });
 
@@ -342,20 +338,26 @@ describe("V9a capability probe — host-incompatible details.kind discriminator"
     expect(details.required).toBe("present");
   });
 
-  it("sdk-capability-missing: an absent createAgentSession refuses with member naming the failing path", () => {
+  it("sdk-capability-missing: an absent pi.sendUserMessage refuses with member naming the failing path", () => {
+    // RFC-0005 re-base (capability-probe.md Step 0 (c)): capability 3's
+    // `createAgentSession` member is retired; capability 2's `pi.sendUserMessage`
+    // is the second member in the listed order and the deterministic first
+    // failure once `pi.registerCommand` is present.
+    const pi = makePiNamespace();
+    delete pi.sendUserMessage;
     const details = expectFailure(
-      runCapabilityProbe(makePassingHost({ createAgentSession: undefined })),
+      runCapabilityProbe(makePassingHost({ pi })),
     );
     expect(details.kind).toBe("sdk-capability-missing");
     expect(details.observed).toBe("undefined");
     expect(details.required).toBe("function");
-    expect(details.member).toBe("createAgentSession");
+    expect(details.member).toBe("pi.sendUserMessage");
   });
 
   it("sdk-capability-missing: the first-failure short-circuit names the first missing member in listed order", () => {
-    // Remove registerTool (capability 4, after createAgentSession in the
-    // listed order); with createAgentSession present, registerTool is the
-    // deterministic first failure.
+    // Remove registerTool (capability 4, after sendUserMessage in the
+    // listed order); with registerCommand and sendUserMessage present,
+    // registerTool is the deterministic first failure.
     const pi = makePiNamespace();
     delete pi.registerTool;
     const details = expectFailure(

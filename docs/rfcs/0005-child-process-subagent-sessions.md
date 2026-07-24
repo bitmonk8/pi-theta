@@ -1,6 +1,6 @@
 # RFC 0005 — Child-process subagent sessions (RPC session driver)
 
-- **Status:** draft
+- **Status:** accepted
 - **Scope:** Pi-integration contract and runtime architecture. No theta
   language-surface change: the observable subagent semantics (isolated
   conversation, private transcript discarded on return, only the return value

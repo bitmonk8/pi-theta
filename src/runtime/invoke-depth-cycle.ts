@@ -131,6 +131,35 @@ export function newInvokeChain(): InvokeChain {
 }
 
 /**
+ * The starting chain seeded at an explicit depth (invocation.md §INV-4). A
+ * subagent-mode child `pi` process continues the parent's per-chain depth: the
+ * parent marshalled its current depth on the child env (`SUBAGENT_INVOKE_DEPTH_ENV`),
+ * so the child's top-level invoke chain starts there rather than at 0, keeping
+ * the depth-32 ceiling continuous across the process hop.
+ */
+export function newInvokeChainAtDepth(depth: number): InvokeChain {
+  return { depth };
+}
+
+/**
+ * Parse the inbound invoke-depth carriage read off the child env
+ * (`SUBAGENT_INVOKE_DEPTH_ENV`). INV-4 pins no malformed-carriage rule, so an
+ * absent or non-integer / negative value seeds a FRESH chain at depth 0 rather
+ * than failing closed — a corrupt carriage degrades to the top-level default,
+ * not a load refusal.
+ */
+export function parseInboundInvokeDepth(raw: string | undefined): number {
+  if (raw === undefined) {
+    return 0;
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+}
+
+/**
  * Push a countable frame onto the chain (invocation.md §INV-4). The counter is
  * incremented BEFORE the child frame begins executing, so a child whose body
  * overflows from depth 32 surfaces the panic at its very first nested frame.
@@ -161,8 +190,11 @@ export function pushCountableFrame(
  * `prompt → subagent` invocation does NOT reset the count; the subagent
  * carve-outs concern conversation isolation, not call-chain accounting.
  *
- * The counter passes through unchanged — the subagent's spawned `AgentSession`
- * is a continuation of the same call chain from the cap's perspective.
+ * The counter passes through unchanged — the subagent's spawned child `pi`
+ * process is a continuation of the same call chain from the cap's
+ * perspective (carried across the boundary on the invoke-depth env var; in
+ * production the crossing is realised by that env marshalling, so this seam
+ * survives as the conformance witness of the pass-through rule).
  */
 export function crossSubagentBoundary(chain: InvokeChain): InvokeChain {
   return chain;

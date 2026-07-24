@@ -39,6 +39,7 @@ import { makeErr } from "./value";
 import type { CommittedSideEffect } from "./no-rollback";
 import { HostFatal, isThetaPanic } from "./runtime-panics";
 import type { InvokeInfraError } from "./query-error";
+import { InvokeInfraCauseError } from "./query-error";
 
 /**
  * One `invoke` child driven on the live execution surface.
@@ -125,11 +126,16 @@ export async function runInvokeChild(
     if (thrown instanceof HostFatal) {
       throw thrown;
     }
+    // RFC-0005 / PIC-40: a thrown `InvokeInfraCauseError` pins the precise
+    // `invoke_infra` cause the boundary surfaces (e.g. the child-side model
+    // pre-flight mismatch), rather than the default `internal_error`.
+    const pinnedCause =
+      thrown instanceof InvokeInfraCauseError ? thrown.invokeInfraCause : undefined;
     const error: InvokeInfraError = {
       kind: "invoke_infra",
       message: panicMessage(thrown),
       callee_path: child.calleePath,
-      cause: isThetaPanic(thrown) ? "panic" : "internal_error",
+      cause: pinnedCause ?? (isThetaPanic(thrown) ? "panic" : "internal_error"),
     };
     return {
       kind: "value",

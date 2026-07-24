@@ -1,81 +1,67 @@
-// V9i-T — failing tests for the paired `V9i` subagent-mode session isolation
-// and lifecycle leaf.
+// RFC-0005 re-base — subagent-mode isolation and child-process lifecycle.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-9 session lifecycle, PIC-22
-// parallel spawn initiation, PIC-23 ResourceLoader adapter, PIC-40 pre-spawn
-// model guard, PIC-41 no-`signal`/abort forwarding, PIC-42 session-local
-// completion, PIC-43 terminal `agent_end` extraction);
-// pi-integration-contract/host-interfaces-core.md (`AgentSession` member
-// surface); cancellation.md; return.md / functions.md (FN-5, via the `V3d`
-// function-result seam).
+// Re-bases the former in-process `AgentSession` isolation suite onto the
+// RFC-0005 child-process drive (docs/rfcs/0005-child-process-subagent-sessions.md;
+// pi-integration-contract/subagent.md). The spec successors covered here:
+//   - PIC-40 — pre-spawn model guard (unresolved model → refuse the child
+//     spawn) AND the new child-side model pre-flight (marshalled reference vs.
+//     child-resolved model; mismatch → precise diagnostic + failed invocation);
+//   - PIC-41 — cancellation forwards via the one-shot `thetaAbort.signal`
+//     listener that sends the RPC `abort` command (spawn-then-immediate-cancel
+//     ordering);
+//   - PIC-43 — `agent_end` extraction (willRetry===false terminal selection,
+//     cancellation short-circuit, transport short-circuit on trailing
+//     `stopReason: "error"`, chronological assistant-text concatenation);
+//   - PIC-9 — child teardown (stdin close → bounded await SHUTDOWN_AWAIT_CAP_MS
+//     → process-tree kill; disposeBarrier settles on observed child exit;
+//     dispose-failure advisory on a teardown-step throw);
+//   - PIC-22 — all N parallel spawns initiated before any returns, re-based on
+//     a fake process launcher, tolerant of real spawn ordering;
+//   - FN-5 — subagent caller final-value projection.
 //
-// These tests red on their own primary assertions while `V9i` is absent because
-// the V9i-T seam stub is deliberately NON-COMPLIANT (see the module header for
-// the per-function non-compliance). No test reds on a compile error, a missing
-// fixture, or a harness throw.
-//
-// ERR-8 note: the delegated live-carrier witness (a mid-stream cancellation
-// inside the real subagent `AgentSession` leaves committed turns unmutated) is a
-// real-host-only behaviour witnessed at the manual real-host smoke gate
-// (real-host-smoke-gate.md criterion (c)) and is deliberately NOT asserted here
-// — no offline source feeds a real `createAgentSession` session a scripted
-// cancellable stream.
+// RED EXPECTATION (RFC-0005 not yet implemented). Tests targeting the new
+// process-lifecycle seams (`preFlightModelCheck`, `runSubagentChildTeardown`)
+// red on their primary assertions against the non-compliant stubs; the paired
+// implementation leaf greens them. Mechanism-neutral seams (PIC-43 extraction,
+// PIC-22 parallel dispatch, FN-5, the PIC-40 unresolved guard) carry over and
+// stay green. No test reds on a compile error, a missing fixture, or a harness
+// throw.
 
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
+import type { TransportError } from "../src/runtime/query-error";
 import { SHUTDOWN_AWAIT_CAP_MS } from "../src/extension/capability-probe";
 import {
-  attachSubagentAbortForwarding,
-  awaitTerminalAgentEnd,
-  buildSpawnOptions,
   extractSubagentQueryResult,
-  guardedSubagentSpawn,
-  makeIdempotentDispose,
+  preFlightModelCheck,
   preSpawnModelGuard,
-  runWithSubagentTeardown,
+  renderModelPreflightMismatchMessage,
+  renderSubagentDisposeFailureMessage,
+  runSubagentChildTeardown,
   spawnSubagentsInParallel,
-  subagentCallerFinalValue,
   SUBAGENT_DISPOSE_BUDGET_MS,
   SUBAGENT_DISPOSE_FAILURE_CODE,
+  SUBAGENT_MODEL_PREFLIGHT_MISMATCH_CODE,
   SUBAGENT_MODEL_UNRESOLVED_CODE,
   SUBAGENT_MODEL_UNRESOLVED_MESSAGE,
-  type AbortableSubagentSession,
+  SUBAGENT_TEARDOWN_TIMEOUT_CODE,
   type AgentEndEvent,
-  type GlobalEventBus,
-  type LoweredTool,
   type ParallelSubagentSpawn,
-  type SpawnDeps,
-  type SubagentEventSource,
-  type SubagentResourceLoader,
-  type SubagentSessionEvent,
-  type SubagentTeardown,
+  type SubagentChildTeardownDeps,
 } from "../src/runtime/subagent-isolation";
+import type { ChildExitInfo, SubagentChildProcess } from "../src/runtime/subagent-launcher";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { WallClock } from "../src/seams/wall-clock";
+import { FakeRpcChild, makeFakeChildLauncher } from "./helpers/fake-rpc-child";
 
 // ---------------------------------------------------------------------------
-// Doubles / fixtures.
+// Fixtures.
 // ---------------------------------------------------------------------------
-
-/** A distinct error so the throw-path teardown test rejects without a broad catch. */
-class BodyPanic extends Error {
-  constructor() {
-    super("body panicked");
-    this.name = "BodyPanic";
-  }
-}
-
-/** A distinct error so the dispose-throw test can match a specific type. */
-class DisposeFailure extends Error {
-  constructor() {
-    super("dispose exploded\nsecond line ignored");
-    this.name = "DisposeFailure";
-  }
-}
 
 function userMessage(content: string): UserMessage {
   return { role: "user", content, timestamp: 0 };
 }
 
-/** An assistant message with the given text and stop reason. */
 function assistantMessage(text: string, stopReason: AssistantMessage["stopReason"]): AssistantMessage {
   return {
     role: "assistant",
@@ -100,7 +86,6 @@ function agentEnd(messages: readonly Message[], willRetry: boolean): AgentEndEve
   return { type: "agent_end", messages, willRetry };
 }
 
-/** Flush pending microtasks/macrotasks a few times. */
 async function flush(): Promise<void> {
   for (let i = 0; i < 5; i += 1) {
     await new Promise((r) => setTimeout(r, 0));
@@ -108,299 +93,58 @@ async function flush(): Promise<void> {
 }
 
 // ===========================================================================
-// PIC-40 — pre-spawn model guard.
+// PIC-40 — pre-spawn model guard (unresolved model).
 // ===========================================================================
 
-describe("V9i-T — PIC-40 pre-spawn model guard", () => {
-  it("PIC-40: an unresolved (undefined) model refuses the spawn with theta/runtime/subagent-model-unresolved", () => {
+describe("RFC-0005 — PIC-40 pre-spawn model guard", () => {
+  it("PIC-40: an unresolved (undefined) model refuses the child spawn with theta/runtime/subagent-model-unresolved", () => {
     const outcome = preSpawnModelGuard(undefined);
-
-    // PIC-40: `model === undefined` MUST NOT proceed; the diagnostic carries the
-    // registry code and its Message-column string.
     expect(outcome.proceed).toBe(false);
     expect(outcome.diagnostic?.code).toBe(SUBAGENT_MODEL_UNRESOLVED_CODE);
     expect(outcome.diagnostic?.message).toBe(SUBAGENT_MODEL_UNRESOLVED_MESSAGE);
   });
 
-  it("PIC-40: the runtime does not call createAgentSession when the resolved model is undefined", async () => {
-    let spawnCalls = 0;
-    const emitted: string[] = [];
-
-    const result = await guardedSubagentSpawn(undefined, {
-      createAgentSession: async (): Promise<void> => {
-        spawnCalls += 1;
-      },
-      emitDiagnostic: (d): void => {
-        emitted.push(d.code);
-      },
-    });
-
-    // PIC-40: the guard fails the invocation before the spawn — no
-    // `createAgentSession` call, and the `subagent-model-unresolved` diagnostic
-    // is emitted.
-    expect(result.spawned).toBe(false);
-    expect(spawnCalls).toBe(0);
-    expect(emitted).toContain(SUBAGENT_MODEL_UNRESOLVED_CODE);
-  });
+  // The runtime-does-not-spawn behaviour is witnessed on the REAL production
+  // path (a modelless `spawnSubagentConversation` refuses before any launch) in
+  // `subagent-model-theta-tool.test.ts` — the former in-process
+  // `guardedSubagentSpawn` seam it used to exercise was dead and is retired.
 });
 
 // ===========================================================================
-// PIC-23 / PIC-41 / isolation — spawn-options construction.
+// PIC-40 — child-side model pre-flight (marshalled-reference confirmation).
 // ===========================================================================
 
-describe("V9i-T — PIC-23 / PIC-41 / isolation spawn-options", () => {
-  const customTools: LoweredTool[] = [{ name: "theta-x" }, { name: "theta-y" }];
+describe("RFC-0005 — PIC-40 child-side model pre-flight", () => {
+  it("PIC-40: a matching child-resolved model proceeds without a diagnostic", () => {
+    const outcome = preFlightModelCheck("claude-sonnet", "claude-sonnet");
+    expect(outcome.proceed).toBe(true);
+    expect(outcome.diagnostic).toBeUndefined();
+  });
 
-  function makeDeps(): { deps: SpawnDeps; defaultLoaderCalls: number; inMemoryFor: string[] } {
-    let defaultLoaderCalls = 0;
-    const inMemoryFor: string[] = [];
-    const deps: SpawnDeps = {
-      makeInMemorySessionManager: (cwd): object => {
-        inMemoryFor.push(cwd);
-        return { __inMemory: true, cwd };
-      },
-      makeDefaultResourceLoader: (options): SubagentResourceLoader => {
-        defaultLoaderCalls += 1;
-        return {
-          getSystemPrompt: (): string => options.systemPromptOverride(""),
-          getAppendSystemPrompt: (): string[] => [],
-        };
-      },
-    };
-    return {
-      deps,
-      get defaultLoaderCalls() {
-        return defaultLoaderCalls;
-      },
-      inMemoryFor,
-    };
-  }
+  it("PIC-40: a mismatch fails the invocation with theta/runtime/subagent-model-preflight-mismatch naming expected vs. resolved", () => {
+    const outcome = preFlightModelCheck("claude-sonnet", "claude-haiku");
 
-  it("PIC-23: the spawn passes the theta-constructed ResourceLoader adapter and does not use DefaultResourceLoader.systemPromptOverride", () => {
-    const harness = makeDeps();
-    const options = buildSpawnOptions(
-      {
-        customTools,
-        thetaSystemPrompt: "you are a subagent",
-        model: "claude-x",
-        cwd: "/work",
-        thetaAbort: new AbortController(),
-      },
-      harness.deps,
+    // PIC-40: the marshalled reference resolving child-side to a different model
+    // is terminal for the invocation.
+    expect(outcome.proceed).toBe(false);
+    expect(outcome.diagnostic?.code).toBe(SUBAGENT_MODEL_PREFLIGHT_MISMATCH_CODE);
+    expect(outcome.diagnostic?.message).toBe(
+      renderModelPreflightMismatchMessage("claude-sonnet", "claude-haiku"),
     );
-
-    // PIC-23: the `systemPromptOverride` construction channel MUST NOT be used.
-    expect(harness.defaultLoaderCalls).toBe(0);
-    // The theta-constructed adapter delivers `system:` verbatim and appends nothing.
-    expect(options.resourceLoader.getSystemPrompt()).toBe("you are a subagent");
-    expect(options.resourceLoader.getAppendSystemPrompt()).toEqual([]);
-  });
-
-  it("PIC-41: the createAgentSession options include no `signal` field", () => {
-    const harness = makeDeps();
-    const options = buildSpawnOptions(
-      {
-        customTools,
-        thetaSystemPrompt: "sp",
-        model: "claude-x",
-        cwd: "/work",
-        thetaAbort: new AbortController(),
-      },
-      harness.deps,
-    );
-
-    // PIC-41: the spawn call MUST NOT include a `signal` field.
-    expect("signal" in options).toBe(false);
-  });
-
-  it("isolation: the spawned session uses SessionManager.inMemory(cwd) and a tools allowlist equal to the lowered customTools names", () => {
-    const harness = makeDeps();
-    const options = buildSpawnOptions(
-      {
-        customTools,
-        thetaSystemPrompt: "sp",
-        model: "claude-x",
-        cwd: "/work",
-        thetaAbort: new AbortController(),
-      },
-      harness.deps,
-    );
-
-    // Isolation: no shared transcript — the manager is the fresh in-memory one
-    // built for this cwd; no shared tool table — `tools` is exactly the lowered
-    // callable-set names.
-    expect(harness.inMemoryFor).toEqual(["/work"]);
-    expect(options.sessionManager).toEqual({ __inMemory: true, cwd: "/work" });
-    expect([...options.tools]).toEqual(["theta-x", "theta-y"]);
+    // The registry Message column names expected vs. resolved.
+    expect(outcome.diagnostic?.message).toContain("claude-sonnet");
+    expect(outcome.diagnostic?.message).toContain("claude-haiku");
   });
 });
 
 // ===========================================================================
-// PIC-41 — abort forwarding into the spawned session.
+// PIC-43 — terminal agent_end extraction (short-circuit order).
 // ===========================================================================
 
-describe("V9i-T — PIC-41 abort forwarding", () => {
-  function makeSession(): { session: AbortableSubagentSession; abortCalls: number } {
-    let abortCalls = 0;
-    const session: AbortableSubagentSession = {
-      abort: async (): Promise<void> => {
-        abortCalls += 1;
-      },
-    };
-    return {
-      session,
-      get abortCalls() {
-        return abortCalls;
-      },
-    };
-  }
-
-  it("PIC-41: a thetaAbort abort forwards to AgentSession.abort() via the one-shot listener", () => {
-    const thetaAbort = new AbortController();
-    // Keep `rec` un-spread so `rec.abortCalls` reads the live getter; object-rest
-    // (`...rec`) would snapshot the getter to its value at destructure time.
-    const rec = makeSession();
-    const { session } = rec;
-
-    attachSubagentAbortForwarding(thetaAbort, session);
-    expect(rec.abortCalls).toBe(0);
-
-    thetaAbort.abort(new Error("cancelled"));
-    // PIC-41: cancellation is forwarded solely via the one-shot listener calling
-    // `AgentSession.abort()`.
-    expect(rec.abortCalls).toBe(1);
-  });
-
-  it("PIC-41: an already-aborted thetaAbort at attach time calls AgentSession.abort() synchronously", () => {
-    const thetaAbort = new AbortController();
-    thetaAbort.abort(new Error("pre-aborted"));
-    // Keep `rec` un-spread so `rec.abortCalls` reads the live getter; object-rest
-    // (`...rec`) would snapshot the getter to its value at destructure time.
-    const rec = makeSession();
-    const { session } = rec;
-
-    attachSubagentAbortForwarding(thetaAbort, session);
-
-    // PIC-41: the spawn-then-immediate-cancel path — `abort()` fires synchronously
-    // before the listener is registered.
-    expect(rec.abortCalls).toBe(1);
-  });
-});
-
-// ===========================================================================
-// PIC-42 — session-local completion await (not global pi.on).
-// ===========================================================================
-
-describe("V9i-T — PIC-42 session-local subscribe completion", () => {
-  function makeSource(): {
-    source: SubagentEventSource;
-    emit: (event: SubagentSessionEvent) => void;
-    subscribeCalls: number;
-    unsubscribeCalls: number;
-    liveListeners: number;
-  } {
-    let subscribeCalls = 0;
-    let unsubscribeCalls = 0;
-    const listeners = new Set<(event: SubagentSessionEvent) => void>();
-    const source: SubagentEventSource = {
-      subscribe: (listener): (() => void) => {
-        subscribeCalls += 1;
-        listeners.add(listener);
-        return (): void => {
-          unsubscribeCalls += 1;
-          listeners.delete(listener);
-        };
-      },
-    };
-    const emit = (event: SubagentSessionEvent): void => {
-      for (const listener of [...listeners]) {
-        listener(event);
-      }
-    };
-    return {
-      source,
-      emit,
-      get subscribeCalls() {
-        return subscribeCalls;
-      },
-      get unsubscribeCalls() {
-        return unsubscribeCalls;
-      },
-      get liveListeners() {
-        return listeners.size;
-      },
-    };
-  }
-
-  function makeGlobalBus(): { bus: GlobalEventBus; onCalls: number } {
-    let onCalls = 0;
-    const bus: GlobalEventBus = {
-      on: (): void => {
-        onCalls += 1;
-      },
-    };
-    return {
-      bus,
-      get onCalls() {
-        return onCalls;
-      },
-    };
-  }
-
-  it("PIC-42: completion is awaited via session.subscribe, never the global pi.on(\"agent_end\", …) event", async () => {
-    const src = makeSource();
-    const gb = makeGlobalBus();
-
-    const done = awaitTerminalAgentEnd(src.source, gb.bus);
-    src.emit(agentEnd([userMessage("q"), assistantMessage("hi", "stop")], false));
-    await done;
-
-    // PIC-42: the session-local subscription is used; the global `pi.on` event
-    // is never registered.
-    expect(src.subscribeCalls).toBe(1);
-    expect(gb.onCalls).toBe(0);
-  });
-
-  it("PIC-42: willRetry:true events are ignored — resolution comes from the terminal willRetry:false event", async () => {
-    const src = makeSource();
-    const gb = makeGlobalBus();
-
-    const done = awaitTerminalAgentEnd(src.source, gb.bus);
-    // A retry-preceding event MUST NOT resolve the query.
-    src.emit(agentEnd([userMessage("q"), assistantMessage("retrying", "stop")], true));
-    // The terminal event resolves it.
-    src.emit(agentEnd([userMessage("q"), assistantMessage("final", "stop")], false));
-    const event = await done;
-
-    expect(event.willRetry).toBe(false);
-    const assistant = event.messages.find((m) => m.role === "assistant") as AssistantMessage;
-    expect(assistant.content).toEqual([{ type: "text", text: "final" }]);
-  });
-
-  it("PIC-42: the runtime unsubscribes before resolving each query", async () => {
-    const src = makeSource();
-    const gb = makeGlobalBus();
-
-    const done = awaitTerminalAgentEnd(src.source, gb.bus);
-    src.emit(agentEnd([userMessage("q"), assistantMessage("final", "stop")], false));
-    await done;
-
-    // PIC-42: the subscription is torn down (via the returned unsubscribe) before
-    // the query resolves — no listener leaks onto the long-lived session.
-    expect(src.unsubscribeCalls).toBe(1);
-    expect(src.liveListeners).toBe(0);
-  });
-});
-
-// ===========================================================================
-// PIC-43 — terminal agent_end query-result extraction (short-circuit order).
-// ===========================================================================
-
-describe("V9i-T — PIC-43 agent_end query-result extraction", () => {
+describe("RFC-0005 — PIC-43 agent_end query-result extraction", () => {
   it("PIC-43: the cancellation short-circuit yields Err(cancelled) before any text extraction", () => {
     const event = agentEnd([userMessage("q"), assistantMessage("ignored", "stop")], false);
     const result = extractSubagentQueryResult(event, { aborted: true, provider: "anthropic" });
-
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe("cancelled");
@@ -410,144 +154,217 @@ describe("V9i-T — PIC-43 agent_end query-result extraction", () => {
   it("PIC-43: a trailing assistant stopReason \"error\" maps to Err(transport) after the cancellation short-circuit", () => {
     const event = agentEnd([userMessage("q"), assistantMessage("boom", "error")], false);
     const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
-
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe("transport");
+      // The #subagent-queryerror-audit / PIC-43 transport row pins the whole
+      // shape: http_status null, retryable false, the resolved-model provider
+      // populated, and — because the `assistant` message carries no
+      // `errorMessage` — the fixed fallback message "provider transport failure".
+      const transport = result.error as TransportError;
+      expect(transport.http_status).toBeNull();
+      expect(transport.retryable).toBe(false);
+      expect(transport.provider).toBe("anthropic");
+      expect(transport.message).toBe("provider transport failure");
     }
   });
 
-  it("PIC-43: with both short-circuits passed, the trailing turn's assistant text is concatenated into Ok(string)", () => {
+  it("PIC-43: an errorMessage-carrying stopReason \"error\" turn maps its errorMessage verbatim (no fallback)", () => {
+    const withMessage = assistantMessage("boom", "error");
+    (withMessage as { errorMessage?: string }).errorMessage = "429 rate limited";
+    const event = agentEnd([userMessage("q"), withMessage], false);
+    const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const transport = result.error as TransportError;
+      // The fallback string is used ONLY when `errorMessage` is absent; here the
+      // provider-formatted message rides through verbatim.
+      expect(transport.message).toBe("429 rate limited");
+      expect(transport.http_status).toBeNull();
+      expect(transport.retryable).toBe(false);
+    }
+  });
+
+  it("PIC-43: with both short-circuits passed, the trailing turn's assistant text is concatenated chronologically into Ok(string)", () => {
     const event = agentEnd(
       [userMessage("q"), assistantMessage("first", "stop"), assistantMessage("second", "stop")],
       false,
     );
     const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
-
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value).toBe("first\nsecond");
     }
   });
+
+  it("PIC-43 tail: a terminal turn with no assistant text yields Ok(\"\") (the empty-final-turn rule)", () => {
+    // A pure tool-use final turn produces no assistant text; the extraction
+    // yields the empty string rather than failing.
+    const event = agentEnd([userMessage("q"), assistantMessage("", "toolUse")], false);
+    const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBe("");
+    }
+  });
 });
 
 // ===========================================================================
-// PIC-9 — session lifecycle (idempotent dispose, teardown finally, budget).
+// PIC-9 — subagent child-process teardown.
 // ===========================================================================
 
-describe("V9i-T — PIC-9 subagent session lifecycle", () => {
-  function makeTeardown(disposeImpl?: () => void): {
-    teardown: SubagentTeardown;
-    disposeCalls: number;
+describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
+  function makeDeps(overrides?: Partial<SubagentChildTeardownDeps>): {
+    deps: SubagentChildTeardownDeps;
+    emitted: Diagnostic[];
     detachCalls: number;
+    barrierSettled: number;
   } {
-    let disposeCalls = 0;
+    const emitted: Diagnostic[] = [];
     let detachCalls = 0;
-    const idempotentDispose = makeIdempotentDispose({
-      dispose: (): void => {
-        disposeCalls += 1;
-        if (disposeImpl) {
-          disposeImpl();
-        }
+    let barrierSettled = 0;
+    const deps: SubagentChildTeardownDeps = {
+      emitDiagnostic: (d): void => {
+        emitted.push(d);
       },
-    });
-    const teardown: SubagentTeardown = {
-      dispose: idempotentDispose,
       detachAbortListener: (): void => {
         detachCalls += 1;
       },
+      settleDisposeBarrier: (): void => {
+        barrierSettled += 1;
+      },
+      // Real-timer clock: the teardown's bounded await is timed by the injected
+      // PIC-12 `Clock` seam; `WallClock` preserves the real-elapsed budget the
+      // timeout / kill-fallback assertions below depend on.
+      clock: new WallClock(),
+      ...overrides,
     };
     return {
-      teardown,
-      get disposeCalls() {
-        return disposeCalls;
-      },
+      deps,
+      emitted,
       get detachCalls() {
         return detachCalls;
+      },
+      get barrierSettled() {
+        return barrierSettled;
       },
     };
   }
 
-  it("PIC-9: dispose() runs in the finally on a normal return, and the abort listener is detached", async () => {
-    const h = makeTeardown();
-    const value = await runWithSubagentTeardown(
-      h.teardown,
-      { emitDiagnostic: (): void => {} },
-      async () => "ok",
-    );
+  it("PIC-9: teardown closes stdin, the child exits on stdin-EOF, no kill, disposeBarrier settles on observed exit, abort listener detached", async () => {
+    const child = new FakeRpcChild({ exitOnStdinEof: true });
+    const h = makeDeps();
 
-    expect(value).toBe("ok");
-    expect(h.disposeCalls).toBe(1);
+    await runSubagentChildTeardown(child, h.deps);
+
+    // Graceful path: stdin close is the shutdown trigger; the child exits on EOF
+    // (the pinned RPC presupposition), so no kill and no timeout diagnostic.
+    expect(child.stdinClosed).toBe(true);
+    expect(child.exited).toBe(true);
+    expect(child.killed).toBe(false);
+    expect(h.emitted.find((d) => d.code === SUBAGENT_TEARDOWN_TIMEOUT_CODE)).toBeUndefined();
+    // disposeBarrier settles on observed child exit; the one-shot abort listener
+    // is detached in the same teardown.
+    expect(h.barrierSettled).toBe(1);
     expect(h.detachCalls).toBe(1);
   });
 
-  it("PIC-9: dispose() runs in the finally when the body throws, and the original panic is not masked", async () => {
-    const h = makeTeardown();
+  it("PIC-9: a child that does not exit within the budget is process-tree killed and emits theta/runtime/subagent-teardown-timeout", async () => {
+    // A child that ignores stdin-EOF models a wedged child talking to its provider.
+    const child = new FakeRpcChild({ exitOnStdinEof: false });
+    const h = makeDeps({ budgetMs: 20 });
 
-    await expect(
-      runWithSubagentTeardown(h.teardown, { emitDiagnostic: (): void => {} }, async () => {
-        throw new BodyPanic();
-      }),
-    ).rejects.toBeInstanceOf(BodyPanic);
+    await runSubagentChildTeardown(child, h.deps);
 
-    // PIC-9: teardown fires on the panic path too.
-    expect(h.disposeCalls).toBe(1);
+    // Bounded await elapsed → process-tree kill fallback + the per-child timeout
+    // diagnostic; the barrier still settles on the (kill-induced) observed exit.
+    expect(child.killed).toBe(true);
+    expect(child.exited).toBe(true);
+    const timeout = h.emitted.find((d) => d.code === SUBAGENT_TEARDOWN_TIMEOUT_CODE);
+    expect(timeout).toBeDefined();
+    expect(h.barrierSettled).toBe(1);
   });
 
-  it("PIC-9: dispose() is idempotent — a second call is a no-op", () => {
-    let disposeCalls = 0;
-    const dispose = makeIdempotentDispose({
-      dispose: (): void => {
-        disposeCalls += 1;
+  it("PIC-9: a teardown-step throw (stdin close) is logged as advisory theta/runtime/subagent-dispose-failure and does not propagate", async () => {
+    let exited = false;
+    const throwingChild: SubagentChildProcess = {
+      pid: 9,
+      writeStdin: (): void => {},
+      closeStdin: (): void => {
+        throw new Error("stdin close exploded\nsecond line");
       },
-    });
+      onStdoutLine: () => () => {},
+      onStderrLine: () => () => {},
+      onExit: (listener: (info: ChildExitInfo) => void): void => {
+        // Never fires — the throw precedes exit.
+        void listener;
+      },
+      kill: (): void => {
+        exited = true;
+      },
+    };
+    const h = makeDeps();
 
-    dispose();
-    dispose();
+    // The teardown-step throw must NOT escape (it would mask an in-flight body defect).
+    await expect(runSubagentChildTeardown(throwingChild, h.deps)).resolves.toBeUndefined();
 
-    expect(disposeCalls).toBe(1);
+    const disposeFailure = h.emitted.find((d) => d.code === SUBAGENT_DISPOSE_FAILURE_CODE);
+    expect(disposeFailure).toBeDefined();
+    // The bounded-kill fallback still runs when stdin close throws.
+    expect(exited).toBe(true);
   });
 
-  it("PIC-9: a dispose() throw is logged as advisory theta/runtime/subagent-dispose-failure and does not mask the Ok", async () => {
-    const h = makeTeardown(() => {
-      throw new DisposeFailure();
-    });
-    const emitted: { code: string; message: string }[] = [];
-
-    const value = await runWithSubagentTeardown(
-      h.teardown,
-      {
-        emitDiagnostic: (d): void => {
-          emitted.push({ code: d.code, message: d.message });
-        },
+  it("PIC-9: a teardown-step throw in the bounded KILL step is logged as advisory theta/runtime/subagent-dispose-failure and does not propagate", async () => {
+    // A child that ignores stdin-EOF forces the bounded-kill fallback; the KILL
+    // step itself then throws. The registry re-scopes subagent-dispose-failure
+    // to any teardown-step throw — stdin close OR bounded kill.
+    const throwingKillChild: SubagentChildProcess = {
+      pid: 11,
+      writeStdin: (): void => {},
+      closeStdin: (): void => {},
+      onStdoutLine: () => () => {},
+      onStderrLine: () => () => {},
+      onExit: (): void => {
+        // Never fires — the child does not exit on stdin-EOF, forcing the kill.
       },
-      async () => "ok",
+      kill: (): void => {
+        throw new Error("process-tree kill exploded");
+      },
+    };
+    const h = makeDeps({ budgetMs: 20 });
+
+    // The KILL-step throw must NOT escape (it would mask an in-flight body defect).
+    await expect(runSubagentChildTeardown(throwingKillChild, h.deps)).resolves.toBeUndefined();
+
+    expect(h.emitted.find((d) => d.code === SUBAGENT_DISPOSE_FAILURE_CODE)).toBeDefined();
+  });
+
+  it("PIC-9: the dispose-failure Message column is the registry-pinned string verbatim (\"subagent teardown failed: <first line>\")", () => {
+    // diagnostics/code-registry-runtime.md pins the theta/runtime/subagent-
+    // dispose-failure Message template as `subagent teardown failed: <teardown
+    // error first line>` — only the first line of a multi-line error rides in.
+    const rendered = renderSubagentDisposeFailureMessage(
+      new Error("stdin close exploded\nsecond line"),
     );
-
-    // PIC-9: the disposal throw never promotes the Ok to an Err — the caller
-    // still observes the theta's Ok final value.
-    expect(value).toBe("ok");
-    // PIC-9: the advisory diagnostic (registry Message column
-    // `subagent dispose failed: <dispose error first line>`) is emitted.
-    const disposeDiag = emitted.find((e) => e.code === SUBAGENT_DISPOSE_FAILURE_CODE);
-    expect(disposeDiag).toBeDefined();
-    expect(disposeDiag?.message).toBe("subagent dispose failed: dispose exploded");
+    expect(rendered).toBe("subagent teardown failed: stdin close exploded");
   });
 
-  it("PIC-9: SHUTDOWN_AWAIT_CAP_MS covers disposal — the subagent disposal budget equals the shared cap", () => {
-    // PIC-9: there is no separate budget for disposal; it is covered by the
-    // single `SHUTDOWN_AWAIT_CAP_MS` declaration site.
+  it("PIC-9: SHUTDOWN_AWAIT_CAP_MS covers teardown — the subagent teardown budget equals the shared cap", () => {
     expect(SUBAGENT_DISPOSE_BUDGET_MS).toBe(SHUTDOWN_AWAIT_CAP_MS);
   });
 });
 
 // ===========================================================================
-// PIC-22 — parallel subagent spawn initiation.
+// PIC-22 — parallel subagent spawn initiation (fake process launcher).
 // ===========================================================================
 
-describe("V9i-T — PIC-22 parallel subagent spawn initiation", () => {
-  it("PIC-22: for N=2 parallel subagent tool calls, all createAgentSession calls complete and each sendUserMessage is entered before any blocked call is released", async () => {
-    let created = 0;
+describe("RFC-0005 — PIC-22 parallel subagent spawn initiation", () => {
+  // PIC-22 fixes N ≥ 2; the witness runs at N=3 so a cap/queue/scheduler that
+  // admitted, say, only the first two spawns would still be caught.
+  const PARALLEL_N = 3;
+
+  it(`PIC-22: for N=${PARALLEL_N} parallel subagent tool calls, all children are launched and each first prompt entered before any blocked call is released`, async () => {
+    const launcher = makeFakeChildLauncher();
     let entered = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -555,59 +372,30 @@ describe("V9i-T — PIC-22 parallel subagent spawn initiation", () => {
     });
 
     const makeSpawn = (): ParallelSubagentSpawn => ({
-      createSession: async () => {
-        created += 1;
-        return {
-          sendUserMessage: async (): Promise<void> => {
-            entered += 1;
-            // Block until the test explicitly releases every spawn.
-            await gate;
-          },
-        };
+      launchChild: async (): Promise<FakeRpcChild> =>
+        launcher.spawn("node", ["pi", "--mode", "rpc"], { cwd: "/w", env: {} }) as FakeRpcChild,
+      enterFirstPrompt: async (child): Promise<void> => {
+        child.writeStdin('{"type":"prompt","message":"go"}\n');
+        entered += 1;
+        // Block the first-prompt acknowledgement until the test releases it.
+        await gate;
       },
     });
 
-    // Do NOT await — the sendUserMessage calls block on `gate`.
-    const all = spawnSubagentsInParallel([makeSpawn(), makeSpawn()]);
+    // Do NOT await — the first-prompt calls block on `gate`.
+    const all = spawnSubagentsInParallel(
+      Array.from({ length: PARALLEL_N }, () => makeSpawn()),
+    );
     await flush();
 
-    // PIC-22: before any blocked call is released, both sessions have been
-    // created and both `sendUserMessage` calls have been entered. A sequential
-    // runtime would leave the second session uncreated.
-    expect(created).toBe(2);
-    expect(entered).toBe(2);
+    // PIC-22: before any blocked call is released, all N children have been
+    // launched and all N first prompts entered. A cap / queue / scheduler would
+    // leave at least one child unspawned behind a blocked drive point.
+    expect(launcher.spawns).toHaveLength(PARALLEL_N);
+    expect(entered).toBe(PARALLEL_N);
 
     release();
     await all;
   });
 });
 
-// ===========================================================================
-// FN-5 — subagent caller final-value projection (via the V3d seam).
-// ===========================================================================
-
-describe("V9i-T — FN-5 subagent caller final value", () => {
-  it("FN-5: the callee's produced final value propagates to the subagent caller on success", () => {
-    const result = subagentCallerFinalValue({ kind: "success", value: "callee-final" });
-
-    expect(result.present).toBe(true);
-    expect(result.value).toBe("callee-final");
-  });
-
-  it("FN-5: no final value flows on failure — the caller observes only the Err", () => {
-    const result = subagentCallerFinalValue({
-      kind: "fail",
-      error: { kind: "transport", message: "boom", http_status: null, provider: "anthropic", retryable: false },
-    });
-
-    expect(result.present).toBe(false);
-    expect(result.value).toBeUndefined();
-  });
-
-  it("FN-5: no final value flows on cancellation — the caller observes only the Err", () => {
-    const result = subagentCallerFinalValue({ kind: "cancel" });
-
-    expect(result.present).toBe(false);
-    expect(result.value).toBeUndefined();
-  });
-});

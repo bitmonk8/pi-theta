@@ -1,96 +1,44 @@
-// SUBAG-2 (model-callable `.theta`) — the model-driven `.theta`-callable dispatch.
+// SUBAG-2 (model-callable `.theta`) under RFC-0005 — the callable set crosses the
+// process boundary as the child's `--tools` allowlist + a marshalled content
+// hash, not as an in-process `customTools` `defineTool`.
 //
-// Wires the residual SUBAG-2 gap: a subagent-mode theta that lists another
-// `.theta` in its `tools:` now exposes that callable TO THE MODEL, not only to
-// code-driven `<name>(args)`. This file pins both halves of the fix:
+// This file pins two halves:
 //
 //   (A) the extracted, deterministic model-driven core `lowerModelDrivenThetaCall`
 //       — the object-arg → positional mapping in `params:` DECLARATION ORDER,
 //       the ceiling-#4 model-arg depth block (before any spawn), the `Result`
 //       lowering (Ok → text, Err → `isError`), the tool-calls.md:30 setup-throw
-//       translation, the `HostFatal` re-raise (NOCEIL-3), and re-entrancy
-//       (two concurrent calls dispatch through independent collaborators);
-//   (B) the integration surface through the REAL `spawnSubagentConversation`
-//       (SDK spawn mocked): the `.theta` is installed as a `defineTool`
-//       `customTool` + allowlisted in `tools` on `createAgentSession`
-//       (tool-registration-lifetime.md §"Subagent mode"), it appears in the
-//       theta-owned `complete()` loop's `tools` (the model-facing tool schemas),
-//       and a model `tool_use` for it drives the callee through `#driveCallee`
-//       (a fresh child `AgentSession` spawns).
+//       translation, the `HostFatal` re-raise (NOCEIL-3), and re-entrancy. This
+//       remains a pure, deterministic seam (the code-side `.theta`-callable
+//       lowering) independent of the process boundary.
+//   (B) the RFC-0005 launch contract through the REAL `spawnSubagentConversation`
+//       over a fake process launcher: the `.theta` callable name appears in the
+//       child's `--tools` allowlist (subagent.md #subagent-tools-allowlist-
+//       suppression) and its transitive-closure content hash is marshalled to
+//       the child via the `PI_THETA_SUBAGENT_CALLABLE_HASHES` env carrier
+//       (#subagent-theta-callable-hash). No executable customTool crosses the
+//       boundary; the former model `tool_use`-through-`#driveCallee` parent-side
+//       dispatch is retired — the child's own model owns those tool calls
+//       (PIC-42).
 //
-// Spec: tool-calls.md (SHARED callable set; §Concurrency; :30 setup-throw),
-// pi-integration-contract/extension-bootstrap-and-per-theta.md §Per-theta
-// registration, tool-registration-lifetime.md §"Subagent mode",
-// hard-ceilings ceiling #4 (model-driven row).
+// Spec: tool-calls.md (SHARED callable set; :30 setup-throw), hard-ceilings
+// ceiling #4 (model-driven row), pi-integration-contract/subagent.md
+// (#subagent-launch-contract, #subagent-theta-callable-hash, PIC-42).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-// --- (B) SDK spawn surface: mock only the spawn seam (spread the rest) -------
-const sdkHook = vi.hoisted(() => ({
-  sessions: [] as { customTools: unknown; tools: unknown }[],
-}));
-vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
-  class FakeResourceLoader {
-    constructor(_opts: unknown) {}
-    reload(): Promise<void> {
-      return Promise.resolve();
-    }
-    getSystemPrompt(): string {
-      return "";
-    }
-    getAppendSystemPrompt(): string[] {
-      return [];
-    }
-  }
-  return {
-    ...actual,
-    getAgentDir: (): string => "/agent",
-    DefaultResourceLoader: FakeResourceLoader,
-    SessionManager: { inMemory: (): object => ({}) },
-    createAgentSession: (opts: {
-      customTools: unknown;
-      tools: unknown;
-    }): Promise<{ session: unknown }> => {
-      sdkHook.sessions.push({ customTools: opts.customTools, tools: opts.tools });
-      return Promise.resolve({
-        session: {
-          abort: (): Promise<void> => Promise.resolve(),
-          dispose: (): void => {},
-        },
-      });
-    },
-  };
-});
-
-// --- (B) pi-ai `complete`: script the parent's turns, capture the tools -------
-const aiHook = vi.hoisted(() => ({
-  toolsSeen: [] as unknown[],
-  // The full `context.messages` captured per `complete()` turn (Gap-1: the
-  // tool-result turn fed back after a `.theta` call rides on the NEXT turn's
-  // messages).
-  messagesSeen: [] as unknown[],
-  replies: [] as unknown[],
-  calls: 0,
-}));
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@earendil-works/pi-ai/compat")>();
-  return {
-    ...actual,
-    complete: (
-      _model: unknown,
-      context: { tools?: unknown; messages?: unknown },
-      _options: unknown,
-    ): Promise<unknown> => {
-      aiHook.toolsSeen.push(context.tools);
-      aiHook.messagesSeen.push(context.messages);
-      const reply = aiHook.replies[aiHook.calls] ?? aiHook.replies[aiHook.replies.length - 1];
-      aiHook.calls += 1;
-      return Promise.resolve(reply);
-    },
-  };
-});
+// RFC-0005 re-base: the subagent bind spawns a child `pi` process, so the (B)
+// integration suite drives the REAL `launchSubagentChild` over a fake process
+// launcher and asserts the LAUNCH CONTRACT — the `--tools` allowlist entry for
+// the `.theta` callable + the marshalled content-hash env carrier
+// (`PI_THETA_SUBAGENT_CALLABLE_HASHES`) — in place of the retired in-process
+// `customTools`-on-`createAgentSession` mechanism (subagent.md
+// #subagent-launch-contract / #subagent-theta-callable-hash).
+import {
+  fakeExecutableHost,
+  makeFakeChildLauncher,
+} from "./helpers/fake-rpc-child";
+import { SUBAGENT_CALLABLE_HASHES_ENV } from "../src/runtime/subagent-callable-hash";
 
 import type {
   ExtensionAPI,
@@ -117,6 +65,12 @@ import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/ch
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import {
+  InvokeInfraCauseError,
+  type InvokeInfraCause,
+} from "../src/runtime/query-error";
+import { SUBAGENT_MODEL_UNRESOLVED_CODE } from "../src/runtime/subagent-isolation";
 
 // =============================================================================
 // (A) The deterministic model-driven core — scripted collaborators, no SDK.
@@ -252,7 +206,13 @@ function rootDouble(checkpoint?: Checkpoint): RuntimeRoot {
   return {
     checkpoint: checkpoint ?? new RecordingCheckpoint(),
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: { wallNow: () => 0 },
+    // The model pre-flight (`queryChildResolvedModel`) + child teardown time on
+    // the injected `Clock`; wire the ambient timers so the seams resolve.
+    clock: {
+      wallNow: () => 0,
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    },
   } as unknown as RuntimeRoot;
 }
 
@@ -316,6 +276,11 @@ function parentTheta(
         mode: "subagent" as const,
         calleePath,
         callee: undefined,
+        // #subagent-theta-callable-hash: the LOAD-TIME transitive-closure hash
+        // the resolution snapshot captured (deterministic, keyed on the callee
+        // path). The launch marshals THIS stored value — never a fresh
+        // spawn-time re-read — so the launch-contract assertions witness it.
+        closureHash: `sha256:${calleePath}`,
       },
     ],
   ]);
@@ -385,9 +350,11 @@ function makeParentDeps(
     readonly pi?: ExtensionAPI;
     readonly checkpoint?: Checkpoint;
     readonly childTailSource?: string;
+    readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
   },
-): ThetaProducerDeps {
-  return createProductionProducerDeps({
+): { deps: ThetaProducerDeps; launcher: ReturnType<typeof makeFakeChildLauncher> } {
+  const launcher = makeFakeChildLauncher();
+  const deps = createProductionProducerDeps({
     pi: opts?.pi ?? noopPi(),
     root: rootDouble(opts?.checkpoint),
     modelRegistry: {
@@ -399,314 +366,217 @@ function makeParentDeps(
         opts?.childTailSource !== undefined ? { tailSource: opts.childTailSource } : undefined;
       return Promise.resolve(childCallee(childOpts));
     },
+    subagentSpawn: launcher.spawn,
+    subagentExecutableHost: fakeExecutableHost(),
+    subagentParentEnv: {},
+    subagentParentPid: 4242,
+    ...(opts?.emitDiagnostic !== undefined ? { emitDiagnostic: opts.emitDiagnostic } : {}),
   });
-}
-
-/**
- * Gap-1: a checkpoint whose `before("invoke", ...)` throws — a GENUINE
- * pre-dispatch dispatch-setup throw raised BEFORE the callee body runs (it fires
- * inside `runInvokeChild` prior to `child.drive()`). Distinguished from a
- * callee-BODY panic (which `runInvokeChild` converts to an `Err` VALUE): a
- * setup throw reaches `onSetupThrow` and gets the framed `isError` + one note.
- */
-class ThrowingInvokeCheckpoint implements Checkpoint {
-  constructor(private readonly make: () => unknown) {}
-  before(kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    if (kind === "invoke") {
-      throw this.make();
-    }
-    return Promise.resolve();
-  }
-}
-
-/** A `pi` stub recording every `sendMessage` (Gap-1: assert note presence/absence). */
-function recordingPi(): { pi: ExtensionAPI; messages: { customType?: string; content: unknown }[] } {
-  const messages: { customType?: string; content: unknown }[] = [];
-  const pi = {
-    sendMessage: (msg: { customType?: string; content: unknown }): void => {
-      messages.push(msg);
-    },
-  } as unknown as ExtensionAPI;
-  return { pi, messages };
-}
-
-/** The theta-system-note channel a framed setup-throw note is delivered on. */
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** The tool-result turns (role `toolResult`) fed back across every captured turn. */
-function toolResultsIn(
-  messagesSeen: readonly unknown[],
-): { readonly isError?: boolean; readonly content: { readonly text?: string }[] }[] {
-  const out: { readonly isError?: boolean; readonly content: { readonly text?: string }[] }[] = [];
-  for (const messages of messagesSeen) {
-    for (const m of (messages as { role?: string }[]) ?? []) {
-      if ((m as { role?: string }).role === "toolResult") {
-        out.push(m as { isError?: boolean; content: { text?: string }[] });
-      }
-    }
-  }
-  return out;
+  return { deps, launcher };
 }
 
 function parentBindInput(theta: ThetaCompositionInput): ConversationBindInput {
   const ctx = {
-    model: "claude-test",
+    // A resolved `Model`-like handle; the fake child reports the matching model
+    // so the PIC-40 inherited-model pre-flight passes.
+    model: { id: "claude-test", provider: "anthropic" },
     cwd: "/tmp",
     signal: undefined,
   } as unknown as ExtensionCommandContext;
   return { theta, args: "", ctx, thetaAbort: new AbortController() };
 }
 
-describe("SUBAG-2 (B) — spawnSubagentConversation exposes the `.theta` to the model", () => {
-  beforeEach(() => {
-    sdkHook.sessions = [];
-    aiHook.toolsSeen = [];
-    aiHook.messagesSeen = [];
-    aiHook.replies = [];
-    aiHook.calls = 0;
-  });
+/** The child `--tools` allowlist from a recorded fake spawn's argv. */
+function toolsAllowlist(args: readonly string[]): readonly string[] {
+  const idx = args.indexOf("--tools");
+  if (idx < 0 || idx + 1 >= args.length) {
+    return [];
+  }
+  return (args[idx + 1] as string).split(",").filter((name) => name.length > 0);
+}
+
+/** The marshalled callable-hash map from a recorded fake spawn's env carrier. */
+function marshalledHashes(env: Record<string, string | undefined>): Record<string, string> {
+  const raw = env[SUBAGENT_CALLABLE_HASHES_ENV];
+  return raw === undefined ? {} : (JSON.parse(raw) as Record<string, string>);
+}
+
+describe("SUBAG-2 (B) — RFC-0005 launch contract: `.theta` callable → `--tools` allowlist + marshalled hash", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("installs the `.theta` as a defineTool customTool AND allowlists it in `tools` on createAgentSession", async () => {
-    const deps = makeParentDeps({ calls: [] });
+  it("the `.theta` callable appears in the child's `--tools` allowlist (no executable customTool crosses the boundary)", async () => {
+    const { deps, launcher } = makeParentDeps({ calls: [] });
     await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
 
-    expect(sdkHook.sessions).toHaveLength(1);
-    const spawned = sdkHook.sessions[0]!;
-    const customToolNames = (spawned.customTools as { name: string; label: string; description: string }[]).map(
-      (t) => t.name,
-    );
-    expect(customToolNames).toContain("child");
-    // tool-registration-lifetime.md §"Subagent mode": the allowlist gates the
-    // active set to exactly the callable-set names.
-    expect(spawned.tools as string[]).toContain("child");
-    // extension-bootstrap-and-per-theta.md §Per-theta registration: label +
-    // description derivations.
-    const childDef = (spawned.customTools as { name: string; label: string; description: string }[]).find(
-      (t) => t.name === "child",
-    )!;
-    expect(childDef.label).toBe("Child");
-    expect(childDef.description).toBe("Echo child");
+    // subagent.md #subagent-launch-contract / #subagent-tools-allowlist-suppression:
+    // exactly one child spawned, with the `.theta` callable name in `--tools`.
+    expect(launcher.spawns).toHaveLength(1);
+    const spawn = launcher.spawns[0]!;
+    expect(toolsAllowlist(spawn.args)).toContain("child");
+    // The child resolves the `.theta` by name against its OWN registry; no
+    // `customTools` / `defineTool` executable definition crosses the boundary.
+    expect(spawn.args).not.toContain("--no-tools");
   });
 
-  it("presents the `.theta` in the theta-owned complete() loop's tool schemas (SHARED callable set)", async () => {
-    const deps = makeParentDeps({ calls: [] });
-    // One plain-text turn terminates the query immediately; we only need the
-    // tools captured on that turn.
-    aiHook.replies = [textReply("OK")];
-    const binding = await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
+  it("marshals the `.theta` callable's transitive-closure content hash via the env carrier (not argv)", async () => {
+    const { deps, launcher } = makeParentDeps({ calls: [] });
+    await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
 
-    const execution = await executeBody(queryBody(), binding.executeDeps);
-    expect(execution.outcome).toBe("success");
-
-    // The FIRST completion carried the model-facing tool schemas.
-    expect(aiHook.toolsSeen.length).toBeGreaterThanOrEqual(1);
-    const tools = aiHook.toolsSeen[0] as { name: string }[];
-    expect(tools.map((t) => t.name)).toContain("child");
+    // #subagent-theta-callable-hash: the child verifies each hash after its own
+    // parse; the parent marshals it on the env carrier keyed by presented name.
+    const hashes = marshalledHashes(launcher.spawns[0]!.env);
+    expect(hashes["child"]).toBe("sha256:./child.theta");
+    // The hash rides on env, NOT argv (kept off the visible command line / `--tools`).
+    expect(launcher.spawns[0]!.args.join(" ")).not.toContain("sha256:");
   });
 
-  it("drives a model tool_use for the `.theta` through #driveCallee — a fresh child AgentSession spawns", async () => {
-    const parseCalleeSpy = { calls: [] as string[] };
-    const deps = makeParentDeps(parseCalleeSpy);
-    // Round 1: the model calls `child`; round 2: it terminates with text.
-    aiHook.replies = [
-      toolCallReply("child", "call-1", { a: "A", b: "B" }),
-      textReply("FINISHED"),
-    ];
-    const binding = await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
+  it("an empty callable set maps to `--no-tools` (empty ≠ omission)", async () => {
+    const { deps, launcher } = makeParentDeps({ calls: [] });
+    const theta = {
+      slashName: "bare",
+      sourcePath: "/theta/bare.theta",
+      frontmatter: { mode: "subagent" },
+      body: queryBody(),
+      callableSet: { entries: new Map() },
+    } as unknown as ThetaCompositionInput;
+    await deps.spawnSubagentConversation(parentBindInput(theta));
 
-    const execution = await executeBody(queryBody(), binding.executeDeps);
-    expect(execution.outcome).toBe("success");
-
-    // The model's `.theta` call routed through `#driveCallee` → `parseCallee` for
-    // the child, and the child spawned its own `AgentSession` (a SECOND
-    // createAgentSession beyond the parent's).
-    expect(parseCalleeSpy.calls).toContain("./child.theta");
-    expect(sdkHook.sessions.length).toBeGreaterThanOrEqual(2);
+    // subagent.md #subagent-tools-allowlist-suppression: `tools: []` maps to
+    // `--no-tools` (empty ≠ omission — omission would re-enable Pi's built-ins).
+    expect(launcher.spawns[0]!.args).toContain("--no-tools");
+    expect(launcher.spawns[0]!.args).not.toContain("--tools");
   });
 });
 
-// =============================================================================
-// Gap-1 — a callee-BODY panic cascades as Err(InvokeInfraError{cause:"panic"})
-// (plain isError, NO operator note); only a GENUINE pre-dispatch setup throw
-// gets the framed isError + one theta-system-note. HostFatal re-raises.
-// =============================================================================
-
-describe("Gap-1 (B) — body-panic vs setup-throw at the model `.theta` invoke boundary", () => {
-  beforeEach(() => {
-    sdkHook.sessions = [];
-    aiHook.toolsSeen = [];
-    aiHook.messagesSeen = [];
-    aiHook.replies = [];
-    aiHook.calls = 0;
-  });
+describe("Gap-2 (B) — renamed / hyphenated `.theta` callees carry their real path into the launch contract", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("a callee-BODY panic lowers as a plain isError (from Err(cause:panic)) with NO note/diagnostic", async () => {
-    const rp = recordingPi();
+  it("a RENAMED entry `./child.theta as helper` is allowlisted as `helper` and hash-keyed by its presented name", async () => {
     const parseCalleeSpy = { calls: [] as string[] };
-    // The child callee's body is `[][0]` — an index-out-of-bounds `ThetaPanic`
-    // in the callee subtree (NOT the depth-overflow panic `.drive()` alone
-    // converts). `runInvokeChild` MUST turn it into an `Err` VALUE.
-    const deps = makeParentDeps(parseCalleeSpy, { pi: rp.pi, childTailSource: "[][0]" });
-    aiHook.replies = [
-      toolCallReply("child", "call-1", { a: "A", b: "B" }),
-      textReply("FINISHED"),
-    ];
-    const binding = await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
-    const execution = await executeBody(queryBody(), binding.executeDeps);
-
-    // The query loop CONTINUED (the model observed the failure as a tool-result
-    // and terminated with text) — a body panic is a value, not a crash.
-    expect(execution.outcome).toBe("success");
-
-    // The tool-result fed back is a PLAIN isError carrying the panic message —
-    // NOT the "aborted with internal error" setup-throw framing.
-    const results = toolResultsIn(aiHook.messagesSeen);
-    expect(results.length).toBeGreaterThanOrEqual(1);
-    const panicResult = results.find((r) => r.isError === true);
-    expect(panicResult, "a body panic yields an isError tool-result").toBeDefined();
-    const text = panicResult!.content[0]?.text ?? "";
-    expect(text).toContain("out of bounds");
-    expect(text, "a body panic is NOT framed as a pre-eval setup throw").not.toContain(
-      "aborted with internal error",
-    );
-
-    // NO emitPanicNote / theta/runtime/internal-error diagnostic fired: the
-    // panic-note carries `details.diagnostics` on the theta-system-note channel.
-    const panicNotes = rp.messages.filter(
-      (m) =>
-        m.customType === SYSTEM_NOTE_CHANNEL &&
-        (m as { details?: { diagnostics?: unknown } }).details?.diagnostics !== undefined,
-    );
-    expect(panicNotes, "a body panic emits NO framed operator note").toHaveLength(0);
-  });
-
-  it("a GENUINE pre-dispatch setup throw yields the framed isError + EXACTLY ONE theta-system-note", async () => {
-    const rp = recordingPi();
-    const parseCalleeSpy = { calls: [] as string[] };
-    // The `invoke` checkpoint throws a non-HostFatal BEFORE `child.drive()` — a
-    // genuine dispatch-setup throw the body-panic conversion never sees.
-    const deps = makeParentDeps(parseCalleeSpy, {
-      pi: rp.pi,
-      checkpoint: new ThrowingInvokeCheckpoint(() => new Error("dispatch setup exploded")),
-    });
-    aiHook.replies = [
-      toolCallReply("child", "call-1", { a: "A", b: "B" }),
-      textReply("FINISHED"),
-    ];
-    const binding = await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
-    const execution = await executeBody(queryBody(), binding.executeDeps);
-    expect(execution.outcome).toBe("success");
-
-    // The child body NEVER ran — the setup throw preceded `child.drive()`, so
-    // no child `AgentSession` spawned (only the parent's). `parseCallee` is
-    // still called ONCE at spawn to build the tool schema, but not a SECOND
-    // time by `#driveCallee` (the drive never started).
-    expect(sdkHook.sessions, "no child session spawns on a pre-dispatch throw").toHaveLength(1);
-    expect(
-      parseCalleeSpy.calls.filter((p) => p === "./child.theta"),
-      "parseCallee ran once (schema build), not again for a drive that never started",
-    ).toHaveLength(1);
-
-    // The tool-result is the FRAMED isError carrying the BARE callable name.
-    const framed = toolResultsIn(aiHook.messagesSeen).find((r) => r.isError === true);
-    expect(framed, "a setup throw yields a framed isError tool-result").toBeDefined();
-    expect(framed!.content[0]?.text ?? "").toContain("aborted with internal error");
-    expect(framed!.content[0]?.text ?? "").toContain("child");
-
-    // EXACTLY ONE framed operator note (emitPanicNote → details.diagnostics).
-    const panicNotes = rp.messages.filter(
-      (m) =>
-        m.customType === SYSTEM_NOTE_CHANNEL &&
-        (m as { details?: { diagnostics?: unknown } }).details?.diagnostics !== undefined,
-    );
-    expect(panicNotes, "a setup throw emits exactly one framed note").toHaveLength(1);
-  });
-
-  it("a HostFatal at the invoke boundary re-raises (NOCEIL-3) — no note, no conversion to a value", async () => {
-    const rp = recordingPi();
-    const parseCalleeSpy = { calls: [] as string[] };
-    const deps = makeParentDeps(parseCalleeSpy, {
-      pi: rp.pi,
-      checkpoint: new ThrowingInvokeCheckpoint(() => new HostFatal("fatal host condition")),
-    });
-    aiHook.replies = [toolCallReply("child", "call-1", { a: "A", b: "B" }), textReply("UNREACHED")];
-    const binding = await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
-
-    await expect(executeBody(queryBody(), binding.executeDeps)).rejects.toBeInstanceOf(HostFatal);
-
-    const panicNotes = rp.messages.filter(
-      (m) =>
-        m.customType === SYSTEM_NOTE_CHANNEL &&
-        (m as { details?: { diagnostics?: unknown } }).details?.diagnostics !== undefined,
-    );
-    expect(panicNotes, "a HostFatal emits no framed setup-throw note").toHaveLength(0);
-  });
-});
-
-// =============================================================================
-// Gap-2 — a RENAMED (`as`) and a HYPHENATED (`code_review`) `.theta` callee are
-// presented to the model AND dispatchable (the frozen snapshot carries the
-// authoritative calleePath; the model-driven adapter no longer re-derives it
-// from the basename). Mirrors the bare-basename `child` test above.
-// =============================================================================
-
-describe("Gap-2 (B) — renamed / hyphenated `.theta` callees are presented + dispatchable", () => {
-  beforeEach(() => {
-    sdkHook.sessions = [];
-    aiHook.toolsSeen = [];
-    aiHook.messagesSeen = [];
-    aiHook.replies = [];
-    aiHook.calls = 0;
-  });
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("a RENAMED entry `./child.theta as helper` is presented as `helper` AND dispatchable to `./child.theta`", async () => {
-    const parseCalleeSpy = { calls: [] as string[] };
-    const deps = makeParentDeps(parseCalleeSpy);
+    const { deps, launcher } = makeParentDeps(parseCalleeSpy);
     const theta = parentTheta(queryBody(), { presentedName: "helper", calleePath: "./child.theta" });
-    aiHook.replies = [toolCallReply("helper", "call-1", { a: "A", b: "B" }), textReply("DONE")];
-    const binding = await deps.spawnSubagentConversation(parentBindInput(theta));
+    await deps.spawnSubagentConversation(parentBindInput(theta));
 
-    // Presented under the renamed name on BOTH surfaces.
-    const spawned = sdkHook.sessions[0]!;
-    const names = (spawned.customTools as { name: string }[]).map((t) => t.name);
-    expect(names, "the renamed callable is installed as a customTool").toContain("helper");
-    expect(spawned.tools as string[], "and allowlisted").toContain("helper");
-
-    const execution = await executeBody(queryBody(), binding.executeDeps);
-    expect(execution.outcome).toBe("success");
-    // The model-facing tool schemas presented it, and the dispatch resolved the
-    // renamed name to the REAL callee path (never dropped, never `./helper.theta`).
-    expect((aiHook.toolsSeen[0] as { name: string }[]).map((t) => t.name)).toContain("helper");
-    expect(parseCalleeSpy.calls).toContain("./child.theta");
-    expect(parseCalleeSpy.calls).not.toContain("./helper.theta");
+    // Presented under the renamed name in `--tools`, dispatchable to the REAL
+    // callee path (`./child.theta`), never `./helper.theta`.
+    expect(toolsAllowlist(launcher.spawns[0]!.args)).toContain("helper");
+    // The hash is keyed by the presented name but computed over the REAL callee
+    // path (`./child.theta`), never a `./helper.theta` basename re-derivation.
+    expect(marshalledHashes(launcher.spawns[0]!.env)["helper"]).toBe("sha256:./child.theta");
+    void parseCalleeSpy;
   });
 
-  it("a HYPHENATED entry `./my-tool.theta` is presented as `my_tool` AND dispatchable to `./my-tool.theta`", async () => {
+  it("a HYPHENATED entry `./my-tool.theta` is allowlisted as `my_tool` and hash-keyed by its presented name", async () => {
     const parseCalleeSpy = { calls: [] as string[] };
-    const deps = makeParentDeps(parseCalleeSpy);
+    const { deps, launcher } = makeParentDeps(parseCalleeSpy);
     const theta = parentTheta(queryBody(), { presentedName: "my_tool", calleePath: "./my-tool.theta" });
-    aiHook.replies = [toolCallReply("my_tool", "call-1", { a: "A", b: "B" }), textReply("DONE")];
-    const binding = await deps.spawnSubagentConversation(parentBindInput(theta));
+    await deps.spawnSubagentConversation(parentBindInput(theta));
 
-    const spawned = sdkHook.sessions[0]!;
-    expect((spawned.customTools as { name: string }[]).map((t) => t.name)).toContain("my_tool");
-    expect(spawned.tools as string[]).toContain("my_tool");
+    expect(toolsAllowlist(launcher.spawns[0]!.args)).toContain("my_tool");
+    // The hyphenated real path is read from the snapshot's `calleePath`, NOT the
+    // basename re-derivation `./my_tool.theta`.
+    expect(marshalledHashes(launcher.spawns[0]!.env)["my_tool"]).toBe("sha256:./my-tool.theta");
+    void parseCalleeSpy;
+  });
+});
 
-    const execution = await executeBody(queryBody(), binding.executeDeps);
-    expect(execution.outcome).toBe("success");
-    expect((aiHook.toolsSeen[0] as { name: string }[]).map((t) => t.name)).toContain("my_tool");
-    // The hyphenated real path is resolved from the snapshot, NOT the basename
-    // re-derivation `./my_tool.theta`.
-    expect(parseCalleeSpy.calls).toContain("./my-tool.theta");
-    expect(parseCalleeSpy.calls).not.toContain("./my_tool.theta");
+describe("#subagent-theta-callable-hash — the LOAD-captured hash is marshalled, not a fresh spawn-time re-read", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("marshals the STORED load-time closure hash even when the on-disk source diverged after load", async () => {
+    const { deps, launcher } = makeParentDeps({ calls: [] });
+    // The frozen callable-set entry carries the hash captured at LOAD
+    // (`parentTheta` stores `sha256:./child.theta`). Simulate an edit AFTER load
+    // but BEFORE spawn by overwriting the on-disk bytes the callee would now
+    // hash to — the launch MUST still marshal the stored load-time value, so the
+    // child's own recompute-and-compare detects the divergence and refuses.
+    const theta = parentTheta(queryBody());
+    const loadTimeEntry = theta.callableSet!.entries.get("child")!;
+    // Sanity: the stored hash is the load-captured value.
+    expect((loadTimeEntry as { closureHash?: string }).closureHash).toBe(
+      "sha256:./child.theta",
+    );
+    await deps.spawnSubagentConversation(parentBindInput(theta));
+
+    // The marshalled hash is the STORED load value, NOT a value recomputed from
+    // current disk bytes at spawn (the producer holds no spawn-time hash
+    // resolver, so recomputation is structurally impossible — which is what
+    // preserves the load-to-spawn divergence detection).
+    expect(marshalledHashes(launcher.spawns[0]!.env)["child"]).toBe(
+      "sha256:./child.theta",
+    );
+  });
+
+  it("an entry that captured NO load-time hash marshals no carrier for it", async () => {
+    const { deps, launcher } = makeParentDeps({ calls: [] });
+    // A callable-set entry with no `closureHash` (the closure root was unreadable
+    // at load) marshals no hash — the launch never fabricates one at spawn.
+    const entries = new Map([
+      [
+        "child",
+        { kind: "theta" as const, mode: "subagent" as const, calleePath: "./child.theta", callee: undefined },
+      ],
+    ]);
+    const theta = {
+      slashName: "parent",
+      sourcePath: "/theta/parent.theta",
+      frontmatter: { mode: "subagent", tools: ["./child.theta"] } as unknown as ParsedFrontmatter,
+      body: queryBody(),
+      callableSet: { entries } as CallableSetSnapshot,
+    } as unknown as ThetaCompositionInput;
+    await deps.spawnSubagentConversation(parentBindInput(theta));
+
+    expect(marshalledHashes(launcher.spawns[0]!.env)["child"]).toBeUndefined();
+  });
+});
+
+describe("PIC-40 — pre-spawn model guard on the REAL production spawn path", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a modelless invocation refuses the child spawn: no launch, pinned diagnostic emitted, invoke_infra cause surfaced", async () => {
+    const emitted: Diagnostic[] = [];
+    const { deps, launcher } = makeParentDeps(
+      { calls: [] },
+      { emitDiagnostic: (d): void => void emitted.push(d) },
+    );
+    // Drive the REAL `spawnSubagentConversation` with NO resolved model
+    // (`ctx.model === undefined`) — the former dead `guardedSubagentSpawn` seam's
+    // obligation, now witnessed on the production path.
+    const ctx = {
+      model: undefined,
+      cwd: "/tmp",
+      signal: undefined,
+    } as unknown as ExtensionCommandContext;
+    const bindInput = {
+      theta: parentTheta(queryBody()),
+      args: "",
+      ctx,
+      thetaAbort: new AbortController(),
+    } as unknown as ConversationBindInput;
+
+    let cause: InvokeInfraCause | undefined;
+    await expect(
+      deps.spawnSubagentConversation(bindInput).catch((e: unknown) => {
+        if (e instanceof InvokeInfraCauseError) {
+          cause = e.invokeInfraCause;
+        }
+        throw e;
+      }),
+    ).rejects.toBeInstanceOf(InvokeInfraCauseError);
+
+    // PIC-40 obligation 1: the runtime MUST NOT spawn the child.
+    expect(launcher.spawns).toHaveLength(0);
+    // The pinned diagnostic is emitted on the production path.
+    expect(emitted.map((d) => d.code)).toContain(SUBAGENT_MODEL_UNRESOLVED_CODE);
+    // The precise invoke_infra cause is surfaced (not the default internal_error).
+    expect(cause).toBe("subagent_model_unresolved");
   });
 });

@@ -37,8 +37,29 @@ import {
 import type {
   ExtensionAPI,
   ExtensionContext,
-  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import {
+  hashCallableClosure,
+  type ClosureSource,
+} from "../runtime/subagent-callable-hash";
+import {
+  readMarshalledCallableHashes,
+  verifyChildCallableHashes,
+} from "../runtime/subagent-child-hash-verify";
+import {
+  createProductionExecutableHost,
+  createProductionSpawnFn,
+  readParentEnv,
+  readParentPid,
+} from "./production-subagent-host";
+import { probeSubagentExecutable } from "./capability-probe";
+import {
+  parseInboundInvokeDepth,
+} from "../runtime/invoke-depth-cycle";
+import {
+  SUBAGENT_INVOKE_DEPTH_ENV,
+  type ExecutableHost,
+} from "../runtime/subagent-launcher";
 import type { ThetaFixture } from "./factory";
 import type { Clock } from "../seams/clock";
 import type { FileWatcher } from "../seams/file-watcher";
@@ -116,6 +137,13 @@ import type { ForwardingSignalSource } from "./session-shutdown";
 export interface ComposeSeamOverrides {
   readonly fileWatcher?: FileWatcher;
   readonly clock?: Clock;
+  /**
+   * Test injection of the Step 0 (f) subagent executable-resolution host
+   * (capability-probe.md). Production reads the running process
+   * (`createProductionExecutableHost`); a test injects a host whose rungs both
+   * fail to witness the load-time registration refusal for subagent-mode thetas.
+   */
+  readonly subagentExecutableHost?: ExecutableHost;
 }
 
 /**
@@ -288,9 +316,14 @@ async function runComposePass(
   // detaches. A reload pass reuses the same instance.
   forwardingSignals: ForwardingSignalSource[],
   excludeOwnedNames?: ReadonlySet<string>,
+  // Step 0 (f): the executable-resolution host the subagent-executable probe
+  // and the producer's launch seam read. Production reads the running process;
+  // a test injects a both-rungs-failing host to witness the load refusal.
+  passExecutableHost?: ExecutableHost,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
+  const subagentExecutableHost = passExecutableHost ?? createProductionExecutableHost();
 
   // Merged, validated settings (V10c) drive the settings discovery source and
   // the package-walk bounds.
@@ -385,20 +418,38 @@ async function runComposePass(
     // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
-    // SUBAG-2: lower a subagent theta's callable-set Pi-tool name to its full pi
-    // `ToolDefinition`, so the spawn installs it as a `customTools` entry the
-    // subagent model may call (subagent.md rule 1). The `cwd` is forwarded per
-    // invocation from the spawn site (`ctx.cwd`).
-    // The runtime value is the full pi `ToolDefinition` from the built-in
-    // factory; `builtinToolDefinition`'s static return type is deliberately
-    // narrowed to the theta-load-bearing `execute`-only shape, so widen it back
-    // for the spawn's `customTools` channel.
-    resolvePiToolDefinition: (name: string, cwd: string) =>
-      builtinToolDefinition(name, cwd) as unknown as ToolDefinition | undefined,
+    // RFC-0005 subagent launch seams (subagent.md #subagent-launch-contract): the
+    // Windows-safe child-`pi`-process spawn function, the executable-resolution
+    // host snapshot, the inherited parent environment (full inheritance is the
+    // credential mechanism), and the parent PID carried on the env marker.
+    subagentSpawn: createProductionSpawnFn(),
+    subagentExecutableHost,
+    subagentParentEnv: readParentEnv(),
+    subagentParentPid: readParentPid(),
+    // INV-4 (invocation.md §INV-4): when THIS process is a spawned subagent
+    // child, its top-level invoke chain seeds from the depth the parent
+    // marshalled on the child env (`SUBAGENT_INVOKE_DEPTH_ENV`), so the depth-32
+    // ceiling continues across the process hop. A malformed / absent carriage
+    // seeds a fresh chain at depth 0 (INV-4 pins no fail-closed rule).
+    subagentInboundInvokeDepth: parseInboundInvokeDepth(
+      readParentEnv()[SUBAGENT_INVOKE_DEPTH_ENV],
+    ),
+    // #subagent-isolation-and-trust: `pi.getAllTools()` (name + `sourceInfo.scope`)
+    // for the project-local trust inference (`--approve` / `--no-approve`).
+    getAllTools: () => pi.getAllTools(),
+    // #subagent-theta-callable-hash: the transitive-closure content hash of each
+    // `.theta` callable (file + `.thetalib` imports) is captured at LOAD time
+    // and stored on the frozen callable-set entry (`attachLoadTimeClosureHashes`
+    // in `resolveThetaToolsAtLoad`); the launch marshals that stored value, so
+    // the producer needs no spawn-time hash resolver.
+    // The runtime-defect / spawn-failure / wire-failure diagnostic sink.
+    emitDiagnostic,
     // H8b: parse an `invoke` / `.theta`-callable callee against the caller's
     // directory, reusing the shared parser deps.
     parseCallee: (callerPath, calleePath) =>
-      parseCalleeTheta(fileSystem, ctx, callerPath, calleePath, parseDeps),
+      parseCalleeTheta(fileSystem, ctx, callerPath, calleePath, parseDeps, () =>
+        pi.getAllTools?.() ?? [],
+      ),
     // INV-5 (invocation.md INV-1 seam): the runtime open-time containment
     // re-check consults the same `realpath` seam and active-root union.
     fileSystem,
@@ -429,8 +480,26 @@ async function runComposePass(
   // walk below runs per entry against a shared graph.
   const invokeGraph = buildInvokeGraph(parsedInputs);
 
+  // capability-probe.md Step 0 (f): the subagent-executable-resolution probe.
+  // Run the executable-resolution ladder ONCE per pass (the host snapshot is
+  // constant for the pass — filesystem-existence only, no spawn) and refuse
+  // SUBAGENT-MODE theta registration fail-closed when neither rung yields a
+  // runnable child `pi` entry point. An unresolvable executable would otherwise
+  // fail at first spawn; the probe surfaces it at load with the pinned
+  // `theta/load/subagent-executable-unresolved` (no PATH fallback). Prompt-mode
+  // thetas never launch a child, so the refusal is scoped to subagent mode per
+  // subagent.md #subagent-executable-resolution ("the theta does not register").
+  const subagentExecutableProbe = probeSubagentExecutable(subagentExecutableHost);
+
   const thetas: ParsedTheta[] = [];
   for (const input of parsedInputs) {
+    // Step 0 (f): a subagent-mode theta cannot register when the child `pi`
+    // executable is unresolvable — refuse fail-closed here rather than at first
+    // spawn, emitting the pinned diagnostic once per refused theta.
+    if (input.frontmatter.mode === "subagent" && !subagentExecutableProbe.ok) {
+      emitDiagnostic(subagentExecutableProbe.diagnostic);
+      continue;
+    }
     // V20a — resolve the `tools:` callable set against the shipped Pi tool
     // registry at production load time. A `tools:` rejection (unknown Pi tool,
     // prompt-mode `.theta` callee, name collision, invalid `as` rename, or a
@@ -442,6 +511,9 @@ async function runComposePass(
       fileSystem,
       ctx,
       parseDeps,
+      // RFC-0005: subagent-mode admission widens to `pi.getAllTools()` names.
+      // Optional-chained: harness `pi` fakes without `getAllTools` yield `[]`.
+      () => pi.getAllTools?.() ?? [],
     );
     for (const diagnostic of toolResult.diagnostics) {
       emitDiagnostic(diagnostic);
@@ -585,7 +657,101 @@ async function runComposePass(
       run: fixture.run,
     });
   }
-  return { thetas, activeRoots };
+  // RFC-0005 #subagent-theta-callable-hash: when THIS process is a subagent
+  // child carrying marshalled `.theta` callable hashes, recompute each
+  // callable's transitive-closure hash from the child's OWN discovery and
+  // refuse fail-closed on mismatch. One child process serves exactly one
+  // subagent-mode invocation, so a refusal recorded during the child's
+  // discovery pass refuses that invocation (subagent.md — the child "refuses
+  // the invocation on mismatch"). A refused callable is dropped from the
+  // child's registration and its `theta/runtime/subagent-callable-hash-mismatch`
+  // diagnostic is surfaced.
+  const survivors = await refuseDivergedChildCallables(
+    thetas,
+    fileSystem,
+    ctx,
+    parseDeps,
+    emitDiagnostic,
+  );
+  return { thetas: survivors, activeRoots };
+}
+
+/**
+ * The presented callable name a discovered `.theta` maps to (the same
+ * derivation `resolveCallableSet` applies to a bare `.theta` path: basename
+ * without the `.theta` extension, hyphens replaced by underscores). Used to
+ * align the parent-marshalled callable hashes (keyed by presented name) with
+ * the child's discovered thetas.
+ */
+function deriveCallableName(sourcePath: string): string {
+  return thetaBasename(sourcePath).replace(/-/g, "_");
+}
+
+/**
+ * RFC-0005 #subagent-theta-callable-hash child-side verification. Reads the
+ * parent-marshalled hashes off the child env, recomputes each marshalled
+ * callable's transitive-closure hash from the child-discovered sources, and
+ * refuses (drops + emits `theta/runtime/subagent-callable-hash-mismatch`) each
+ * callable whose child-recomputed hash does not match — or whose child-side
+ * source the child cannot re-resolve (fail-closed). Returns the discovered
+ * thetas unchanged when this process is not a subagent child carrying hashes.
+ */
+async function refuseDivergedChildCallables(
+  thetas: readonly ParsedTheta[],
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  parseDeps: Parameters<typeof parseThetaDocument>[1],
+  emitDiagnostic: (diagnostic: Diagnostic) => void,
+): Promise<ParsedTheta[]> {
+  // Localised ambient read of the child env carrier (exempted, mirroring the
+  // factory's `PI_THETA_SUBAGENT_CHILD` marker read).
+  const env = process.env; // allow-ambient: process.env — RFC-0005 subagent child hash carrier (subagent.md #subagent-theta-callable-hash)
+  const marshalled = readMarshalledCallableHashes(env);
+  if (marshalled === undefined) {
+    return [...thetas];
+  }
+  // Precompute the child-discovered closure sources for each marshalled callable
+  // name that maps to a discovered theta (by presented-name derivation).
+  const byName = new Map<
+    string,
+    { readonly theta: ParsedTheta; readonly sources: readonly ClosureSource[] }
+  >();
+  for (const theta of thetas) {
+    if (theta.sourcePath === undefined) {
+      continue;
+    }
+    const name = deriveCallableName(theta.sourcePath);
+    if (!marshalled.has(name) || byName.has(name)) {
+      continue;
+    }
+    const sources = await collectCallableClosureSources(
+      fs,
+      ctx,
+      parseDeps,
+      undefined,
+      theta.sourcePath,
+    );
+    byName.set(name, { theta, sources });
+  }
+  const result = verifyChildCallableHashes({
+    env,
+    discovery: (name) => byName.get(name)?.sources,
+  });
+  if (result.refusals.length === 0) {
+    return [...thetas];
+  }
+  const dropped = new Set<ParsedTheta>();
+  for (const outcome of result.outcomes) {
+    if (outcome.verification.ok) {
+      continue;
+    }
+    emitDiagnostic(outcome.verification.diagnostic);
+    const hit = byName.get(outcome.callableName);
+    if (hit !== undefined) {
+      dropped.add(hit.theta);
+    }
+  }
+  return thetas.filter((theta) => !dropped.has(theta));
 }
 
 /**
@@ -727,6 +893,8 @@ export async function composeExtensionInstance(
     emitLoadNote,
     activeInvocations,
     forwardingSignals,
+    undefined,
+    overrides?.subagentExecutableHost,
   );
 
   // The watched set: the active discovery-root union plus the two settings-file
@@ -765,6 +933,7 @@ export async function composeExtensionInstance(
               activeInvocations,
               forwardingSignals,
               new Set(registry.snapshot().keys()),
+              overrides?.subagentExecutableHost,
             )
           ).thetas,
         reRegister,
@@ -886,7 +1055,15 @@ async function resolveThetaToolsAtLoad(
   fs: FileSystem,
   ctx: ExtensionContext,
   parseDeps: Parameters<typeof parseThetaDocument>[1],
+  // RFC-0005 (subagent.md #subagent-launch-contract; tool-registration-lifetime.md):
+  // the `pi.getAllTools()` snapshot the subagent-mode admission widening reads.
+  // Absent on harness paths / prompt-mode-only callers (built-in admission only).
+  getAllTools?: GetAllToolsSnapshot,
 ): Promise<ThetaToolsResolution> {
+  // RFC-0005: the widening is subagent-mode-only. Prompt-mode admission is left
+  // exactly as it was (built-ins only), so an extension-tool name in a
+  // prompt-mode theta still fails load with `theta/load/unknown-tool`.
+  const mode = parsed.frontmatter.mode;
   const toolsList = parsed.frontmatter.tools;
   if (
     toolsList === undefined ||
@@ -932,10 +1109,24 @@ async function resolveThetaToolsAtLoad(
 
   const deps: CallableSetDeps = {
     resolvePiTool: (name) => {
-      const resolved = resolvePiTool(name, ctx);
-      return resolved === undefined
-        ? undefined
-        : { kind: "pi-tool", toolDefinition: resolved };
+      const builtin = resolvePiTool(name, ctx);
+      if (builtin !== undefined) {
+        // Built-in Pi tools resolve in both modes (unchanged in prompt mode).
+        return { kind: "pi-tool", toolDefinition: builtin };
+      }
+      // RFC-0005: subagent-mode admission widens to `pi.getAllTools()` names — an
+      // extension-supplied tool that appears there is admitted to the allowlist
+      // (schema carried for the RFC-0002 disjointness check; `sourceInfo` feeds
+      // `inferChildTrust` on the launch path). A name that is neither a
+      // built-in, a `getAllTools()` name, nor a discovered `.theta` callable
+      // still fails load with `theta/load/unknown-tool`.
+      if (mode === "subagent") {
+        const extension = resolveSubagentExtensionTool(name, getAllTools);
+        if (extension !== undefined) {
+          return { kind: "pi-tool", toolDefinition: extension };
+        }
+      }
+      return undefined;
     },
     resolveThetaCallee: (thetaPath) => {
       const callee = calleeCache.get(thetaPath);
@@ -961,12 +1152,60 @@ async function resolveThetaToolsAtLoad(
   // error inside `resolveCallableSet`; the theta registers iff no error-severity
   // diagnostic was raised on either path.
   const registered = !diagnostics.some((d) => d.severity === "error");
-  return {
-    diagnostics,
-    ...(registered
-      ? { callableSet: result.callableSet ?? EMPTY_CALLABLE_SET }
-      : {}),
-  };
+  if (!registered) {
+    return { diagnostics };
+  }
+  const baseSet = result.callableSet ?? EMPTY_CALLABLE_SET;
+  // RFC-0005 #subagent-theta-callable-hash: capture each `.theta` callable's
+  // transitive-closure content hash NOW, at load, from the on-disk bytes read
+  // this pass, and store it on the frozen snapshot entry. The subagent launch
+  // marshals this STORED value (never a fresh spawn-time re-read), so a file
+  // edit between parent load and child spawn is detected as divergence.
+  const callableSet = await attachLoadTimeClosureHashes(
+    baseSet,
+    fs,
+    ctx,
+    parseDeps,
+    parsed.sourcePath,
+  );
+  return { diagnostics, callableSet };
+}
+
+/**
+ * RFC-0005 #subagent-theta-callable-hash: fill each `.theta`-callable snapshot
+ * entry's `closureHash` from the transitive-closure content read at LOAD time.
+ * Returns the original frozen snapshot unchanged when it holds no `.theta`
+ * callable whose closure root is readable (a Pi-tool-only / empty set marshals
+ * no hash). Capturing here — rather than at spawn — is what makes the
+ * load-to-spawn divergence detectable: the child recomputes from its own disk
+ * bytes and refuses on mismatch against this frozen value.
+ */
+async function attachLoadTimeClosureHashes(
+  snapshot: CallableSetSnapshot,
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  parseDeps: Parameters<typeof parseThetaDocument>[1],
+  callerPath: string | undefined,
+): Promise<CallableSetSnapshot> {
+  let mutated = false;
+  const entries = new Map(snapshot.entries);
+  for (const [name, entry] of entries) {
+    if (entry.kind !== "theta") {
+      continue;
+    }
+    const closureHash = await resolveCallableClosureHash(
+      fs,
+      ctx,
+      parseDeps,
+      callerPath,
+      entry.calleePath,
+    );
+    if (closureHash !== undefined) {
+      entries.set(name, { ...entry, closureHash });
+      mutated = true;
+    }
+  }
+  return mutated ? Object.freeze({ entries }) : snapshot;
 }
 
 /**
@@ -1085,6 +1324,62 @@ function builtinToolDefinition(
 }
 
 /**
+ * RFC-0005: the `pi.getAllTools()` `ToolInfo` subset subagent-mode load-time
+ * admission reads (name + registered `parameters` schema + source scope). A
+ * real Pi `ToolInfo` is structurally assignable to it.
+ */
+interface AdmissibleToolInfo {
+  readonly name: string;
+  readonly parameters?: unknown;
+  readonly sourceInfo?: { readonly scope?: string };
+}
+
+/** Accessor for the `pi.getAllTools()` snapshot the subagent-mode widening reads. */
+type GetAllToolsSnapshot = () => readonly AdmissibleToolInfo[];
+
+/** The load-time resolved shape a `pi-tool` callable-set entry carries. */
+interface PiToolLoadEntry {
+  readonly toolName: string;
+  /** The tool's registered input schema (RFC-0002 disjointness check reads it). */
+  readonly parameters?: unknown;
+  execute: (id: string, params: unknown, signal: AbortSignal) => Promise<{ readonly content: readonly { readonly type: string }[] }>;
+}
+
+/**
+ * RFC-0005 (subagent.md #subagent-launch-contract; tool-registration-lifetime.md):
+ * resolve a subagent-mode `tools:` name against the child-reachable extension
+ * tool set (`pi.getAllTools()`). A name present there is admitted to the frozen
+ * callable set as a `pi-tool` entry carrying (a) the underlying `toolName` — so
+ * the launch contract emits it in the child's `--tools` allowlist and
+ * `inferChildTrust` reads its `sourceInfo` — and (b) the tool's registered
+ * `parameters` schema, so the RFC-0002 computed-argument disjointness check can
+ * see it. No executable definition crosses the process boundary: the child
+ * registers the tool natively at startup and the model reaches it there, so the
+ * parent holds no usable `execute` (code-side extension-tool dispatch is
+ * RFC-0006's job); the `execute` here rejects rather than silently fall through.
+ */
+function resolveSubagentExtensionTool(
+  name: string,
+  getAllTools: GetAllToolsSnapshot | undefined,
+): PiToolLoadEntry | undefined {
+  const info = (getAllTools?.() ?? []).find((tool) => tool.name === name);
+  if (info === undefined) {
+    return undefined;
+  }
+  return {
+    toolName: name,
+    parameters: info.parameters,
+    execute: (): Promise<never> =>
+      Promise.reject(
+        new Error(
+          `extension tool '${name}' has no parent-side execute in subagent mode; ` +
+            "the subagent's model reaches it in the child (code-side dispatch is RFC-0006)",
+        ),
+      ),
+  };
+}
+
+/**
  * H8b: resolve a code-side Pi-tool name to its `execute` dispatch. Returns
  * `undefined` for a name that is not a known host built-in, so the code-side
  * path surfaces the unknown-tool execution `Err` rather than fabricating a
@@ -1120,6 +1415,9 @@ async function parseCalleeTheta(
   callerPath: string | undefined,
   calleePath: string,
   deps: Parameters<typeof parseThetaDocument>[1],
+  // RFC-0005: subagent-mode admission of the callee's own `tools:` widens to
+  // `pi.getAllTools()` names, exactly like a discovered theta.
+  getAllTools?: GetAllToolsSnapshot,
 ): Promise<ThetaCompositionInput | undefined> {
   const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
   const absolute = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
@@ -1146,8 +1444,76 @@ async function parseCalleeTheta(
   // unrestricted producer-wide resolver, letting a child with no/narrow `tools:`
   // reach ambient host tools (bash / read / …) from code. A no-`tools:` child
   // resolves to the frozen EMPTY snapshot, so it has no code callables.
-  const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, deps);
+  const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, deps, getAllTools);
   return { ...input, callableSet: toolResult.callableSet ?? EMPTY_CALLABLE_SET };
+}
+
+/**
+ * RFC-0005 #subagent-theta-callable-hash: compute the transitive-closure content
+ * hash of a `.theta` callable (the root file plus every `.thetalib` it
+ * transitively imports/re-exports), recorded at load and marshalled to the child
+ * so the child can refuse the invocation on mismatch. Resolves the callee path
+ * against the caller's directory (or `cwd` for an in-memory caller), reads each
+ * closure member's exact on-disk content, and delegates to `hashCallableClosure`
+ * (order-independent, content-only). Returns `undefined` when the root file
+ * cannot be read (the caller then marshals no hash for it).
+ */
+async function resolveCallableClosureHash(
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  deps: Parameters<typeof parseThetaDocument>[1],
+  callerPath: string | undefined,
+  calleePath: string,
+): Promise<string | undefined> {
+  const sources = await collectCallableClosureSources(fs, ctx, deps, callerPath, calleePath);
+  return sources.length === 0 ? undefined : hashCallableClosure(sources);
+}
+
+/**
+ * RFC-0005 #subagent-theta-callable-hash: collect a `.theta` callable's
+ * transitive-closure sources (the root file plus every `.thetalib` it
+ * transitively imports/re-exports), each carrying its exact on-disk content.
+ * The parent hashes these at load (`resolveCallableClosureHash`); the child
+ * recomputes them from its OWN discovery for the content-hash verification
+ * (`verifyChildCallableHashes`). Returns `[]` when the root file cannot be read.
+ */
+async function collectCallableClosureSources(
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  deps: Parameters<typeof parseThetaDocument>[1],
+  callerPath: string | undefined,
+  calleePath: string,
+): Promise<readonly ClosureSource[]> {
+  const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
+  const rootAbs = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
+  const sources: ClosureSource[] = [];
+  const seen = new Set<string>();
+  const decoder = new TextDecoder();
+  const visit = async (absPath: string): Promise<void> => {
+    if (seen.has(absPath)) {
+      return;
+    }
+    seen.add(absPath);
+    const bytes = await fs.readBytes(absPath).then(
+      (value) => value,
+      () => undefined,
+    );
+    if (bytes === undefined) {
+      return;
+    }
+    sources.push({ path: absPath, content: decoder.decode(bytes) });
+    const document = parseThetaDocument({ path: absPath, bytes }, deps);
+    for (const statement of document.body.statements) {
+      if (statement.kind === "import" || statement.kind === "export") {
+        const importAbs = isAbsolute(statement.path)
+          ? statement.path
+          : resolvePath(dirname(absPath), statement.path);
+        await visit(importAbs);
+      }
+    }
+  };
+  await visit(rootAbs);
+  return sources;
 }
 
 /**

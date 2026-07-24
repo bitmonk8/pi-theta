@@ -7,15 +7,14 @@
 // order `(a)` Node floor → `(b)` AbortSignal/AbortController shape → `(c)+(d)`
 // SDK named members + peer-dep lock-step → `(e)` typebox host-shape, stops at
 // the first failure, and yields exactly one `theta/load/host-incompatible`
-// failure outcome (or a pass). PIC-3/4/5/6 are the probe-wide invariants.
+// failure outcome (or a pass). PIC-3/4/5/6 are the probe-wide invariants. The
+// probe is wired off a single source-of-truth pinned-constants block the
+// build-time literal-read assertions also consume.
 //
-// V9a-T (tests-task) declares this seam and the `FACTORY_PROBABLE_CAPABILITIES`
-// constant, both stubbed so the failing tests compile and red on their own
-// primary assertions. The paired V9a implementation leaf fills the probe body
-// in (Node-floor SemVer comparison, the AbortSignal member-with-kind table, the
-// nine factory-probable SDK members, the four-package peer-dep iteration, the
-// `Type.Unsafe` check), wired off the same single source-of-truth pinned
-// constants the build-time literal-read assertions consume.
+// RFC-0005 retired capability 3's in-process `createAgentSession` /
+// `AgentSession.prototype.abort` `typeof` members (capability-probe.md Step 0
+// (c)): capability 3 now contributes no `typeof` member and is verified by the
+// Step 0 (f) executable-resolution probe (`probeSubagentExecutable`) instead.
 //
 // The probe is a pure function over an injected host snapshot: it reads no
 // ambient primitive (no `process.versions`, no global `AbortSignal`), so the
@@ -23,6 +22,13 @@
 // and the tests drive both conformant and adversarial hosts by construction.
 
 import semver from "semver";
+import type { Diagnostic } from "../diagnostics/diagnostic";
+import {
+  resolveSubagentExecutable,
+  SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,
+  SUBAGENT_EXECUTABLE_UNRESOLVED_MESSAGE,
+  type ExecutableHost,
+} from "../runtime/subagent-launcher";
 
 /**
  * The closed `theta/load/host-incompatible` `details.kind` discriminator set
@@ -41,17 +47,21 @@ export type HostIncompatibleKind =
 export type CapabilityId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /**
- * The closed five-element list of factory-probable capability identifiers —
- * SDK capability inventory items 1/2/3/4/6 (capability-probe.md Step 0 (c)).
- * This is the importable symbol `V18a`/`V18c` reconcile their factory-probed
- * partition flags against (it is the partition target, not the probe's
- * nine-member iteration target).
+ * The closed four-element list of factory-probable capability identifiers —
+ * SDK capability inventory items 1/2/4/6 (capability-probe.md Step 0 (c):
+ * "items 1, 2, 4, and 6 (four capabilities, seven function members)"). RFC-0005
+ * dropped capability 3 (subagent-mode isolated session) from this set: its
+ * former in-process `createAgentSession` `typeof` pin is retired, and it is now
+ * verified by the Step 0 (f) executable-resolution probe rather than by the
+ * factory-probable `typeof` member loop. This is the importable symbol
+ * `V18a`/`V18c` reconcile their factory-probed partition flags against (it is
+ * the partition target, not the probe's seven-member iteration target).
  *
  * `Object.freeze` keeps this module-level constant off the *No globals,
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
  */
 export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
-  Object.freeze([1, 2, 3, 4, 6]);
+  Object.freeze([1, 2, 4, 6]);
 
 /**
  * Cancellation-runtime constant: the bounded wait (milliseconds) the
@@ -110,10 +120,6 @@ export interface ProbeHost {
    * `registerMessageRenderer`, `sendMessage`.
    */
   readonly pi: Readonly<Record<string, unknown>>;
-  /** The `createAgentSession` named export (Step 0 (c), capability 3). */
-  readonly createAgentSession: unknown;
-  /** The imported `AgentSession` class (Step 0 (c): `AgentSession.prototype.abort`). */
-  readonly agentSession: unknown;
   /** The `typebox` `Type` namespace (Step 0 (e): `Type.Unsafe`). */
   readonly typeboxType: unknown;
   /**
@@ -298,15 +304,15 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
     return probeFailed("abortsignal-shape", coerceCause(e));
   }
 
-  // ── (c) Factory-probable SDK capabilities (nine function members) ─────────
+  // ── (c) Factory-probable SDK capabilities (seven function members) ────────
+  // RFC-0005 (capability-probe.md Step 0 (c)): capability 3's former in-process
+  // `createAgentSession` / `AgentSession.prototype.abort` members are retired;
+  // capability 3 is verified by the Step 0 (f) executable-resolution probe.
   try {
     const pi = host.pi;
     const sdkMembers: ReadonlyArray<readonly [string, () => unknown]> = [
       ["pi.registerCommand", () => readProp(pi, "registerCommand")],
       ["pi.sendUserMessage", () => readProp(pi, "sendUserMessage")],
-      ["createAgentSession", () => host.createAgentSession],
-      ["AgentSession.prototype.abort", () =>
-        readProp(readProp(host.agentSession, "prototype"), "abort")],
       ["pi.registerTool", () => readProp(pi, "registerTool")],
       ["pi.setActiveTools", () => readProp(pi, "setActiveTools")],
       ["pi.getActiveTools", () => readProp(pi, "getActiveTools")],
@@ -392,4 +398,41 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
   }
 
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Step 0 (f) — subagent-executable resolution (capability-3 replacement).
+// ---------------------------------------------------------------------------
+
+/** The Step 0 (f) probe outcome: a runnable child entry point, or the fail-closed refusal. */
+export type SubagentExecutableProbeOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly diagnostic: Diagnostic };
+
+/**
+ * Step 0 (f). Run the [executable-resolution ladder](subagent.md) and assert a
+ * runnable child `pi` entry point (the capability-3 replacement for the retired
+ * in-process `createAgentSession` / `ResourceLoader` / `SessionManager.inMemory`
+ * `typeof` pins). Filesystem-existence only — no spawn, no version handshake. If
+ * neither rung yields a runnable entry point, the theta fails registration
+ * fail-closed with `theta/load/subagent-executable-unresolved` (its OWN precise
+ * code, not `theta/load/host-incompatible`). There is NO `PATH` fallback.
+ */
+export function probeSubagentExecutable(host: ExecutableHost): SubagentExecutableProbeOutcome {
+  // Filesystem-existence only — no spawn, no version handshake. Run the ladder;
+  // a runnable entry point on either rung passes.
+  const resolution = resolveSubagentExecutable(host);
+  if (resolution.ok) {
+    return { ok: true };
+  }
+  // Neither rung yields a runnable child `pi` entry point — fail-closed under the
+  // probe's OWN precise code (not `theta/load/host-incompatible`). No PATH fallback.
+  return {
+    ok: false,
+    diagnostic: {
+      severity: "error",
+      code: SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,
+      message: SUBAGENT_EXECUTABLE_UNRESOLVED_MESSAGE,
+    },
+  };
 }

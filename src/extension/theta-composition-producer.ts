@@ -239,7 +239,7 @@ export interface ConversationBinding {
    * Optional so non-subagent bindings (prompt mode, non-production harnesses)
    * omit it — a `?.()` caller is then a no-op.
    */
-  readonly teardown?: () => void;
+  readonly teardown?: () => void | Promise<void>;
 }
 
 /**
@@ -387,7 +387,7 @@ export function composeThetaFixture(
           // `surface` (which would otherwise skip teardown and leak the session +
           // listener) — and the `disposeBarrier` settles post-dispose. This inner
           // finally is INSIDE the outer try, so it runs before the catch frames.
-          binding.teardown?.();
+          await binding.teardown?.();
           binding.finishInvocation?.();
         }
       } catch (thrown) { // allow-broad-catch: top-level-slash runtime-defect surface — error-model.md#runtime-panics

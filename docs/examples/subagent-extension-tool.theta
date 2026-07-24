@@ -1,0 +1,21 @@
+---
+description: Summarise the findings under a directory using an extension tool
+mode: subagent
+tools:
+  - read
+  - finding_store
+params:
+  findings_dir: string
+---
+// `tools:` mixes a built-in (`read`) with an extension-registered Pi tool
+// (`finding_store`, contributed by an installed Pi extension). This theta is
+// `mode: subagent`, so the invocation runs in a spawned child `pi` process that
+// loads the same extensions — which is why the MODEL can call `finding_store`
+// during the query's tool loop below.
+//
+// Theta CODE cannot call `finding_store` directly: extension tools are
+// model-facing only in theta 1.0. Only `read` and `.theta` callables are
+// code-callable here. Listing an extension tool whose extension is not installed
+// is a load-time error (`theta/load/unknown-tool`), not a silent no-op.
+@`Use finding_store to list the findings under ${findings_dir}, read any file it
+references, and report how many findings are still open in one sentence.`

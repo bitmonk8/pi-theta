@@ -178,6 +178,7 @@ namespace, **not** runtime diagnostics — no registry row, out of scope. Severi
 | `theta/load/unknown-tool` | E | load | `unknown Pi tool '<name>'` |
 | `theta/load/unresolvable-theta-path` | E | load | `cannot resolve .theta path '<path>'` |
 | `theta/load/prompt-mode-callable` | E | load | `'tools:' entry '<path>' points at a prompt-mode theta; only subagent-mode thetas are permitted` |
+| `theta/load/subagent-executable-unresolved` | E | load | `subagent child executable unresolved: no runnable 'pi' entry point (entry-script and compiled-binary rungs both failed; no PATH fallback)` |
 | `theta/load/tool-name-collision` | E | load | `tool name '<name>' collides with another 'tools:' entry, top-level fn, or import` |
 | `theta/load/invalid-tool-rename` | E | load | `'as <name>' rename target must be lowercase-first; got '<name>'` |
 | `theta/load/invocation-cycle` | E | load | `invocation cycle: <A> → <B> → <A>` |
@@ -231,7 +232,13 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/registry-swap-failed` | E | runtime | `registry swap failed: <path>`. |
 | `theta/runtime/watcher-terminated` | E | runtime | `theta watcher terminated; hot-reload halted until /reload`. |
 | `theta/runtime/internal-error` | E | runtime | `internal error: <error.message>`. |
-| `theta/runtime/subagent-dispose-failure` | E | runtime | `subagent dispose failed: <dispose error first line>`. |
+| `theta/runtime/subagent-dispose-failure` | E | runtime | `subagent teardown failed: <teardown error first line>`. |
+| `theta/runtime/subagent-spawn-failed` | E | runtime | `subagent child spawn failed: <error.message>`. |
+| `theta/runtime/subagent-child-crashed` | E | runtime | `subagent child crashed mid-query: <exit detail>`. |
+| `theta/runtime/subagent-wire-parse-failed` | E | runtime | `subagent RPC wire parse failed: <line summary>`. |
+| `theta/runtime/subagent-teardown-timeout` | E | runtime | `subagent child did not exit within <ms>ms; killed`. |
+| `theta/runtime/subagent-callable-hash-mismatch` | E | runtime | `subagent callable '<name>' content hash mismatch; refusing invocation`. |
+| `theta/runtime/subagent-model-preflight-mismatch` | E | runtime | `subagent model pre-flight mismatch: expected '<expected>', child resolved '<resolved>'`. |
 | `theta/runtime/registration-cache-collision` | E | runtime | `tool-registration cache collision on slug <slug>: <name1> vs <name2>`. |
 | `theta/runtime/validator-cache-collision` | E | runtime | `validator-cache collision on slug <slug>: two distinct schema documents hash alike`. |
 | `theta/runtime/active-set-restore-failed` | E | runtime | `failed to restore tool active-set after /<name>: <error>`. |
@@ -276,8 +283,16 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   a self-reference reuses `theta/load/invocation-cycle`, and a `with { … }`
   session-config clause reuses the like-named frontmatter fields' load-time codes
   (see [Functions — FN-6…FN-9](../spec_topics/functions.md#subagent-fn)). The
-  registry membership is therefore unchanged from theta 1.1.0; the header names the
-  current 1.2.0 baseline.
+  registry membership is therefore unchanged from theta 1.1.0 *by `subagent fn`*;
+  the header names the current 1.2.0 baseline.
+- The child-process subagent design (`docs/rfcs/0005-child-process-subagent-sessions.md`,
+  accepted; shipped in package 0.8.0) adds the load code
+  `theta/load/subagent-executable-unresolved` and the runtime codes
+  `subagent-spawn-failed`, `subagent-child-crashed`, `subagent-wire-parse-failed`,
+  `subagent-teardown-timeout`, `subagent-callable-hash-mismatch`, and
+  `subagent-model-preflight-mismatch`, and re-scopes
+  `theta/runtime/subagent-dispose-failure` to any subagent-mode teardown-step throw
+  (stable code name retained per DIAG-3).
 - `theta/load/*` table: `docs/spec_topics/diagnostics/code-registry-load.md`.
 - `theta/runtime/*` table: `docs/spec_topics/diagnostics/code-registry-runtime.md`.
 - `theta/host/*` table: `docs/spec_topics/diagnostics/code-registry-host.md`.

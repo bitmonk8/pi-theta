@@ -124,6 +124,23 @@ Two entry kinds:
 - A callee that fails to parse/lower during the parent's load pass is
   `theta/load/callee-has-errors` (severity `error` for `tools:` entries).
 
+**Extension-registered Pi tools (subagent mode).** “Pi's tool registry” is the
+*full* registry: the built-ins plus any tool an installed Pi extension
+contributes (e.g. `finding_store`, `projection`). In `mode: subagent` an
+extension tool named in `tools:` is reachable by the theta's **model** — the
+invocation runs in a child `pi` process that loads the same extensions and
+receives the callable-set names as its active-tool allowlist (`tools: []` → no
+tools). Theta **code** cannot dispatch an extension tool in theta 1.0: a bare
+`<name>(...)` call to one fails — surfacing to theta code as `Err(CodeToolError)`,
+never a silent fallthrough; only built-ins and `.theta` callables are
+code-callable. The child is granted tool approval up front only
+when the callable set contains a *project-local* extension tool (already trusted
+in the parent session); otherwise it runs least-privilege. Installed extensions
+load in the child (their tools, system-prompt appends, handlers, and providers
+are present, as in any Pi session), but no user/project context — context files,
+skills, prompt templates — is inherited. See
+[Guide — Extension tools in a subagent](../guide.md#extension-tools-in-a-subagent).
+
 **YAML shape.** `tools:` accepts a comma-separated short form and a YAML list
 form, both parsed by the same per-entry grammar. `.theta` paths and `as` renames
 are legal in either form.
