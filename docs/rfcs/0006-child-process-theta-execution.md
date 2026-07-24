@@ -1,6 +1,6 @@
 # RFC 0006 — Child-process theta execution (remote theta)
 
-- **Status:** draft
+- **Status:** accepted
 - **Depends on:** [RFC 0005 — Child-process subagent sessions](./0005-child-process-subagent-sessions.md)
   (process-launch, teardown, probe, and diagnostics machinery; this RFC
   reuses all of it and retires only the RPC drive contract — see

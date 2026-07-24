@@ -128,17 +128,20 @@ Two entry kinds:
 *full* registry: the built-ins plus any tool an installed Pi extension
 contributes (e.g. `finding_store`, `projection`). In `mode: subagent` an
 extension tool named in `tools:` is reachable by the theta's **model** — the
-invocation runs in a child `pi` process that loads the same extensions and
-receives the callable-set names as its active-tool allowlist (`tools: []` → no
-tools). Theta **code** cannot dispatch an extension tool in theta 1.0: a bare
-`<name>(...)` call to one fails — surfacing to theta code as `Err(CodeToolError)`,
-never a silent fallthrough; only built-ins and `.theta` callables are
-code-callable. The child is granted tool approval up front only
-when the callable set contains a *project-local* extension tool (already trusted
-in the parent session); otherwise it runs least-privilege. Installed extensions
-load in the child (their tools, system-prompt appends, handlers, and providers
-are present, as in any Pi session), but no user/project context — context files,
-skills, prompt templates — is inherited. See
+invocation runs the whole callee in a child `pi` process that loads the same
+extensions and receives the callable-set names as its active-tool allowlist
+(`tools: []` → no tools). Theta **code** cannot dispatch an extension tool in
+this release: a code-side `<name>(...)` call to one is designed to route through
+the child's host agent loop, but that dispatch rung is unwired in 0.9.0 and
+ships **fail-closed** — a theta whose code calls an extension tool refuses to
+load with `theta/load/extension-tool-unreachable` (distinct from
+`theta/load/unknown-tool`, which means the tool is absent from Pi's registry).
+The child is granted tool approval up front only when the callable set contains
+a *project-local* extension tool (already trusted in the parent session);
+otherwise it runs least-privilege. Installed extensions load in the child
+(their tools, system-prompt appends, handlers, and providers are present, as in
+any Pi session), but no user/project context — context files, skills, prompt
+templates — is inherited. See
 [Guide — Extension tools in a subagent](../guide.md#extension-tools-in-a-subagent).
 
 **YAML shape.** `tools:` accepts a comma-separated short form and a YAML list

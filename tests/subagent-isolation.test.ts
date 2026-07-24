@@ -3,9 +3,11 @@
 // Re-bases the former in-process `AgentSession` isolation suite onto the
 // RFC-0005 child-process drive (docs/rfcs/0005-child-process-subagent-sessions.md;
 // pi-integration-contract/subagent.md). The spec successors covered here:
-//   - PIC-40 — pre-spawn model guard (unresolved model → refuse the child
-//     spawn) AND the new child-side model pre-flight (marshalled reference vs.
-//     child-resolved model; mismatch → precise diagnostic + failed invocation);
+//   - PIC-62 — pre-spawn model guard (unresolved model → refuse the child
+//     spawn) and child-side model pre-flight are re-homed to the single-source
+//     PIC-62 leaf (`guardResolvedModel` / `confirmChildModel`), covered by
+//     tests/subagent-model-guard.test.ts; the dead RFC-0005 `preSpawnModelGuard`
+//     duplicate (and its test here) is deleted;
 //   - PIC-41 — cancellation forwards via the one-shot `thetaAbort.signal`
 //     listener that sends the RPC `abort` command (spawn-then-immediate-cancel
 //     ordering);
@@ -28,63 +30,25 @@
 // throw.
 
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
-import type { TransportError } from "../src/runtime/query-error";
 import { SHUTDOWN_AWAIT_CAP_MS } from "../src/extension/capability-probe";
 import {
-  extractSubagentQueryResult,
-  preFlightModelCheck,
-  preSpawnModelGuard,
-  renderModelPreflightMismatchMessage,
   renderSubagentDisposeFailureMessage,
   runSubagentChildTeardown,
   spawnSubagentsInParallel,
   SUBAGENT_DISPOSE_BUDGET_MS,
   SUBAGENT_DISPOSE_FAILURE_CODE,
-  SUBAGENT_MODEL_PREFLIGHT_MISMATCH_CODE,
-  SUBAGENT_MODEL_UNRESOLVED_CODE,
-  SUBAGENT_MODEL_UNRESOLVED_MESSAGE,
   SUBAGENT_TEARDOWN_TIMEOUT_CODE,
-  type AgentEndEvent,
   type ParallelSubagentSpawn,
   type SubagentChildTeardownDeps,
 } from "../src/runtime/subagent-isolation";
 import type { ChildExitInfo, SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { WallClock } from "../src/seams/wall-clock";
-import { FakeRpcChild, makeFakeChildLauncher } from "./helpers/fake-rpc-child";
+import { FakeJsonChild, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
 
 // ---------------------------------------------------------------------------
 // Fixtures.
 // ---------------------------------------------------------------------------
-
-function userMessage(content: string): UserMessage {
-  return { role: "user", content, timestamp: 0 };
-}
-
-function assistantMessage(text: string, stopReason: AssistantMessage["stopReason"]): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "anthropic-messages",
-    provider: "anthropic",
-    model: "claude-test",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason,
-    timestamp: 0,
-  };
-}
-
-function agentEnd(messages: readonly Message[], willRetry: boolean): AgentEndEvent {
-  return { type: "agent_end", messages, willRetry };
-}
 
 async function flush(): Promise<void> {
   for (let i = 0; i < 5; i += 1) {
@@ -92,122 +56,20 @@ async function flush(): Promise<void> {
   }
 }
 
-// ===========================================================================
-// PIC-40 — pre-spawn model guard (unresolved model).
-// ===========================================================================
+// PIC-62: the pre-spawn model guard is the single-source `guardResolvedModel`
+// leaf, covered by tests/subagent-model-guard.test.ts. The dead RFC-0005
+// `preSpawnModelGuard` duplicate that this suite used to exercise is deleted;
+// the runtime-does-not-spawn behaviour is witnessed on the REAL production path
+// (a modelless `spawnSubagentConversation` refuses before any launch) in
+// `subagent-model-theta-tool.test.ts`.
 
-describe("RFC-0005 — PIC-40 pre-spawn model guard", () => {
-  it("PIC-40: an unresolved (undefined) model refuses the child spawn with theta/runtime/subagent-model-unresolved", () => {
-    const outcome = preSpawnModelGuard(undefined);
-    expect(outcome.proceed).toBe(false);
-    expect(outcome.diagnostic?.code).toBe(SUBAGENT_MODEL_UNRESOLVED_CODE);
-    expect(outcome.diagnostic?.message).toBe(SUBAGENT_MODEL_UNRESOLVED_MESSAGE);
-  });
-
-  // The runtime-does-not-spawn behaviour is witnessed on the REAL production
-  // path (a modelless `spawnSubagentConversation` refuses before any launch) in
-  // `subagent-model-theta-tool.test.ts` — the former in-process
-  // `guardedSubagentSpawn` seam it used to exercise was dead and is retired.
-});
-
-// ===========================================================================
-// PIC-40 — child-side model pre-flight (marshalled-reference confirmation).
-// ===========================================================================
-
-describe("RFC-0005 — PIC-40 child-side model pre-flight", () => {
-  it("PIC-40: a matching child-resolved model proceeds without a diagnostic", () => {
-    const outcome = preFlightModelCheck("claude-sonnet", "claude-sonnet");
-    expect(outcome.proceed).toBe(true);
-    expect(outcome.diagnostic).toBeUndefined();
-  });
-
-  it("PIC-40: a mismatch fails the invocation with theta/runtime/subagent-model-preflight-mismatch naming expected vs. resolved", () => {
-    const outcome = preFlightModelCheck("claude-sonnet", "claude-haiku");
-
-    // PIC-40: the marshalled reference resolving child-side to a different model
-    // is terminal for the invocation.
-    expect(outcome.proceed).toBe(false);
-    expect(outcome.diagnostic?.code).toBe(SUBAGENT_MODEL_PREFLIGHT_MISMATCH_CODE);
-    expect(outcome.diagnostic?.message).toBe(
-      renderModelPreflightMismatchMessage("claude-sonnet", "claude-haiku"),
-    );
-    // The registry Message column names expected vs. resolved.
-    expect(outcome.diagnostic?.message).toContain("claude-sonnet");
-    expect(outcome.diagnostic?.message).toContain("claude-haiku");
-  });
-});
-
-// ===========================================================================
-// PIC-43 — terminal agent_end extraction (short-circuit order).
-// ===========================================================================
-
-describe("RFC-0005 — PIC-43 agent_end query-result extraction", () => {
-  it("PIC-43: the cancellation short-circuit yields Err(cancelled) before any text extraction", () => {
-    const event = agentEnd([userMessage("q"), assistantMessage("ignored", "stop")], false);
-    const result = extractSubagentQueryResult(event, { aborted: true, provider: "anthropic" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.kind).toBe("cancelled");
-    }
-  });
-
-  it("PIC-43: a trailing assistant stopReason \"error\" maps to Err(transport) after the cancellation short-circuit", () => {
-    const event = agentEnd([userMessage("q"), assistantMessage("boom", "error")], false);
-    const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.kind).toBe("transport");
-      // The #subagent-queryerror-audit / PIC-43 transport row pins the whole
-      // shape: http_status null, retryable false, the resolved-model provider
-      // populated, and — because the `assistant` message carries no
-      // `errorMessage` — the fixed fallback message "provider transport failure".
-      const transport = result.error as TransportError;
-      expect(transport.http_status).toBeNull();
-      expect(transport.retryable).toBe(false);
-      expect(transport.provider).toBe("anthropic");
-      expect(transport.message).toBe("provider transport failure");
-    }
-  });
-
-  it("PIC-43: an errorMessage-carrying stopReason \"error\" turn maps its errorMessage verbatim (no fallback)", () => {
-    const withMessage = assistantMessage("boom", "error");
-    (withMessage as { errorMessage?: string }).errorMessage = "429 rate limited";
-    const event = agentEnd([userMessage("q"), withMessage], false);
-    const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const transport = result.error as TransportError;
-      // The fallback string is used ONLY when `errorMessage` is absent; here the
-      // provider-formatted message rides through verbatim.
-      expect(transport.message).toBe("429 rate limited");
-      expect(transport.http_status).toBeNull();
-      expect(transport.retryable).toBe(false);
-    }
-  });
-
-  it("PIC-43: with both short-circuits passed, the trailing turn's assistant text is concatenated chronologically into Ok(string)", () => {
-    const event = agentEnd(
-      [userMessage("q"), assistantMessage("first", "stop"), assistantMessage("second", "stop")],
-      false,
-    );
-    const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value).toBe("first\nsecond");
-    }
-  });
-
-  it("PIC-43 tail: a terminal turn with no assistant text yields Ok(\"\") (the empty-final-turn rule)", () => {
-    // A pure tool-use final turn produces no assistant text; the extraction
-    // yields the empty string rather than failing.
-    const event = agentEnd([userMessage("q"), assistantMessage("", "toolUse")], false);
-    const result = extractSubagentQueryResult(event, { aborted: false, provider: "anthropic" });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value).toBe("");
-    }
-  });
-});
+// RFC-0006: the child-side model pre-flight (former `preFlightModelCheck` over
+// the RPC `get_state` surface) and the parent-side terminal-`agent_end`
+// extraction (`extractSubagentQueryResult`) are RETIRED with the RPC drive. The
+// child now re-resolves the model locally (`confirmChildModel`, covered by
+// tests/subagent-model-guard.test.ts) and resolves each query with the
+// prompt-mode driver inside the child; the parent consumes only the envelope
+// (tests/subagent-json-driver.test.ts).
 
 // ===========================================================================
 // PIC-9 — subagent child-process teardown.
@@ -252,13 +114,13 @@ describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
   }
 
   it("PIC-9: teardown closes stdin, the child exits on stdin-EOF, no kill, disposeBarrier settles on observed exit, abort listener detached", async () => {
-    const child = new FakeRpcChild({ exitOnStdinEof: true });
+    const child = new FakeJsonChild({ exitOnStdinEof: true });
     const h = makeDeps();
 
     await runSubagentChildTeardown(child, h.deps);
 
     // Graceful path: stdin close is the shutdown trigger; the child exits on EOF
-    // (the pinned RPC presupposition), so no kill and no timeout diagnostic.
+    // (the pinned stdin-EOF presupposition), so no kill and no timeout diagnostic.
     expect(child.stdinClosed).toBe(true);
     expect(child.exited).toBe(true);
     expect(child.killed).toBe(false);
@@ -271,7 +133,7 @@ describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
 
   it("PIC-9: a child that does not exit within the budget is process-tree killed and emits theta/runtime/subagent-teardown-timeout", async () => {
     // A child that ignores stdin-EOF models a wedged child talking to its provider.
-    const child = new FakeRpcChild({ exitOnStdinEof: false });
+    const child = new FakeJsonChild({ exitOnStdinEof: false });
     const h = makeDeps({ budgetMs: 20 });
 
     await runSubagentChildTeardown(child, h.deps);
@@ -364,7 +226,7 @@ describe("RFC-0005 — PIC-22 parallel subagent spawn initiation", () => {
   const PARALLEL_N = 3;
 
   it(`PIC-22: for N=${PARALLEL_N} parallel subagent tool calls, all children are launched and each first prompt entered before any blocked call is released`, async () => {
-    const launcher = makeFakeChildLauncher();
+    const launcher = makeFakeJsonChildLauncher();
     let entered = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -372,12 +234,14 @@ describe("RFC-0005 — PIC-22 parallel subagent spawn initiation", () => {
     });
 
     const makeSpawn = (): ParallelSubagentSpawn => ({
-      launchChild: async (): Promise<FakeRpcChild> =>
-        launcher.spawn("node", ["pi", "--mode", "rpc"], { cwd: "/w", env: {} }) as FakeRpcChild,
-      enterFirstPrompt: async (child): Promise<void> => {
-        child.writeStdin('{"type":"prompt","message":"go"}\n');
+      launchChild: async (): Promise<FakeJsonChild> =>
+        launcher.spawn("node", ["pi", "--mode", "json"], { cwd: "/w", env: {} }) as FakeJsonChild,
+      // PIC-22 successor: the retired RPC "enter the child's first prompt" drive
+      // point is replaced by "drive initiated" (spawn initiated). The `-p` child's
+      // stdin is close-only (no prompt write); the drive point is reaching the
+      // per-child envelope await, modelled here as a blocking gate.
+      driveInitiated: async (): Promise<void> => {
         entered += 1;
-        // Block the first-prompt acknowledgement until the test releases it.
         await gate;
       },
     });

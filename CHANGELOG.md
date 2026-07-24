@@ -6,6 +6,76 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-24
+
+### Changed
+
+- **Subagent mode now runs the whole callee theta in the child process
+  (RFC 0006).** The RFC 0005 remote-session design (parent-side interpreter
+  driving a child `pi --mode rpc` session) is superseded: each subagent-mode
+  invocation spawns `pi --theta <dirs> --mode json -p "/<slug>" --no-session`
+  and the callee's interpreter, typed-query mechanics, and resolution
+  snapshot all execute inside the child under a new *subagent-root* regime
+  (selected by the `PI_THETA_SUBAGENT_ROOT=<slug>` env marker, never
+  authorable from a `.theta` file; a nested subagent callee still spawns its
+  own child). Observable theta language semantics are unchanged. The RPC
+  drive contract is retired — deleted, not kept as a fallback; the RFC 0005
+  launcher, executable-resolution ladder, trust inference, teardown/kill,
+  and orphan-handling machinery are reused under the new driver.
+  Spec: `pi-integration-contract/subagent.md` rewritten again (new
+  PIC-58…PIC-63; PIC-40/41 retired with successors PIC-62/63; PIC-42/43
+  retired), plus `invocation.md` (INV-5), §Resolution snapshot, SLSH-2,
+  and satellite pages.
+- **Cancellation without RPC.** `thetaAbort` now closes the parent-held
+  child stdin pipe as the grace signal, then process-tree kills after the
+  bounded budget; the drive's terminal signal keys off stdio close so a
+  final envelope flushed at exit is never lost.
+
+### Added
+
+- **Typed return values cross the process boundary via a result envelope.**
+  The child emits one JSONL line `{"theta_result":{"v":1,"ok":…}}` /
+  `{"theta_result":{"v":1,"err":…}}` on stdout alongside the `--mode json`
+  event stream; the parent scans stray-line-tolerantly, verifies the
+  envelope version (skew detected, not tolerated), and maps to `Ok`/`Err`
+  with full `Result` fidelity (every `QueryError` variant, `CodeToolError`,
+  `InvokeInfraError` causes, panics as internal-error). A child that exits
+  without an envelope maps fail-closed to
+  `Err(InvokeInfraError { cause: "internal_error", … })` — never a
+  fabricated value.
+- **Marshalled params channel (binder bypass).** Already-typed param values
+  travel to the child as canonical JSON — `PI_THETA_PARAMS` env var below
+  the pinned 8 KB threshold, a 0600 temp file via `PI_THETA_PARAMS_FILE` at
+  or above it (child reads and deletes; parent-`finally` backstop). The
+  child validates against the theta's `params:` schema and skips the binder
+  entirely; binder inference remains exclusive to human slash invocation.
+- **Code-side extension-tool dispatch ladder (fail-closed).** A theta whose
+  code calls an extension-registered Pi tool now loads only when a dispatch
+  rung is available (upstream `getToolDefinition` when exposed, host-loop
+  dispatch otherwise); with no rung the theta refuses to register at load
+  with `theta/load/extension-tool-unreachable`. The host-loop dispatch
+  module ships behind DI seams; its live wiring is the RFC's designated
+  follow-up, so this release keeps the rung fail-closed (model-facing
+  extension-tool reach is unaffected). No new permission gate: the existing
+  `tools:` declaration, operator trust decisions, and fail-closed
+  registration remain the gates.
+- **Whole-callee content-hash verification.** The parent's load-time hash
+  now covers the root `.theta` plus transitive `.thetalib` imports; the
+  child verifies after its own parse and refuses diverged callees.
+- New diagnostics: `subagent-envelope-parse-failed`,
+  `subagent-envelope-schema-skew`, `subagent-exit-without-envelope`,
+  `subagent-params-validation-failed` (runtime) and
+  `extension-tool-unreachable` (load); `subagent-child-crashed`,
+  `subagent-wire-parse-failed`, `subagent-model-preflight-mismatch`
+  rescoped to the envelope/json child.
+
+### Removed
+
+- The RFC 0005 RPC session driver (`subagent-rpc-driver`), the per-query
+  `agent_end` extraction, the RPC `abort` command mapping, the parent-side
+  subagent query model, and the `PI_THETA_SUBAGENT_CHILD` boolean marker
+  (subsumed by `PI_THETA_SUBAGENT_ROOT`).
+
 ## [0.8.0] - 2026-07-24
 
 ### Changed

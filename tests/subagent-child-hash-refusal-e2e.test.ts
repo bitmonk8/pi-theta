@@ -10,7 +10,7 @@ import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import { hashCallableClosure } from "../src/runtime/subagent-callable-hash";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../src/runtime/subagent-callable-hash";
-import { SUBAGENT_CHILD_ENV_MARKER } from "../src/runtime/subagent-launcher";
+import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 
 // RFC-0005 — child-side `.theta` callable content-hash verification, wired into
 // the production child load path (subagent.md #subagent-theta-callable-hash).
@@ -97,7 +97,7 @@ describe("RFC-0005 — child refuses a callee whose content-hash diverged", () =
       "utf8",
     );
     const helperHash = hashCallableClosure([{ path: "helper.theta", content: helperContent }]);
-    setEnv(SUBAGENT_CHILD_ENV_MARKER, "1");
+    setEnv(SUBAGENT_ROOT_ENV_MARKER, "code-review");
     setEnv(
       SUBAGENT_CALLABLE_HASHES_ENV,
       JSON.stringify({ code_review: "sha256:stale-parent-hash", helper: helperHash }),
@@ -120,7 +120,7 @@ describe("RFC-0005 — child refuses a callee whose content-hash diverged", () =
     const helperHash = hashCallableClosure([
       { path: "helper.theta", content: readFileSync(join(dir, "helper.theta"), "utf8") },
     ]);
-    setEnv(SUBAGENT_CHILD_ENV_MARKER, "1");
+    setEnv(SUBAGENT_ROOT_ENV_MARKER, "code-review");
     setEnv(
       SUBAGENT_CALLABLE_HASHES_ENV,
       JSON.stringify({ code_review: reviewHash, helper: helperHash }),

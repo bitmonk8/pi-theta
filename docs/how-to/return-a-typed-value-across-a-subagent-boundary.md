@@ -66,16 +66,38 @@ pi --theta docs/examples -p "/typed-return I love this, it works perfectly"
 
 ## Result
 
-`sentiment(text)?` spawns a fresh isolated conversation for the child, validates
-its return value against the inferred `Sentiment` shape, and binds a typed `s`.
-The child's intermediate turns never reach the parent's transcript; only `s`
-crosses back. On child failure the parent observes `Err(InvokeCalleeError { ... })`
-(the child returned `Err`) or `Err(InvokeInfraError { ... })` (load / validation /
-panic) — no value flows.
+`sentiment(text)?` runs the whole child theta in a spawned child `pi` process,
+validates its return value against the inferred `Sentiment` shape, and binds a
+typed `s`. The child's intermediate turns never reach the parent's transcript;
+only `s` crosses back. The transport is a single `{"theta_result": {"ok": …}}`
+line the child emits on its stdout — mechanics you never write by hand: the
+parent reconstructs the typed value (or the `Err`) from that envelope with full
+`Result` fidelity. On child failure the parent observes
+`Err(InvokeCalleeError { ... })` (the child returned `Err`) or
+`Err(InvokeInfraError { ... })` (load / validation / panic, or a child that
+exited without an envelope — mapped fail-closed, never a fabricated value) — no
+value flows.
 
 The inline-path form `let s: Sentiment = invoke<Sentiment>("./sentiment.theta",
 text)?` is equivalent; use it for one-off calls, and `tools:` for repeated or
 model-exposed callees.
+
+## Large params cross the same way
+
+Because the whole callee runs in the child process, the callee's `params:` are
+marshalled across the process boundary structurally — canonical JSON on an env
+var for small payloads, a 0600 temp file for larger ones — with the binder
+bypassed. A **big string param and a typed return therefore behave identically
+to the in-process path**: no size ceiling an author has to know about, no loss
+of typing.
+[`docs/examples/typed-params-across-boundary.theta`](../examples/typed-params-across-boundary.theta)
+passes a (possibly large) `document` param to
+[`docs/examples/summarise-doc.theta`](../examples/summarise-doc.theta) and
+branches on the typed `Summary` it returns:
+
+```
+pi --theta docs/examples -p "/typed-params-across-boundary <your document text>"
+```
 
 ## Reference
 
@@ -92,8 +114,14 @@ model-exposed callees.
   argument binding), `docs/spec_topics/return.md`, `docs/spec_topics/functions.md`
   (FN-3, FN-5), `docs/spec_topics/schema-subset.md`,
   `docs/spec_topics/runtime-value-model.md`,
-  `docs/spec_topics/pi-integration-contract/subagent.md` (state-isolation matrix,
-  PIC-43), glossary entries *prompt mode* / *subagent mode*, *final value*,
-  *Pi tool* vs *`.theta` callable*.
+  `docs/spec_topics/pi-integration-contract/subagent.md` (return-value envelope
+  [PIC-59](../spec_topics/pi-integration-contract/subagent.md#pic-59),
+  marshalled-params channel
+  [PIC-60](../spec_topics/pi-integration-contract/subagent.md#pic-60),
+  state-isolation matrix), `docs/spec_topics/invocation.md`
+  ([INV-5](../spec_topics/invocation.md#inv-5), envelope-mediated propagation),
+  `docs/rfcs/0006-child-process-theta-execution.md`, glossary entries
+  *prompt mode* / *subagent mode*, *final value*, *Pi tool* vs *`.theta` callable*.
 - Examples `typed-return.theta` + `sentiment.theta` requested from
-  `theta-docs-example-runner`.
+  `theta-docs-example-runner`; `typed-params-across-boundary.theta` +
+  `summarise-doc.theta` added for the RFC 0006 process-boundary marshalling.

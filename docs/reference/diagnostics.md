@@ -179,6 +179,7 @@ namespace, **not** runtime diagnostics — no registry row, out of scope. Severi
 | `theta/load/unresolvable-theta-path` | E | load | `cannot resolve .theta path '<path>'` |
 | `theta/load/prompt-mode-callable` | E | load | `'tools:' entry '<path>' points at a prompt-mode theta; only subagent-mode thetas are permitted` |
 | `theta/load/subagent-executable-unresolved` | E | load | `subagent child executable unresolved: no runnable 'pi' entry point (entry-script and compiled-binary rungs both failed; no PATH fallback)` |
+| `theta/load/extension-tool-unreachable` | E | load | `extension tool '<name>' is unreachable from theta code: no code-side dispatch rung available` |
 | `theta/load/tool-name-collision` | E | load | `tool name '<name>' collides with another 'tools:' entry, top-level fn, or import` |
 | `theta/load/invalid-tool-rename` | E | load | `'as <name>' rename target must be lowercase-first; got '<name>'` |
 | `theta/load/invocation-cycle` | E | load | `invocation cycle: <A> → <B> → <A>` |
@@ -234,8 +235,12 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/internal-error` | E | runtime | `internal error: <error.message>`. |
 | `theta/runtime/subagent-dispose-failure` | E | runtime | `subagent teardown failed: <teardown error first line>`. |
 | `theta/runtime/subagent-spawn-failed` | E | runtime | `subagent child spawn failed: <error.message>`. |
-| `theta/runtime/subagent-child-crashed` | E | runtime | `subagent child crashed mid-query: <exit detail>`. |
-| `theta/runtime/subagent-wire-parse-failed` | E | runtime | `subagent RPC wire parse failed: <line summary>`. |
+| `theta/runtime/subagent-child-crashed` | E | runtime | `subagent child crashed: <exit detail>`. |
+| `theta/runtime/subagent-wire-parse-failed` | E | runtime | `subagent event-stream line parse failed: <line summary>`. |
+| `theta/runtime/subagent-envelope-parse-failed` | E | runtime | `subagent return envelope parse failed: <line summary>`. |
+| `theta/runtime/subagent-envelope-schema-skew` | E | runtime | `subagent return envelope schema skew: child emitted version <observed>, parent supports <required>`. |
+| `theta/runtime/subagent-exit-without-envelope` | E | runtime | `subagent child exited without a return envelope: <exit detail>`. |
+| `theta/runtime/subagent-params-validation-failed` | E | runtime | `subagent marshalled params failed schema validation: <detail>`. |
 | `theta/runtime/subagent-teardown-timeout` | E | runtime | `subagent child did not exit within <ms>ms; killed`. |
 | `theta/runtime/subagent-callable-hash-mismatch` | E | runtime | `subagent callable '<name>' content hash mismatch; refusing invocation`. |
 | `theta/runtime/subagent-model-preflight-mismatch` | E | runtime | `subagent model pre-flight mismatch: expected '<expected>', child resolved '<resolved>'`. |
@@ -286,13 +291,37 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   registry membership is therefore unchanged from theta 1.1.0 *by `subagent fn`*;
   the header names the current 1.2.0 baseline.
 - The child-process subagent design (`docs/rfcs/0005-child-process-subagent-sessions.md`,
-  accepted; shipped in package 0.8.0) adds the load code
+  accepted; shipped in package 0.8.0) added the load code
   `theta/load/subagent-executable-unresolved` and the runtime codes
   `subagent-spawn-failed`, `subagent-child-crashed`, `subagent-wire-parse-failed`,
   `subagent-teardown-timeout`, `subagent-callable-hash-mismatch`, and
-  `subagent-model-preflight-mismatch`, and re-scopes
+  `subagent-model-preflight-mismatch`, and re-scoped
   `theta/runtime/subagent-dispose-failure` to any subagent-mode teardown-step throw
   (stable code name retained per DIAG-3).
+- The child-process theta design (`docs/rfcs/0006-child-process-theta-execution.md`,
+  accepted; shipped in package 0.9.0), which moves the whole callee interpreter
+  into the child, adds the load code `theta/load/extension-tool-unreachable`
+  (the fail-closed refusal when a theta's *code* calls an extension tool and no
+  code-side dispatch rung is available — model-facing use is unaffected; remedy:
+  remove the code-side call, per
+  [Subagent — Code-side dispatch (PIC-61)](../spec_topics/pi-integration-contract/subagent.md#pic-61))
+  and the four marshalling runtime codes `subagent-envelope-parse-failed`,
+  `subagent-envelope-schema-skew`, `subagent-exit-without-envelope`, and
+  `subagent-params-validation-failed` (all fail-closed to
+  `Err(InvokeInfraError { cause: "internal_error" | "validation", ... })`, never
+  a fabricated value; see [PIC-59](../spec_topics/pi-integration-contract/subagent.md#pic-59) /
+  [PIC-60](../spec_topics/pi-integration-contract/subagent.md#pic-60)). It also
+  **re-scopes** three codes onto the `--mode json` child: `subagent-child-crashed`
+  (now records the crash exit detail on the fail-closed no-envelope path, no
+  per-query drive), `subagent-wire-parse-failed` (now a malformed **non-envelope**
+  event-stream line — advisory triage, since the parent ignores stray lines; a
+  malformed envelope line is `subagent-envelope-parse-failed` instead), and
+  `subagent-model-preflight-mismatch` (the child re-resolves the marshalled
+  `--provider`/`--model` reference against its own registry and reports mismatch
+  through the return envelope). Operator note: each subagent invocation — and
+  each nesting level — is a full `pi` child process, so operators may observe a
+  process tree under `par for` fan-out; the depth-32 invoke cap doubles as the
+  process-tree depth bound.
 - `theta/load/*` table: `docs/spec_topics/diagnostics/code-registry-load.md`.
 - `theta/runtime/*` table: `docs/spec_topics/diagnostics/code-registry-runtime.md`.
 - `theta/host/*` table: `docs/spec_topics/diagnostics/code-registry-host.md`.

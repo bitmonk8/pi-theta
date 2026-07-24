@@ -10,9 +10,13 @@ import {
   SUBAGENT_CALLABLE_HASH_MISMATCH_CODE,
   type ClosureSource,
 } from "../src/runtime/subagent-callable-hash";
-import { SUBAGENT_CHILD_ENV_MARKER } from "../src/runtime/subagent-launcher";
+import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 
-// RFC-0005 — child-side `.theta` callable content-hash verification (offline).
+// RFC-0006 — child-side `.theta` callable content-hash verification (offline).
+// The child is now identified by the PIC-58 subagent-root regime marker
+// (`PI_THETA_SUBAGENT_ROOT=<slug>`), which subsumes RFC-0005's boolean child
+// marker; the verification mechanism (transitive-closure hash, fail-closed
+// refusal) is unchanged.
 //
 // Authority: subagent.md #subagent-theta-callable-hash ("The child verifies each
 // hash after its own parse and refuses the invocation on mismatch");
@@ -32,7 +36,7 @@ const CODE_REVIEW_HASH = hashCallableClosure(CODE_REVIEW_SOURCES);
 /** The parent-marshalled env carrier for a child with one `.theta` callable. */
 function childEnv(hashes: Record<string, string>): Record<string, string | undefined> {
   return {
-    [SUBAGENT_CHILD_ENV_MARKER]: "1",
+    [SUBAGENT_ROOT_ENV_MARKER]: "code-review",
     [SUBAGENT_CALLABLE_HASHES_ENV]: JSON.stringify(hashes),
   };
 }
@@ -50,7 +54,7 @@ describe("readMarshalledCallableHashes", () => {
   });
 
   it("returns undefined for a child with no marshalled hashes", () => {
-    expect(readMarshalledCallableHashes({ [SUBAGENT_CHILD_ENV_MARKER]: "1" })).toBeUndefined();
+    expect(readMarshalledCallableHashes({ [SUBAGENT_ROOT_ENV_MARKER]: "code-review" })).toBeUndefined();
   });
 
   it("parses the { callable: hash } carrier into a map", () => {
@@ -61,13 +65,13 @@ describe("readMarshalledCallableHashes", () => {
   it("throws (fail-closed at the boundary) on a malformed carrier", () => {
     expect(() =>
       readMarshalledCallableHashes({
-        [SUBAGENT_CHILD_ENV_MARKER]: "1",
+        [SUBAGENT_ROOT_ENV_MARKER]: "code-review",
         [SUBAGENT_CALLABLE_HASHES_ENV]: "{not json",
       }),
     ).toThrow();
     expect(() =>
       readMarshalledCallableHashes({
-        [SUBAGENT_CHILD_ENV_MARKER]: "1",
+        [SUBAGENT_ROOT_ENV_MARKER]: "code-review",
         [SUBAGENT_CALLABLE_HASHES_ENV]: JSON.stringify({ code_review: 123 }),
       }),
     ).toThrow();

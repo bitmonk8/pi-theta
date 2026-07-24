@@ -322,9 +322,17 @@ A theta's or function's *final value* is the value of its tail expression on the
 success path, the operand of a short-circuiting `return expr`, or the literal
 `null` (empty-tail body). It is observable to programmatic callers in two places:
 an `invoke` parent receives it as the `Ok` payload; a subagent-mode parent
-receives it across the subagent boundary. On failure (`?` propagation, panic,
-exhausted ceiling) and on cancellation, **no final value flows** — the caller
-observes only the `Err` envelope.
+receives it across the subagent boundary. A subagent-mode callee runs the whole
+theta in a spawned child `pi` process and returns its value as a single
+`{"theta_result": {"v": 1, "ok": …}}` / `{"theta_result": {"v": 1, "err": …}}` line on the
+child's stdout; the parent reconstructs the `Ok`/`Err` from that envelope with
+full `Result` fidelity (every `QueryError` variant, `CodeToolError`, and the
+`InvokeInfraError` causes are representable). A child that exits **without**
+emitting an envelope (crash, kill, timeout) maps fail-closed to
+`Err(InvokeInfraError { cause: "internal_error", ... })` — never a fabricated
+value. On failure (`?` propagation, panic, exhausted ceiling) and on
+cancellation, **no final value flows** — the caller observes only the `Err`
+envelope.
 
 ## Provenance
 

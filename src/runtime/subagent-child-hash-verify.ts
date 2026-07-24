@@ -32,7 +32,7 @@
 // (`theta/runtime/subagent-callable-hash-mismatch`).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import { SUBAGENT_CHILD_ENV_MARKER } from "./subagent-launcher";
+import { SUBAGENT_ROOT_ENV_MARKER } from "./subagent-root-regime";
 import {
   hashCallableClosure,
   verifyCallableHash,
@@ -58,7 +58,7 @@ export type ChildClosureDiscovery = (
 /**
  * Read the marshalled `.theta` callable hashes the parent placed on the child
  * env. Returns `undefined` when this process is NOT a subagent child
- * (`PI_THETA_SUBAGENT_CHILD !== "1"`) or when no hashes were marshalled (the
+ * (`PI_THETA_SUBAGENT_ROOT` unset, PIC-58) or when no hashes were marshalled (the
  * theta declared no `.theta` callables, or none had a readable closure). The
  * map is `{ presented callable name → "sha256:..." }`. A malformed carrier is a
  * `SyntaxError` from `JSON.parse` and is intentionally NOT caught here — a
@@ -68,7 +68,7 @@ export type ChildClosureDiscovery = (
 export function readMarshalledCallableHashes(
   env: Readonly<Record<string, string | undefined>>,
 ): ReadonlyMap<string, string> | undefined {
-  if (env[SUBAGENT_CHILD_ENV_MARKER] !== "1") {
+  if (env[SUBAGENT_ROOT_ENV_MARKER] === undefined) {
     return undefined;
   }
   const raw = env[SUBAGENT_CALLABLE_HASHES_ENV];

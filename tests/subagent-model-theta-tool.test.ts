@@ -36,8 +36,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // #subagent-launch-contract / #subagent-theta-callable-hash).
 import {
   fakeExecutableHost,
-  makeFakeChildLauncher,
-} from "./helpers/fake-rpc-child";
+  makeFakeJsonChildLauncher,
+} from "./helpers/fake-json-child";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../src/runtime/subagent-callable-hash";
 
 import type {
@@ -352,8 +352,8 @@ function makeParentDeps(
     readonly childTailSource?: string;
     readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
   },
-): { deps: ThetaProducerDeps; launcher: ReturnType<typeof makeFakeChildLauncher> } {
-  const launcher = makeFakeChildLauncher();
+): { deps: ThetaProducerDeps; launcher: ReturnType<typeof makeFakeJsonChildLauncher> } {
+  const launcher = makeFakeJsonChildLauncher();
   const deps = createProductionProducerDeps({
     pi: opts?.pi ?? noopPi(),
     root: rootDouble(opts?.checkpoint),

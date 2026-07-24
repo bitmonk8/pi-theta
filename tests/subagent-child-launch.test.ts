@@ -1,23 +1,21 @@
-// RFC-0005 new coverage — child-process launch contract.
+// RFC-0006 child-process launch contract (rebased from the RFC-0005 RPC launch).
 //
 // Covers the launch half the RFC demands (pi-integration-contract/subagent.md
-// #subagent-executable-resolution, #subagent-launch-contract,
+// #subagent-executable-resolution, #subagent-launch-contract (PIC-58),
 // #subagent-tools-allowlist-suppression, #subagent-theta-callable-hash; PIC-9
 // spawn failure):
 //   - executable-resolution ladder (rung 1 entry-script, rung 2 compiled
 //     binary, both-rungs-fail → closed refusal, NO PATH fallback);
-//   - argv assembly (--mode rpc --no-session --system-prompt --tools list,
-//     tools:[] → --no-tools, --provider/--model, the four --no-* isolation
-//     flags, --approve iff project-local trust else --no-approve);
-//   - env: full inheritance + PI_THETA_SUBAGENT_CHILD marker + parent-PID
-//     carriage; child cwd = ctx.cwd;
+//   - json-mode argv assembly (--theta <dirs> --mode json -p "/<slug>"
+//     --no-session --system-prompt --tools list, tools:[] → --no-tools,
+//     --provider/--model, the four --no-* isolation flags, --approve iff
+//     project-local trust else --no-approve);
+//   - env: full inheritance + PI_THETA_SUBAGENT_ROOT=<slug> regime marker
+//     (subsuming the retired boolean child marker) + parent-PID carriage;
+//     child cwd = ctx.cwd;
 //   - spawn failure (ENOENT) → spawn-failed + theta/runtime/subagent-spawn-failed;
 //   - .theta callable transitive-closure content-hash marshalling + child-side
 //     verification (mismatch → theta/runtime/subagent-callable-hash-mismatch).
-//
-// RED EXPECTATION (RFC-0005 not yet implemented): assertions against the
-// launcher/hash stubs red on their primary assertions; the paired
-// implementation leaf greens them.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -27,7 +25,6 @@ import {
   launchSubagentChild,
   resolveSubagentExecutable,
   routeSubagentSpawnFailure,
-  SUBAGENT_CHILD_ENV_MARKER,
   SUBAGENT_INVOKE_DEPTH_ENV,
   SUBAGENT_PARENT_PID_ENV,
   SUBAGENT_SPAWN_FAILED_CODE,
@@ -35,6 +32,7 @@ import {
   type ExecutableHost,
   type SubagentLaunchRequest,
 } from "../src/runtime/subagent-launcher";
+import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import {
   hashCallableClosure,
   renderCallableHashMismatchMessage,
@@ -44,7 +42,7 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { InvokeInfraError } from "../src/runtime/query-error";
 import type { ToolSourceScope } from "../src/runtime/subagent-launcher";
-import { enoentSpawnError, makeFakeChildLauncher } from "./helpers/fake-rpc-child";
+import { enoentSpawnError, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
 
 // ---------------------------------------------------------------------------
 // Executable-resolution ladder.
@@ -110,9 +108,11 @@ describe("RFC-0005 — executable-resolution ladder", () => {
 // Argv assembly.
 // ---------------------------------------------------------------------------
 
-describe("RFC-0005 — argv assembly", () => {
-  it("assembles the pinned flag set: --mode rpc --no-session --system-prompt --tools <csv> --provider --model + the four --no-* isolation flags", () => {
+describe("RFC-0006 — json-mode argv assembly", () => {
+  it("assembles the pinned flag set: --theta <dirs> --mode json -p \"/<slug>\" --no-session --system-prompt --tools <csv> --provider --model + the four --no-* isolation flags", () => {
     const argv = assembleSubagentArgv({
+      slug: "code-review",
+      thetaDirs: ["/w/.pi/theta", "/w/pkg/theta"],
       systemPrompt: "you are a subagent",
       tools: ["read", "finding_store"],
       emptyCallableSet: false,
@@ -121,14 +121,26 @@ describe("RFC-0005 — argv assembly", () => {
       approve: false,
     });
 
+    // --theta <dir> repeated for each discovery root so the child re-discovers
+    // the callee.
+    expect(argv[0]).toBe("--theta");
+    expect(argv[1]).toBe("/w/.pi/theta");
+    expect(argv[2]).toBe("--theta");
+    expect(argv[3]).toBe("/w/pkg/theta");
     expect(argv).toContain("--mode");
-    expect(argv[argv.indexOf("--mode") + 1]).toBe("rpc");
+    expect(argv[argv.indexOf("--mode") + 1]).toBe("json");
+    // -p "/<slug>" invokes the callee as the child's root slash command.
+    expect(argv).toContain("-p");
+    expect(argv[argv.indexOf("-p") + 1]).toBe("/code-review");
     expect(argv).toContain("--no-session");
     expect(argv[argv.indexOf("--system-prompt") + 1]).toBe("you are a subagent");
-    // --tools carries the callable-set names as a comma-joined allowlist.
+    // --tools carries the callable-set names as a comma-joined allowlist
+    // (defence-in-depth; the child theta enforces its own callable set).
     expect(argv).toContain("--tools");
     expect(argv[argv.indexOf("--tools") + 1]).toBe("read,finding_store");
     expect(argv).not.toContain("--no-tools");
+    // The retired RPC mode is never assembled.
+    expect(argv).not.toContain("rpc");
     expect(argv[argv.indexOf("--provider") + 1]).toBe("anthropic");
     expect(argv[argv.indexOf("--model") + 1]).toBe("claude-sonnet");
     expect(argv).toContain("--no-skills");
@@ -139,6 +151,8 @@ describe("RFC-0005 — argv assembly", () => {
 
   it("empty callable set → --no-tools (empty ≠ omission); never re-enables Pi's default built-ins", () => {
     const argv = assembleSubagentArgv({
+      slug: "s",
+      thetaDirs: [],
       systemPrompt: "sp",
       tools: [],
       emptyCallableSet: true,
@@ -152,6 +166,8 @@ describe("RFC-0005 — argv assembly", () => {
 
   it("--approve iff project-local trust is inferred, else --no-approve (least privilege)", () => {
     const approving = assembleSubagentArgv({
+      slug: "s",
+      thetaDirs: [],
       systemPrompt: "sp",
       tools: ["projectLocalTool"],
       emptyCallableSet: false,
@@ -163,6 +179,8 @@ describe("RFC-0005 — argv assembly", () => {
     expect(approving).not.toContain("--no-approve");
 
     const denying = assembleSubagentArgv({
+      slug: "s",
+      thetaDirs: [],
       systemPrompt: "sp",
       tools: ["read"],
       emptyCallableSet: false,
@@ -210,23 +228,28 @@ describe("RFC-0005 — project-local trust inference (#subagent-isolation-and-tr
 // Child env.
 // ---------------------------------------------------------------------------
 
-describe("RFC-0005 — child env", () => {
-  it("inherits the full parent env AND adds PI_THETA_SUBAGENT_CHILD=1 plus the parent-PID and invoke-depth carriages", () => {
+describe("RFC-0006 — child env", () => {
+  it("inherits the full parent env AND adds the PI_THETA_SUBAGENT_ROOT=<slug> regime marker plus the parent-PID and invoke-depth carriages", () => {
     const parentEnv = { PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk-xxx", HOME: "/home/u" };
-    const env = buildSubagentChildEnv(parentEnv, 12345, 7);
+    const env = buildSubagentChildEnv(parentEnv, 12345, 7, "code-review");
 
     // Full inheritance (credentials are never re-marshalled — they ride the env).
     expect(env.PATH).toBe("/usr/bin");
     expect(env.ANTHROPIC_API_KEY).toBe("sk-xxx");
     expect(env.HOME).toBe("/home/u");
-    // The child marker suppresses the child's own file watcher / recursion.
-    expect(env[SUBAGENT_CHILD_ENV_MARKER]).toBe("1");
+    // PIC-58: the root-regime marker carries the callee slug and subsumes the
+    // retired boolean child marker (watcher suppression + no-recursion + regime).
+    expect(env[SUBAGENT_ROOT_ENV_MARKER]).toBe("code-review");
     // The parent PID rides its own carriage (PIC-9 orphan watchdog) — NOT the
     // depth counter.
     expect(env[SUBAGENT_PARENT_PID_ENV]).toBe("12345");
     // INV-4: the per-chain invoke depth crosses on its OWN dedicated carriage,
     // distinct from the parent-PID carriage.
     expect(env[SUBAGENT_INVOKE_DEPTH_ENV]).toBe("7");
+  });
+
+  it("omits the root marker when no slug is supplied (the marker names the callee)", () => {
+    expect(buildSubagentChildEnv({}, 1, 0)[SUBAGENT_ROOT_ENV_MARKER]).toBeUndefined();
   });
 
   it("INV-4: the invoke-depth carriage marshals the parent's CURRENT chain depth (0 at top level)", () => {
@@ -242,6 +265,8 @@ describe("RFC-0005 — child env", () => {
 function launchRequest(overrides?: Partial<SubagentLaunchRequest>): SubagentLaunchRequest {
   return {
     argv: {
+      slug: "child",
+      thetaDirs: ["/work/project/.pi/theta"],
       systemPrompt: "you are a subagent",
       tools: ["read"],
       emptyCallableSet: false,
@@ -258,9 +283,9 @@ function launchRequest(overrides?: Partial<SubagentLaunchRequest>): SubagentLaun
   };
 }
 
-describe("RFC-0005 — launchSubagentChild records argv/env/cwd", () => {
+describe("RFC-0006 — launchSubagentChild records argv/env/cwd", () => {
   it("spawns the resolved executable with the assembled argv, the marked env, and ctx.cwd as the child cwd", () => {
-    const launcher = makeFakeChildLauncher();
+    const launcher = makeFakeJsonChildLauncher();
     const emitted: Diagnostic[] = [];
 
     const result = launchSubagentChild(launchRequest(), {
@@ -279,10 +304,12 @@ describe("RFC-0005 — launchSubagentChild records argv/env/cwd", () => {
     // The full pinned argv rode through (entry-script arg then the flag set).
     expect(record.args).toContain("/app/pi/dist/index.js");
     expect(record.args).toContain("--mode");
+    expect(record.args[record.args.indexOf("--mode") + 1]).toBe("json");
     expect(record.args).toContain("--no-session");
     expect(record.args).toContain("--tools");
-    // The marked env crossed the boundary.
-    expect(record.env[SUBAGENT_CHILD_ENV_MARKER]).toBe("1");
+    // The root-regime marker carries the callee slug (PIC-58), subsuming the
+    // retired boolean child marker.
+    expect(record.env[SUBAGENT_ROOT_ENV_MARKER]).toBe("child");
     expect(record.env[SUBAGENT_PARENT_PID_ENV]).toBe("999");
     // INV-4: the launch marshals the current chain depth on the child env.
     expect(record.env[SUBAGENT_INVOKE_DEPTH_ENV]).toBe("3");
@@ -292,7 +319,7 @@ describe("RFC-0005 — launchSubagentChild records argv/env/cwd", () => {
   });
 
   it("spawn failure (ENOENT) → { ok: false, reason: 'spawn-failed' } AND emits theta/runtime/subagent-spawn-failed", () => {
-    const launcher = makeFakeChildLauncher();
+    const launcher = makeFakeJsonChildLauncher();
     launcher.failNextSpawn(enoentSpawnError("/usr/bin/node"));
     const emitted: Diagnostic[] = [];
 
@@ -312,7 +339,7 @@ describe("RFC-0005 — launchSubagentChild records argv/env/cwd", () => {
   });
 
   it("spawn failure is DUALLY routed: operator-triage subagent-spawn-failed AND the invocation-failure internal-error surface (+ invoke_infra envelope)", () => {
-    const launcher = makeFakeChildLauncher();
+    const launcher = makeFakeJsonChildLauncher();
     const spawnError = enoentSpawnError("/usr/bin/node");
     launcher.failNextSpawn(spawnError);
     const emitted: Diagnostic[] = [];

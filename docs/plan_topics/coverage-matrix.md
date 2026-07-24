@@ -78,9 +78,16 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-55 | `V9q` |
 | PIC-56 | `V7e` |
 | PIC-57 | reload-teardown quiesce (extends the `V10d` hot-reload debouncer + `V9g` session-shutdown teardown) |
+| PIC-58 | RFC 0006 (child-process theta execution — subagent-root regime) |
+| PIC-59 | RFC 0006 (child-process theta execution — return-value envelope) |
+| PIC-60 | RFC 0006 (child-process theta execution — marshalled-params channel) |
+| PIC-61 | RFC 0006 (child-process theta execution — host-loop dispatch ladder) |
+| PIC-62 | RFC 0006 (child-process theta execution — pre-spawn model guard) |
+| PIC-63 | RFC 0006 (child-process theta execution — cancellation stdin-close grace) |
 | INV-1 | `V15a` |
 | INV-2, INV-3 | `V15k` |
 | INV-4 | `V15b` |
+| INV-5 | RFC 0006 (child-process theta execution — envelope return propagation) |
 | DIAG-1 | `V7a` |
 | DIAG-2, DIAG-3 | `V7b` |
 | DIAG-4 | `V7b`, `V7c` |

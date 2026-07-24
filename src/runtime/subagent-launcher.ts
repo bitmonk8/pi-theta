@@ -3,8 +3,9 @@
 // This module owns the child-process launch half of the RFC-0005 subagent
 // drive (pi-integration-contract/subagent.md): the executable-resolution
 // ladder (#subagent-executable-resolution), argv assembly (#subagent-launch-
-// contract), the env marshalling (`PI_THETA_SUBAGENT_CHILD` marker, the
-// parent-PID carriage, and the per-chain invoke-depth carriage per
+// contract), the env marshalling (the live `PI_THETA_SUBAGENT_ROOT` regime
+// marker — which subsumed RFC-0005's retired `PI_THETA_SUBAGENT_CHILD` per
+// PIC-58 — the parent-PID carriage, and the per-chain invoke-depth carriage per
 // invocation.md §INV-4), and the spawn seam. The theta interpreter stays in the
 // parent; only the child-`pi` process launch lives here, behind the
 // `conversation-drive.ts` drive seam.
@@ -18,6 +19,7 @@
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { InvokeInfraError } from "./query-error";
 import { INTERNAL_ERROR_CODE, surfaceUnexpectedThrow } from "./runtime-panics";
+import { SUBAGENT_ROOT_ENV_MARKER } from "./subagent-root-regime";
 
 // ---------------------------------------------------------------------------
 // Diagnostic codes (owned here; re-audited per Pi bump).
@@ -43,8 +45,15 @@ export const SUBAGENT_EXECUTABLE_UNRESOLVED_MESSAGE =
  */
 export const SUBAGENT_SPAWN_FAILED_CODE = "theta/runtime/subagent-spawn-failed";
 
-/** The env-marker name identifying a subagent child (suppresses its own watcher). */
-export const SUBAGENT_CHILD_ENV_MARKER = "PI_THETA_SUBAGENT_CHILD";
+/**
+ * RFC-0006 (PIC-58): the subagent-root regime marker (`PI_THETA_SUBAGENT_ROOT=<slug>`)
+ * SUBSUMES RFC-0005's `PI_THETA_SUBAGENT_CHILD` marker and carries its duties
+ * (watcher suppression, no-recursion guard, parent-PID carriage) alongside regime
+ * selection. The old boolean child marker is retired — its presence is now
+ * expressed by the presence of the root-slug marker. Re-exported from the regime
+ * module (single source of truth) so launcher-side consumers resolve it here.
+ */
+export { SUBAGENT_ROOT_ENV_MARKER };
 
 /**
  * The env var carrying the parent PID to the child, read by the child-side
@@ -159,11 +168,15 @@ export function inferChildTrust(
 // Argv assembly (#subagent-launch-contract).
 // ---------------------------------------------------------------------------
 
-/** The inputs the subagent-drive argv assembly consumes. */
+/** The inputs the subagent-drive argv assembly consumes (RFC-0006 json-mode child). */
 export interface SubagentArgvInput {
+  /** The callee slug → `-p "/<slug>"` (the child invokes the callee as its root slash command). */
+  readonly slug: string;
+  /** The theta discovery roots → `--theta <dir>` (repeated), so the child re-discovers the callee. */
+  readonly thetaDirs: readonly string[];
   /** Resolved-and-interpolated frontmatter `system:` → `--system-prompt`. */
   readonly systemPrompt: string;
-  /** The theta's callable set → `--tools <name1,name2,…>`. */
+  /** The theta's callable set → `--tools <name1,name2,…>` (defence-in-depth, PIC-58). */
   readonly tools: readonly string[];
   /** `true` when the callable set is empty → `--no-tools` (empty ≠ omission). */
   readonly emptyCallableSet: boolean;
@@ -176,25 +189,36 @@ export interface SubagentArgvInput {
 }
 
 /**
- * Assemble the child argv (after the executable + entry-script args). The
- * compliant assembly is:
- *   --mode rpc --no-session --system-prompt <sp>
+ * RFC-0006 (subagent.md #subagent-launch-contract). Assemble the json-mode child
+ * argv (after the executable + entry-script args). The compliant assembly is:
+ *   --theta <dir>… --mode json -p "/<slug>" --no-session --system-prompt <sp>
  *   (--tools <csv> | --no-tools) --provider <p> --model <id>
  *   --no-skills --no-prompt-templates --no-themes --no-context-files
  *   (--approve | --no-approve)
- * `tools: []` maps to `--no-tools` (never re-enables Pi defaults by omission).
+ * The child runs the WHOLE callee: interpreter, extension discovery, and its own
+ * host agent loop. `--tools` is defence-in-depth only (the child theta enforces
+ * its own callable set); `tools: []` maps to `--no-tools` (never re-enables Pi
+ * defaults by omission). Params ride the marshalled channel (PIC-60), the result
+ * rides the stdout envelope (PIC-59) — neither is on argv.
  */
 export function assembleSubagentArgv(input: SubagentArgvInput): string[] {
-  const argv: string[] = [
+  const argv: string[] = [];
+  // `--theta <dir>` (repeated) so the child re-discovers the callee `.theta` and
+  // its `.thetalib` imports (the child owns the interpreter under RFC 0006).
+  for (const dir of input.thetaDirs) {
+    argv.push("--theta", dir);
+  }
+  argv.push(
     "--mode",
-    "rpc",
+    "json",
+    "-p",
+    `/${input.slug}`,
     "--no-session",
     "--system-prompt",
     input.systemPrompt,
-  ];
+  );
   // `--no-tools` for the empty callable set (empty ≠ omission — omission would
-  // re-enable Pi's default built-ins, which the launch contract never does);
-  // otherwise the comma-joined allowlist.
+  // re-enable Pi's default built-ins); otherwise the comma-joined allowlist.
   if (input.emptyCallableSet) {
     argv.push("--no-tools");
   } else {
@@ -217,25 +241,29 @@ export function assembleSubagentArgv(input: SubagentArgvInput): string[] {
 
 /**
  * Build the child environment: full inheritance of the parent env plus the
- * `PI_THETA_SUBAGENT_CHILD=1` marker, the parent-PID carriage (for the PIC-9
- * orphan-prevention watchdog), and the per-chain invoke-depth carriage
- * (`invokeDepth` — the parent's CURRENT chain depth, so the child continues the
- * depth-32 ceiling across the process hop per invocation.md §INV-4).
+ * per-chain invoke-depth carriage (`invokeDepth` — the parent's CURRENT chain
+ * depth, so the child continues the depth-32 ceiling across the process hop per
+ * invocation.md §INV-4), the parent-PID carriage (for the PIC-9 orphan-prevention
+ * watchdog), and — when `rootSlug` is supplied — the PIC-58 subagent-root regime
+ * marker (`PI_THETA_SUBAGENT_ROOT=<slug>`), which subsumes RFC-0005's boolean
+ * child marker and carries watcher suppression + no-recursion + regime selection.
  * Credentials are never marshalled — full inheritance is the mechanism.
  */
 export function buildSubagentChildEnv(
   parentEnv: Readonly<Record<string, string | undefined>>,
   parentPid: number,
   invokeDepth: number,
+  rootSlug?: string,
 ): Record<string, string | undefined> {
   // Full inheritance is the credential mechanism (credentials are never
-  // marshalled); the marker suppresses the child's own file watcher / recursion.
-  // The parent PID is the PIC-9 orphan-prevention watchdog input; the invoke
-  // depth is the wire-level INV-4 counter the child seeds its chain from (these
-  // are two DISTINCT carriages — the PID is not the depth counter).
+  // marshalled). The parent PID is the PIC-9 orphan-prevention watchdog input;
+  // the invoke depth is the wire-level INV-4 counter the child seeds its chain
+  // from (these are two DISTINCT carriages — the PID is not the depth counter).
+  // The PIC-58 root marker (when set) subsumes the old child marker: it selects
+  // the subagent-root regime and suppresses the child's own file watcher.
   return {
     ...parentEnv,
-    [SUBAGENT_CHILD_ENV_MARKER]: "1",
+    ...(rootSlug !== undefined ? { [SUBAGENT_ROOT_ENV_MARKER]: rootSlug } : {}),
     [SUBAGENT_PARENT_PID_ENV]: String(parentPid),
     [SUBAGENT_INVOKE_DEPTH_ENV]: String(invokeDepth),
   };
@@ -328,7 +356,14 @@ export function launchSubagentChild(
     return { ok: false, reason: "unresolved" };
   }
   const argv = [...resolution.scriptArgs, ...assembleSubagentArgv(request.argv)];
-  const env = buildSubagentChildEnv(request.parentEnv, request.parentPid, request.invokeDepth);
+  // PIC-58: the root-regime marker carries the callee slug, subsuming the old
+  // child marker (watcher suppression + no-recursion + regime selection).
+  const env = buildSubagentChildEnv(
+    request.parentEnv,
+    request.parentPid,
+    request.invokeDepth,
+    request.argv.slug,
+  );
   try {
     const child = deps.spawn(resolution.execPath, argv, { cwd: request.cwd, env });
     return { ok: true, child };

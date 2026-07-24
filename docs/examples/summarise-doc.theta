@@ -1,0 +1,27 @@
+---
+description: Summarise a document passed as a string param, returning a typed result
+mode: subagent
+params:
+  document: string
+---
+schema Summary {
+  headline: string,
+  word_count: number,
+  themes: array<string>
+}
+
+// This callee is `mode: subagent`, so an invocation runs the WHOLE theta —
+// interpreter included — in a spawned child `pi` process (RFC 0006). The typed
+// `document` param arrives here already validated: the parent marshals it across
+// the process boundary as canonical JSON (a small payload on the PI_THETA_PARAMS
+// env var, a larger one via a 0600 temp file), the binder never runs on that
+// path, so a big string param behaves exactly as it would in-process.
+//
+// The final value below — a typed `Summary` — crosses back to the caller as the
+// `ok` arm of the single `theta_result` line this child emits on stdout,
+// reconstructed with full type fidelity (no stringification, no transcript leak).
+let s: Summary = @`Summarise this document in a headline, an approximate
+word_count (a number), and up to three themes. Document:
+
+${document}`?
+s

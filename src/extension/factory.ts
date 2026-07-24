@@ -50,7 +50,7 @@ import {
   composeExtensionInstance,
   type ExtensionInstanceWiring,
 } from "./production-composition";
-import { SUBAGENT_CHILD_ENV_MARKER } from "../runtime/subagent-launcher";
+import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 
 /**
  * The diagnostics-registry code a factory-time bootstrap registration /
@@ -227,12 +227,14 @@ export interface ThetaExtensionDeps {
   ) => Promise<ExtensionInstanceWiring>;
 
   /**
-   * RFC-0005 (subagent.md #subagent-launch-contract): `true` when this extension
-   * instance is loading INSIDE a spawned subagent child `pi` process
-   * (`PI_THETA_SUBAGENT_CHILD=1`). The child MUST NOT install its own step-5 file
-   * watcher / `ReloadDebouncer` (a recursive behaviour that must not run in the
-   * ephemeral child), so the arming is suppressed. Read once at the default
-   * export from the process env; absent (falsey) on the parent / harness paths.
+   * RFC-0006 (subagent.md #pic-58): `true` when this extension instance is
+   * loading INSIDE a spawned subagent child `pi` process, detected by the
+   * subagent-root regime marker `PI_THETA_SUBAGENT_ROOT=<slug>` (which subsumes
+   * the retired RFC-0005 boolean `PI_THETA_SUBAGENT_CHILD` marker, per PIC-58).
+   * The child MUST NOT install its own step-5 file watcher / `ReloadDebouncer`
+   * (a recursive behaviour that must not run in the ephemeral child), so the
+   * arming is suppressed. Read once at the default export from the process env;
+   * absent (falsey) on the parent / harness paths.
    */
   readonly isSubagentChild?: boolean;
 }
@@ -497,11 +499,12 @@ export function createThetaExtension(
       // the teardown's sub-step 5 detaches REAL still-attached listeners.
       liveForwardingSignals = wiring.forwardingSignals;
       registerFixtures([...deps.fixtures, ...wiring.thetas], wiring.registry);
-      // RFC-0005: a subagent child (`PI_THETA_SUBAGENT_CHILD=1`) MUST NOT install
-      // its own step-5 file watcher / `ReloadDebouncer` — the child is ephemeral
-      // (one invocation, then it exits) and a recursive watcher rebuild inside it
-      // is exactly the behaviour the env marker suppresses (subagent.md
-      // #subagent-launch-contract). The parent still arms the watcher normally.
+      // RFC-0006: a subagent child (marked by `PI_THETA_SUBAGENT_ROOT=<slug>`,
+      // which subsumes the retired boolean `PI_THETA_SUBAGENT_CHILD`) MUST NOT
+      // install its own step-5 file watcher / `ReloadDebouncer` — the child is
+      // ephemeral (one invocation, then it exits) and a recursive watcher rebuild
+      // inside it is exactly the behaviour the env marker suppresses (subagent.md
+      // #pic-58). The parent still arms the watcher normally.
       if (deps.isSubagentChild === true) {
         return;
       }
@@ -643,12 +646,13 @@ export function createThetaExtension(
  * runs `.theta` slash commands.
  */
 export default function thetaExtension(pi: ExtensionAPI): void {
-  // RFC-0005: read the child marker ONCE at factory entry (subagent.md
-  // #subagent-launch-contract). `process.env` is a localised ambient read here
-  // (exempted) — the marker gates the step-5 watcher suppression so a spawned
-  // subagent child does not install a recursive file watcher.
+  // RFC-0006 (PIC-58): read the subagent-root regime marker ONCE at factory
+  // entry. `process.env` is a localised ambient read here (exempted) — the
+  // marker's presence identifies a spawned subagent child and gates the step-5
+  // watcher suppression so the child does not install a recursive file watcher.
+  // It subsumes RFC-0005's boolean `PI_THETA_SUBAGENT_CHILD` marker.
   const isSubagentChild =
-    process.env[SUBAGENT_CHILD_ENV_MARKER] === "1"; // allow-ambient: process.env — RFC-0005 subagent child marker (subagent.md #subagent-launch-contract)
+    process.env[SUBAGENT_ROOT_ENV_MARKER] !== undefined; // allow-ambient: process.env — RFC-0006 subagent-root regime marker (subagent.md #pic-58)
   createThetaExtension({
     fixtures: [],
     composeInstance: (pi, ctx: ExtensionContext) =>

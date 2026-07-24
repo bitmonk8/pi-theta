@@ -1,0 +1,21 @@
+---
+description: Pass a typed (possibly large) string param to a subagent and branch on its typed return
+mode: subagent
+tools:
+  - ./summarise-doc.theta
+params:
+  document: string
+---
+// `document` is a typed string param that may be large (tens of KB — e.g. a
+// whole file's contents). Calling the `mode: subagent` callee `summarise_doc`
+// runs it in its own child `pi` process; the param is marshalled structurally
+// across the process boundary and the callee's typed `Summary` value crosses
+// back over the `theta_result` return envelope. Big string params and typed
+// returns work identically to the in-process path — no size ceiling an author
+// has to know about, no loss of typing.
+let summary = summarise_doc(document)?
+if summary.word_count > 5000 {
+  @`Long document (${summary.word_count} words): ${summary.headline}`
+} else {
+  @`Summary: ${summary.headline}`
+}

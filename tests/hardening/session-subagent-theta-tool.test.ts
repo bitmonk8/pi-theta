@@ -1,9 +1,12 @@
-// LIVE hardening lens — RFC-0005 subagent drive (child-process mechanism, landed).
+// LIVE hardening lens — RFC 0006 subagent drive (child-process mechanism, landed).
 //
-// This lens boots a real Pi session. Under RFC-0005 the subagent drive spawns a
-// real child `pi --mode rpc` process (docs/spec_topics/pi-integration-contract/
-// subagent.md §"Conversation drive — subagent mode"); this suite therefore
-// exercises REAL child spawns and the RPC wire on its best-effort model-turn
+// This lens boots a real Pi session. Under RFC 0006 the subagent drive spawns a
+// real child `pi --mode json -p "/<slug>"` process (docs/spec_topics/
+// pi-integration-contract/subagent.md §"Conversation drive — subagent mode"): the
+// child owns the whole callee's interpreter and returns its final value as the
+// single reserved-key `{"theta_result": …}` envelope line on its `--mode json`
+// stdout stream (PIC-59), which the parent consumes. This suite therefore
+// exercises REAL child spawns and the envelope wire on its best-effort model-turn
 // probe. It is NOT silently skipped — it runs under `npm run test:live` against
 // a live provider (the module-level `requireLiveProvider()` gate skips the whole
 // file when no provider is configured, without executing a live spawn here).

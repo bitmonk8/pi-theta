@@ -213,6 +213,17 @@ export interface ConversationBinding {
   readonly effectHostDeps?: EffectfulStatementHostDeps;
   surface(execution: BodyExecution): ResultValue;
   /**
+   * RFC-0006 (PIC-59): a fully self-contained drive that resolves the
+   * invocation's `Result` WITHOUT the drive seam running `executeBody` against
+   * `executeDeps`. Present on the parent-side subagent-mode binding, whose body
+   * runs in a spawned child `pi` process (the parent only launches, awaits the
+   * `theta_result` envelope, and maps `ok`/`err`); when present the drive seam
+   * calls `drive()` instead of `executeBody(theta.body, executeDeps) + surface`.
+   * Absent for prompt-mode / child-side in-process bindings (the drive seam runs
+   * the body directly).
+   */
+  readonly drive?: () => Promise<ResultValue>;
+  /**
    * Decision 6 / Increment B1 (active-invocation-registry.md §"Active
    * invocation registry"): settles the invocation's `disposeBarrier` and
    * removes its `ActiveInvocationRegistry` entry. Idempotent. The DRIVE seam
@@ -259,6 +270,25 @@ export interface ThetaProducerDeps {
   spawnSubagentConversation(
     input: ConversationBindInput,
   ): Promise<ConversationBinding>;
+  /**
+   * RFC-0006 (PIC-58): whether THIS process is the spawned subagent-root child
+   * for `theta` — i.e. the `PI_THETA_SUBAGENT_ROOT` marker is set to `theta`'s
+   * slug and the theta is `mode: subagent`. When `true`, the drive seam routes
+   * `run` through `driveSubagentRootRegime` (child-side in-process drive + stdout
+   * envelope emission), bypassing the parent-side spawn path and the binder.
+   * Defaults to `false` on harnesses without the regime wired.
+   */
+  isSubagentRootFor?(theta: ThetaCompositionInput): boolean;
+  /**
+   * RFC-0006 (PIC-58/59/60/62): the child-side subagent-root drive. Intakes the
+   * marshalled params (binder bypassed, PIC-60), confirms the marshalled model
+   * reference re-resolved child-side (PIC-62), drives the callee in-process
+   * against the child's own host session (prompt-mode mechanics), and emits the
+   * single `theta_result` stdout envelope on EVERY exit path — `Ok`, every
+   * `Err`, and a panic routed as internal-error (PIC-59). Present only in the
+   * spawned child; the parent-side / harness path never calls it.
+   */
+  driveSubagentRootRegime?(input: ConversationBindInput): Promise<void>;
   /**
    * SLSH-3/SLSH-4/SLSH-5: emit the one-line `theta-system-note` for a top-level
    * `Err(QueryError)` returned to the slash-dispatch boundary (a theta with a
@@ -326,6 +356,20 @@ export function composeThetaFixture(
       // no long-lived controller leaks across the Pi session.
       const thetaAbort = createThetaAbort();
       forwardSlashCommandCancel(thetaAbort, ctx.signal);
+      // RFC-0006 (PIC-58): child-side subagent-root drive. When THIS process is
+      // the spawned subagent-root child for this theta, the binder is BYPASSED
+      // (params were marshalled structurally, PIC-60) and the callee is driven
+      // in-process against the child's own host session, emitting the single
+      // `theta_result` stdout envelope on every exit path (PIC-59). This is the
+      // child leg only — `isSubagentRootFor` is `false` in the parent / on
+      // harnesses — and it precedes the parent-side binder + drive below.
+      if (
+        deps.driveSubagentRootRegime !== undefined &&
+        deps.isSubagentRootFor?.(theta) === true
+      ) {
+        await deps.driveSubagentRootRegime({ theta, args, ctx, thetaAbort });
+        return;
+      }
       // TOP-LEVEL runtime-defect / panic surface (error-model.md §"Runtime
       // panics"): the whole dispatch body (binder + bind + the inner
       // teardown/finish try/finally) runs inside this OUTER try so a runtime
@@ -365,7 +409,14 @@ export function composeThetaFixture(
         //    above returns BEFORE `binding` exists, so no entry was added — nothing
         //    to finish on that path.
         try {
-          const execution: BodyExecution = await executeBody(theta.body, binding.executeDeps);
+          // RFC-0006 (PIC-59): the parent-side subagent-mode binding resolves its
+          // `Result` through a self-contained `drive()` (launch child → await
+          // envelope → map) rather than the parent running the body; every other
+          // binding runs the body against `executeDeps` and surfaces it.
+          const terminal: ResultValue =
+            binding.drive !== undefined
+              ? await binding.drive()
+              : binding.surface(await executeBody(theta.body, binding.executeDeps));
           // 4. SLSH-3: a top-level `Err(QueryError)` returned to THIS boundary (a
           //    slash caller, no invoke parent — invoke-reached thetas never go
           //    through `run`) gets a one-line `theta-system-note` formatted from the
@@ -376,7 +427,6 @@ export function composeThetaFixture(
           //    invoke_callee suffix is a deferred refinement (no readily-usable
           //    invoke provenance at this boundary). A returned `Err` is a VALUE
           //    (not a throw) — the outer catch never sees it.
-          const terminal: ResultValue = binding.surface(execution);
           if (!terminal.ok) {
             deps.emitTopLevelErrNote(theta.slashName, terminal.error as unknown as QueryError);
           }

@@ -23,6 +23,15 @@
 // deterministic staging at the `runCodeSideToolCall`/dispatch seam — no model
 // turn is needed because a bare tail `<name>(args)` is a code-side statement).
 //
+// RFC-0006 re-base: this proof is driven through a PROMPT-mode theta. Under
+// RFC 0006 a `mode: subagent` theta runs its WHOLE body in a spawned child
+// process, so its code-side tool call (and any return-shape defect) occurs
+// child-side and surfaces to the parent via the return envelope — NOT via a
+// parent-side top-level panic note. The one-note tool-lowering proof is a
+// property of a body that runs IN-PROCESS, which prompt mode is; the seam under
+// test (`runCodeSideToolCall` → `routeToolReturnShape` → top-level catch → ONE
+// framed panic note) is mode-agnostic.
+//
 // Spec: pi-integration-contract/errors-and-results/error-model.md §"Runtime
 // panics"; runtime-event-channel.md §"system-note-details-shapes" (group B);
 // host-interfaces-core.md §"Tool execution from theta code".
@@ -34,17 +43,8 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 
-// RFC-0005 re-base: the subagent bind spawns a child `pi` process, so this suite
-// drives the REAL `launchSubagentChild` over a fake process launcher
-// (`makeFakeChildLauncher`) rather than the retired in-process `createAgentSession`
-// mock. `executeBody` is DELIBERATELY NOT mocked — the whole point is to exercise
-// the real code-side tool-lowering seam (`runCodeSideToolCall`) from the subagent
-// body, which runs PARENT-side regardless of the child.
-import {
-  fakeExecutableHost,
-  makeFakeChildLauncher,
-} from "./helpers/fake-rpc-child";
-
+// `executeBody` is DELIBERATELY NOT mocked — the whole point is to exercise the
+// real code-side tool-lowering seam (`runCodeSideToolCall`) from the theta body.
 import {
   createProductionProducerDeps,
   type PiToolDispatch,
@@ -92,10 +92,12 @@ function toolCallBody(callee: string): ThetaBody {
   return { statements: [], tail: call } as unknown as ThetaBody;
 }
 
-/** A subagent-mode theta (no `params:`, so the binder binds trivially, no
- *  overflow note on empty args) whose body is a single code-side tool call. */
+/** A prompt-mode theta (no `params:`, so the binder binds trivially, no
+ *  overflow note on empty args) whose body is a single code-side tool call. Its
+ *  body runs IN-PROCESS, so the code-side tool-lowering seam is exercised
+ *  parent-side and its defect frames ONE top-level panic note. */
 function subagentToolTheta(callee: string): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "subagent" } as ParsedFrontmatter;
+  const frontmatter: ParsedFrontmatter = { mode: "prompt" } as ParsedFrontmatter;
   return {
     slashName: "classify",
     sourcePath: "/theta/classify.theta",
@@ -106,12 +108,15 @@ function subagentToolTheta(callee: string): ThetaCompositionInput {
 
 function driveCtx(): ExtensionCommandContext {
   return {
-    // A resolved `Model`-like handle (the subagent launch reads `.id`/`.provider`);
-    // the fake child reports the matching resolved model so the PIC-40 pre-flight
-    // passes on the inherited-model path.
     model: { id: "claude-test", provider: "anthropic" },
     cwd: "/tmp",
     signal: undefined,
+    // The prompt-mode PIC-53 trailing-turn read surface: an empty session so the
+    // conforming case surfaces `Ok("")` (no user turns) with no note.
+    sessionManager: {
+      getEntries: () => [],
+      getLeafId: () => undefined,
+    },
   } as unknown as ExtensionCommandContext;
 }
 
@@ -134,7 +139,6 @@ function fakeTool(
 interface Harness {
   readonly notes: Array<{ customType: unknown; content: unknown; details: unknown }>;
   readonly dispatched: { dispatched: number };
-  readonly launcher: ReturnType<typeof makeFakeChildLauncher>;
   run(): Promise<void>;
 }
 
@@ -156,7 +160,6 @@ function makeHarness(callee: string, resolved: unknown): Harness {
     },
   } as unknown as ExtensionAPI;
 
-  const launcher = makeFakeChildLauncher();
   const deps = createProductionProducerDeps({
     pi,
     root: rootDouble(),
@@ -165,17 +168,12 @@ function makeHarness(callee: string, resolved: unknown): Harness {
     } as unknown as ModelRegistry,
     resolvePiTool: (name: string): PiToolDispatch | undefined =>
       name === callee ? fakeTool(name, resolved, dispatched) : undefined,
-    subagentSpawn: launcher.spawn,
-    subagentExecutableHost: fakeExecutableHost(),
-    subagentParentEnv: {},
-    subagentParentPid: 4242,
   });
 
   const fixture = composeThetaFixture(subagentToolTheta(callee), deps);
   return {
     notes,
     dispatched,
-    launcher,
     run: () => fixture.run("", driveCtx()),
   };
 }
@@ -197,10 +195,6 @@ describe("one-note proof (production-wired) — a top-level tool-return-shape de
     // The malformed return genuinely reached the REAL dispatch seam (so the sink
     // WAS on the executed path and would have fired a second note if wired).
     expect(h.dispatched.dispatched, "the fake tool's execute() was dispatched").toBe(1);
-    // The subagent child was torn down on teardown (PIC-9: stdin-EOF exit),
-    // leak-free, NOT masking the in-flight defect.
-    expect(h.launcher.spawns).toHaveLength(1);
-    expect(h.launcher.spawns[0]!.child.exited).toBe(true);
 
     // EXACTLY ONE note on the `theta-system-note` channel — the framed panic note.
     // If the lowering sink still delivered its own group-B note (the reverted
@@ -228,7 +222,6 @@ describe("one-note proof (production-wired) — a top-level tool-return-shape de
 
     // The conforming tool genuinely ran through the real seam...
     expect(h.dispatched.dispatched, "the conforming tool's execute() was dispatched").toBe(1);
-    expect(h.launcher.spawns[0]!.child.exited).toBe(true);
     // ...and lowered to a value with NO operator note (neither a sink note nor a
     // panic note): the hot path is byte-identical to the prior `noopSink()`.
     expect(h.notes).toEqual([]);
