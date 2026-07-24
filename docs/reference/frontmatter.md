@@ -130,11 +130,14 @@ contributes (e.g. `finding_store`, `projection`). In `mode: subagent` an
 extension tool named in `tools:` is reachable by the theta's **model** — the
 invocation runs the whole callee in a child `pi` process that loads the same
 extensions and receives the callable-set names as its active-tool allowlist
-(`tools: []` → no tools). Theta **code** cannot dispatch an extension tool in
-this release: a code-side `<name>(...)` call to one is designed to route through
-the child's host agent loop, but that dispatch rung is unwired in 0.9.0 and
-ships **fail-closed** — a theta whose code calls an extension tool refuses to
-load with `theta/load/extension-tool-unreachable` (distinct from
+(`tools: []` → no tools). Since 0.10.0 theta **code** can dispatch an extension
+tool too: a code-side `<name>(...)` call routes through the child's host agent
+loop (PIC-61 rung 2 — host-loop dispatch), running deterministically with the
+code-supplied arguments and zero model tokens. Code-side dispatch is
+**fail-closed** only where no dispatch rung exists — a prompt-mode theta (an
+extension tool is inadmissible in a prompt-mode `tools:` anyway) or an in-process
+`subagent fn` inline body — where a theta whose code calls an extension tool
+refuses to load with `theta/load/extension-tool-unreachable` (distinct from
 `theta/load/unknown-tool`, which means the tool is absent from Pi's registry).
 The child is granted tool approval up front only when the callable set contains
 a *project-local* extension tool (already trusted in the parent session);

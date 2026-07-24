@@ -354,9 +354,17 @@ export interface ProductionProducerInput {
    * the result back, restore the model. Wired at the child composition root over
    * the live host agent loop (a live-only mechanism; the prototype is an
    * acceptance criterion of RFC 0006). Absent here → the ladder is fail-closed
-   * pending the upstream `getToolDefinition` exposure.
+   * pending the upstream `getToolDefinition` exposure. The `signal` is the
+   * code-side tool call's abort signal (the theta abort), threaded so a
+   * thetaAbort mid-fabricated-turn resolves the settle barrier and the model is
+   * restored (never left on the bridge) — the leaf `dispatchViaHostLoop` seam
+   * itself is signal-agnostic; this producer dep carries the signal into the
+   * production collaborators.
    */
-  readonly hostLoopDispatch?: (request: EncodedToolRequest) => Promise<HostToolResult>;
+  readonly hostLoopDispatch?: (
+    request: EncodedToolRequest,
+    signal: AbortSignal,
+  ) => Promise<HostToolResult>;
   /** Runtime-defect diagnostic sink (advisory teardown / spawn-failure / wire failures). */
   readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
   /**
@@ -2305,9 +2313,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   async #dispatchExtensionToolChildSide(
     toolName: string,
     params: Record<string, unknown>,
-    _signal: AbortSignal,
+    signal: AbortSignal,
   ): Promise<AgentToolResultEnvelope> {
-    void _signal;
     const probe: DispatchLadderProbe = this.#input.dispatchLadderProbe ?? {
       getToolDefinitionAvailable: false,
       hostLoopAvailable: this.#input.hostLoopDispatch !== undefined,
@@ -2331,7 +2338,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       );
     }
     const request: EncodedToolRequest = { toolName, args: params };
-    const hostResult = await dispatch(request);
+    // Thread the code-side tool-call abort signal into host-loop dispatch so a
+    // thetaAbort mid-fabricated-turn releases the settle barrier and the model
+    // is restored (PIC-61 cancellation) rather than left on the bridge.
+    const hostResult = await dispatch(request, signal);
     // Adapt the host-loop result to the tool-result envelope the code-side
     // lowering consumes (content blocks + error flag).
     return {

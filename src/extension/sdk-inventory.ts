@@ -216,6 +216,16 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // `pi.getAllTools()` (name + `sourceInfo.scope`) for the project-local trust
     // inference (`--approve` / `--no-approve`).
     { id: "pi.getAllTools", kind: "pi-member" },
+    // RFC-0006 (PIC-61 rung 2): the child-side host-loop dispatch
+    // (`production-host-loop-dispatch.ts`) registers a theta-controlled provider
+    // authoring the `tool_use`, switches the session model to it, and
+    // unregisters it after the fabricated turn. These `pi.<member>` surfaces are
+    // consumed through a narrow structural carrier (not a `pi: ExtensionAPI`
+    // carrier), so they are inventoried for completeness / the version-bump
+    // presence gate rather than to satisfy a member-access audit row.
+    { id: "pi.registerProvider", kind: "pi-member" },
+    { id: "pi.unregisterProvider", kind: "pi-member" },
+    { id: "pi.setModel", kind: "pi-member" },
     // The category-(3) canonical-`ctx` member-access surfaces the runtime
     // touches (`V18b`, audit-target-categories.md category (3)), derived from
     // the `ExtensionContext` / `ExtensionCommandContext` `.d.ts` declarations.
@@ -262,6 +272,12 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // The H8a per-theta run-drive resolves a chained (non-first) query off-session
     // through pi-ai's `complete()` free function.
     { id: "complete", kind: "peer-named-import" },
+    // RFC-0006 (PIC-61 rung 2): the child-side host-loop dispatch builds the
+    // theta-controlled provider's two-state `streamSimple` via the pi-ai
+    // `createAssistantMessageEventStream` factory, and types its options with
+    // `SimpleStreamOptions` (`ProviderConfig.streamSimple`'s third parameter).
+    { id: "createAssistantMessageEventStream", kind: "peer-named-import" },
+    { id: "SimpleStreamOptions", kind: "peer-named-import" },
     { id: "MessageRenderer", kind: "peer-named-import" },
     { id: "SlashCommandInfo", kind: "peer-named-import" },
     { id: "estimateTokens", kind: "peer-named-import" },

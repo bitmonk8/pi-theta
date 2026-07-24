@@ -154,7 +154,10 @@ interface LoadOutcome {
   readonly noteContent: readonly string[];
 }
 
-async function runLoad(cwd: string): Promise<LoadOutcome> {
+async function runLoad(
+  cwd: string,
+  options?: { readonly childRegime?: boolean },
+): Promise<LoadOutcome> {
   const noteContent: string[] = [];
   const pi = {
     getFlag: (): undefined => undefined,
@@ -174,22 +177,48 @@ async function runLoad(cwd: string): Promise<LoadOutcome> {
       { name: "my_tool", parameters: {}, sourceInfo: { scope: "user" } },
     ],
     registerMessageRenderer: (): void => {},
+    // PIC-61 rung 2 (host-loop dispatch) Pi surfaces — present so the child-regime
+    // probe (`probeHostLoopSurfaces`) passes. Harmless in the parent-context runs
+    // (the probe short-circuits on the inactive regime before reading them).
+    registerProvider: (): void => {},
+    unregisterProvider: (): void => {},
+    setModel: (): Promise<boolean> => Promise.resolve(true),
+    on: (): void => {},
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd,
     hasUI: true,
+    model: { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
+    isIdle: (): boolean => true,
     modelRegistry: {
       getAvailable: (): readonly unknown[] => [
         { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
       ],
+      find: (): undefined => undefined,
     },
+    sessionManager: { getEntries: (): readonly unknown[] => [] },
     ui: { notify: (): void => {} },
   } as unknown as ExtensionContext;
 
-  const wiring = await composeExtensionInstance(pi, ctx, {
-    subagentExecutableHost: resolvingHost(),
-  });
-  return { registered: wiring.thetas.map((t) => t.slashName), noteContent };
+  // The child regime is selected ONLY by the parent-launcher env marker
+  // (`detectSubagentRootRegime` reads `readParentEnv()` = `process.env`). Set it
+  // around the compose for the child-context case, restore after (no leakage).
+  const priorMarker = process.env["PI_THETA_SUBAGENT_ROOT"];
+  if (options?.childRegime === true) {
+    process.env["PI_THETA_SUBAGENT_ROOT"] = "codecall";
+  }
+  try {
+    const wiring = await composeExtensionInstance(pi, ctx, {
+      subagentExecutableHost: resolvingHost(),
+    });
+    return { registered: wiring.thetas.map((t) => t.slashName), noteContent };
+  } finally {
+    if (priorMarker === undefined) {
+      delete process.env["PI_THETA_SUBAGENT_ROOT"];
+    } else {
+      process.env["PI_THETA_SUBAGENT_ROOT"] = priorMarker;
+    }
+  }
 }
 
 let workspaceDir: string;
@@ -247,5 +276,29 @@ describe("RFC-0006 — PIC-61 rung 3 extension-tool-unreachable LOAD refusal", (
   it("a code-side call to a host BUILT-IN (which has a dispatch rung) still registers", async () => {
     const outcome = await runLoad(workspaceDir);
     expect(outcome.registered).toContain("builtincall");
+  });
+});
+
+describe("RFC-0006 — PIC-61 rung 2 host-loop dispatch flips the SAME probe: the same theta REGISTERS in the child", () => {
+  it("under the subagent-root regime + host-loop surfaces present, the code-calling theta now REGISTERS (host-loop rung available)", async () => {
+    const outcome = await runLoad(workspaceDir, { childRegime: true });
+    // The SAME `codecall` theta that is REFUSED in the parent (no rung) now
+    // registers child-side: the host-loop rung is establishable, so the ladder
+    // resolves `host-loop` rather than the fail-closed refusal.
+    expect(outcome.registered).toContain("codecall");
+    // No extension-tool-unreachable refusal note was emitted for it.
+    expect(outcome.noteContent.join("\n")).not.toContain(
+      EXTENSION_TOOL_UNREACHABLE_CODE,
+    );
+    // The model-facing-only and built-in-call thetas still register too.
+    expect(outcome.registered).toContain("modelonly");
+    expect(outcome.registered).toContain("builtincall");
+  });
+
+  it("the refusal is symmetric: the SAME composition refuses in the parent (no rung) and registers in the child (rung available)", async () => {
+    const parent = await runLoad(workspaceDir);
+    const child = await runLoad(workspaceDir, { childRegime: true });
+    expect(parent.registered).not.toContain("codecall");
+    expect(child.registered).toContain("codecall");
   });
 });

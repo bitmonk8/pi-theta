@@ -302,8 +302,13 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   accepted; shipped in package 0.9.0), which moves the whole callee interpreter
   into the child, adds the load code `theta/load/extension-tool-unreachable`
   (the fail-closed refusal when a theta's *code* calls an extension tool and no
-  code-side dispatch rung is available — model-facing use is unaffected; remedy:
-  remove the code-side call, per
+  code-side dispatch rung is available). As of **0.10.0** the PIC-61 rung-2
+  *host-loop dispatch* is wired, so a subagent-mode theta whose code calls an
+  extension tool now loads and dispatches in the child; this code therefore
+  fires only in **no-rung** contexts — prompt mode (an extension tool is
+  inadmissible in a prompt-mode `tools:` anyway), an in-process `subagent fn`
+  inline body, or a probe-failed child. Model-facing use is unaffected; remedy
+  for a no-rung context: remove the code-side call, per
   [Subagent — Code-side dispatch (PIC-61)](../spec_topics/pi-integration-contract/subagent.md#pic-61))
   and the four marshalling runtime codes `subagent-envelope-parse-failed`,
   `subagent-envelope-schema-skew`, `subagent-exit-without-envelope`, and
@@ -322,6 +327,15 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   each nesting level — is a full `pi` child process, so operators may observe a
   process tree under `par for` fan-out; the depth-32 invoke cap doubles as the
   process-tree depth bound.
+- **0.10.0** also fixes a latent 0.9.0 defect in the [PIC-59](../spec_topics/pi-integration-contract/subagent.md#pic-59)
+  return envelope's delivery: Pi's non-interactive output guard reassigns
+  `process.stdout.write` to stderr under `--mode json`, so the `theta_result`
+  envelope written through the extension's stdout would never have reached the
+  parent's stdout scan in a real spawned child — the parent would have observed
+  a child exiting without an envelope (`subagent-exit-without-envelope`,
+  fail-closed). The envelope writer now writes file descriptor 1 directly
+  (one atomic newline-terminated line via `fs.writeSync(1, line)`), bypassing
+  the reroute; the diagnostic semantics above are unchanged.
 - `theta/load/*` table: `docs/spec_topics/diagnostics/code-registry-load.md`.
 - `theta/runtime/*` table: `docs/spec_topics/diagnostics/code-registry-runtime.md`.
 - `theta/host/*` table: `docs/spec_topics/diagnostics/code-registry-host.md`.

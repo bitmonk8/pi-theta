@@ -1,6 +1,6 @@
 {
   "name": "@bitmonk8/pi-theta",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": false,
   "description": "A scripting language for Pi agents: write the predictable parts of an agent task as code and leave only the fuzzy parts to the model.",
   "files": [

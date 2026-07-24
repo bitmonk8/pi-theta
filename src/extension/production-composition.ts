@@ -57,6 +57,10 @@ import {
 import { detectSubagentRootRegime } from "../runtime/subagent-root-regime";
 import { checkExtensionToolReachability } from "./extension-tool-reachability";
 import type { DispatchLadderProbe } from "../runtime/host-loop-dispatch";
+import {
+  createProductionHostLoopDispatch,
+  probeHostLoopSurfaces,
+} from "./production-host-loop-dispatch";
 import { probeSubagentExecutable } from "./capability-probe";
 import {
   parseInboundInvokeDepth,
@@ -408,16 +412,40 @@ async function runComposePass(
     new Set(discovered.map((theta) => dirname(theta.path))),
   );
 
-  // RFC-0006 (PIC-61): the code-side extension-tool dispatch-ladder probe. The
-  // upstream `getToolDefinition` registry read is not exposed (requested
-  // upstream, so far refused), and host-loop dispatch's prototype is not shipped
-  // in this increment, so NEITHER rung is establishable and the ladder is
-  // FAIL-CLOSED. Shared between the producer wiring (runtime backstop) and the
-  // LOAD-time reachability refusal below (rung 3), so both read the same probe.
+  // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
+  // env. Active ONLY inside a spawned subagent child; drives both the child-side
+  // in-process root drive and the PIC-61 host-loop-dispatch rung availability.
+  const subagentRootRegime = detectSubagentRootRegime(readParentEnv());
+
+  // RFC-0006 (PIC-61): the code-side extension-tool dispatch-ladder probe.
+  //  - rung 1 (`getToolDefinition`): the upstream clean registry read is not
+  //    exposed (requested upstream, so far refused) → false.
+  //  - rung 2 (host-loop dispatch): establishable ONLY inside the subagent-root
+  //    child (a real host session + agent loop backs it) AND when every required
+  //    Pi surface is present (`typeof` capability-probe convention,
+  //    `probeHostLoopSurfaces`). In the parent / prompt context the regime is
+  //    inactive, so the rung stays unavailable and nothing user-visible changes
+  //    (prompt-mode `tools:` cannot admit an extension tool anyway —
+  //    `theta/load/unknown-tool`).
+  // Shared between the producer wiring (runtime backstop, `#dispatchExtensionTool
+  // ChildSide`) and the LOAD-time reachability refusal below (rung 3), so both
+  // read the SAME probe: a child theta whose CODE calls an extension tool now
+  // REGISTERS (host-loop rung), while a no-rung context refuses fail-closed with
+  // `theta/load/extension-tool-unreachable`.
+  const hostLoopSurfacesPresent =
+    subagentRootRegime.active && probeHostLoopSurfaces({ pi, ctx });
   const dispatchLadderProbe: DispatchLadderProbe = {
     getToolDefinitionAvailable: false,
-    hostLoopAvailable: false,
+    hostLoopAvailable: hostLoopSurfacesPresent,
   };
+
+  // RFC-0006 (PIC-61 rung 2): the production host-loop dispatch seam, wired over
+  // the live child host (`pi` + `ctx` + the runtime `Clock`) ONLY when the rung
+  // is available. Absent in the parent / prompt context (the ladder is
+  // fail-closed there).
+  const hostLoopDispatch = dispatchLadderProbe.hostLoopAvailable
+    ? createProductionHostLoopDispatch({ pi, ctx, clock })
+    : undefined;
 
   const producerDeps = createProductionProducerDeps({
     pi,
@@ -448,22 +476,27 @@ async function runComposePass(
     // RFC-0006 (PIC-58): the subagent-root regime detected from the process env.
     // Active only inside a spawned subagent child; drives the child-side
     // in-process root drive + envelope emission.
-    subagentRootRegime: detectSubagentRootRegime(readParentEnv()),
+    subagentRootRegime,
     // RFC-0006 (PIC-59): the child-side stdout return-envelope writer.
     emitResultEnvelope: createProductionEnvelopeWriter(),
     // RFC-0006 (PIC-61): the code-side extension-tool dispatch ladder probe. The
     // upstream `getToolDefinition` registry read is not exposed (requested
     // upstream, so far refused), and host-loop dispatch is a live-only mechanism
     // whose prototype is an acceptance criterion of RFC 0006 not shipped in this
-    // increment — so NEITHER rung is establishable and the ladder is FAIL-CLOSED:
-    // a child theta whose CODE calls an extension tool refuses with
-    // `theta/load/extension-tool-unreachable` rather than silently falling
-    // through. `hostLoopDispatch` is left unwired accordingly; when the prototype
-    // (or the upstream exposure) lands it slots in here with no architecture
-    // change. The ladder + host-loop seams are unit-tested (host-loop-dispatch.ts).
-    // The same probe drives the LOAD-time reachability refusal (PIC-61 rung 3)
-    // in the registration loop below.
+    // increment for the PARENT — but establishable child-side. The probe above
+    // flips `hostLoopAvailable` true inside the subagent-root child (with the
+    // required Pi surfaces present), so a child theta whose CODE calls an
+    // extension tool REGISTERS and routes through host-loop dispatch; in the
+    // parent / prompt context NEITHER rung is establishable and the ladder is
+    // FAIL-CLOSED (`theta/load/extension-tool-unreachable`). The ladder +
+    // host-loop seams are unit-tested (host-loop-dispatch.ts,
+    // production-host-loop-dispatch.ts). The same probe drives the LOAD-time
+    // reachability refusal (PIC-61 rung 3) in the registration loop below.
     dispatchLadderProbe,
+    // RFC-0006 (PIC-61 rung 2): the wired host-loop dispatch seam (child-side
+    // only). Omitted (not set to `undefined`, per exactOptionalPropertyTypes) in
+    // the parent / prompt context where the ladder is fail-closed.
+    ...(hostLoopDispatch !== undefined ? { hostLoopDispatch } : {}),
     // INV-4 (invocation.md §INV-4): when THIS process is a spawned subagent
     // child, its top-level invoke chain seeds from the depth the parent
     // marshalled on the child env (`SUBAGENT_INVOKE_DEPTH_ENV`), so the depth-32

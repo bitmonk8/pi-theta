@@ -17,7 +17,14 @@
 // credential mechanism) carries a same-line `allow-ambient` exemption.
 
 import { spawn as nodeSpawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import type {
@@ -97,15 +104,37 @@ export function createProductionParamsFs(): {
 
 /**
  * RFC-0006 (PIC-59). The production child-side envelope writer: emit the single
- * `theta_result` JSONL line on the child's stdout, alongside the `--mode json`
- * event stream. Same-process write serialisation guarantees the reserved-key
- * line cannot be split mid-write. `process.stdout.write` is not a banned ambient
- * primitive here (it is neither `process.env` / `process.cwd` nor a timer/Date).
+ * `theta_result` JSONL line on the child's stdout (fd 1), alongside the
+ * `--mode json` event stream.
+ *
+ * WHY fd 1 directly (not `process.stdout.write`): in `--mode json` / `-p` / rpc
+ * Pi calls `takeOverStdout()` (core/output-guard.js, from main.js) at startup,
+ * which REASSIGNS `process.stdout.write` to route to STDERR so stray extension
+ * stdout cannot corrupt the event channel. Extension code loads AFTER that
+ * takeover, so a `process.stdout.write(line)` here would land on stderr and the
+ * envelope would NEVER reach the parent's stdout scan (the child's fd-1 pipe the
+ * parent's `onStdoutLine` reader pumps) — a latent 0.9.0 bug the RFC-0006
+ * prototype exposed. `fs.writeSync(1, line)` writes the file descriptor directly,
+ * bypassing the reassignment, and is one atomic syscall per complete newline-
+ * terminated line (so it cannot be split mid-write, nor split Pi's own async
+ * fd-1 event writes) and Windows-safe (fd 1 is a valid handle on win32). Pi's own
+ * event writer reaches fd 1 through its captured raw bind; both target the same
+ * descriptor in the same process.
+ *
+ * `writeToFd` is injected (default: the real fd-1 write) so a test can pin the
+ * mechanism over a fake without touching the real descriptor.
  */
-export function createProductionEnvelopeWriter(): (line: string) => void {
+export function createProductionEnvelopeWriter(
+  writeToFd: (line: string) => void = defaultStdoutFdWrite,
+): (line: string) => void {
   return (line: string): void => {
-    process.stdout.write(line); // allow-ambient: RFC-0006 PIC-59 child-side return envelope on stdout
+    writeToFd(line);
   };
+}
+
+/** The default fd-1 envelope write (see `createProductionEnvelopeWriter`'s WHY). */
+function defaultStdoutFdWrite(line: string): void {
+  writeSync(1, line); // allow-sync: RFC-0006 PIC-59 one-shot return-envelope write to fd 1, not event-loop I/O
 }
 
 /** Whether the host is Windows (selects the process-tree kill strategy; no POSIX signals on win32). */

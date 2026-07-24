@@ -193,9 +193,9 @@ The Theta language has no file-writing, network, or process-spawning primitive.
 Every external effect a theta produces flows through one of three surfaces: a query
 against the model, a tool call, or a child theta invocation. The set of tools the
 model and theta code can reach is the theta's **callable set** — the entries listed
-under the `tools:` frontmatter field (an extension-tool entry in a subagent
-callable set is model-facing only in this release — a theta whose *code* calls
-one refuses to load; see below). If `tools:` is omitted the theta runs with an
+under the `tools:` frontmatter field (in subagent mode an extension-tool entry
+is reachable by both the model and, since 0.10.0, theta code — see below). If
+`tools:` is omitted the theta runs with an
 empty callable set; the host session's ambient tools are deliberately not
 inherited. The callable set bounds what the *model* can reach; it is not a
 host-process sandbox, and any tool a theta admits exposes that tool's full
@@ -222,23 +222,30 @@ contributes (for example `finding_store` or `projection`). In **prompt mode**
 resolution is built-ins-only: a `tools:` entry naming an extension tool fails
 load with `theta/load/unknown-tool`.
 
-In **subagent mode** an extension tool listed in `tools:` is reachable by the
-theta's **model**. A subagent-mode invocation runs the whole callee — the
-interpreter included — in a spawned child `pi` process that performs Pi's
-normal extension discovery, so the same extension tools are registered there;
-the callable-set names become the child's active-tool allowlist and the model
-may call them during a query's tool loop. (The callee's `params:` are marshalled
-into the child structurally and its typed final value returns as a single
-`theta_result` line on the child's stdout — mechanics you never write by hand;
-see [How to return a typed value across a subagent boundary](./how-to/return-a-typed-value-across-a-subagent-boundary.md).)
+In **subagent mode** an extension tool listed in `tools:` is reachable by both
+the theta's **model** and its **code**. A subagent-mode invocation runs the
+whole callee — the interpreter included — in a spawned child `pi` process that
+performs Pi's normal extension discovery, so the same extension tools are
+registered there; the callable-set names become the child's active-tool
+allowlist and the model may call them during a query's tool loop. (The callee's
+`params:` are marshalled into the child structurally and its typed final value
+returns as a single `theta_result` line on the child's stdout — mechanics you
+never write by hand; see [How to return a typed value across a subagent boundary](./how-to/return-a-typed-value-across-a-subagent-boundary.md).)
 
-Theta **code** cannot dispatch an extension tool in this release. The design
-routes a code-side `<name>(...)` call to an extension tool through the child's
-own host agent loop, but that dispatch rung is not wired in 0.9.0, so it ships
-**fail-closed**: a theta whose code calls an extension tool refuses to load
-with `theta/load/extension-tool-unreachable`, naming the tool. Remove the
-code-side call (model-facing use via a `@`-query is unaffected) to load the
-theta. An unknown tool name is a separate **load-time** error
+Since 0.10.0 theta **code** can also dispatch an extension tool from a
+subagent-mode theta. A code-side `<name>(...)` call is routed through the
+child's own host agent loop (PIC-61 rung 2 — *host-loop dispatch*): the
+runtime registers a theta-controlled provider that authors the `tool_use` with
+the code-supplied arguments verbatim, the child's host loop runs the call, and
+the runtime reads the result back — deterministic arguments, zero model tokens,
+no executable definition ever obtained by theta code. Its costs (a fabricated
+turn in the child's discarded transcript and a temporary child-session model
+switch) are confined to the child's private `--no-session` session. Code-side
+dispatch stays **fail-closed** only where no dispatch rung exists — a
+prompt-mode theta (whose `tools:` cannot name an extension tool at all) or an
+in-process `subagent fn` inline body: there a theta whose code calls an
+extension tool refuses to load with `theta/load/extension-tool-unreachable`,
+naming the tool. An unknown tool name is a separate **load-time** error
 (`theta/load/unknown-tool`) — a typo or a missing extension refuses
 registration loudly instead of degrading at run time.
 
@@ -301,9 +308,12 @@ subagent](./how-to/use-an-extension-tool-in-a-subagent.md).
   `docs/spec_topics/overview-and-orientation.md` §"Trust boundary",
   `docs/spec_topics/glossary.md` (*callable set*).
 - Whole-callee child-process execution, extension tools reachable by a
-  subagent's model, the code-side fail-closed refusal
-  (`theta/load/extension-tool-unreachable`), the project-local trust rule, and
-  extension ambience vs. no user/project context: `CHANGELOG.md` `[0.9.0]`,
+  subagent's model (`[0.9.0]`) and, via host-loop dispatch, by its code
+  (`[0.10.0]`), the code-side fail-closed refusal
+  (`theta/load/extension-tool-unreachable`) now scoped to no-rung contexts, the
+  project-local trust rule, and
+  extension ambience vs. no user/project context: `CHANGELOG.md` `[0.10.0]` /
+  `[0.9.0]`,
   `docs/spec_topics/pi-integration-contract/subagent.md`
   ([PIC-58](./spec_topics/pi-integration-contract/subagent.md#pic-58)…[PIC-63](./spec_topics/pi-integration-contract/subagent.md#pic-63),
   §*Isolation and trust*, §*`--tools` / `--no-tools` allowlist suppression*,

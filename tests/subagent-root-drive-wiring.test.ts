@@ -26,6 +26,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseExpressionSource } from "../src/parser/theta-document";
 import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
+import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
 
 class RecordingCheckpoint implements Checkpoint {
   before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
@@ -110,6 +111,54 @@ describe("RFC-0006 — child-side subagent-root drive wiring", () => {
     expect(parsed.kind).toBe("ok");
     if (parsed.kind === "ok") {
       expect(parsed.value).toBe("CHILD-FINAL");
+    }
+  });
+
+  it("PIC-61 rung 2: a child-side code-side EXTENSION-tool call routes through the wired hostLoopDispatch seam with the verbatim request", async () => {
+    // The theta's body code-side-calls `extTool` (an extension tool: present in
+    // no callable-set `pi-tool` entry, so it has no parent-side `execute`). Under
+    // the subagent-root regime with the host-loop rung wired, the producer's
+    // `#dispatchExtensionToolChildSide` MUST route the call through the injected
+    // `hostLoopDispatch` seam (PIC-61 rung 2), carrying the code-supplied
+    // arguments VERBATIM, and surface the host-loop result as the tool value.
+    const seen: EncodedToolRequest[] = [];
+    const lines: string[] = [];
+    const deps = createProductionProducerDeps({
+      pi: noopPi(),
+      root: rootDouble(),
+      modelRegistry: {
+        getAvailable: () => [{ id: "claude-test", provider: "anthropic" }],
+      } as unknown as ModelRegistry,
+      subagentParentEnv: {},
+      subagentRootRegime: { active: true, slug: "worker" },
+      emitResultEnvelope: (line: string) => lines.push(line),
+      // The wired host-loop dispatch rung (child-side). Its presence makes the
+      // derived ladder probe resolve `host-loop`.
+      hostLoopDispatch: (request: EncodedToolRequest): Promise<HostToolResult> => {
+        seen.push(request);
+        return Promise.resolve({
+          content: [{ type: "text", text: "HOST-LOOP-RAN" }],
+          isError: false,
+        });
+      },
+    });
+
+    await deps.driveSubagentRootRegime!({
+      theta: subagentTheta('extTool({ op: "write" })?'),
+      args: "",
+      ctx: childCtx(),
+      thetaAbort: new AbortController(),
+    });
+
+    // The seam was reached with the verbatim code-supplied request.
+    expect(seen).toEqual([{ toolName: "extTool", args: { op: "write" } }]);
+    // The host-loop result flows back as the tool value (unwrapped by `?`), so
+    // the callee's final value / envelope carries it.
+    expect(lines).toHaveLength(1);
+    const parsed = parseEnvelopeLine(lines[0]!.trimEnd());
+    expect(parsed.kind).toBe("ok");
+    if (parsed.kind === "ok") {
+      expect(parsed.value).toBe("HOST-LOOP-RAN");
     }
   });
 

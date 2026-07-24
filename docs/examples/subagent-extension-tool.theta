@@ -10,14 +10,25 @@ params:
 // `tools:` mixes a built-in (`read`) with an extension-registered Pi tool
 // (`finding_store`, contributed by an installed Pi extension). This theta is
 // `mode: subagent`, so the invocation runs the WHOLE callee in a spawned child
-// `pi` process that loads the same extensions — which is why the MODEL can call
-// `finding_store` during the query's tool loop below.
+// `pi` process that loads the same extensions. Two reach paths work here:
 //
-// Theta CODE cannot call `finding_store` directly in this release: a code-side
-// `finding_store(...)` call would refuse to load, fail-closed, with
-// `theta/load/extension-tool-unreachable` (the code-side dispatch rung is
-// unwired in 0.9.0). Only `read` and `.theta` callables are code-callable here.
-// Listing an extension tool whose extension is not installed is a different
-// load-time error (`theta/load/unknown-tool`), not a silent no-op.
-@`Use finding_store to list the findings under ${findings_dir}, read any file it
-references, and report how many findings are still open in one sentence.`
+// Code-side reach (0.10.0): theta CODE can now call `finding_store` directly.
+// In subagent mode a code-side extension-tool call is dispatched
+// deterministically through the child's own host agent loop (PIC-61 rung 2 —
+// host-loop dispatch): the code-supplied arguments are used verbatim, zero
+// model tokens are spent, and the result returns to code like any tool call.
+let check = finding_store({ op: "validate", findingsDir: findings_dir })?
+
+// Model-facing reach: the MODEL may also call `finding_store` during the
+// query's tool loop below — the callable-set names become the child session's
+// active-tool allowlist.
+//
+// Code-side dispatch is fail-closed only where NO rung exists — a prompt-mode
+// theta (whose `tools:` cannot name an extension tool at all) or an in-process
+// `subagent fn` inline body; there it refuses to load with
+// `theta/load/extension-tool-unreachable`. Listing an extension tool whose
+// extension is not installed is a different load-time error
+// (`theta/load/unknown-tool`), not a silent no-op.
+@`Using the store under ${findings_dir} (schema check: ${check}), list the
+findings with finding_store, read any file it references, and report how many
+findings are still open in one sentence.`

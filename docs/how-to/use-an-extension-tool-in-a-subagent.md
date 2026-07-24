@@ -15,24 +15,51 @@ admission is built-ins-only. An unknown name is a **load-time** error
 (`theta/load/unknown-tool`); a typo or an uninstalled extension refuses
 registration loudly rather than degrading at run time.
 
-## The model-can, code-cannot asymmetry
+## Both the model and code can reach it
 
-In subagent mode the reach is **model-facing only** in this release:
+In subagent mode an extension tool is reachable **two ways**:
 
-- The theta's **model** can call an extension tool during a query's tool loop.
-  The invocation runs the whole callee — the interpreter included — in a spawned
-  child `pi` process that performs Pi's normal extension discovery, so the tool
-  is registered in the child; the callable-set names become the child's
+- The theta's **model** can call it during a query's tool loop. The invocation
+  runs the whole callee — the interpreter included — in a spawned child `pi`
+  process that performs Pi's normal extension discovery, so the tool is
+  registered in the child; the callable-set names become the child's
   active-tool allowlist.
-- Theta **code** cannot dispatch an extension tool in this release. The design
-  routes a code-side `<name>(...)` call through the child's own host agent loop,
-  but that dispatch rung is **not wired in 0.9.0**, so it ships **fail-closed**:
-  a theta whose *code* calls an extension tool refuses to load with
-  `theta/load/extension-tool-unreachable`, naming the tool. Remove the code-side
-  call — model-facing use via a `@`-query is unaffected — or, if it ever lands,
-  upgrade to a Pi minor that exposes the upstream `getToolDefinition` rung. Only
-  built-ins and `.theta` callables are code-callable today
-  (see [Call a tool from theta code](./call-a-tool-from-theta-code.md)).
+- Since 0.10.0 theta **code** can dispatch it too. A code-side `<name>(...)`
+  call is routed through the child's own host agent loop (PIC-61 rung 2 —
+  *host-loop dispatch*): the runtime registers a theta-controlled provider that
+  authors the `tool_use` with your arguments verbatim, the child's host loop
+  runs the call, and the runtime reads the result back. Deterministic
+  arguments, zero model tokens, no executable definition ever obtained by theta
+  code — the result comes back like any other tool call:
+
+  ```theta
+  ---
+  description: List findings from code
+  mode: subagent
+  tools:
+    - finding_store
+  params:
+    findings_dir: string
+  ---
+  // Deterministic, zero-token: dispatched in the child via host-loop dispatch.
+  let report = finding_store({ op: "validate", findingsDir: findings_dir })?
+  @`Given this schema check, is the store healthy? ${report}`
+  ```
+
+### Still fail-closed: no-rung contexts
+
+Code-side dispatch refuses to load with `theta/load/extension-tool-unreachable`
+(naming the tool) only where **no dispatch rung exists**:
+
+- a **prompt-mode** theta — an extension tool is not admissible in a prompt-mode
+  `tools:` list anyway (`theta/load/unknown-tool`), so no code-side rung arises;
+- a **`subagent fn` inline body** — it runs in-process, off-session, and is
+  model-facing only, so it has no child host loop to dispatch through.
+
+In those contexts, remove the code-side call — model-facing use via a `@`-query
+is unaffected — or, if it ever lands, an upstream `getToolDefinition` rung would
+reach them natively. Built-ins and `.theta` callables are code-callable
+everywhere (see [Call a tool from theta code](./call-a-tool-from-theta-code.md)).
 
 ## The trust rule
 
@@ -85,6 +112,12 @@ because every subagent invocation also makes at least one model call, it is a
 fraction of the typical wall time, not a new dominant cost. Memory and
 process-slot footprint are OS-owned; theta imposes no process-count cap.
 
+A code-side extension-tool call adds one host-loop turn in the child per call
+(fast — the authored `tool_use` runs with no network round-trip). Its only side
+effects — a fabricated turn in the child's discarded transcript and a temporary
+child-session model switch — are confined to the child's private `--no-session`
+session; nothing reaches the user's session or transcript.
+
 ## Reference
 
 - `tools:` callable set, entry kinds, and resolution — [Frontmatter](../reference/frontmatter.md#tools-callable-set).
@@ -94,9 +127,11 @@ process-slot footprint are OS-owned; theta imposes no process-count cap.
 
 ## Provenance
 
-- CHANGELOG `[0.9.0]` (whole-callee child execution, code-side dispatch ladder
-  shipping fail-closed, extension-tool reach, `--tools` allowlist, trust rule,
-  extension ambience) and `[0.8.0]` (initial subagent model-facing reach).
+- CHANGELOG `[0.10.0]` (code-side extension-tool dispatch wired in subagent
+  mode via host-loop dispatch, PIC-61 rung 2; fail-closed refusal narrowed to
+  no-rung contexts), `[0.9.0]` (whole-callee child execution, code-side dispatch
+  ladder shipping fail-closed, extension-tool reach, `--tools` allowlist, trust
+  rule, extension ambience) and `[0.8.0]` (initial subagent model-facing reach).
 - Spec: `docs/spec_topics/pi-integration-contract/subagent.md`
   ([PIC-61](../spec_topics/pi-integration-contract/subagent.md#pic-61)
   code-side dispatch ladder + permission surface, §*Isolation and trust*,

@@ -49,11 +49,15 @@ pi --theta docs/examples -p "/call-tool"
 
 `grep(...)` runs against Pi's tool runtime and returns its output as a `string`;
 `?` unwraps `Ok` (or early-returns `Err`). This code-side form works for built-in
-Pi tools and `.theta` callables. It does **not** work for extension-registered Pi
-tools: a code-side `<name>(...)` call to one refuses **at load** with
-`theta/load/extension-tool-unreachable` (fail-closed, this release) — the theta
-does not register; model-facing use via a `@`-query is unaffected — see [Use an
-extension tool in a subagent](./use-an-extension-tool-in-a-subagent.md). The grep output is interpolated into
+Pi tools, `.theta` callables, and — since 0.10.0 — extension-registered Pi tools
+called from a **subagent-mode** theta: the call is dispatched deterministically
+in the child via host-loop dispatch (zero model tokens). A code-side
+extension-tool call refuses **at load** with
+`theta/load/extension-tool-unreachable` (fail-closed) only in a **no-rung**
+context — a prompt-mode theta (where an extension tool is not admissible in
+`tools:` anyway) or an in-process `subagent fn` inline body — in which case the
+theta does not register; model-facing use via a `@`-query is unaffected — see
+[Use an extension tool in a subagent](./use-an-extension-tool-in-a-subagent.md). The grep output is interpolated into
 the query — no tool-call card and no extra model turn are spent on the grep
 itself. A Pi-tool failure surfaces as `Err(CodeToolError { ... })` with a `cause`
 of `validation`, `execution`, `cancelled`, or `unknown_tool`.

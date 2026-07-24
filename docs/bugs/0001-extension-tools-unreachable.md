@@ -1,6 +1,9 @@
 # Bug 0001 — Extension-registered tools are unreachable from Theta
 
-- **Status:** open
+- **Status:** partially shipped — subagent-scenario code-side reach (Option F +
+  E, host-loop dispatch) shipped in 0.10.0; prompt-mode code-side (Option E
+  parent-side) and Option A prompt-mode model-facing remain unshipped; Option C
+  pursued upstream. See *Shipped status (0.10.0)* below.
 - **Kind:** defect (spec + implementation disagree, and both under-deliver the
   documented behaviour).
 - **Affects:** callable-set resolution (`src/parser/callable-set.ts`), the
@@ -62,6 +65,28 @@ RFC-0002 channel, the **priority**).
 **A + E** (prompt mode) now, **F** for subagent scenarios; **C** pursued in
 parallel; **B** last resort. Recommended next step: prototype **E** end-to-end on
 the installed Pi v0.80.10.
+
+**Shipped status (0.10.0).** The recommended next step was carried out and the
+subagent branch of the plan shipped. Option **E**'s host-loop dispatch was
+prototyped end-to-end against Pi v0.80.10 (the RFC-0006 acceptance criterion),
+passed, and was wired child-side; combined with Option **F** (child-process
+theta, RFC 0006), a `mode: subagent` theta whose *code* calls an
+extension-registered Pi tool now dispatches it deterministically through the
+child's host agent loop — zero model tokens, no executable definition crossing
+any boundary. Implementation: `src/extension/production-host-loop-dispatch.ts`
+(the three injectable collaborators against the real Pi surface),
+`src/runtime/host-loop-dispatch.ts` (the leaf-tested seam), gated on the
+subagent-root regime plus a `typeof` surface probe (parent/prompt contexts keep
+the rung unavailable, fail-closed). Contract pinned at
+`pi-integration-contract/subagent.md` PIC-61 (ladder + host-loop wiring pins).
+Subagent *model-facing* reach shipped earlier (0.8.0 model-facing, 0.9.0
+whole-callee child). **Still unshipped:** prompt-mode code-side dispatch (Option
+E parent-side — no child, so the fail-closed refusal stands there) and Option A
+prompt-mode model-facing admission. **Option C** (upstream `getToolDefinition`
+on `ExtensionAPI`) remains pursued upstream via the *Upstream argument*; if it
+lands it slots in as the preferred rung and retires the host-loop machinery
+without changing the process architecture. The rest of this document is the
+durable exploration that produced the design and is left as written.
 
 **Subagent-in-a-subprocess exploration (2 RFCs drafted):** the in-process
 subagent design is itself under revision. The spec mandates in-process only at

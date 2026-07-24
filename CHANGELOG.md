@@ -6,6 +6,40 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-24
+
+### Added
+
+- **Extension-registered Pi tools are now callable from theta CODE in
+  subagent mode (host-loop dispatch, PIC-61 rung 2).** The RFC 0006
+  code-side dispatch ladder's host-loop rung is wired: inside the
+  subagent-root child, a code-side `<name>(args)` call to an
+  extension-registered Pi tool registers a per-dispatch theta-controlled
+  provider whose stream function authors the `tool_use` with the
+  code-supplied arguments verbatim; the child's host agent loop (which
+  holds every registered tool's `execute`) runs the call, and the runtime
+  reads the tool result back — deterministic arguments, zero model tokens,
+  no executable definition ever obtained by theta code. The fabricated
+  turn and temporary session-model switch are confined to the child's
+  private, discarded `--no-session` session. The mechanism was
+  prototype-verified end-to-end against the pinned Pi v0.80.10 (the
+  RFC-designated acceptance criterion) before wiring. A theta whose code
+  calls an extension tool now loads and dispatches in the child; contexts
+  with no dispatch rung (parent/prompt mode) keep the fail-closed
+  `theta/load/extension-tool-unreachable` refusal. `subagent fn` inline
+  bodies (in-process, off-session) remain model-facing only.
+
+### Fixed
+
+- **Result envelope reached stderr instead of stdout in a real child
+  (latent 0.9.0 defect).** Pi's non-interactive output guard reassigns
+  `process.stdout.write` to stderr in `--mode json`, so the PIC-59
+  `theta_result` envelope written through the extension's stdout would
+  never have reached the parent's stdout scan in a real spawned child.
+  The envelope writer now writes file descriptor 1 directly
+  (`fs.writeSync(1, line)`, one atomic newline-terminated line),
+  bypassing the reroute.
+
 ## [0.9.0] - 2026-07-24
 
 ### Changed

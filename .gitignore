@@ -24,3 +24,6 @@ Thumbs.db
 
 # Pi local state — entirely local-only (development-harness state was pruned).
 .pi/
+
+# RFC-0006 host-loop-dispatch prototype scratch (Bug 0001 §Option E acceptance prototype).
+.prototype-hld/

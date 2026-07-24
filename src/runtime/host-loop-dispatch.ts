@@ -121,8 +121,15 @@ export interface HostLoopDispatchDeps {
   readonly registerProvider: (request: EncodedToolRequest) => () => void;
   /** Run the host agent-loop turn that executes the authored call and appends the tool result. */
   readonly runHostTurn: () => Promise<HostToolResult>;
-  /** Restore the session model after the temporary host-loop-dispatch model switch. */
-  readonly restoreModel: () => void;
+  /**
+   * Restore the session model (and any active-set snapshot) after the temporary
+   * host-loop-dispatch model switch. Awaited in the dispatch `finally` because
+   * the real restore is `await pi.setModel(original)` — a synchronous `() =>
+   * void` fake still satisfies `void | Promise<void>`, so the leaf tests are
+   * unchanged. Awaiting guarantees the bridge model is never left installed when
+   * the dispatch resolves (incl. the throw / abort paths).
+   */
+  readonly restoreModel: () => void | Promise<void>;
 }
 
 /**
@@ -149,6 +156,6 @@ export async function dispatchViaHostLoop(
     return await deps.runHostTurn();
   } finally {
     unregister();
-    deps.restoreModel();
+    await deps.restoreModel();
   }
 }
