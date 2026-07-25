@@ -41,7 +41,7 @@ The `null` fallback is the same value the `mistral` and `amazon-bedrock` entries
 
 | Reachable `QueryError` / envelope outcome | Where classified | Envelope encoding / owner |
 |---|---|---|
-| `kind: "cancelled"` | in the child (the child's own driver observes its `thetaAbort`); the parent's cancellation closes the child's stdin + kills ([PIC-63](./subagent.md#pic-63)) | envelope `err` arm, or the fail-closed no-envelope path when the kill precedes emission; synthesised per [Cancellation](../cancellation.md) |
+| `kind: "cancelled"` | in the child (the child's own driver observes its `thetaAbort`); the parent's cancellation kills the child ([PIC-66](./subagent.md#pic-66)) | envelope `err` arm, or the fail-closed no-envelope path when the kill precedes emission; synthesised per [Cancellation](../cancellation.md) |
 | `kind: "transport"` (provider transport failure) | in the child — the child's prompt-mode driver reads the trailing `assistant` `stopReason: "error"` and applies this page's mapping | envelope `err` arm carrying `{ message: <errorMessage \| "provider transport failure">, http_status: null, retryable: false }` |
 | `kind: "context_overflow"` | in the child — [Stop-reason classification](#stop-reason-classification) / [Overflow signatures](#provider-error-mapping) applied in the child | envelope `err` arm |
 | `kind: "validation"` (typed-query schema validation) | in the child — the forced-respond turn runs off-session **in the child** via pi-ai `complete()`, and its provider errors classify through this table in the child | envelope `err` arm; owned by [Query](../query.md) |

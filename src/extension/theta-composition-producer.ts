@@ -235,9 +235,9 @@ export interface ConversationBinding {
    */
   readonly finishInvocation?: () => void;
   /**
-   * PIC-9 (pi-integration-contract/subagent.md §lifecycle): idempotent session
-   * teardown — detach the one-shot PIC-41 abort-forwarding listener and dispose
-   * the spawned `AgentSession`. The DRIVE seam (`composeThetaFixture.run` /
+   * PIC-65 (pi-integration-contract/subagent.md §lifecycle): idempotent
+   * teardown — detach the one-shot PIC-66 abort-forwarding (kill) listener and
+   * tear down the spawned child / fixture session. The DRIVE seam (`composeThetaFixture.run` /
    * `#driveCallee`) calls it in a `finally` BEFORE `finishInvocation`, so
    * teardown runs on EVERY exit of the invocation drive — normal return,
    * returned `Err`, AND a genuine throw unwinding past `surface` (e.g. a
@@ -245,7 +245,7 @@ export interface ConversationBinding {
    * teardown, so a throw before/at `surface` can no longer leak the provider
    * connection + abort listener. Running BEFORE `finishInvocation` keeps the
    * `disposeBarrier` settling post-dispose (active-invocation-registry.md
-   * §sub-step 3). Idempotent + non-throwing (a `dispose()` throw is trapped so it
+   * §sub-step 3). Idempotent + non-throwing (a teardown throw is trapped so it
    * cannot mask an in-flight defect), so a defensive double-call is a no-op.
    * Optional so non-subagent bindings (prompt mode, non-production harnesses)
    * omit it — a `?.()` caller is then a no-op.
@@ -431,7 +431,7 @@ export function composeThetaFixture(
             deps.emitTopLevelErrNote(theta.slashName, terminal.error as unknown as QueryError);
           }
         } finally {
-          // PIC-9: run the (idempotent, non-throwing) session teardown BEFORE
+          // PIC-65: run the (idempotent, non-throwing) session teardown BEFORE
           // `finishInvocation`, so the spawned session's `dispose()`/abort-listener
           // detach run on EVERY exit — including a genuine throw unwinding past
           // `surface` (which would otherwise skip teardown and leak the session +

@@ -196,7 +196,7 @@ describe("PIC-60 — env / temp-file threshold cutover", () => {
     expect(marshalled.env[SUBAGENT_PARAMS_ENV]).toBeUndefined();
   });
 
-  it("the parent-`finally` backstop deletes the temp file (PIC-60 / PIC-9 teardown)", () => {
+  it("the parent-`finally` backstop deletes the temp file (PIC-60 / PIC-65 teardown)", () => {
     const fs = fakeMarshalFs();
     const marshalled = marshalParams(bigParams(), fs.deps);
     marshalled.cleanup();

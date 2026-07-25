@@ -67,11 +67,14 @@ export interface SpawnRecord {
 let nextFakePid = 4000;
 
 /**
- * Options for one fake child. `exitOnStdinEof` defaults to `true` — the pinned
- * RPC stdin-EOF exit behaviour underpinning orphan prevention (PIC-9 class-2).
+ * Options for one fake child. `exitOnStdinEof` defaults to `true` — the
+ * RETIRED RFC-0005 RPC child's stdin-EOF exit convention, kept as a scripting
+ * convenience. It does NOT model the RFC-0006 `-p` child: a real `-p` child
+ * never exits on stdin EOF — EOF is its STARTUP gate (bug 0002) — and the
+ * production child's stdin is spawned closed.
  */
 export interface FakeRpcChildOptions {
-  /** Exit (code 0) when stdin is closed. Default `true` (the RPC presupposition). */
+  /** Exit (code 0) when stdin is closed. Default `true` (retired-RPC-era convention). */
   readonly exitOnStdinEof?: boolean;
   /** The model the child reports through the `get_state` pre-flight query. */
   readonly resolvedModel?: string;
@@ -85,9 +88,11 @@ export interface FakeRpcChildOptions {
 
 /**
  * A fake spawned child `pi` process. Drives the RPC JSONL protocol in-memory:
- * the runtime writes commands via `writeStdin`, the harness (or a test) emits
- * events via `emitAgentEnd` / `emitRawLine`, and lifecycle is controlled with
- * `crashWith` / `kill` / `closeStdin`.
+ * a test writes command lines via the fake-local `writeStdin` (the retired RPC
+ * drive's command channel — no longer on the `SubagentChildProcess` surface;
+ * nothing in `src/` writes child stdin under RFC 0006), the harness (or a
+ * test) emits events via `emitAgentEnd` / `emitRawLine`, and lifecycle is
+ * controlled with `crashWith` / `kill` / `closeStdin`.
  */
 export class FakeRpcChild implements SubagentChildProcess {
   readonly pid: number | undefined;
@@ -159,7 +164,7 @@ export class FakeRpcChild implements SubagentChildProcess {
     return this.#stdinClosed;
   }
 
-  /** Whether the child was process-tree killed. */
+  /** Whether the child was killed. */
   get killed(): boolean {
     return this.#killed;
   }
@@ -174,7 +179,7 @@ export class FakeRpcChild implements SubagentChildProcess {
     return this.#suppressStateReply;
   }
 
-  // --- SubagentChildProcess surface -----------------------------------------
+  // --- SubagentChildProcess surface (plus the fake-local RPC command channel) --
 
   writeStdin(data: string): void {
     if (this.#stdinClosed) {
@@ -196,7 +201,8 @@ export class FakeRpcChild implements SubagentChildProcess {
     if (this.#stdinClosed) return;
     this.#stdinClosed = true;
     if (this.#exitOnStdinEof && !this.#exited) {
-      // The pinned RPC stdin-EOF exit behaviour (orphan-prevention class-2).
+      // Retired-RPC-era stdin-EOF exit convention (scripting convenience only;
+      // a real RFC-0006 `-p` child never exits on stdin EOF — bug 0002).
       this.#fireExit({ code: 0, signal: null });
     }
   }

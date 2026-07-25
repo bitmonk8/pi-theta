@@ -38,7 +38,7 @@ import {
   routeSubagentSpawnFailure,
 } from "../runtime/subagent-launcher";
 import {
-  attachSubagentStdinCancellation,
+  attachSubagentCancellation,
   driveSubagentChild,
   type SubagentInvocationResult,
 } from "../runtime/subagent-json-driver";
@@ -444,7 +444,7 @@ export function createProductionProducerDeps(
 }
 
 /**
- * PIC-9 spawn-failure. Raised (a specific type, never a broad throw) when the
+ * PIC-65 spawn-failure. Raised (a specific type, never a broad throw) when the
  * subagent child `pi` process cannot be launched (executable unresolved / spawn
  * throw / missing spawn seam). It unwinds the bind so the invocation fails and
  * routes as an unanticipated SDK reject (`theta/runtime/internal-error`).
@@ -1561,7 +1561,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       activeInvocations?.remove(entry);
     };
 
-    // ---- EAGER child-process launch (PIC-9 / PIC-58 / PIC-60 / PIC-63) ----
+    // ---- EAGER child-process launch (PIC-65 / PIC-58 / PIC-60 / PIC-66) ----
     // The launch is initiated NOW (not lazily in `drive()`): PIC-22 requires the
     // spawn to be initiated at bind time (parallel fan-out), and the launch
     // contract is observable here. `drive()` below only awaits the envelope on
@@ -1589,7 +1589,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         : {}),
     };
 
-    // PIC-9 launch. The spawn seam + executable host are wired at the composition
+    // PIC-65 launch. The spawn seam + executable host are wired at the composition
     // root; their absence on a non-production harness is a configuration defect
     // surfaced as an internal error (never a modelless / childless drive).
     const spawn = this.#input.subagentSpawn;
@@ -1624,7 +1624,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       { spawn, emitDiagnostic },
     );
     if (!launch.ok) {
-      // PIC-9 spawn-failure rule: `launchSubagentChild` already emitted the
+      // PIC-65 spawn-failure rule: `launchSubagentChild` already emitted the
       // operator-triage diagnostic; dually route the failure as an unanticipated
       // SDK reject (theta/runtime/internal-error). No child → nothing to tear
       // down; clean up params + drop the registry entry the bind just added.
@@ -1641,10 +1641,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     }
     const child = launch.child;
 
-    // PIC-63: forward cancellation to the `-p` child by closing its parent-held
-    // stdin pipe (the grace signal). Handles the spawn-then-immediate-cancel path
+    // PIC-66: forward cancellation to the `-p` child by killing it (the
+    // child's stdin is spawned closed — bug 0002 — so no in-band stop
+    // channel exists). Handles the spawn-then-immediate-cancel path
     // synchronously, so correctness does not depend on microtask ordering.
-    const stdinCancellation = attachSubagentStdinCancellation(thetaAbort, child, {
+    const cancellation = attachSubagentCancellation(thetaAbort, child, {
       emitDiagnostic,
     });
 
@@ -1670,11 +1671,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       return makeErr(result.error as unknown as ThetaValue);
     };
 
-    // PIC-9 / PIC-63 child-process teardown. Runs on EVERY exit of the drive
-    // seam's `finally`. Closes the child's stdin, bounded-awaits child exit, and
-    // process-tree kills on timeout; detaches the one-shot stdin-cancel listener;
-    // deletes any `PI_THETA_PARAMS_FILE` temp file (PIC-60 backstop). Idempotent;
-    // a no-op when no child was launched (the `subagent fn` in-process path).
+    // PIC-65 / PIC-66 child-process teardown. Runs on EVERY exit of the drive
+    // seam's `finally`. Bounded-awaits child exit (already settled on the normal
+    // path — the child self-exits after its envelope) and kills on timeout
+    // (process-tree kill on Windows); detaches the one-shot cancellation listener; deletes any
+    // `PI_THETA_PARAMS_FILE` temp file (PIC-60 backstop). Idempotent; a no-op
+    // when no child was launched (the `subagent fn` in-process path).
     let toreDown = false;
     const teardown = async (): Promise<void> => {
       if (toreDown) return;
@@ -1687,7 +1689,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       }
       await runSubagentChildTeardown(child, {
         emitDiagnostic,
-        detachAbortListener: stdinCancellation.detach,
+        detachAbortListener: cancellation.detach,
         settleDisposeBarrier: settleDispose,
         clock: root.clock,
       });
@@ -1919,7 +1921,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * conversation in the parent (queries resolve via `#resolvePromptQuery` with
    * `userVisible: false` — a private `complete()` conversation, never the
    * caller's session), preserving FN-6 transcript isolation without a child
-   * process or a PIC-9 child teardown. See the inline RFC-0006 note below for the
+   * process or a PIC-65 child teardown. See the inline RFC-0006 note below for the
    * mechanics.
    *
    * INV-4 / FN-6 (threaded through the production chain): a countable
@@ -2715,7 +2717,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
       return this.#validateInvokeReturn(theta, calleePath, returnSchema, result);
     } finally {
-      // PIC-9: await the (idempotent, non-throwing) child-process teardown BEFORE
+      // PIC-65: await the (idempotent, non-throwing) child-process teardown BEFORE
       // `finishInvocation`, so the child is killed / has exited (abort listener
       // detached, `disposeBarrier` settled on observed exit) on EVERY exit —
       // including a genuine throw unwinding past `surface` — before the registry

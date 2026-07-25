@@ -5,8 +5,9 @@
 // the child, awaits the single reserved-key `theta_result` envelope line on the
 // child's `--mode json` stdout stream (stray-line tolerant), and maps `ok`/`err`
 // to `Ok`/`Err` (pi-integration-contract/subagent.md PIC-59). Cancellation is
-// effected by closing the child's parent-held stdin pipe (PIC-63), then the
-// bounded-grace process-tree kill of PIC-9.
+// effected by killing the child (PIC-66 — the child's stdin is
+// spawned closed per bug 0002, so no in-band stop channel exists), with PIC-65
+// teardown's bounded-await → kill as the backstop.
 //
 // This harness scripts the child's stdout (stray `--mode json` event lines and
 // the terminal envelope line) and its exit behaviour, and records spawn argv /
@@ -51,9 +52,16 @@ export interface SpawnRecord {
 
 let nextFakePid = 5000;
 
-/** Options for one fake json child. `exitOnStdinEof` defaults to `true` (PIC-9 class-2). */
+/** Options for one fake json child. */
 export interface FakeJsonChildOptions {
-  /** Exit (code 0) when stdin is closed. Default `true` (the stdin-EOF presupposition). */
+  /**
+   * Exit (code 0) when stdin is closed. Default `true` — a SCRIPTING
+   * CONVENIENCE that makes teardown's residual stdin release double as the
+   * fake's exit trigger, so teardown-ordering tests complete without waiting
+   * out the bounded budget. It does NOT model real pi behaviour: a real `-p`
+   * child never exits on stdin EOF — EOF is its STARTUP gate (bug 0002), and
+   * the production child's stdin is spawned closed anyway.
+   */
   readonly exitOnStdinEof?: boolean;
 }
 
@@ -65,9 +73,6 @@ export interface FakeJsonChildOptions {
  */
 export class FakeJsonChild implements SubagentChildProcess {
   readonly pid: number | undefined;
-
-  /** Raw inbound stdin data the runtime wrote (unused for data under `-p`; PIC-63 close only). */
-  readonly stdinWrites: string[] = [];
 
   #stdoutListeners: ((line: string) => void)[] = [];
   #stderrListeners: ((line: string) => void)[] = [];
@@ -137,18 +142,12 @@ export class FakeJsonChild implements SubagentChildProcess {
 
   // --- SubagentChildProcess surface -----------------------------------------
 
-  writeStdin(data: string): void {
-    if (this.#stdinClosed) {
-      throw new Error("write after stdin EOF");
-    }
-    this.stdinWrites.push(data);
-  }
-
   closeStdin(): void {
     if (this.#stdinClosed) return;
     this.#stdinClosed = true;
     if (this.#exitOnStdinEof && !this.#exited) {
-      // The pinned stdin-EOF exit behaviour (orphan-prevention / PIC-63 grace).
+      // Scripting convenience only — see `FakeJsonChildOptions.exitOnStdinEof`
+      // (real pi never exits on stdin EOF; bug 0002).
       this.#fireExit({ code: 0, signal: null });
     }
   }

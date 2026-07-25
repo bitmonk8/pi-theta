@@ -3,22 +3,24 @@
 //
 // Under RFC 0006 the parent no longer drives a remote RPC session: the whole
 // callee runs in a spawned child `pi --mode json -p "/<slug>"`, and the
-// parent-side contract reduces to ENVELOPE CONSUMPTION (PIC-59) plus stdin-close
-// cancellation (PIC-63). The retired RPC wire surface (`serializePromptCommand`
-// / `serializeAbortCommand` / `parseRpcEventLine` / `readTerminalAgentEnd` /
-// `queryChildResolvedModel`) is gone; this suite preserves its coverage INTENT
-// against the successor surface — the parent-side drive loop over the child's
-// stdout envelope line, with stray-line tolerance, Ok/Err mapping, fail-closed
-// child-exit-without-envelope, and stdin-close cancellation — exercised over the
+// parent-side contract reduces to ENVELOPE CONSUMPTION (PIC-59) plus
+// abort→kill cancellation (PIC-66; the child's stdin is spawned
+// closed per bug 0002, so no stdin channel exists). The retired RPC wire
+// surface (`serializePromptCommand` / `serializeAbortCommand` /
+// `parseRpcEventLine` / `readTerminalAgentEnd` / `queryChildResolvedModel`) is
+// gone; this suite preserves its coverage INTENT against the successor surface
+// — the parent-side drive loop over the child's stdout envelope line, with
+// stray-line tolerance, Ok/Err mapping, fail-closed
+// child-exit-without-envelope, and kill-based cancellation — exercised over the
 // `FakeJsonChild` harness through the real `driveSubagentChild` /
-// `attachSubagentStdinCancellation`.
+// `attachSubagentCancellation`.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-59, PIC-63), invocation.md
+// Spec: pi-integration-contract/subagent.md (PIC-59, PIC-66), invocation.md
 // (INV-5), diagnostics/code-registry-runtime.md.
 
 import { describe, expect, it } from "vitest";
 import {
-  attachSubagentStdinCancellation,
+  attachSubagentCancellation,
   driveSubagentChild,
 } from "../src/runtime/subagent-json-driver";
 import {
@@ -129,38 +131,40 @@ describe("RFC-0006 — parent-side subagent json wire: envelope consumption (PIC
   });
 });
 
-describe("RFC-0006 — parent-side subagent json wire: stdin-close cancellation (PIC-63)", () => {
-  it("aborting closes the child's parent-held stdin pipe (the grace signal)", () => {
+describe("RFC-0006 — parent-side subagent json wire: abort→kill cancellation (PIC-66)", () => {
+  it("aborting kills the child (stdin untouched — there is no stdin channel)", () => {
     const child = new FakeJsonChild({ exitOnStdinEof: false });
     const abort = new AbortController();
     const emitted: Diagnostic[] = [];
-    const reg = attachSubagentStdinCancellation(abort, child, {
+    const reg = attachSubagentCancellation(abort, child, {
       emitDiagnostic: (d) => emitted.push(d),
     });
 
-    expect(child.stdinClosed).toBe(false);
+    expect(child.killed).toBe(false);
     abort.abort();
-    expect(child.stdinClosed).toBe(true);
+    expect(child.killed).toBe(true);
+    expect(child.stdinClosed).toBe(false);
     reg.detach();
   });
 
-  it("the spawn-then-immediate-cancel path closes stdin synchronously (already-aborted at attach)", () => {
+  it("the spawn-then-immediate-cancel path kills synchronously (already-aborted at attach)", () => {
     const child = new FakeJsonChild({ exitOnStdinEof: false });
     const abort = new AbortController();
     abort.abort();
-    attachSubagentStdinCancellation(abort, child, { emitDiagnostic: () => {} });
-    expect(child.stdinClosed).toBe(true);
+    attachSubagentCancellation(abort, child, { emitDiagnostic: () => {} });
+    expect(child.killed).toBe(true);
   });
 
   it("an aborted invocation whose child exited without an envelope maps to Err(cancelled), not internal_error", async () => {
-    const child = new FakeJsonChild({ exitOnStdinEof: true });
+    const child = new FakeJsonChild({ exitOnStdinEof: false });
     const abort = new AbortController();
     const emitted: Diagnostic[] = [];
     const drive = driveOver(child, abort, emitted);
-    attachSubagentStdinCancellation(abort, child, { emitDiagnostic: (d) => emitted.push(d) });
+    attachSubagentCancellation(abort, child, { emitDiagnostic: (d) => emitted.push(d) });
 
-    // Abort → stdin close → the fake child exits on EOF WITHOUT an envelope. The
-    // cancellation short-circuit wins over the no-envelope map (PIC-63).
+    // Abort → the PIC-66 listener kills the child, which exits
+    // WITHOUT an envelope. The cancellation short-circuit wins over the
+    // no-envelope map.
     abort.abort();
 
     const result = await drive;
@@ -168,5 +172,6 @@ describe("RFC-0006 — parent-side subagent json wire: stdin-close cancellation 
     if (!result.ok) {
       expect(result.error.kind).toBe("cancelled");
     }
+    expect(child.killed).toBe(true);
   });
 });

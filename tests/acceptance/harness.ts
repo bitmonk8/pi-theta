@@ -34,6 +34,7 @@ import {
   ModelRegistry,
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { SUBAGENT_EXTENSION_PIN_ENV } from "../../src/runtime/subagent-launcher";
 
 /** The real `pi` CLI entry the acceptance runner spawns (the shipped `pi -p` binary). */
 export const PI_CLI_ENTRY = fileURLToPath(
@@ -411,11 +412,20 @@ export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrin
   return new Promise<PiPrintResult>((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: options.cwd,
-      env: process.env,
+      // #subagent-extension-pin (bug 0002 defect 2): the `-ne -e` pin above only
+      // covers the OUTER process; a subagent-mode theta makes the outer's theta
+      // extension spawn an INNER child whose argv would otherwise rely on
+      // ambient discovery — on a machine with a stale globally-installed theta
+      // build the inner child silently binds to the WRONG extension (no
+      // envelope, fail-closed (e)/(g)). The env knob makes the launcher pin
+      // every nested child to the same working-tree build under test.
+      env: { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
       // Close the child's stdin: `pi -p` in non-interactive print mode reads its
       // prompt from argv, but an OPEN inherited stdin pipe leaves it waiting for
       // EOF and the process-and-exit run never terminates. `"ignore"` gives the
       // child an already-closed stdin so it exits after emitting its output.
+      // (The same treatment is applied to the INNER subagent child by
+      // `createProductionSpawnFn` — the bug 0002 primary fix.)
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

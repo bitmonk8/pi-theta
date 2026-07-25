@@ -1,7 +1,12 @@
 # Bug 0002 — Spawned subagent child never exits under `pi -p`; both child-spawning acceptance cases time out
 
-- **Status:** open — not investigated. The leading hypothesis below is
-  **unconfirmed**; it is a starting point, not a diagnosis.
+- **Status:** fixed (0.12.0). Root cause confirmed by the dedicated
+  investigation — [0002-investigation.md](./0002-investigation.md) — which
+  upgraded the leading hypothesis below with one sharpening: the child did not
+  merely fail to *exit* while its stdin pipe stayed open; it never **started**
+  (pi's json/`-p` startup reads any non-TTY stdin to EOF *before* the argv
+  prompt is processed, so parent-awaits-envelope ⇄ child-awaits-EOF was a
+  startup deadlock).
 - **Kind:** defect — a spawned subagent child does not reach its normal exit, so
   the parent never observes a `theta_result` envelope and the invocation resolves
   fail-closed instead of succeeding. The fail-closed disposition is correct; the
@@ -14,6 +19,41 @@
   child.
 - **Platform:** observed on Windows. Whether it reproduces on Linux/macOS is
   **untested** — see *Open questions*.
+
+## Fix (0.12.0)
+
+Investigation Direction 1, adopted in full:
+
+- **Primary fix** — `createProductionSpawnFn` spawns the child with stdin
+  already closed (`stdio: ["ignore","pipe","pipe"]`), the same treatment the
+  acceptance harness gives the outer `pi -p` process. The child starts
+  immediately, emits its `theta_result` envelope, and exits 0 (~1 s wall).
+- **Spec re-based on reality** — PIC-63 (stdin-close "grace signal") and
+  PIC-9 (stdin-EOF-exit orphan premise) retired per GOV-8 and re-coined as
+  PIC-66 (cancellation = abort → child kill — process-tree on Windows, direct
+  SIGKILL elsewhere; the abort listener now kills) and PIC-65 (teardown =
+  bounded await → kill; class-2 orphan
+  prevention recorded honestly as unimplemented — the child-side parent-PID
+  watchdog stays a recorded, unimplemented fallback with its env carriage in
+  place). The `#subagent-cli-wire-pins` / version-bump audit items now pin the
+  true behaviour: stdin-EOF = input-complete/**start**, never exit.
+- **Defect 2 (child extension identity unpinned)** — the launcher honours an
+  opt-in env knob (`PI_THETA_SUBAGENT_EXTENSION_PIN`, spec
+  `#subagent-extension-pin`) that prefixes `-ne -e <dir>` onto the child argv;
+  the acceptance harness sets it so the inner child binds the working tree's
+  extension instead of a stale ambient build. Production default (ambient
+  discovery) unchanged.
+- **Regression guard in the default suite** —
+  `tests/subagent-child-real-spawn.test.ts` spawns a REAL child through the
+  production spawn path against a provider-free `mode: subagent` theta (pure
+  tail expression, zero tokens) and asserts envelope + exit 0 within a bounded
+  time, closing the fakes-only detection gap this report names.
+- **Acceptance suite not re-run in this change** — the H9a-T suite is
+  credentialed and token-burning, and post-fix verification of cases (e)/(g)
+  against a live provider is a later phase. The default-suite real-spawn test
+  above validates the spawn/envelope/exit mechanism provider-free; the 10/10
+  figure under *Reproduction* below is the recorded expectation, not a
+  recorded run.
 
 ## Summary
 
@@ -161,8 +201,11 @@ npm run test:acceptance
 ```
 
 Requires a live provider and credentials (the suite spawns real `pi -p` runs and
-burns tokens). Expect 8 passed, 2 failed — cases (e) and (g) — each at the 180 s
-timeout. Config: `config/vitest/vitest.acceptance.config.ts`.
+burns tokens). Pre-fix (0.9.0–0.11.0, the observation this report records):
+expect 8 passed, 2 failed — cases (e) and (g) — each at the 180 s timeout.
+Post-fix (0.12.0): expect 10 passed — an expectation, not a recorded result
+(see the *Fix* section's not-re-run note). Config:
+`config/vitest/vitest.acceptance.config.ts`.
 
 The suite is deliberately excluded from `npm test`, `npm run test:conformance`,
 and `npm run test:live`, so this defect does not gate ordinary development.

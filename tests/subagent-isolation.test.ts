@@ -10,13 +10,16 @@
 //     duplicate (and its test here) is deleted;
 //   - PIC-41 — cancellation forwards via the one-shot `thetaAbort.signal`
 //     listener that sends the RPC `abort` command (spawn-then-immediate-cancel
-//     ordering);
+//     ordering) — retired; the successor abort→kill forwarding (PIC-66) is
+//     covered by tests/subagent-json-driver.test.ts / subagent-json-wire.test.ts;
 //   - PIC-43 — `agent_end` extraction (willRetry===false terminal selection,
 //     cancellation short-circuit, transport short-circuit on trailing
 //     `stopReason: "error"`, chronological assistant-text concatenation);
-//   - PIC-9 — child teardown (stdin close → bounded await SHUTDOWN_AWAIT_CAP_MS
-//     → process-tree kill; disposeBarrier settles on observed child exit;
-//     dispose-failure advisory on a teardown-step throw);
+//   - PIC-65 (successor of the retired PIC-9) — child teardown (bounded await
+//     SHUTDOWN_AWAIT_CAP_MS → kill, process-tree on Windows; the residual
+//     stdin release is an advisory no-op against the production child, whose
+//     stdin is spawned closed per bug 0002; disposeBarrier settles on observed
+//     child exit; dispose-failure advisory on a teardown-step throw);
 //   - PIC-22 — all N parallel spawns initiated before any returns, re-based on
 //     a fake process launcher, tolerant of real spawn ordering;
 //   - FN-5 — subagent caller final-value projection.
@@ -72,10 +75,10 @@ async function flush(): Promise<void> {
 // (tests/subagent-json-driver.test.ts).
 
 // ===========================================================================
-// PIC-9 — subagent child-process teardown.
+// PIC-65 — subagent child-process teardown.
 // ===========================================================================
 
-describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
+describe("RFC-0005 — PIC-65 subagent child-process teardown", () => {
   function makeDeps(overrides?: Partial<SubagentChildTeardownDeps>): {
     deps: SubagentChildTeardownDeps;
     emitted: Diagnostic[];
@@ -113,14 +116,18 @@ describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
     };
   }
 
-  it("PIC-9: teardown closes stdin, the child exits on stdin-EOF, no kill, disposeBarrier settles on observed exit, abort listener detached", async () => {
+  it("PIC-65: a child that exits promptly during teardown is not killed; disposeBarrier settles on observed exit, abort listener detached", async () => {
+    // `exitOnStdinEof: true` is a fake-side scripting convenience that makes the
+    // child exit as teardown begins — modelling the NORMAL path where the child
+    // already self-exited after its envelope (a real `-p` child never exits on
+    // stdin EOF; bug 0002).
     const child = new FakeJsonChild({ exitOnStdinEof: true });
     const h = makeDeps();
 
     await runSubagentChildTeardown(child, h.deps);
 
-    // Graceful path: stdin close is the shutdown trigger; the child exits on EOF
-    // (the pinned stdin-EOF presupposition), so no kill and no timeout diagnostic.
+    // Prompt-exit path: the child is gone before the bounded budget elapses, so
+    // no kill and no timeout diagnostic (the residual stdin release still ran).
     expect(child.stdinClosed).toBe(true);
     expect(child.exited).toBe(true);
     expect(child.killed).toBe(false);
@@ -131,14 +138,14 @@ describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
     expect(h.detachCalls).toBe(1);
   });
 
-  it("PIC-9: a child that does not exit within the budget is process-tree killed and emits theta/runtime/subagent-teardown-timeout", async () => {
-    // A child that ignores stdin-EOF models a wedged child talking to its provider.
+  it("PIC-65: a child that does not exit within the budget is killed and emits theta/runtime/subagent-teardown-timeout", async () => {
+    // A child that keeps running models a wedged child talking to its provider.
     const child = new FakeJsonChild({ exitOnStdinEof: false });
     const h = makeDeps({ budgetMs: 20 });
 
     await runSubagentChildTeardown(child, h.deps);
 
-    // Bounded await elapsed → process-tree kill fallback + the per-child timeout
+    // Bounded await elapsed → kill fallback + the per-child timeout
     // diagnostic; the barrier still settles on the (kill-induced) observed exit.
     expect(child.killed).toBe(true);
     expect(child.exited).toBe(true);
@@ -147,47 +154,48 @@ describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
     expect(h.barrierSettled).toBe(1);
   });
 
-  it("PIC-9: a teardown-step throw (stdin close) is logged as advisory theta/runtime/subagent-dispose-failure and does not propagate", async () => {
+  it("PIC-65: a teardown-step throw (stdin release) is logged as advisory theta/runtime/subagent-dispose-failure and does not propagate", async () => {
     let exited = false;
     const throwingChild: SubagentChildProcess = {
       pid: 9,
-      writeStdin: (): void => {},
       closeStdin: (): void => {
         throw new Error("stdin close exploded\nsecond line");
       },
       onStdoutLine: () => () => {},
       onStderrLine: () => () => {},
       onExit: (listener: (info: ChildExitInfo) => void): void => {
-        // Never fires — the throw precedes exit.
+        // Never fires — the child keeps running past the release throw.
         void listener;
       },
       kill: (): void => {
         exited = true;
       },
     };
-    const h = makeDeps();
+    const h = makeDeps({ budgetMs: 20 });
 
     // The teardown-step throw must NOT escape (it would mask an in-flight body defect).
     await expect(runSubagentChildTeardown(throwingChild, h.deps)).resolves.toBeUndefined();
 
     const disposeFailure = h.emitted.find((d) => d.code === SUBAGENT_DISPOSE_FAILURE_CODE);
     expect(disposeFailure).toBeDefined();
-    // The bounded-kill fallback still runs when stdin close throws.
+    // The release is advisory: teardown fell through to the bounded await and
+    // the kill fallback (with its timeout event) — a release throw never skips
+    // the await PIC-65 pins as THE teardown mechanism.
     expect(exited).toBe(true);
+    expect(h.emitted.find((d) => d.code === SUBAGENT_TEARDOWN_TIMEOUT_CODE)).toBeDefined();
   });
 
-  it("PIC-9: a teardown-step throw in the bounded KILL step is logged as advisory theta/runtime/subagent-dispose-failure and does not propagate", async () => {
-    // A child that ignores stdin-EOF forces the bounded-kill fallback; the KILL
+  it("PIC-65: a teardown-step throw in the bounded KILL step is logged as advisory theta/runtime/subagent-dispose-failure and does not propagate", async () => {
+    // A child that keeps running forces the bounded-kill fallback; the KILL
     // step itself then throws. The registry re-scopes subagent-dispose-failure
-    // to any teardown-step throw — stdin close OR bounded kill.
+    // to any teardown-step throw — stdin release OR bounded kill.
     const throwingKillChild: SubagentChildProcess = {
       pid: 11,
-      writeStdin: (): void => {},
       closeStdin: (): void => {},
       onStdoutLine: () => () => {},
       onStderrLine: () => () => {},
       onExit: (): void => {
-        // Never fires — the child does not exit on stdin-EOF, forcing the kill.
+        // Never fires — the child keeps running, forcing the bounded kill.
       },
       kill: (): void => {
         throw new Error("process-tree kill exploded");
@@ -201,7 +209,7 @@ describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
     expect(h.emitted.find((d) => d.code === SUBAGENT_DISPOSE_FAILURE_CODE)).toBeDefined();
   });
 
-  it("PIC-9: the dispose-failure Message column is the registry-pinned string verbatim (\"subagent teardown failed: <first line>\")", () => {
+  it("PIC-65: the dispose-failure Message column is the registry-pinned string verbatim (\"subagent teardown failed: <first line>\")", () => {
     // diagnostics/code-registry-runtime.md pins the theta/runtime/subagent-
     // dispose-failure Message template as `subagent teardown failed: <teardown
     // error first line>` — only the first line of a multi-line error rides in.
@@ -211,7 +219,7 @@ describe("RFC-0005 — PIC-9 subagent child-process teardown", () => {
     expect(rendered).toBe("subagent teardown failed: stdin close exploded");
   });
 
-  it("PIC-9: SHUTDOWN_AWAIT_CAP_MS covers teardown — the subagent teardown budget equals the shared cap", () => {
+  it("PIC-65: SHUTDOWN_AWAIT_CAP_MS covers teardown — the subagent teardown budget equals the shared cap", () => {
     expect(SUBAGENT_DISPOSE_BUDGET_MS).toBe(SHUTDOWN_AWAIT_CAP_MS);
   });
 });

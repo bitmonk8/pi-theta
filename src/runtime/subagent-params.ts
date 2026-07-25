@@ -131,7 +131,7 @@ export interface MarshalledParams {
  * Marshal the already-typed params for the child: canonicalise, choose the
  * channel, and (on the file channel) write the 0600 temp file. Returns the env
  * patch and a `cleanup` closure the parent's per-invocation `finally` runs as
- * the backstop delete (PIC-60 / PIC-9 teardown).
+ * the backstop delete (PIC-60 / PIC-65 teardown).
  */
 export function marshalParams(
   params: Record<string, unknown>,

@@ -8,19 +8,19 @@
 //   - the drive loop (`driveSubagentChild`): read the stdout line stream, find
 //     the reserved-key envelope (ignoring stray lines), map it to the invocation
 //     result, and fail closed on child-exit-without-envelope;
-//   - PIC-63 cancellation forwarding (`attachSubagentStdinCancellation`): a `-p`
-//     child exposes no RPC abort command, so cancellation is effected by closing
-//     the child's parent-held stdin pipe (the grace signal), then the bounded
-//     grace + process-tree kill of PIC-9 teardown. The one-shot listener is the
-//     sole cancellation-forwarding mechanism; a synchronous send-throw is trapped
+//   - PIC-66 cancellation forwarding (`attachSubagentCancellation`): a `-p`
+//     child exposes no RPC abort command and its stdin is spawned closed (bug
+//     0002 — there is no in-band stop channel), so cancellation is effected by
+//     killing the child. The one-shot listener is the sole
+//     cancellation-forwarding mechanism; a synchronous kill-throw is trapped
 //     and routed through `theta/runtime/internal-error` without altering the
-//     result.
+//     result, and PIC-65 teardown's bounded-await → kill remains the backstop.
 //
 // The RFC-0005 RPC drive contract (`subagent-rpc-driver.ts`, the
 // prompt/`agent_end`/abort mapping) is RETIRED by this driver, not kept as a
 // fallback.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-59, PIC-63, PIC-9,
+// Spec: pi-integration-contract/subagent.md (PIC-59, PIC-66, PIC-65,
 // #subagent-error-fidelity), invocation.md (INV-5), cancellation.md.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
@@ -65,7 +65,7 @@ export type SubagentInvocationResult =
 export interface SubagentDriveDeps {
   /** The spawned child handle whose stdout / exit the drive reads. */
   readonly child: SubagentChildProcess;
-  /** The per-invocation cancellation controller (PIC-63). */
+  /** The per-invocation cancellation controller (PIC-66). */
   readonly thetaAbort: AbortController;
   /** The callee path carried onto a reconstructed `InvokeInfraError`. */
   readonly calleePath: string;
@@ -84,7 +84,7 @@ export interface SubagentDriveDeps {
  * that exits WITHOUT an envelope maps fail-closed to `Err(InvokeInfraError {
  * cause: "internal_error" })`; a cancelled invocation maps to `Err(cancelled)`
  * (the cancellation short-circuit wins over the no-envelope map), per PIC-59 /
- * PIC-63 / INV-5.
+ * PIC-66 / INV-5.
  */
 export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInvocationResult> {
   const { child, thetaAbort, calleePath, emitDiagnostic } = deps;
@@ -146,7 +146,7 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
       }
       // The cancellation short-circuit wins over the no-envelope map: an aborted
       // invocation whose abort-driven kill exited the child WITHOUT an envelope
-      // maps to `Err(cancelled)`, not `internal_error` (PIC-63).
+      // maps to `Err(cancelled)`, not `internal_error` (PIC-66).
       if (thetaAbort.signal.aborted) {
         settle({ ok: false, error: makeCancelledError() });
         return;
@@ -171,54 +171,58 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
 }
 
 // ---------------------------------------------------------------------------
-// PIC-63 — cancellation: stdin-close grace forwarding.
+// PIC-66 — cancellation: abort → child kill.
 // ---------------------------------------------------------------------------
 
-/** `theta/runtime/internal-error` — the surface a thrown grace-signal send routes through (PIC-63). */
-export const SUBAGENT_CANCEL_GRACE_INTERNAL_ERROR_CODE = "theta/runtime/internal-error";
+/** `theta/runtime/internal-error` — the surface a thrown cancellation kill routes through (PIC-66). */
+export const SUBAGENT_CANCEL_KILL_INTERNAL_ERROR_CODE = "theta/runtime/internal-error";
 
-/** The one-shot cancellation registration, detached in the per-invocation teardown `finally` (PIC-9). */
-export interface StdinCancellationRegistration {
+/** The one-shot cancellation registration, detached in the per-invocation teardown `finally` (PIC-65). */
+export interface SubagentCancellationRegistration {
   readonly detach: () => void;
 }
 
 /** Collaborators the cancellation forwarding drives. */
-export interface StdinCancellationDeps {
-  /** Runtime-defect sink for a thrown synchronous grace-signal send. */
+export interface SubagentCancellationDeps {
+  /** Runtime-defect sink for a thrown synchronous cancellation kill. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
 }
 
 /**
- * PIC-63. Forward cancellation to a `-p` child by closing its parent-held stdin
- * pipe (the grace signal): register a one-shot `thetaAbort.signal` listener that
- * closes the child's stdin; if `thetaAbort` is already aborted at attach time,
- * close it SYNCHRONOUSLY before registering the listener (the
- * spawn-then-immediate-cancel path). A synchronous close-throw is trapped and
- * routed through `theta/runtime/internal-error` without altering the invocation
- * result; the bounded grace + process-tree kill is then the PIC-9 teardown's
- * responsibility. The listener is detached in the per-invocation teardown
- * `finally`.
+ * PIC-66. Forward cancellation to a `-p` child by killing it: register a
+ * one-shot `thetaAbort.signal` listener that kills the child; if `thetaAbort`
+ * is already aborted at attach time, kill SYNCHRONOUSLY before registering
+ * the listener (the spawn-then-immediate-cancel path). The child's stdin is
+ * spawned closed (bug 0002) and a `-p` child exposes no RPC abort command, so
+ * no in-band stop channel exists — the kill IS the cancellation forward. The
+ * kill destroys the
+ * parent-held stdio pipes, so the child's terminal `'close'` fires and the
+ * drive settles `Err(cancelled)` via its cancellation short-circuit. A
+ * synchronous kill-throw is trapped and routed through
+ * `theta/runtime/internal-error` without altering the invocation result;
+ * PIC-65 teardown's bounded-await → kill remains the backstop. The listener is
+ * detached in the per-invocation teardown `finally`.
  */
-export function attachSubagentStdinCancellation(
+export function attachSubagentCancellation(
   thetaAbort: AbortController,
   child: SubagentChildProcess,
-  deps: StdinCancellationDeps,
-): StdinCancellationRegistration {
-  // PIC-63: closing the parent-held stdin pipe is the grace signal to a `-p`
-  // child. A synchronous close-throw is trapped and routed through
+  deps: SubagentCancellationDeps,
+): SubagentCancellationRegistration {
+  // PIC-66: the kill is the cancellation forward to a `-p` child.
+  // A synchronous kill-throw is trapped and routed through
   // `theta/runtime/internal-error` without altering the invocation result.
-  const closeStdin = (): void => {
+  const killChild = (): void => {
     try {
-      child.closeStdin();
-    } catch (closeError: unknown) { // allow-broad-catch: PIC-63 theta/runtime/internal-error — pi-integration-contract/subagent.md
-      const message = closeError instanceof Error ? closeError.message : String(closeError);
+      child.kill();
+    } catch (killError: unknown) { // allow-broad-catch: PIC-66 theta/runtime/internal-error — pi-integration-contract/subagent.md
+      const message = killError instanceof Error ? killError.message : String(killError);
       const stack =
-        closeError instanceof Error && typeof closeError.stack === "string" && closeError.stack.length > 0
-          ? closeError.stack
+        killError instanceof Error && typeof killError.stack === "string" && killError.stack.length > 0
+          ? killError.stack
           : "<no stack available>";
       deps.emitDiagnostic({
         severity: "error",
-        code: SUBAGENT_CANCEL_GRACE_INTERNAL_ERROR_CODE,
+        code: SUBAGENT_CANCEL_KILL_INTERNAL_ERROR_CODE,
         message: `internal error: ${message}`,
         hint: stack,
       });
@@ -226,17 +230,17 @@ export function attachSubagentStdinCancellation(
   };
 
   // The spawn-then-immediate-cancel path: if `thetaAbort` is already aborted at
-  // attach time, close stdin SYNCHRONOUSLY before registering the listener, so
+  // attach time, kill SYNCHRONOUSLY before registering the listener, so
   // correctness does not depend on microtask ordering.
   if (thetaAbort.signal.aborted) {
-    closeStdin();
+    killChild();
     return { detach: (): void => {} };
   }
 
   // The one-shot `thetaAbort.signal` listener is the sole cancellation-forwarding
   // mechanism; it is detached in the per-invocation teardown `finally`.
   const listener = (): void => {
-    closeStdin();
+    killChild();
   };
   thetaAbort.signal.addEventListener("abort", listener, { once: true });
   return {

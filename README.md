@@ -119,11 +119,13 @@ a second, self-contained example you can run without any external tools.
 
 ## Status
 
-Theta is at **0.11.x**. The whole documented language works and is tested
+Theta is at **0.12.x**. The whole documented language works and is tested
 end-to-end, but this is an early release and may still contain bugs. As of
 0.9.0, a subagent-mode invocation runs the whole callee theta — interpreter
 included — in a spawned child `pi` process (params and the typed return value
-cross the process boundary structurally). As of 0.11.0 a theta's `tools:` list
+cross the process boundary structurally); as of 0.12.0 that child is spawned
+with stdin already closed, fixing a startup deadlock that hung every real
+subagent invocation under `pi -p` (bug 0002). As of 0.11.0 a theta's `tools:` list
 can name extension-registered Pi tools in **both** modes, not only in a
 subagent, and an admitted extension tool is reachable both by the theta's
 model and from theta **code** — a code-side call is dispatched

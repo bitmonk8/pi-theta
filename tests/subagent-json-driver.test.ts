@@ -1,29 +1,25 @@
 // RFC-0006 new coverage — parent-side subagent JSON driver + cancellation.
 //
 // Spec: pi-integration-contract/subagent.md (PIC-59 envelope consumption,
-// PIC-63 cancellation stdin-close grace, PIC-9 teardown), invocation.md
-// (INV-5), cancellation.md.
+// PIC-66 cancellation abort→kill, PIC-65 teardown), invocation.md (INV-5),
+// cancellation.md.
 //
 // Covers:
 //   - launch → await envelope → map: an Ok envelope on the child's `--mode
 //     json` stdout maps to Ok(value); an Err envelope maps to the reconstructed
 //     QueryError; a child that exits WITHOUT an envelope maps fail-closed to
 //     Err(InvokeInfraError { cause: "internal_error" });
-//   - kill-during-free-phase (PIC-63): abort closes the child's parent-held
-//     stdin (the grace signal), then teardown's bounded grace + process-tree
-//     kill; an aborted invocation maps to Err(cancelled) (cancel wins over the
-//     no-envelope internal_error map); a thrown grace-signal send routes
+//   - cancellation (PIC-66): abort kills the child (its stdin is
+//     spawned closed — bug 0002 — so no in-band stop channel exists); an
+//     aborted invocation maps to Err(cancelled) (cancel wins over the
+//     no-envelope internal_error map); a thrown cancellation kill routes
 //     theta/runtime/internal-error without propagating.
-//
-// RED EXPECTATION (RFC-0006 not yet implemented): `driveSubagentChild` /
-// `attachSubagentStdinCancellation` throw `not implemented: RFC 0006`, so each
-// assertion reds on its primary behaviour; the paired implementation greens them.
 
 import { describe, expect, it } from "vitest";
 import {
-  attachSubagentStdinCancellation,
+  attachSubagentCancellation,
   driveSubagentChild,
-  SUBAGENT_CANCEL_GRACE_INTERNAL_ERROR_CODE,
+  SUBAGENT_CANCEL_KILL_INTERNAL_ERROR_CODE,
 } from "../src/runtime/subagent-json-driver";
 import { adaptChild } from "../src/extension/production-subagent-host";
 import {
@@ -231,72 +227,75 @@ describe("PIC-59 — adapter terminal signal fires on stdio close, not process e
 });
 
 // ---------------------------------------------------------------------------
-// PIC-63 — cancellation: stdin-close grace then kill.
+// PIC-66 — cancellation: abort → kill.
 // ---------------------------------------------------------------------------
 
-/** A `SubagentChildProcess` double whose `closeStdin` throws (a thrown grace-signal send). */
-function throwingStdinChild(): SubagentChildProcess {
+/** A `SubagentChildProcess` double whose `kill` throws (a thrown cancellation kill). */
+function throwingKillChild(): SubagentChildProcess {
   return {
     pid: 1,
-    writeStdin: (): void => {},
-    closeStdin: (): void => {
-      throw new Error("stdin pipe already closed");
-    },
+    closeStdin: (): void => {},
     onStdoutLine: (): (() => void) => (): void => {},
     onStderrLine: (): (() => void) => (): void => {},
     onExit: (): void => {},
-    kill: (): void => {},
+    kill: (): void => {
+      throw new Error("taskkill exploded");
+    },
   };
 }
 
-describe("PIC-63 — cancellation forwarding (stdin-close grace signal)", () => {
-  it("abort closes the child's parent-held stdin (the grace signal)", () => {
+describe("PIC-66 — cancellation forwarding (abort → kill)", () => {
+  it("abort kills the child (no stdin channel exists — the child's stdin is spawned closed)", () => {
     const child = new FakeRpcChild({ exitOnStdinEof: false });
     const thetaAbort = new AbortController();
-    const reg = attachSubagentStdinCancellation(thetaAbort, child, { emitDiagnostic: () => {} });
-    expect(child.stdinClosed).toBe(false);
+    const reg = attachSubagentCancellation(thetaAbort, child, { emitDiagnostic: () => {} });
+    expect(child.killed).toBe(false);
     thetaAbort.abort(new Error("cancelled"));
-    // PIC-63: closing the parent-held stdin pipe is the grace signal to a `-p` child.
-    expect(child.stdinClosed).toBe(true);
+    // PIC-66: the kill is the cancellation forward to a `-p` child — stdin is
+    // not a control channel and stays untouched.
+    expect(child.killed).toBe(true);
+    expect(child.stdinClosed).toBe(false);
     reg.detach();
   });
 
-  it("spawn-then-immediate-cancel: an already-aborted thetaAbort closes stdin synchronously", () => {
+  it("spawn-then-immediate-cancel: an already-aborted thetaAbort kills synchronously", () => {
     const child = new FakeRpcChild({ exitOnStdinEof: false });
     const thetaAbort = new AbortController();
     thetaAbort.abort(new Error("pre-aborted"));
-    attachSubagentStdinCancellation(thetaAbort, child, { emitDiagnostic: () => {} });
-    expect(child.stdinClosed).toBe(true);
+    attachSubagentCancellation(thetaAbort, child, { emitDiagnostic: () => {} });
+    expect(child.killed).toBe(true);
   });
 
-  it("a thrown grace-signal send routes theta/runtime/internal-error and does NOT propagate", () => {
-    const child = throwingStdinChild();
+  it("a thrown cancellation kill routes theta/runtime/internal-error and does NOT propagate", () => {
+    const child = throwingKillChild();
     const thetaAbort = new AbortController();
     const emitted: Diagnostic[] = [];
-    attachSubagentStdinCancellation(thetaAbort, child, {
+    attachSubagentCancellation(thetaAbort, child, {
       emitDiagnostic: (d): void => {
         emitted.push(d);
       },
     });
-    // The close-throw must NOT escape (it would mask the in-flight cancelled result).
+    // The kill-throw must NOT escape (it would mask the in-flight cancelled result).
     expect(() => thetaAbort.abort(new Error("cancelled"))).not.toThrow();
-    expect(emitted.map((d) => d.code)).toContain(SUBAGENT_CANCEL_GRACE_INTERNAL_ERROR_CODE);
+    expect(emitted.map((d) => d.code)).toContain(SUBAGENT_CANCEL_KILL_INTERNAL_ERROR_CODE);
   });
 
-  it("kill-during-free-phase: an aborted invocation maps to Err(cancelled), not the no-envelope internal_error", async () => {
+  it("an aborted invocation maps to Err(cancelled), not the no-envelope internal_error", async () => {
     const child = new FakeRpcChild({ exitOnStdinEof: false });
     const thetaAbort = new AbortController();
     const pending = driveSubagentChild(driveDeps(child, thetaAbort));
     await tick();
-    // Cancel mid-free-phase: abort fires, then the abort-driven process-tree kill
-    // exits the child WITHOUT an envelope. The cancellation short-circuit wins.
+    // Cancel mid-free-phase: abort fires and the attached PIC-66 listener
+    // kills the child, which exits WITHOUT an envelope. The
+    // cancellation short-circuit wins over the no-envelope map.
+    attachSubagentCancellation(thetaAbort, child, { emitDiagnostic: () => {} });
     thetaAbort.abort(new Error("cancelled"));
-    child.kill();
 
     const result = await pending;
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe("cancelled");
     }
+    expect(child.killed).toBe(true);
   });
 });

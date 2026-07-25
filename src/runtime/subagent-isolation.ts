@@ -5,11 +5,12 @@
 // machinery RFC 0006 reuses unchanged (pi-integration-contract/subagent.md,
 // cancellation.md):
 //
-//   - PIC-9 child-process teardown (`runSubagentChildTeardown`): stdin close →
-//     bounded await → process-tree kill, advisory
-//     `theta/runtime/subagent-dispose-failure` on a teardown-step throw,
-//     `theta/runtime/subagent-teardown-timeout` on the kill fallback; bounded by
-//     `SHUTDOWN_AWAIT_CAP_MS`.
+//   - PIC-65 child-process teardown (`runSubagentChildTeardown`): bounded await
+//     of child exit → kill on timeout (process-tree kill on Windows, direct
+//     SIGKILL elsewhere; the stdin release it also issues is an advisory no-op
+//     — the child's stdin is spawned closed per bug 0002), advisory
+//     `theta/runtime/subagent-dispose-failure` on a teardown-step throw, `theta/runtime/subagent-teardown-timeout` on the
+//     kill fallback; bounded by `SHUTDOWN_AWAIT_CAP_MS`.
 //   - PIC-22 parallel spawn conformance witness (`spawnSubagentsInParallel`).
 //
 // RETIRED with the RFC-0005 RPC drive (moved elsewhere): the PIC-62 pre-spawn
@@ -17,10 +18,10 @@
 // `subagent-model-guard.ts`; the dead RFC-0005 `preSpawnModelGuard` duplicate is
 // deleted), the child-side model pre-flight (now `confirmChildModel` in
 // `subagent-model-guard.ts`, reported through the envelope), abort forwarding
-// (now stdin-close in `subagent-json-driver.ts`, PIC-63), and terminal-`agent_end`
-// extraction (now the child's own prompt-mode driver).
+// (now the kill in `subagent-json-driver.ts`, PIC-66), and
+// terminal-`agent_end` extraction (now the child's own prompt-mode driver).
 //
-// Spec: pi-integration-contract/subagent.md (PIC-9, PIC-22, PIC-62);
+// Spec: pi-integration-contract/subagent.md (PIC-65, PIC-22, PIC-62);
 // cancellation.md.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
@@ -29,11 +30,11 @@ import type { SubagentChildProcess } from "./subagent-launcher";
 import type { Clock } from "../seams/clock";
 
 // ---------------------------------------------------------------------------
-// PIC-9 — disposal budget.
+// PIC-65 — disposal budget.
 // ---------------------------------------------------------------------------
 
 /**
- * PIC-9. The bounded budget (milliseconds) the subagent disposal phase runs
+ * PIC-65. The bounded budget (milliseconds) the subagent disposal phase runs
  * under. The compliant `V9i` sources this from the single `SHUTDOWN_AWAIT_CAP_MS`
  * declaration site (`V9a`), so `SUBAGENT_DISPOSE_BUDGET_MS === SHUTDOWN_AWAIT_CAP_MS`.
  * There is no separate budget for disposal; it is covered by the single
@@ -59,14 +60,14 @@ export {
 } from "./subagent-model-guard";
 
 // ---------------------------------------------------------------------------
-// PIC-9 — teardown-step advisory diagnostic.
+// PIC-65 — teardown-step advisory diagnostic.
 // ---------------------------------------------------------------------------
 
-/** PIC-9 advisory diagnostic code emitted when a teardown step throws. */
+/** PIC-65 advisory diagnostic code emitted when a teardown step throws. */
 export const SUBAGENT_DISPOSE_FAILURE_CODE = "theta/runtime/subagent-dispose-failure";
 
 /**
- * PIC-9 advisory diagnostic message (diagnostics registry Message column, code
+ * PIC-65 advisory diagnostic message (diagnostics registry Message column, code
  * `theta/runtime/subagent-dispose-failure`): `subagent dispose failed: <dispose
  * error first line>`.
  */
@@ -94,8 +95,9 @@ export function renderSubagentDisposeFailureMessage(disposeError: unknown): stri
 // drives it against a fake process launcher whose children block their drive
 // point. The revised PIC-22 wording replaces the retired RFC-0005 RPC "enter
 // each child's first `prompt` command" drive point with "spawn initiated": the
-// `-p` child's stdin is close-only, so the per-child drive point is reaching the
-// envelope await. It is deliberately retained (not deleted) as that witness.
+// `-p` child's stdin is spawned closed (no data channel), so the per-child drive
+// point is reaching the envelope await. It is deliberately retained (not
+// deleted) as that witness.
 
 /**
  * One subagent-mode spawn: launch the child `pi` process and reach its per-child
@@ -106,9 +108,9 @@ export interface ParallelSubagentSpawn {
   readonly launchChild: () => Promise<SubagentChildProcess>;
   /**
    * Reach the per-child drive-initiated point. Under RFC 0006 the `-p` child's
-   * stdin is close-only (no RPC `prompt` write), so the drive point is reaching
-   * the per-child envelope await — the revised PIC-22 "spawn initiated" wording,
-   * replacing the retired RPC "enter first `prompt`" drive point.
+   * stdin is spawned closed (no RPC `prompt` write), so the drive point is
+   * reaching the per-child envelope await — the revised PIC-22 "spawn initiated"
+   * wording, replacing the retired RPC "enter first `prompt`" drive point.
    */
   readonly driveInitiated: (child: SubagentChildProcess) => Promise<void>;
 }
@@ -134,22 +136,21 @@ export async function spawnSubagentsInParallel(
 }
 
 // ---------------------------------------------------------------------------
-// PIC-9 — subagent child-process teardown (stdin close → bounded await → kill).
+// PIC-65 — subagent child-process teardown (bounded await → kill).
 // ---------------------------------------------------------------------------
 
 /**
  * `theta/runtime/subagent-teardown-timeout` — the per-child kill-fallback event:
- * the child did not exit within the `SHUTDOWN_AWAIT_CAP_MS` budget after stdin
- * close, so the runtime killed it (process-tree kill on Windows). Owned here
- * (teardown owner).
+ * the child did not exit within the `SHUTDOWN_AWAIT_CAP_MS` budget, so the
+ * runtime killed it (process-tree kill on Windows). Owned here (teardown owner).
  */
 export const SUBAGENT_TEARDOWN_TIMEOUT_CODE = "theta/runtime/subagent-teardown-timeout";
 
-/** The collaborators the child-process teardown drives (PIC-9). */
+/** The collaborators the child-process teardown drives (PIC-65). */
 export interface SubagentChildTeardownDeps {
   /** Diagnostic sink for the teardown-timeout and dispose-failure events. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-  /** Detach the one-shot `thetaAbort.signal` abort-forwarding listener (PIC-41). */
+  /** Detach the one-shot `thetaAbort.signal` abort-forwarding listener (PIC-66). */
   readonly detachAbortListener: () => void;
   /** Settle the `ActiveInvocationRegistry` `disposeBarrier` on observed child exit. */
   readonly settleDisposeBarrier: () => void;
@@ -160,13 +161,19 @@ export interface SubagentChildTeardownDeps {
 }
 
 /**
- * PIC-9. Tear the subagent child down: detach the one-shot abort listener, close
- * the child's stdin, await child exit within the `SHUTDOWN_AWAIT_CAP_MS` budget,
- * and — if the child does not exit in time — process-tree-kill it and emit
- * `theta/runtime/subagent-teardown-timeout`. `disposeBarrier` settles on observed
- * child exit. Idempotent at the call site. A teardown-step throw (stdin close or
- * kill) is trapped and logged via `theta/runtime/subagent-dispose-failure`; it
- * never alters the invocation result.
+ * PIC-65. Tear the subagent child down: detach the one-shot abort listener,
+ * release any residual parent-held stdin handle, await child exit within the
+ * `SHUTDOWN_AWAIT_CAP_MS` budget, and — if the child does not exit in time —
+ * kill it (process-tree kill on Windows) and emit
+ * `theta/runtime/subagent-teardown-timeout`. On the normal path the child has
+ * ALREADY exited when teardown runs (one invocation per process: envelope →
+ * self-exit), so the bounded await short-circuits on the adapter's replayed
+ * exit. `disposeBarrier` settles on observed child exit. Idempotent at the
+ * call site. A teardown-step throw (stdin release or kill) is trapped and
+ * logged via `theta/runtime/subagent-dispose-failure`; it never alters the
+ * invocation result, and a stdin-release throw does not change the teardown
+ * shape — the release is advisory, so teardown proceeds to the bounded await
+ * regardless (PIC-65 pins the await as THE teardown mechanism).
  */
 export async function runSubagentChildTeardown(
   child: SubagentChildProcess,
@@ -174,11 +181,12 @@ export async function runSubagentChildTeardown(
 ): Promise<void> {
   const budgetMs = deps.budgetMs ?? SUBAGENT_DISPOSE_BUDGET_MS;
 
-  // PIC-9 / PIC-41: detach the one-shot abort-forwarding listener first.
+  // PIC-65 / PIC-66: detach the one-shot abort-forwarding listener first.
   deps.detachAbortListener();
 
   // Observe child exit: settle the dispose barrier once, and resolve the local
-  // await. Registered BEFORE stdin close so a synchronous stdin-EOF exit is seen.
+  // await. Registered FIRST so an already-exited child (the normal path — the
+  // adapter replays its recorded exit) or a synchronous exit is seen.
   let exited = false;
   let resolveExit!: () => void;
   const exitObserved = new Promise<void>((resolve) => {
@@ -193,53 +201,53 @@ export async function runSubagentChildTeardown(
     resolveExit();
   });
 
-  // Graceful shutdown trigger: close the child's stdin (stdin-EOF exit). A throw
-  // here means the graceful path is unavailable, so fall straight to the kill.
-  let stdinClosed = true;
+  // Release any residual parent-held stdin handle. Under the production spawn
+  // config this is a structural no-op — the child's stdin is spawned closed
+  // ("ignore", bug 0002), and stdin close was never a stop signal to a `-p`
+  // child anyway (EOF is its START gate). Kept for the `SubagentChildProcess`
+  // surface: a non-production child with a live stdin still gets it released.
+  // The release is advisory only: a throw here is logged and teardown falls
+  // through to the bounded await → kill below unchanged — an incidental step
+  // must not alter the teardown shape PIC-65 pins.
   try {
     child.closeStdin();
   } catch (closeError: unknown) { // allow-broad-catch: theta/runtime/subagent-dispose-failure — pi-integration-contract/subagent.md
-    stdinClosed = false;
     emitTeardownStepFailure(deps, closeError);
   }
 
   if (exited) {
-    // Child exited synchronously on stdin-EOF — no kill, no timeout.
+    // Child already exited (normal path: envelope → self-exit, replayed by the
+    // adapter) — no kill, no timeout.
     return;
   }
 
-  if (stdinClosed) {
-    // Bounded await of observed child exit within `SHUTDOWN_AWAIT_CAP_MS`, timed
-    // by the injected `Clock` seam (PIC-12) — never the ambient global timer.
-    let timer: import("../seams/clock").TimerHandle | undefined;
-    const timedOut = await Promise.race<boolean>([ // allow: PIC-9 — pi-integration-contract/subagent.md
-      exitObserved.then(() => false),
-      new Promise<boolean>((resolve) => {
-        timer = deps.clock.setTimeout(() => resolve(true), budgetMs);
-      }),
-    ]);
-    if (timer !== undefined) {
-      deps.clock.clearTimeout(timer);
-    }
-    if (exited || !timedOut) {
-      return;
-    }
-    // Budget elapsed: process-tree kill fallback + the per-child timeout event.
-    killChild(child, deps);
-    deps.emitDiagnostic({
-      severity: "error",
-      code: SUBAGENT_TEARDOWN_TIMEOUT_CODE,
-      message: `subagent child did not exit within ${budgetMs}ms; killed`,
-      hint: `${budgetMs}ms`,
-    });
+  // Bounded await of observed child exit within `SHUTDOWN_AWAIT_CAP_MS`, timed
+  // by the injected `Clock` seam (PIC-12) — never the ambient global timer.
+  let timer: import("../seams/clock").TimerHandle | undefined;
+  const timedOut = await Promise.race<boolean>([ // allow: PIC-65 — pi-integration-contract/subagent.md
+    exitObserved.then(() => false),
+    new Promise<boolean>((resolve) => {
+      timer = deps.clock.setTimeout(() => resolve(true), budgetMs);
+    }),
+  ]);
+  if (timer !== undefined) {
+    deps.clock.clearTimeout(timer);
+  }
+  if (exited || !timedOut) {
     return;
   }
-
-  // stdin close failed — the graceful EOF exit will not arrive, so kill now.
+  // Budget elapsed: kill fallback (process-tree on Windows) + the per-child
+  // timeout event.
   killChild(child, deps);
+  deps.emitDiagnostic({
+    severity: "error",
+    code: SUBAGENT_TEARDOWN_TIMEOUT_CODE,
+    message: `subagent child did not exit within ${budgetMs}ms; killed`,
+    hint: `${budgetMs}ms`,
+  });
 }
 
-/** Process-tree kill the child; a kill throw is an advisory teardown-step failure. */
+/** Kill the child (process-tree on Windows); a kill throw is an advisory teardown-step failure. */
 function killChild(child: SubagentChildProcess, deps: SubagentChildTeardownDeps): void {
   try {
     child.kill();
@@ -248,7 +256,7 @@ function killChild(child: SubagentChildProcess, deps: SubagentChildTeardownDeps)
   }
 }
 
-/** PIC-9 advisory: a teardown-step throw (stdin close or bounded kill) is logged, never propagated. */
+/** PIC-65 advisory: a teardown-step throw (stdin release or bounded kill) is logged, never propagated. */
 function emitTeardownStepFailure(deps: SubagentChildTeardownDeps, error: unknown): void {
   deps.emitDiagnostic({
     severity: "error",

@@ -2,7 +2,7 @@
 //
 // Covers the launch half the RFC demands (pi-integration-contract/subagent.md
 // #subagent-executable-resolution, #subagent-launch-contract (PIC-58),
-// #subagent-tools-allowlist-suppression, #subagent-theta-callable-hash; PIC-9
+// #subagent-tools-allowlist-suppression, #subagent-theta-callable-hash; PIC-65
 // spawn failure):
 //   - executable-resolution ladder (rung 1 entry-script, rung 2 compiled
 //     binary, both-rungs-fail → closed refusal, NO PATH fallback);
@@ -25,6 +25,7 @@ import {
   launchSubagentChild,
   resolveSubagentExecutable,
   routeSubagentSpawnFailure,
+  SUBAGENT_EXTENSION_PIN_ENV,
   SUBAGENT_INVOKE_DEPTH_ENV,
   SUBAGENT_PARENT_PID_ENV,
   SUBAGENT_SPAWN_FAILED_CODE,
@@ -164,6 +165,41 @@ describe("RFC-0006 — json-mode argv assembly", () => {
     expect(argv).not.toContain("--tools");
   });
 
+  it("production default: no extension pin → the argv carries NO -ne / -e (ambient extension discovery)", () => {
+    const argv = assembleSubagentArgv({
+      slug: "s",
+      thetaDirs: ["/w/.pi/theta"],
+      systemPrompt: "sp",
+      tools: [],
+      emptyCallableSet: true,
+      provider: "anthropic",
+      model: "m",
+      approve: false,
+    });
+    // #subagent-extension-pin: ambient discovery is the production default —
+    // the pin is strictly opt-in, so the default argv is unchanged.
+    expect(argv).not.toContain("-ne");
+    expect(argv).not.toContain("-e");
+  });
+
+  it("#subagent-extension-pin: an explicit extensionPinDir PREPENDS -ne -e <dir> (child binds to exactly that build)", () => {
+    const argv = assembleSubagentArgv({
+      extensionPinDir: "/repo/extensions",
+      slug: "s",
+      thetaDirs: ["/w/.pi/theta"],
+      systemPrompt: "sp",
+      tools: [],
+      emptyCallableSet: true,
+      provider: "anthropic",
+      model: "m",
+      approve: false,
+    });
+    // `-ne` disables ambient discovery; `-e <dir>` loads exactly the pinned
+    // build — mirroring how the acceptance harness pins the OUTER process
+    // (bug 0002 defect 2: an unpinned child can bind to a stale ambient build).
+    expect(argv.slice(0, 3)).toEqual(["-ne", "-e", "/repo/extensions"]);
+  });
+
   it("--approve iff project-local trust is inferred, else --no-approve (least privilege)", () => {
     const approving = assembleSubagentArgv({
       slug: "s",
@@ -240,7 +276,8 @@ describe("RFC-0006 — child env", () => {
     // PIC-58: the root-regime marker carries the callee slug and subsumes the
     // retired boolean child marker (watcher suppression + no-recursion + regime).
     expect(env[SUBAGENT_ROOT_ENV_MARKER]).toBe("code-review");
-    // The parent PID rides its own carriage (PIC-9 orphan watchdog) — NOT the
+    // The parent PID rides its own carriage (the recorded-but-unimplemented
+    // PIC-65 orphan watchdog input) — NOT the
     // depth counter.
     expect(env[SUBAGENT_PARENT_PID_ENV]).toBe("12345");
     // INV-4: the per-chain invoke depth crosses on its OWN dedicated carriage,
@@ -318,6 +355,51 @@ describe("RFC-0006 — launchSubagentChild records argv/env/cwd", () => {
     expect(record.cwd).toBe("/work/project");
   });
 
+  it("#subagent-extension-pin: the opt-in env knob on the parent env pins the child argv (-ne -e <dir>)", () => {
+    const launcher = makeFakeJsonChildLauncher();
+    const result = launchSubagentChild(
+      launchRequest({
+        parentEnv: { PATH: "/usr/bin", [SUBAGENT_EXTENSION_PIN_ENV]: "/repo/extensions" },
+      }),
+      { spawn: launcher.spawn, emitDiagnostic: (): void => {} },
+    );
+    expect(result.ok).toBe(true);
+    const record = launcher.spawns[0]!;
+    // The knob (set by the acceptance harness; inherited by nested children via
+    // full env inheritance) makes the launcher pin the child to the same
+    // extension build as the process under test.
+    const neIndex = record.args.indexOf("-ne");
+    expect(neIndex).toBeGreaterThanOrEqual(0);
+    expect(record.args[neIndex + 1]).toBe("-e");
+    expect(record.args[neIndex + 2]).toBe("/repo/extensions");
+    // The knob itself rides into the child env (full inheritance), so a nested
+    // child launched from inside this child is pinned identically.
+    expect(record.env[SUBAGENT_EXTENSION_PIN_ENV]).toBe("/repo/extensions");
+  });
+
+  it("#subagent-extension-pin: the env knob value is trimmed — surrounding whitespace never rides into -e", () => {
+    const launcher = makeFakeJsonChildLauncher();
+    launchSubagentChild(
+      launchRequest({
+        parentEnv: { PATH: "/usr/bin", [SUBAGENT_EXTENSION_PIN_ENV]: "  /repo/extensions  " },
+      }),
+      { spawn: launcher.spawn, emitDiagnostic: (): void => {} },
+    );
+    const record = launcher.spawns[0]!;
+    const neIndex = record.args.indexOf("-ne");
+    expect(neIndex).toBeGreaterThanOrEqual(0);
+    expect(record.args[neIndex + 1]).toBe("-e");
+    expect(record.args[neIndex + 2]).toBe("/repo/extensions");
+  });
+
+  it("#subagent-extension-pin: knob absent → no -ne / -e on the spawned argv (production default unchanged)", () => {
+    const launcher = makeFakeJsonChildLauncher();
+    launchSubagentChild(launchRequest(), { spawn: launcher.spawn, emitDiagnostic: (): void => {} });
+    const record = launcher.spawns[0]!;
+    expect(record.args).not.toContain("-ne");
+    expect(record.args).not.toContain("-e");
+  });
+
   it("spawn failure (ENOENT) → { ok: false, reason: 'spawn-failed' } AND emits theta/runtime/subagent-spawn-failed", () => {
     const launcher = makeFakeJsonChildLauncher();
     launcher.failNextSpawn(enoentSpawnError("/usr/bin/node"));
@@ -352,7 +434,7 @@ describe("RFC-0006 — launchSubagentChild records argv/env/cwd", () => {
 
     // (2) The caller additionally routes the failure through the invocation-
     //     failure surface: theta/runtime/internal-error, plus the invoke_infra
-    //     envelope to an invoke parent (PIC-9 spawn-failure rule / PIC-41).
+    //     envelope to an invoke parent (PIC-65 spawn-failure rule).
     let envelope: InvokeInfraError | undefined;
     routeSubagentSpawnFailure(spawnError, "/theta/child.theta", {
       emitDiagnostic: emit,

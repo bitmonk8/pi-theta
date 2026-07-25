@@ -54,7 +54,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-3, PIC-4, PIC-5, PIC-6 | `V9a` |
 | PIC-7 | `V9g` |
 | PIC-8, PIC-19 | `V9f` |
-| PIC-9, PIC-22, PIC-23, PIC-40, PIC-41, PIC-42, PIC-43, PIC-61 | `V9i` |
+| PIC-9, PIC-22, PIC-23, PIC-40, PIC-41, PIC-42, PIC-43, PIC-61 | `V9i` (PIC-9 retired at 0.12.0 in the bug-0002 fix, re-coined as PIC-65 — see the PIC-65 row below) |
 | PIC-10 | `V8a` |
 | PIC-11 | `V8c` |
 | PIC-13 | `V8b` |
@@ -82,8 +82,10 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-59 | RFC 0006 (child-process theta execution — return-value envelope) |
 | PIC-60 | RFC 0006 (child-process theta execution — marshalled-params channel) |
 | PIC-62 | RFC 0006 (child-process theta execution — pre-spawn model guard) |
-| PIC-63 | RFC 0006 (child-process theta execution — cancellation stdin-close grace) |
+| PIC-63 | RFC 0006 (child-process theta execution — cancellation stdin-close grace; retired at 0.12.0 in the bug-0002 fix, re-coined as PIC-66) |
 | PIC-64 | RFC 0006 (child-process theta execution — mode-independent host-loop dispatch ladder; successor to the retired PIC-61) |
+| PIC-65 | bug 0002 fix (subagent child-process lifecycle and orphan prevention — bounded-await teardown, closed-stdin launch; successor to the retired PIC-9, whose V9i-closed teardown heritage carries over) |
+| PIC-66 | bug 0002 fix (subagent cancellation — abort → child kill, process-tree on Windows / direct SIGKILL elsewhere; successor to the retired PIC-63) |
 | INV-1 | `V15a` |
 | INV-2, INV-3 | `V15k` |
 | INV-4 | `V15b` |

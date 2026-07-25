@@ -18,11 +18,11 @@
 //   - the child's `Err` (transport) envelope surfaces with full fidelity, never
 //     a fabricated `Ok` (#subagent-error-fidelity);
 //   - a GENUINE mid-drive `thetaAbort` fire surfaces `Err(cancelled)` and wins
-//     over the child-exit-without-envelope map (PIC-63);
+//     over the child-exit-without-envelope map (PIC-66);
 //   - a child that exits WITHOUT an envelope maps fail-closed to
 //     `Err(InvokeInfraError{cause:"internal_error"})` (PIC-59).
 //
-// Spec: pi-integration-contract/subagent.md PIC-59/PIC-63/#subagent-error-fidelity,
+// Spec: pi-integration-contract/subagent.md PIC-59/PIC-66/#subagent-error-fidelity,
 // invocation.md INV-5, cancellation.md.
 
 import { describe, expect, it } from "vitest";
@@ -156,18 +156,19 @@ describe("RFC-0006 — production subagent drive maps the child envelope (PIC-59
     h.finishInvocation?.();
   });
 
-  it("a GENUINE mid-drive thetaAbort surfaces Err(cancelled), winning over the no-envelope map (PIC-63)", async () => {
+  it("a GENUINE mid-drive thetaAbort surfaces Err(cancelled), winning over the no-envelope map (PIC-66)", async () => {
     const h = await bindAndLaunch();
     const driving = h.drive();
-    // Abort mid-drive: the parent-held stdin close makes the child exit on EOF
-    // WITHOUT an envelope; the cancellation short-circuit wins.
+    // Abort mid-drive: the production PIC-66 listener kills the
+    // child, which exits WITHOUT an envelope; the cancellation short-circuit
+    // wins over the no-envelope map.
     h.abort.abort();
-    h.child.closeStdin();
     const result = await driving;
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect((result.error as unknown as QueryError).kind).toBe("cancelled");
     }
+    expect(h.child.killed).toBe(true);
     await h.teardown?.();
     h.finishInvocation?.();
   });

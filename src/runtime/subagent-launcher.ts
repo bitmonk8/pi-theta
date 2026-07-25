@@ -11,7 +11,7 @@
 // `conversation-drive.ts` drive seam.
 //
 // Spec: pi-integration-contract/subagent.md (#subagent-executable-resolution,
-// #subagent-launch-contract, #subagent-tools-allowlist-suppression, PIC-9
+// #subagent-launch-contract, #subagent-tools-allowlist-suppression, PIC-65
 // spawn-failure), capability-probe.md Step 0 (f), diagnostics/code-registry-
 // load.md (`theta/load/subagent-executable-unresolved`), diagnostics/code-
 // registry-runtime.md (`theta/runtime/subagent-spawn-failed`).
@@ -56,11 +56,27 @@ export const SUBAGENT_SPAWN_FAILED_CODE = "theta/runtime/subagent-spawn-failed";
 export { SUBAGENT_ROOT_ENV_MARKER };
 
 /**
- * The env var carrying the parent PID to the child, read by the child-side
- * parent-PID watchdog (PIC-9 orphan-prevention class-2 fallback). This is NOT
- * the invoke-depth counter — that rides `SUBAGENT_INVOKE_DEPTH_ENV` below.
+ * The env var carrying the parent PID to the child, reserved for the RECORDED
+ * BUT UNIMPLEMENTED child-side parent-PID watchdog (PIC-65 orphan-prevention
+ * class-2 fallback — nothing in `src/` reads it today; the carriage exists so
+ * the watchdog can be added without a wire change). This is NOT the
+ * invoke-depth counter — that rides `SUBAGENT_INVOKE_DEPTH_ENV` below.
  */
 export const SUBAGENT_PARENT_PID_ENV = "PI_THETA_SUBAGENT_PARENT_PID";
+
+/**
+ * The OPT-IN child extension-identity pin (#subagent-extension-pin). When this
+ * env var names a Pi extension entry directory, `launchSubagentChild` prepends
+ * `-ne -e <dir>` to the child argv, so the child loads EXACTLY that theta
+ * extension build instead of whatever ambient discovery finds. Production
+ * default (var absent): ambient discovery, unchanged. Set by the acceptance
+ * harness (tests/acceptance/harness.ts), which pins the OUTER `pi -p` process
+ * to the working tree's `extensions/` the same way — without the pin the INNER
+ * child can silently bind to a stale globally-installed theta build (a
+ * parent/child version-skew hazard; bug 0002 defect 2). Because the child
+ * inherits the full parent env, the pin propagates to nested children.
+ */
+export const SUBAGENT_EXTENSION_PIN_ENV = "PI_THETA_SUBAGENT_EXTENSION_PIN";
 
 /**
  * The env var carrying the per-chain `invoke`-depth counter across the child
@@ -170,6 +186,14 @@ export function inferChildTrust(
 
 /** The inputs the subagent-drive argv assembly consumes (RFC-0006 json-mode child). */
 export interface SubagentArgvInput {
+  /**
+   * Optional extension-identity pin (#subagent-extension-pin): a Pi extension
+   * entry directory → `-ne -e <dir>` PREPENDED to the argv, disabling ambient
+   * extension discovery in the child. `undefined` (the production default)
+   * leaves discovery ambient. Derived from `SUBAGENT_EXTENSION_PIN_ENV` by
+   * `launchSubagentChild` when not supplied explicitly.
+   */
+  readonly extensionPinDir?: string;
   /** The callee slug → `-p "/<slug>"` (the child invokes the callee as its root slash command). */
   readonly slug: string;
   /** The theta discovery roots → `--theta <dir>` (repeated), so the child re-discovers the callee. */
@@ -199,10 +223,19 @@ export interface SubagentArgvInput {
  * host agent loop. `--tools` is defence-in-depth only (the child theta enforces
  * its own callable set); `tools: []` maps to `--no-tools` (never re-enables Pi
  * defaults by omission). Params ride the marshalled channel (PIC-60), the result
- * rides the stdout envelope (PIC-59) — neither is on argv.
+ * rides the stdout envelope (PIC-59) — neither is on argv. Under the opt-in
+ * extension pin (#subagent-extension-pin) the argv is PREFIXED with
+ * `-ne -e <dir>`; the production default prepends nothing (ambient discovery).
  */
 export function assembleSubagentArgv(input: SubagentArgvInput): string[] {
   const argv: string[] = [];
+  // #subagent-extension-pin (opt-in; bug 0002 defect 2): pin the child to an
+  // explicit extension entry — `-ne` disables ambient discovery, `-e <dir>`
+  // loads exactly the named build — so a test harness's child binds to the same
+  // extension under test as its parent. Absent (production): ambient discovery.
+  if (input.extensionPinDir !== undefined) {
+    argv.push("-ne", "-e", input.extensionPinDir);
+  }
   // `--theta <dir>` (repeated) so the child re-discovers the callee `.theta` and
   // its `.thetalib` imports (the child owns the interpreter under RFC 0006).
   for (const dir of input.thetaDirs) {
@@ -243,11 +276,12 @@ export function assembleSubagentArgv(input: SubagentArgvInput): string[] {
  * Build the child environment: full inheritance of the parent env plus the
  * per-chain invoke-depth carriage (`invokeDepth` — the parent's CURRENT chain
  * depth, so the child continues the depth-32 ceiling across the process hop per
- * invocation.md §INV-4), the parent-PID carriage (for the PIC-9 orphan-prevention
- * watchdog), and — when `rootSlug` is supplied — the PIC-58 subagent-root regime
- * marker (`PI_THETA_SUBAGENT_ROOT=<slug>`), which subsumes RFC-0005's boolean
- * child marker and carries watcher suppression + no-recursion + regime selection.
- * Credentials are never marshalled — full inheritance is the mechanism.
+ * invocation.md §INV-4), the parent-PID carriage (reserved for the PIC-65
+ * orphan-prevention watchdog, unimplemented), and — when `rootSlug` is supplied
+ * — the PIC-58 subagent-root regime marker (`PI_THETA_SUBAGENT_ROOT=<slug>`),
+ * which subsumes RFC-0005's boolean child marker and carries watcher
+ * suppression + no-recursion + regime selection. Credentials are never
+ * marshalled — full inheritance is the mechanism.
  */
 export function buildSubagentChildEnv(
   parentEnv: Readonly<Record<string, string | undefined>>,
@@ -256,9 +290,9 @@ export function buildSubagentChildEnv(
   rootSlug?: string,
 ): Record<string, string | undefined> {
   // Full inheritance is the credential mechanism (credentials are never
-  // marshalled). The parent PID is the PIC-9 orphan-prevention watchdog input;
-  // the invoke depth is the wire-level INV-4 counter the child seeds its chain
-  // from (these are two DISTINCT carriages — the PID is not the depth counter).
+  // marshalled). The parent PID is the (unimplemented) PIC-65 orphan-prevention
+  // watchdog input; the invoke depth is the wire-level INV-4 counter the child
+  // seeds its chain from (two DISTINCT carriages — the PID is not the depth).
   // The PIC-58 root marker (when set) subsumes the old child marker: it selects
   // the subagent-root regime and suppresses the child's own file watcher.
   return {
@@ -287,9 +321,14 @@ export interface ChildExitInfo {
 export interface SubagentChildProcess {
   /** The OS process id, or `undefined` if the spawn has not assigned one. */
   readonly pid: number | undefined;
-  /** Write a command line to the child's stdin (RPC JSONL, LF-terminated). */
-  writeStdin(data: string): void;
-  /** Close the child's stdin pipe (graceful shutdown trigger; stdin-EOF). */
+  /**
+   * Release any parent-held stdin handle. A structural no-op under the
+   * production spawn config — the child's stdin is spawned closed (bug 0002:
+   * pi's `-p` startup gates on stdin EOF, so an open pipe deadlocks the pair;
+   * EOF was never an exit signal). Retained on the surface so teardown can
+   * release a live stdin on non-production children; MUST be an idempotent
+   * no-op when there is nothing to close.
+   */
   closeStdin(): void;
   /**
    * Subscribe to LF-split stdout lines (strict-JSONL RPC events). Returns an
@@ -305,7 +344,7 @@ export interface SubagentChildProcess {
   onStderrLine(listener: (line: string) => void): () => void;
   /** Subscribe to child exit (observed exit settles the dispose barrier). */
   onExit(listener: (info: ChildExitInfo) => void): void;
-  /** Process-tree kill (Windows-safe; no POSIX-signal dependence). */
+  /** Kill the child: process-tree kill (taskkill) on win32; direct `SIGKILL` elsewhere. */
   kill(): void;
 }
 
@@ -340,7 +379,8 @@ export type SubagentLaunchResult =
 
 /**
  * Launch one child `pi` process for a subagent-mode invocation: resolve the
- * executable, assemble argv, build the marked child env, and spawn with the
+ * executable, assemble argv (honouring the opt-in extension pin,
+ * #subagent-extension-pin), build the marked child env, and spawn with the
  * forwarded `cwd`. On a spawn throw (ENOENT/EPERM/immediate exit) emit
  * `theta/runtime/subagent-spawn-failed` and return the `spawn-failed` reason
  * (the caller additionally routes it through `theta/runtime/internal-error`).
@@ -355,7 +395,17 @@ export function launchSubagentChild(
     // Step 0 (f)) normally catches this fail-closed before registration.
     return { ok: false, reason: "unresolved" };
   }
-  const argv = [...resolution.scriptArgs, ...assembleSubagentArgv(request.argv)];
+  // #subagent-extension-pin: an explicit argv-input pin wins; otherwise the
+  // opt-in env knob (set by a test harness on the parent, inherited by every
+  // nesting level) supplies it. Absent both — the production default — the
+  // child argv carries no `-ne`/`-e` and extension discovery stays ambient.
+  const envPin = request.parentEnv[SUBAGENT_EXTENSION_PIN_ENV]?.trim();
+  const pin =
+    request.argv.extensionPinDir ??
+    (envPin !== undefined && envPin.length > 0 ? envPin : undefined);
+  const argvInput: SubagentArgvInput =
+    pin === undefined ? request.argv : { ...request.argv, extensionPinDir: pin };
+  const argv = [...resolution.scriptArgs, ...assembleSubagentArgv(argvInput)];
   // PIC-58: the root-regime marker carries the callee slug, subsuming the old
   // child marker (watcher suppression + no-recursion + regime selection).
   const env = buildSubagentChildEnv(
@@ -383,7 +433,7 @@ export function launchSubagentChild(
 }
 
 // ---------------------------------------------------------------------------
-// Spawn-failure dual routing (PIC-9 spawn-failure rule / PIC-41).
+// Spawn-failure dual routing (PIC-65 spawn-failure rule).
 // ---------------------------------------------------------------------------
 
 /** `theta/runtime/internal-error` — the invocation-failure surface a spawn failure routes through. */
@@ -398,7 +448,7 @@ export interface SpawnFailureRoutingDeps {
 }
 
 /**
- * PIC-9 spawn-failure rule (with PIC-41). A child spawn that fails at launch
+ * PIC-65 spawn-failure rule. A child spawn that fails at launch
  * (ENOENT/EPERM/immediate exit) is **dually** routed: `launchSubagentChild`
  * already emits the operator-triage diagnostic `theta/runtime/subagent-spawn-
  * failed`, and this routing additionally surfaces the failure on the

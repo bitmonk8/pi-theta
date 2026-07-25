@@ -6,6 +6,82 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-25
+
+### Fixed
+
+- **A real spawned subagent child no longer deadlocks at startup under
+  `pi -p` (bug 0002).** The production spawn gave the child `pi --mode json
+  -p "/<slug>"` an open parent-held stdin pipe that nothing wrote to or
+  closed on the normal path — but pi's json/`-p` startup reads any non-TTY
+  stdin **to EOF before the argv prompt is processed**, so the child never
+  started: the parent awaited the `theta_result` envelope while the child
+  awaited stdin EOF, and every real subagent-mode invocation (and every
+  `invoke` of a subagent-mode callee) on the `-p` surface hung until
+  externally killed, then resolved fail-closed. The child is now spawned
+  with stdin already closed (`stdio: ["ignore","pipe","pipe"]` in
+  `createProductionSpawnFn`) — the same treatment the acceptance harness
+  already gave the outer `pi -p` process — so it starts immediately, emits
+  its envelope on fd 1, and exits 0 in about a second. Present since the
+  RFC-0006 switch from `--mode rpc` (exempt from pi's stdin gate) to
+  `--mode json -p` (gated) in 0.9.0; confirmed and mechanised by
+  `docs/bugs/0002-investigation.md`.
+- **Acceptance-harness subagent children now bind the extension build under
+  test (bug 0002, defect 2).** The child argv carried no `-e`/`-ne`, so
+  while the harness pinned the OUTER `pi -p` process to the working tree,
+  the INNER spawned child bound whatever ambient theta build the machine
+  carried — on a machine with a stale global install, a pre-envelope build
+  that made cases (e)/(g) fail closed even with the stdin fix. The launcher
+  now honours an opt-in knob: when `PI_THETA_SUBAGENT_EXTENSION_PIN` names
+  an extension entry directory, the child argv is prefixed with
+  `-ne -e <dir>` (spec `#subagent-extension-pin`); the acceptance harness
+  sets it to `<repo>/extensions`, and full env inheritance pins nested
+  children too. Production default — knob absent, ambient discovery — is
+  unchanged.
+
+### Changed
+
+- **Subagent cancellation is now abort → child kill (PIC-63 retired,
+  re-coined PIC-66).** The retired contract's stdin-close
+  "grace signal" was empirically a **start** signal, not a stop: closing
+  stdin unblocks a startup-gated `-p` child, which then runs the whole
+  callee — real model turns included — until the kill lands; and with stdin
+  now spawned closed there is nothing to close at cancel time. The one-shot
+  `thetaAbort` listener now initiates the kill directly — a process-tree kill
+  on Windows, a direct `SIGKILL` to the child elsewhere (nested-descendant
+  reaping on POSIX is not promised; PIC-65 layer 2 bounds the orphan window) —
+  synchronously when already aborted at attach; the drive settles
+  `Err(cancelled)` via the existing short-circuit, and teardown's bounded
+  await → kill remains the backstop. No grace step is preserved — nothing
+  ever listened to it.
+- **Orphan-prevention class 2 is recorded honestly (PIC-9 retired,
+  re-coined PIC-65).** The spec claimed the child exits when its
+  parent-held stdin pipe reaches EOF on parent death; in reality EOF
+  *starts* a `-p` child (it would run its whole invocation after parent
+  death, then exit), and with stdin closed at spawn no parent-death pipe
+  signal exists at all. PIC-65 records that no implemented tether exists at
+  theta 1.0: controlled paths still hard-kill per teardown; the child-side
+  parent-PID watchdog stays the recorded fallback, explicitly unimplemented
+  (`PI_THETA_SUBAGENT_PARENT_PID` is carried by the launcher and read by
+  nothing), with the orphan window bounded by one invocation. Teardown is
+  re-based as bounded-await → kill (process-tree on Windows, `SIGKILL`
+  elsewhere); its residual stdin release is a structural no-op kept only for
+  non-production child handles. The
+  `#subagent-cli-wire-pins` and version-bump audit items (o)/(y) now pin
+  the true stdin-EOF input-complete/start behaviour.
+
+### Added
+
+- **Provider-free real-spawn regression test in the default suite**
+  (`tests/subagent-child-real-spawn.test.ts`): spawns a REAL
+  `pi --mode json -p` child through `createProductionSpawnFn` and the real
+  launcher/driver against a scratch `mode: subagent` theta whose body is a
+  pure tail expression (zero tokens), pinned to the working tree via the
+  extension-pin knob, and asserts the `theta_result` envelope arrives and
+  the child exits 0 within a bounded time. Closes the detection gap that
+  let bug 0002 ship: the default suite's child coverage was fakes-only,
+  and the only real-spawn suite was opt-in and credentialed.
+
 ## [0.11.0] - 2026-07-25
 
 ### Fixed

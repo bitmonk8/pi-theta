@@ -170,7 +170,7 @@ export interface EffectfulStatementHostDeps {
  * effect resolvers the body's checkpointed effects dispatch through while the
  * session is active (routing the body's `@`-queries / calls / invokes to the
  * fresh isolated session, not the caller's conversation); `dispose` discards the
- * spawned session on return (PIC-9 teardown + the ActiveInvocationRegistry
+ * spawned session on return (PIC-65 teardown + the ActiveInvocationRegistry
  * finish, mirroring an `invoke` callee's exit).
  */
 export interface SubagentFnSession {

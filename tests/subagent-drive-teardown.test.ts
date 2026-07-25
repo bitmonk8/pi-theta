@@ -1,4 +1,4 @@
-// RFC-0005 re-base — PIC-9 subagent teardown on the DRIVE seam.
+// RFC-0005 re-base — PIC-65 subagent teardown on the DRIVE seam.
 //
 // Regression pin for the Decision-6 B1 leak, carried onto the RFC-0005
 // child-process drive. On the subagent invocation drive, the per-invocation
@@ -12,15 +12,16 @@
 // asserted `session.dispose()` / `session.abort()` counters. Under RFC-0005 the
 // spawned in-process `AgentSession` is replaced by a child `pi` process, so
 // those in-process assertions are retired. The child-process teardown mechanism
-// (stdin close → bounded await SHUTDOWN_AWAIT_CAP_MS → process-tree kill;
-// disposeBarrier settles on observed child exit; dispose-failure advisory on a
-// teardown-step throw) is now covered as a pure seam by
-// `runSubagentChildTeardown` in `tests/subagent-isolation.test.ts` (PIC-9). This
+// (bounded await SHUTDOWN_AWAIT_CAP_MS → kill, process-tree on Windows; the
+// residual stdin release is a no-op; disposeBarrier settles on observed child
+// exit; dispose-failure advisory on a teardown-step throw) is now covered as a
+// pure seam by
+// `runSubagentChildTeardown` in `tests/subagent-isolation.test.ts` (PIC-65). This
 // suite retains the DRIVE-seam obligation below, which is MECHANISM-NEUTRAL: it
 // asserts that the drive runs `binding.teardown()` on every exit — independent
 // of whether teardown disposes an in-process handle or kills a child process.
 //
-// Spec: pi-integration-contract/subagent.md PIC-9 (child-process lifecycle);
+// Spec: pi-integration-contract/subagent.md PIC-65 (child-process lifecycle);
 // docs/rfcs/0005-child-process-subagent-sessions.md.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -178,7 +179,7 @@ afterEach(() => {
   executorHook.impl = undefined;
 });
 
-describe("RFC-0005 PIC-9 — the DRIVE seam runs the subagent teardown on every exit", () => {
+describe("RFC-0005 PIC-65 — the DRIVE seam runs the subagent teardown on every exit", () => {
   it("(throw path) executeBody THROWS -> teardown runs once BEFORE finish, surface is skipped, and the defect is framed as ONE internal-error panic-note", async () => {
     const probe = makeDriveProbe(makeOk("unused"));
     executorHook.impl = (): Promise<unknown> =>

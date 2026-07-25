@@ -5,10 +5,12 @@
 // `ExecutableHost` snapshot the executable-resolution ladder reads
 // (pi-integration-contract/subagent.md #subagent-executable-resolution) and a
 // Windows-safe `SpawnFn` that spawns the child `pi` process with `child_process.
-// spawn` (no `shell:true`), adapts its stdio to the strict-JSONL,
-// LF-only-split `SubagentChildProcess` surface, and process-tree-kills it on
-// teardown (`taskkill /PID <pid> /T /F` on win32, `SIGKILL` elsewhere — no POSIX
-// signal on Windows).
+// spawn` (no `shell:true`) — stdin already closed (`"ignore"`, bug 0002: pi's
+// json/`-p` startup reads any non-TTY stdin to EOF before processing the argv
+// prompt, so an open parent-held pipe deadlocks the pair) — adapts its stdio to
+// the strict-JSONL, LF-only-split `SubagentChildProcess` surface, and
+// process-tree-kills it on teardown (`taskkill /PID <pid> /T /F` on win32,
+// `SIGKILL` elsewhere — no POSIX signal on Windows).
 //
 // The ambient reads localised here (`process.execPath` / `process.argv` /
 // `process.platform`, `child_process.spawn`, `node:fs` existence) are NOT on the
@@ -149,7 +151,7 @@ function isWindows(): boolean {
  */
 interface NodeChildLike {
   readonly pid?: number;
-  readonly stdin: { write(data: string): void; end(): void; destroy?(): void } | null;
+  readonly stdin: { end(): void; destroy?(): void } | null;
   readonly stdout:
     | { on(event: "data", listener: (chunk: unknown) => void): void; destroy?(): void }
     | null;
@@ -219,7 +221,7 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
   // terminal signal would race the envelope and mis-map a successful invocation
   // to exit-without-envelope. By `'close'` the envelope has already been pumped
   // through `onStdoutLine`. Record the close once and REPLAY it to a late
-  // `onExit` subscriber, so the PIC-9 teardown short-circuits on an
+  // `onExit` subscriber, so the PIC-65 teardown short-circuits on an
   // already-closed child instead of waiting the full bounded-await budget.
   let exitInfo: ChildExitInfo | undefined;
   const exitListeners = new Set<(info: ChildExitInfo) => void>();
@@ -232,10 +234,10 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
 
   return {
     pid: child.pid,
-    writeStdin: (data: string): void => {
-      child.stdin?.write(data);
-    },
     closeStdin: (): void => {
+      // Under the production spawn config (stdin "ignore", bug 0002) `child.
+      // stdin` is null, so this is a structural no-op; residual teardown-path
+      // callers (PIC-65) stay idempotent and throw-free by construction.
       child.stdin?.end();
     },
     onStdoutLine,
@@ -252,7 +254,7 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
     },
     kill: (): void => {
       const pid = child.pid;
-      // PIC-9 teardown-budget precedent: a killed child whose stdout never
+      // PIC-65 teardown-budget precedent: a killed child whose stdout never
       // reaches EOF (e.g. a grandchild inherited the stdout pipe on POSIX) would
       // keep the child `'close'` event from firing and hang the drive. Destroy
       // our end of the stdio pipes on the kill path so they reach EOF and
@@ -275,7 +277,7 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
           // the child process's `error` event AFTER `spawn` returns; without a
           // handler Node re-raises it as an unhandled exception. Attach a
           // swallowing handler — the direct-kill fallback below already covers
-          // the failure, and a teardown kill failure is advisory only (PIC-9).
+          // the failure, and a teardown kill failure is advisory only (PIC-65).
           killer.on("error", () => {});
           destroyPipes();
           return;
@@ -292,8 +294,20 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
 /**
  * The production `SpawnFn` — spawns the child `pi` process with `child_process.
  * spawn` and no shell (Windows-safe argv, no quoting hazard), inheriting the
- * forwarded `cwd` and the assembled child `env`, with `stdio: ["pipe","pipe",
- * "pipe"]` for the RPC stdin/stdout/stderr wire.
+ * forwarded `cwd` and the assembled child `env`, with `stdio: ["ignore","pipe",
+ * "pipe"]`: stdout/stderr are the parent-read wire, and stdin is ALREADY CLOSED
+ * at spawn.
+ *
+ * WHY stdin "ignore" (bug 0002): pi's `main()` awaits `readPipedStdin()` — a
+ * read of any non-TTY stdin to EOF — for every mode except `rpc`, BEFORE the
+ * `-p` argv prompt is even assembled. A child spawned with a parent-held
+ * `"pipe"` stdin that nothing writes to or closes therefore never STARTS: the
+ * parent awaits the `theta_result` envelope, the child awaits stdin EOF —
+ * deadlock on every uncancelled run. `"ignore"` gives the child an
+ * already-closed stdin so it runs immediately — the same treatment the acceptance harness applies to the outer
+ * `pi -p` process it spawns (tests/acceptance/harness.ts). The child needs no
+ * stdin input: params ride PIC-60's env/temp-file channel, and cancellation is
+ * the PIC-66 kill.
  */
 export function createProductionSpawnFn(): SpawnFn {
   return (execPath, args, options) => {
@@ -301,7 +315,7 @@ export function createProductionSpawnFn(): SpawnFn {
       cwd: options.cwd,
       env: options.env,
       shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
     return adaptChild(child as unknown as NodeChildLike);
   };
