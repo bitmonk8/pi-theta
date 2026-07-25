@@ -54,7 +54,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-3, PIC-4, PIC-5, PIC-6 | `V9a` |
 | PIC-7 | `V9g` |
 | PIC-8, PIC-19 | `V9f` |
-| PIC-9, PIC-22, PIC-23, PIC-40, PIC-41, PIC-42, PIC-43 | `V9i` |
+| PIC-9, PIC-22, PIC-23, PIC-40, PIC-41, PIC-42, PIC-43, PIC-61 | `V9i` |
 | PIC-10 | `V8a` |
 | PIC-11 | `V8c` |
 | PIC-13 | `V8b` |
@@ -81,9 +81,9 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-58 | RFC 0006 (child-process theta execution — subagent-root regime) |
 | PIC-59 | RFC 0006 (child-process theta execution — return-value envelope) |
 | PIC-60 | RFC 0006 (child-process theta execution — marshalled-params channel) |
-| PIC-61 | RFC 0006 (child-process theta execution — host-loop dispatch ladder) |
 | PIC-62 | RFC 0006 (child-process theta execution — pre-spawn model guard) |
 | PIC-63 | RFC 0006 (child-process theta execution — cancellation stdin-close grace) |
+| PIC-64 | RFC 0006 (child-process theta execution — mode-independent host-loop dispatch ladder; successor to the retired PIC-61) |
 | INV-1 | `V15a` |
 | INV-2, INV-3 | `V15k` |
 | INV-4 | `V15b` |

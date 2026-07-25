@@ -157,10 +157,11 @@ export const CAPABILITY_OBLIGATIONS: readonly CapabilityObligation[] =
  * The full Pi-side surface inventory — strictly broader than the seven
  * capabilities (inventory-audit-intro.md §SDK capability inventory). It holds:
  *
- *   • the seven `namespace-function` members of the factory-probable capability
+ *   • the eight `namespace-function` members of the factory-probable capability
  *     subset (capabilities 1/2/4/6, per Step 0 (c) of the capability probe;
  *     RFC-0005 retired capability 3's `createAgentSession` /
- *     `AgentSession.prototype.abort` members);
+ *     `AgentSession.prototype.abort` members; bug 0001 / PIC-64 added
+ *     capability 4's `pi.getAllTools`);
  *   • the two non-capability category-(1) `pi.<member>` `namespace-function`
  *     surfaces `pi.registerFlag` / `pi.getFlag` (inventory-audit-intro.md
  *     §"Non-capability `pi.<member>` surfaces"); and
@@ -186,7 +187,7 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
       path: "SessionShutdownEvent.reason",
       literals: ["quit", "reload", "new", "resume", "fork"],
     },
-    // The seven factory-probable capability function members (Step 0 (c)).
+    // The eight factory-probable capability function members (Step 0 (c)).
     // RFC-0005 retired capability 3's `AgentSession.prototype.abort` member from
     // the probe loop (verified by Step 0 (f) instead). `createAgentSession`
     // stays catalogued below as a still-imported surface until the producer's
@@ -196,6 +197,13 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "pi.registerTool", kind: "namespace-function" },
     { id: "pi.setActiveTools", kind: "namespace-function" },
     { id: "pi.getActiveTools", kind: "namespace-function" },
+    // Bug 0001 / PIC-64: `pi.getAllTools` is capability 4's fourth
+    // factory-probable member (capability-inventory-items.md item 4) — the
+    // registry-snapshot read behind mode-independent `tools:` admission, the
+    // subagent-launch trust inference (sourceInfo.scope), and both
+    // extension-tool reach paths. One row only; the former pi-member
+    // trust-scope row is reconciled into this one, not duplicated.
+    { id: "pi.getAllTools", kind: "namespace-function" },
     { id: "pi.registerMessageRenderer", kind: "namespace-function" },
     { id: "pi.sendMessage", kind: "namespace-function" },
     // RFC-0005: `createAgentSession` and the former in-process subagent
@@ -212,11 +220,7 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // surface and the `pi.getCommands()` collision-pass read.
     { id: "pi.on", kind: "pi-member" },
     { id: "pi.getCommands", kind: "pi-member" },
-    // RFC-0005 (#subagent-isolation-and-trust): the subagent launch reads
-    // `pi.getAllTools()` (name + `sourceInfo.scope`) for the project-local trust
-    // inference (`--approve` / `--no-approve`).
-    { id: "pi.getAllTools", kind: "pi-member" },
-    // RFC-0006 (PIC-61 rung 2): the child-side host-loop dispatch
+    // RFC-0006 (PIC-64 rung 2): the host-loop dispatch
     // (`production-host-loop-dispatch.ts`) registers a theta-controlled provider
     // authoring the `tool_use`, switches the session model to it, and
     // unregisters it after the fabricated turn. These `pi.<member>` surfaces are
@@ -272,7 +276,7 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // The H8a per-theta run-drive resolves a chained (non-first) query off-session
     // through pi-ai's `complete()` free function.
     { id: "complete", kind: "peer-named-import" },
-    // RFC-0006 (PIC-61 rung 2): the child-side host-loop dispatch builds the
+    // RFC-0006 (PIC-64 rung 2): the host-loop dispatch builds the
     // theta-controlled provider's two-state `streamSimple` via the pi-ai
     // `createAssistantMessageEventStream` factory, and types its options with
     // `SimpleStreamOptions` (`ProviderConfig.streamSimple`'s third parameter).

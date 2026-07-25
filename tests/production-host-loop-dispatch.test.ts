@@ -1,4 +1,4 @@
-// RFC-0006 (PIC-61 rung 2) — production host-loop dispatch collaborators.
+// RFC-0006 (PIC-64 rung 2) — production host-loop dispatch collaborators.
 //
 // Drives `createProductionHostLoopDispatch` over a FAKE host that simulates the
 // child's host agent loop (the real loop is live-only): a `sendUserMessage`
@@ -15,245 +15,41 @@
 //     throw / abort (the bridge model is never left installed);
 //   - the provider is unregistered and its stream fn deactivated afterwards.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-61), .prototype-hld blueprint.
+// Spec: pi-integration-contract/subagent.md (PIC-64), .prototype-hld blueprint.
 
 import { describe, expect, it } from "vitest";
-import type { Api, Context, Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
+  BRIDGE_MODEL_ID,
   createProductionHostLoopDispatch,
+  probeGetToolDefinitionSurface,
   probeHostLoopSurfaces,
+  REQUEST_MARKER,
   type HostLoopCtx,
-  type HostLoopDispatchHost,
   type HostLoopPi,
 } from "../src/extension/production-host-loop-dispatch";
-import type { Clock } from "../src/seams/clock";
-import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
-
-/** A minimal `Model<Api>` double (only the fields the bridge stream reads). */
-function fakeModel(id: string, provider: string): Model<Api> {
-  return {
-    id,
-    name: id,
-    provider,
-    api: "openai-completions",
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200000,
-    maxTokens: 4096,
-  } as unknown as Model<Api>;
-}
-
-/** A test `Clock` whose `setTimeout` fires on the microtask queue (deterministic). */
-function testClock(): Clock {
-  let t = 1000;
-  return {
-    now: () => (t += 1),
-    wallNow: () => (t += 1),
-    setTimeout: (fn: () => void): unknown => {
-      void Promise.resolve().then(fn);
-      return 0;
-    },
-    clearTimeout: (): void => {},
-  };
-}
-
-interface FakeToolResult {
-  readonly content: { type: string; text?: string }[];
-  readonly isError: boolean;
-}
-
-/**
- * A fake child host that simulates the host agent loop. `sendUserMessage`
- * schedules (on the microtask queue, fire-and-forget like the real host) a
- * fabricated turn: it invokes the current bridge provider's `streamSimple` with
- * the user message, and — if a `tool_use` is authored — executes the tool via
- * `toolExecutor`, appends the toolResult entry, re-invokes `streamSimple` with
- * the toolResult present (which ends the turn), then fires `agent_settled`.
- */
-class FakeChildHost {
-  readonly op: string[] = [];
-  readonly sends: { content: string; modelAtSend: string; activeAtSend: string[] }[] = [];
-  readonly unregistered: string[] = [];
-  readonly entries: { type: string; message?: Record<string, unknown> }[] = [];
-  #providers = new Map<string, { streamSimple: (m: Model<Api>, c: Context) => AsyncIterable<unknown> }>();
-  #model: Model<Api>;
-  #activeTools: string[] = ["ambient-a", "ambient-b"];
-  #idle = true;
-  #settledHandlers: (() => void)[] = [];
-  #authoredArgs: unknown;
-  #fireSettled: boolean;
-  #resultToolName: string | undefined;
-
-  constructor(
-    private readonly toolExecutor: (name: string, args: unknown) => FakeToolResult,
-    options?: {
-      readonly startModel?: Model<Api>;
-      readonly fireSettled?: boolean;
-      // Override the toolName the fabricated turn appends its toolResult under
-      // (simulates the host loop running a DIFFERENT tool than the dispatched
-      // one), so read-back finds no match → no-result.
-      readonly resultToolName?: string;
-    },
-  ) {
-    this.#model = options?.startModel ?? fakeModel("real-model", "real-provider");
-    this.#fireSettled = options?.fireSettled ?? true;
-    this.#resultToolName = options?.resultToolName;
-  }
-
-  /** The verbatim arguments the bridge authored into the `tool_use` (verbatim-propagation pin). */
-  get authoredArgs(): unknown {
-    return this.#authoredArgs;
-  }
-
-  get pi(): HostLoopPi {
-    return {
-      registerProvider: (name, config): void => {
-        this.op.push(`register:${name}`);
-        this.#providers.set(name, {
-          streamSimple: config.streamSimple as never,
-        });
-      },
-      unregisterProvider: (name): void => {
-        this.op.push(`unregister:${name}`);
-        this.unregistered.push(name);
-        this.#providers.delete(name);
-      },
-      setActiveTools: (names): void => {
-        this.op.push(`setActiveTools:[${names.join(",")}]`);
-        this.#activeTools = [...names];
-      },
-      getActiveTools: (): string[] => [...this.#activeTools],
-      setModel: (model): Promise<boolean> => {
-        this.op.push(`setModel:${model.id}`);
-        this.#model = model;
-        return Promise.resolve(true);
-      },
-      sendUserMessage: (content): void => {
-        this.op.push("send");
-        this.sends.push({
-          content,
-          modelAtSend: this.#model.id,
-          activeAtSend: [...this.#activeTools],
-        });
-        this.#idle = false;
-        // Fire-and-forget: the turn runs asynchronously, exactly as the real
-        // host schedules a fresh agent run after `sendUserMessage` returns.
-        void this.#runFabricatedTurn(content);
-      },
-      on: (event, handler): void => {
-        if (event === "agent_settled") {
-          this.#settledHandlers.push(handler);
-        }
-      },
-    };
-  }
-
-  get ctx(): HostLoopCtx {
-    return {
-      model: this.#model,
-      modelRegistry: {
-        find: (provider, id): Model<Api> | undefined =>
-          this.#providers.has(provider) ? fakeModel(id, provider) : undefined,
-      },
-      sessionManager: {
-        getEntries: (): readonly { type: string; message?: Record<string, unknown> }[] =>
-          [...this.entries],
-      },
-      isIdle: (): boolean => this.#idle,
-    };
-  }
-
-  get clock(): Clock {
-    return testClock();
-  }
-
-  host(): HostLoopDispatchHost {
-    return { pi: this.pi, ctx: this.ctx, clock: this.clock };
-  }
-
-  /** Whether any bridge provider remains registered (unregister/deactivation pin). */
-  hasRegisteredProvider(): boolean {
-    return this.#providers.size > 0;
-  }
-
-  async #drainForToolCall(
-    stream: AsyncIterable<unknown>,
-  ): Promise<{ name: string; arguments: unknown } | undefined> {
-    let authored: { name: string; arguments: unknown } | undefined;
-    for await (const event of stream) {
-      const e = event as { type: string; toolCall?: { name: string; arguments: unknown } };
-      if (e.type === "toolcall_end" && e.toolCall !== undefined) {
-        authored = { name: e.toolCall.name, arguments: e.toolCall.arguments };
-      }
-    }
-    return authored;
-  }
-
-  async #runFabricatedTurn(userContent: string): Promise<void> {
-    const provider = this.#providers.get(this.#model.provider);
-    if (provider === undefined) {
-      this.#idle = true;
-      this.#emitSettled();
-      return;
-    }
-    const bridge = this.#model;
-    // State A: the encoded request is the freshest user turn.
-    const ctxA: Context = {
-      messages: [{ role: "user", content: userContent, timestamp: 0 }],
-    };
-    const authored = await this.#drainForToolCall(provider.streamSimple(bridge, ctxA));
-    if (authored !== undefined) {
-      this.#authoredArgs = authored.arguments;
-      const result = this.toolExecutor(authored.name, authored.arguments);
-      const appendedName = this.#resultToolName ?? authored.name;
-      this.entries.push({
-        type: "message",
-        message: {
-          role: "toolResult",
-          toolName: appendedName,
-          content: result.content,
-          isError: result.isError,
-        },
-      });
-      // State B: the toolResult is now the freshest message → the turn ends.
-      const ctxB: Context = {
-        messages: [
-          { role: "user", content: userContent, timestamp: 0 },
-          { role: "assistant", content: [], timestamp: 0 } as never,
-          {
-            role: "toolResult",
-            toolCallId: "x",
-            toolName: authored.name,
-            content: result.content,
-            isError: result.isError,
-            timestamp: 0,
-          } as never,
-        ],
-      };
-      await this.#drainForToolCall(provider.streamSimple(bridge, ctxB));
-    }
-    this.#idle = true;
-    this.#emitSettled();
-  }
-
-  #emitSettled(): void {
-    if (!this.#fireSettled) {
-      return;
-    }
-    this.op.push("settled");
-    for (const handler of [...this.#settledHandlers]) {
-      handler();
-    }
-  }
-}
+import {
+  resolveDispatchLadder,
+  type EncodedToolRequest,
+  type HostToolResult,
+} from "../src/runtime/host-loop-dispatch";
+// The fabricated-turn host-loop simulation is shared with the parent-leg e2e
+// suite (prompt-mode-extension-tool-reach-e2e.test.ts) — the PIC-64 wiring is
+// identical in both legs, so one fake serves both. This suite drives the CHILD
+// leg's seam directly over `host()`.
+import {
+  fakeModel,
+  FakeHostLoopHost as FakeChildHost,
+  testClock,
+  type FakeToolResult,
+} from "./helpers/fake-host-loop-host";
 
 const OK_EXECUTOR = (name: string, args: unknown): FakeToolResult => ({
   content: [{ type: "text", text: `RAN:${name}:${JSON.stringify(args)}` }],
   isError: false,
 });
 
-describe("PIC-61 rung 2 — production host-loop dispatch collaborators", () => {
+describe("PIC-64 rung 2 — production host-loop dispatch collaborators", () => {
   it("registers the provider, snapshots/switches the model, sends AFTER arming settled, reads the toolResult back, then unregisters + restores", async () => {
     const host = new FakeChildHost(OK_EXECUTOR);
     const dispatch = createProductionHostLoopDispatch(host.host());
@@ -274,7 +70,7 @@ describe("PIC-61 rung 2 — production host-loop dispatch collaborators", () => 
     // set → restore model. `send` MUST come after `setModel:host-loop-bridge`.
     const op = host.op;
     const iSetActive = op.indexOf("setActiveTools:[finding_store]");
-    const iSetBridge = op.indexOf("setModel:host-loop-bridge");
+    const iSetBridge = op.indexOf(`setModel:${BRIDGE_MODEL_ID}`);
     const iSend = op.indexOf("send");
     const iSettled = op.indexOf("settled");
     const iRestoreModel = op.lastIndexOf("setModel:real-model");
@@ -295,7 +91,7 @@ describe("PIC-61 rung 2 — production host-loop dispatch collaborators", () => 
     const dispatch = createProductionHostLoopDispatch(host.host());
     await dispatch({ toolName: "my_tool", args: { q: 1 } }, new AbortController().signal);
     expect(host.sends).toHaveLength(1);
-    expect(host.sends[0]!.modelAtSend).toBe("host-loop-bridge");
+    expect(host.sends[0]!.modelAtSend).toBe(BRIDGE_MODEL_ID);
     expect(host.sends[0]!.activeAtSend).toEqual(["my_tool"]);
   });
 
@@ -402,7 +198,7 @@ describe("PIC-61 rung 2 — production host-loop dispatch collaborators", () => 
   });
 });
 
-describe("PIC-61 rung 2 — probeHostLoopSurfaces (typeof capability probe)", () => {
+describe("PIC-64 rung 2 — probeHostLoopSurfaces (typeof capability probe)", () => {
   function fullPi(): Record<string, unknown> {
     return {
       registerProvider: (): void => {},
@@ -441,5 +237,185 @@ describe("PIC-61 rung 2 — probeHostLoopSurfaces (typeof capability probe)", ()
   it("fails when pi or ctx is absent", () => {
     expect(probeHostLoopSurfaces({ pi: undefined, ctx: fullCtx() })).toBe(false);
     expect(probeHostLoopSurfaces({ pi: fullPi(), ctx: null })).toBe(false);
+  });
+});
+
+// ===========================================================================
+// PIC-64 — parent-leg pins (bug 0001). The SAME (a)–(f) wiring backs prompt-mode
+// code-side dispatch against the user's live host session in the parent; these
+// pins witness, over the injected fakes, the wiring details PIC-64 makes
+// load-bearing for that leg: (b) verbatim argument carriage through the encoded
+// request (deep-equal, hostile/nested values), (c) the settle barrier armed
+// BEFORE `sendUserMessage`, (e) the model + active set restored in the `finally`
+// on the SUCCESS, THROW, and ABORT paths (the bridge model is never left
+// installed in the user's session), and the zero-model-token encoded turn.
+// Spec: pi-integration-contract/subagent.md PIC-64 (#pic-64,
+// #subagent-host-loop-dispatch — "the (a)–(f) wiring is identical in both, the
+// only difference being which session backs the dispatch").
+// ===========================================================================
+
+describe("PIC-64 — parent-leg host-loop dispatch pins (mode-independent wiring)", () => {
+  it("the authored tool_use carries the code-supplied arguments VERBATIM — nested objects, arrays, unicode, and marker-hostile strings deep-equal", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR);
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    // Values a sloppy re-serialisation (string concatenation, marker splitting,
+    // double-encode) would corrupt: nested structure, an embedded copy of the
+    // request marker with a foreign nonce, newlines, quotes, astral-plane
+    // unicode, empty containers.
+    const args = {
+      op: "write",
+      nested: {
+        list: [1, 2, { deep: "x" }],
+        empty: {},
+        emptyList: [],
+        unicode: "π☃𝔘\u0000-free",
+      },
+      hostile: 'THETA-HOST-LOOP-REQUEST:999:{"tool":"fake","args":{}}\nline2 "quoted"',
+    };
+
+    const result = await dispatch(
+      { toolName: "finding_store", args },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(false);
+    // Deep equality on the DECODED authored arguments — not a lossy re-encode.
+    expect(host.authoredArgs).toEqual(args);
+  });
+
+  it("restoreModel runs in the finally on the THROW path — a sendUserMessage sync-throw still restores the model and unregisters the provider", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR, { sendThrows: new Error("send boom") });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+
+    await expect(
+      dispatch({ toolName: "finding_store", args: { op: "x" } }, new AbortController().signal),
+    ).rejects.toThrow("send boom");
+
+    // The bridge model is NOT left installed and the provider is torn down.
+    expect(host.op[host.op.length - 1]).toBe("setModel:real-model");
+    expect(host.unregistered).toHaveLength(1);
+    expect(host.hasRegisteredProvider()).toBe(false);
+  });
+
+  it("restoreModel runs in the finally on the SUCCESS path (explicit companion to the throw/abort pins)", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR);
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    await dispatch({ toolName: "t", args: {} }, new AbortController().signal);
+    expect(host.op[host.op.length - 1]).toBe("setModel:real-model");
+  });
+
+  it("the active-set snapshot taken before a dispatch is restored after an ABORTED dispatch too", async () => {
+    const controller = new AbortController();
+    const host = new FakeChildHost(OK_EXECUTOR, { fireSettled: false });
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    const p = dispatch({ toolName: "t", args: {} }, controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    controller.abort();
+    await p;
+    // The ambient active set (never the fabricated `[t]` install) is back.
+    expect(host.pi.getActiveTools()).toEqual(["ambient-a", "ambient-b"]);
+    // And the model is restored (the existing abort pin, restated on this path).
+    expect(host.op[host.op.length - 1]).toBe("setModel:real-model");
+  });
+
+  it("arms agent_settled BEFORE sendUserMessage — a turn that settles SYNCHRONOUSLY inside send still resolves", async () => {
+    // A host whose entire fabricated turn completes synchronously inside
+    // `sendUserMessage` (settled fires before send returns). A conformant
+    // dispatch armed the barrier BEFORE sending, so the synchronous settle
+    // resolves it; arming after send would leave the dispatch pending forever.
+    let settledHandler: (() => void) | undefined;
+    const pi: HostLoopPi = {
+      registerProvider: (): void => {},
+      unregisterProvider: (): void => {},
+      setActiveTools: (): void => {},
+      getActiveTools: (): string[] => [],
+      setModel: (): Promise<boolean> => Promise.resolve(true),
+      sendUserMessage: (): void => {
+        settledHandler?.();
+      },
+      on: (event, handler): void => {
+        if (event === "agent_settled") {
+          settledHandler = handler;
+        }
+      },
+    };
+    const ctx: HostLoopCtx = {
+      model: fakeModel("real-model", "real-provider"),
+      modelRegistry: {
+        find: (provider, id): Model<Api> => fakeModel(id, provider),
+      },
+      sessionManager: { getEntries: (): never[] => [] },
+      isIdle: (): boolean => true,
+    };
+    const dispatch = createProductionHostLoopDispatch({ pi, ctx, clock: testClock() });
+
+    const result = await dispatch({ toolName: "t", args: {} }, new AbortController().signal);
+
+    // No tool ran in this degenerate host, so read-back finds no result — the
+    // pinned fail-closed no-result, never a fabricated success and never a hang.
+    expect(result.isError).toBe(true);
+    expect(result.content.map((b) => b.text).join("")).toBe(
+      "host-loop dispatch produced no tool result for 't'",
+    );
+  });
+
+  it("zero model tokens: the fabricated turn is the marker-encoded request against the bridge model — no prompt text, exactly one send", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR);
+    const dispatch = createProductionHostLoopDispatch(host.host());
+    await dispatch({ toolName: "finding_store", args: { op: "write" } }, new AbortController().signal);
+
+    expect(host.sends).toHaveLength(1);
+    const send = host.sends[0]!;
+    // The turn content is the deterministic encoded request (the theta-controlled
+    // provider decodes it and authors the tool_use itself) — not model prompt
+    // text. PIC-64 (b) pins only "a marker-prefixed user message keyed on the
+    // dispatch nonce": the marker text and payload encoding are implementation-
+    // owned, so assert against the module's OWN exported marker constant, and
+    // witness the payload behaviourally — the provider decoded it and authored
+    // the tool_use with the verbatim args — rather than pinning JSON field names.
+    expect(send.content.startsWith(REQUEST_MARKER)).toBe(true);
+    expect(host.executorCalls).toEqual([{ name: "finding_store", args: { op: "write" } }]);
+    // The send happens against the selectable no-network bridge model (the
+    // module's own exported bridge-model id, not a re-stated literal).
+    expect(send.modelAtSend).toBe(BRIDGE_MODEL_ID);
+  });
+});
+
+// ===========================================================================
+// PIC-64 rung 1 — the `pi.getToolDefinition` availability record. The rung is
+// recorded available when `typeof pi.getToolDefinition === "function"` (a
+// non-gating optional-capability record — absence selects rung 2, never a
+// load refusal) and is preferred AUTOMATICALLY over host-loop when present.
+// The member is absent at the theta 1.0 Pi-SDK pin, so on a real host the
+// probe reads false and behaviour is unchanged; this pins the SURFACE half of
+// the ladder input — the composition root records rung 1 on the ladder probe
+// only as this probe AND a wired rung-1 dispatcher (none exists at the pin), so
+// registration cannot outrun dispatchability (production-composition.ts
+// dispatchLadderProbe; the derivation is pinned e2e in
+// extension-tool-unreachable-load-refusal-e2e.test.ts).
+// Spec: pi-integration-contract/subagent.md PIC-64 (#pic-64, rung 1);
+// docs/bugs/0001-extension-tools-unreachable.md §Fail-closed guard item 1.
+// ===========================================================================
+
+describe("PIC-64 rung 1 — probeGetToolDefinitionSurface (typeof-derived availability record)", () => {
+  it("a fake host carrying pi.getToolDefinition records rung 1 available, and the probe-derived ladder selects it in PREFERENCE to host-loop", () => {
+    // Availability is the `typeof` read, fail-closed on absence / non-function
+    // / no carrier — never a hard-coded false.
+    const withMember = { getToolDefinition: (): void => {} };
+    expect(probeGetToolDefinitionSurface({ pi: withMember })).toBe(true);
+    expect(probeGetToolDefinitionSurface({ pi: {} })).toBe(false);
+    expect(probeGetToolDefinitionSurface({ pi: { getToolDefinition: "x" } })).toBe(false);
+    expect(probeGetToolDefinitionSurface({ pi: undefined })).toBe(false);
+
+    // Preferred automatically: the probe-derived flags (member present, the
+    // host-loop surfaces present too) resolve the ladder to rung 1, not rung 2.
+    const resolution = resolveDispatchLadder("finding_store", {
+      getToolDefinitionAvailable: probeGetToolDefinitionSurface({ pi: withMember }),
+      hostLoopAvailable: true,
+    });
+    expect(resolution.kind).toBe("rung");
+    if (resolution.kind === "rung") {
+      expect(resolution.rung).toBe("get-tool-definition");
+    }
   });
 });

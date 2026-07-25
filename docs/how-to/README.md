@@ -19,9 +19,12 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
   or invoke with `match` and `?` instead of letting it reach the fail outcome.
 - [Import a `.thetalib` module](./import-a-thetalib-module.md) — share a schema,
   enum, or helper `fn` across thetas.
+- [Use an extension tool from prompt mode](./use-an-extension-tool-from-prompt-mode.md)
+  — reach an extension-registered Pi tool from a prompt-mode theta's model and
+  code, and know the transcript cost of the code-side path up front.
 - [Use an extension tool in a subagent](./use-an-extension-tool-in-a-subagent.md)
-  — let a subagent theta's model call a Pi tool that an installed extension
-  registers, not just the built-ins.
+  — let a subagent theta's model and code call a Pi tool that an installed
+  extension registers, confined to the child's private session.
 
 ## Composing thetas
 

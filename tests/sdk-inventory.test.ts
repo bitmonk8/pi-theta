@@ -93,3 +93,38 @@ describe("SDK surface inventory — SDK_SURFACE_INVENTORY non-capability rows", 
     expect(byId.get("pi.getFlag")?.kind).toBe("namespace-function");
   });
 });
+
+// ===========================================================================
+// Bug 0001 / PIC-64 — `pi.getAllTools` joins capability 4's factory-probable
+// `namespace-function` members.
+// Spec: capability-inventory-items.md item 4 ("Pi MUST expose `pi.registerTool`
+// …, `pi.getAllTools` …, and the `pi.getActiveTools` / `pi.setActiveTools`
+// snapshot/restore pair … All four members are factory-probed in Step 0 (c)"),
+// capability-probe.md Step 0 (c) (eight function members; capability 4
+// contributes four).
+// ===========================================================================
+
+describe("SDK surface inventory — pi.getAllTools as a factory-probable namespace-function (bug 0001 / PIC-64)", () => {
+  it("carries EXACTLY ONE pi.getAllTools row, kind namespace-function — the former pi-member trust-scope row is reconciled, not duplicated", () => {
+    const rows = SDK_SURFACE_INVENTORY.filter((entry) => entry.id === "pi.getAllTools");
+    // No duplicate-id inconsistency: one row resolves the id, whatever consumer
+    // (probe partition, inventory-closure audit, version-bump gate) reads it.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("namespace-function");
+  });
+
+  it("the other three capability-4 members keep their namespace-function rows beside it", () => {
+    const byId = new Map(SDK_SURFACE_INVENTORY.map((e) => [e.id, e]));
+    for (const id of ["pi.registerTool", "pi.setActiveTools", "pi.getActiveTools"]) {
+      expect(byId.get(id)?.kind, id).toBe("namespace-function");
+    }
+  });
+
+  it("CAPABILITY_OBLIGATIONS.length === 7 is UNCHANGED — getAllTools joins capability 4; no eighth capability is minted", () => {
+    // Explicit regression guard demanded by the bug-0001 fail-closed-guard
+    // amendment: the probed-member count grows to eight, the CAPABILITY count
+    // does not move.
+    expect(CAPABILITY_OBLIGATIONS.length).toBe(7);
+    expect([...FACTORY_PROBABLE_CAPABILITIES]).toEqual([1, 2, 4, 6]);
+  });
+});

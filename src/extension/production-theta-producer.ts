@@ -260,7 +260,14 @@ import {
  */
 export interface PiToolDispatch {
   readonly toolName: string;
-  execute(
+  /**
+   * Optional because an extension-supplied entry is execute-less by
+   * construction: the §Resolution-snapshot entry pins only the tool's name and
+   * `parameters`, and PIC-64 reaches its `execute` through the host loop rather
+   * than by handle. The dispatch site narrows on `typeof … === "function"`
+   * before calling, and routes the execute-less shape to the PIC-64 ladder.
+   */
+  execute?(
     toolCallId: string,
     params: unknown,
     signal: AbortSignal,
@@ -340,26 +347,33 @@ export interface ProductionProducerInput {
    */
   readonly emitResultEnvelope?: (line: string) => void;
   /**
-   * RFC-0006 (PIC-61): the code-side extension-tool dispatch ladder probe — which
-   * rungs are establishable child-side. `getToolDefinitionAvailable` is `false`
-   * (upstream refused); `hostLoopAvailable` is `true` only where the child's host
-   * agent loop backs host-loop dispatch (`hostLoopDispatch` wired). Absent → no
-   * rung → a child theta whose CODE calls an extension tool refuses fail-closed
-   * with `theta/load/extension-tool-unreachable`.
+   * PIC-64: the code-side extension-tool dispatch ladder probe — which rungs
+   * are EXECUTABLE in THIS process, mode-independently. The probe contract is
+   * executability, not bare surface presence: the same probe gates load-time
+   * registration (rung 3) and runtime rung routing, so a recorded rung must
+   * have a dispatcher behind it or registration would outrun dispatchability.
+   * `getToolDefinitionAvailable` is the upstream surface probe AND a wired
+   * rung-1 dispatcher (reads false at the pin — no rung-1 dispatcher exists);
+   * `hostLoopAvailable` is `true` wherever a host agent loop backs host-loop
+   * dispatch (`hostLoopDispatch` wired) — the parent's live user session and
+   * the subagent-root child alike. Absent → no rung → a theta whose CODE calls
+   * an extension tool refuses fail-closed with
+   * `theta/load/extension-tool-unreachable`.
    */
   readonly dispatchLadderProbe?: DispatchLadderProbe;
   /**
-   * RFC-0006 (PIC-61): the host-loop dispatch seam — register a theta-controlled
-   * provider authoring the `tool_use`, run the child's host agent-loop turn, read
-   * the result back, restore the model. Wired at the child composition root over
-   * the live host agent loop (a live-only mechanism; the prototype is an
-   * acceptance criterion of RFC 0006). Absent here → the ladder is fail-closed
-   * pending the upstream `getToolDefinition` exposure. The `signal` is the
-   * code-side tool call's abort signal (the theta abort), threaded so a
-   * thetaAbort mid-fabricated-turn resolves the settle barrier and the model is
-   * restored (never left on the bridge) — the leaf `dispatchViaHostLoop` seam
-   * itself is signal-agnostic; this producer dep carries the signal into the
-   * production collaborators.
+   * PIC-64 rung 2: the host-loop dispatch seam — register a theta-controlled
+   * provider authoring the `tool_use`, run the backing host session's agent-loop
+   * turn, read the result back, restore the model. Wired at the composition
+   * root over the live host agent loop (a live-only mechanism) in BOTH modes;
+   * only the backing session differs (the user's live session in prompt mode,
+   * the child's private discarded session in subagent mode). Absent here → the
+   * ladder is fail-closed pending the upstream `getToolDefinition` exposure.
+   * The `signal` is the code-side tool call's abort signal (the theta abort),
+   * threaded so a thetaAbort mid-fabricated-turn resolves the settle barrier
+   * and the model is restored (never left on the bridge) — the leaf
+   * `dispatchViaHostLoop` seam itself is signal-agnostic; this producer dep
+   * carries the signal into the production collaborators.
    */
   readonly hostLoopDispatch?: (
     request: EncodedToolRequest,
@@ -1979,10 +1993,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // slug to launch as `-p "/<slug>"`, so it does NOT go through the child-launch
     // `spawnSubagentConversation`. It runs its inline body IN-PROCESS against an
     // isolated OFF-SESSION conversation (queries resolve via `#resolvePromptQuery`
-    // with `userVisible: false` — a private `complete()` conversation, never the
-    // caller's), preserving FN-6 isolation without a child process. (Code-side
-    // extension-tool reach for an inline `subagent fn` body remains model-facing
-    // only; the file-callee path gets the full child + host-loop dispatch.)
+    // with `userVisible: false` — a private `complete()` conversation offering the
+    // model no tools, never the caller's), preserving FN-6 isolation without a
+    // child process. FN-6's isolation is scoped to the body's CONVERSATION only:
+    // the body's code-side extension-tool calls resolve through `resolveToolCall`
+    // below to the producer-wide `hostLoopDispatch` seam and so dispatch through
+    // the PROCESS's backing host session per PIC-64 — the child's private,
+    // discarded session inside a subagent-root child, the user's live session in
+    // the parent — exactly as the enclosing theta's own code-side calls do.
     const { root } = this.#input;
     const derived = deriveChildThetaAbort(parentSignal);
     const thetaAbort = derived.controller;
@@ -2251,29 +2269,47 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ? { argDepthBreach: { result: argDepthBreach.result, error: argDepthBreach.error } }
         : {}),
       dispatch: (): Promise<AgentToolResultEnvelope> => {
+        // PIC-64 (#subagent-host-loop-dispatch): an EXTENSION tool's snapshot
+        // entry pins only the tool's name + `parameters` schema — the public
+        // extension API strips `execute` — so an execute-less `pi-tool` entry
+        // classifies as extension-shaped and routes through the code-side
+        // dispatch ladder in BOTH modes (the prompt parent leg against the
+        // user's live host session, and the subagent child leg alike; the
+        // classification is not regime-gated). The dispatched request carries
+        // the entry's UNDERLYING `toolName` — the only name the host registry /
+        // active set knows; `as` renames are theta-side presentation only.
         if (tool === undefined) {
-          // RFC-0006 (PIC-61): inside the subagent-root child, a code-side call to
-          // an EXTENSION tool with no parent-side `execute` routes through the
-          // dispatch ladder instead of failing as an unknown-host-tool. The
-          // ladder is fail-closed: with no establishable rung the invocation
-          // refuses with `theta/load/extension-tool-unreachable` (the runtime
-          // never silently falls through to a model-only path). Outside the
-          // regime (parent / harness) the RFC-0005 disposition stands.
-          //
-          // DEFENCE-IN-DEPTH: this runtime refusal is a backstop. PIC-61 rung 3 is
-          // now enforced at LOAD (`checkExtensionToolReachability` in
-          // production-composition), so a registered theta never reaches this
-          // fail-closed rung with an unreachable extension tool — a theta whose
-          // code calls an unreachable extension tool failed to register. The
-          // runtime path is retained so a harness / future call site that bypasses
-          // the load check still fails closed rather than fabricating a value.
+          // A name the frozen snapshot does not hold at all — unreachable from
+          // a REGISTERED theta: parse rejects an out-of-scope callee
+          // (`theta/parse/unknown-identifier`) and load-time admission froze
+          // every `tools:` name into the snapshot, so only a caller that
+          // bypasses load admission (a harness fixture, e.g. the child-leg
+          // wiring suites) can present one. The two arms differ because the
+          // QTL-2 ambient-execution EXPOSURE differs per backing session, not
+          // because QTL-2 binds less in the child:
+          //  - regime inactive (parent): the backing session is the USER's
+          //    live session carrying the full ambient tool set — routing an
+          //    un-snapshotted name through the host loop could execute an
+          //    ambient tool the theta never declared, so the QTL-2 rejection
+          //    stands.
+          //  - regime active (subagent-root child): PIC-58 bounds the child
+          //    session's tools to the theta's OWN callable set (the `--tools`
+          //    allowlist derived from the same snapshot), so no undeclared
+          //    ambient tool exists for the host loop to execute — ladder
+          //    routing cannot widen reach (an outside-the-allowlist name reads
+          //    back the fail-closed isError no-result) and stays the PIC-64
+          //    rung-3 fail-closed floor the child-leg wiring suites drive,
+          //    never a fabricated value.
           const regime = this.#input.subagentRootRegime ?? { active: false as const };
           if (regime.active) {
-            return this.#dispatchExtensionToolChildSide(toolName, params, signal);
+            return this.#dispatchExtensionToolViaLadder(toolName, params, signal);
           }
           return Promise.reject(
             new UnknownHostToolError(`code-side call names no resolvable host tool '${toolName}'`),
           );
+        }
+        if (typeof tool.execute !== "function") {
+          return this.#dispatchExtensionToolViaLadder(tool.toolName, params, signal);
         }
         // CANCEL-3 (cancellation.md §swallowing-handler attachment): attach the
         // swallowing handler to the underlying code-side `execute()` Promise at
@@ -2291,16 +2327,20 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * RFC-0006 (PIC-61). Child-side code-side extension-tool dispatch through the
-   * probe-asserted, fail-closed ladder: prefer the upstream `getToolDefinition`
-   * rung when available, else host-loop dispatch; with NEITHER rung available the
-   * invocation refuses with `theta/load/extension-tool-unreachable` (the runtime
-   * never silently falls through). Host-loop dispatch itself is the injected
-   * `hostLoopDispatch` seam (a live-only mechanism, behind the leaf-tested
-   * `dispatchViaHostLoop` contract); its result is adapted to the tool-result
-   * envelope shape the code-side lowering consumes.
+   * PIC-64. Code-side extension-tool dispatch through the probe-asserted,
+   * fail-closed ladder — MODE-INDEPENDENT (the shared adapter for the prompt
+   * parent leg and the subagent child leg): prefer the upstream
+   * `getToolDefinition` rung when available, else host-loop dispatch; with
+   * NEITHER rung available the invocation refuses with
+   * `theta/load/extension-tool-unreachable` (the runtime never silently falls
+   * through). Host-loop dispatch itself is the injected `hostLoopDispatch` seam
+   * (a live-only mechanism, behind the leaf-tested `dispatchViaHostLoop`
+   * contract); its result is adapted to the tool-result envelope shape the
+   * code-side lowering consumes, and a seam rejection propagates unwrapped so
+   * the V14g execute-throw lowering carries its message (Resolution snapshot:
+   * a pinned handle unusable at call time raises a precise `CodeToolError`).
    *
-   * DEFENCE-IN-DEPTH backstop: PIC-61 rung 3 is enforced at LOAD (option (a),
+   * DEFENCE-IN-DEPTH backstop: PIC-64 rung 3 is enforced at LOAD (option (a),
    * `checkExtensionToolReachability`), which walks the ROOT body's code-side call
    * sites (direct + local-`fn`), so a REGISTERED theta cannot reach this refusal
    * with an unreachable extension tool its own code names — the load-time check
@@ -2310,7 +2350,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * the importer before this producer runs. This runtime rung is retained as the
    * fail-closed floor for any path that bypasses the load check.
    */
-  async #dispatchExtensionToolChildSide(
+  async #dispatchExtensionToolViaLadder(
     toolName: string,
     params: Record<string, unknown>,
     signal: AbortSignal,
@@ -2327,12 +2367,25 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       (this.#input.emitDiagnostic ?? ((): void => {}))(ladder.diagnostic);
       throw new UnknownHostToolError(ladder.diagnostic.message);
     }
-    // A rung is available (host-loop today; the upstream registry read when it
-    // lands). Route through the injected host-loop dispatch seam.
+    // Route by the RESOLVED rung — the ladder's choice IS the routing decision
+    // (PIC-64 pins the rung-1-preferred ordering as normative; dispatching
+    // through a rung the ladder did not choose would silently reorder it).
+    if (ladder.rung === "get-tool-definition") {
+      // No rung-1 dispatcher is implemented at the pin, and the composition
+      // root records rung-1 availability as surface AND dispatcher — so this
+      // resolution can only come from a probe that recorded the rung without a
+      // dispatcher behind it (a harness shape). Refuse precisely rather than
+      // fabricate or reroute; a landed rung-1 dispatcher slots its dispatch in
+      // here.
+      throw new UnknownHostToolError(
+        `extension tool '${toolName}' resolved the get-tool-definition rung but no rung-1 dispatcher is wired`,
+      );
+    }
     const dispatch = this.#input.hostLoopDispatch;
     if (dispatch === undefined) {
-      // Defensive: the probe reported a rung but no seam is wired — refuse rather
-      // than fabricate. (Unreachable when the probe is derived from the seam.)
+      // Defensive: the probe reported the host-loop rung but no seam is wired —
+      // refuse rather than fabricate. (Unreachable when the probe is derived
+      // from the seam.)
       throw new UnknownHostToolError(
         `extension tool '${toolName}' host-loop dispatch seam is not wired`,
       );
@@ -2340,16 +2393,32 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const request: EncodedToolRequest = { toolName, args: params };
     // Thread the code-side tool-call abort signal into host-loop dispatch so a
     // thetaAbort mid-fabricated-turn releases the settle barrier and the model
-    // is restored (PIC-61 cancellation) rather than left on the bridge.
+    // is restored (PIC-64 cancellation) rather than left on the bridge.
     const hostResult = await dispatch(request, signal);
-    // Adapt the host-loop result to the tool-result envelope the code-side
-    // lowering consumes (content blocks + error flag).
+    // F-1578 (host-interfaces-core.md §"Tool execution from theta code"): the
+    // code-side `AgentToolResultEnvelope` carries NO `isError` — lowering an
+    // isError result to a `{ content }` envelope would let `routeToolReturnShape`
+    // fabricate `Ok(text)` from a failed tool. THROW the joined host text
+    // instead, so the standard V14g execute-throw lowering yields
+    // `Err(CodeToolError { cause: "execution" })` carrying the host text
+    // (tool-calls.md: the `execution` cause covers "returned `isError: true`";
+    // PIC-64 (d): the read-back's `isError` is preserved to code).
+    if (hostResult.isError) {
+      const text = hostResult.content
+        .map((block) => (block.type === "text" && block.text !== undefined ? block.text : ""))
+        .filter((t) => t.length > 0)
+        .join("\n");
+      throw new Error(
+        text.length > 0 ? text : `extension tool '${toolName}' reported isError with no text`,
+      );
+    }
+    // Adapt the host-loop result to the `content`-only envelope the code-side
+    // lowering consumes.
     return {
       content: hostResult.content.map((block) =>
         block.text !== undefined ? { type: block.type, text: block.text } : { type: block.type },
       ),
-      ...(hostResult.isError ? { isError: true } : {}),
-    } as unknown as AgentToolResultEnvelope;
+    };
   }
 
   /**
@@ -3359,7 +3428,12 @@ export async function lowerModelDrivenToolCall(
   dispatch: PiToolDispatch | undefined,
   toolSignal: AbortSignal,
 ): Promise<ToolResultMessage> {
-  if (dispatch === undefined) {
+  // An execute-less entry is the PIC-64 extension shape (name + `parameters`
+  // only). On the MODEL-driven path the host loop holds the tool's `execute` and
+  // runs the call itself, so this lowering is never the executor for one; a
+  // dispatch that reaches here without an `execute` handle is fed back as an
+  // unavailable-tool `isError` result rather than fabricating a success.
+  if (dispatch === undefined || typeof dispatch.execute !== "function") {
     return subagentToolResult(
       call,
       `tool '${call.name}' is not available in this theta's callable set`,

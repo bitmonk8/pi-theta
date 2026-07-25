@@ -109,8 +109,8 @@ are equivalent. The Pi session's ambient tools are **not** inherited.
 Two entry kinds:
 
 - **Pi tool names** (`read`, `bash`, `grep`, ...) — resolve against Pi's tool
-  registry at load time; entry name is the Pi tool name verbatim. Unknown →
-  `theta/load/unknown-tool`.
+  registry at load time (the `pi.getAllTools()` snapshot, in both modes); entry
+  name is the Pi tool name verbatim. Unknown → `theta/load/unknown-tool`.
 - **`.theta` paths** (`./summarise.theta`) — resolve relative to the calling theta's
   directory, forward-slash only, byte-exact lowercase `.theta` extension (else
   `theta/parse/invoke-non-theta-extension`, or `theta/load/unresolvable-theta-path`
@@ -124,20 +124,37 @@ Two entry kinds:
 - A callee that fails to parse/lower during the parent's load pass is
   `theta/load/callee-has-errors` (severity `error` for `tools:` entries).
 
-**Extension-registered Pi tools (subagent mode).** “Pi's tool registry” is the
-*full* registry: the built-ins plus any tool an installed Pi extension
-contributes (e.g. `finding_store`, `projection`). In `mode: subagent` an
-extension tool named in `tools:` is reachable by the theta's **model** — the
-invocation runs the whole callee in a child `pi` process that loads the same
-extensions and receives the callable-set names as its active-tool allowlist
-(`tools: []` → no tools). Since 0.10.0 theta **code** can dispatch an extension
-tool too: a code-side `<name>(...)` call routes through the child's host agent
-loop (PIC-61 rung 2 — host-loop dispatch), running deterministically with the
-code-supplied arguments and zero model tokens. Code-side dispatch is
-**fail-closed** only where no dispatch rung exists — a prompt-mode theta (an
-extension tool is inadmissible in a prompt-mode `tools:` anyway) or an in-process
-`subagent fn` inline body — where a theta whose code calls an extension tool
-refuses to load with `theta/load/extension-tool-unreachable` (distinct from
+**Extension-registered Pi tools.** “Pi's tool registry” is the *full* registry:
+the built-ins plus any tool an installed Pi extension contributes (e.g.
+`finding_store`, `projection`). Admission is mode-independent (since 0.11.0): a
+`tools:` name resolves against the `pi.getAllTools()` registry snapshot in
+`mode: prompt` and `mode: subagent` alike, and the resolved entry carries the
+tool's `parameters` schema (read by the RFC-0002 argument/field disjointness
+check and the model tool spec). An admitted extension tool is reachable by the
+theta's **model** — in prompt mode the callable set is installed as the
+session's active tools for each query window (PIC-17) and the user's host
+session executes the call; in subagent mode the invocation runs the whole
+callee in a child `pi` process that loads the same extensions and receives the
+callable-set names as its active-tool allowlist (`tools: []` → no tools) — and
+by theta **code**: a code-side `<name>(...)` call routes through host-loop
+dispatch (PIC-64) — the child's host agent loop in subagent mode, the user's
+live host session in prompt mode — running deterministically with the
+code-supplied arguments and zero model tokens. In prompt mode each code-side
+call appends a fabricated user message plus tool-call and tool-result cards to
+the user's own transcript and switches the session model twice — the
+documented, accepted cost of the zero-token code channel; a code-side call
+inside a `subagent fn` inline body carries the same cost (the body's isolation
+covers its own conversation, not the dispatch channel); see [How to use an
+extension tool from prompt mode](../how-to/use-an-extension-tool-from-prompt-mode.md).
+An `as` rename on a Pi-tool entry is presentation-side only: it renames the
+theta-side callable (the name theta code calls and the snapshot key), while the
+underlying registered name is what enters the active-set install vector / child
+allowlist and what the host executes. A failing extension tool (an `isError`
+result) lowers to `Err(CodeToolError { cause: "execution" })`, as for a
+built-in. Code-side dispatch is **fail-closed** only where no dispatch rung is
+establishable — a host missing the required Pi surfaces or carrying no backing
+host session — where a theta whose code calls an extension tool refuses to
+load with `theta/load/extension-tool-unreachable` (distinct from
 `theta/load/unknown-tool`, which means the tool is absent from Pi's registry).
 The child is granted tool approval up front only when the callable set contains
 a *project-local* extension tool (already trusted in the parent session);
@@ -145,19 +162,22 @@ otherwise it runs least-privilege. Installed extensions load in the child
 (their tools, system-prompt appends, handlers, and providers are present, as in
 any Pi session), but no user/project context — context files, skills, prompt
 templates — is inherited. See
-[Guide — Extension tools in a subagent](../guide.md#extension-tools-in-a-subagent).
+[Guide — Extension tools](../guide.md#extension-tools).
 
 **YAML shape.** `tools:` accepts a comma-separated short form and a YAML list
 form, both parsed by the same per-entry grammar. `.theta` paths and `as` renames
 are legal in either form.
 
 **Resolution snapshot.** Load-time resolution produces a frozen per-theta table of
-`{ post-rename name → resolved callable }`. Each Pi-tool entry holds a strong
-reference to the resolved `ToolDefinition`; each `.theta`-path entry holds a strong
-reference to the parsed callee plus its lowered tool spec. Calls dispatch through
-the held reference; the runtime never re-queries Pi's tool registry by name during
-execution. The `unknown_tool` cause on `CodeToolError` is reachable only via the
-file-watcher reload path.
+`{ post-rename name → resolved callable }`. Each built-in Pi-tool entry holds a
+strong reference to the resolved `ToolDefinition`; an extension-supplied Pi-tool
+entry holds the tool's name and `parameters` schema (the public extension API
+strips `execute`), its code-side dispatch routing through host-loop dispatch
+(PIC-64); each `.theta`-path entry holds a strong reference to the parsed callee
+plus its lowered tool spec. Calls dispatch through the held reference (or, for
+an extension tool, against the pinned name); the runtime never re-queries Pi's
+tool registry by name during execution. The `unknown_tool` cause on
+`CodeToolError` is reachable only via the file-watcher reload path.
 
 ## `system:`
 
@@ -236,9 +256,15 @@ stringification table; `Result<T, E>` interpolands are rejected at parse time
   contract).
 - Naming convention, binder-model root-word convention, `params:` type/defaults,
   `tools:` (FRNT-2, FRNT-3): `docs/spec_topics/frontmatter/frontmatter-fields-a.md`.
-- `tools:` YAML shape, resolution snapshot, `system:` interpolation,
-  `respond_repair:`, `tool_loop:` (FRNT-1), template interpolation:
+- `tools:` YAML shape, resolution snapshot (built-in vs. extension-supplied
+  entry shape), `system:` interpolation, `respond_repair:`, `tool_loop:`
+  (FRNT-1), template interpolation:
   `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md`.
+- Extension-tool reach (mode-independent admission, PIC-17 query-window active
+  set, PIC-64 host-loop dispatch + accepted prompt-mode cost + permission
+  surface):
+  `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md`,
+  `docs/spec_topics/pi-integration-contract/subagent.md` (PIC-64).
 - Frontmatter hub: `docs/spec_topics/frontmatter.md`.
 - Binder bypass and binder-model resolution referenced from
   `docs/spec_topics/bindings.md`, `docs/spec_topics/binder.md`.

@@ -218,3 +218,53 @@ describe("RFC 0002 — checkToolCallArguments computes disjointness from static 
     ).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bug 0001 — the disjointness check operates on a PROMPT-MODE EXTENSION tool's
+// registered `parameters` schema. frontmatter-fields-a.md §`tools`: "Each
+// resolved entry carries the tool's `parameters` schema (enough for the
+// RFC-0002 argument/field disjointness check and the model tool spec)" —
+// mode-independently, so an extension-registered name (`finding_store`) is a
+// first-class `pi-tool` callee here, not a built-in special case. The schema
+// object reaching the prompt-mode snapshot entry is witnessed in
+// tests/subagent-tool-admission.test.ts; this block witnesses the check
+// consuming such a schema's field types under the extension tool's name.
+// ---------------------------------------------------------------------------
+
+describe("RFC 0002 × bug 0001 — disjointness over a prompt-mode extension tool's registered schema", () => {
+  it("fires theta/parse/tool-arg-schema-conflict for a provably-disjoint field of an extension tool's parameters schema", () => {
+    // `finding_store`'s registered schema declares `op: { type: "string" }`
+    // (the shape the pi.getAllTools() snapshot carries onto the prompt-mode
+    // resolution-snapshot entry); the call site binds a number expression.
+    const diags = checkToolCallArguments(
+      argSite({
+        toolName: "finding_store",
+        calleeKind: "pi-tool",
+        positionalCount: 1,
+        argumentSource: "{ op: 42 }",
+        schemaFieldStaticTypes: [{ field: "op", exprType: "number", schemaType: "string" }],
+      }),
+    );
+    const d = diags.find((x) => x.code === "theta/parse/tool-arg-schema-conflict");
+    expect(d, "the extension tool's schema drives the disjointness front-run").toBeDefined();
+    expect(d?.message).toBe(
+      "Pi tool 'finding_store' argument field 'op' type is provably disjoint from the input schema: expected string, got number",
+    );
+  });
+
+  it("an unprovable mismatch on the extension tool's schema defers to the runtime AJV boundary (no parse diagnostic)", () => {
+    const diags = checkToolCallArguments(
+      argSite({
+        toolName: "finding_store",
+        calleeKind: "pi-tool",
+        positionalCount: 1,
+        argumentSource: "{ n: v }",
+        schemaFieldStaticTypes: [{ field: "n", exprType: "integer", schemaType: "number" }],
+      }),
+    );
+    expect(
+      diags.find((x) => x.code === "theta/parse/tool-arg-schema-conflict"),
+      "a numeric cross-accept on the extension schema is not provably disjoint",
+    ).toBeUndefined();
+  });
+});

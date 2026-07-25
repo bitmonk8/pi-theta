@@ -1,6 +1,6 @@
-// RFC-0006 new coverage — code-side extension-tool dispatch ladder (PIC-61).
+// RFC-0006 new coverage — code-side extension-tool dispatch ladder (PIC-64).
 //
-// Spec: pi-integration-contract/subagent.md (PIC-61 #subagent-host-loop-dispatch,
+// Spec: pi-integration-contract/subagent.md (PIC-64 #subagent-host-loop-dispatch,
 // the probe-asserted fail-closed ladder), diagnostics/code-registry-load.md
 // (`theta/load/extension-tool-unreachable`), docs/bugs/0001-extension-tools-
 // unreachable.md (origin).
@@ -29,8 +29,11 @@ import {
   type HostLoopDispatchDeps,
   type HostToolResult,
 } from "../src/runtime/host-loop-dispatch";
+import { checkExtensionToolReachability } from "../src/extension/extension-tool-reachability";
+import type { Expr, ThetaBody } from "../src/parser/theta-document";
+import type { SourceRange } from "../src/diagnostics/diagnostic";
 
-describe("PIC-61 — code-side dispatch ladder (fail-closed)", () => {
+describe("PIC-64 — code-side dispatch ladder (fail-closed)", () => {
   it("no rung available → fail-closed load refusal with the precise extension-tool-unreachable diagnostic", () => {
     const resolution = resolveDispatchLadder("finding_store", {
       getToolDefinitionAvailable: false,
@@ -81,9 +84,96 @@ describe("PIC-61 — code-side dispatch ladder (fail-closed)", () => {
       expect(resolution.rung).toBe("get-tool-definition");
     }
   });
+
+  it("PIC-64: the getToolDefinition rung is preferred over host-loop even when host-loop is the only OTHER rung (parent leg included)", () => {
+    // PIC-64 pins the rung-1 preference "in both parent and child" — the ladder
+    // is probe-driven and mode-agnostic, so the same probe yields the same rung
+    // wherever it is evaluated. getToolDefinition-only probe → rung 1.
+    const resolution = resolveDispatchLadder("projection", {
+      getToolDefinitionAvailable: true,
+      hostLoopAvailable: false,
+    });
+    expect(resolution.kind).toBe("rung");
+    if (resolution.kind === "rung") {
+      expect(resolution.rung).toBe("get-tool-definition");
+    }
+  });
 });
 
-describe("PIC-61 — host-loop dispatch seam (provider register → turn → read-back)", () => {
+// ===========================================================================
+// PIC-64 rung 3 (load-time realisation) — `checkExtensionToolReachability` is
+// MODE-INDEPENDENT: it consumes only the body's code-side call sites, the
+// extension-tool classification, and the dispatch-ladder probe. A prompt-mode
+// theta (parent, against the user's live host session) is admitted when the
+// host-loop rung is available and refused fail-closed when no rung is.
+// Spec: pi-integration-contract/subagent.md PIC-64 (#pic-64, the fail-closed
+// rung ladder), diagnostics/code-registry-load.md
+// (`theta/load/extension-tool-unreachable` — "the **mode-independent**
+// fail-closed refusal for code-side extension-tool reach").
+// ===========================================================================
+
+describe("PIC-64 rung 3 — checkExtensionToolReachability (prompt-mode / parent leg)", () => {
+  const FILE = "/theta/prompt-demo.theta";
+
+  function span(): SourceRange {
+    return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
+  }
+
+  /** A body whose tail code-side-calls `callee({ op: "write" })`. */
+  function bodyCalling(callee: string): ThetaBody {
+    const arg: Expr = {
+      kind: "object",
+      typeName: null,
+      fields: [{ name: "op", value: { kind: "string", value: "write", range: span() } }],
+      range: span(),
+    };
+    const call: Expr = { kind: "call", callee, args: [arg], range: span() };
+    return { statements: [], tail: call };
+  }
+
+  /** A body with NO code-side call site (model-facing-only reach). */
+  function bodyModelFacingOnly(): ThetaBody {
+    return { statements: [], tail: null };
+  }
+
+  it("does NOT refuse a prompt-mode theta whose code calls an extension tool when the host-loop rung is available", () => {
+    const diagnostics = checkExtensionToolReachability({
+      body: bodyCalling("finding_store"),
+      extensionToolNames: new Set(["finding_store"]),
+      probe: { getToolDefinitionAvailable: false, hostLoopAvailable: true },
+      file: FILE,
+    });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("DOES refuse when no rung is available — error severity, the pinned code, the tool named, located at the theta file", () => {
+    const diagnostics = checkExtensionToolReachability({
+      body: bodyCalling("finding_store"),
+      extensionToolNames: new Set(["finding_store"]),
+      probe: { getToolDefinitionAvailable: false, hostLoopAvailable: false },
+      file: FILE,
+    });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.severity).toBe("error");
+    expect(diagnostics[0]?.code).toBe(EXTENSION_TOOL_UNREACHABLE_CODE);
+    expect(diagnostics[0]?.message).toContain("finding_store");
+    expect(diagnostics[0]?.file).toBe(FILE);
+  });
+
+  it("a model-facing-only theta (no code-side call site) is never refused — rung or no rung", () => {
+    for (const hostLoopAvailable of [true, false]) {
+      const diagnostics = checkExtensionToolReachability({
+        body: bodyModelFacingOnly(),
+        extensionToolNames: new Set(["finding_store"]),
+        probe: { getToolDefinitionAvailable: false, hostLoopAvailable },
+        file: FILE,
+      });
+      expect(diagnostics, `hostLoopAvailable=${String(hostLoopAvailable)}`).toEqual([]);
+    }
+  });
+});
+
+describe("PIC-64 — host-loop dispatch seam (provider register → turn → read-back)", () => {
   /** A recording fake of the host-loop dispatch collaborators. */
   function fakeDeps(result: HostToolResult): {
     readonly deps: HostLoopDispatchDeps;
@@ -135,5 +225,38 @@ describe("PIC-61 — host-loop dispatch seam (provider register → turn → rea
     const fake = fakeDeps({ content: [{ type: "text", text: "boom" }], isError: true });
     const result = await dispatchViaHostLoop({ toolName: "finding_store", args: {} }, fake.deps);
     expect(result.isError).toBe(true);
+  });
+
+  it("PIC-64 (e): a THROWING unregister does not skip restoreModel — the restore still runs and the throw propagates unswallowed", async () => {
+    // On the parent leg the backing session is the USER's live session: PIC-64
+    // (e) pins the bridge model / active set as "never left installed", so the
+    // restore must run even when `pi.unregisterProvider` itself throws. The
+    // seam uses a nested `finally` (no `catch`), so the unregister throw still
+    // reaches the caller — asserted via the rejection below.
+    const log: string[] = [];
+    const deps: HostLoopDispatchDeps = {
+      registerProvider: (): (() => void) => {
+        log.push("register");
+        return (): void => {
+          log.push("unregister-throw");
+          throw new Error("unregisterProvider failed");
+        };
+      },
+      runHostTurn: (): Promise<HostToolResult> => {
+        log.push("run-turn");
+        return Promise.resolve({
+          content: [{ type: "text", text: "TOOL-RAN" }],
+          isError: false,
+        });
+      },
+      restoreModel: (): void => {
+        log.push("restore-model");
+      },
+    };
+
+    await expect(
+      dispatchViaHostLoop({ toolName: "finding_store", args: {} }, deps),
+    ).rejects.toThrow("unregisterProvider failed");
+    expect(log).toEqual(["register", "run-turn", "unregister-throw", "restore-model"]);
   });
 });

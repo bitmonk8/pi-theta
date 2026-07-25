@@ -1,11 +1,15 @@
-// RFC-0006 (PIC-61 rung 2) — production host-loop dispatch collaborators.
+// PIC-64 rung 2 — production host-loop dispatch collaborators.
 //
 // This module wires the three injectable collaborators of the leaf-tested
 // host-loop dispatch seam (`src/runtime/host-loop-dispatch.ts`
 // `dispatchViaHostLoop`) against the REAL Pi extension surface, following the
-// PASSED `.prototype-hld` blueprint (Pi v0.80.10). Inside the spawned subagent
-// child a code-side `<name>(args)` call to an EXTENSION tool has no parent-side
-// `execute`; the only no-upstream execution rung is host-loop dispatch:
+// PASSED `.prototype-hld` blueprint (Pi v0.80.10). A code-side `<name>(args)`
+// call to an EXTENSION tool holds no `execute` handle in EITHER mode — the
+// public extension API strips it — so the only no-upstream execution rung is
+// host-loop dispatch, establishable wherever a real host session with an agent
+// loop backs it: the subagent-root child AND the parent's live user session
+// (prompt mode). The (a)–(f) wiring below is identical in both; only the
+// backing session differs:
 //
 //   1. `registerProvider(request)` — register a theta-controlled provider whose
 //      two-state `streamSimple` AUTHORS the `tool_use` itself (code-supplied
@@ -22,8 +26,10 @@
 //      (the seam's `finally`), so a thetaAbort mid-turn never leaves the bridge
 //      model installed.
 //
-// Costs (a fabricated turn + a temporary model switch) are confined to the
-// child's private, discarded `--no-session` session, per PIC-61.
+// Costs (a fabricated turn + a temporary model switch) land in whichever
+// session backs the dispatch, per PIC-64: the child's private, discarded
+// `--no-session` session in subagent mode; the user's live session in prompt
+// mode (the stated, accepted cost of the zero-token code channel).
 //
 // SURFACE NAMING (inventory-closure audit). The Pi surfaces are consumed through
 // NARROW structural interfaces on a `host` carrier — never a `pi: ExtensionAPI`
@@ -31,7 +37,7 @@
 // / category-(3) member-access rows to the inventory-closure audit; only the
 // category-(2) pi-ai named imports below are inventoried.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-61 #subagent-host-loop-dispatch),
+// Spec: pi-integration-contract/subagent.md (PIC-64 #subagent-host-loop-dispatch),
 // docs/rfcs/0006-child-process-theta-execution.md §"Code-side extension-tool
 // dispatch (inside the child)", docs/bugs/0001-extension-tools-unreachable.md.
 
@@ -57,10 +63,10 @@ import {
 const BRIDGE_PROVIDER_STEM = "theta-host-loop-bridge";
 
 /** The single bridge model id registered under the per-dispatch provider. */
-const BRIDGE_MODEL_ID = "host-loop-bridge";
+export const BRIDGE_MODEL_ID = "host-loop-bridge";
 
 /** The reserved marker prefixing the encoded request in the fabricated user turn. */
-const REQUEST_MARKER = "THETA-HOST-LOOP-REQUEST:";
+export const REQUEST_MARKER = "THETA-HOST-LOOP-REQUEST:";
 
 /** Poll cadence (ms) while confirming the settled turn is idle. */
 const IDLE_POLL_INTERVAL_MS = 5;
@@ -159,10 +165,11 @@ export interface HostLoopDispatchHost {
 
 /**
  * Probe (per the repo's `typeof` capability-probe convention) whether every Pi
- * surface host-loop dispatch needs is present on `host`. The child composition
- * root gates `hostLoopAvailable` on this AND the subagent-root regime — a parent
- * / prompt context keeps the rung unavailable. Returns `false` on the first
- * missing surface (fail-closed).
+ * surface host-loop dispatch needs is present on `host`. The composition root
+ * gates `hostLoopAvailable` on this alone — PIC-64 pins the rung as
+ * establishable wherever the surfaces are present, parent and child alike; a
+ * context with no host session or missing Pi surfaces keeps the rung
+ * unavailable. Returns `false` on the first missing surface (fail-closed).
  */
 export function probeHostLoopSurfaces(host: {
   readonly pi: unknown;
@@ -209,6 +216,28 @@ export function probeHostLoopSurfaces(host: {
   return true;
 }
 
+/**
+ * PIC-64 rung 1 SURFACE probe: `typeof pi.getToolDefinition === "function"` —
+ * a non-gating optional-capability record (not a Step 0 check; absence selects
+ * rung 2, never a load refusal). This is only the surface HALF of rung-1
+ * availability: the composition root records the rung on the ladder probe as
+ * this AND a wired rung-1 dispatcher, so a host exposing the member does not
+ * register thetas no dispatcher can serve (the probe contract is
+ * executability). When the surface and its dispatcher are both present the
+ * ladder prefers rung 1 automatically, in both parent and child. The member is
+ * absent at the theta 1.0 Pi-SDK pin, so on a real host this reads `false`;
+ * consumed through the same narrow structural carrier as
+ * `probeHostLoopSurfaces` (SURFACE NAMING above), so no `pi.<member>` audit row
+ * is minted for a not-yet-shipped upstream surface.
+ */
+export function probeGetToolDefinitionSurface(host: { readonly pi: unknown }): boolean {
+  const pi = host.pi as Record<string, unknown> | null | undefined;
+  if (pi === null || pi === undefined) {
+    return false;
+  }
+  return typeof pi["getToolDefinition"] === "function";
+}
+
 /** The decoded encoded-request payload the bridge stream authors as a `tool_use`. */
 interface DecodedRequest {
   readonly tool: string;
@@ -248,7 +277,7 @@ function findEncodedRequest(context: Context, marker: string): DecodedRequest | 
       // the caller then reads back no tool result and surfaces an isError.
       try {
         return JSON.parse(text.slice(idx + marker.length)) as DecodedRequest;
-      } catch (parseError: unknown) { // allow-broad-catch: PIC#pic-61 — malformed encoded-request payload ends the fabricated turn cleanly
+      } catch (parseError: unknown) { // allow-broad-catch: PIC#pic-64 — malformed encoded-request payload ends the fabricated turn cleanly
         void parseError;
         return undefined;
       }
@@ -343,9 +372,18 @@ export function createProductionHostLoopDispatch(
   // `sendUserMessage`; resolved by the once-registered handler below. Dispatches
   // are serialised, so at most one is pending at a time.
   let pendingSettle: (() => void) | undefined;
-  // Registered ONCE and never removed: Pi's `pi.on` exposes no unsubscribe, so
-  // single-registration safety relies on the child being a one-shot `--no-session`
-  // process (this composition runs exactly once per process).
+  // Registered ONCE per created dispatch and never removed: Pi's `pi.on`
+  // exposes no unsubscribe, so the safety argument is PER-INSTANCE — each
+  // handler closes over its OWN `pendingSettle` slot, and a handler whose slot
+  // is empty is a no-op. Handlers accumulate one per compose pass on the
+  // factory-captured `pi` — `session_start` AND every watcher hot-reload pass
+  // re-runs `runComposePass` (the subagent-root child composes exactly once) —
+  // never per dispatch. That accumulation is bounded and benign: a superseded
+  // instance's handler keeps resolving only its own in-flight dispatches (its
+  // own slot) and is an empty-slot no-op thereafter — the same accepted class
+  // as the permanent `pi.registerTool` registration-cache entries orphaned
+  // across reload passes (tool-registration-lifetime.md's
+  // cosmetic-accumulation acceptance).
   host.pi.on("agent_settled", () => {
     const resolve = pendingSettle;
     pendingSettle = undefined;

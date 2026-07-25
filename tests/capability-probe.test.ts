@@ -28,7 +28,7 @@ import {
 // RFC-0005 (capability-probe.md Step 0 (c)): capability 3's former in-process
 // `createAgentSession` / `AgentSession.prototype.abort` `typeof` members are
 // retired (capability 3 is now verified by the Step 0 (f) executable probe), so
-// the passing host no longer carries them and the seven-member (c) loop covers
+// the passing host no longer carries them and the eight-member (c) loop covers
 // capabilities 1/2/4/6 only.
 
 function makePiNamespace(): Record<string, unknown> {
@@ -38,6 +38,11 @@ function makePiNamespace(): Record<string, unknown> {
     registerTool: () => {},
     setActiveTools: () => {},
     getActiveTools: () => {},
+    // Bug 0001 / PIC-64: `pi.getAllTools` joins the capability-4 factory-probable
+    // members (capability-probe.md Step 0 (c), now EIGHT function members) — the
+    // registry-snapshot read behind mode-independent `tools:` admission and both
+    // extension-tool reach paths. Present on every conformant host fixture.
+    getAllTools: () => {},
     registerMessageRenderer: () => {},
     sendMessage: () => {},
   };
@@ -235,9 +240,12 @@ describe("V9a capability probe — PIC-5 (exactly five checks)", () => {
   });
 
   it("PIC-5: FACTORY_PROBABLE_CAPABILITIES enumerates exactly inventory items 1/2/4/6 and nothing else", () => {
-    // RFC-0005 re-base (capability-probe.md Step 0 (c): "items 1, 2, 4, and 6
-    // (four capabilities, seven function members)"). Capability 3's in-process
-    // `createAgentSession` member is retired — it is verified by Step 0 (f).
+    // RFC-0005 re-base, amended by bug 0001 / PIC-64 (capability-probe.md Step
+    // 0 (c): "items 1, 2, 4, and 6 (four capabilities, eight function members —
+    // capability 1 contributes one, capability 2 contributes one, capability 4
+    // contributes four, and capability 6 contributes two)"). Capability 3's
+    // in-process `createAgentSession` member is retired — it is verified by
+    // Step 0 (f).
     expect([...FACTORY_PROBABLE_CAPABILITIES]).toEqual([1, 2, 4, 6]);
     expect(FACTORY_PROBABLE_CAPABILITIES).toHaveLength(4);
   });
@@ -445,5 +453,74 @@ describe("V9a capability probe — host-incompatible details.kind discriminator"
       ),
     );
     expect(details.kind).toBe("node-floor");
+  });
+});
+
+// ── Bug 0001 / PIC-64 fail-closed guard — `pi.getAllTools` joins Step 0 (c) ──
+// capability-probe.md Step 0 (c): "Check the eight named function members…",
+// with `pi.getAllTools` under capability 4 (capability-inventory-items.md item
+// 4: registerTool + getAllTools + the setActiveTools/getActiveTools pair —
+// "All four members are factory-probed in Step 0 (c) and refuse fail-closed on
+// absence"). A host whose `pi.getAllTools` is runtime-absent refuses at load
+// with `theta/load/host-incompatible` / `sdk-capability-missing` naming the
+// member — never a later TypeError, never a silent model-only degrade.
+
+describe("Step 0 (c) — pi.getAllTools is factory-probed (bug 0001 / PIC-64 fail-closed guard)", () => {
+  // The EIGHT factory-probable function members, in the normative listed order
+  // (capability-probe.md Step 0 (c)). The count is asserted via this list's
+  // length — the single spec-sourced enumeration in this suite.
+  const STEP0C_MEMBERS = [
+    "pi.registerCommand",
+    "pi.sendUserMessage",
+    "pi.registerTool",
+    "pi.setActiveTools",
+    "pi.getActiveTools",
+    "pi.getAllTools",
+    "pi.registerMessageRenderer",
+    "pi.sendMessage",
+  ] as const;
+
+  it("Step 0 (c) probes EIGHT function members (the enumerated list's length)", () => {
+    expect(STEP0C_MEMBERS).toHaveLength(8);
+    // Behavioural witness for the count: a host missing exactly one member —
+    // for EACH of the eight — refuses with sdk-capability-missing naming that
+    // member (all earlier members present, so the first-failure short-circuit
+    // deterministically names the dropped one).
+    for (const member of STEP0C_MEMBERS) {
+      const bare = member.slice("pi.".length);
+      const pi = makePiNamespace();
+      delete pi[bare];
+      const details = expectFailure(runCapabilityProbe(makePassingHost({ pi })));
+      expect(details.kind, `dropping ${member}`).toBe("sdk-capability-missing");
+      expect(details.member, `dropping ${member}`).toBe(member);
+    }
+  });
+
+  it("sdk-capability-missing: an absent pi.getAllTools refuses fail-closed with the member named (observed undefined, required function)", () => {
+    const pi = makePiNamespace();
+    delete pi.getAllTools;
+    const details = expectFailure(runCapabilityProbe(makePassingHost({ pi })));
+    expect(details.kind).toBe("sdk-capability-missing");
+    expect(details.observed).toBe("undefined");
+    expect(details.required).toBe("function");
+    expect(details.member).toBe("pi.getAllTools");
+  });
+
+  it("listed-order short-circuit: pi.getAllTools precedes pi.registerMessageRenderer / pi.sendMessage — a host missing all three names pi.getAllTools", () => {
+    const pi = makePiNamespace();
+    delete pi.getAllTools;
+    delete pi.registerMessageRenderer;
+    delete pi.sendMessage;
+    const details = expectFailure(runCapabilityProbe(makePassingHost({ pi })));
+    expect(details.kind).toBe("sdk-capability-missing");
+    expect(details.member).toBe("pi.getAllTools");
+  });
+
+  it("a host carrying all eight members passes Step 0 (c)", () => {
+    expectOk(runCapabilityProbe(makePassingHost()));
+  });
+
+  it("FACTORY_PROBABLE_CAPABILITIES is UNCHANGED — getAllTools joins capability 4, minting no new capability", () => {
+    expect([...FACTORY_PROBABLE_CAPABILITIES]).toEqual([1, 2, 4, 6]);
   });
 });

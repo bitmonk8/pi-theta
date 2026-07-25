@@ -1,13 +1,14 @@
-// RFC-0006 — code-side extension-tool dispatch ladder (PIC-61) seam.
+// Code-side extension-tool dispatch ladder (PIC-64) seam.
 //
-// Within the child the callee runs under the subagent-root regime — a real host
-// session with an agent loop — so code-side `<name>(args)` calls resolve per the
-// callable set. For an EXTENSION tool the only no-upstream execution rung is
+// Code-side `<name>(args)` calls resolve per the callable set against a host
+// session that carries an agent loop — present in BOTH modes: the subagent-root
+// child's own session, and the user's live host session in the parent (prompt
+// mode). For an EXTENSION tool the only no-upstream execution rung is
 // HOST-LOOP DISPATCH: the runtime registers a theta-controlled provider whose
 // stream function authors the `tool_use` itself, carrying the code-supplied
-// arguments verbatim; the child's host agent loop (which holds every registered
-// tool's `execute`) runs the call and appends the tool result; the runtime reads
-// the result back and returns it to code. This module owns:
+// arguments verbatim; the backing session's host agent loop (which holds every
+// registered tool's `execute`) runs the call and appends the tool result; the
+// runtime reads the result back and returns it to code. This module owns:
 //
 //   - the probe-asserted, FAIL-CLOSED dispatch ladder (`resolveDispatchLadder`):
 //     rung 1 = the upstream `pi.getToolDefinition` clean registry read (if ever
@@ -19,7 +20,7 @@
 //     as injectable collaborators so the ordering is unit-testable via fakes
 //     without a live host loop.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-61, #subagent-host-loop-dispatch),
+// Spec: pi-integration-contract/subagent.md (PIC-64, #subagent-host-loop-dispatch),
 // diagnostics/code-registry-load.md (`theta/load/extension-tool-unreachable`),
 // docs/bugs/0001-extension-tools-unreachable.md (origin / feasibility study).
 
@@ -35,11 +36,17 @@ export const EXTENSION_TOOL_UNREACHABLE_CODE = "theta/load/extension-tool-unreac
 /** The ladder rungs, preferred first: the upstream registry read, then host-loop dispatch. */
 export type DispatchRung = "get-tool-definition" | "host-loop";
 
-/** The probe of which rungs are currently establishable for a given host. */
+/**
+ * The probe of which rungs are currently EXECUTABLE for a given host. The
+ * contract is executability, not bare surface presence: the same probe gates
+ * load-time registration (rung 3 refusal) and runtime rung routing, so a
+ * recorded rung must have a dispatcher behind it — recording a rung that
+ * cannot dispatch would let registration outrun dispatchability.
+ */
 export interface DispatchLadderProbe {
-  /** Rung 1: the upstream `pi.getToolDefinition` registry read is exposed (requested upstream, so far refused). */
+  /** Rung 1: the upstream `pi.getToolDefinition` registry read is exposed AND a rung-1 dispatcher is wired (the surface is requested upstream, so far refused; no dispatcher exists at the pin). */
   readonly getToolDefinitionAvailable: boolean;
-  /** Rung 2: host-loop dispatch can be established (a host agent loop exists). */
+  /** Rung 2: host-loop dispatch can be established (a host agent loop exists and the dispatch seam is wired). */
   readonly hostLoopAvailable: boolean;
 }
 
@@ -57,7 +64,7 @@ export function renderExtensionToolUnreachableMessage(toolName: string): string 
 }
 
 /**
- * Resolve the code-side extension-tool dispatch ladder for `toolName` (PIC-61):
+ * Resolve the code-side extension-tool dispatch ladder for `toolName` (PIC-64):
  * prefer the upstream `getToolDefinition` rung when available, else host-loop
  * dispatch; when NEITHER rung is available, refuse fail-closed with
  * `theta/load/extension-tool-unreachable` (the theta does not register; the
@@ -67,7 +74,7 @@ export function resolveDispatchLadder(
   toolName: string,
   probe: DispatchLadderProbe,
 ): LadderResolution {
-  // PIC-61 ladder, preferred first: the upstream `getToolDefinition` clean
+  // PIC-64 ladder, preferred first: the upstream `getToolDefinition` clean
   // registry read slots in as the top rung whenever it lands upstream, replacing
   // host-loop dispatch.
   if (probe.getToolDefinitionAvailable) {
@@ -133,29 +140,40 @@ export interface HostLoopDispatchDeps {
 }
 
 /**
- * Dispatch one code-side extension-tool call through host-loop dispatch (PIC-61):
+ * Dispatch one code-side extension-tool call through host-loop dispatch (PIC-64):
  * register the theta-controlled provider (authoring the `tool_use` with the
  * code-supplied arguments verbatim), run the host agent-loop turn, read the tool
  * result back, unregister the provider, and restore the session model. Zero
  * model tokens are spent and no executable definition is ever obtained by theta
- * code. Its transcript / model-switch costs are confined to the child's private,
- * discarded session.
+ * code. Its transcript / model-switch costs land in whichever session backs the
+ * dispatch — the child's private, discarded session (subagent mode) or the
+ * user's live session (prompt mode, the stated accepted cost).
  */
 export async function dispatchViaHostLoop(
   request: EncodedToolRequest,
   deps: HostLoopDispatchDeps,
 ): Promise<HostToolResult> {
-  // PIC-61 host-loop dispatch: register the theta-controlled provider authoring
+  // PIC-64 host-loop dispatch: register the theta-controlled provider authoring
   // the `tool_use` with the code-supplied arguments verbatim, run the host
   // agent-loop turn that executes the call and appends the tool result, read the
   // result back, unregister the provider, and restore the session model. The
-  // model-switch / fabricated-turn costs are confined to the child's private,
-  // discarded session.
+  // model-switch / fabricated-turn costs land in whichever session backs the
+  // dispatch (per-mode, see the module header).
   const unregister = deps.registerProvider(request);
   try {
     return await deps.runHostTurn();
   } finally {
-    unregister();
-    await deps.restoreModel();
+    // PIC-64 (e): the model / active-set restore runs on EVERY path — including
+    // a throwing `unregister` (`pi.unregisterProvider` is a host call that can
+    // fail) — because on the parent leg the backing session is the USER's live
+    // session and the bridge model must never be left installed. Nested
+    // `finally` with no `catch`: the unregister throw still propagates after
+    // the restore; the production collaborators' deactivation flag already
+    // defends the stream fn against a late invocation on this path.
+    try {
+      unregister();
+    } finally {
+      await deps.restoreModel();
+    }
   }
 }

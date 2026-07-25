@@ -194,6 +194,59 @@ describe("V9c-T — PIC-17 active-set allowlist gating", () => {
 });
 
 // ===========================================================================
+// PIC-17 × bug 0001 / PIC-64 — an ADMITTED prompt-mode EXTENSION tool is in the
+// query-window install vector because it is IN THE CALLABLE SET, and the
+// ambient-snapshot non-union rule is NOT weakened by the fix.
+// Spec: tool-registration-lifetime.md PIC-17 ("An **extension-supplied** Pi
+// tool admitted into the callable set … is a member of thetaCallableSetNames,
+// so its name is in this install vector … It reaches the model because it is
+// *in the callable set*, not because the ambient snapshot was inherited; the
+// non-union rule above is unchanged.").
+// ===========================================================================
+
+describe("PIC-17 — prompt-mode extension tool in the query-window active set (bug 0001)", () => {
+  it("PIC-17: the install vector CONTAINS the admitted extension tool name and is EXACTLY the callable set", async () => {
+    const { gate, setCalls } = makeRecordingGate(["ambient-a", "ambient-b"]);
+
+    let activeDuringQuery: string[] = [];
+    await withActiveSetGating(
+      gate,
+      // An admitted extension tool (`finding_store`) is a member of the theta's
+      // callable-set names on the same footing as the built-in.
+      { thetaCallableSetNames: ["read", "finding_store"] },
+      async () => {
+        activeDuringQuery = gate.getActiveTools();
+        return "ok";
+      },
+    );
+
+    // The extension tool reaches the model during the query window…
+    expect(activeDuringQuery).toContain("finding_store");
+    // …because the install vector is exactly the callable set — nothing more.
+    expect(setCalls[0]).toEqual(["read", "finding_store"]);
+  });
+
+  it("PIC-17: the ambient session snapshot is STILL not unioned in — the fix must not weaken the non-inheritance rule", async () => {
+    // The ambient set carries an extension tool the theta did NOT declare
+    // (`projection`): it must not leak into the install vector.
+    const { gate, setCalls } = makeRecordingGate(["projection", "ambient-b"]);
+
+    await withActiveSetGating(
+      gate,
+      { thetaCallableSetNames: ["finding_store"] },
+      async () => "ok",
+    );
+
+    // Install vector is exactly the callable set — no ambient extras.
+    expect(setCalls[0]).toEqual(["finding_store"]);
+    expect(setCalls[0]).not.toContain("projection");
+    expect(setCalls[0]).not.toContain("ambient-b");
+    // The step-4 restore returns the exact ambient snapshot.
+    expect(setCalls.at(-1)).toEqual(["projection", "ambient-b"]);
+  });
+});
+
+// ===========================================================================
 // PIC-2 — prompt-mode sequential execution: cross-body window non-overlap.
 // ===========================================================================
 

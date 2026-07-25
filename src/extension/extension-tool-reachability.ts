@@ -1,6 +1,6 @@
-// RFC-0006 (PIC-61 rung 3) — LOAD-time code-side extension-tool reachability.
+// PIC-64 rung 3 — LOAD-time code-side extension-tool reachability.
 //
-// PIC-61 pins a fail-closed code-side extension-tool dispatch ladder: rung 1 the
+// PIC-64 pins a fail-closed code-side extension-tool dispatch ladder: rung 1 the
 // upstream `pi.getToolDefinition` registry read, rung 2 host-loop dispatch, and —
 // when NEITHER rung is available — rung 3: "a theta whose code calls an extension
 // tool refuses to register with `theta/load/extension-tool-unreachable` (the
@@ -22,23 +22,23 @@
 // import code-side extension-tool call therefore cannot arise; the asymmetry with
 // the `.theta` content-hash closure (which hashes file CONTENT for tamper
 // detection, a distinct purpose) is not a reachability gap. The runtime
-// `#dispatchExtensionToolChildSide` refusal remains the fail-closed floor for any
+// `#dispatchExtensionToolViaLadder` refusal remains the fail-closed floor for any
 // path that bypasses this load check.
 //
-// SCOPE. The load-registry row and PIC-61 rung 3 state the rule context-generally
+// SCOPE. The load-registry row and PIC-64 rung 3 state the rule context-generally
 // ("A theta whose **code** calls an extension-registered Pi tool … the theta does
-// **not** register"), with no restriction to the child. This check therefore runs
-// at EVERY registration (parent and spawned-child processes alike), and is
-// naturally scoped to subagent-mode thetas because only subagent-mode admission
-// widens the callable set to `pi.getAllTools()` extension tools — a prompt-mode
-// extension-tool `tools:` entry already fails load with `theta/load/unknown-tool`
-// before this check, so it holds no extension-tool callable to detect.
+// **not** register"), with no restriction to the child or to a mode. This check
+// therefore runs at EVERY registration (parent and spawned-child processes
+// alike): registry-snapshot admission is MODE-INDEPENDENT
+// (frontmatter-fields-a.md §`tools`), so prompt- and subagent-mode thetas alike
+// hold extension-tool callables to detect, and refusal tracks RUNG AVAILABILITY
+// — never the process regime or the frontmatter mode.
 //
-// The runtime-dispatch refusal in the producer's `#dispatchExtensionToolChildSide`
+// The runtime-dispatch refusal in the producer's `#dispatchExtensionToolViaLadder`
 // remains as a defence-in-depth backstop; once this load-time refusal exists the
 // runtime path is unreachable for a registered theta.
 //
-// Spec: pi-integration-contract/subagent.md (PIC-61 #pic-61,
+// Spec: pi-integration-contract/subagent.md (PIC-64 #pic-64,
 // #subagent-host-loop-dispatch), diagnostics/code-registry-load.md
 // (`theta/load/extension-tool-unreachable`).
 
@@ -194,7 +194,7 @@ export interface ExtensionToolReachabilityInput {
 }
 
 /**
- * PIC-61 rung 3 (load-time). For each callable-set extension tool the body calls
+ * PIC-64 rung 3 (load-time). For each callable-set extension tool the body calls
  * from CODE (`<name>(args)`), resolve the dispatch ladder; when no rung is
  * available emit `theta/load/extension-tool-unreachable` (error-severity, so the
  * caller un-registers the theta). A theta that only reaches its extension tools

@@ -119,17 +119,20 @@ a second, self-contained example you can run without any external tools.
 
 ## Status
 
-Theta is at **0.10.x**. The whole documented language works and is tested
+Theta is at **0.11.x**. The whole documented language works and is tested
 end-to-end, but this is an early release and may still contain bugs. As of
 0.9.0, a subagent-mode invocation runs the whole callee theta — interpreter
 included — in a spawned child `pi` process (params and the typed return value
-cross the process boundary structurally), and a subagent theta's `tools:` list
-can name extension-registered Pi tools in addition to the built-ins. As of
-0.10.0 those extension tools are reachable not only by the subagent's model but
-from theta **code** — a code-side call is dispatched deterministically through
-the child's host agent loop, zero model tokens — see the
+cross the process boundary structurally). As of 0.11.0 a theta's `tools:` list
+can name extension-registered Pi tools in **both** modes, not only in a
+subagent, and an admitted extension tool is reachable both by the theta's
+model and from theta **code** — a code-side call is dispatched
+deterministically through a host agent loop (the child's own in subagent mode,
+since 0.10.0; your live session's in prompt mode, since 0.11.0), zero model
+tokens. In prompt mode the code-side dispatch visibly appends tool-call cards
+to your own transcript — an accepted, documented cost — see the
 [CHANGELOG](./CHANGELOG.md) and
-[Guide — Extension tools in a subagent](./docs/guide.md#extension-tools-in-a-subagent).
+[Guide — Extension tools](./docs/guide.md#extension-tools).
 
 Report issues against the behaviour the [Reference](./docs/reference/) defines.
 

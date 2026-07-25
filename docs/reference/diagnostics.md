@@ -302,14 +302,18 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   accepted; shipped in package 0.9.0), which moves the whole callee interpreter
   into the child, adds the load code `theta/load/extension-tool-unreachable`
   (the fail-closed refusal when a theta's *code* calls an extension tool and no
-  code-side dispatch rung is available). As of **0.10.0** the PIC-61 rung-2
-  *host-loop dispatch* is wired, so a subagent-mode theta whose code calls an
-  extension tool now loads and dispatches in the child; this code therefore
-  fires only in **no-rung** contexts — prompt mode (an extension tool is
-  inadmissible in a prompt-mode `tools:` anyway), an in-process `subagent fn`
-  inline body, or a probe-failed child. Model-facing use is unaffected; remedy
-  for a no-rung context: remove the code-side call, per
-  [Subagent — Code-side dispatch (PIC-61)](../spec_topics/pi-integration-contract/subagent.md#pic-61))
+  code-side dispatch rung is available. The PIC-64 rung-2 *host-loop dispatch*
+  was wired in the child in **0.10.0** and made mode-independent —
+  establishable in the parent against the user's live host session — in
+  **0.11.0**, so a theta whose code calls an admitted extension tool loads and
+  dispatches in either mode; the code fires only in the remaining **no-rung**
+  context — a host where neither ladder rung is establishable (probe-failed
+  host: required Pi surfaces missing, or no backing host session). An
+  in-process `subagent fn` inline body is not a no-rung context — its
+  code-side calls dispatch through the process's backing host session.
+  Model-facing use is unaffected; remedy for a no-rung context: remove the
+  code-side call, per
+  [Subagent — Code-side dispatch (PIC-64)](../spec_topics/pi-integration-contract/subagent.md#pic-64))
   and the four marshalling runtime codes `subagent-envelope-parse-failed`,
   `subagent-envelope-schema-skew`, `subagent-exit-without-envelope`, and
   `subagent-params-validation-failed` (all fail-closed to
@@ -336,6 +340,20 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   fail-closed). The envelope writer now writes file descriptor 1 directly
   (one atomic newline-terminated line via `fs.writeSync(1, line)`), bypassing
   the reroute; the diagnostic semantics above are unchanged.
+- **0.11.0** (bug 0001) makes `tools:` admission **mode-independent**:
+  `theta/load/unknown-tool` fires only for a Pi-tool name absent from the
+  `pi.getAllTools()` registry snapshot — an extension-registered name is
+  admissible in prompt mode and subagent mode alike, so prompt mode is no
+  longer an `extension-tool-unreachable` trigger (trigger set above; the two
+  codes stay distinct — *absent from the registry* vs. *present but no
+  code-side dispatch rung*). `pi.getAllTools` also joins the Step 0 (c)
+  capability probe (capability 4 now contributes four of the eight probed
+  function members), so a host missing it refuses fail-closed at load with
+  `theta/load/host-incompatible` / `details.kind = "sdk-capability-missing"`
+  (`details.member` naming `pi.getAllTools`) instead of throwing a `TypeError`
+  during admission. A code-side extension-tool call whose tool reports failure
+  (`isError`) lowers to `Err(CodeToolError { cause: "execution" })` — no
+  diagnostic code is involved; the failure is an ordinary `Err` to code.
 - `theta/load/*` table: `docs/spec_topics/diagnostics/code-registry-load.md`.
 - `theta/runtime/*` table: `docs/spec_topics/diagnostics/code-registry-runtime.md`.
 - `theta/host/*` table: `docs/spec_topics/diagnostics/code-registry-host.md`.

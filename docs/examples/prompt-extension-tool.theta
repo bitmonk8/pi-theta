@@ -1,0 +1,31 @@
+---
+description: Check a findings store from prompt-mode code, then have the model report on it
+mode: prompt
+tools:
+  - finding_store
+params:
+  findings_dir: string
+---
+// `tools:` names an extension-registered Pi tool (`finding_store`) from a
+// PROMPT-mode theta. Admission is mode-independent (since 0.11.0): any name in
+// Pi's tool registry resolves here exactly as in subagent mode. If the
+// extension is NOT installed, this theta refuses to load with
+// `theta/load/unknown-tool` naming the tool — the `/prompt-extension-tool`
+// slug is then not registered at all (loud, never a silent no-op).
+//
+// Code-side reach: theta CODE calls the tool directly — deterministic
+// arguments, zero model tokens. In prompt mode the call is dispatched through
+// YOUR live session's host agent loop (PIC-64 — host-loop dispatch), so expect
+// one fabricated user message plus a tool-call and a tool-result card in your
+// own transcript per call, and the session model to switch twice. That is the
+// documented, accepted cost of the zero-token code channel — not a defect.
+// A tool that reports failure lowers to Err(CodeToolError { cause: "execution" }).
+let check = finding_store({ op: "validate", findingsDir: findings_dir })?
+
+// Model-facing reach: during the query's tool loop below the MODEL sees
+// exactly this theta's callable set as the session's active tools —
+// `finding_store` included — and the user's host session executes the call.
+// The prior active set is restored when the query ends.
+@`The findings store under ${findings_dir} reports: ${check}
+Using the finding_store tool, list the store's findings and report how many
+are still open, in one sentence.`

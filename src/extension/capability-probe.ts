@@ -49,13 +49,13 @@ export type CapabilityId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 /**
  * The closed four-element list of factory-probable capability identifiers —
  * SDK capability inventory items 1/2/4/6 (capability-probe.md Step 0 (c):
- * "items 1, 2, 4, and 6 (four capabilities, seven function members)"). RFC-0005
+ * "items 1, 2, 4, and 6 (four capabilities, eight function members)"). RFC-0005
  * dropped capability 3 (subagent-mode isolated session) from this set: its
  * former in-process `createAgentSession` `typeof` pin is retired, and it is now
  * verified by the Step 0 (f) executable-resolution probe rather than by the
  * factory-probable `typeof` member loop. This is the importable symbol
  * `V18a`/`V18c` reconcile their factory-probed partition flags against (it is
- * the partition target, not the probe's seven-member iteration target).
+ * the partition target, not the probe's eight-member iteration target).
  *
  * `Object.freeze` keeps this module-level constant off the *No globals,
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
@@ -117,7 +117,7 @@ export interface ProbeHost {
    * The Pi SDK namespace whose factory-probable function members are checked
    * by `typeof <path> === "function"` (Step 0 (c)): `registerCommand`,
    * `sendUserMessage`, `registerTool`, `setActiveTools`, `getActiveTools`,
-   * `registerMessageRenderer`, `sendMessage`.
+   * `getAllTools`, `registerMessageRenderer`, `sendMessage`.
    */
   readonly pi: Readonly<Record<string, unknown>>;
   /** The `typebox` `Type` namespace (Step 0 (e): `Type.Unsafe`). */
@@ -304,7 +304,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
     return probeFailed("abortsignal-shape", coerceCause(e));
   }
 
-  // ── (c) Factory-probable SDK capabilities (seven function members) ────────
+  // ── (c) Factory-probable SDK capabilities (eight function members) ────────
   // RFC-0005 (capability-probe.md Step 0 (c)): capability 3's former in-process
   // `createAgentSession` / `AgentSession.prototype.abort` members are retired;
   // capability 3 is verified by the Step 0 (f) executable-resolution probe.
@@ -316,6 +316,11 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       ["pi.registerTool", () => readProp(pi, "registerTool")],
       ["pi.setActiveTools", () => readProp(pi, "setActiveTools")],
       ["pi.getActiveTools", () => readProp(pi, "getActiveTools")],
+      // Bug 0001 / PIC-64: the capability-4 registry-snapshot read behind
+      // mode-independent `tools:` admission and both extension-tool reach
+      // paths (capability-inventory-items.md item 4). Absence refuses
+      // fail-closed via the same sdk-capability-missing kind.
+      ["pi.getAllTools", () => readProp(pi, "getAllTools")],
       ["pi.registerMessageRenderer", () => readProp(pi, "registerMessageRenderer")],
       ["pi.sendMessage", () => readProp(pi, "sendMessage")],
     ];

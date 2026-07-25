@@ -114,12 +114,12 @@ describe("RFC-0006 — child-side subagent-root drive wiring", () => {
     }
   });
 
-  it("PIC-61 rung 2: a child-side code-side EXTENSION-tool call routes through the wired hostLoopDispatch seam with the verbatim request", async () => {
+  it("PIC-64 rung 2: a child-side code-side EXTENSION-tool call routes through the wired hostLoopDispatch seam with the verbatim request", async () => {
     // The theta's body code-side-calls `extTool` (an extension tool: present in
     // no callable-set `pi-tool` entry, so it has no parent-side `execute`). Under
     // the subagent-root regime with the host-loop rung wired, the producer's
-    // `#dispatchExtensionToolChildSide` MUST route the call through the injected
-    // `hostLoopDispatch` seam (PIC-61 rung 2), carrying the code-supplied
+    // `#dispatchExtensionToolViaLadder` MUST route the call through the injected
+    // `hostLoopDispatch` seam (PIC-64 rung 2), carrying the code-supplied
     // arguments VERBATIM, and surface the host-loop result as the tool value.
     const seen: EncodedToolRequest[] = [];
     const lines: string[] = [];
@@ -159,6 +159,58 @@ describe("RFC-0006 — child-side subagent-root drive wiring", () => {
     expect(parsed.kind).toBe("ok");
     if (parsed.kind === "ok") {
       expect(parsed.value).toBe("HOST-LOOP-RAN");
+    }
+  });
+
+  it("PIC-64 (d) child leg: an isError: true host-loop read-back lowers to Err(CodeToolError { cause: 'execution' }) carrying the host text — never a fabricated Ok", async () => {
+    // Twin of the prompt-leg isError pin (prompt-mode-extension-tool-dispatch
+    // .test.ts): the shared host-result → envelope adapter must throw on
+    // `isError: true` in the CHILD leg too, so the V14g execute-throw lowering
+    // yields the precise execution Err — F-1578 pins that the code-side
+    // envelope carries no `isError`, and a `{ content, isError }` envelope
+    // would lower to a fabricated Ok(text). The Err propagates through `?` to
+    // the theta's terminal value and surfaces in the PIC-59 return envelope.
+    const lines: string[] = [];
+    const deps = createProductionProducerDeps({
+      pi: noopPi(),
+      root: rootDouble(),
+      modelRegistry: {
+        getAvailable: () => [{ id: "claude-test", provider: "anthropic" }],
+      } as unknown as ModelRegistry,
+      subagentParentEnv: {},
+      subagentRootRegime: { active: true, slug: "worker" },
+      emitResultEnvelope: (line: string) => lines.push(line),
+      // The wired host-loop rung, reading back a FAILED tool execution.
+      hostLoopDispatch: (): Promise<HostToolResult> =>
+        Promise.resolve({
+          content: [{ type: "text", text: "CHILD-HOST-FAILED" }],
+          isError: true,
+        }),
+    });
+
+    await deps.driveSubagentRootRegime!({
+      theta: subagentTheta('extTool({ op: "write" })?'),
+      args: "",
+      ctx: childCtx(),
+      thetaAbort: new AbortController(),
+    });
+
+    expect(lines).toHaveLength(1);
+    const parsed = parseEnvelopeLine(lines[0]!.trimEnd());
+    expect(
+      parsed.kind,
+      "an isError: true host result must surface as the theta's Err — never a fabricated Ok",
+    ).toBe("err");
+    if (parsed.kind === "err") {
+      expect(parsed.error.kind, "the precise CodeToolError carrier").toBe("code_tool");
+      expect(
+        (parsed.error as { cause?: string }).cause,
+        "isError: true routes to the `execution` cause",
+      ).toBe("execution");
+      expect(
+        (parsed.error as { message?: string }).message,
+        "the failed tool's own text is carried on the Err, not discarded",
+      ).toContain("CHILD-HOST-FAILED");
     }
   });
 

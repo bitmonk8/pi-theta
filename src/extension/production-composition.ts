@@ -59,6 +59,7 @@ import { checkExtensionToolReachability } from "./extension-tool-reachability";
 import type { DispatchLadderProbe } from "../runtime/host-loop-dispatch";
 import {
   createProductionHostLoopDispatch,
+  probeGetToolDefinitionSurface,
   probeHostLoopSurfaces,
 } from "./production-host-loop-dispatch";
 import { probeSubagentExecutable } from "./capability-probe";
@@ -413,36 +414,51 @@ async function runComposePass(
   );
 
   // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
-  // env. Active ONLY inside a spawned subagent child; drives both the child-side
-  // in-process root drive and the PIC-61 host-loop-dispatch rung availability.
+  // env. Active ONLY inside a spawned subagent child; drives the child-side
+  // in-process root drive. PIC-64 host-loop-dispatch rung availability is NOT
+  // regime-gated — the probe below reads only the Pi surfaces.
   const subagentRootRegime = detectSubagentRootRegime(readParentEnv());
 
-  // RFC-0006 (PIC-61): the code-side extension-tool dispatch-ladder probe.
-  //  - rung 1 (`getToolDefinition`): the upstream clean registry read is not
-  //    exposed (requested upstream, so far refused) → false.
-  //  - rung 2 (host-loop dispatch): establishable ONLY inside the subagent-root
-  //    child (a real host session + agent loop backs it) AND when every required
-  //    Pi surface is present (`typeof` capability-probe convention,
-  //    `probeHostLoopSurfaces`). In the parent / prompt context the regime is
-  //    inactive, so the rung stays unavailable and nothing user-visible changes
-  //    (prompt-mode `tools:` cannot admit an extension tool anyway —
-  //    `theta/load/unknown-tool`).
-  // Shared between the producer wiring (runtime backstop, `#dispatchExtensionTool
-  // ChildSide`) and the LOAD-time reachability refusal below (rung 3), so both
-  // read the SAME probe: a child theta whose CODE calls an extension tool now
-  // REGISTERS (host-loop rung), while a no-rung context refuses fail-closed with
-  // `theta/load/extension-tool-unreachable`.
-  const hostLoopSurfacesPresent =
-    subagentRootRegime.active && probeHostLoopSurfaces({ pi, ctx });
+  // PIC-64: the code-side extension-tool dispatch-ladder probe — MODE- and
+  // regime-independent (the retired PIC-61 child-only availability invariant is
+  // inverted). The probe records a rung available only when it is EXECUTABLE
+  // here: the same probe gates the LOAD-time rung-3 refusal and the runtime
+  // rung routing, so recording a rung with no dispatcher behind it would
+  // register thetas whose every code-side call then fails — registration must
+  // never outrun dispatchability (rung 3's register-iff-dispatchable intent).
+  //  - rung 1 (`getToolDefinition`): the upstream surface probe
+  //    (`probeGetToolDefinitionSurface`) AND a wired rung-1 dispatcher. No
+  //    rung-1 dispatcher is implemented at the theta 1.0 Pi-SDK pin (the
+  //    surface is requested upstream, so far refused), so the conjunction reads
+  //    false even on a host exposing the member, and rung 2 carries dispatch.
+  //    When the dispatcher lands, the second conjunct becomes its wiring
+  //    presence and `resolveDispatchLadder`'s normative rung-1 preference takes
+  //    over automatically, in parent and child alike — no ladder change.
+  //  - rung 2 (host-loop dispatch): establishable wherever a real host session
+  //    with an agent loop and the required Pi surfaces is present (`typeof`
+  //    capability-probe convention, `probeHostLoopSurfaces`) — inside the
+  //    subagent-root child AND in the parent against the user's live host
+  //    session (prompt mode).
+  // Shared between the producer wiring (runtime backstop,
+  // `#dispatchExtensionToolViaLadder`) and the LOAD-time reachability refusal
+  // below (rung 3), so both read the SAME probe: a theta whose CODE calls an
+  // extension tool REGISTERS when an executable rung is establishable — in
+  // either mode, in either process — while a no-executable-rung context refuses
+  // fail-closed with `theta/load/extension-tool-unreachable`.
+  const hostLoopSurfacesPresent = probeHostLoopSurfaces({ pi, ctx });
+  // Flips to the rung-1 dispatcher's wiring presence when one exists; `false`
+  // is the honest record that no code-side rung-1 dispatch is implemented yet.
+  const getToolDefinitionDispatchWired: boolean = false;
   const dispatchLadderProbe: DispatchLadderProbe = {
-    getToolDefinitionAvailable: false,
+    getToolDefinitionAvailable:
+      probeGetToolDefinitionSurface({ pi }) && getToolDefinitionDispatchWired,
     hostLoopAvailable: hostLoopSurfacesPresent,
   };
 
-  // RFC-0006 (PIC-61 rung 2): the production host-loop dispatch seam, wired over
-  // the live child host (`pi` + `ctx` + the runtime `Clock`) ONLY when the rung
-  // is available. Absent in the parent / prompt context (the ladder is
-  // fail-closed there).
+  // PIC-64 rung 2: the production host-loop dispatch seam, wired over the live
+  // host (`pi` + `ctx` + the runtime `Clock`) whenever the rung is establishable
+  // — the parent's live user session and the subagent-root child alike. Absent
+  // only where the surfaces are missing (the ladder is fail-closed there).
   const hostLoopDispatch = dispatchLadderProbe.hostLoopAvailable
     ? createProductionHostLoopDispatch({ pi, ctx, clock })
     : undefined;
@@ -479,23 +495,22 @@ async function runComposePass(
     subagentRootRegime,
     // RFC-0006 (PIC-59): the child-side stdout return-envelope writer.
     emitResultEnvelope: createProductionEnvelopeWriter(),
-    // RFC-0006 (PIC-61): the code-side extension-tool dispatch ladder probe. The
-    // upstream `getToolDefinition` registry read is not exposed (requested
-    // upstream, so far refused), and host-loop dispatch is a live-only mechanism
-    // whose prototype is an acceptance criterion of RFC 0006 not shipped in this
-    // increment for the PARENT — but establishable child-side. The probe above
-    // flips `hostLoopAvailable` true inside the subagent-root child (with the
-    // required Pi surfaces present), so a child theta whose CODE calls an
-    // extension tool REGISTERS and routes through host-loop dispatch; in the
-    // parent / prompt context NEITHER rung is establishable and the ladder is
-    // FAIL-CLOSED (`theta/load/extension-tool-unreachable`). The ladder +
-    // host-loop seams are unit-tested (host-loop-dispatch.ts,
-    // production-host-loop-dispatch.ts). The same probe drives the LOAD-time
-    // reachability refusal (PIC-61 rung 3) in the registration loop below.
+    // PIC-64: the code-side extension-tool dispatch ladder probe. Rung 1 is
+    // derived above as the upstream surface probe AND a wired rung-1 dispatcher
+    // (none exists at the pin, so it reads false and registration cannot outrun
+    // dispatchability); rung 2 (host-loop dispatch) is establishable wherever the required
+    // Pi surfaces are present — the parent's live user session and the
+    // subagent-root child alike — so a theta whose CODE calls an extension tool
+    // REGISTERS and routes through host-loop dispatch in BOTH modes; a
+    // surfaces-absent context leaves the ladder FAIL-CLOSED
+    // (`theta/load/extension-tool-unreachable`). The ladder + host-loop seams
+    // are unit-tested (host-loop-dispatch.ts, production-host-loop-dispatch.ts).
+    // The same probe drives the LOAD-time reachability refusal (PIC-64 rung 3)
+    // in the registration loop below.
     dispatchLadderProbe,
-    // RFC-0006 (PIC-61 rung 2): the wired host-loop dispatch seam (child-side
-    // only). Omitted (not set to `undefined`, per exactOptionalPropertyTypes) in
-    // the parent / prompt context where the ladder is fail-closed.
+    // PIC-64 rung 2: the wired host-loop dispatch seam. Omitted (not set to
+    // `undefined`, per exactOptionalPropertyTypes) only where the surfaces are
+    // absent and the ladder is fail-closed.
     ...(hostLoopDispatch !== undefined ? { hostLoopDispatch } : {}),
     // INV-4 (invocation.md §INV-4): when THIS process is a spawned subagent
     // child, its top-level invoke chain seeds from the depth the parent
@@ -582,7 +597,8 @@ async function runComposePass(
       fileSystem,
       ctx,
       parseDeps,
-      // RFC-0005: subagent-mode admission widens to `pi.getAllTools()` names.
+      // Bug 0001 (frontmatter-fields-a.md §`tools`): admission resolves against
+      // the `pi.getAllTools()` registry snapshot in BOTH modes.
       // Optional-chained: harness `pi` fakes without `getAllTools` yield `[]`.
       () => pi.getAllTools?.() ?? [],
     );
@@ -593,20 +609,20 @@ async function runComposePass(
       continue;
     }
 
-    // RFC-0006 (PIC-61 rung 3, LOAD-time): a theta whose CODE calls a
-    // callable-set EXTENSION tool refuses to register when no code-side dispatch
-    // rung is available (fail-closed). This is the load-time realisation of
-    // rung 3 (spec option (a)) — it fires wherever the theta reaches load
-    // (parent or spawned child), naturally scoped to subagent-mode thetas since
-    // only they admit extension tools to the callable set (a prompt-mode
-    // extension-tool `tools:` entry already failed above with unknown-tool). A
-    // MODEL-facing `@`-query use of the tool holds no code-side call site and is
-    // unaffected. The walk covers the ROOT body (incl. local `fn` bodies); a
+    // PIC-64 rung 3 (LOAD-time): a theta whose CODE calls a callable-set
+    // EXTENSION tool refuses to register when no code-side dispatch rung is
+    // available (fail-closed). This is the load-time realisation of rung 3
+    // (spec option (a)) — it fires wherever the theta reaches load (parent or
+    // spawned child), MODE-INDEPENDENTLY: admission resolves extension tools in
+    // both modes, so refusal tracks RUNG AVAILABILITY, never the process regime
+    // or the frontmatter mode. A MODEL-facing `@`-query use of the tool holds
+    // no code-side call site and is unaffected. The walk covers the ROOT body
+    // (incl. local `fn` bodies); a
     // transitive-import code-side extension-tool call cannot arise (an imported
     // `.thetalib` `fn` naming a caller-scoped extension tool fails `.thetalib`
     // parse with `theta/parse/unknown-identifier` and un-registers the importer
     // first), so root-body scope is complete here. The runtime
-    // `#dispatchExtensionToolChildSide` refusal remains a defence-in-depth
+    // `#dispatchExtensionToolViaLadder` refusal remains a defence-in-depth
     // backstop.
     const reachabilityDiagnostics = checkExtensionToolReachability({
       body: input.body,
@@ -1135,12 +1151,12 @@ interface ThetaToolsResolution {
    */
   readonly callableSet?: CallableSetSnapshot;
   /**
-   * RFC-0006 (PIC-61): the presented callable names (post-`as` rename) in the
-   * resolved callable set that are EXTENSION tools (admitted via the subagent-mode
-   * `pi.getAllTools()` widening, not host built-ins, not `.theta` callees). The
-   * LOAD-time code-side reachability refusal reads this to decide which code-side
-   * calls need a dispatch rung. Absent / empty when the theta declares no
-   * extension-tool callable.
+   * PIC-64: the presented callable names (post-`as` rename) in the resolved
+   * callable set that are EXTENSION tools (admitted via the mode-independent
+   * `pi.getAllTools()` registry-snapshot admission, not host built-ins, not
+   * `.theta` callees). The LOAD-time code-side reachability refusal reads this
+   * to decide which code-side calls need a dispatch rung. Absent / empty when
+   * the theta declares no extension-tool callable.
    */
   readonly extensionToolNames?: ReadonlySet<string>;
 }
@@ -1164,15 +1180,11 @@ async function resolveThetaToolsAtLoad(
   fs: FileSystem,
   ctx: ExtensionContext,
   parseDeps: Parameters<typeof parseThetaDocument>[1],
-  // RFC-0005 (subagent.md #subagent-launch-contract; tool-registration-lifetime.md):
-  // the `pi.getAllTools()` snapshot the subagent-mode admission widening reads.
-  // Absent on harness paths / prompt-mode-only callers (built-in admission only).
+  // frontmatter-fields-a.md §`tools` (bug 0001 amendment): the
+  // `pi.getAllTools()` registry snapshot the MODE-INDEPENDENT admission reads.
+  // Absent on harness paths (built-in admission only).
   getAllTools?: GetAllToolsSnapshot,
 ): Promise<ThetaToolsResolution> {
-  // RFC-0005: the widening is subagent-mode-only. Prompt-mode admission is left
-  // exactly as it was (built-ins only), so an extension-tool name in a
-  // prompt-mode theta still fails load with `theta/load/unknown-tool`.
-  const mode = parsed.frontmatter.mode;
   const toolsList = parsed.frontmatter.tools;
   if (
     toolsList === undefined ||
@@ -1223,17 +1235,17 @@ async function resolveThetaToolsAtLoad(
         // Built-in Pi tools resolve in both modes (unchanged in prompt mode).
         return { kind: "pi-tool", toolDefinition: builtin };
       }
-      // RFC-0005: subagent-mode admission widens to `pi.getAllTools()` names — an
-      // extension-supplied tool that appears there is admitted to the allowlist
-      // (schema carried for the RFC-0002 disjointness check; `sourceInfo` feeds
-      // `inferChildTrust` on the launch path). A name that is neither a
+      // frontmatter-fields-a.md §`tools` (bug 0001): registry-snapshot
+      // admission is MODE-INDEPENDENT — an extension-supplied tool present in
+      // `pi.getAllTools()` is admitted to the allowlist in prompt and subagent
+      // mode alike (schema carried for the RFC-0002 disjointness check; the
+      // launch-path trust inference reads its own fresh `pi.getAllTools()`
+      // snapshot at spawn, never this entry). A name that is neither a
       // built-in, a `getAllTools()` name, nor a discovered `.theta` callable
       // still fails load with `theta/load/unknown-tool`.
-      if (mode === "subagent") {
-        const extension = resolveSubagentExtensionTool(name, getAllTools);
-        if (extension !== undefined) {
-          return { kind: "pi-tool", toolDefinition: extension };
-        }
+      const extension = resolveRegistryExtensionTool(name, getAllTools);
+      if (extension !== undefined) {
+        return { kind: "pi-tool", toolDefinition: extension };
       }
       return undefined;
     },
@@ -1285,13 +1297,14 @@ async function resolveThetaToolsAtLoad(
 }
 
 /**
- * RFC-0006 (PIC-61): the presented callable names in `snapshot` that resolved to
+ * PIC-64: the presented callable names in `snapshot` that resolved to
  * EXTENSION tools rather than host built-ins. A `pi-tool` callable is an
  * extension tool exactly when its underlying name is not a host built-in
  * (`resolvePiTool` returns `undefined`): it can only have been admitted via the
- * subagent-mode `pi.getAllTools()` widening, and holds no built-in `execute`, so
- * a code-side call to it needs a PIC-61 dispatch rung. `.theta` callees are
- * excluded (they spawn their own child per PIC-58, never host-loop dispatch).
+ * mode-independent `pi.getAllTools()` registry-snapshot admission, and holds no
+ * built-in `execute`, so a code-side call to it needs a PIC-64 dispatch rung.
+ * `.theta` callees are excluded (they spawn their own child per PIC-58, never
+ * host-loop dispatch).
  */
 function collectExtensionToolNames(
   snapshot: CallableSetSnapshot,
@@ -1465,41 +1478,49 @@ function builtinToolDefinition(
 }
 
 /**
- * RFC-0005: the `pi.getAllTools()` `ToolInfo` subset subagent-mode load-time
- * admission reads (name + registered `parameters` schema + source scope). A
- * real Pi `ToolInfo` is structurally assignable to it.
+ * The `pi.getAllTools()` `ToolInfo` subset the mode-independent load-time
+ * admission reads (name + registered `parameters` schema). A real Pi
+ * `ToolInfo` is structurally assignable to it.
  */
 interface AdmissibleToolInfo {
   readonly name: string;
   readonly parameters?: unknown;
-  readonly sourceInfo?: { readonly scope?: string };
 }
 
-/** Accessor for the `pi.getAllTools()` snapshot the subagent-mode widening reads. */
+/** Accessor for the `pi.getAllTools()` snapshot the registry admission reads. */
 type GetAllToolsSnapshot = () => readonly AdmissibleToolInfo[];
 
-/** The load-time resolved shape a `pi-tool` callable-set entry carries. */
+/**
+ * The load-time resolved shape a `pi-tool` callable-set entry carries.
+ * `execute` is present for host built-ins only; an extension entry is
+ * execute-less by construction (the public extension API strips `execute`) and
+ * dispatches through the PIC-64 ladder instead.
+ */
 interface PiToolLoadEntry {
   readonly toolName: string;
   /** The tool's registered input schema (RFC-0002 disjointness check reads it). */
   readonly parameters?: unknown;
-  execute: (id: string, params: unknown, signal: AbortSignal) => Promise<{ readonly content: readonly { readonly type: string }[] }>;
+  execute?: (id: string, params: unknown, signal: AbortSignal) => Promise<{ readonly content: readonly { readonly type: string }[] }>;
 }
 
 /**
- * RFC-0005 (subagent.md #subagent-launch-contract; tool-registration-lifetime.md):
- * resolve a subagent-mode `tools:` name against the child-reachable extension
- * tool set (`pi.getAllTools()`). A name present there is admitted to the frozen
- * callable set as a `pi-tool` entry carrying (a) the underlying `toolName` — so
- * the launch contract emits it in the child's `--tools` allowlist and
- * `inferChildTrust` reads its `sourceInfo` — and (b) the tool's registered
- * `parameters` schema, so the RFC-0002 computed-argument disjointness check can
- * see it. No executable definition crosses the process boundary: the child
- * registers the tool natively at startup and the model reaches it there, so the
- * parent holds no usable `execute` (code-side extension-tool dispatch is
- * RFC-0006's job); the `execute` here rejects rather than silently fall through.
+ * frontmatter-fields-a.md §`tools` / §Resolution snapshot (bug 0001): resolve a
+ * `tools:` name against the extension-registered tool set (`pi.getAllTools()`)
+ * — MODE-INDEPENDENTLY (prompt and subagent alike). A name present there is
+ * admitted to the frozen callable set as a `pi-tool` entry carrying exactly
+ * the §Resolution-snapshot shape ("holds only the tool's name and `parameters`
+ * schema"): (a) the underlying `toolName` — the PIC-17 install-vector / PIC-64
+ * dispatch name, and the name the subagent launch contract emits in the
+ * child's `--tools` allowlist — and (b) the tool's registered `parameters`
+ * schema, so the RFC-0002 computed-argument disjointness check and the model
+ * tool spec can see it. The entry holds NO `execute` — the public extension
+ * API strips it — so code-side dispatch routes through the PIC-64 ladder
+ * (host-loop dispatch today) rather than a direct execute handle; and the
+ * launch-path trust inference (`inferChildTrust`,
+ * #subagent-isolation-and-trust) reads a fresh `pi.getAllTools()` snapshot at
+ * spawn, never this pinned entry.
  */
-function resolveSubagentExtensionTool(
+function resolveRegistryExtensionTool(
   name: string,
   getAllTools: GetAllToolsSnapshot | undefined,
 ): PiToolLoadEntry | undefined {
@@ -1510,13 +1531,6 @@ function resolveSubagentExtensionTool(
   return {
     toolName: name,
     parameters: info.parameters,
-    execute: (): Promise<never> =>
-      Promise.reject(
-        new Error(
-          `extension tool '${name}' has no parent-side execute in subagent mode; ` +
-            "the subagent's model reaches it in the child (code-side dispatch is RFC-0006)",
-        ),
-      ),
   };
 }
 
@@ -1556,8 +1570,9 @@ async function parseCalleeTheta(
   callerPath: string | undefined,
   calleePath: string,
   deps: Parameters<typeof parseThetaDocument>[1],
-  // RFC-0005: subagent-mode admission of the callee's own `tools:` widens to
-  // `pi.getAllTools()` names, exactly like a discovered theta.
+  // Bug 0001 (frontmatter-fields-a.md §`tools`): the callee's own `tools:`
+  // resolves against the `pi.getAllTools()` registry snapshot mode-independently,
+  // exactly like a discovered theta.
   getAllTools?: GetAllToolsSnapshot,
 ): Promise<ThetaCompositionInput | undefined> {
   const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;

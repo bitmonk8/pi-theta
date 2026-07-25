@@ -6,6 +6,91 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-25
+
+### Fixed
+
+- **Extension-registered Pi tools are now reachable from PROMPT-mode
+  thetas, model-facing and from theta CODE (bug 0001).** Naming an
+  extension-supplied tool in a prompt-mode `tools:` list previously
+  raised `theta/load/unknown-tool` and un-registered the whole theta, so
+  a prompt-mode orchestration theta could reach such a tool by no path.
+  `tools:` resolution is now **mode-independent**: any name in the
+  `pi.getAllTools()` registry snapshot is admitted in both modes,
+  carrying its `parameters` schema for the RFC-0002 disjointness check
+  and the model tool spec. Model-facing reach follows from PIC-17 — the
+  frozen callable set is the query-window active set, so an admitted
+  extension tool is installed via `setActiveTools` and executed by the
+  user's host session (the ambient session snapshot is still not unioned
+  in). Code-side reach uses the PIC-64 host-loop dispatch rung, which is
+  now establishable in the **parent** against the user's live host
+  session and not only inside the subagent-root child: per call a
+  uniquely-named theta-controlled bridge provider authors the `tool_use`
+  with the code-supplied arguments verbatim, the host agent loop (which
+  holds every registered tool's `execute`) runs it, the runtime reads the
+  result back, and the model and active-set snapshot are restored in a
+  `finally` on every path including throw and abort. Dispatches are
+  serialised; zero model tokens are spent; theta code never obtains an
+  executable `ToolDefinition`. A name that resolves at neither rung still
+  refuses registration fail-closed with
+  `theta/load/extension-tool-unreachable`.
+- **A failed extension tool no longer lowers to `Ok` in theta code.** A
+  host-loop result carrying `isError: true` was spread into an
+  `AgentToolResultEnvelope`, which `routeToolReturnShape` treats as
+  conforming — fabricating success from a failed tool. It now lowers to
+  `Err(CodeToolError { cause: "execution" })` with the host's result text
+  in the message, on both the prompt and subagent legs.
+
+### Changed
+
+- **Accepted cost of parent-side code-side dispatch.** In prompt mode the
+  dispatch lands in the user's live session: each code-side call injects
+  a fabricated user message plus tool-call and tool-result cards (SLSH-2
+  forbids suppressing them) and switches the session model twice
+  (`model_select` fires on the way in and out). This is accepted as the
+  cost of the zero-token code channel and is not suppressed. Latency is
+  negligible next to a real model turn. No new permission gate: the
+  capability stays bounded by the two existing gates (the theta must name
+  each tool in `tools:`; the project must be trusted), and `bash` — the
+  maximal capability behind those same gates — already dispatches with no
+  per-call model-turn checkpoint.
+- **`subagent fn` inline bodies join code-side dispatch.** An inline
+  `subagent fn` body's code-side extension-tool call dispatches through
+  the process's backing host session — the child's private, discarded
+  session inside a subagent-root child; the user's live session in the
+  parent, with the prompt-mode accepted cost above applying — superseding
+  the 0.10.0 release note's "inline bodies remain model-facing only".
+  FN-6's isolation is scoped to the body's conversation (its queries, its
+  transcript, its return value), not to the dispatch channel; the
+  load-time reachability walk already covered `fn` bodies, so an inline
+  body is not a no-rung context and registration keeps tracking rung
+  availability alone. Spec: PIC-64 (inline-body dispatch context), FN-6
+  (conversation-scoped isolation carve-out), CTRL-4 (`par for`
+  interaction with the dispatch channel).
+- **Step 0 (c) capability probe now asserts eight function members.**
+  `pi.getAllTools` joins capability 4, so a host missing it refuses
+  fail-closed at load with `theta/load/host-incompatible` /
+  `sdk-capability-missing` instead of throwing a `TypeError` during
+  admission. The seven capability *obligations* are unchanged. The SDK
+  surface inventory re-kinds `pi.getAllTools` to a factory-probable
+  `namespace-function`.
+- **Dispatch-ladder rung-1 availability is now derived, not assumed.**
+  Rung 1 (`pi.getToolDefinition`) is recorded available only when the SDK
+  surface is present **and** a rung-1 dispatcher is wired, keeping
+  registration and dispatchability in agreement — recording it from the
+  bare SDK surface would register thetas whose every code-side call then
+  failed for want of a dispatcher. The normative rung-1-preferred
+  ordering is unchanged, so the rung slots in automatically when it lands
+  upstream.
+
+  Spec: PIC-61 retired per GOV-8 *Deletion*+*Add* (its child-only rung
+  availability invariant is inverted) and re-coined as
+  [PIC-64](docs/spec_topics/pi-integration-contract/subagent.md#pic-64);
+  `tools:` admission, the resolution snapshot, PIC-17, the Step-0 probe,
+  the capability inventory, and the `theta/load/unknown-tool` /
+  `theta/load/extension-tool-unreachable` registry rows updated in
+  lock-step.
+
 ## [0.10.0] - 2026-07-24
 
 ### Added
