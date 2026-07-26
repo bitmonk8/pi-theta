@@ -6,9 +6,15 @@
   reachable ones **are** copied in), so a documented-legal annotation fails at
   run time with an AJV resolution error.
 - **Affected:** `src/runtime/query-schema-lowering.ts` `lowerQueryResponseSchema`
-  (the inline primitive / union / `array<T>` arm), consumed by
-  `#validateInvokeReturn` in `src/extension/production-theta-producer.ts` (INV-6)
-  and by the `subagent fn` return boundary.
+  (the inline primitive / union / `array<T>` arm; the inline-object arm assembles
+  the same broken document when it references a named schema — see root cause),
+  consumed by `#validateInvokeReturn` in
+  `src/extension/production-theta-producer.ts` (the implementation's INV-6 tag
+  for invocation.md §Typed return), by the `subagent fn` return boundary (FN-6
+  reuses the invoke machinery), and by the typed-query validation builder
+  (`#buildTypedValidation`, QRY-22) — an `@<array<Item>>` query annotation
+  lowers the same unresolvable document (verified at the lowering level; not
+  exercised live).
 - **Observed at:** `0.12.0`, host Pi `0.82.1`.
 
 ## Summary
@@ -24,7 +30,9 @@ a generic wrapper in the annotation — `invoke<array<Item>>` — with:
 Err(InvokeInfraError) — can't resolve reference #/$defs/Loc from id #
 ```
 
-The produced document references `#/$defs/Loc` without embedding `Loc`.
+The produced document's `$ref: "#/$defs/Loc"` is root-absolute but the
+document carries no top-level `$defs.Loc` — `Loc`'s fragment rides along only
+at the unreachable nested position `$defs.Item.$defs.Loc`.
 
 ## Reproduction (verified live)
 
@@ -68,9 +76,11 @@ named-schema set for value construction — every boundary shape declared twice.
   `$ref` against the file's `$defs`. Self- and mutual recursion are supported
   transparently."
 
-Nothing scopes this contract away from the invoke-return boundary; INV-6 says the
-`invoke<Schema>` annotation is "lowered against the caller theta's `schema`
-decls" and AJV-validated.
+Nothing scopes this contract away from the invoke-return boundary;
+`docs/spec_topics/invocation.md` §"Typed return" says "the runtime
+AJV-validates the child's return value against the schema", and the
+implementation's INV-6 tag (`#validateInvokeReturn` doc comment) states the
+annotation is "lowered against the caller theta's `schema` decls".
 
 ## Actual behaviour / root cause sketch
 
@@ -79,16 +89,23 @@ decls" and AJV-validated.
 1. **Bare named reference** (`Item`): returns the body-type-map fragment directly
    — nested named references resolve against the already-built map, so the
    document is self-contained. Works.
-2. **Inline object** (`{ … }`): lowered via `lowerInlineObject`. Works for the
-   shapes exercised.
+2. **Inline object** (`{ … }`): lowered via `lowerInlineObject`. Fails the same
+   way when a field references a named schema whose fragment carries nested
+   named refs (`{ items: array<Item> }` reproduces the identical
+   `MissingRefError`); an inline object referencing no such schema works.
 3. **Inline primitive / union / generic** (`array<Item>`): lowers via
    `lowerTypeSource(s, bodyTypeMap, defs)` and attaches the collected `defs` as
-   `$defs`. The collection captures the **directly referenced** def (`Item`) but
-   not the defs referenced **from inside `Item`'s body fragment** (`Loc`), so the
-   emitted document carries `$ref: "#/$defs/Loc"` with no `Loc` entry. AJV
-   compilation of the assembled document then fails at validation time, surfaced
-   as `InvokeInfraError` (the raw AJV resolver message leaks as the error
-   message; there is no `theta/…` diagnostic).
+   `$defs`. `Item`'s body-type-map fragment (built by `lowerObjectFields`)
+   carries a **fragment-local** `$defs: { Loc: … }`; copying the fragment under
+   the document's `$defs.Item` nests `Loc` at `#/$defs/Item/$defs/Loc`, where
+   the fragment's root-absolute `$ref: "#/$defs/Loc"` cannot reach it, and no
+   top-level `Loc` entry is emitted. `pruneDocumentDefs` computes `Loc` as
+   reachable but silently skips it (`defsMap["Loc"]` is absent — the walk only
+   filters, never hoists). AJV `compile` then throws `MissingRefError` at
+   validation time; the throw unwinds out of `#validateInvokeReturn` and the
+   invoke-boundary catch in `src/runtime/invoke-cancellation.ts` wraps it as
+   `InvokeInfraError { cause: "internal_error" }` with the raw AJV resolver
+   message as the error message; there is no `theta/…` diagnostic.
 
 The typed-query path reaches arm 1 for `@<Item>` (and its `$defs` pruning walk in
 `pruneDocumentDefs` is reachability-correct), which is why queries do not exhibit
@@ -107,11 +124,14 @@ the failure for this shape.
 
 ## Options
 
-1. **Fix the def collection in arm 3** (recommended): after `lowerTypeSource`,
-   close the `defs` set over the `$ref`s occurring inside collected fragments
-   (the reachability walk already exists — `collectDefRefs` /
-   `prunePerQueryDefs`), so the emitted document embeds every transitively
-   reachable def.
+1. **Fix the `$defs` assembly** (recommended): close the document's top-level
+   `$defs` over the `$ref`s occurring inside collected fragments (the
+   reachability walk already exists — `collectDefRefs` / `prunePerQueryDefs`),
+   resolving each missing name from the body-type map, so the emitted document
+   embeds every transitively reachable def at the top level. The fix must sit
+   where arms 2 and 3 share it (e.g. `pruneDocumentDefs` grown into a
+   hoist-and-close step) — arm 2 assembles the same broken document — and
+   should strip or hoist the fragment-local nested `$defs` residue.
 2. Inline nested named fragments in the body-type map (arm-1 style) for boundary
    lowering — avoids `$ref` at boundaries entirely; loses recursion support
    (recursive schemas need `$ref`), so weaker than option 1.
@@ -128,9 +148,14 @@ error naming the annotation and the missing def if assembly can still fail.
 
 - Spec measured against: `docs/reference/schema-subset.md` (§Reuse, §Lowering
   algorithm), `docs/spec_topics/schemas.md`, `docs/spec_topics/invocation.md`
-  (INV-6).
+  (§Typed return — tagged INV-6 in implementation comments; the spec's own
+  anchors stop at INV-5), `docs/spec_topics/functions.md` (FN-6).
 - Implementation: `src/runtime/query-schema-lowering.ts`
   (`lowerQueryResponseSchema`, `buildBodyTypeMap`, `pruneDocumentDefs`),
-  `src/extension/production-theta-producer.ts` `#validateInvokeReturn`.
+  `src/parser/body-type-lowering.ts` (`lowerObjectFields` / `lowerTypeSource` —
+  origin of the fragment-local `$defs`),
+  `src/extension/production-theta-producer.ts` (`#validateInvokeReturn`,
+  `#buildTypedValidation`), `src/runtime/invoke-cancellation.ts` (the
+  invoke-boundary wrap that surfaces the raw AJV message).
 - Found during the pi-config theta-migration spikes (0.7.1 round, workaround
   recorded; re-verified with the minimal matrix above on 0.12.0).

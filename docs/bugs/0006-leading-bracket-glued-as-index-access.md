@@ -13,10 +13,13 @@
 
 ## Summary
 
-An array literal in tail-expression position, placed on the line after any
-completed statement, is parsed as an index access on that statement's value
-rather than as a new expression statement. Theta has no statement terminator, so
-the newline is the only boundary — and the parser ignores it for a leading `[`.
+An array literal in tail-expression position, placed on the line after a
+completed statement inside a block (any open-bracket context — `fn` and
+control-flow bodies included), is parsed as an index access on that statement's
+value rather than as a new expression statement. At the top level of a file
+(bracket depth 0) the same two lines parse correctly. Theta has no statement
+terminator, so the newline is the only boundary — and inside a block the parser
+never sees it (see Root cause).
 
 ## Reproduction
 
@@ -33,7 +36,8 @@ error theta/parse/unsupported-feature: stray ',' in statement position
 error theta/parse/unsupported-feature: stray ']' in statement position
 ```
 
-The parser read `"x"["a", a]`. The same gluing occurs after a `match` binding
+The parser read `"x"["a"` as index access (the index sub-expression stops at
+the comma), leaving `, a]` stray. The same gluing occurs after a `match` binding
 (`let mark = match r { … }` followed by a `[ … ]` tail → the match result is the
 "receiver"), which is how it was first hit. Binding the array to a `let` first
 and returning the binding —
@@ -56,6 +60,41 @@ ASI hazards are not part of the documented surface — the grammar has no
 semicolons at all, so line structure is the only segmentation authors can
 control.
 
+## Root cause
+
+Two mechanisms compose:
+
+1. **The lexer erases the boundary inside brackets.** `collapseContinuations`
+   (`src/lexer/lexer.ts`) swallows every newline at bracket depth > 0 — the
+   documented open-bracket continuation trigger (grammar.md §"Statement
+   termination & newline continuation") — and a `fn` body's `{` holds the
+   depth open:
+
+   ```ts
+   const swallow = depth > 0 || isTrailing(prev) || isLeading(next);
+   ```
+
+   No `stmt-sep` token exists anywhere inside a block; statement splitting
+   there falls to the parser, by grammar completion. At depth 0 the newline
+   collapses to a `stmt-sep` (a leading `[` is not a continuation trigger),
+   which is why the top level is unaffected.
+
+2. **The parser's postfix loop accepts `[` unconditionally.**
+   `BodyParser.parsePostfix` (`src/parser/theta-document.ts`) consumes any `[`
+   following a complete expression as index access without comparing the `[`
+   token's line to the receiver's end line. Grammar completion cannot split
+   before `[` because index access makes the continuation grammatically
+   valid — unlike a leading `{`, which is no postfix form and so starts a new
+   statement (the comparison above).
+
+Token ranges keep `line`/`column` through continuation collapsing, so the
+same-line check Option 1 needs is implementable at the `parsePostfix`
+consumption site with no lexer change.
+
+The same consumption site also glues a comma-less `match` arm body onto a
+following array-pattern arm (`[] => "E"` newline `["a"] => "A"` parses
+`"E"["a"]`); comma-separated arms are unaffected.
+
 ## Why it matters
 
 - The natural way to end a `fn` with an array value is broken; the workaround
@@ -68,9 +107,9 @@ control.
 ## Options
 
 1. **Terminate postfix parsing at a line break before `[`** (recommended):
-   index access must open on the same line as its receiver. Deterministic, easy
-   to state in the grammar ("a `[` that begins a line begins a new statement"),
-   and matches how authors already read the code. Requires a grammar note plus
+   index access must open on the same line as its receiver. Deterministic,
+   stated in one grammar line ("a `[` that begins a line begins a new
+   statement"), and matches how authors already read the code. Requires a grammar note plus
    fixtures for the tail-expression and mid-block cases.
 2. Keep the gluing but add a targeted diagnostic when the glued receiver's
    statement ended in a complete expression and the `[` opened a new line —

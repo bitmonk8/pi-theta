@@ -69,11 +69,14 @@ file.
 ## Expected behaviour (what the spec says)
 
 - `docs/reference/grammar.md` §"Pi-tool argument grammar": the argument must be
-  written inline as a bare object literal; a `let`-bound object passed whole is
-  rejected with `theta/parse/tool-arg-not-object-literal`.
-- `docs/reference/diagnostics.md` registers the code as error-severity, parse
-  phase, with the message "Pi tool '<name>' argument must be written inline as a
-  bare object literal { ... }; a let-bound value cannot supply the field shape".
+  written inline as a bare object literal; a `let`-bound object passed
+  positionally (`read(args)`) does not satisfy `ToolArg`.
+- `docs/reference/diagnostics.md` registers
+  `theta/parse/tool-arg-not-object-literal` as error-severity, parse phase, with
+  the message "Pi tool '<name>' argument must be written inline as a bare object
+  literal { ... }; a let-bound value cannot supply the field shape". The parse
+  code registry (`docs/spec_topics/diagnostics/code-registry-parse.md`) names
+  `read(args)` with a `let`-bound value as the triggering case.
 - RFC 0002 §Proposal "Shape rule unchanged".
 
 ## Actual behaviour
@@ -106,9 +109,10 @@ if (
 ```
 
 `argumentSource` is declared optional on the input record and referenced nowhere
-else in `src/` — no parse- or load-time caller populates it, so the diagnostic is
-dead code. With the front gate absent, the two runtime lowerings above become the
-de-facto behaviour.
+else in `src/`. The containing function, `checkToolCallArguments`, has no `src/`
+caller at all — only the unit tests invoke it, threading `argumentSource`
+directly — so the diagnostic is dead code in production. With the front gate
+absent, the two runtime lowerings above become the de-facto behaviour.
 
 ## Why it matters
 
@@ -125,8 +129,9 @@ de-facto behaviour.
 
 ## Options
 
-1. **Wire the existing check** (recommended): populate `argumentSource` (or pass
-   the argument's AST kind) at the parse/load call sites so
+1. **Wire the existing check** (recommended): introduce a parse/load-time call
+   to `checkToolCallArguments` (none exists today), populating `argumentSource`
+   (or passing the argument's AST kind), so
    `theta/parse/tool-arg-not-object-literal` fires as documented. Belt-and-braces:
    make `lowerToolCallParams` / `preEvaluateToolArgs` treat a non-object first
    argument as a defect (throw to the `theta/runtime/internal-error` surface)
@@ -150,7 +155,8 @@ already exist.
 
 - Spec measured against: `docs/reference/grammar.md` §"Pi-tool argument grammar",
   `docs/reference/diagnostics.md` (`theta/parse/tool-arg-not-object-literal` row),
-  `docs/rfcs/0002-computed-tool-arguments.md` §Proposal.
+  `docs/spec_topics/diagnostics/code-registry-parse.md` (same row, `read(args)`
+  example), `docs/rfcs/0002-computed-tool-arguments.md` §Proposal.
 - Implementation: `src/runtime/tool-call.ts` (gated check),
   `src/runtime/statement-executor.ts` `preEvaluateToolArgs`,
   `src/extension/production-theta-producer.ts` `lowerToolCallParams`.
