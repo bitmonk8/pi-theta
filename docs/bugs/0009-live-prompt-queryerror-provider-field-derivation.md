@@ -41,14 +41,17 @@ right `"unknown"` sentinel, but the wrong field — `Model.provider` is pi-ai's
 short `ProviderId` (`"anthropic"`), a value the spec's derivation sentence
 explicitly excludes and the `Api` union does not contain.
 
-For a real registry entry the two fields always differ
+For a typical registry entry the two fields differ
 (`anthropic/claude-opus-4-8` → `provider: "anthropic"`,
 `api: "anthropic-messages"`; `openai/gpt-4` → `"openai"` /
 `"openai-responses"`; `mistral/codestral-latest` → `"mistral"` /
-`"mistral-conversations"`), so every prompt-mode transport `Err` ships the
-non-conforming form today. The same provider failure classified by the
-off-session seam six lines away in the same ternary
-(`#resolvePromptQuery`, :2145–2161) ships `"anthropic-messages"`.
+`"mistral-conversations"`), so prompt-mode transport `Err`s ship the
+non-conforming form for every such model today. The exceptions are the two
+registry providers whose short id doubles as an `Api` value
+(`azure-openai-responses`, `google-vertex` at the 0.80.10 pin), where the
+wrong read is value-masked rather than derived correctly. The same provider
+failure classified by the off-session seam two lines below in the same
+ternary (`#resolvePromptQuery`, :2145–2161) ships `"anthropic-messages"`.
 
 ## Reproduction
 
@@ -108,7 +111,7 @@ live during the bug-0007 fix verification).
   spec-vs-spec ambiguity; the source *model* differs per seam, the *field* is
   uniformly `.api`.
 - The implementation's own seam contracts agree:
-  `src/runtime/prompt-transport-mapping.ts:31–35` — "The synthesised
+  `src/runtime/prompt-transport-mapping.ts:31–33` — "The synthesised
   `provider` field is NOT derived here — it is supplied by the caller from
   V9j's provider-error-mapping surface (the resolved `Model<Api>.api` value)"
   — and the runtime's `TransportError` type doc
@@ -117,7 +120,7 @@ live during the bug-0007 fix verification).
 
 ## Actual behaviour / root cause
 
-The construction site (`src/extension/production-theta-producer.ts:2156–2159`):
+The construction site (`src/extension/production-theta-producer.ts:2157–2159`):
 
 ```ts
           // PIC-50/51: the resolved provider for the synthesised `TransportError`
@@ -132,7 +135,7 @@ distinct members); the spec's field is `.api`. The value flows into
 `TransportError`: `extractPromptModeQueryResult`'s PIC-51 probe
 (`src/runtime/prompt-transport-mapping.ts:106`, `provider:
 probeCtx.provider`) on both the untyped (:3187) and forced-respond (:3246)
-turns, and `mapPromptModeSyncThrow` (:164) on the PIC-50 sync-throw arm
+turns, and `mapPromptModeSyncThrow` (:167) on the PIC-50 sync-throw arm
 (:3303). The comment's cited precedent is itself wrong twice over: the
 subagent argv `--provider` flag (:1622) is a *model reference* where the short
 form is correct (the host CLI's provider selector — subagent.md §Model
@@ -163,8 +166,11 @@ field read diverges — the same single line, manifest in both modes.
 No test pins the wrong derivation. `tests/prompt-transport-mapping.test.ts`
 exercises the module seam with the api-shaped value supplied as *input*
 (`provider: "anthropic-messages"`, asserted through at :122) — correct for a
-module whose contract makes the caller responsible — and no test drives the
-:2159 construction site. Contrast the bug-0007 fixture, which guards its seam
+module whose contract makes the caller responsible — and no test asserts the
+provider value the :2159 construction supplies; the token-gated live probes
+(`tests/hardening/session-prompt-transport.test.ts`,
+`tests/hardening/session-promptloop.test.ts`) drive the live seam but pin
+only the success path (no transport `Err` escapes; the field is never read). Contrast the bug-0007 fixture, which guards its seam
 against exactly this mistake
 (`tests/off-session-transport-classification.test.ts:119–121`: "DISTINCT
 `.api` and `.provider` strings so the TransportError.provider assertion …
@@ -199,16 +205,19 @@ catches a wrong `.provider` read").
    subagent child (the child runs the identical line). Fix the latent
    `driveSubagentChild` feed (:1674) to `String(model.api)` — or delete the
    dead `SubagentDriveDeps.provider` member outright, since nothing consumes
-   it. No committed test moves; add the missing construction-site pin using
-   the bug-0007 fixture's distinct-`.api`/`.provider` model-double pattern so
-   a wrong-field read cannot recur unpinned.
+   it. The field-read fix moves no committed test; deleting the dead member
+   also touches the two drive-deps test harnesses that populate it
+   (`tests/subagent-json-driver.test.ts:58`,
+   `tests/subagent-json-wire.test.ts:44`). Add the missing construction-site
+   pin using the bug-0007 fixture's distinct-`.api`/`.provider` model-double
+   pattern so a wrong-field read cannot recur unpinned.
 2. **Bless `.provider` in the spec instead.** Rejected: the derivation
    sentence is not arbitrary — the field is defined as "the same `api`-shaped
    field the Provider error mapping table is keyed on", and the classifier and
    overflow-signature tables are keyed on `Api` values
    (`provider-error-mapping.ts:229`, `OVERFLOW_SIGNATURES[input.api]`).
    Re-blessing the short form would flip two conforming seams (binder,
-   off-session — the latter just shipped and live-verified at 0.18.0), the
+   off-session — the latter shipped and live-verified at 0.18.0), the
    runtime's own type documentation, and the module contract of
    `prompt-transport-mapping.ts`, to preserve one unpinned line.
 
@@ -235,12 +244,12 @@ catches a wrong `.provider` read").
   `docs/spec_topics/pi-integration-contract/subagent.md` (§Model marshalling,
   for the `--provider` non-goal).
 - Implementation: `src/extension/production-theta-producer.ts`
-  (`#resolvePromptQuery` :2091, construction :2146/:2156–2159, off-session arm
+  (`#resolvePromptQuery` :2089, construction :2146/:2157–2159, off-session arm
   :2161, `LivePromptQueryModel` :3109/:3121/:3153, probe feeds :3187/:3246,
   sync-throw feed :3303; contrast `#classifyBinderAttempt` :796,
   `classifyOffSessionReply` :3708; subagent feeds :1622/:1674),
-  `src/runtime/prompt-transport-mapping.ts` (module contract :31–35,
-  synthesis :106/:164), `src/runtime/query-error.ts` (:70–71),
+  `src/runtime/prompt-transport-mapping.ts` (module contract :31–33,
+  synthesis :106/:167), `src/runtime/query-error.ts` (:70–71),
   `src/runtime/subagent-json-driver.ts` (dead `provider` dep :72–73,
   destructure :90), `src/binder/provider-error-mapping.ts` (:331, :131–140,
   :229), `src/runtime/err-note-render.ts` (:126),
@@ -253,7 +262,10 @@ catches a wrong `.provider` read").
   as module input; no construction-site coverage),
   `tests/off-session-transport-classification.test.ts` (the distinct-field
   guard, :119–121), `tests/queryerror-variants.test.ts` /
-  `tests/e2e-s3-tool-error-envelope.test.ts` (no provider-derivation pins).
+  `tests/e2e-s3-tool-error-envelope.test.ts` (no provider-derivation pins),
+  `tests/hardening/session-prompt-transport.test.ts` /
+  `tests/hardening/session-promptloop.test.ts` (token-gated live success-path
+  probes; drive the live seam, never assert the provider field).
 - Recorded as a pre-existing defect by the bug-0007 fix review (the 0007
   provenance chain: pi-config theta-migration spikes → bug 0005 → the 0005
   fix verification → bug 0007 → its fix review → this report); the 0007 fix
