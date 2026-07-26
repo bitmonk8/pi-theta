@@ -28,3 +28,4 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0006 — A leading-`[` expression statement glues onto the previous statement as index access](./0006-leading-bracket-glued-as-index-access.md) — fixed (0.13.0)
 - [0007 — Off-session queries swallow a `stopReason: "error"` completion as `Ok("")`](./0007-off-session-error-stop-swallowed-as-ok-empty.md) — fixed (0.18.0)
 - [0008 — Subagent child receives only the last theta discovery root when the parent has ≥ 2 roots](./0008-subagent-child-drops-all-but-last-theta-root.md) — fixed (0.17.0)
+- [0009 — Prompt-mode transport errors carry the short provider id (`.provider`) where the spec pins the api-shaped `.api`](./0009-live-prompt-queryerror-provider-field-derivation.md) — open
