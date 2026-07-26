@@ -15,7 +15,7 @@
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert } from "vitest";
 import {
@@ -196,7 +196,9 @@ export async function bootShippedExtension(options: {
   // Wire the `--theta <dir>` CLI discovery source(s) before `session_start` fires
   // the discovery walk, so the walk is proven source-general.
   if (workspace.cliThetaDirs.length > 0) {
-    runner.setFlagValue("theta", workspace.cliThetaDirs.join(","));
+    // Multiple paths join with path.delimiter, never "," — the discovery
+    // CLI-source convention (discovery-sources.md).
+    runner.setFlagValue("theta", workspace.cliThetaDirs.join(delimiter));
   }
   // Fire `session_start` (and `resources_discover`): the shipped extension's
   // real registration step runs here.

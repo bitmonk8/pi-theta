@@ -16,6 +16,7 @@
 // load.md (`theta/load/subagent-executable-unresolved`), diagnostics/code-
 // registry-runtime.md (`theta/runtime/subagent-spawn-failed`).
 
+import { delimiter as PATH_DELIMITER } from "node:path";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { InvokeInfraError } from "./query-error";
 import { INTERNAL_ERROR_CODE, surfaceUnexpectedThrow } from "./runtime-panics";
@@ -196,7 +197,13 @@ export interface SubagentArgvInput {
   readonly extensionPinDir?: string;
   /** The callee slug → `-p "/<slug>"` (the child invokes the callee as its root slash command). */
   readonly slug: string;
-  /** The theta discovery roots → `--theta <dir>` (repeated), so the child re-discovers the callee. */
+  /**
+   * The theta discovery roots → ONE `--theta` flag, all roots joined with
+   * `path.delimiter` (omitted when empty), so the child re-discovers the
+   * callee. Never one flag per root — host pi resolves a repeated extension
+   * string flag to its last occurrence, silently dropping every earlier root
+   * in the child (bug 0008).
+   */
   readonly thetaDirs: readonly string[];
   /** Resolved-and-interpolated frontmatter `system:` → `--system-prompt`. */
   readonly systemPrompt: string;
@@ -215,10 +222,14 @@ export interface SubagentArgvInput {
 /**
  * RFC-0006 (subagent.md #subagent-launch-contract). Assemble the json-mode child
  * argv (after the executable + entry-script args). The compliant assembly is:
- *   --theta <dir>… --mode json -p "/<slug>" --no-session --system-prompt <sp>
+ *   [--theta <dirs>] --mode json -p "/<slug>" --no-session --system-prompt <sp>
  *   (--tools <csv> | --no-tools) --provider <p> --model <id>
  *   --no-skills --no-prompt-templates --no-themes --no-context-files
  *   (--approve | --no-approve)
+ * `--theta` is ONE flag joining every discovery root with `path.delimiter`
+ * (the documented discovery CLI-source convention), omitted for an empty root
+ * set — never repeated per root (bug 0008: the host collapses a repeated
+ * extension string flag to its last occurrence).
  * The child runs the WHOLE callee: interpreter, extension discovery, and its own
  * host agent loop. `--tools` is defence-in-depth only (the child theta enforces
  * its own callable set); `tools: []` maps to `--no-tools` (never re-enables Pi
@@ -236,10 +247,21 @@ export function assembleSubagentArgv(input: SubagentArgvInput): string[] {
   if (input.extensionPinDir !== undefined) {
     argv.push("-ne", "-e", input.extensionPinDir);
   }
-  // `--theta <dir>` (repeated) so the child re-discovers the callee `.theta` and
-  // its `.thetalib` imports (the child owns the interpreter under RFC 0006).
-  for (const dir of input.thetaDirs) {
-    argv.push("--theta", dir);
+  // ONE `--theta` flag carrying every discovery root joined with
+  // `path.delimiter`, so the child re-discovers the callee `.theta` and its
+  // `.thetalib` imports (the child owns the interpreter under RFC 0006). Never
+  // one flag per root (bug 0008): host pi's argv parser stores extension flags
+  // in an unknownFlags Map (dist/cli/args.js) — a repeated string flag resolves
+  // to its LAST occurrence, and `pi.getFlag` is `boolean | string | undefined`
+  // — so repeated `--theta` silently drops every root but the last in the
+  // child. The joined single flag is the documented discovery CLI-source
+  // convention (discovery-sources.md) and the form the child-side
+  // `readThetaFlagPaths` already splits. An empty root set OMITS the flag —
+  // omission is the documented no-CLI-source form, while `--theta ""` is an
+  // undocumented argv shape that would merely rely on the reader dropping
+  // empty split components.
+  if (input.thetaDirs.length > 0) {
+    argv.push("--theta", input.thetaDirs.join(PATH_DELIMITER));
   }
   argv.push(
     "--mode",

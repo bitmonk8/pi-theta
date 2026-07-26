@@ -6,6 +6,31 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-07-26
+
+### Fixed
+
+- **A subagent child now receives every parent theta discovery root, not
+  just the last one (bug 0008).** `assembleSubagentArgv` forwarded the
+  parent's discovery roots as repeated `--theta <dir>` flags, but host pi's
+  argv parser stores extension flags in a per-name `unknownFlags` Map
+  (`dist/cli/args.js`) — a repeated string flag resolves to its last
+  occurrence, and `pi.getFlag` is `boolean | string | undefined` — so with
+  ≥ 2 parent roots every earlier root silently vanished in the child. A
+  callee living in a dropped root never registered; the child ran the
+  `-p "/<slug>"` prompt as prose instead of the theta and exited without a
+  `theta_result` envelope, which the parent misattributed as
+  `Err(InvokeInfraError { cause: "internal_error" })` via the
+  exit-without-envelope mapping — two layers from the cause. The launcher
+  now emits ONE `--theta` flag joining all roots with `path.delimiter` (the
+  documented discovery CLI-source convention, the form the child-side
+  `readThetaFlagPaths` already splits) and omits the flag entirely for an
+  empty root set. The `#subagent-launch-contract` carrier table gained its
+  missing discovery-roots row, and `readThetaFlagPaths`' dangling
+  "DISCLI-1" citation was corrected to the host's actual last-wins parsing,
+  its array branch deliberately retained as fail-safe hardening. Observed
+  at 0.16.0.
+
 ## [0.16.0] - 2026-07-26
 
 ### Fixed

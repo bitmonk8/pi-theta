@@ -18,6 +18,7 @@
 //     verification (mismatch → theta/runtime/subagent-callable-hash-mismatch).
 
 import { describe, expect, it } from "vitest";
+import { delimiter } from "node:path";
 import {
   assembleSubagentArgv,
   buildSubagentChildEnv,
@@ -122,12 +123,13 @@ describe("RFC-0006 — json-mode argv assembly", () => {
       approve: false,
     });
 
-    // --theta <dir> repeated for each discovery root so the child re-discovers
-    // the callee.
+    // ONE --theta flag, all discovery roots joined with path.delimiter, so the
+    // child re-discovers the callee (bug 0008: host pi resolves a repeated
+    // extension string flag to its LAST occurrence, silently dropping every
+    // earlier root in the child).
+    expect(argv.filter((arg) => arg === "--theta")).toHaveLength(1);
     expect(argv[0]).toBe("--theta");
-    expect(argv[1]).toBe("/w/.pi/theta");
-    expect(argv[2]).toBe("--theta");
-    expect(argv[3]).toBe("/w/pkg/theta");
+    expect(argv[1]).toBe(`/w/.pi/theta${delimiter}/w/pkg/theta`);
     expect(argv).toContain("--mode");
     expect(argv[argv.indexOf("--mode") + 1]).toBe("json");
     // -p "/<slug>" invokes the callee as the child's root slash command.

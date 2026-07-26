@@ -1,6 +1,8 @@
 # Bug 0008 — Subagent child receives only the last theta discovery root when the parent has ≥ 2 roots
 
-- **Status:** open.
+- **Status:** fixed (0.17.0). Option 1 adopted — one `path.delimiter`-joined
+  `--theta` in `assembleSubagentArgv` (empty set → flag omitted); carrier-table
+  row added and the dangling "DISCLI-1" citation corrected.
 - **Kind:** defect — the subagent launch contract promises the child "re-discovers
   the callee" from the parent's discovery roots, but the argv assembly forwards
   the roots in a form the host CLI is known to collapse to its last occurrence,
@@ -19,6 +21,29 @@
   (see root cause).
 - **Observed at:** `0.16.0`, host Pi `0.82.1` (host argv parsing also verified
   identical at `0.80.10`, the repo-local `node_modules` copy).
+
+## Fix (0.17.0)
+
+Option 1, adopted at the consumption site the root cause names:
+`assembleSubagentArgv` (`src/runtime/subagent-launcher.ts`) now emits **one**
+`--theta` flag whose value joins every discovery root with `path.delimiter` —
+the documented discovery CLI-source convention, and the form the child-side
+`readThetaFlagPaths` already splits — and omits the flag entirely for an empty
+root set (omission is the documented no-CLI-source form; `--theta ""` is an
+undocumented argv shape that would merely rely on the reader dropping empty
+split components). The missing discovery-roots row was added, first, to the
+`#subagent-launch-contract` carrier table
+(`docs/spec_topics/pi-integration-contract/subagent.md`) — the spec gap the
+drift came through. `readThetaFlagPaths`' dangling "DISCLI-1" citation
+(`src/extension/production-composition.ts`) now cites the host's actual
+last-wins parsing (the `unknownFlags` Map in `dist/cli/args.js`; `getFlag`
+declared `boolean | string | undefined`), with the array branch deliberately
+retained as fail-safe hardening. Fixtures in
+`tests/subagent-theta-roots-forwarding.test.ts` (argv cells, reader-side
+round-trip, and a provider-free two-root real-spawn regression with the callee
+in the **first** root); repeated-form pins updated in
+`tests/subagent-child-launch.test.ts`; the acceptance and live harnesses'
+outer-pi argv aligned to the same joined single-flag form.
 
 ## Summary
 

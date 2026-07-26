@@ -42,6 +42,7 @@ There is **no `PATH` fallback** — a deliberate divergence from the prior art. 
 
 | Subagent-invocation input | Child-process carrier |
 |---|---|
+| the parent's discovery-root union (the active roots, [Discovery — Discovery roots](../discovery/discovery-sources.md#discovery-roots)) | `--theta <dirs>` — **one** flag, all roots joined with `path.delimiter` per the discovery CLI-source convention ([Discovery — Discovery sources](../discovery/discovery-sources.md)); omitted when the root set is empty; inherits the CLI source's accepted delimiter-collision caveat (a root path containing the delimiter itself cannot be escaped) |
 | resolved-and-interpolated frontmatter `system:` | `--system-prompt <text>` (consumed by the subagent-root regime, [PIC-58](#pic-58)) |
 | the callee slug | `-p "/<slug>"` (one invocation per process) |
 | the theta's callable set (`tools:` allowlist) | `--tools <name1,name2,…>` — **optional** defence-in-depth; the child theta enforces its own callable set regardless |

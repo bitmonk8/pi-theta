@@ -1759,12 +1759,20 @@ async function parseDiscoveredTheta(
 /**
  * Split the `--theta` CLI flag value into discovery-source paths.
  *
- * A single `--theta A` arrives as a string; a repeated `--theta A --theta B`
- * arrives as an ARRAY of strings (DISCLI-1). Treat repetition additively:
- * flatten every string occurrence, split each on the platform PATH_DELIMITER,
- * trim, drop empties, and return the de-duplicated union. Previously a repeated
- * flag (array) failed the `typeof raw !== "string"` guard and silently
- * discarded every user-supplied path, so neither dir's thetas registered.
+ * Against the pinned host at most ONE string arrives here: pi's argv parser
+ * stores extension flags in an unknownFlags Map (dist/cli/args.js), so a
+ * repeated flag resolves to its LAST occurrence, and `pi.getFlag` is declared
+ * `boolean | string | undefined` (dist/core/extensions/types.d.ts) — no array
+ * can ever be delivered. Multi-root carriage is the single
+ * `path.delimiter`-joined value (the discovery CLI-source convention; the
+ * bug-0008 launcher fix emits exactly that form): each occurrence is split on
+ * the platform PATH_DELIMITER, trimmed, empties dropped, and the de-duplicated
+ * union returned. The array branch is therefore unreachable against the pinned
+ * host and is KEPT deliberately as fail-safe hardening: were a future host to
+ * surface repeated extension flags as an array, the pre-hardening
+ * `typeof raw !== "string"` guard would have silently discarded EVERY
+ * user-supplied path — the exact silent-root-loss class bug 0008 is about — so
+ * the additive branch stays as cheap insurance.
  */
 function readThetaFlagPaths(pi: ExtensionAPI): readonly string[] {
   const raw: unknown = pi.getFlag("theta");

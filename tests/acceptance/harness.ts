@@ -20,6 +20,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert } from "vitest";
 import {
@@ -406,7 +407,10 @@ export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrin
     host.provider,
     "--model",
     host.model,
-    ...thetaDirs.flatMap((dir) => ["--theta", dir]),
+    // Bug 0008: ONE path.delimiter-joined --theta flag, never one flag per
+    // dir — the host pi argv parser keeps only the LAST occurrence of a
+    // repeated extension string flag, silently dropping every earlier root.
+    ...(thetaDirs.length > 0 ? ["--theta", thetaDirs.join(delimiter)] : []),
     options.slashInvocation,
   ];
   return new Promise<PiPrintResult>((resolve, reject) => {
