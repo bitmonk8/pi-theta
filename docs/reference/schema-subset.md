@@ -165,6 +165,10 @@ Each theta file is lowered to a JSON Schema document at parse time:
      (with `"null"` last whenever the union admits it).
 4. **Per-query schema document** is built lazily: the query's response schema is
    the root, and only transitively-reachable `$defs` are copied in (unused pruned).
+   Each reachable def lands at the document's *top-level* `$defs` regardless of
+   how deeply the referencing fragment nests it, so every emitted root-absolute
+   `$ref: "#/$defs/<Name>"` resolves; boundary annotations (`@<…>` typed query,
+   `invoke<…>` / `subagent fn` return) assemble through the same step.
 5. **Per-schema sidecar** captures a *wire-name translation* map and a
    *named-enum positions* map (keyed by JSON Pointer, valued by declaring-enum
    theta-side name; anonymous string-literal-union positions absent). The inbound

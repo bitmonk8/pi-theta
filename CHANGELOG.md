@@ -6,6 +6,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-26
+
+### Fixed
+
+- **`invoke<array<T>>` / `@<array<T>>` boundary validation no longer drops
+  the transitive `$defs` of named schemas (bug 0004).** A named-schema
+  fragment referencing another named schema (`Item` containing `array<Loc>`)
+  carries a fragment-local `$defs`, so attaching it under the assembled
+  document's `$defs.Item` nested the dependency at the unreachable position
+  `#/$defs/Item/$defs/Loc` while the emitted `$ref: "#/$defs/Loc"` is
+  root-absolute — AJV compile threw `MissingRefError`, surfacing at run time
+  as `Err(invoke_infra, "can't resolve reference #/$defs/Loc from id #")`
+  far from the declaration site, and forcing boundary shapes to be declared
+  twice (inline-anonymous for the annotation, named for construction). All
+  three annotation arms assembled the same broken document — the bare-named
+  arm too at nesting depth ≥ 2 (`Item2 → Loc2 → Pos`), wider than the bug
+  report's matrix. `pruneDocumentDefs` is now a hoist-and-close step shared
+  by every arm: fragment-local `$defs` entries are recursively lifted to the
+  document's top level (first-wins by def name; the shared body-type map
+  keys fragments by name, so a name always resolves to one body),
+  hoisted-from bodies shed their nested `$defs` via shallow clone (the
+  shared fragments are never mutated), and the existing reachability walk
+  keeps exactly the transitively-reachable defs (unused ones still pruned).
+  A reachable `$ref` with no collected def body — unreachable from source —
+  now fails at lowering time with a precise error naming the annotation and
+  the missing def instead of leaking AJV's resolver message at validation
+  time. Assembly clause recorded in `docs/reference/schema-subset.md`
+  §"Lowering algorithm" step 4. Observed at 0.12.0.
+
 ## [0.14.0] - 2026-07-26
 
 ### Fixed

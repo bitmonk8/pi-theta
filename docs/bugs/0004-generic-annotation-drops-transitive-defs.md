@@ -1,6 +1,8 @@
 # Bug 0004 — `invoke<array<T>>` return validation drops transitive `$defs` of named schemas
 
-- **Status:** open
+- **Status:** fixed (0.15.0). Option 1 adopted — `pruneDocumentDefs` grown
+  into a hoist-and-close step shared by all three annotation arms; scope was
+  wider than reported (the bare-named arm 1 also broke at nesting depth ≥ 2).
 - **Kind:** defect — the boundary-annotation lowering violates the documented
   `$defs` assembly ("only transitively-reachable `$defs` are copied in" implies
   reachable ones **are** copied in), so a documented-legal annotation fails at
@@ -16,6 +18,38 @@
   lowers the same unresolvable document (verified at the lowering level; not
   exercised live).
 - **Observed at:** `0.12.0`, host Pi `0.82.1`.
+
+## Fix (0.15.0)
+
+Option 1, adopted in full at the shared assembly site the root cause names:
+`pruneDocumentDefs` (`src/runtime/query-schema-lowering.ts`), called by all
+three `lowerQueryResponseSchema` arms, is grown from a reachability *filter*
+into a hoist-and-close step. Fragment-local nested `$defs` entries are
+recursively lifted to the document's top level (first-wins dedup keyed by def
+name — fragments come from the shared body-type map keyed by name, so two
+fragments nesting the same name carry the same map fragment; the name set is
+also the cycle guard), hoisted-from bodies shed their nested `$defs` by
+shallow clone (the shared `bodyTypeMap` fragments are never mutated), and the
+existing reachability walk (`collectDefRefs` / `prunePerQueryDefs`) then keeps
+exactly the transitively-reachable defs — the unused-pruning contract is
+unchanged. A reachable `$ref` whose def body is genuinely missing (believed
+unreachable from source: `lowerTypeExpr` registers a fragment whenever it
+emits a `$ref`, and an unresolved name lowers permissively) now fails at
+lowering time with a precise error naming the annotation and the missing def,
+replacing the raw AJV `MissingRefError` leak at validation time.
+
+Fixing revealed the defect's scope is wider than the matrix above: the
+bare-named arm 1 — recorded below as "Works" — holds only for ONE level of
+nesting. At depth ≥ 2 (`Item2 → Loc2 → Pos`) the returned fragment's own
+top-level `$defs` covers one level while `Pos` rides fragment-locally inside
+`Loc2`, failing with the same `MissingRefError` (`#/$defs/Pos`). The shared
+hoist-and-close closes arm 1's document too. Fixtures pinning the full matrix
+(all three arms, a 3-level chain, the mutual pair annotated in both
+directions (the permissive first-declared side and the real-`$ref`
+second-declared side), dedup of a twice-referenced def, unused-def pruning,
+and the permissive-unresolved control) live in
+`tests/query-schema-transitive-defs.test.ts`; the assembly clause is recorded
+in `docs/reference/schema-subset.md` §"Lowering algorithm" step 4.
 
 ## Summary
 
