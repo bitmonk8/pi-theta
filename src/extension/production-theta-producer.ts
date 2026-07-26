@@ -118,6 +118,7 @@ import { extractTrailingTurnText } from "../runtime/conversation-drive";
 import {
   extractPromptModeQueryResult,
   mapPromptModeSyncThrow,
+  PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE,
 } from "../runtime/prompt-transport-mapping";
 import {
   enforceInvokeParamsDepth,
@@ -143,7 +144,11 @@ import {
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
 import { runInvokeChild } from "../runtime/invoke-cancellation";
-import type { InvokeInfraError, TransportError } from "../runtime/query-error";
+import type {
+  ContextOverflowError,
+  InvokeInfraError,
+  TransportError,
+} from "../runtime/query-error";
 import { InvokeInfraCauseError } from "../runtime/query-error";
 import {
   newInvokeChainAtDepth,
@@ -207,6 +212,7 @@ import {
   buildTypedQueryValidation,
   parseStructuredPayload,
   payloadForRespond,
+  type FollowUpDriveFailure,
 } from "../runtime/typed-query-validation";
 import { evaluateIndexAccess, evaluateMemberAccess, HostFatal } from "../runtime/runtime-panics";
 import { routeThetaCallableSetupThrow } from "../runtime/tool-call-off-surface";
@@ -2102,7 +2108,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // QRY-22: a typed prompt-mode query drives respond-repair follow-ups as new
     // user turns against the SAME conversation (a user-visible turn when the
     // query streams, else off-session), extracting each follow-up's reply text.
-    const driveFollowUp = (prompt: string): Promise<string> =>
+    // The off-session arm maps the classified wrapper (bug 0007): reply text on
+    // success, the discriminated `FollowUpDriveFailure` on a provider failure so
+    // the proximate `QueryError` terminates repair (QRY-10 §respond-repair)
+    // instead of laundering into the schema-validation channel.
+    const driveFollowUp = (prompt: string): Promise<string | FollowUpDriveFailure> =>
       deps.userVisible
         ? driveStreamedUserTurn({
             pi: deps.pi,
@@ -2111,7 +2121,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             queryText: prompt,
             activeTools,
           })
-        : offSessionComplete(deps.ctx.model, prompt);
+        : offSessionFollowUp(deps.ctx.model, prompt);
     const validation = typed
       ? this.#buildTypedValidation(expr, env, deps.theta, driveFollowUp)
       : undefined;
@@ -2193,7 +2203,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     expr: QueryExpr,
     env: LexicalEnvironment,
     theta: ConversationBindInput["theta"],
-    driveFollowUp: (prompt: string) => Promise<string>,
+    driveFollowUp: (prompt: string) => Promise<string | FollowUpDriveFailure>,
   ): { readonly validation: TypedQuerySchemaValidation; readonly lowered: LoweredSchema } | undefined {
     if (expr.schema === null) {
       return undefined;
@@ -3356,8 +3366,10 @@ function macrotask(clock: Clock, ms: number): Promise<void> {
  * An off-session `QueryModelDriver`: it resolves the query through pi-ai's
  * `complete()` free function (no user session turn, no transcript card), so a
  * chained follow-up query in a body does not stream into the transcript
- * alongside the dispatch's primary user-visible turn. The untyped path returns
- * the assistant text; the typed path parses it as the structured payload.
+ * alongside the dispatch's primary user-visible turn. Each dispatch is the
+ * CLASSIFIED off-session completion (bug 0007): a provider failure rides the
+ * loop's transport arm; on a clean turn the untyped path returns the assistant
+ * text and the typed path parses it as the structured payload.
  */
 class OffSessionQueryModel implements QueryModelDriver {
   readonly #model: Model<Api> | undefined;
@@ -3377,7 +3389,13 @@ class OffSessionQueryModel implements QueryModelDriver {
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
     if (round === 0) {
-      return { kind: "text", text: await this.#complete() };
+      const completion = await this.#complete();
+      if (completion.kind === "failure") {
+        // Bug 0007 / PIC-50: the classified off-session provider failure rides
+        // the loop's transport arm — never masked as a terminating `Ok(text)`.
+        return { kind: "transport", error: completion.error };
+      }
+      return { kind: "text", text: completion.text };
     }
     return { kind: "text", text: "" };
   }
@@ -3387,11 +3405,19 @@ class OffSessionQueryModel implements QueryModelDriver {
   }
 
   async forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    const parse = await parseStructuredPayload(await this.#complete());
+    const completion = await this.#complete();
+    if (completion.kind === "failure") {
+      // Bug 0007 / PIC-50: a forced-respond provider failure surfaces on the
+      // transport arm — never fed to `parseStructuredPayload`, which would
+      // launder it into the schema-validation channel and burn respond-repair
+      // attempts against a dead provider.
+      return { kind: "transport", error: completion.error };
+    }
+    const parse = await parseStructuredPayload(completion.text);
     return { kind: "respond", payload: payloadForRespond(parse) };
   }
 
-  #complete(): Promise<string> {
+  #complete(): Promise<OffSessionCompletion> {
     // CANCEL-3 (cancellation.md §"Race semantics — swallowing-handler
     // attachment on every abandonable Promise"): attach the swallowing handler
     // to the underlying `@`-query provider Promise at its construction site,
@@ -3612,15 +3638,45 @@ function assistantText(message: AssistantMessage): string {
 }
 
 /**
+ * The classified resolution of one off-session `complete()` dispatch (bug
+ * 0007): the reply's assistant text on a normal terminator, or the classified
+ * provider failure. A resolved discriminated value — never throw-based control
+ * flow: pi-ai's `complete()` RESOLVES its provider failures (the per-API
+ * adapter converts every caught throw into a reply carrying `stopReason:
+ * "error"`), so classification is a probe over the resolved reply, not a
+ * `catch`.
+ */
+type OffSessionCompletion =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "failure"; readonly error: TransportError | ContextOverflowError };
+
+/**
+ * The stop reasons that terminate an off-session turn normally. pi-ai's
+ * `StopReason` union spells the turn boundary `"stop"` and the tool boundary
+ * `"toolUse"`; the spec's stop-reason arm names `end_turn` / `stop` /
+ * `tool_use` (provider-error-mapping.md §Stop-reason classification) — both
+ * spellings are covered so neither surface's normal terminator is ever
+ * classified as a failure.
+ */
+const OFF_SESSION_NORMAL_STOP_REASONS: ReadonlySet<string> = new Set([
+  "stop",
+  "end_turn",
+  "toolUse",
+  "tool_use",
+]);
+
+/**
  * Resolve a query / respond-repair follow-up prompt off-session through pi-ai's
- * `complete()` free function (no user session turn), returning the assistant
- * text. Shared by the off-session query driver and the off-session respond-repair
- * follow-up drive.
+ * `complete()` free function (no user session turn), classifying the resolved
+ * reply BEFORE text extraction (bug 0007; PIC-50: the off-session `complete()`
+ * call's "provider failures are classified through the Provider error mapping
+ * table exactly as the binder's `complete()` call is"). Shared by the
+ * off-session query driver and the off-session respond-repair follow-up drive.
  */
 async function offSessionComplete(
   model: Model<Api> | undefined,
   prompt: string,
-): Promise<string> {
+): Promise<OffSessionCompletion> {
   if (model === undefined) {
     throw new OffSessionModelUnavailableError(
       "H8a: an off-session chained query has no resolved model (ctx.model is undefined).",
@@ -3629,7 +3685,94 @@ async function offSessionComplete(
   const reply: AssistantMessage = await complete(model, {
     messages: [{ role: "user", content: prompt, timestamp: 0 }],
   });
-  return assistantText(reply);
+  return classifyOffSessionReply(model, reply);
+}
+
+/**
+ * Bug 0007: probe the resolved off-session reply's `stopReason` before any
+ * text extraction. pi-ai's `complete()` never rejects on a provider failure —
+ * the per-API adapter resolves it as a reply carrying `stopReason: "error"`
+ * (+ optional `errorMessage`) — so this probe is the only failure surface of
+ * the off-session call. A normal terminator passes through to the text
+ * extraction; EVERY other string `stopReason` (`"error"`, `"length"`,
+ * `"aborted"`, `"content_filter"`, any unrecognised) routes through the
+ * existing `classifyProviderResponse` table, mirroring
+ * `#classifyBinderAttempt`'s classifier input — fixed `httpStatus: 200`
+ * because the off-session path captures no real HTTP status, and 200 is what
+ * admits the openai HTTP-200 stopReason-error overflow gate.
+ */
+function classifyOffSessionReply(
+  model: Model<Api>,
+  reply: AssistantMessage,
+): OffSessionCompletion {
+  const provider = String(model.api);
+  const stopReason = (reply as { readonly stopReason?: string }).stopReason;
+  // A non-string/absent `stopReason` is not a provider failure: pi-ai always
+  // sets the field on a resolved reply, so only a fabricated double reaches
+  // here without one — treat it as a normal terminator rather than classifying
+  // fixture shorthand as a transport failure.
+  if (typeof stopReason !== "string" || OFF_SESSION_NORMAL_STOP_REASONS.has(stopReason)) {
+    // PIC-53 disposition: a pure tool-use turn that produced no assistant text
+    // yields the empty string — a legitimate `Ok("")`, distinct from the
+    // error-stop empty content classified below.
+    return { kind: "text", text: assistantText(reply) };
+  }
+  const errorMessage = (reply as { readonly errorMessage?: string }).errorMessage;
+  const partialText = assistantText(reply);
+  const classified = classifyProviderResponse({
+    api: provider,
+    httpStatus: 200,
+    stopReason,
+    ...(typeof errorMessage === "string" ? { errorMessage } : {}),
+    rawResponse: partialText !== "" ? partialText : null,
+  });
+  // Stop-reason classification (provider-error-mapping.md): the overflow arm
+  // (`length`, or an overflow-signature `errorMessage`) surfaces the
+  // classifier's `ContextOverflowError` verbatim — token extraction and
+  // `raw_response` included.
+  if (classified.kind === "context_overflow") {
+    return { kind: "failure", error: classified as ContextOverflowError };
+  }
+  // Every other classification folds to the pinned off-session transport
+  // surface — the binder's fold: message from the classifier, fixed surface
+  // fields. The stop-reason arm pins `retryable: false`; no HTTP status is
+  // captured at this seam (hence `http_status: null`, never the fabricated
+  // 200); `provider` is the resolved model's api-shaped `.api`
+  // (queryerror-variants.md provider derivation — the model this wrapper
+  // actually dispatched, not ctx's user-session model). An empty/absent
+  // classifier message takes PIC-51's fixed fallback.
+  const message =
+    classified.kind === "transport" && classified.message !== ""
+      ? classified.message
+      : PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE;
+  return {
+    kind: "failure",
+    error: {
+      kind: "transport",
+      message,
+      http_status: null,
+      provider,
+      retryable: false,
+    },
+  };
+}
+
+/**
+ * The off-session respond-repair follow-up drive (QRY-10 §respond-repair): map
+ * the classified wrapper for `driveFollowUp` — reply text on success, the
+ * discriminated `FollowUpDriveFailure` on a provider failure so the proximate
+ * `QueryError` terminates repair with no `attempts` debit (bug 0007: the
+ * unclassified drive laundered the failure into the schema-validation channel,
+ * re-driving the dead provider once per attempt).
+ */
+async function offSessionFollowUp(
+  model: Model<Api> | undefined,
+  prompt: string,
+): Promise<string | FollowUpDriveFailure> {
+  const completion = await offSessionComplete(model, prompt);
+  return completion.kind === "text"
+    ? completion.text
+    : { kind: "provider_failure", error: completion.error };
 }
 
 /**

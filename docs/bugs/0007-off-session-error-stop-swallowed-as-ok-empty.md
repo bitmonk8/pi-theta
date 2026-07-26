@@ -1,6 +1,10 @@
 # Bug 0007 — Off-session queries swallow a `stopReason: "error"` completion as `Ok("")`
 
-- **Status:** open.
+- **Status:** fixed (0.18.0). Option 1 adopted — `offSessionComplete`
+  classifies the resolved reply's `stopReason` through the existing
+  `classifyProviderResponse` table before text extraction; failures ride the
+  query loop's transport arms and terminate respond-repair with no `attempts`
+  debit.
 - **Kind:** defect — the off-session `complete()` query driver omits the
   documented provider-failure classification, so a failed provider call
   resolves as a *successful* empty-string query result. The spec requires the
@@ -20,6 +24,46 @@
 - **Observed at:** `0.16.0`, host Pi `0.82.1` (live, during the bug-0005 fix
   verification); mechanical re-verification against the in-repo SDK pin
   (`@earendil-works/pi-ai` 0.80.10).
+
+## Fix (0.18.0)
+
+Option 1, adopted at the seam the root cause names: `offSessionComplete`
+(`src/extension/production-theta-producer.ts`) now resolves to a **classified**
+discriminated value — `{ kind: "text" }` on a normal terminator (`stop` /
+`end_turn` / `toolUse` / `tool_use`; pi-ai and spec spellings both covered,
+and a non-string/absent `stopReason` treated as normal since pi-ai always sets
+the field) or `{ kind: "failure", error }` for every other string `stopReason`
+— probed before any text extraction, for both of its consumers
+(`OffSessionQueryModel` and the off-session `driveFollowUp` respond-repair
+arm). The H8a undefined-model throw is untouched. Classification routes
+through the existing `classifyProviderResponse` table with
+`#classifyBinderAttempt`'s mirrored input (`httpStatus: 200`, the reply's
+`stopReason` / `errorMessage`, partial text as `rawResponse`): an
+overflow-signature or `length` classification surfaces the classifier's
+`ContextOverflowError` verbatim; everything else folds to the pinned transport
+surface `{ kind: "transport", message: <classifier message, or "provider
+transport failure">, http_status: null, provider: String(model.api),
+retryable: false }`.
+
+`OffSessionQueryModel.nextFreePhaseTurn` / `forcedRespondTurn` surface a
+failure on the loop's existing transport arms (the CANCEL-3 provider-Promise
+guard wraps the classified wrapper unchanged); the arms' payload widened
+minimally to `TransportError | ContextOverflowError`
+(`src/runtime/query-tool-loop.ts`, plus the matching outcome arms), no
+control-flow change. A typed query's provider failure therefore never reaches
+`parseStructuredPayload` — the forced-respond turn terminates immediately as
+`Err(transport)` / `Err(context_overflow)` instead of laundering into the
+schema-validation channel. A respond-repair follow-up's provider failure
+returns the new exported `FollowUpDriveFailure`
+(`src/runtime/typed-query-validation.ts`), which `nextFollowUp` maps to
+`runRespondRepairLoop`'s existing `non_validation` arm — repair terminates
+with the proximate `QueryError` and no `attempts` debit
+(query-failure-and-repair.md §Non-validation failures). The live prompt-mode
+arm (`driveStreamedUserTurn`), the binder classification, and the
+child-process envelope path are untouched. Fixture:
+`tests/off-session-transport-classification.test.ts` (eight classification
+cells plus two green controls over a mocked `@earendil-works/pi-ai/compat`
+`complete()`).
 
 ## Summary
 

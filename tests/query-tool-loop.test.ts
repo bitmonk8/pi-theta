@@ -463,7 +463,12 @@ describe("PIC-50/51 — prompt-mode transport-error surfacing (conversation-driv
     if (outcome.kind !== "transport") return;
     expect(outcome.error.kind).toBe("transport");
     expect(outcome.error.message).toBe("provider 529");
-    expect(outcome.error.retryable).toBe(false);
+    // Bug 0007 widened the transport arm's payload to
+    // `TransportError | ContextOverflowError` (the off-session stop-reason
+    // classification's overflow arm rides the same arm), so the
+    // transport-only `retryable` read needs the narrow — the scripted turn
+    // here is a `TransportError` by construction.
+    expect((outcome.error as TransportError).retryable).toBe(false);
   });
 
   it("typed: a transport forced-respond turn surfaces Err(transport), never parsed as a value", async () => {

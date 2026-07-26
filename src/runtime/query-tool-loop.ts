@@ -61,6 +61,7 @@ import type { RuntimeEvent } from "./runtime-event-channel";
 import { computeMasked } from "./runtime-event-channel";
 import {
   makeToolLoopExhaustedError,
+  type ContextOverflowError,
   type QueryError,
   type ToolLoopExhaustedError,
   type TransportError,
@@ -91,8 +92,11 @@ export type FreePhaseTurn =
   | { readonly kind: "text"; readonly text: string }
   // PIC-51: the driven free-phase provider turn carried `stopReason: "error"`
   // (or PIC-50: a synchronous throw from the send surface). The loop surfaces
-  // this as a `transport` outcome (never masked as `Ok(text)`).
-  | { readonly kind: "transport"; readonly error: TransportError };
+  // this as a `transport` outcome (never masked as `Ok(text)`). The payload is
+  // widened to admit the stop-reason classification's overflow arm (PIC-51b /
+  // provider-error-mapping.md §Stop-reason classification: `length` and
+  // overflow-signature matches → `ContextOverflowError`) riding the same arm.
+  | { readonly kind: "transport"; readonly error: TransportError | ContextOverflowError };
 
 /**
  * The forced respond turn a typed query issues after the free phase: the model
@@ -104,8 +108,10 @@ export type ForcedRespondTurn =
   | { readonly kind: "respond"; readonly payload: unknown }
   // PIC-50/51: the forced-respond provider turn failed at the transport layer
   // (`stopReason: "error"` / send sync-throw). Surfaced as a `transport`
-  // typed-query outcome, never parsed as a structured payload.
-  | { readonly kind: "transport"; readonly error: TransportError };
+  // typed-query outcome, never parsed as a structured payload. Widened for the
+  // stop-reason classification's overflow arm (`length` / overflow signature →
+  // `ContextOverflowError`), which rides the same transport arm.
+  | { readonly kind: "transport"; readonly error: TransportError | ContextOverflowError };
 
 // ---------------------------------------------------------------------------
 // The injected model driver — the deterministic scripted surface a test drives.
@@ -189,7 +195,10 @@ export type UntypedQueryOutcome =
     }
   | {
       readonly kind: "transport";
-      readonly error: TransportError;
+      // PIC-51b / stop-reason classification: a `length`/overflow-classified
+      // turn's `ContextOverflowError` rides the transport arm alongside
+      // `TransportError`.
+      readonly error: TransportError | ContextOverflowError;
       readonly rounds: readonly FreePhaseRoundLog[];
       readonly committed: readonly CommittedSideEffect[];
     }
@@ -223,7 +232,10 @@ export type TypedQueryOutcome =
     }
   | {
       readonly kind: "transport";
-      readonly error: TransportError;
+      // PIC-51b / stop-reason classification: a `length`/overflow-classified
+      // turn's `ContextOverflowError` rides the transport arm alongside
+      // `TransportError`.
+      readonly error: TransportError | ContextOverflowError;
       readonly rounds: readonly FreePhaseRoundLog[];
       readonly forcedRespond: ForcedRespondDispatch;
       readonly committed: readonly CommittedSideEffect[];

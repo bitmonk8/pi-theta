@@ -19,7 +19,7 @@ import type {
   TypedQueryValidationResult,
 } from "./query-tool-loop";
 import type { LoweredSchema, SchemaValidator } from "../seams/schema-validator";
-import type { ValidationIssue } from "./query-error";
+import type { QueryError, ValidationIssue } from "./query-error";
 import {
   renderFollowUpTurn,
   type FollowUpMethodology,
@@ -70,6 +70,20 @@ export function payloadForRespond(parse: StructuredPayloadParse): unknown {
   return parse.parsed ? parse.value : parse.raw;
 }
 
+/**
+ * A respond-repair follow-up drive that failed at the provider layer instead of
+ * producing reply text (query-failure-and-repair.md §"Non-validation failures
+ * during a respond-repair follow-up"): the off-session `complete()` reply
+ * classified as `transport` / `context_overflow` at the seam (bug 0007). The
+ * carried `QueryError` propagates as the query's `Err` and terminates repair
+ * with no `attempts` debit — the plain-string reply stays the success shape so
+ * existing string-returning drives keep compiling unchanged.
+ */
+export interface FollowUpDriveFailure {
+  readonly kind: "provider_failure";
+  readonly error: QueryError;
+}
+
 /** Construction inputs for the production typed-query schema-validation seam. */
 export interface TypedQueryValidationInput {
   /** The lowered declared response schema (QRY-22 / SUBS-1). */
@@ -84,11 +98,15 @@ export interface TypedQueryValidationInput {
   readonly maxRounds: number;
   /**
    * Drive ONE respond-repair follow-up user turn against the driven conversation
-   * with the rendered follow-up prompt, resolving to its reply text. Injected so
-   * each conversation mode (prompt / off-session / subagent) supplies its own
-   * turn drive.
+   * with the rendered follow-up prompt, resolving to its reply text — or, when
+   * the drive's provider call itself failed (bug 0007: the off-session
+   * `complete()` reply classified as a provider failure), to the discriminated
+   * `FollowUpDriveFailure` so the proximate `QueryError` propagates (QRY-10
+   * §respond-repair) instead of the failure re-entering validation as text.
+   * Injected so each conversation mode (prompt / off-session / subagent)
+   * supplies its own turn drive.
    */
-  readonly driveFollowUp: (prompt: string) => Promise<string>;
+  readonly driveFollowUp: (prompt: string) => Promise<string | FollowUpDriveFailure>;
 }
 
 /**
@@ -156,6 +174,14 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
           issues: latestIssues,
         });
         const reply = await this.#input.driveFollowUp(prompt);
+        if (typeof reply !== "string") {
+          // QRY-10 §respond-repair: a follow-up that fails for a non-validation
+          // reason (here: the drive's provider failure, bug 0007) propagates as
+          // its proximate `QueryError` variant and terminates respond-repair
+          // immediately — `runRespondRepairLoop`'s `non_validation` arm debits
+          // NO `attempts` slot, so a dead provider is never re-driven.
+          return { kind: "non_validation", error: reply.error };
+        }
         const parse = await parseStructuredPayload(reply);
         const payload = payloadForRespond(parse);
         const result = validateAgainst(

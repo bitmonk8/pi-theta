@@ -6,6 +6,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-07-26
+
+### Fixed
+
+- **Off-session `@`-queries no longer swallow a provider failure as a
+  fabricated success (bug 0007).** pi-ai's `complete()` free function never
+  rejects on a provider failure — the per-API adapter resolves every caught
+  throw as an `AssistantMessage` carrying `stopReason: "error"` (+ optional
+  `errorMessage`) — and `offSessionComplete`, the driver behind every
+  `@`-query in a `subagent fn` body and the off-session respond-repair
+  follow-up drive, extracted the reply's text without probing `stopReason`.
+  An untyped query therefore resolved `Ok("")` (or `Ok(<partial text>)` after
+  a mid-stream failure) — the provider's error text destroyed, the theta
+  continuing on data that was never produced — while a typed query laundered
+  the transport failure into the schema-validation channel, re-driving the
+  dead provider once per `respond_repair` attempt (1 + 3 = 4 `complete()`
+  calls at the default budget) before misreporting `Err(ValidationError)`.
+  The off-session seam now classifies the resolved reply before text
+  extraction through the existing provider-error-mapping table, mirroring the
+  binder's classifier input: a non-normal `stopReason` maps to the pinned
+  `Err(QueryError { kind: "transport", message: <errorMessage, or "provider
+  transport failure">, http_status: null, provider: <resolved model's .api>,
+  retryable: false })`, with `"length"` and overflow-signature envelopes
+  surfacing as `context_overflow` (token counts extracted where available);
+  the query loop's transport arms widened to carry both. A respond-repair
+  follow-up's provider failure now terminates repair immediately with the
+  proximate error and consumes no `attempts` slot. Fixture:
+  `tests/off-session-transport-classification.test.ts`. Observed at 0.16.0.
+
 ## [0.17.0] - 2026-07-26
 
 ### Fixed
