@@ -26,6 +26,8 @@ shipped behaviour until specified and implemented.
 - [0003 — `par for`: structured parallel fan-out](./0003-parallel-fanout.md) — accepted
 - [0005 — Child-process subagent sessions (RPC session driver)](./0005-child-process-subagent-sessions.md) — draft
 - [0006 — Child-process theta execution (remote theta)](./0006-child-process-theta-execution.md) — draft (depends on 0005)
+- [0007 — Fail-closed observability on the print-mode surface](./0007-print-mode-observability.md) — draft
+- [0008 — Type match pattern bindings from the scrutinee](./0008-match-binding-type-inference.md) — draft
 
 Reclassified out of the RFC series:
 
