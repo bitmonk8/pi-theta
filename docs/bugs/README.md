@@ -26,3 +26,5 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0004 — `invoke<array<T>>` return validation drops transitive `$defs` of named schemas](./0004-generic-annotation-drops-transitive-defs.md) — fixed (0.15.0)
 - [0005 — `subagent fn` return-type annotations: `with` swallowed, keyword recognition lost, `?` rejected](./0005-subagent-fn-return-annotation-misparse.md) — fixed (0.14.0)
 - [0006 — A leading-`[` expression statement glues onto the previous statement as index access](./0006-leading-bracket-glued-as-index-access.md) — fixed (0.13.0)
+- [0007 — Off-session queries swallow a `stopReason: "error"` completion as `Ok("")`](./0007-off-session-error-stop-swallowed-as-ok-empty.md) — open
+- [0008 — Subagent child receives only the last theta discovery root when the parent has ≥ 2 roots](./0008-subagent-child-drops-all-but-last-theta-root.md) — open
