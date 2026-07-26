@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-26
+
+### Fixed
+
+- **A `subagent fn` return annotation no longer swallows the `with` clause
+  (bug 0005 (a)).** The return-type parser did not stop at the contextual
+  keyword `with`, so `subagent fn s(a: string): string with { system: "…" }`
+  landed the concatenated annotation `stringwith` on the AST, took the
+  with-braces as the fn *body*, and shredded the real body into stray
+  top-level statements (`theta/parse/unknown-identifier: unknown identifier
+  'system'` plus a stray-`:` / bare-object-literal cascade). `ReturnType`
+  parsing now terminates at a depth-0 `with` — `(":" ReturnType)?` and
+  `WithClause?` are consecutive slots — and the clause parses as the
+  `WithClause` the grammar admits. Rule recorded in
+  `docs/reference/grammar.md` §"`fn` declarations". Observed at 0.12.0.
+- **An annotated `subagent fn` after a statement ending in postfix `?` is
+  recognised as a declaration again (bug 0005 (b)).** A trailing ternary-head
+  `?` and a trailing postfix `?` are lexically identical up to the newline,
+  so the lexer swallows the newline after both and the parser's ternary-head
+  scan disambiguates — but the scan read across the swallowed boundary into
+  the *next* declaration, where a return annotation's depth-0 `:` (the param
+  parens having closed) classified the postfix `?` as a ternary head:
+  `subagent` was consumed as the consequent (`theta/parse/unknown-identifier:
+  unknown identifier 'subagent'`) and the modifier silently dropped. The scan
+  now answers *postfix* on meeting a depth-0 statement-only keyword (`fn`,
+  `let`, `if`, `else`, `while`, `return`, `schema`, `enum`, `import`,
+  `export`, `break`, `continue` — keywords that can never sit at depth 0
+  inside a ternary consequent; `for`/`in` stay allowed because `par for` is
+  an expression), restoring the documented "the `?` trigger is the ternary
+  head only" boundary. Real multi-line ternaries — trailing- and leading-`?`
+  forms — are unaffected. Observed at 0.12.0.
+- **A return-annotated `subagent fn` body accepts `?` (bug 0005 (c)).** The
+  question-scope check treated the annotation as a plain-`fn` return type, so
+  a query-`?` line inside `subagent fn helper(a: string): string { … }` fired
+  `theta/parse/question-outside-result-fn` — annotating a function with
+  exactly its inferred type changed body legality. Under FN-6 the body is a
+  subagent session whose failure channel is the boundary `Err`, so the body
+  is a `Result` scope for `?` regardless of annotation, and `): T` declares
+  the **Ok payload** `T` (the `invoke<T>` analogue): the annotation is now
+  validated against the FN-3-inferred Ok payload, firing the existing
+  `theta/parse/invoke-return-type-mismatch` on a statically-resolvable
+  incompatible payload and deferring to the runtime boundary validation
+  otherwise. Semantics recorded in `docs/spec_topics/functions.md` FN-6
+  (Return). Present since 0.7.1.
+
 ## [0.13.0] - 2026-07-26
 
 ### Fixed

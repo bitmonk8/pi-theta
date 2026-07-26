@@ -75,6 +75,7 @@ import {
   type QuestionOperandType,
 } from "./match-result";
 import { resolveReturnType, type ReturnContribution } from "./functions";
+import { checkInvokeReturnType } from "./invoke-diagnostics";
 import { checkArrayJoin } from "../runtime/stdlib-array";
 import { checkObjectIndex } from "../runtime/stdlib-object";
 
@@ -443,8 +444,16 @@ class TypeLayerWalk {
         fnScope.set(p.name, annotationToCompatType(p.type) ?? { kind: "named", name: p.type });
       }
     }
+    // FN-6 (bug 0005 (c)) — a `subagent fn` body is a subagent session whose
+    // failure channel is the boundary `Err`: a body `?` sits in the same
+    // position as a subagent-mode `.theta` body's top-level `?`, where it is
+    // legal. `): T` on a `subagent fn` declares the Ok PAYLOAD `T` (the
+    // `invoke<T>` analogue, matching the annotation-less inference), not a
+    // plain return type — so the body is a Result scope for the `?` check
+    // regardless of annotation, and only a plain `fn`'s annotation gates `?`
+    // on Result-compatibility.
     const returnScope: EnclosingReturnScope =
-      fn.returnType === null
+      fn.returnType === null || fn.subagent
         ? { kind: "inferred" }
         : { kind: "annotated", resultCompatible: isResultAnnotation(fn.returnType) };
 
@@ -462,9 +471,58 @@ class TypeLayerWalk {
       if (resolved.kind === "inference-no-common-type") {
         this.diagnostics.push(resolved.diagnostic);
       }
+    } else if (fn.subagent) {
+      this.checkSubagentReturnAnnotation(fn, fn.returnType, fnScope);
     }
 
     this.walkBlock(fn.body, fnScope, { returnScope });
+  }
+
+  /**
+   * Validate an annotated `subagent fn`'s return annotation against the
+   * INFERRED Ok payload (bug 0005 (c)). The same FN-3 payload-level inference
+   * an annotation-less body gets runs first; the resolved payload is then
+   * checked `⊑ annotation` through the existing `invoke<Schema>` typed-return
+   * machinery (`checkInvokeReturnType`), reusing
+   * `theta/parse/invoke-return-type-mismatch` — FN-6 explicitly equates the
+   * subagent-fn boundary with `invoke`, and `): T` is the `invoke<T>`
+   * analogue, so the invoke row covers this slot rather than coining a
+   * parallel code. Conservative by construction, never a crash and no false
+   * positive: a statically-unresolvable payload (a query / unresolved-call
+   * tail — a `named` reference past the parser's static view) makes the `⊑`
+   * relation answer `"unknown"` and no diagnostic fires (the runtime AJV
+   * boundary check is the net); a contribution set with no common upper bound
+   * is left to the annotation (FN-3: an explicit annotation bypasses
+   * inference) rather than re-flagged as `return-no-common-type`.
+   */
+  private checkSubagentReturnAnnotation(
+    fn: FnDecl,
+    returnType: string,
+    fnScope: ReadonlyMap<string, CompatType>,
+  ): void {
+    const annotation = annotationToCompatType(returnType);
+    if (annotation === undefined) {
+      return;
+    }
+    const resolved = resolveReturnType({
+      contributions: this.collectReturnContributions(fn.body, fnScope),
+      hasQuestion: this.bodyHasQuestion(fn.body),
+      env: this.env,
+      site: { file: this.file, range: fn.range },
+    });
+    if (resolved.kind !== "inferred") {
+      return;
+    }
+    this.diagnostics.push(
+      ...checkInvokeReturnType({
+        callee: fn.name,
+        calleeResolvable: true,
+        schema: annotation,
+        calleeReturn: resolved.inferred.payload,
+        env: this.env,
+        site: { file: this.file, range: fn.range },
+      }),
+    );
   }
 
   /**

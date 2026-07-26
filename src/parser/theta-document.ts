@@ -1298,6 +1298,44 @@ const EXPRESSION_LEAD_PUNCT: ReadonlySet<string> = new Set([
   "`",
 ]);
 
+/**
+ * Keywords that can never occur at bracket depth 0 inside a ternary
+ * consequent/alternate expression — the statement/declaration heads. Meeting
+ * one in the `isTernaryHead` forward scan proves the scan has crossed a
+ * statement boundary whose newline the lexer's trailing-`?` continuation
+ * swallowed, so the `?` under test is the postfix error-propagation terminator
+ * (grammar.md §"Statement termination & newline continuation" — "the `?`
+ * trigger is the ternary head only"; bug 0005 (b)).
+ *
+ * Why the set is closed: theta has no statement expressions — `let` / `if` /
+ * `else` / `while` / `return` / `break` / `continue` and the declaration heads
+ * `fn` / `schema` / `enum` / `import` / `export` occur only in statement
+ * position, and the two block-expression forms (a `match`-arm block body and a
+ * `par for` body) put their statements behind a `{` that raises the bracket
+ * depth first, so none of these keywords can sit at depth 0 mid-expression.
+ * Deliberately EXCLUDED: `for` and `in` — `par for x in xs { … }` is an
+ * expression (grammar.md §Blocks, theta 1.1) and `par` lexes as a contextual
+ * ident, so both sit at depth 0 in a legal consequent (`c ? par for x in xs
+ * { x } : y`); `match` and the other `EXPRESSION_KEYWORDS`, which head
+ * expressions; and the type keywords (`string` … `array`, `Result`, `void`),
+ * which sit at depth 0 inside an `invoke<…>` generic annotation because the
+ * scan does not depth-track `<`/`>`.
+ */
+const STATEMENT_ONLY_KEYWORDS: ReadonlySet<string> = new Set([
+  "fn",
+  "let",
+  "if",
+  "else",
+  "while",
+  "return",
+  "schema",
+  "enum",
+  "import",
+  "export",
+  "break",
+  "continue",
+]);
+
 /** Whether a token can begin an expression (a ternary consequent). */
 function canStartExpression(t: Token): boolean {
   switch (t.kind) {
@@ -1886,7 +1924,13 @@ class BodyParser {
     let returnType: string | null = null;
     if (this.isPunct(":")) {
       this.advance();
-      returnType = this.parseType();
+      // The return slot terminates at a depth-0 `with`: grammar.md §"`fn`
+      // declarations" places `(":" ReturnType)?` and `WithClause?` as
+      // consecutive optional slots, and `with` is contextual (lexes as an
+      // ident), so without the stop the type parser consumed it — `): string
+      // with { … }` yielded the concatenated annotation `stringwith` and took
+      // the with-braces as the fn BODY (bug 0005 (a)).
+      returnType = this.parseType(false, true);
     }
     // `WithClause?` — `with` is a contextual keyword (grammar.md §"Contextual
     // keywords") admitted only here, between a `subagent fn`'s signature and its
@@ -2324,9 +2368,13 @@ class BodyParser {
    * number) that directly follows a completed type atom with no intervening `|`
    * union operator marks the start of the next `Field`, so the current field's
    * type does not greedily swallow it. This is what lets a comma-missing schema
-   * body still recover both fields (see `parseSchemaObjectBody`).
+   * body still recover both fields (see `parseSchemaObjectBody`). When
+   * `stopAtWithClause` is set (the `fn` return-type slot only, so `let`
+   * annotations and schema-field types are untouched), the scan also stops at a
+   * depth-0 `with` ident — the contextual keyword opening a `WithClause`
+   * (grammar.md §"Contextual keywords", §"`fn` declarations"; bug 0005 (a)).
    */
-  private parseType(stopAtFieldBoundary = false): string {
+  private parseType(stopAtFieldBoundary = false, stopAtWithClause = false): string {
     const parts: string[] = [];
     let depth = 0;
     // A leading `{` introduces an inline object type (`let x: { a: T, … }`):
@@ -2368,6 +2416,19 @@ class BodyParser {
           t.text === "}" ||
           t.text === "=")
       ) {
+        break;
+      }
+      if (
+        stopAtWithClause &&
+        depth === 0 &&
+        t.kind === "ident" &&
+        t.text === "with"
+      ) {
+        // A `fn` return-type slot never consumes a depth-0 `with`: it is the
+        // contextual keyword opening the `WithClause` between the annotation
+        // and the body block (bug 0005 (a); grammar.md §"`fn` declarations").
+        // At depth > 0 (e.g. `array<with>`) an ident spelled `with` is ordinary
+        // type material and still joins.
         break;
       }
       if (stopAtFieldBoundary && depth === 0 && parts.length > 0) {
@@ -2420,6 +2481,16 @@ class BodyParser {
    * closing bracket, or a statement keyword. Distinguishing by the trailing `:`
    * keeps `foo()?` (postfix, `try`) separate from `c ? a : b` (ternary), even
    * across the lexer's swallowed continuation newline after a trailing `?`.
+   *
+   * The lexer cannot make this call: a ternary head at line end and a postfix
+   * `?` at line end are lexically identical up to the newline, so `?` must stay
+   * a trailing continuation trigger and the boundary is restored here. The scan
+   * therefore stops — answering postfix — at a depth-0 statement-only keyword
+   * (`STATEMENT_ONLY_KEYWORDS`): with the separator swallowed, the scan would
+   * otherwise read into the NEXT declaration, whose depth-0 `:` (a `subagent fn
+   * f(...): T` return annotation, the param parens having closed) masquerades
+   * as the ternary's `:` — `subagent` then parses as the consequent and the
+   * modifier is dropped (bug 0005 (b)).
    */
   private isTernaryHead(): boolean {
     if (!canStartExpression(this.peek(1))) {
@@ -2429,6 +2500,17 @@ class BodyParser {
     for (let i = 1; ; i += 1) {
       const t = this.peek(i);
       if (t.kind === "eof" || t.kind === "stmt-sep") {
+        return false;
+      }
+      if (
+        t.kind === "keyword" &&
+        depth === 0 &&
+        STATEMENT_ONLY_KEYWORDS.has(t.text)
+      ) {
+        // Statement material can never be ternary-consequent material at
+        // depth 0 (see STATEMENT_ONLY_KEYWORDS): the swallowed boundary has
+        // been crossed, so the `?` is the postfix terminator (bug 0005 (b);
+        // grammar.md §"Statement termination & newline continuation").
         return false;
       }
       if (t.kind === "punct") {

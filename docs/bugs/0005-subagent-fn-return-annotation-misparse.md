@@ -1,6 +1,11 @@
 # Bug 0005 — `subagent fn` return-type annotations: `with` swallowed, keyword recognition lost, `?` rejected
 
-- **Status:** open
+- **Status:** fixed (0.14.0). Option 1 adopted — all three symptoms under the
+  Ok-payload reading: `ReturnType` parsing stops at the contextual keyword
+  `with`; the ternary-head scan honours the postfix-`?` statement boundary by
+  stopping at a depth-0 statement keyword; a `subagent fn` body is a `Result`
+  scope for `?` regardless of annotation, and `): T` is validated as the Ok
+  payload against the inferred payload.
 - **Kind:** defect cluster — three related failures around the grammatical
   `(":" ReturnType)?` slot on a `subagent fn` declaration. Symptoms (a) and (b)
   contradict the documented grammar; symptom (c) is a semantics gap the spec
@@ -14,6 +19,53 @@
   `src/parser/type-layer-checks.ts`) as applied to `subagent fn` bodies.
 - **Observed at:** `0.12.0` (parse-lint via `parseThetaDocument`; (c) also hit
   live in a registered theta on 0.7.1 and 0.12.0).
+
+## Fix (0.14.0)
+
+Option 1, adopted in full — one change per symptom, at the site each root
+cause names:
+
+- **(a)** `parseType` (`src/parser/theta-document.ts`) takes a
+  `stopAtWithClause` flag, passed only at the `fn` return-type slot (`let`
+  annotations and schema-field types untouched): the scan terminates at a
+  depth-0 `with` ident — the contextual keyword opening a `WithClause` — so
+  `): string with { … }` yields the annotation `string` and `parseFn`'s
+  existing with-clause branch consumes the clause before the real body block.
+- **(b)** fixed on the parser side of the boundary, not the lexer: a trailing
+  ternary-head `?` and a trailing postfix `?` are lexically identical up to
+  the newline (only what follows distinguishes them), so `?` stays a trailing
+  continuation trigger and `isTernaryHead` (`src/parser/theta-document.ts`)
+  now answers *postfix* when its forward scan meets a depth-0 statement-only
+  keyword (`fn let if else while return schema enum import export break
+  continue`) before the deciding `:` — proof the scan crossed the swallowed
+  statement boundary. `for`/`in` are deliberately excluded (`par for x in xs
+  { … }` is an expression, so both sit legally at depth 0 in a consequent),
+  as are the expression keywords (`match`, `invoke`, …) and the type
+  keywords (legal at depth 0 inside an `invoke<…>` annotation, whose `<`/`>`
+  the scan does not depth-track). Real multi-line ternaries — trailing- and
+  leading-`?` forms — are unaffected.
+- **(c)** `walkFn` (`src/parser/type-layer-checks.ts`) builds an inferred
+  (`Result`-compatible) question scope for every `subagent fn` body
+  regardless of annotation — FN-6: the body's failure channel is the boundary
+  `Err`, the same position as a subagent-mode `.theta` body — and validates a
+  supplied annotation against the FN-3-inferred Ok payload through the
+  existing `invoke<Schema>` typed-return machinery, reusing
+  `theta/parse/invoke-return-type-mismatch` (FN-6 equates the boundary with
+  `invoke`; `): T` is the `invoke<T>` analogue). A statically-unresolvable
+  payload (a query / unresolved-call tail) makes the `⊑` relation answer
+  "unknown" and no diagnostic fires — the runtime AJV boundary check is the
+  net, never a parse-time false positive.
+
+FN-6's Return bullet now states what a supplied `): T` means (Ok payload;
+`Result` scope for `?`; validated against the inferred payload; the call site
+still receives `Result<T, QueryError>`); `docs/reference/grammar.md` records
+the `ReturnType`-stops-at-`with` rule under §"`fn` declarations" and the
+bug-0005 provenance line; the `invoke-return-type-mismatch` registry row
+covers the subagent-fn annotation slot. Fixtures in
+`tests/subagent-fn-return-annotation.test.ts`: the three bug-doc repros, the
+blank-line variant, both real-ternary continuation forms, the un-annotated
+escape hatch, the plain-`fn` question-scope controls, and the
+annotation-vs-payload validation cells (10 red on 0.13.0, 16 green now).
 
 ## Summary
 

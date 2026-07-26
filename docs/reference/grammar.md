@@ -222,6 +222,9 @@ carry no default and are immutable — `mut` on one is
 `theta/parse/mut-on-immutable-context`. Functions are not first-class; a name used
 outside call position is `theta/parse/function-as-value`. `: ReturnType` optional;
 absent → return type inferred (see [Type system](./type-system.md)).
+`ReturnType` parsing terminates at the contextual keyword `with` opening a
+`WithClause`: `(":" ReturnType)?` and `WithClause?` are consecutive slots, so in
+`): T with { … }` the type ends before `with` and never spans into the clause.
 
 **`subagent fn` (theta 1.2).** The `subagent` modifier is admissible **only** on a
 top-level `fn` (in both `.theta` and `.thetalib` files) and makes each call spawn a
@@ -547,6 +550,11 @@ ToolField ::= Ident ":" Expr
 - Same-line rule for postfix index access (a line-leading `[` begins a new
   statement): `docs/bugs/0006-leading-bracket-glued-as-index-access.md`
   (fixed 0.13.0, Option 1).
+- Postfix-`?` statement boundary (the `?` trigger is the ternary head only — a
+  statement ending in postfix `?` terminates before a following declaration)
+  and `ReturnType` termination at a `WithClause`:
+  `docs/bugs/0005-subagent-fn-return-annotation-misparse.md` (fixed 0.14.0,
+  Option 1).
 - Implementation confirmation: reserved-keyword set in `src/lexer/lexer.ts:152`
   matches the spec list byte-for-byte; `src/lexer/lexer.ts` trailing/leading
   continuation-trigger sets match the closed trigger table.
