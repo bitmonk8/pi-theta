@@ -1,6 +1,8 @@
 # Bug 0006 — A leading-`[` expression statement glues onto the previous statement as index access
 
-- **Status:** open
+- **Status:** fixed (0.13.0). Option 1 adopted: postfix index access must
+  open its `[` on the same line as its receiver's end — a `[` that begins a
+  line begins a new statement.
 - **Kind:** defect — statement segmentation treats a newline-separated leading
   `[` as postfix index access on the preceding statement's trailing expression,
   mis-parsing a legal tail expression into a type error plus stray-token
@@ -10,6 +12,22 @@
   boundary).
 - **Observed at:** `0.12.0` (parse-lint via `parseThetaDocument`; first hit at
   `0.7.1`).
+
+## Fix (0.13.0)
+
+Option 1, adopted in full at the consumption site the root cause names:
+`BodyParser.parsePostfix` (`src/parser/theta-document.ts`) now compares the
+`[` token's start line against the receiver expression's end line before
+consuming it as index access, and on a mismatch leaves the `[` for the
+caller's statement loop (token ranges keep line/column through continuation
+collapsing, so no lexer change). The open-bracket continuation is untouched:
+an index whose `[` opens on the receiver's line may still spill its index
+expression across lines. Grammar rule recorded in
+`docs/reference/grammar.md` §"Statement termination & newline continuation"
+and §"Expression sublanguage"; fixtures in
+`tests/leading-bracket-statement-boundary.test.ts` cover the fn-body tail,
+the silent indexable-receiver mid-block case, comma-less `match` arms, and
+the same-line / spilled-index / bind-then-return controls.
 
 ## Summary
 

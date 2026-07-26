@@ -2579,6 +2579,20 @@ class BodyParser {
         // Index access `target[index]` (expressions.md §"Index access"). The
         // index sub-expression parses inside the brackets, so a nested object
         // literal there is not brace-suppressed.
+        //
+        // The `[` must open on the same line as the receiver's end: a leading
+        // `[` is no continuation trigger (grammar.md §"Statement termination &
+        // newline continuation"), so a `[` that begins a line begins a new
+        // statement. Inside a block the lexer's open-bracket continuation has
+        // already swallowed the newline (no `stmt-sep` survives at bracket
+        // depth > 0), so the boundary is restored here — leave the `[` for the
+        // caller's statement loop rather than gluing a next-line array literal
+        // onto this expression as index access (bug 0006). Token ranges keep
+        // line/column through continuation collapsing, so the comparison sees
+        // the source lines.
+        if (this.peek().range.start.line !== expr.range.end.line) {
+          break;
+        }
         this.advance();
         const indexExpr: Expr = this.parseBracketedExpression() ?? nullExpr(expr.range);
         if (this.isPunct("]")) {

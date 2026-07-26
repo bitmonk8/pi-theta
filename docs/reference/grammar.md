@@ -115,6 +115,10 @@ trigger set is closed:
   is a complete-expression terminator (it desugars to `return Err(e)`) and never
   continues.
 - Blank lines do not break a continuation: `let x =\n\n  foo` is one statement.
+- A `[` that begins a line begins a new statement: postfix index access must
+  open its `[` on the same line as its receiver's end. The open-bracket trigger
+  continues an **already-open** `[` (the index expression may spill across
+  lines); a leading `[` is not a continuation trigger.
 - No trigger closes the statement. Single-line `if (x) stmt` does not exist;
   `if`/`for`/`while`/`fn` bodies are always braced blocks
   (`theta/parse/single-line-if`).
@@ -292,7 +296,8 @@ description.
 Supported forms: literals; identifiers; member access `a.b`; indexed access
 `a[k]` (receiver must be `array<T>` or object — otherwise
 `theta/parse/non-indexable-receiver`; object index must be `string` —
-`theta/parse/non-string-object-index`); calls `f(x)`, `obj.method(x)`,
+`theta/parse/non-string-object-index`; the `[` must open on the same line as
+the receiver's end — a line-leading `[` begins a new statement); calls `f(x)`, `obj.method(x)`,
 `<name>(args)`; unary `!` / `-`; arithmetic `+ - * / %`; comparison
 `== != < <= > >=`; logical `&& ||`; ternary `cond ? a : b`; postfix `?`;
 parenthesisation; `@`...`` query templates; array literals `[]` / `[a, b]`;
@@ -539,6 +544,9 @@ ToolField ::= Ident ":" Expr
   `docs/rfcs/0001-subagent-fn.md` (accepted; Proposal — Semantics).
 - `return` (RET-1…RET-3): `docs/spec_topics/return.md`.
 - Bindings & mutability: `docs/spec_topics/bindings.md`.
+- Same-line rule for postfix index access (a line-leading `[` begins a new
+  statement): `docs/bugs/0006-leading-bracket-glued-as-index-access.md`
+  (fixed 0.13.0, Option 1).
 - Implementation confirmation: reserved-keyword set in `src/lexer/lexer.ts:152`
   matches the spec list byte-for-byte; `src/lexer/lexer.ts` trailing/leading
   continuation-trigger sets match the closed trigger table.

@@ -6,6 +6,29 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-26
+
+### Fixed
+
+- **Postfix index access now terminates at a line break — a `[` that begins
+  a line begins a new statement (bug 0006).** `parsePostfix` consumed any
+  `[` after a complete expression as index access with no same-line check,
+  and inside any block (`fn` / control-flow body — bracket depth > 0) the
+  lexer's open-bracket continuation had already swallowed the newline, so a
+  leading-`[` tail array glued onto the previous statement: `let a = "x"`
+  followed by `["a", a]` mis-parsed as `"x"["a"`, firing
+  `theta/parse/non-indexable-receiver` plus a stray-token cascade two lines
+  from the real construct — or, with an indexable receiver, silently binding
+  the wrong value and dropping the fn's tail. The same gluing shredded
+  comma-less `match` arms with array patterns (`[] => "E"` then `["a"] =>
+  "A"` parsed `"E"["a"]`). The `[` must now open on the same line as its
+  receiver's end; a `[` beginning a line starts a new statement/arm. An
+  index whose `[` opens on the receiver's line may still spill its index
+  expression across lines (open-bracket continuation unchanged), and the
+  top level — which never glued — is unaffected. Rule recorded in
+  `docs/reference/grammar.md` §"Statement termination & newline
+  continuation". Present since 0.7.1.
+
 ## [0.12.0] - 2026-07-25
 
 ### Fixed
