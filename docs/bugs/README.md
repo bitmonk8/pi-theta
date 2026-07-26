@@ -22,3 +22,7 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 
 - [0001 — Extension-registered tools are unreachable from Theta](./0001-extension-tools-unreachable.md) — fixed (0.11.0)
 - [0002 — Spawned subagent child never exits under `pi -p`](./0002-subagent-child-hangs-under-acceptance-pi-p.md) — fixed (0.12.0); investigation: [0002-investigation.md](./0002-investigation.md)
+- [0003 — Whole-object Pi-tool argument dispatches with dropped args instead of the documented parse rejection](./0003-tool-arg-shape-rule-not-enforced.md) — open
+- [0004 — `invoke<array<T>>` return validation drops transitive `$defs` of named schemas](./0004-generic-annotation-drops-transitive-defs.md) — open
+- [0005 — `subagent fn` return-type annotations: `with` swallowed, keyword recognition lost, `?` rejected](./0005-subagent-fn-return-annotation-misparse.md) — open
+- [0006 — A leading-`[` expression statement glues onto the previous statement as index access](./0006-leading-bracket-glued-as-index-access.md) — open
