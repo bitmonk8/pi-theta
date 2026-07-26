@@ -151,7 +151,6 @@ describe("bug 0002 — real subagent child spawn (production spawn path, provide
           child,
           thetaAbort: new AbortController(),
           calleePath: join(thetaDir, "min-child.theta"),
-          provider: CHILD_MODEL_PROVIDER,
           emitDiagnostic,
           clock: new WallClock(),
         });

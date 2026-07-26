@@ -6,6 +6,31 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-07-26
+
+### Fixed
+
+- **Prompt-mode transport errors now carry the api-shaped `.api` provider
+  value (`"anthropic-messages"`), not the short provider id (`"anthropic"`)
+  (bug 0009).** Every normative statement of the
+  `TransportError.provider` derivation pins an api-shaped `Model<Api>.api`
+  value — the same `Api` union the provider-error-mapping table is keyed on —
+  but the `LivePromptQueryModel` construction in `#resolvePromptQuery` read
+  `ctx.model?.provider`, pi-ai's short `ProviderId`: the right model (PIC-50's
+  user-session `ctx.model`) and the right `"unknown"` sentinel, but the wrong
+  field, flowing out through all three prompt-mode `TransportError`
+  synthesis points (the PIC-51 error-stop probes on the untyped and
+  forced-respond driven turns and the PIC-50 sync-throw mapping). The
+  construction now reads
+  `String(deps.ctx.model?.api ?? "unknown")`, so the same provider failure
+  carries the SAME api-shaped provider string on both in-process query seams —
+  prompt-mode and off-session (the latter fixed in 0.18.0, bug 0007) — and the
+  subagent child envelope inherits the alignment (the child runs the identical
+  construction line; the parent reconstructs its `err` arm verbatim). The
+  never-read `SubagentDriveDeps.provider` member and its write-only feeds were
+  deleted. Fixture: `tests/prompt-provider-field-derivation.test.ts`. Observed
+  at 0.18.0.
+
 ## [0.18.0] - 2026-07-26
 
 ### Fixed

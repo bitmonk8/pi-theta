@@ -1,6 +1,8 @@
 # Bug 0009 — Prompt-mode transport errors carry the short provider id (`.provider`) where the spec pins the api-shaped `.api`
 
-- **Status:** open.
+- **Status:** fixed (0.19.0). Option 1 adopted — the construction site reads
+  `String(deps.ctx.model?.api ?? "unknown")` and its comment cites PIC-50; the
+  dead `SubagentDriveDeps.provider` member deleted; construction-site pin added.
 - **Kind:** defect — spec/implementation divergence on an author-visible error
   field. Every normative statement of the `TransportError.provider` derivation
   pins an api-shaped `Model<Api>.api` value ("not a short provider-id form
@@ -26,6 +28,39 @@
 - **Observed at:** `0.18.0`, host Pi `0.82.1` (repo-local SDK pins
   `@earendil-works/pi-ai` / `pi-coding-agent` 0.80.10). Recorded as
   pre-existing and out of scope by the bug-0007 fix review.
+
+## Fix (0.19.0)
+
+Option 1, adopted at the one construction line the root cause names: the
+`LivePromptQueryModel` construction in `#resolvePromptQuery`
+(`src/extension/production-theta-producer.ts`) now reads
+`String(deps.ctx.model?.api ?? "unknown")` — the api-shaped `Model<Api>.api`
+of the user session's selected model, the `"unknown"` sentinel unchanged —
+and the adjacent comment cites PIC-50's user-session-model derivation
+(`ctx.model`, not the theta's resolved `model:`, not the short `ProviderId`;
+queryerror-variants.md §provider derivation) instead of the mislabelled
+"subagent path" mirror-claim (that argv line is a model-*reference* channel
+where the short form is correct). The dead `SubagentDriveDeps.provider` member
+(`src/runtime/subagent-json-driver.ts`) was deleted rather than re-pointed:
+`driveSubagentChild` destructures only `{ child, thetaAbort, calleePath,
+emitDiagnostic }` and the parent reconstructs the child envelope's `err` arm
+verbatim, so the declared "stamped onto a reconstructed transport `Err`"
+purpose described nothing — the deletion took the declaration plus its five
+write-only feeds (the production drive call in
+`production-theta-producer.ts` and the harness literals in
+`tests/subagent-json-driver.test.ts`, `tests/subagent-json-wire.test.ts`,
+`tests/subagent-child-real-spawn.test.ts`,
+`tests/subagent-theta-roots-forwarding.test.ts`). The missing
+construction-site pin landed in
+`tests/prompt-provider-field-derivation.test.ts`: the production producer
+drives the live prompt-mode seam against a session double whose model carries
+DISTINCT `.api`/`.provider` strings (the bug-0007 fixture discipline), pinning
+both synthesis code paths (the PIC-51 error-stop probe and the PIC-50
+sync-throw mapping) across all three feed reads — the probe on the untyped
+free-phase turn and on the typed forced-respond turn (the same once-assigned
+`#provider`), and the sync-throw arm — plus the `"unknown"` sentinel arm and
+a clean-turn control. The subagent child-process envelope inherits the fix
+with no parent-side change — the child runs the same construction line.
 
 ## Summary
 

@@ -55,7 +55,6 @@ function driveDeps(child: SubagentChildProcess, thetaAbort: AbortController, emi
     child,
     thetaAbort,
     calleePath: "/theta/child.theta",
-    provider: "anthropic-messages",
     emitDiagnostic: (d: Diagnostic): void => {
       emitted.push(d);
     },

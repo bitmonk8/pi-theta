@@ -41,7 +41,6 @@ function driveOver(
     child,
     thetaAbort,
     calleePath: "/theta/child.theta",
-    provider: "anthropic",
     emitDiagnostic: (d) => emitted.push(d),
     clock: new WallClock(),
   });

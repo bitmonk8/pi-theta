@@ -1671,7 +1671,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         child,
         thetaAbort,
         calleePath: theta.sourcePath ?? theta.slashName,
-        provider: String(model.provider),
         emitDiagnostic,
         clock: root.clock,
       });
@@ -2154,9 +2153,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           // Only the untyped free-phase native turn is bounded (typed → exempt).
           governor: typed ? undefined : this.#promptToolLoopGovernor,
           maxRounds,
-          // PIC-50/51: the resolved provider for the synthesised `TransportError`
-          // (mirrors the subagent path's `provider: String(model.provider)`).
-          provider: String(deps.ctx.model?.provider ?? "unknown"),
+          // PIC-50/51 (queryerror-variants.md §provider derivation): the api-shaped
+          // `.api` of the USER session's selected model (`ctx.model` — not the theta's
+          // resolved `model:`, not the short ProviderId); "unknown" when undefined.
+          provider: String(deps.ctx.model?.api ?? "unknown"),
         })
       : new OffSessionQueryModel({ model: deps.ctx.model, queryText, signal: deps.signal });
 

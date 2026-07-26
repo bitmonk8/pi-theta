@@ -345,7 +345,6 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
           child,
           thetaAbort: new AbortController(),
           calleePath: join(dirA, "bug8a.theta"),
-          provider: CHILD_MODEL_PROVIDER,
           emitDiagnostic,
           clock: new WallClock(),
         });

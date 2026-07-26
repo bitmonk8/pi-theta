@@ -69,8 +69,6 @@ export interface SubagentDriveDeps {
   readonly thetaAbort: AbortController;
   /** The callee path carried onto a reconstructed `InvokeInfraError`. */
   readonly calleePath: string;
-  /** The resolved-model provider stamped onto a reconstructed transport `Err`, when needed. */
-  readonly provider: string;
   /** Diagnostic sink for the envelope / exit failure-class diagnostics. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
   /** Injected PIC-12 timer seam (no ambient `setTimeout`); defaults at the composition root. */
