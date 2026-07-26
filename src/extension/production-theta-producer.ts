@@ -135,7 +135,11 @@ import type {
   ToolLoweringSink,
 } from "../runtime/tool-call-execute";
 import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
-import { enforceCodeToolArgDepth, enforceModelToolArgDepth } from "../runtime/tool-call";
+import {
+  enforceCodeToolArgDepth,
+  enforceModelToolArgDepth,
+  PiToolArgShapeDefectError,
+} from "../runtime/tool-call";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
 import { runInvokeChild } from "../runtime/invoke-cancellation";
@@ -3024,14 +3028,21 @@ function thetaCalleePath(
  * Lower a code-side `<name>(args)` call's arguments to the JSON params object the
  * host tool's `execute(...)` receives (V14g). The call convention is a single
  * object-literal argument (`grep({ pattern, path })`): its fields are evaluated
- * against the environment and become the JSON params object. A call with no
- * object argument (or a non-object first argument) lowers to an empty params
- * object.
+ * against the environment and become the JSON params object. A ZERO-argument
+ * call lowers to an empty params object; a NON-object first argument is an
+ * internal defect (bug 0003,
+ * docs/bugs/0003-tool-arg-shape-rule-not-enforced.md): the parse-time shape
+ * gate (`theta/parse/tool-arg-not-object-literal`) rejects that form, so
+ * lowering it to `{}` here — the pre-0.16.0 behaviour — would silently drop
+ * the author's argument object. Throwing keeps any future parse-gate gap loud.
  */
 function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<string, unknown> {
   const first = expr.args[0];
-  if (first === undefined || first.kind !== "object") {
+  if (first === undefined) {
     return {};
+  }
+  if (first.kind !== "object") {
+    throw new PiToolArgShapeDefectError(expr.callee);
   }
   const params: Record<string, unknown> = {};
   for (const field of first.fields) {

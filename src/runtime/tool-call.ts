@@ -422,6 +422,36 @@ export function computeToolArgSchemaConflict(
 }
 
 // --------------------------------------------------------------------------
+// Bug 0003 — runtime belt-and-braces behind the parse-time shape gate
+// --------------------------------------------------------------------------
+
+/**
+ * Bug 0003 (docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) belt-and-braces:
+ * a Pi-tool call whose first argument is not an inline object literal is
+ * rejected at parse time (`theta/parse/tool-arg-not-object-literal`, the shape
+ * rule above), so one reaching a runtime lowering means the parse gate did not
+ * reject this call site. Two causes are reachable: a lexically shadowed callee
+ * (`let read = "x"` … `read(args)?`) parses clean by design — the parse walk
+ * honours the shadow — yet still dispatches as the Pi tool because runtime
+ * classification is callable-set-only; or a genuine gap in the gate. Lowering
+ * to `{}` / `args: undefined` silently drops the author's argument object and
+ * misattributes the failure to the tool — the 0.12.0 defect — so both
+ * lowerings (`preEvaluateToolArgs`, `lowerToolCallParams`) throw this instead:
+ * a thrown Error routed to the `theta/runtime/internal-error` surface (the
+ * `ThetaFnArityError` / `ToolReturnShapeDefectError` pattern), so either cause
+ * fails loudly instead of arg-dropping. Zero-argument calls are NOT defects
+ * (parse admits `read()`; both lowerings keep degrading them to `{}`).
+ */
+export class PiToolArgShapeDefectError extends Error {
+  public constructor(toolName: string) {
+    super(
+      `internal defect: Pi tool '${toolName}' call reached the runtime lowering with a non-object-literal first argument; the parse-time shape gate (theta/parse/tool-arg-not-object-literal) did not reject this call site — a lexically shadowed callee that still dispatches as the Pi tool, or a gate gap (bug 0003)`,
+    );
+    this.name = "PiToolArgShapeDefectError";
+  }
+}
+
+// --------------------------------------------------------------------------
 // `CodeToolError` closed enum + distinctness from `ModelToolError`
 // --------------------------------------------------------------------------
 

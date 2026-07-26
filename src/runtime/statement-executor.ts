@@ -55,6 +55,7 @@ import { makeCancelledError, runCancellableSequence } from "./cancellation-core"
 import { HostFatal, isThetaPanic } from "./runtime-panics";
 import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
+import { PiToolArgShapeDefectError } from "./tool-call";
 import { functionResult, type FunctionResult, type TerminalOutcome } from "./function-result";
 import type { LexicalEnvironment } from "./lexical-environment";
 import { evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion } from "./runtime-panics";
@@ -271,10 +272,15 @@ function terminalFlow(result: Exclude<EvalResult, { flow: "value" }>): Flow {
  * `?` inside a field aborts the call before dispatch (the outer tool is not
  * dispatched). Returns the concrete lowered params on `{ ok: true, args }`, or
  * carries a field's non-`value` short-circuit flow verbatim on
- * `{ ok: false, flow }`. A non-`call` effect, or a call whose sole positional
- * argument is not an inline object literal, yields `args: undefined` so the host
- * lowers arguments on its ordinary path (a `.theta`-callable / query / invoke
- * effect is unchanged).
+ * `{ ok: false, flow }`. A non-`call` effect, a `.theta`-callable call (the
+ * invoke trampoline lowers its own argument), or a ZERO-argument Pi-tool call
+ * yields `args: undefined` so the host lowers arguments on its ordinary path.
+ * A Pi-tool call carrying a non-object first argument is an internal DEFECT
+ * (bug 0003): the parse-time shape gate
+ * (`theta/parse/tool-arg-not-object-literal`) rejects that form, so silently
+ * lowering it here would drop the author's argument object — it throws
+ * `PiToolArgShapeDefectError` to the `theta/runtime/internal-error` surface
+ * instead.
  */
 async function preEvaluateToolArgs(
   expr: Expr,
@@ -298,8 +304,18 @@ async function preEvaluateToolArgs(
     return { ok: true, args: undefined };
   }
   const first = expr.args[0];
-  if (first === undefined || first.kind !== "object") {
+  if (first === undefined) {
+    // Zero-argument Pi-tool calls stay legal (parse admits `read()`); the host
+    // lowers them to `{}` on its ordinary path.
     return { ok: true, args: undefined };
+  }
+  if (first.kind !== "object") {
+    // Bug 0003 belt-and-braces: the theta-callable skip above already ran, so
+    // this IS a Pi-tool call whose first argument the parse gate must have
+    // rejected. Failing loudly here (instead of the pre-0.16.0
+    // `args: undefined` degradation) keeps any future parse-gate gap from
+    // silently arg-dropping.
+    throw new PiToolArgShapeDefectError(expr.callee);
   }
   const args: Record<string, ThetaValue> = {};
   for (const field of first.fields) {

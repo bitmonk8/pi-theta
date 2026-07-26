@@ -769,6 +769,19 @@ export function parseThetaDocument(
     file,
   );
 
+  // Bug 0003 (docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) — the
+  // surviving RFC 0002 Pi-tool argument SHAPE rule (grammar.md §"Pi-tool
+  // argument grammar": `ToolArg` is one inline bare object literal;
+  // `read(args)` does not satisfy it). `checkToolCallArguments`
+  // (../runtime/tool-call.ts) implements the rule but had no production caller,
+  // so the code was registered-but-never-emitted; this walk makes
+  // `theta/parse/tool-arg-not-object-literal` fire from the whole-file parse.
+  const toolArgShapeDiags = checkPiToolArgShapes(
+    { statements, tail: resolvedTail },
+    frontmatter,
+    file,
+  );
+
   // C-bucket wiring (V20c): run the `type`-phase checkers against the `V20b`
   // per-expression static-type substrate so they fire in production
   // (non-boolean condition, non-array iterand, `?` misuse, array/return LUB,
@@ -793,6 +806,7 @@ export function parseThetaDocument(
     docScan.diagnostics,
     structuralDiags,
     unknownIdentDiags,
+    toolArgShapeDiags,
     typeLayerDiags,
     thetalibTopLevelDiags,
     resolvedQuery.diagnostics,
@@ -4089,6 +4103,335 @@ function walkIdentExpr(
       return;
     default:
       // number / string / bool / null / query — no identifier sites.
+      return;
+  }
+}
+
+// --------------------------------------------------------------------------
+// Bug 0003 — Pi-tool argument shape rule
+// (theta/parse/tool-arg-not-object-literal; grammar.md §"Pi-tool argument
+// grammar"; code-registry-parse.md)
+// --------------------------------------------------------------------------
+
+/**
+ * Derive the presented callable name for one `tools:` entry ONLY when the
+ * entry is a Pi tool — a bare-identifier spec, the same shape test
+ * `callable-set.ts`'s `resolveEntry` classifies entries by — applying the
+ * `as <name>` rename. Returns `undefined` for a `.theta`-path entry: those
+ * resolve to `.theta`-callables, whose calls route through the invoke
+ * trampoline and lower their own whole-value argument (`sentiment(text)` is
+ * legal), so the `ToolArg` shape rule below never applies to them. Companion
+ * to `toolCallableName`, which derives the name for EVERY entry kind (the
+ * unknown-identifier root scope needs both kinds).
+ */
+function piToolCallableName(entry: string): string | undefined {
+  const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);
+  const spec = parts[0] ?? "";
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(spec)) {
+    return undefined;
+  }
+  return parts.length >= 3 && parts[1] === "as" ? parts[2] : spec;
+}
+
+/**
+ * The exact registered diagnostic for one violating call site
+ * (docs/reference/diagnostics.md `theta/parse/tool-arg-not-object-literal`
+ * row; DIAG-4 message emitted character-for-character). Byte-identical —
+ * code, severity, message template, hint — to the emission inside
+ * `checkToolCallArguments` (../runtime/tool-call.ts), which documents the
+ * rule's arity→shape→type ordering; drift between the two is a defect. The
+ * `range` targets the offending ARGUMENT expression node, so the author's
+ * editor lands on the value to inline rather than on the call or statement.
+ */
+function toolArgShapeDiagnostic(
+  toolName: string,
+  argRange: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/tool-arg-not-object-literal",
+    file,
+    range: argRange,
+    message: `Pi tool '${toolName}' argument must be written inline as a bare object literal { ... }; a let-bound value cannot supply the field shape`,
+    hint: "Inline the fields at the call site: read({ path: expr, ... }).",
+  };
+}
+
+/**
+ * Emit `theta/parse/tool-arg-not-object-literal` (bug 0003,
+ * docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) for every call site
+ * whose callee resolves to a frontmatter `tools:` Pi tool and whose FIRST
+ * argument exists but is not an inline bare object literal — the surviving
+ * RFC 0002 shape rule (grammar.md §"Pi-tool argument grammar": field VALUES
+ * are full expressions, the argument SHAPE is one inline `{ ... }`). A named
+ * schema-constructor argument (`read(Args { ... })`) is not a BARE literal
+ * and is rejected too, matching `isBareObjectLiteral`'s text-level judgement.
+ *
+ * Emission mirrors the SHAPE arm of `checkToolCallArguments`
+ * (../runtime/tool-call.ts) rather than calling it: that check's documented
+ * arity→shape→type ordering short-circuits a multi-argument call onto the
+ * arity code, and `theta/parse/tool-arg-arity` remains UNWIRED — a separate
+ * registered-but-never-emitted code outside bug 0003's scope — so threading
+ * the real positional count through it would start emitting arity here as a
+ * side effect. A multi-argument call whose first argument is non-object fires
+ * the shape code alone; `read({...}, {...})` (first argument IS an inline
+ * literal) fires nothing.
+ *
+ * Zero-argument calls are legal (`read()` lowers to `{}`; the shape rule only
+ * constrains an argument that exists). Callee resolution mirrors
+ * `checkUnknownIdentifiers`' lexical model so the check never misfires on a
+ * call that resolves to something LOCAL rather than the tool: whole-file
+ * declarations (`fn` / `schema` / `enum` names, import/export symbols,
+ * `params:` fields — the load layer separately rejects the `fn`/import
+ * collisions via `theta/load/tool-name-collision`) shadow the tool name
+ * everywhere, `let` bindings shadow it from their binding statement onward,
+ * and `for` / `par for` variables, `match`-arm pattern bindings, and `fn`
+ * parameters shadow it inside their scopes (an `fn` body sees only the
+ * whole-file declarations plus its own parameters — theta 1.0 has no
+ * closures). Under-reporting on a shadowed name is safe: the runtime
+ * lowerings back-stop with a loud `PiToolArgShapeDefectError` defect throw.
+ */
+function checkPiToolArgShapes(
+  body: Block,
+  frontmatter: ParsedFrontmatter | null,
+  file: string,
+): Diagnostic[] {
+  const piTools = new Set<string>();
+  for (const entry of frontmatter?.tools ?? []) {
+    const name = piToolCallableName(entry);
+    if (name !== undefined && name.length > 0) {
+      piTools.add(name);
+    }
+  }
+  if (piTools.size === 0) {
+    return [];
+  }
+
+  // Whole-file shadow roots: every non-tool binding source `collectIdentRoots`
+  // folds into the root scope. A tool name colliding with any of them cannot
+  // be assumed to resolve to the tool at this call site.
+  const declared = new Set<string>();
+  for (const s of body.statements) {
+    switch (s.kind) {
+      case "fn":
+      case "schema":
+      case "enum":
+        declared.add(s.name);
+        break;
+      case "import":
+      case "export":
+        for (const sym of s.symbols) {
+          declared.add(sym);
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  for (const f of frontmatter?.params?.fields ?? []) {
+    declared.add(f.wireName);
+  }
+
+  const out: Diagnostic[] = [];
+  walkToolArgBlock(body, new Set(declared), declared, piTools, file, out);
+  return out;
+}
+
+function walkToolArgBlock(
+  block: Block,
+  shadows: Set<string>,
+  root: ReadonlySet<string>,
+  piTools: ReadonlySet<string>,
+  file: string,
+  out: Diagnostic[],
+): void {
+  for (const s of block.statements) {
+    walkToolArgStmt(s, shadows, root, piTools, file, out);
+  }
+  if (block.tail !== null) {
+    walkToolArgExpr(block.tail, shadows, root, piTools, file, out);
+  }
+}
+
+function walkToolArgStmt(
+  s: Stmt,
+  shadows: Set<string>,
+  root: ReadonlySet<string>,
+  piTools: ReadonlySet<string>,
+  file: string,
+  out: Diagnostic[],
+): void {
+  switch (s.kind) {
+    case "let":
+      // The initialiser is evaluated BEFORE the name binds, so a tool call in
+      // it still resolves to the tool; the binding shadows from here onward.
+      if (s.init !== null) {
+        walkToolArgExpr(s.init, shadows, root, piTools, file, out);
+      }
+      if (s.name !== "_") {
+        shadows.add(s.name);
+      }
+      return;
+    case "reassign":
+      walkToolArgExpr(s.value, shadows, root, piTools, file, out);
+      return;
+    case "if": {
+      walkToolArgExpr(s.condition, shadows, root, piTools, file, out);
+      walkToolArgBlock(s.then, new Set(shadows), root, piTools, file, out);
+      if (s.otherwise !== null) {
+        if ("statements" in s.otherwise) {
+          walkToolArgBlock(s.otherwise, new Set(shadows), root, piTools, file, out);
+        } else {
+          walkToolArgStmt(s.otherwise, new Set(shadows), root, piTools, file, out);
+        }
+      }
+      return;
+    }
+    case "while":
+      walkToolArgExpr(s.condition, shadows, root, piTools, file, out);
+      walkToolArgBlock(s.body, new Set(shadows), root, piTools, file, out);
+      return;
+    case "for": {
+      walkToolArgExpr(s.iterand, shadows, root, piTools, file, out);
+      const inner = new Set(shadows);
+      inner.add(s.variable);
+      walkToolArgBlock(s.body, inner, root, piTools, file, out);
+      return;
+    }
+    case "fn": {
+      // Closure-free (`walkIdentStmt` precedent): an `fn` body sees only the
+      // whole-file declarations plus its own parameters, so a tool call inside
+      // a helper body is still a tool call — `fn helper() { read(args) }`
+      // fires — while `fn f(read) { read(x) }` is parameter-shadowed.
+      const fnShadows = new Set(root);
+      for (const p of s.params) {
+        fnShadows.add(p.name);
+      }
+      walkToolArgBlock(s.body, fnShadows, root, piTools, file, out);
+      return;
+    }
+    case "return":
+      if (s.operand !== null) {
+        walkToolArgExpr(s.operand, shadows, root, piTools, file, out);
+      }
+      return;
+    case "query":
+      walkToolArgExpr(s.query, shadows, root, piTools, file, out);
+      return;
+    case "tool-call":
+      walkToolArgExpr(s.call, shadows, root, piTools, file, out);
+      return;
+    case "invoke":
+      walkToolArgExpr(s.invoke, shadows, root, piTools, file, out);
+      return;
+    case "expr":
+      walkToolArgExpr(s.expr, shadows, root, piTools, file, out);
+      return;
+    default:
+      // schema / enum / import / export / break / continue / doc-comment carry
+      // no call sites (their names were pre-collected as whole-file shadows).
+      return;
+  }
+}
+
+function walkToolArgExpr(
+  e: Expr,
+  shadows: Set<string>,
+  root: ReadonlySet<string>,
+  piTools: ReadonlySet<string>,
+  file: string,
+  out: Diagnostic[],
+): void {
+  switch (e.kind) {
+    case "call": {
+      const first = e.args[0];
+      if (
+        piTools.has(e.callee) &&
+        !shadows.has(e.callee) &&
+        first !== undefined &&
+        // `ToolArg` is a BARE inline object literal: any non-object node
+        // (identifier, string, call, member, …) and a NAMED schema-constructor
+        // (`typeName !== null`) both fail the shape.
+        !(first.kind === "object" && first.typeName === null)
+      ) {
+        out.push(toolArgShapeDiagnostic(e.callee, first.range, file));
+      }
+      for (const arg of e.args) {
+        walkToolArgExpr(arg, shadows, root, piTools, file, out);
+      }
+      return;
+    }
+    case "binary":
+      walkToolArgExpr(e.left, shadows, root, piTools, file, out);
+      walkToolArgExpr(e.right, shadows, root, piTools, file, out);
+      return;
+    case "ternary":
+      walkToolArgExpr(e.condition, shadows, root, piTools, file, out);
+      walkToolArgExpr(e.consequent, shadows, root, piTools, file, out);
+      walkToolArgExpr(e.alternate, shadows, root, piTools, file, out);
+      return;
+    case "try":
+      walkToolArgExpr(e.operand, shadows, root, piTools, file, out);
+      return;
+    case "invoke":
+      for (const arg of e.args) {
+        walkToolArgExpr(arg, shadows, root, piTools, file, out);
+      }
+      return;
+    case "member":
+      walkToolArgExpr(e.target, shadows, root, piTools, file, out);
+      return;
+    case "index":
+      walkToolArgExpr(e.target, shadows, root, piTools, file, out);
+      walkToolArgExpr(e.index, shadows, root, piTools, file, out);
+      return;
+    case "method-call":
+      walkToolArgExpr(e.target, shadows, root, piTools, file, out);
+      for (const arg of e.args) {
+        walkToolArgExpr(arg, shadows, root, piTools, file, out);
+      }
+      return;
+    case "object":
+      // RFC 0002: field VALUES are full expressions — a nested Pi-tool call
+      // inside a legal `{ ... }` argument is itself checked.
+      for (const field of e.fields) {
+        walkToolArgExpr(field.value, shadows, root, piTools, file, out);
+      }
+      return;
+    case "array":
+      for (const el of e.elements) {
+        walkToolArgExpr(el, shadows, root, piTools, file, out);
+      }
+      return;
+    case "result-ctor":
+      walkToolArgExpr(e.arg, shadows, root, piTools, file, out);
+      return;
+    case "match":
+      walkToolArgExpr(e.scrutinee, shadows, root, piTools, file, out);
+      for (const arm of e.arms) {
+        const armShadows = new Set(shadows);
+        collectPatternBindings(arm.pattern, armShadows);
+        walkToolArgExpr(arm.body, armShadows, root, piTools, file, out);
+      }
+      return;
+    case "par-for": {
+      // Reached explicitly (unlike the ident walk, which predates RFC 0003):
+      // a `par for` body is a call-site-bearing block and its per-iteration
+      // variable shadows.
+      walkToolArgExpr(e.iterand, shadows, root, piTools, file, out);
+      if (e.max !== null) {
+        walkToolArgExpr(e.max, shadows, root, piTools, file, out);
+      }
+      const inner = new Set(shadows);
+      inner.add(e.variable);
+      walkToolArgBlock(e.body, inner, root, piTools, file, out);
+      return;
+    }
+    default:
+      // number / string / bool / null / ident / query — no call sites (a
+      // query's `${…}` interpolations live in its raw template text, not as
+      // AST children).
       return;
   }
 }

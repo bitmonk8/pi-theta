@@ -236,8 +236,12 @@ class RecordingHost implements StatementEvalHost {
     return null;
   }
 
-  async runEffect(expr: Expr, env: LexicalEnvironment): Promise<OperationResult> {
-    const label = this.#effectLabel(expr, env);
+  async runEffect(
+    expr: Expr,
+    env: LexicalEnvironment,
+    evaluatedToolArgs?: Record<string, ThetaValue>,
+  ): Promise<OperationResult> {
+    const label = this.#effectLabel(expr, env, evaluatedToolArgs);
     // A start/end fence around a real microtask yield so a caller can witness
     // strict sequencing: an interleaved driver would show `start:1` before
     // `end:0`, a strictly-sequential one never does.
@@ -249,11 +253,22 @@ class RecordingHost implements StatementEvalHost {
   }
 
   /** Compute an effect's label: `<callee>(<first-arg-value?>)`. */
-  #effectLabel(expr: Expr, env: LexicalEnvironment): string {
+  #effectLabel(
+    expr: Expr,
+    env: LexicalEnvironment,
+    evaluatedToolArgs?: Record<string, ThetaValue>,
+  ): string {
     if (expr.kind === "call") {
       const arg = expr.args[0];
       if (arg === undefined) {
         return expr.callee;
+      }
+      // Bug 0003: a Pi-tool call's argument is an inline object literal whose
+      // fields the executor pre-evaluates (RFC 0002) — the label carries the
+      // first pre-evaluated field value. The `#eval` fallback serves only a
+      // direct (non-executor) `runEffect` invocation.
+      if (evaluatedToolArgs !== undefined) {
+        return `${expr.callee}:${String(Object.values(evaluatedToolArgs)[0])}`;
       }
       return `${expr.callee}:${String(this.#eval(arg, env))}`;
     }
@@ -366,11 +381,14 @@ describe("V19c-T — statement-execution driver (cka-50, the new closure)", () =
 describe("V19c-T — control-flow through the executor at real hosts (CTRL-1 witness)", () => {
   it("CTRL-1: a `for` loop evaluates its iterand exactly once at loop entry and runs the body per element", async () => {
     const host = new RecordingHost();
-    // `for x in ["a","b","c"] { record(x) }`
+    // `for x in ["a","b","c"] { record({ v: x }) }` — bug 0003 tightened the
+    // runtime contract: a bare-identifier Pi-tool argument is now an internal
+    // defect (PiToolArgShapeDefectError), so the loop witness passes the
+    // per-iteration binding through the legal inline object-literal shape.
     const loop = forStmt(
       "x",
       arrayExpr([stringExpr("a"), stringExpr("b"), stringExpr("c")]),
-      block([toolCallStmt("record", [identExpr("x")])]),
+      block([toolCallStmt("record", [objectExpr([{ name: "v", value: identExpr("x") }])])]),
     );
 
     await executeBody(body([loop]), deps({ host }));
@@ -383,13 +401,14 @@ describe("V19c-T — control-flow through the executor at real hosts (CTRL-1 wit
 
   it("CTRL-1: `break` steers the real loop — iteration stops at the break", async () => {
     const host = new RecordingHost();
-    // `for x in ["a","b","c"] { if x == "b" { break } record(x) }`
+    // `for x in ["a","b","c"] { if x == "b" { break } record({ v: x }) }` —
+    // the inline object-literal argument shape per bug 0003 (see above).
     const loop = forStmt(
       "x",
       arrayExpr([stringExpr("a"), stringExpr("b"), stringExpr("c")]),
       block([
         ifStmt(eqExpr(identExpr("x"), stringExpr("b")), block([{ kind: "break", range: span() }])),
-        toolCallStmt("record", [identExpr("x")]),
+        toolCallStmt("record", [objectExpr([{ name: "v", value: identExpr("x") }])]),
       ]),
     );
 
@@ -403,13 +422,14 @@ describe("V19c-T — control-flow through the executor at real hosts (CTRL-1 wit
 
   it("CTRL-1: `continue` steers the real loop — the rest of the body is skipped for that iteration", async () => {
     const host = new RecordingHost();
-    // `for x in ["a","b","c"] { if x == "b" { continue } record(x) }`
+    // `for x in ["a","b","c"] { if x == "b" { continue } record({ v: x }) }` —
+    // the inline object-literal argument shape per bug 0003 (see above).
     const loop = forStmt(
       "x",
       arrayExpr([stringExpr("a"), stringExpr("b"), stringExpr("c")]),
       block([
         ifStmt(eqExpr(identExpr("x"), stringExpr("b")), block([{ kind: "continue", range: span() }])),
-        toolCallStmt("record", [identExpr("x")]),
+        toolCallStmt("record", [objectExpr([{ name: "v", value: identExpr("x") }])]),
       ]),
     );
 

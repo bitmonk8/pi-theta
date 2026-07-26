@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-26
+
+### Fixed
+
+- **The Pi-tool argument shape rule is now enforced (bug 0003).**
+  `theta/parse/tool-arg-not-object-literal` was registered and implemented
+  (`checkToolCallArguments`) but had no production caller, so a whole
+  `let`-bound value passed positionally (`read(args)`) parsed clean and both
+  runtime lowerings silently degraded it to empty params — the dispatch
+  carried `{}`, the author's argument object was dropped, and the failure
+  surfaced late as the *tool's* error (or, for a tool accepting `{}`, as a
+  wrong effectful call). `parseThetaDocument` now walks the body (nested
+  blocks, `fn` bodies, `match` arms, `par for` bodies included) and emits the
+  registered diagnostic — error severity, exact registry message, range on
+  the offending argument node — for every call whose callee resolves to a
+  frontmatter-`tools:` Pi tool and whose first argument is not an inline bare
+  object literal. `.theta`-callable calls (whole-value arguments are their
+  legal convention) and zero-argument calls are unaffected; local
+  declarations and bindings shadow the tool name rather than misfire.
+  **Behaviour-tightening:** previously-accepted forms — `read(args)`,
+  `read("x")`, `read(mk())`, `read(a.b)`, `read(Args { … })` — now fail at
+  parse with `theta/parse/tool-arg-not-object-literal`; inline the fields at
+  the call site (`read({ path: expr, ... })`, RFC 0002 field values are full
+  expressions). Belt-and-braces behind the gate: `preEvaluateToolArgs` and
+  `lowerToolCallParams` now throw a `PiToolArgShapeDefectError` internal
+  defect (the `theta/runtime/internal-error` surface) instead of lowering a
+  non-object first argument to `{}` / `args: undefined`, so any future
+  parse-gate gap fails loudly instead of arg-dropping. Zero-argument calls
+  keep lowering to `{}`. Observed at 0.12.0.
+
 ## [0.15.0] - 2026-07-26
 
 ### Fixed

@@ -1,6 +1,10 @@
 # Bug 0003 — Whole-object Pi-tool argument dispatches with dropped args instead of the documented parse rejection
 
-- **Status:** open
+- **Status:** fixed (0.16.0). Option 1 adopted — the shape rule now fires from
+  `parseThetaDocument` (an AST walk equivalent to wiring `checkToolCallArguments`;
+  see below for why the walk emits directly), and both runtime lowerings treat a
+  non-object first argument as a loud internal defect instead of degrading to
+  `{}`.
 - **Kind:** defect — the parse-time shape rule `theta/parse/tool-arg-not-object-literal`
   is documented and implemented but never wired, and the runtime silently lowers the
   unrejected form to empty arguments.
@@ -8,6 +12,60 @@
   `src/runtime/statement-executor.ts` `preEvaluateToolArgs`,
   `src/extension/production-theta-producer.ts` `lowerToolCallParams`.
 - **Observed at:** `0.12.0`, host Pi `0.82.1`, Windows.
+
+## Fix (0.16.0)
+
+Option 1, in both halves. **Behaviour-tightening:** source that previously
+parsed and dispatched with dropped args (`read(args)`, `read("x")`,
+`read(mk())`, `read(a.b)`) now fails at parse time. The named
+schema-constructor form `read(Args { … })` now also fails at parse, but its
+pre-fix behaviour differed: both lowerings lowered ANY object node's fields
+regardless of `typeName`, so it dispatched WITH its ctor fields (never `{}`).
+
+**Parse gate** — `parseThetaDocument` (`src/parser/theta-document.ts`) gained a
+body walk (`checkPiToolArgShapes`, the `checkUnknownIdentifiers` /
+`walkIdentBlock` structure) that emits the registered
+`theta/parse/tool-arg-not-object-literal` (error severity, DIAG-4 message with
+the tool name substituted, range on the offending ARGUMENT node) for every call
+site whose callee resolves to a frontmatter-`tools:` **Pi tool** and whose first
+argument exists but is not an inline bare object literal. `.theta`-path entries
+are excluded (their calls route through the invoke trampoline and legally take a
+whole value — `sentiment(text)`); zero-argument calls stay accepted (the rule
+constrains an argument that exists); resolution mirrors the unknown-identifier
+walk's lexical model, so whole-file declarations (`fn`/`schema`/`enum`/
+import/export/`params:` names — `fn`/import collisions are separately
+load-rejected by `theta/load/tool-name-collision`), `let` bindings, loop
+variables, `match`-arm bindings, and `fn` parameters shadow the tool name
+rather than misfire. The walk emits directly — byte-identical code / severity /
+message / hint to `checkToolCallArguments`'s shape arm — instead of calling that
+function: its documented arity→shape→type ordering would route a multi-argument
+call onto `theta/parse/tool-arg-arity`, which remains unwired (out of this
+bug's scope), and its `argumentSource` contract is source-text-based where the
+walk owns AST nodes. A multi-argument call whose first argument is non-object
+fires the shape code alone.
+
+**Belt-and-braces (runtime)** — both lowerings now throw
+`PiToolArgShapeDefectError` (`src/runtime/tool-call.ts`, the
+`ThetaFnArityError` / `ToolReturnShapeDefectError` pattern, surfacing as
+`theta/runtime/internal-error`) instead of silently degrading:
+`preEvaluateToolArgs` (`src/runtime/statement-executor.ts`; after the
+`.theta`-callable skip, so the invoke path is untouched) and
+`lowerToolCallParams` (`src/extension/production-theta-producer.ts`). The belt
+covers **non-object AST nodes** only — both lowerings key on
+`first.kind !== "object"` and accept any object node including a named
+constructor — so a future parse-gate gap on the named-ctor form would dispatch
+its ctor fields rather than throw; for non-object nodes, failing loudly keeps
+any gate gap from arg-dropping. Known residual: a lexically shadowed tool name
+(`let read = "x"` … `read(args)?`) skips the parse walk by design yet still
+dispatches as the Pi tool at runtime (classification is callable-set-only) and
+lands on the defect throw — fail-loud, strictly better than the pre-fix silent
+`{}` dispatch. Zero-argument calls keep lowering to `{}` on both paths.
+
+Pinned by `tests/tool-arg-shape-enforcement.test.ts` (18 cells: the bug-doc
+repro, statement/string/call/member/named-ctor argument shapes with exact
+ranges, RFC 0002 computed-field and zero-arg controls, both runtime lowerings'
+defect throws and their object-literal / zero-arg / `.theta`-callable
+controls).
 
 ## Summary
 

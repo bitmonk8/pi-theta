@@ -1083,10 +1083,13 @@ describe("RFC-0001 subagent-fn — final-value propagation across the boundary (
       raw_response: null,
     };
     host.results.set("probe", errResult(failure));
+    // Bug 0003: `probe` dispatches on the executor's Pi-tool path, so its
+    // argument must be the inline object-literal shape — a whole-ident
+    // `probe(x)` is now a PiToolArgShapeDefectError, not a scripted Err.
     const body = bodyOf(
       [
         "subagent fn worker(x: integer) {",
-        "  let v = probe(x)?",
+        "  let v = probe({ v: x })?",
         "  v",
         "}",
         "worker(1)",
@@ -1113,10 +1116,13 @@ describe("RFC-0001 subagent-fn — final-value propagation across the boundary (
     // propagate as an uncaught throw out of the caller.
     const host = new SubagentFnHost();
     host.panics.add("boom");
+    // Bug 0003: inline object-literal argument shape (see the callee-Err test
+    // above) — the panic must come from the host's scripted effect, not from
+    // the executor's arg-shape defect throw.
     const body = bodyOf(
       [
         "subagent fn worker(x: integer) {",
-        "  let v = boom(x)?",
+        "  let v = boom({ v: x })?",
         "  v",
         "}",
         "worker(1)",
