@@ -232,9 +232,14 @@ exactly the shape the (d12)/(m) cells document as the typed loop's pre-fix
 defect.
 
 The `"provider transport failure"` message in (p1) is the PIC-51 fallback:
-the aborted-stop reply carries no `errorMessage`, the classifier's transport
-fold produces an empty message, and `classifyOffSessionReply` substitutes the
-fixed fallback — so the author-visible `Err` does not even mention an abort.
+the scripted aborted-stop reply carries no `errorMessage`, the classifier's
+transport fold produces an empty message, and `classifyOffSessionReply`
+substitutes the fixed fallback (:4839–4842) — so the (p1) `Err` does not even
+mention an abort. Against the live adapter the abort path attaches its own
+throw message (`dist/api/anthropic-messages.js:573–574` sets `errorMessage`,
+e.g. `"Request was aborted"`), so a production message can name the abort in
+prose; the `kind`, the terminal outcome, and the SNK-c / group-A always-log
+routing are misclassified identically either way.
 
 No committed test pins either wrong behaviour. The bug-0007 classification
 suite (`tests/off-session-transport-classification.test.ts`) scripts
@@ -300,15 +305,22 @@ committed pin.
      masking, by honouring the PIC-51/PIC-53 short-circuit the probe
      already computed.
    Keying both guards on the theta signal (not the stop reason) preserves
-   the cell-(l) distinction — a reply-side `"aborted"` stop under a live
-   signal stays `Err(transport)` — and stays inside CNCL-5: the text-arm
+   the cell-(l) distinction — off-session, a reply-side `"aborted"` stop
+   under a live signal keeps riding the classifier's transport fold to
+   `Err(transport)`; on the live path the same reply-side stop surfaces as
+   `Ok(text)` today (the probe classifies no non-`"error"` stop reason — a
+   PIC-51b gap adjacent to, not part of, this report) and a signal-keyed
+   guard leaves that unmoved — and stays inside CNCL-5: the text-arm
    guard fires before the query's `Ok` materialises to theta code, the same
    window the typed boundary guard and PIC-51's "even when `waitForIdle()`
    resolved cleanly" already resolve in favour of `cancelled`; a completed
    `Ok` bound before the abort is untouched. Neither driver changes.
    Fixtures: the (d12) mirror over the off-session suite's existing untyped
    fixture and an (m) mirror in the live suite — both harnesses already
-   carry the cancellation machinery (`thetaAbort` threading, `onMidTurn`).
+   carry the cancellation machinery (`thetaAbort` threading, `onMidTurn`);
+   an untyped (l)-mirror (reply-side aborted stop, live signal) belongs at
+   the off-session seam, the only untyped seam where an aborted-stop reply
+   classifies into a transport verdict.
 2. **Fix the drivers instead: widen `FreePhaseTurn` with a `cancelled`
    arm** so `LivePromptQueryModel` forwards the probe's verdict and
    `OffSessionQueryModel` maps aborted-stop-under-aborted-signal itself.
@@ -373,7 +385,10 @@ committed pin.
 - pi-ai surface (at the `~0.80.10` pin): `dist/types.d.ts:273`
   (`StopReason` includes `"aborted"`), `dist/api/anthropic-messages.js:561`
   (aborted/error stops resolve through the terminal `error` event; the
-  final-result promise has no reject path — the bug-0007 finding).
+  final-result promise has no reject path — the bug-0007 finding) and
+  :573–574 (the catch arm stamps `stopReason: "aborted"` and an
+  `errorMessage` from the caught throw — the production-message caveat in
+  §Actual behaviour).
 - Tests inspected: `tests/off-session-two-phase.test.ts`
   ((d12)/(d14)/(d15) — typed-only; the untyped fixture exists at (d9)),
   `tests/typed-two-phase-live.test.ts` ((l)/(m) — typed-only),

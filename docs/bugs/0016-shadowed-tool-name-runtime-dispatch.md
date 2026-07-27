@@ -9,16 +9,19 @@
   `theta/runtime/internal-error` surface (all other argument forms). Bug 0003's
   fixed doc recorded only the crashing half as a residual and called it
   "fail-loud"; the silently-executing half was not recorded.
-- **Affected:** the two resolution sites —
+- **Affected:** the two resolution layers —
   parse: `src/parser/theta-document.ts` (`checkPiToolArgShapes` lexical skip,
-  ~4195–4360; the callee-blind bare-object carve-out in `walkExpr`
-  `case "call"`, ~4865–4877);
-  runtime dispatch: `src/runtime/statement-executor.ts` `evalExpr` call routing
-  (~597–608, via `resolveUserFn` ~352) → `src/runtime/effectful-statement-host.ts`
-  `checkpointFor` (`case "call"` → `tool-call`, ~453) →
-  `src/extension/production-theta-producer.ts` `#classifyCall` (~2539) /
-  `#resolveToolCall` (~2547). `src/runtime/lexical-environment.ts` `resolve`
-  (~336) implements the spec's four-arm precedence correctly but is never
+  :4195–4438, the shadowed-callee test `!shadows.has(e.callee)` at :4351; the
+  callee-blind bare-object carve-out in `walkExpr` `case "call"`, :4865–4877);
+  runtime dispatch — two sibling executor sites of the same shape:
+  `src/runtime/statement-executor.ts` `evalExpr` call routing (:597–608) and
+  `evalAsResult`, the `?`/`match`-operand path every postfix-`?` call takes
+  (:922; gate :935, `checkpointFor` :963, `preEvaluateToolArgs` :972) — both
+  via `resolveUserFn` (:352) → `src/runtime/effectful-statement-host.ts`
+  `checkpointFor` (`case "call"` → `tool-call`, :453) →
+  `src/extension/production-theta-producer.ts` `#classifyCall` (:2539) /
+  `#resolveToolCall` (:2556). `src/runtime/lexical-environment.ts` `resolve`
+  (:336) implements the spec's four-arm precedence correctly but is never
   consulted for call classification.
 - **Observed at:** `0.20.0` (30492948), Windows.
 
@@ -91,12 +94,14 @@ identically), so they sit in the same class as R1–R3; not separately executed.
   under its "never misfire on a local" model); (b) the bare-object-literal
   carve-out is callee-blind — `walkExpr` suppresses the check for the sole
   bare-object argument of *any* call, tool or not, shadowed or not
-  (`theta-document.ts` ~4867–4875), which is laxer than the §Object
+  (`theta-document.ts` :4865–4877), which is laxer than the §Object
   construction rule and is what admits R1/R3.
-- Runtime: `evalExpr` routes a call through `resolveUserFn`, which accepts only
-  arms `"fn"`/`"import"`; an arm-`"local"` resolution falls through as if the
-  name were unbound. The call is then unconditionally classified a checkpointed
-  tool-call effect (`checkpointFor` `case "call"`), classified `pi-tool` by
+- Runtime: both dispatch sites (`evalExpr` for a bare call, `evalAsResult` for
+  the `?`/`match`-wrapped form) route the callee through `resolveUserFn`, which
+  accepts only arms `"fn"`/`"import"`; an arm-`"local"` resolution falls
+  through as if the name were unbound. The call is then unconditionally
+  classified a checkpointed tool-call effect (`checkpointFor` `case "call"`),
+  classified `pi-tool` by
   callable-set membership alone (`#classifyCall`:
   `thetaCalleePath(...) !== undefined ? "theta-callable" : "pi-tool"`), and
   resolved by name against the frozen snapshot (`#resolveToolCall`). The
@@ -121,7 +126,11 @@ against the callable set (`checkpointFor` / `#classifyCall` /
 `#resolveToolCall`), not on the lexical resolution of the call site. The
 executor consults the environment only to detect user `fn`s (arms
 `"fn"`/`"import"`); the `"local"` arm — the spec's highest-precedence arm — is
-not represented in the dispatch decision. The parse walks model the lexical
+not represented in the dispatch decision. Both executor dispatch sites share
+the blindness, and the `.theta`-callable half of the callable set sits in the
+same class — `#classifyCall` is equally lexical-blind for a shadowed
+`.theta`-callable name, which would route the invoke path (not separately
+executed; the matrix here is Pi-tool-scoped). The parse walks model the lexical
 rule, producing the parse/runtime disagreement; the shape walk's own doc
 comment states "Under-reporting on a shadowed name is safe: the runtime
 lowerings back-stop with a loud `PiToolArgShapeDefectError`" — true only for
@@ -147,7 +156,7 @@ bug 0003's residual record.
   admitted the site. ERR-model surfaces treat internal errors as
   runtime bugs, not author errors.
 - **Bug 0003's residual record is inaccurate as shipped documentation.** It
-  claims shadowed calls "land on the defect throw — fail-loud, strictly
+  claims a shadowed call "lands on the defect throw — fail-loud, strictly
   better"; the object-literal and zero-argument forms never reach the throw.
 
 ## Options
@@ -162,12 +171,19 @@ bug 0003's residual record.
    matches §Object construction. Binding the name without calling it stays
    legal, preserving expressions.md's "local bindings shadow everything"
    sentence. Requires a spec addition (the new code's registry row) — which
-   also closes the recorded gap. Belt-and-braces: teach `evalExpr` /
-   `#classifyCall` to treat an arm-`"local"` callee as a defect throw (never a
-   dispatch), mirroring 0003's structure.
+   also closes the recorded gap. The carve-out fix has a wiring cost:
+   `checkStructural`'s walk receives neither the frontmatter tool set nor any
+   scope tracking today, so the fix threads both in or hoists the carve-out
+   into the shape walk, which already has both. Belt-and-braces: treat an
+   arm-`"local"` callee as a defect throw (never a dispatch), mirroring 0003's
+   structure — placed at the shared seam (`preEvaluateToolArgs` or the
+   classification step), since a guard on the `evalExpr` call arm alone misses
+   every `?`/`match`-wrapped call (`evalAsResult` is the dispatch site for
+   those).
 2. **Align runtime resolution with lexical scope only.** Consult
-   `env.resolve(callee).arm` before classification; an arm-`"local"` callee
-   raises a defined runtime error instead of dispatching. Honours the spec's
+   `env.resolve(callee).arm` before classification, at both dispatch sites; an
+   arm-`"local"` callee raises a defined runtime error instead of dispatching.
+   Honours the spec's
    resolution order directly but still needs the same spec addition to name
    the surface, leaves the §Object construction carve-out violation in place
    unless also fixed, and converts the accident into a runtime failure the
@@ -207,7 +223,7 @@ forms get a code whose absence is the recorded gap.
   (`unknown-identifier` requires no match; no call-of-non-callable code
   exists).
 - Implementation: `src/runtime/statement-executor.ts` (`evalExpr` call arm,
-  `resolveUserFn`, `preEvaluateToolArgs`),
+  `evalAsResult` operand arm, `resolveUserFn`, `preEvaluateToolArgs`),
   `src/runtime/effectful-statement-host.ts` (`checkpointFor`),
   `src/extension/production-theta-producer.ts` (`#classifyCall`,
   `#resolveToolCall`, `lowerToolCallParams`),
@@ -220,3 +236,9 @@ forms get a code whose absence is the recorded gap.
   `tests/tool-arg-shape-enforcement.test.ts` producer-level harness pattern
   (real `bindPromptConversation` host; scratch deleted). Environment-precedence
   pin: `tests/lexical-environment.test.ts` (cka-3).
+- Triage re-verification (independent): the six-cell matrix re-reproduced
+  mechanically at c15809cb (`src/` byte-identical to 30492948) via a fresh
+  scratch vitest on the same harness — R1/R3 execute the tool with
+  `{ path: "p" }`, R6 with `{}`, R2 throws the defect without executing, P4
+  rejects at parse, P5 executes; scratch deleted. `tests/lexical-environment.test.ts`
+  (10 tests) and `tests/tool-arg-shape-enforcement.test.ts` (18 cells) green.

@@ -27,13 +27,18 @@
   and the typed-detection walk (:5173) — so the load-time provider gate counts
   the theta as typed while the runtime arm it lands on applies no gate.
   Shadowing: the direct-let propagation (:1726) and the QRY-2 sink resolve
-  (`src/parser/query-schema-resolve.ts:134–136`) both fire only on
+  (`resolveQuery`, `src/parser/query-schema-resolve.ts:451–455`; the
+  empty-`let`-annotation sink guard is :134–136) both fire only on
   `schema === null`, so `let x: Triage = @<>`…`?` keeps `""` — the real
-  declared annotation is silently ignored (no QRY-4 mismatch warning either).
-  No parse-phase check anywhere reads `QueryExpr.schema`: the structural
-  walk's `case "query"` inspects only interpolations (:4936–4941), and the
-  `parseTypeExpression` call sites are the `let` / `fn` / schema-field walks
-  (:4585, :4660, :4666, :4745).
+  declared annotation is silently ignored (no QRY-4 mismatch warning either:
+  `checkLetMismatch` :470–482 reads the non-null `""`, but
+  `annotationToCompatType("")` is `undefined` —
+  `src/parser/type-layer-checks.ts:250–253` — so the check skips in silence).
+  No parse-phase check validates `QueryExpr.schema` as type-grammar text: the
+  structural walk's `case "query"` inspects only interpolations (:4936–4941),
+  the `parseTypeExpression` call sites are the `let` / `fn` / schema-field
+  walks (:4585, :4660, :4666, :4745), and the one check that reads the field —
+  QRY-4's `checkLetMismatch` — skips silently on `""` (above).
 - **Observed at:** `0.20.0`, host Pi `0.82.1` (repo-local SDK pins
   `@earendil-works/pi-ai` / `pi-coding-agent` 0.80.10). Recorded as a residual
   by the bug-0010 fix (Fix §Residuals, first bullet; fix review F5), which
@@ -41,9 +46,11 @@
 
 ## Summary
 
-Three author-error spellings reach the arm — `@<>`, `@<  >`, and the
-newline-only `@<`↵`>` — and nothing else does: every non-empty annotation lowers
-(permissively for unresolved names since bug 0004), an empty `let` annotation
+Every `@<…>` capture whose interior trims to empty reaches the arm — `@<>`,
+`@<  >`, tab- or newline-only interiors, and an unterminated `@<` at end of
+input (the capture runs to EOF and still mints `""`) — and nothing else does:
+every non-empty annotation lowers (permissively for unresolved names since
+bug 0004), an empty `let` annotation
 (`let r: = @`…``) is guarded at both propagation sites and stays untyped, and
 `invoke<>` normalises to untyped at capture. The parser is therefore the single
 place that manufactures the marker, and it does so silently: `@<>` parses with
@@ -63,12 +70,16 @@ Code-reading plus a token-free scratch parse; a live repro is unnecessary (the
 degraded drive and unvalidated bind are pinned by committed regression cells).
 
 Scratch parse (a throwaway vitest cell driving the real `parseThetaDocument` +
-`lowerQueryResponseSchema` at `30492948`; deleted after the run):
+`lowerQueryResponseSchema`; run at `30492948`, re-run — with the tab-only and
+unterminated-`@<` rows added — at `c15809cb`, whose `src/` and `tests/` are
+byte-identical to `30492948`; deleted after each run):
 
 ```
 --- @<>        let r = @<>`classify this`      → schema="" lowering=undefined  diagnostics(0)
 --- @<  >      let r = @<  >`classify this`    → schema="" lowering=undefined  diagnostics(0)
 --- @<\n>      let r = @<\n>`classify this`    → schema="" lowering=undefined  diagnostics(0)
+--- @<\t>      let r = @<\t>`classify this`    → schema="" lowering=undefined  diagnostics(0)
+--- @< (EOF)   let r = @<                      → schema="" (capture runs to EOF) diagnostics(0)
 --- control    let r = @<string>`classify this`→ schema="string" lowering={"type":"string"}
 --- control    let r = @`classify this`        → schema=null (untyped)
 --- guarded    let r: = @`classify this`       → schema=null (untyped; parseLet propagates only length > 0)
@@ -130,18 +141,18 @@ residual cells:
   `theta/parse/empty-template` (W) covers the template *body*,
   `theta/parse/empty-schema-body` / `empty-enum-body` cover declarations,
   `theta/parse/unresolved-named-type` requires a name, and
-  `theta/parse/unsupported-feature` denotes excluded language features, not a
-  malformed production. This confirms the 0010 F5 finding that a fix needs a
-  new registered code.
+  `theta/parse/unsupported-feature` denotes theta-1.0-deferred or non-Theta
+  constructs, not a malformed production. This confirms the 0010 F5 finding
+  that a fix needs a new registered code.
 
 ## Actual behaviour / root cause
 
 The capture (`src/parser/theta-document.ts:3670–3686`): the `@<…>` arm
-consumes tokens to the matching `>` and assigns `schema =
-parts.join("").trim()` unconditionally — for an empty or whitespace-only
-interior, `parts` is empty and `schema` is `""`. No diagnostic is pushed in the
-arm and no downstream pass reads `QueryExpr.schema` for validity. The lowering
-(`src/runtime/query-schema-lowering.ts:53–56`):
+consumes tokens to the matching `>` (or to end of input when no `>` closes it)
+and assigns `schema = parts.join("").trim()` unconditionally — for an empty or
+whitespace-only interior the join-and-trim yields `""`. No diagnostic is
+pushed in the arm and no downstream pass reads `QueryExpr.schema` for
+validity. The lowering (`src/runtime/query-schema-lowering.ts:53–56`):
 
 ```ts
   const s = annotation.trim();
@@ -167,7 +178,7 @@ the arm whose WHY comment names this exact form (live arm :3689–3700):
 > collaborator, so the parsed payload binds UNVALIDATED (the CIO-3 depth walk
 > still runs in the loop; AJV does not).
 
-The off-session arm's comment (:4256–4269) says the same for the fused
+The off-session arm's comment (:4256–4268) says the same for the fused
 `complete()`. In the loop, the bind path confirms it: the CIO-3 depth walk
 runs unconditionally (`src/runtime/query-tool-loop.ts:618`), AJV runs only
 under `if (schemaValidation !== undefined && lowered !== undefined)` (:663),
@@ -230,7 +241,12 @@ does not, and it is the one place the empty capture fabricates a typed marker.
    so no grammar change is needed). Emit it in `parseQuery`'s `@<…>` arm when
    the trimmed capture is empty, located at the annotation span; message in
    the registry's house shape, e.g. `` `@<>` query annotation is empty; write
-   `@<Schema>` or drop the annotation for an untyped query ``. Legitimate-use
+   `@<Schema>` or drop the annotation for an untyped query `` (the
+   trimmed-capture-empty condition also covers the tab/newline-only and
+   unterminated `@<` spellings; the closed-set gate —
+   `tests/code-registry.test.ts` over `tools/code-registry/` — requires the
+   new row and a paired asserting test whose expected string is sourced from
+   the registry, DIAG-4). Legitimate-use
    assessment: none — no checked-in example, doc, or fixture uses `@<>`
    outside the two residual pins, so a load-fail error breaks nothing.
    Downstream: the degraded arm becomes unreachable from source; the
@@ -261,12 +277,14 @@ does not, and it is the one place the empty capture fabricates a typed marker.
 - `invoke<>`'s silent empty→untyped normalisation (:3526) — contrast only; its
   return validation is a safety net, not a declared-schema promise.
 - The load-warning routing gap (both production sinks drop
-  `severity !== "error"`) — bug 0010 Fix §Residuals, second bullet; separate.
+  `severity !== "error"`) — bug 0010 Fix §Residuals, second bullet; reported
+  separately as bug 0013.
 - The wider absence of type-grammar checks over non-empty `@<…>` annotation
   text (wrong-arity generics, `void`, `Result` placement — no
   `parseTypeExpression` site reads `QueryExpr.schema`, and
   `checkSchemaFeedingType` in `src/parser/schema-subset-gate.ts` has no
-  callers) — a neighbouring gap; the empty form is the only one that voids
+  production callers — only `tests/schema-subset-gate.test.ts` drives it) — a
+  neighbouring gap; the empty form is the only one that voids
   validation entirely, and option 1 does not depend on closing the rest.
 - `lowerQueryResponseSchema`'s total-function contract (`undefined` for the
   unlowerable input) — correct as a seam; unchanged under option 1.
@@ -284,8 +302,10 @@ does not, and it is the one place the empty capture fabricates a typed marker.
   :3686, bare-ident arm :3691, `parseInvoke` guard :3526, `parseLet`
   propagation guard :1725–1735, structural query case :4936,
   `parseTypeExpression` sites :4585/:4660/:4666/:4745, typed-detection :5173),
-  `src/parser/query-schema-resolve.ts` (:134–136 empty-sink guard),
-  `src/runtime/query-schema-lowering.ts` (:53–56),
+  `src/parser/query-schema-resolve.ts` (:134–136 empty-sink guard,
+  `resolveQuery` gate :451–455, `checkLetMismatch` :470–482),
+  `src/parser/type-layer-checks.ts` (`annotationToCompatType` empty guard
+  :250–253), `src/runtime/query-schema-lowering.ts` (:53–56),
   `src/extension/production-theta-producer.ts` (typed :2138, lowered
   :2145–2148, respond :2155–2158, queryText :2173, collapse WHY + line
   :2291–2300, live degraded arm + WHY :3681–3718, `#driveUserVisibleTurn`
@@ -293,19 +313,26 @@ does not, and it is the one place the empty capture fabricates a typed marker.
   `renderTypedAwareQueryText` :4692, `#validateInvokeReturn` :3105 for the
   invoke contrast), `src/runtime/query-tool-loop.ts` (depth walk :618, AJV
   gate :663, unvalidated bind :693–699), `src/parser/schema-subset-gate.ts`
-  (uncalled `checkSchemaFeedingType`).
+  (`checkSchemaFeedingType`, no production callers).
 - Tests inspected: `tests/typed-two-phase-live.test.ts` (fixture :271–277,
-  (deg-live) :1739–1790), `tests/off-session-two-phase.test.ts` (fixture
-  :237–246, (deg-off) :1710–1765) — the residual pins this report cites as its
+  (deg-live) :1739–1788), `tests/off-session-two-phase.test.ts` (fixture
+  :237–246, (deg-off) :1710–1761) — the residual pins this report cites as its
   degraded-arm evidence; corpus sweep for `@<>` (no other occurrences).
 - Method: scratch vitest cell driving `parseThetaDocument` /
-  `lowerQueryResponseSchema` / `detectTypedQueryExpression` at `30492948`
-  (output transcribed in Reproduction; file deleted).
-- History: the trimmed capture and the lowering's empty→`undefined` arm both
-  land in `ecd83aed` (2026-07-03, "V13e (Defect B) — compose typed-query
-  schema validation at the production root (QRY-22)") — the hole is as old as
-  the QRY-22 composition; pre-0010 the fused mechanism was every typed query's
-  mechanism, so `@<>` bound unvalidated then too. `30492948` (0.20.0, bug-0010
-  fix) confined the mechanism to this arm, added the WHY comments, pinned it,
-  and recorded the residual (provenance chain: bug 0010 Fix §Residuals + fix
-  review F5 → this report).
+  `lowerQueryResponseSchema` / `detectTypedQueryExpression` at `30492948`,
+  re-run at `c15809cb` (`src/` and `tests/` byte-identical between the two)
+  with the tab-only and unterminated-`@<` probes added (output transcribed in
+  Reproduction; file deleted after each run).
+- History: the lowering's empty→`undefined` arm lands in `ecd83aed`
+  (2026-07-03, "V13e (Defect B) — compose typed-query schema validation at the
+  production root (QRY-22)"), where it is unreachable — that commit's
+  `parseQuery` has no angle-bracket capture at all (the bare `@Ident` arm
+  only, and an identifier is never empty). The unguarded `@<…>` capture with
+  the trim lands the same day in the descendant `04dbb013` ("core-exec-eval —
+  evaluate ?/match/member/index/object in the body executor + thread params +
+  lower object args") — the empty form becomes mintable there, hours after
+  the QRY-22 composition; pre-0010 the fused mechanism was every typed
+  query's mechanism, so `@<>` bound unvalidated from that commit on.
+  `30492948` (0.20.0, bug-0010 fix) confined the mechanism to this arm, added
+  the WHY comments, pinned it, and recorded the residual (provenance chain:
+  bug 0010 Fix §Residuals + fix review F5 → this report).

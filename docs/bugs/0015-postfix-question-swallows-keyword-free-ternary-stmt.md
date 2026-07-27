@@ -9,12 +9,12 @@
   as a ternary head. Same family as 0005 (b) and 0006 (statement-boundary
   leaks).
 - **Affected:** the `isTernaryHead` forward scan and its
-  `STATEMENT_ONLY_KEYWORDS` stop set (`src/parser/theta-document.ts`); the
-  trailing-`?` newline-continuation trigger (`trailingTriggers`,
-  `src/lexer/lexer.ts`). Aggravating co-factor: `parseTernary`
-  (`src/parser/theta-document.ts`) recovers from a missing ternary `:` by
-  fabricating a `null` alternate with no diagnostic, which is what makes the
-  expression-statement cells fully silent.
+  `STATEMENT_ONLY_KEYWORDS` stop set (`src/parser/theta-document.ts:2509`,
+  `:1338`); the trailing-`?` newline-continuation trigger (`trailingTriggers`,
+  `src/lexer/lexer.ts:173`). Aggravating co-factor: `parseTernary`
+  (`src/parser/theta-document.ts:2556–2559`) recovers from a missing ternary
+  `:` by fabricating a `null` alternate with no diagnostic, which is what
+  makes the expression-statement cells fully silent.
 - **Observed at:** `0.20.0` (parse-lint via `parseThetaDocument`).
 
 ## Summary
@@ -104,7 +104,7 @@ Zero diagnostics. The control parses four statements plus tail
 statement vanishes (`[let, let, let]`) — swallowed into `y`'s initialiser —
 and the rest of the program parses normally around the deletion.
 
-## Verified matrix (0.20.0, `parseThetaDocument`)
+## Verified matrix (0.20.0, `parseThetaDocument`, top-level statements)
 
 Preceding line `` let y = @`ping`? `` (treatment) vs `` let y = @`ping` ``
 (control); next statement varies. "clean" = zero diagnostics and the expected
@@ -127,12 +127,22 @@ Real multi-line ternaries — the trailing-`?` form (`let z = c ?` ␤ `1 :` ␤
 `2`) and the leading-`?` form (`let z = c` ␤ `? 1` ␤ `: 2`) — parse correctly
 today and must keep working under any fix.
 
-The exposure is exactly: the statement sharing the swallowed boundary is
-keyword-free **and** contains a depth-0 `:` — in the statement grammar that
-means an unparenthesised ternary at its top level (every other `:` source in a
-keyword-free statement sits behind brackets, and `let`/`fn` annotations are
-behind stop keywords since 0005 (b)). Statements headed by a stop keyword, and
-keyword-free statements whose ternary is bracketed, are correctly segmented.
+At top level the exposure is exactly: the statement sharing the swallowed
+boundary is keyword-free **and** contains a depth-0 `:` — in the statement
+grammar that means an unparenthesised ternary at its top level (every other
+`:` source in a keyword-free statement sits behind brackets, and `let`/`fn`
+annotations are behind stop keywords since 0005 (b)); the next statement's own
+`stmt-sep` bounds the scan otherwise. Statements headed by a stop keyword,
+keyword-free statements whose ternary is bracketed, and `for`-headed
+statements (the `for` keyword cannot start an expression, so the scan's
+expression-lead gate answers postfix before scanning) are correctly segmented.
+Inside a braced body the exposure is wider (verified mechanically, same
+harness): no `stmt-sep` exists at bracket depth > 0 (the bug-0006 lexer
+mechanism), so the scan crosses any run of statements not headed by a stop
+keyword until the body's closing `}` — after a postfix-`?` line in a `fn`
+body, `x = a` ␤ `c ? 1 : 2` misparses (stray `=`, `reassign` gone) even
+though the boundary-sharing statement carries no ternary; the deciding `:`
+sits two statements past the boundary.
 
 ## Expected behaviour (what the spec says)
 
@@ -162,11 +172,13 @@ Three mechanisms compose:
    boundary.
 2. **`isTernaryHead` proves boundary-crossing only via keywords.** The scan
    walks forward for a depth-0 `:` before `eof`/`stmt-sep`, answering
-   "postfix" early only at a depth-0 `STATEMENT_ONLY_KEYWORDS` member. The set
-   is keyword-based by construction (its doc comment closes it over the
-   statement/declaration *heads*); a reassignment or expression statement has
-   no head keyword, so nothing stops the scan before the next statement's own
-   ternary `:` at depth 0 — the deciding `:` belongs to the wrong ternary.
+   "postfix" early only at a depth-0 `STATEMENT_ONLY_KEYWORDS` member or an
+   unmatched depth-0 closing bracket (the block-end stop; no help at top
+   level). The set is keyword-based by construction (its doc comment closes
+   it over the statement/declaration *heads*); a reassignment or expression
+   statement has no head keyword, so nothing stops the scan before the next
+   statement's own ternary `:` at depth 0 — the deciding `:` belongs to the
+   wrong ternary.
    (The scan does not pair nested `?`s: in `` ? c ? 1 : 2 `` the `:` it
    accepts pairs with the *inner* `?`, not the one under test.)
 3. **`parseTernary` recovers silently from the missing `:`.** Having committed
@@ -233,6 +245,11 @@ errors.
 - Matrix verified mechanically with `parseThetaDocument` at `0.20.0`
   (30492948) via a scratch harness (deleted after use); every cell above is
   reproduced from that run, including AST landing shapes and diagnostics.
+  Triage re-verified every cell at `c15809cb` (same 0.20.0 tree, fresh
+  harness, deleted after use): all reproduce exactly, including the `6:3`
+  stray-`=` position and both multi-line ternary controls; the braced-body
+  widening and the `for`-head expression-lead gate (the paragraph after the
+  matrix) are from that run. Line refs pinned at the same tree.
 - Origin: structural residual of the bug-0005 (b) fix — the bounded scan's
   only new stop condition is keyword-based (`STATEMENT_ONLY_KEYWORDS`,
   `src/parser/theta-document.ts`; its doc comment records why the set is

@@ -4,9 +4,10 @@
 - **Kind:** defect — documented behaviour absent. The diagnostics contract
   delivers **all** `theta/load/*` diagnostics through the persistent
   `theta-system-note` channel (five carved-out exceptions, every one a
-  runtime/host teardown code — no load code among them), and the per-code spec
-  prose repeatedly promises emission ("the runtime **emits**
-  `theta/load/typed-query-unsupported-provider` (warning) naming the model";
+  runtime/host code on the `console.error` teardown/tripwire path — no load
+  code among them), and the per-code spec prose repeatedly promises emission
+  ("the runtime **emits** `theta/load/typed-query-unsupported-provider`
+  (warning) naming the model";
   "**All warnings and errors above are emitted via the standard diagnostics
   channel**"). In production every warning-severity load diagnostic is
   dropped: both load-emit sinks early-return on `severity !== "error"`, and no
@@ -16,7 +17,7 @@
   row in the closed registry — 15 pure-W codes plus the warning arms of three
   E/W codes — is unobservable by an operator.
 - **Affected:** the two production load-emit sinks in
-  `src/extension/production-composition.ts`: `makeLoadEmit` (:170–193, early
+  `src/extension/production-composition.ts`: `makeLoadEmit` (:170–191, early
   return :172–174) — the emit for the H8a `discoverAndComposeFixtures` helper
   path (:282) and the note channel's own delivery-failure fallback (:981) —
   and `composeExtensionInstance`'s `emitLoadNote` (:1002–1011, early return
@@ -26,7 +27,10 @@
   the two: settings (:346), discovery walk (:361), package walk (:377), parse
   drops (:562), tools resolution (:610), invoke checks (:657), imports
   (:710), binder-model resolution (:739), the bug-0010 typed-query provider
-  gate (:773). A third, upstream drop site compounds the sink filter:
+  gate (:773), plus five sites whose codes are all E-severity (subagent
+  executable :591, extension-tool reachability :639, subagent-fn static/model
+  checks :677/:694, registration verification :898). A third, upstream drop
+  site compounds the sink filter:
   `parseDiscoveredTheta`'s registering path (:1827–1834) returns only the
   fixture and discards `document.diagnostics` entirely, so parse/frontmatter
   warnings on a theta that registers never reach a sink at all.
@@ -99,11 +103,14 @@ $ rg -n 'severity !== "error"' src/extension/production-composition.ts
 
 `rg -n "makeLoadEmit|emitLoadNote" src/` shows every production consumer:
 `discoverAndComposeFixtures` (:282), the fallback toast (:981), the shipped
-`runComposePass` call (:1043), and the watcher re-compose alias (:1037).
+`runComposePass` call (:1043), the watcher re-compose alias (:1037), and the
+`buildRuntimeRoot` feed (:1013) — the last hands the sink to
+`AjvSchemaValidator`, whose only construction is error-severity
+(`src/seams/schema-validator.ts:131`), so no warning can arrive there.
 
 Mechanical check 2 — the repo already records the consequence. The bug-0010
 gate suite could not write a composition-level cell for the warning at all
-(`tests/typed-query-provider-gate.test.ts:50–58`): "A full-composition
+(`tests/typed-query-provider-gate.test.ts:49–58`): "A full-composition
 integration cell (through `discoverAndComposeFixtures` /
 `composeExtensionInstance`) is NOT tractable for a WARNING: both production
 load-emit sinks filter to ERROR severity … so a warning-severity diagnostic
@@ -128,8 +135,9 @@ those conditions has a registry row whose stated purpose is to be seen.
 - `docs/spec_topics/diagnostics/diagnostic-shape.md`, opening rule:
   "**Persistent diagnostics (default).** All `theta/parse/*`, `theta/load/*`,
   and `theta/runtime/*` diagnostics are delivered via the channel below, with
-  five carved-out exceptions" — the five are `reload-teardown-timeout` and
-  four `theta/host/session-*` teardown codes; no load code, no
+  five carved-out exceptions" — the five are `reload-teardown-timeout`, three
+  `theta/host/session-shutdown-*` teardown codes, and the
+  `theta/host/session-swap-instance-survived` tripwire; no load code, no
   severity-based carve-out. Same page, transient-toast paragraph:
   "theta-author-facing diagnostics (anything with a `theta/parse/*`,
   `theta/load/*`, or `theta/runtime/*` code) MUST go through the persistent
@@ -139,9 +147,9 @@ those conditions has a registry row whose stated purpose is to be seen.
   warnings and errors above are emitted via the standard diagnostics
   channel** ([Diagnostics](../diagnostics.md))". DISC-3: the loader "emits a
   load-time *warning* `theta/load/case-collision` naming both paths".
-  Non-canonical extension case: "the loader emits a load-time *warning*
-  `theta/load/non-canonical-extension` … To surface this otherwise-silent
-  authoring mistake".
+  Non-canonical extension case: "To surface this otherwise-undetectable
+  authoring mistake, the loader emits a load-time *warning*
+  `theta/load/non-canonical-extension`".
 - `docs/spec_topics/discovery/package-and-settings.md` DISC-6: "it emits a
   single `theta/load/discovery-slow` warning that names the root being
   scanned and the cap that fired"; "a single `theta/load/package-read-timeout`
@@ -153,8 +161,9 @@ those conditions has a registry row whose stated purpose is to be seen.
 - The registry rows themselves
   (`docs/spec_topics/diagnostics/code-registry-load.md`) document
   author-facing messages and hints for every W code; DIAG-1 ("Every
-  author-visible diagnostic carries a code from the registry") presupposes
-  the diagnostics are visible. `errors-and-results/error-model.md`'s
+  author-visible diagnostic emitted by the runtime MUST carry a code from
+  the registry below") presupposes the diagnostics are visible.
+  `errors-and-results/error-model.md`'s
   pre-evaluation failure list — the scope `emitLoadNote`'s WHY comment cites —
   enumerates eight **error** surfaces and says nothing that exempts warnings
   from the delivery contract above.
@@ -177,8 +186,8 @@ Three drop sites, each verified at HEAD:
    (:996–998) — correct about error-model.md's pre-eval scope, but the
    delivery contract for warnings is diagnostic-shape.md's
    persistent-channel default, which this sink does not implement. The
-   watcher-time re-compose path reuses the same sink (:1037), so hot reload
-   drops warnings identically.
+   watcher-time re-compose path reuses the same sink (:1037 → :1082), so hot
+   reload drops warnings identically.
 3. **Registering thetas discard their parse-phase warnings upstream.**
    `parseDiscoveredTheta` returns `{ fixture }` without `document.diagnostics`
    on the success path (:1827–1834), so the four frontmatter W codes
@@ -209,13 +218,14 @@ so it has no live W arm.)
 History — the filter was born with production and never revisited: the H8a
 live composition (`3a8732da`, 2026-07-02) shipped `emitDiagnostic` as
 `if (severity === "error") ctx.ui.notify(...)` with a notes.md entry deferring
-"full `theta-system-note` routing for discovery diagnostics"; `e7ebe458`
-added the headless stderr mirror inside the error arm; `4a38a4bf` (V4e)
-routed the error arm onto the note channel and kept the early return. Bug
-0010's fix review (F4) then made the drop explicit: the gate-wiring comment
-(:754–762) records "BOTH production load-emit sinks drop non-error severities
-… so this warning (like EVERY load-phase warning today) is currently DROPPED,
-not surfaced anywhere in production."
+"full `loom-system-note` transcript routing for load-phase diagnostics" (the
+channel's pre-rename name); `e7ebe458` added the headless stderr mirror
+inside the error arm (and recast the filter as the early return); `4a38a4bf`
+(V4e) routed the error arm onto the note channel and kept the early return.
+Bug 0010's fix review (F4) then made the drop explicit: the gate-wiring
+comment (:755–764) records "BOTH production load-emit sinks drop non-error
+severities … so this warning (like EVERY load-phase warning today) is
+currently DROPPED, not surfaced anywhere in production."
 
 ## Why it matters
 
@@ -231,10 +241,11 @@ not surfaced anywhere in production."
   half works, the informative half does not.
 - **Silent-mistake detectors detect silently.** Several W rows exist solely
   to surface conditions that have no other symptom:
-  `non-canonical-extension` ("To surface this otherwise-silent authoring
-  mistake" — a `Plan.THETA` file is invisible to discovery on every
-  platform), `case-collision`, `cross-source-shadow` (a shadowed theta runs
-  the wrong file with no indication), `settings-invalid-json` (a typo'd
+  `non-canonical-extension` (registry row: "the warning's purpose is to
+  surface an otherwise-silent authoring mistake" — a `Plan.THETA` file is
+  invisible to discovery on every platform), `case-collision`,
+  `cross-source-shadow` (a shadowed theta runs the wrong file with no
+  indication), `settings-invalid-json` (a typo'd
   settings file silently reverts every knob to defaults), `unreadable` (a
   broken symlink un-registers a theta with no trace). Each condition's only
   documented observable is the warning that production drops.
@@ -242,7 +253,7 @@ not surfaced anywhere in production."
   `binder-model-strict-capability-unknown` is the registry-documented
   universal branch under the SDK pin — every non-bypass theta emits it at
   every load — and its hint ("Verify empirically that the chosen binder model
-  supports strict structured-output") is advice no operator has ever seen.
+  supports strict structured-output …") is advice no operator has ever seen.
 - **Operator tooling contracts are dead on arrival.** diagnostic-shape.md
   entitles consumers (LSP integrations, log pipelines, test harnesses) to
   the structured `details.diagnostics` payload on the note channel. For
@@ -263,12 +274,21 @@ not surfaced anywhere in production."
    `content: renderDiagnosticBatch(...)`, `display: true`,
    `details: { diagnostics }`, `triggerTurn: false` — **not** through
    `routePreEvalFailure` (warnings are not pre-evaluation failures; the V4e
-   router's cause mapping is error-shaped). The serialised line format
-   already carries the code, and severity is registry-derivable from it; the
-   renderers (`renderDiagnosticLine`/`renderDiagnosticBatch`,
+   router's cause mapping is error-shaped). The `channel` deps object is
+   already in scope at `emitLoadNote`'s construction site (:987), and
+   `emitDiagnosticBatch` (:235–251) constructs exactly the pinned envelope —
+   the warning arm is one call. The serialised line format already carries
+   the code, and severity is registry-derivable from it for all but the
+   three E/W rows (structured consumers read it from `details.diagnostics`);
+   the renderers (`renderDiagnosticLine`/`renderDiagnosticBatch`,
    `src/diagnostics/diagnostic.ts`) are severity-agnostic today. Mirror the
    same arm into `makeLoadEmit`'s headless-stderr branch so `-p`/CI users see
-   warnings on stderr as they now see errors. Two obligations ride along:
+   warnings on stderr as they now see errors — stderr only: `makeLoadEmit`
+   has no channel access, its `UiNotifier` surface is typed `"error"`-only,
+   its :981 instance is deliberately off-channel (the PIC-54 fallback must
+   not re-enter the channel), and
+   `tests/e2e-s6-load-emit-toast-path.test.ts` pins the helper path as
+   "never the note channel". Two obligations ride along:
    (a) forward `document.diagnostics` on `parseDiscoveredTheta`'s registering
    path (drop site 3), else frontmatter/parse warnings stay invisible after
    the sinks are fixed; (b) batch per pass or per file (the multi-error rule
@@ -282,7 +302,12 @@ not surfaced anywhere in production."
    once-per-session emission rule under DIAG-2), not continued silent
    dropping. Seam tests already exist to extend: the provider-gate suite's
    comment (:60–68) states the helper-seam cells "become extendable to an
-   integration cell the moment the shared sink routes warnings".
+   integration cell the moment the shared sink routes warnings". One
+   test-suite ripple: the hardening probes assume every load-phase
+   `theta-system-note` entry is error-severity
+   (`tests/hardening/discovery-cli.test.ts:18–19` — "the old per-diagnostic
+   `type === \"error\"` checks are now implicit"); once warnings land on the
+   channel that assumption needs re-stating per probe.
 2. **Align the spec to the implementation:** carve warning-severity load
    diagnostics out of the persistent-channel default (a sixth carve-out
    class), rewrite the emission promises in discovery-sources.md /
@@ -316,7 +341,7 @@ not surfaced anywhere in production."
 - Origin: bug 0010 Fix §Residuals ("emitted but unobservable in production…
   a pre-existing routing gap for ALL load warnings"), fix-review finding F4,
   and the gate-wiring HONEST LIMIT comment
-  (`src/extension/production-composition.ts:754–762`).
+  (`src/extension/production-composition.ts:755–764`).
 - Spec measured against:
   `docs/spec_topics/diagnostics/diagnostic-shape.md` (persistent-diagnostics
   default, five-exception carve-out, transient-toast MUST NOT, multi-error
@@ -332,20 +357,22 @@ not surfaced anywhere in production."
   eight error surfaces), `docs/reference/diagnostics.md` (transcribed
   registry).
 - Implementation: `src/extension/production-composition.ts` (`makeLoadEmit`
-  :170–193, `emitLoadNote` :1002–1011, consumers :282/:981/:1037/:1043, emit
-  sites :346/:361/:377/:562/:610/:657/:710/:739/:773, `parseDiscoveredTheta`
-  :1784–1835, V4e WHY :996–998), `src/extension/system-note-channel.ts`
+  :170–191, `emitLoadNote` :1002–1011, consumers :282/:981/:1013/:1037/:1043,
+  emit sites :346/:361/:377/:562/:610/:657/:710/:739/:773 plus the E-only
+  sites :591/:639/:677/:694/:898, `parseDiscoveredTheta` :1784–1835, V4e WHY
+  :996–998, gate-wiring HONEST LIMIT :755–764),
+  `src/extension/system-note-channel.ts`
   (`UiNotifier.notify` error-typed :77, severity-agnostic
   `emitDiagnosticBatch` :235), `src/diagnostics/diagnostic.ts` (renderers),
   warning constructors in `src/discovery/discovery-walk.ts`,
-  `src/discovery/settings.ts` (:309/:323), `src/discovery/package-discovery.ts`,
+  `src/discovery/settings.ts` (:309/:322), `src/discovery/package-discovery.ts`,
   `src/parser/frontmatter.ts`, `src/binder/binder-model.ts` (:233),
   `src/binder/provider-error-mapping.ts` (:123).
 - History: `3a8732da` (H8a — filter born with the first live composition),
   `e7ebe458` (stderr mirror, error arm only), `4a38a4bf` (V4e note routing,
   early return retained), `30492948` (bug-0010 fix wires the gate warning
   into the filtered stream and records the residual).
-- Tests inspected: `tests/typed-query-provider-gate.test.ts` (:50–58 —
+- Tests inspected: `tests/typed-query-provider-gate.test.ts` (:49–58 —
   warning "UNOBSERVABLE from any injectable surface"; :60–68 — disposition
   RECORDED, extendable integration cell), `tests/hardening/probe-harness.ts`
   (:19–23 — warnings "route to neither surface"),

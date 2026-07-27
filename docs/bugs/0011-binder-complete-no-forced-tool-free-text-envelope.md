@@ -11,9 +11,10 @@
   `ToolCall`'s `arguments`. Sibling pins agree: the determinism page pins the
   "envelope-as-forced-tool attachment mode", the binder-model page's
   strict-capability gate presupposes structured output, and the
-  `complete()`-forced-tool presupposition (reworded by the bug-0010 fix at
-  0.20.0) names "the binder's structured-output call" as depending on forced
-  `toolChoice`. The production call (`#completeBinderReply`) passes **no
+  `complete()`-forced-tool presupposition (naming the binder since 2026-06-05,
+  `e63ba6c4`; reworded by the bug-0010 fix at 0.20.0) names "the binder's
+  structured-output call" as depending on forced `toolChoice`. The
+  production call (`#completeBinderReply`) passes **no
   `context.systemPrompt`, no `tools`, no `toolChoice`, no seed, no
   `onResponse`** — one user message carrying a rendered prose prompt with a
   JSON-only instruction, text-parsed into the envelope. One honest
@@ -112,6 +113,7 @@ Mechanical check 2 — the conforming constructor has no production caller:
 ```
 $ rg -l "buildBinderCompleteCall" src/ tests/
 src/binder/binder-inference.ts            # declaration site
+src/binder/binder-seed.ts                 # doc-comment mention only, no import
 tests/binder-system-note-determinism.test.ts
 tests/binder-inference-provider-mapping.test.ts
 ```
@@ -170,11 +172,13 @@ inference call" unless noted:
   by [Pi Integration Contract — Binder inference call]." The same section
   specifies the FNV-1a seed recipe with reference vectors.
 - `pi-integration-contract/conversation-drive.md`
-  §`complete()`-forced-tool presupposition (wording landed with the 0.20.0
-  bug-0010 fix): "The forced respond turn above **and the binder's
-  [structured-output call]** both depend on two behavioural properties … (1)
-  calling with a forced named-tool `options.toolChoice` forces the named
-  tool…"
+  §`complete()`-forced-tool presupposition (the binder-naming clause dates to
+  2026-06-05, `e63ba6c4` — before the constructor or the shipped mechanism
+  existed; the 0.20.0 bug-0010 fix reworded property (1) and added the per-api
+  spelling pin, keeping the clause): "The forced respond turn above **and the
+  binder's [structured-output call]** both depend on two behavioural
+  properties … (1) calling with a forced named-tool `options.toolChoice`
+  forces the named tool…"
 - `binder/binder-model-and-context.md`: "The resolved model must support
   strict structured-output / strict tool-input" (the load-time
   `strictCapable` gate), with the non-normative note "Binder calls are
@@ -198,7 +202,7 @@ Facet by facet, spec vs `#completeBinderReply` / `#classifyBinderAttempt`:
 | Envelope validation | matching `ToolCall` whose `arguments` fail parse *or schema validation* → malformed | structural routing only (`kind` in-set, `message` non-empty); no AJV against the envelope schema, `maxLength: 500` model budget unenforced |
 | Seed | FNV-1a under the provider's seed field | omitted (WHY comment at :890–894) |
 | `options.onResponse` | registered on every binder call; feeds the classifier's HTTP status | never registered; classifier input hard-codes `httpStatus: 200` (:850) |
-| `temperature` / `signal` / off-session | `0` / `thetaAbort.signal` / off-session, no turn | conforming (:889/:895; the off-session/BND-3 facets are conforming) |
+| `temperature` / `signal` / off-session | `0` / `thetaAbort.signal` / off-session, no turn | conforming (temperature :895, signal :889; the off-session/BND-3 facets are conforming) |
 | Retry taxonomy / failure notes | per-class budgets, template rows | conforming since `d848f1b2` — contrast with the facets above |
 
 Root cause is recorded in the tree and in history — the divergence was
@@ -233,7 +237,7 @@ deliberate, twice:
 
 The `d848f1b2` observation is real: the envelope schema is a top-level
 three-arm `anyOf` (`buildBinderEnvelopeSchema`,
-`src/binder/binder-envelope.ts:78–121`), and Anthropic requires `input_schema`
+`src/binder/binder-envelope.ts:78–118`), and Anthropic requires `input_schema`
 to be object-rooted. But it falsifies only the pinned *attachment shape* —
 `parameters` = the raw `anyOf` document — not the forced-tool mechanism as
 such: the same fix that closed bug 0010 live-proved forced named-tool calls
@@ -274,7 +278,10 @@ totality:
   downstream). Bounded: the post-default-merge AJV validation over the
   *merged args* is present and conforming.
 - **The classifier's HTTP-status input is fabricated.** With no `onResponse`,
-  every binder attempt classifies with `httpStatus: 200` (:850): the
+  every binder attempt classifies with `httpStatus: 200` (:850) — a wrong
+  sentinel, not a neutral one: the conforming input for a call whose
+  `onResponse` never fired is the network-level `httpStatus: null` class
+  (provider-error-mapping.md §Classifier input surface). The
   HTTP-status arm of the provider-error-mapping table is unreachable for the
   binder; only the stop-reason arm and the openai HTTP-200 overflow gate do
   work. Bounded: throws and error-stops still classify as transport, and
@@ -284,13 +291,15 @@ totality:
   call can be forced; production never forces anything. (Under the current
   SDK pin the probe universally takes the unknown-W branch, so this is
   latent.)
-- **Spec-trust cost.** The 0.20.0 spec wording asserts the binder "depends"
-  on forced `toolChoice` today, and version-bump checklist items re-validate
-  binder call behaviours (forced-tool fixtures, `onResponse` capture) that the
-  production binder does not have. The next reader who treats
-  binder-inference.md as ground truth repeats bug 0010's draft error in the
-  opposite direction — that is precisely how this report's subject was
-  mis-cited as a conforming precedent.
+- **Spec-trust cost.** The spec has asserted the binder "depends" on forced
+  `toolChoice` since 2026-06-05 (re-affirmed, reworded at 0.20.0) — the
+  presupposition named the binder before any binder code existed, so the
+  directionality ran spec→implementation from the start — and version-bump
+  checklist items re-validate binder call behaviours (forced-tool fixtures,
+  `onResponse` capture) that the production binder does not have. The next
+  reader who treats binder-inference.md as ground truth repeats bug 0010's
+  draft error in the opposite direction — that is precisely how this
+  report's subject was mis-cited as a conforming precedent.
 
 ## Options
 
@@ -310,8 +319,15 @@ amendment somewhere. Argued from the documents:
    hardcodes the normalized `{ type: "tool", name }` spelling (:159), which
    the 0010 pin clarification showed yields a 400/`TypeError` on
    `openai-completions` / `mistral`-family apis — it must take the per-api
-   table; and its `parameters` wrap must change with the attachment fix. The
-   attachment fix: root the tool `parameters` in an object — either wrap
+   table; and its `parameters` wrap must change with the attachment fix. One
+   spec wrinkle the amendment should absorb: the pinned tool `label` (`"Theta
+   binder envelope"`) has no carrier on a `complete()` call — pi-ai's `Tool`
+   is `{ name, description, parameters }` (`dist/types.d.ts:327`) and the
+   spec bullet's "`ToolDefinition` fields" phrasing cites the registration
+   type the call never consumes; the constructor's name/description/parameters
+   tool is the realizable shape (the 0.20.0 respond dispatch resolved the
+   identical wrinkle the same way, :4868). The attachment fix: root the tool
+   `parameters` in an object — either wrap
    (`{type:"object", properties:{envelope:<anyOf>}, required:["envelope"]}`,
    preserving BNDR-1/BNDR-2 verbatim one level down) or flatten to one object
    arm with a `kind` enum — and amend binder-inference.md's `context.tools`
@@ -391,7 +407,7 @@ mechanism-agnostic, so the dispatch swap, the envelope-AJV move, and the
 - Implementation: `src/extension/production-theta-producer.ts` (`runBinder`
   :591 — genuine-binder arm prompt build :660, attempt :707;
   `#classifyBinderAttempt` :826 (WHY comment :821–824,
-  classifier input :850, envelope routing :863–:867), `#completeBinderReply`
+  classifier input :850, envelope routing :863–:868), `#completeBinderReply`
   :879–:909 (seed-omission comment :890–894, `complete()` triple :904–908),
   `FORCED_TOOL_CHOICE_BY_API` :4894, `respondToolChoiceForApi` :4911,
   `renderBinderTurnPrompt` :5155–:5187, `parseBinderEnvelope` :5210,
@@ -401,14 +417,17 @@ mechanism-agnostic, so the dispatch swap, the envelope-AJV move, and the
   (`buildBinderEnvelopeSchema` :78 — the top-level `anyOf` :84),
   `src/binder/binder-system-prompt.ts` (:175), `src/binder/binder-seed.ts`
   (:43).
-- History: `a9ef30e6` / `3a93fd4e` (2026-07-01, V9j-T/V9j — conforming
-  constructor built, never wired), `fed12acd` (2026-07-03, H9a Phase 1 —
-  production free-text binder born), `d848f1b2` (2026-07-12 — retry taxonomy
+- History: `e63ba6c4` (2026-06-05 — the forced-tool presupposition names the
+  binder, predating all binder code), `a9ef30e6` / `3a93fd4e` (2026-07-01,
+  V9j-T/V9j — conforming constructor built, never wired), `fed12acd`
+  (2026-07-03, H9a Phase 1 — production free-text binder born), `d848f1b2`
+  (2026-07-12 — retry taxonomy
   wired; commit message records the forced-tool call as "Live-confirmed
   unrealizable", quoted above), `9db6afe9` / `f8909cdf` (2026-07-27, bug 0010
   report + triage — the triage corrects the binder-precedent claim and
   records this sibling defect), `30492948` (0.20.0 — typed path aligned,
-  forcing machinery + spec presupposition wording added, binder unchanged).
+  forcing machinery added, presupposition reworded + per-api pin clarification
+  added, binder unchanged).
 - Tests inspected: `tests/e2e-s5-binder-echo-emission.test.ts` (mocked
   `complete`, free-text `envelopeReply` :70–71 — pins the prose mechanism),
   `tests/hardening/session-binder.test.ts` (live, token-gated, 10 cases —
