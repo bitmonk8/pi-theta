@@ -5083,3 +5083,136 @@ function interpolationChildExprs(e: Expr): readonly Expr[] {
       return [];
   }
 }
+
+// --------------------------------------------------------------------------
+// Typed-query detection walk (bug 0010 increment C — the load-time provider
+// gate's `hasTypedQuery` input)
+// --------------------------------------------------------------------------
+
+/**
+ * Whether the parsed body contains at least one TYPED query expression — a
+ * `QueryExpr` whose `schema` is non-null (an explicit `@<Schema>` ascription, a
+ * direct-let propagation, or the post-parse QRY-2 inference; all three land on
+ * `QueryExpr.schema` before the body reaches load-time consumers).
+ *
+ * WHY (bug 0010, conversation-drive.md §"Provider compatibility for typed
+ * queries"): the load-time `theta/load/typed-query-unsupported-provider`
+ * warning fires only when the theta CARRIES a typed query, so the check needs a
+ * TOTAL walk over every expression-bearing position — top-level statements and
+ * the body tail, `let` initializers, `fn` / `subagent fn` bodies, match arms,
+ * and nested control flow. A missed nesting is a silent false negative (the
+ * warning never fires for that theta), so the walk is exhaustive over the
+ * `Stmt` / `Expr` unions in the `walkToolArgStmt` / `walkToolArgExpr` house
+ * style.
+ */
+export function detectTypedQueryExpression(body: ThetaBody): boolean {
+  return typedQueryInBlock(body);
+}
+
+function typedQueryInBlock(block: Block): boolean {
+  for (const stmt of block.statements) {
+    if (typedQueryInStmt(stmt)) {
+      return true;
+    }
+  }
+  return block.tail !== null && typedQueryInExpr(block.tail);
+}
+
+function typedQueryInStmt(stmt: Stmt): boolean {
+  switch (stmt.kind) {
+    case "let":
+      return stmt.init !== null && typedQueryInExpr(stmt.init);
+    case "reassign":
+      return typedQueryInExpr(stmt.value);
+    case "if":
+      return (
+        typedQueryInExpr(stmt.condition) ||
+        typedQueryInBlock(stmt.then) ||
+        (stmt.otherwise !== null &&
+          ("statements" in stmt.otherwise
+            ? typedQueryInBlock(stmt.otherwise)
+            : typedQueryInStmt(stmt.otherwise)))
+      );
+    case "while":
+      return typedQueryInExpr(stmt.condition) || typedQueryInBlock(stmt.body);
+    case "for":
+      return typedQueryInExpr(stmt.iterand) || typedQueryInBlock(stmt.body);
+    case "fn":
+      // An ordinary `fn` AND a `subagent fn` alike: their bodies' queries run
+      // typed dispatches at call time, so both count as "contains".
+      return typedQueryInBlock(stmt.body);
+    case "return":
+      return stmt.operand !== null && typedQueryInExpr(stmt.operand);
+    case "query":
+      return typedQueryInExpr(stmt.query);
+    case "tool-call":
+      return typedQueryInExpr(stmt.call);
+    case "invoke":
+      return typedQueryInExpr(stmt.invoke);
+    case "expr":
+      return typedQueryInExpr(stmt.expr);
+    case "break":
+    case "continue":
+    case "schema":
+    case "enum":
+    case "import":
+    case "export":
+    case "doc-comment":
+      // No expression positions (a query cannot occur inside these).
+      return false;
+  }
+}
+
+function typedQueryInExpr(expr: Expr): boolean {
+  switch (expr.kind) {
+    case "query":
+      // The detection point: a non-null schema (explicit, propagated, or
+      // inferred) makes the query typed. A query's `${…}` interpolations live
+      // in its raw template text, not as AST children, so there is nothing to
+      // descend into.
+      return expr.schema !== null;
+    case "binary":
+      return typedQueryInExpr(expr.left) || typedQueryInExpr(expr.right);
+    case "ternary":
+      return (
+        typedQueryInExpr(expr.condition) ||
+        typedQueryInExpr(expr.consequent) ||
+        typedQueryInExpr(expr.alternate)
+      );
+    case "try":
+      return typedQueryInExpr(expr.operand);
+    case "call":
+    case "invoke":
+      return expr.args.some(typedQueryInExpr);
+    case "member":
+      return typedQueryInExpr(expr.target);
+    case "index":
+      return typedQueryInExpr(expr.target) || typedQueryInExpr(expr.index);
+    case "object":
+      return expr.fields.some((field) => typedQueryInExpr(field.value));
+    case "array":
+      return expr.elements.some(typedQueryInExpr);
+    case "match":
+      return (
+        typedQueryInExpr(expr.scrutinee) ||
+        expr.arms.some((arm) => typedQueryInExpr(arm.body))
+      );
+    case "result-ctor":
+      return typedQueryInExpr(expr.arg);
+    case "method-call":
+      return typedQueryInExpr(expr.target) || expr.args.some(typedQueryInExpr);
+    case "par-for":
+      return (
+        typedQueryInExpr(expr.iterand) ||
+        (expr.max !== null && typedQueryInExpr(expr.max)) ||
+        typedQueryInBlock(expr.body)
+      );
+    case "ident":
+    case "number":
+    case "string":
+    case "bool":
+    case "null":
+      // Leaves: no child expressions.
+      return false;
+  }
+}

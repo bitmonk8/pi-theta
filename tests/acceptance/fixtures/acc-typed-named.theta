@@ -3,10 +3,22 @@ mode: prompt
 ---
 // H9a acceptance area (b) — typed query with a NAMED schema decl (QRY-22).
 // The declared `Reply` schema is lowered and the model's response is validated
-// against it; the structured JSON streams as the turn's assistant text.
+// against it.
+//
+// Bug 0010: the forced respond turn is dispatched OFF-SESSION through pi-ai
+// `complete()` with the tool choice forced to the synthesised respond tool, so
+// the validated JSON never streams as assistant text and is not on `pi -p`
+// stdout by itself (the pre-0010 fused mechanism streamed the raw JSON as the
+// turn's reply — that observation channel is dead). The final untyped query
+// below is the fixture's own rendering of the AJV-validated value: it
+// interpolates `r` (QRY-18 compact-JSON stringification) behind the committed
+// sentinel the suite keys on, and its echo is the run's LAST assistant
+// message — the one `pi -p` text mode prints. The sentinel can only appear if
+// the typed binding resolved Ok (past AJV and past `?`), so a free-phase turn
+// can never satisfy the suite's assertion.
 schema Reply {
   status: string,
   summary: string
 }
-let r: Reply = @`Report on a hypothetical build. Set status to a single short word and summary to one sentence.`
-r
+let r: Reply = @`Report on a hypothetical build. Set status to a single short word and summary to one sentence.`?
+@`Reply with exactly this text and nothing else, no markdown, no code fences: ACC TYPED NAMED RESULT ${r}`?

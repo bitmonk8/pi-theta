@@ -60,6 +60,25 @@ import {
  * red: in the current `H9a-T` state the paired `H9a` has not authored the
  * feature thetas, so every area reds here BEFORE any live host is required.
  */
+/**
+ * Extract the first balanced JSON object AFTER a fixture's committed sentinel,
+ * failing loudly when the sentinel is absent. Bug 0010: the typed forced
+ * respond turn runs off-session and never streams, so the typed fixtures echo
+ * the AJV-validated value behind a sentinel; anchoring here keeps a free-phase
+ * brace pair from masquerading as the validated payload.
+ */
+function parseJsonAfterSentinel(stdout: string, sentinel: string, label: string): unknown {
+  const at = stdout.lastIndexOf(sentinel);
+  if (at < 0) {
+    failLoudly(
+      `${label}: sentinel "${sentinel}" not found in stdout — the fixture's ` +
+        `final echo turn did not surface (typed binding failed, or the echo ` +
+        `query was not driven). stdout: ${stdout}`,
+    );
+  }
+  return parseEmittedJson(stdout.slice(at + sentinel.length));
+}
+
 function requireAuthoredTheta(spec: FeatureThetaSpec): string {
   const path = resolveFeatureThetaPath(spec);
   if (path === undefined) {
@@ -152,7 +171,12 @@ describe("H9a-T (b) typed query with a named schema (QRY-22; Convention: Phase 1
     assertCodesSubsetOfPermitted(result, spec);
 
     // QRY-22: the typed-query response validates against its declared schema.
-    const value = parseEmittedJson(result.stdout);
+    // Bug 0010: the forced respond turn runs off-session and never streams, so
+    // the fixture echoes the AJV-validated value behind its committed sentinel;
+    // anchoring extraction to the sentinel keeps a free-phase brace pair from
+    // satisfying the assertion (only a binding that resolved Ok past AJV and
+    // `?` can interpolate into the sentinel echo).
+    const value = parseJsonAfterSentinel(result.stdout, "ACC TYPED NAMED RESULT", spec.label);
     const check = validatesAgainstSchema(value, schema);
     expect(
       check.ok,
@@ -188,7 +212,8 @@ describe("H9a-T (c) typed query with an inline object type (QRY-22; Convention: 
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
 
-    const value = parseEmittedJson(result.stdout);
+    // Bug 0010: sentinel-anchored extraction — see the named-schema case above.
+    const value = parseJsonAfterSentinel(result.stdout, "ACC TYPED INLINE RESULT", spec.label);
     const check = validatesAgainstSchema(value, schema);
     expect(
       check.ok,

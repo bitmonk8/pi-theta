@@ -19,7 +19,12 @@ import type {
   TypedQueryValidationResult,
 } from "./query-tool-loop";
 import type { LoweredSchema, SchemaValidator } from "../seams/schema-validator";
-import type { QueryError, ValidationIssue } from "./query-error";
+import {
+  synthesizeForcedRespondIssue,
+  type ForcedRespondBranch,
+  type QueryError,
+  type ValidationIssue,
+} from "./query-error";
 import {
   renderFollowUpTurn,
   type FollowUpMethodology,
@@ -84,6 +89,27 @@ export interface FollowUpDriveFailure {
   readonly error: QueryError;
 }
 
+/**
+ * A respond-repair follow-up drive that RESTARTED the whole two-phase loop
+ * (QRY-14 ¶3; bug 0010 increment C) and terminated through a fresh forced
+ * respond turn: either the extracted/captured structured `payload` (validated
+ * caller-side by `nextFollowUp`, never text-parsed), or an ERR-17
+ * `noncompliance` report (the fresh respond turn resolved normally without
+ * calling the forced respond tool). The plain-string arm of `driveFollowUp`
+ * remains the LEGACY text-drive success shape so scripted drives and the
+ * fused off-session/degraded arms keep compiling and behaving identically.
+ */
+export interface FollowUpRespondOutcome {
+  readonly kind: "respond_outcome";
+  readonly turn:
+    | { readonly kind: "payload"; readonly payload: unknown }
+    | {
+        readonly kind: "noncompliance";
+        readonly branch: ForcedRespondBranch;
+        readonly raw_response: string | null;
+      };
+}
+
 /** Construction inputs for the production typed-query schema-validation seam. */
 export interface TypedQueryValidationInput {
   /** The lowered declared response schema (QRY-22 / SUBS-1). */
@@ -94,27 +120,46 @@ export interface TypedQueryValidationInput {
   readonly schemaValidator: SchemaValidator;
   /** The theta's `respond_repair.attempts` budget (default 3). */
   readonly attempts: number;
+  /**
+   * The REGISTERED respond-tool name (bug 0010 fix review, F6): the PIC-44
+   * registration may mint a collision-disambiguated `__theta_respond_<slug>_<n>`,
+   * and the QRY-12 follow-up templates must name THAT tool byte-equal to the
+   * one the provider is forced to. Absent (harness/legacy callers) ⇒ the
+   * recipe-derived `__theta_respond_<slug>` — byte-identical whenever no
+   * collision occurred.
+   */
+  readonly respondToolName?: string;
   /** The `tool_loop.max_rounds` each follow-up is serviced with. */
   readonly maxRounds: number;
   /**
-   * Drive ONE respond-repair follow-up user turn against the driven conversation
-   * with the rendered follow-up prompt, resolving to its reply text — or, when
-   * the drive's provider call itself failed (bug 0007: the off-session
-   * `complete()` reply classified as a provider failure), to the discriminated
-   * `FollowUpDriveFailure` so the proximate `QueryError` propagates (QRY-10
-   * §respond-repair) instead of the failure re-entering validation as text.
+   * Drive ONE respond-repair follow-up attempt with the rendered follow-up
+   * prompt. Three result shapes (bug 0010 increment C, additive widening):
+   *
+   *  - `string` — the LEGACY text drive's reply text, parsed + AJV-validated by
+   *    `nextFollowUp` exactly as before (scripted drives and the fused
+   *    off-session/degraded arms depend on this path staying byte-identical);
+   *  - `FollowUpDriveFailure` — the drive's provider call failed (bug 0007);
+   *    the proximate `QueryError` propagates (QRY-10 §respond-repair) and
+   *    terminates repair with no attempts debit;
+   *  - `FollowUpRespondOutcome` — the TWO-PHASE RESTART drive (QRY-14 ¶3): the
+   *    attempt re-ran the free phase and terminated through a fresh forced
+   *    respond turn, yielding a structured payload (AJV-validated here, never
+   *    text-parsed) or an ERR-17 noncompliance report.
+   *
    * Injected so each conversation mode (prompt / off-session / subagent)
    * supplies its own turn drive.
    */
-  readonly driveFollowUp: (prompt: string) => Promise<string | FollowUpDriveFailure>;
+  readonly driveFollowUp: (
+    prompt: string,
+  ) => Promise<string | FollowUpDriveFailure | FollowUpRespondOutcome>;
 }
 
 /**
  * Build the production `TypedQuerySchemaValidation` (QRY-22). The four steps wrap
  * the real collaborators: `resolveDeclaredSchema` resolves the declared schema
  * (a named decl via the injected `resolveShape`, previously uncalled), `lower`
- * returns the pre-lowered schema, `convey` is a no-op (the lowered shape is
- * conveyed in the query text built upfront, so the model has already seen it),
+ * returns the pre-lowered schema, `convey` is a no-op (the lowered shape
+ * reaches the model through per-driver channels — see `convey` below),
  * `validate` compiles + validates via the root's `SchemaValidator`, and
  * `runRespondRepair` drives the `V13d` respond-repair loop over real follow-up
  * turns.
@@ -131,10 +176,13 @@ const DEFAULT_METHODOLOGY: FollowUpMethodology = "validator_error";
 class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
   readonly #input: TypedQueryValidationInput;
   readonly #slug: string;
+  /** The registered respond-tool name the QRY-12 templates reference (F6). */
+  readonly #toolName: string;
 
   constructor(input: TypedQueryValidationInput) {
     this.#input = input;
-    this.#slug = schemaSlug(input.lowered);
+    this.#slug = respondSchemaSlug(input.lowered);
+    this.#toolName = input.respondToolName ?? "__theta_respond_" + this.#slug;
   }
 
   resolveDeclaredSchema(): unknown {
@@ -146,9 +194,14 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
   }
 
   convey(): void {
-    // The lowered shape is conveyed in the forced-respond query text the model
-    // driver was constructed with (built upfront so the model sees it on the
-    // forced-respond turn); no further conveyance is required here.
+    // Bug 0010: on the two-phase paths — live AND off-session (increment D) —
+    // conveyance rides the synthesised respond tool's `parameters` (the
+    // lowered schema, PIC-44) and the QRY-15 trailing message of the
+    // off-session forced respond dispatch — the query text itself is the BARE
+    // render (QRY-14 step 1). The pre-built-query-text conveyance (the fused
+    // typed-aware text) remains only for the degraded unlowerable-schema arm;
+    // in every case the model has seen the shape by the time validation runs,
+    // so no further conveyance is required here.
   }
 
   validate(lowered: LoweredSchema, payload: unknown): TypedQueryValidationResult {
@@ -162,25 +215,67 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
     };
     // The most recent failed attempt's issues drive the `validator_error`
     // follow-up (ERR-14 order handled by the renderer); seeded from the opening
-    // failure and replaced on each re-validated follow-up.
+    // failure and replaced on each re-validated follow-up. A NONCOMPLIANCE
+    // opener seeds the single synthesised ERR-17 issue (bug 0010 fix round 1):
+    // "the validator_error template's <ajv-summary> placeholder is rendered
+    // from this synthesised issue exactly as if AJV had produced it" — an empty
+    // seed would render a blank <ajv-summary> on the first follow-up.
     let latestIssues: readonly ValidationIssue[] =
-      initial.kind === "schema_validation" ? initial.issues : [];
+      initial.kind === "schema_validation"
+        ? initial.issues
+        : [synthesizeForcedRespondIssue(initial.branch)];
     const driver: RespondRepairDriver = {
       nextFollowUp: async (): Promise<FollowUpResult> => {
         const prompt = renderFollowUpTurn({
           methodology: DEFAULT_METHODOLOGY,
           loweredSchema: this.#input.lowered,
           slug: this.#slug,
+          // QRY-12 byte-equality with the REGISTERED name (bug 0010 fix
+          // review, F6): a PIC-44 collision-disambiguated registration is
+          // referenced under its minted name, never the bare recipe slug.
+          toolName: this.#toolName,
           issues: latestIssues,
         });
         const reply = await this.#input.driveFollowUp(prompt);
-        if (typeof reply !== "string") {
+        if (typeof reply !== "string" && reply.kind === "provider_failure") {
           // QRY-10 §respond-repair: a follow-up that fails for a non-validation
           // reason (here: the drive's provider failure, bug 0007) propagates as
           // its proximate `QueryError` variant and terminates respond-repair
           // immediately — `runRespondRepairLoop`'s `non_validation` arm debits
           // NO `attempts` slot, so a dead provider is never re-driven.
           return { kind: "non_validation", error: reply.error };
+        }
+        if (typeof reply !== "string") {
+          // Bug 0010 increment C (QRY-14 ¶3): the two-phase-restart drive
+          // terminated through a FRESH forced respond turn. A structured
+          // payload is AJV-validated directly (no text parse — the payload
+          // arrived as the respond tool's `arguments`, already structured); an
+          // ERR-17 noncompliance debits one slot through the loop's existing
+          // noncompliance arm, and its synthesised issue drives the NEXT
+          // follow-up's <ajv-summary> exactly as a noncompliance opener does.
+          const turn = reply.turn;
+          if (turn.kind === "payload") {
+            const result = validateAgainst(
+              this.#input.schemaValidator,
+              this.#input.lowered,
+              turn.payload,
+            );
+            if (result.ok) {
+              return { kind: "validated", value: turn.payload };
+            }
+            latestIssues = result.issues;
+            return {
+              kind: "schema_validation",
+              issues: result.issues,
+              raw_response: result.raw_response,
+            };
+          }
+          latestIssues = [synthesizeForcedRespondIssue(turn.branch)];
+          return {
+            kind: "noncompliance",
+            branch: turn.branch,
+            raw_response: turn.raw_response,
+          };
         }
         const parse = await parseStructuredPayload(reply);
         const payload = payloadForRespond(parse);
@@ -227,11 +322,16 @@ function validateAgainst(
 }
 
 /**
- * The lowered response schema's slug, naming the `__theta_respond_<slug>` tool in
- * the respond-repair follow-up template — the first 16 hex chars of the SHA-256
+ * The lowered response schema's slug — the first 16 hex chars of the SHA-256
  * of the schema's JSON form (the same canonical-hash spirit as the schema-subset
  * slug; `createHash` is the schema-hash primitive, not a banned ambient).
+ *
+ * WHY exported (bug 0010): this ONE recipe names the registered
+ * `__theta_respond_<slug>` respond tool (the PIC-44 registration-cache entry)
+ * AND the QRY-12 / QRY-15 templates' backticked tool references, so the tool
+ * name the provider is forced to and the name the templates instruct the model
+ * to call stay byte-equal by construction — three consumers, one function.
  */
-function schemaSlug(lowered: LoweredSchema): string {
+export function respondSchemaSlug(lowered: LoweredSchema): string {
   return createHash("sha256").update(JSON.stringify(lowered)).digest("hex").slice(0, 16);
 }

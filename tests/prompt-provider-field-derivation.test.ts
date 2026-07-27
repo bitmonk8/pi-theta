@@ -1,7 +1,8 @@
-// Bug 0009 — prompt-mode `TransportError.provider` field derivation (RED suite).
+// Bug 0009 — prompt-mode `TransportError.provider` field derivation
+// (regression pins — red before the bug-0009 fix, green since).
 //
-// docs/bugs/0009-live-prompt-queryerror-provider-field-derivation.md: the live
-// prompt-mode query seam constructs `LivePromptQueryModel` with
+// docs/bugs/0009-live-prompt-queryerror-provider-field-derivation.md: the
+// PRE-FIX live prompt-mode query seam constructed `LivePromptQueryModel` with
 // `provider: String(deps.ctx.model?.provider ?? "unknown")`
 // (src/extension/production-theta-producer.ts `#resolvePromptQuery`) — pi-ai's
 // SHORT `ProviderId` form ("anthropic"). Every normative statement of the
@@ -22,12 +23,17 @@
 // all three prompt-mode `TransportError` feed reads: the PIC-51
 // `extractPromptModeQueryResult` probe on a driven turn's trailing
 // `assistant` `stopReason: "error"` message — both the untyped free-phase
-// turn and the typed forced-respond turn read the same once-assigned
-// `#provider` — and the PIC-50 `mapPromptModeSyncThrow` mapping of a
-// synchronous `pi.sendUserMessage` throw. This suite pins the CONSTRUCTION
+// turn and the typed query's driven FREE-PHASE turn read the same
+// once-assigned `#provider` (bug 0010: the typed forced respond turn is
+// off-session through pi-ai `complete()` and derives its provider from the
+// RESOLVED RESPOND MODEL's `.api`, so it is not a `#provider` feed read —
+// tests/typed-two-phase-live.test.ts pins that seam) — and the PIC-50
+// `mapPromptModeSyncThrow` mapping of a synchronous `pi.sendUserMessage`
+// throw. This suite pins the CONSTRUCTION
 // SITE through the real producer (never a hand-built `LivePromptQueryModel`
-// with a self-computed provider — that would test nothing): red today, green
-// after the one-line `.api` fix.
+// with a self-computed provider — that would have tested nothing): the cells
+// were red against the pre-fix `.provider` read and pin the one-line `.api`
+// fix (landed with bug 0009, v0.19.0).
 //
 // Method: the tests/off-session-transport-classification.test.ts harness shape
 // (drive the production producer `createProductionProducerDeps` →
@@ -38,7 +44,9 @@
 // `Clock`'s `setTimeout` (the driver's only wait primitive while the turn is
 // in flight) completes it, and `ctx.sessionManager.getEntries()` serves the
 // committed transcript the PIC-51 probe reads. Deterministic; no live
-// network, no pi-ai mocking (the live seam never calls `complete()`).
+// network, no pi-ai mocking (every cell here terminates at the driven
+// free-phase turn, before the typed query's off-session `complete()` respond
+// turn would dispatch — bug 0010).
 //
 // Spec: errors-and-results/queryerror-variants.md (§TransportError schema,
 // §provider derivation), pi-integration-contract/conversation-drive.md
@@ -111,9 +119,12 @@ const UNTYPED_LIVE_THETA = [
   "",
 ].join("\n");
 
-// The typed twin: a schema-typed query dispatches ONLY the forced-respond
-// terminator (`maxRounds: typed ? 0` — no free-phase turn), so the FIRST
-// driven turn IS the forced-respond turn: the PIC-51 probe's second feed read.
+// The typed twin: a schema-typed query is a TWO-PHASE loop (bug 0010) — its
+// ON-SESSION turns are the free phase (driven through `pi.sendUserMessage`,
+// bounded by `tool_loop.max_rounds`), and the forced respond turn runs
+// OFF-SESSION through pi-ai `complete()`, attaching no session turn. The
+// FIRST driven turn is therefore the typed query's free-phase turn: the
+// PIC-51 probe's second feed read.
 const TYPED_LIVE_THETA = [
   "---",
   "mode: prompt",
@@ -290,14 +301,19 @@ function rootDouble(session: LiveSessionDouble): RuntimeRoot {
 /**
  * The `ExtensionAPI` surface the live drive touches: `sendUserMessage` (the
  * driven turn), the PIC-17 active-set save/restore pair, the governor's
- * one-time `pi.on` hook registration (inert — no fabricated tool rounds), and
- * the diagnostics `sendMessage` channel.
+ * one-time `pi.on` hook registration (inert — no fabricated tool rounds), the
+ * PIC-44 `registerTool` registration the typed cell's two-phase drive performs
+ * (bug 0010 harness accommodation — the respond tool registers before the
+ * free-phase turn; its execute is never invoked here because every cell
+ * terminates at the driven free-phase turn), and the diagnostics `sendMessage`
+ * channel.
  */
 function piDouble(session: LiveSessionDouble): ExtensionAPI {
   return {
     sendUserMessage: (content: string): void => session.sendUserMessage(content),
     getActiveTools: (): string[] => [],
     setActiveTools: (): void => {},
+    registerTool: (): void => {},
     on: (): void => {},
     sendMessage: (): void => {},
   } as unknown as ExtensionAPI;
@@ -387,10 +403,10 @@ function expectTransportErr(execution: BodyExecution): Record<string, unknown> {
 }
 
 // ===========================================================================
-// RED cells — the spec-pinned `.api` derivation (fail today, green after the
-// bug-0009 fix). Today the construction site reads `ctx.model?.provider`
-// (the short "anthropic"), so each `provider` assertion observes the wrong
-// vocabulary.
+// RED cells — the spec-pinned `.api` derivation. These were red against the
+// pre-fix construction site, which read `ctx.model?.provider` (the short
+// "anthropic"), so each `provider` assertion observed the wrong vocabulary;
+// green since the bug-0009 fix (v0.19.0) made the site read `.api`.
 // ===========================================================================
 
 describe("bug 0009 (RED) — prompt-mode TransportError.provider derives from ctx.model.api (PIC-50/51, queryerror-variants.md §provider derivation)", () => {
@@ -416,7 +432,7 @@ describe("bug 0009 (RED) — prompt-mode TransportError.provider derives from ct
     // THE bug-0009 pin: queryerror-variants.md §provider derivation /
     // PIC-51 ("provider per PIC-50") — the api-shaped `ctx.model.api`
     // ("anthropic-messages"), NOT pi-ai's short `ProviderId` ("anthropic").
-    // Red today: the construction site reads `.provider`.
+    // Was red against the pre-fix `.provider` read at the construction site.
     expect(
       err.provider,
       "TransportError.provider is the user session model's API-shaped `.api` value " +
@@ -424,37 +440,40 @@ describe("bug 0009 (RED) — prompt-mode TransportError.provider derives from ct
     ).toBe("anthropic-messages");
   });
 
-  it('(i-b) typed probe (PIC-51): a forced-respond turn ending `stopReason: "error"` yields Err(transport) whose provider is the user session model\'s `.api` — the probe\'s second feed read, pinned directly', async () => {
+  it('(i-b) typed probe (PIC-51): the typed query\'s driven free-phase turn ending `stopReason: "error"` yields Err(transport) whose provider is the user session model\'s `.api` — the probe\'s second feed read, pinned directly', async () => {
     const { execution, session } = await driveLiveTheta(
       ANTHROPIC_MODEL,
       { replies: [{ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE }] },
       TYPED_LIVE_THETA,
     );
 
-    // A typed prompt-mode query dispatches ONLY the forced-respond terminator
-    // (`maxRounds: typed ? 0` — no free-phase turn), so the ONE driven turn IS
-    // the forced-respond turn, and its transport failure terminates the typed
-    // query immediately — no respond-repair re-drives (the bug-0007 cell (vi)
+    // Bug 0010 (two-phase contract): a typed prompt-mode query drives its
+    // FREE PHASE on-session — the one `pi.sendUserMessage` turn here — and the
+    // forced respond turn runs off-session through pi-ai `complete()`. A
+    // `stopReason: "error"` trailing message on the driven turn is therefore
+    // the FREE-PHASE transport failure (PIC-51 unchanged), which terminates
+    // the typed query BEFORE the off-session forced respond turn is ever
+    // reached — no respond-repair re-drives (the bug-0007 cell (vi)
     // discipline, here on the live seam).
     expect(
       session.sendUserMessageCalls,
-      "exactly one user-visible turn resolves the typed query — the forced-respond terminator",
+      "exactly one user-visible turn for the typed query — the free-phase turn (bug 0010)",
     ).toBe(1);
     expect(
       session.sentQueryTexts[0],
-      "the driven turn carries the typed-aware rendered query",
+      "the driven free-phase turn carries the rendered query template",
     ).toContain("Ping");
     const err = expectTransportErr(execution);
     expect(err.message, "the provider's errorMessage is CARRIED into the Err").toBe(
       AUTH_ERROR_MESSAGE,
     );
     // THE bug-0009 pin, second feed read: the PIC-51 probe on the typed
-    // forced-respond turn reads the same once-assigned
+    // query's driven free-phase turn reads the same once-assigned
     // `LivePromptQueryModel.#provider` as cell (i)'s untyped probe — pinned
     // here DIRECTLY rather than transitively.
     expect(
       err.provider,
-      "TransportError.provider on the forced-respond turn is the user session model's " +
+      "TransportError.provider on the typed free-phase turn is the user session model's " +
         "API-shaped `.api` value (PIC-50/PIC-51), not its short `.provider` id",
     ).toBe("anthropic-messages");
   });
@@ -489,9 +508,9 @@ describe("bug 0009 (RED) — prompt-mode TransportError.provider derives from ct
 });
 
 // ===========================================================================
-// GREEN controls — pass today AND after the fix; they prove the drive
-// exercises the real live seam (so the RED cells above are red for the
-// derivation, not for a harness gap).
+// GREEN controls — green before AND after the bug-0009 fix; they prove the
+// drive exercises the real live seam (so the RED cells above were red for
+// the derivation, not for a harness gap).
 // ===========================================================================
 
 describe("bug 0009 (GREEN controls) — the live prompt-mode drive and the PIC-50 sentinel", () => {

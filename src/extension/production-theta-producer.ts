@@ -22,6 +22,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { parseDocument } from "yaml";
@@ -81,6 +82,9 @@ import type {
 // the publicly-exported `/compat` subpath (package.json `exports["./compat"]`
 // -> dist/compat.d.ts); the root barrel no longer re-exports `complete`.
 import { complete } from "@earendil-works/pi-ai/compat";
+// Bug 0010: the synthesised respond tool's `parameters` wrap the lowered
+// response schema exactly as the binder call shape does (`Type.Unsafe`).
+import { Type } from "typebox";
 import type { Clock } from "../seams/clock";
 import type { RuntimeRoot } from "../runtime-root";
 import type {
@@ -114,7 +118,11 @@ import {
   type BodyExecution,
   type ExecuteBodyDeps,
 } from "../runtime/statement-executor";
-import { extractTrailingTurnText } from "../runtime/conversation-drive";
+import {
+  extractTrailingTurnText,
+  withActiveSetGating,
+  type CallableSetInstall,
+} from "../runtime/conversation-drive";
 import {
   extractPromptModeQueryResult,
   mapPromptModeSyncThrow,
@@ -146,6 +154,7 @@ import type { InvokeChild } from "../runtime/invoke-cancellation";
 import { runInvokeChild } from "../runtime/invoke-cancellation";
 import type {
   ContextOverflowError,
+  ForcedRespondBranch,
   InvokeInfraError,
   TransportError,
 } from "../runtime/query-error";
@@ -212,11 +221,18 @@ import {
   buildTypedQueryValidation,
   parseStructuredPayload,
   payloadForRespond,
+  respondSchemaSlug,
   type FollowUpDriveFailure,
+  type FollowUpRespondOutcome,
 } from "../runtime/typed-query-validation";
+import { renderInitialRespondTurn } from "../runtime/query-followup-render";
 import { evaluateIndexAccess, evaluateMemberAccess, HostFatal } from "../runtime/runtime-panics";
 import { routeThetaCallableSetupThrow } from "../runtime/tool-call-off-surface";
-import { deriveToolLabel } from "../runtime/tool-registration";
+import {
+  createRegistrationCache,
+  deriveToolLabel,
+  registerToolInCache,
+} from "../runtime/tool-registration";
 import {
   lexQueryTemplate,
   renderEmptyShortCircuit,
@@ -237,7 +253,11 @@ import {
   type BinderAttemptOutcome,
   type BinderFailureSurface,
 } from "../binder/retry-taxonomy";
-import { classifyProviderResponse } from "../binder/provider-error-mapping";
+import {
+  classifyProviderResponse,
+  synthesizeUnsupportedProviderTransportError,
+  TYPED_QUERY_SUPPORTED_PROVIDER_APIS,
+} from "../binder/provider-error-mapping";
 import { walkSessionContext } from "../binder/session-context-walk";
 import {
   renderCompactTranscript,
@@ -548,6 +568,21 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * state, so it never affects unrelated user turns.
    */
   readonly #promptToolLoopGovernor = new PromptToolLoopGovernor();
+  /**
+   * Bug 0010 (PIC-44): the producer-scoped registration cache for the
+   * synthesised `__theta_respond_<slug>` tools. A byte-equal lowered schema
+   * re-uses the existing registration; a slug collision disambiguates.
+   */
+  readonly #respondRegistrationCache = createRegistrationCache();
+  /**
+   * Bug 0010 (QRY-14 early respond): the one-shot capture slot the PERMANENT
+   * respond-tool registrations dispatch through. Armed by the live driver
+   * around each driven free-phase turn and cleared in its `finally`, so a
+   * registration that outlives its query can never capture outside a live
+   * typed turn. A SINGLE slot suffices because prompt-mode bodies execute
+   * strictly sequentially (PIC-2): at most one driven turn is in flight.
+   */
+  #activeRespondCapture: ActiveRespondCapture | null = null;
 
   constructor(input: ProductionProducerInput) {
     this.#input = input;
@@ -2104,44 +2139,58 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // QTL-4: the theta's callable-set underlying Pi-tool names installed as the
     // model's active tools for each user-visible query turn.
     const activeTools = callableSetPiToolNames(deps.theta);
-    // QRY-22: a typed prompt-mode query drives respond-repair follow-ups as new
-    // user turns against the SAME conversation (a user-visible turn when the
-    // query streams, else off-session), extracting each follow-up's reply text.
-    // The off-session arm maps the classified wrapper (bug 0007): reply text on
-    // success, the discriminated `FollowUpDriveFailure` on a provider failure so
-    // the proximate `QueryError` terminates repair (QRY-10 §respond-repair)
-    // instead of laundering into the schema-validation channel.
-    const driveFollowUp = (prompt: string): Promise<string | FollowUpDriveFailure> =>
-      deps.userVisible
-        ? driveStreamedUserTurn({
-            pi: deps.pi,
-            ctx: deps.ctx,
-            clock: root.clock,
-            queryText: prompt,
-            activeTools,
-          })
-        : offSessionFollowUp(deps.ctx.model, prompt);
-    const validation = typed
-      ? this.#buildTypedValidation(expr, env, deps.theta, driveFollowUp)
-      : undefined;
-    // A typed query instructs the model to emit only a JSON object of the
-    // declared (lowered) shape, so its user-visible turn streams the structured
-    // value as its assistant text (shared with the subagent path via
-    // `renderTypedAwareQueryText`; an off-session typed turn's reply parses the
-    // same).
-    const queryText = renderTypedAwareQueryText(expr, env, validation?.lowered);
+    // Bug 0010: lower the declared response schema FIRST — the single lowering
+    // feeds the validation collaborator, the respond-tool registration, and the
+    // QRY-15 template, so all three consume byte-identical canonical bytes.
+    const lowered =
+      expr.schema !== null
+        ? lowerQueryResponseSchema(expr.schema, schemaDeclsOf(deps.theta.body))
+        : undefined;
+    // Bug 0010 (QRY-14 step 2): the typed query's respond-turn machinery —
+    // the PIC-44-registered one-shot respond tool, the theta-resolved respond
+    // model with auth/signal threading, the QRY-15 template, and the
+    // early-respond capture host. Built for BOTH drivers (increment D): the
+    // live driver forces the respond dispatch off-session after its
+    // session-driven free phase; the off-session driver (`subagent fn`) runs
+    // the same two-phase shape over its HELD conversation. Only the degraded
+    // arm (`lowered === undefined`) builds no context.
+    const respond =
+      lowered !== undefined ? this.#buildRespondTurnContext(lowered, deps) : undefined;
 
-    // STAGE B (ceiling #2): bound the native prompt-mode agentic tool loop to
-    // the theta's `tool_loop.max_rounds` for the untyped free-phase turn. A typed
-    // query's forced-respond turn is the exempt-routed terminator (FRNT-1) and
-    // is NOT bounded. `max_rounds: 0` untyped is handled upstream by
-    // `runUntypedQueryLoop` (it exhausts at query start before any turn), so the
-    // governor is only consulted for `max_rounds >= 1` free-phase turns.
+    // QRY-6: the bare rendered template body (typed-query schema conveyance
+    // excluded) the empty-template short-circuit is evaluated over before any
+    // provider turn is issued.
+    const renderedText = renderQueryText(expr, env);
+    // WHY two text shapes (bug 0010): the restored two-phase path — live AND
+    // off-session (increment D) — opens its free phase with the RENDERED QUERY
+    // TEMPLATE BODY ONLY (QRY-14 step 1 — no JSON-only instruction, no inlined
+    // schema; the shape is conveyed by the respond tool's parameters and the
+    // QRY-15 template instead). The fused typed-aware text REMAINS only for
+    // the degraded arm (`lowered === undefined`: an unlowerable annotation),
+    // where the old fused-turn + text-parse fallback keeps typed behaviour
+    // total.
+    const queryText =
+      respond !== undefined ? renderedText : renderTypedAwareQueryText(expr, env, lowered);
+
+    // STAGE B (ceiling #2) / CIO-4 (bug 0010): bound the native prompt-mode
+    // agentic tool loop to the theta's `tool_loop.max_rounds` for EVERY driven
+    // free-phase turn — typed included (the old `!typed` exemption is retired;
+    // the forced respond turn is off-session and inherently outside pi's
+    // native loop, so it needs no exemption plumbing). `max_rounds: 0` is
+    // handled upstream by the loops (they exhaust at query start before any
+    // turn), so the governor is only consulted for `max_rounds >= 1` turns.
     const maxRounds = deps.theta.frontmatter.toolLoop?.maxRounds ?? 25;
-    if (!typed && deps.userVisible) {
+    if (deps.userVisible) {
       this.#promptToolLoopGovernor.ensureRegistered(deps.pi);
     }
-    const model = deps.userVisible
+    // WHY the model is built BEFORE the validation collaborator (bug 0010
+    // increment C): the LIVE typed repair drive is `driveRepairAttempt` — a
+    // METHOD on the live model (it restarts the two-phase loop over the same
+    // per-query state: window start, governor, capture slot) — so validation's
+    // `driveFollowUp` closure must capture the constructed model. The model
+    // construction itself no longer needs `validation` (the AB increment
+    // removed the lowered-schema conveyance from `queryText`).
+    const liveModel = deps.userVisible
       ? new LivePromptQueryModel({
           pi: deps.pi,
           ctx: deps.ctx,
@@ -2150,27 +2199,105 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           readMessages: deps.readMessages,
           activeTools,
           thetaAbort: deps.thetaAbort,
-          // Only the untyped free-phase native turn is bounded (typed → exempt).
-          governor: typed ? undefined : this.#promptToolLoopGovernor,
+          governor: this.#promptToolLoopGovernor,
           maxRounds,
           // PIC-50/51 (queryerror-variants.md §provider derivation): the api-shaped
           // `.api` of the USER session's selected model (`ctx.model` — not the theta's
           // resolved `model:`, not the short ProviderId); "unknown" when undefined.
+          // The RESPOND dispatch derives its own provider from the RESOLVED
+          // RESPOND MODEL's `.api` inside `dispatchForcedRespondTurn` (bug 0010).
           provider: String(deps.ctx.model?.api ?? "unknown"),
+          ...(respond !== undefined ? { respond } : {}),
         })
-      : new OffSessionQueryModel({ model: deps.ctx.model, queryText, signal: deps.signal });
+      : undefined;
+    // Bug 0010 increment D: the off-session sibling (`subagent fn` in-process
+    // path) runs the SAME two-phase shape over a HELD conversation — a real
+    // `complete()` tool loop servicing model tool calls over the theta's
+    // callable set (QRY-13), terminated by the shared off-session forced
+    // respond dispatch. The callable set is PRESENTED (duck-read off the
+    // frozen snapshot) and DISPATCHED (`#resolvePiToolForTheta`) separately,
+    // matching the code-side resolution posture.
+    const offModel =
+      liveModel === undefined
+        ? new OffSessionQueryModel({
+            model: deps.ctx.model,
+            queryText,
+            signal: deps.signal,
+            maxRounds,
+            ...(respond !== undefined ? { respond } : {}),
+            freePhaseTools: callableSetPresentedTools(deps.theta),
+            resolveDispatch: (name: string) => this.#resolvePiToolForTheta(deps.theta, name),
+            auth: () => resolveRegistryAuth(this.#input.modelRegistry, deps.ctx.model),
+          })
+        : undefined;
+    const model: QueryModelDriver = liveModel ?? (offModel as OffSessionQueryModel);
 
-    // QRY-6: the bare rendered template body (typed-query schema conveyance
-    // excluded) the empty-template short-circuit is evaluated over before any
-    // provider turn is issued.
-    const renderedText = renderQueryText(expr, env);
+    // The respond-repair follow-up drive (QRY-22 / QRY-14 ¶3), four arms with
+    // explicit WHY (bug 0010 increments C+D):
+    //  - LIVE TYPED (respond context present): each attempt RESTARTS the whole
+    //    two-phase loop — the QRY-12 follow-up opens a fresh ON-SESSION free
+    //    phase (respond tool active, capture re-armed, governor re-armed with a
+    //    fresh budget) terminated by a FRESH off-session forced respond
+    //    dispatch (query-tool-loop.md QRY-14 ¶3: follow-ups "restart the
+    //    *whole* two-phase loop"). The old text-parse drive is retired here.
+    //  - OFF-SESSION TYPED (increment D): the same restart over the HELD
+    //    conversation — the QRY-12 follow-up joins it as a user message, the
+    //    free-phase tool loop re-runs with a fresh budget, then a fresh forced
+    //    respond dispatch terminates the attempt.
+    //  - LIVE DEGRADED (typed but unlowerable annotation, `respond` absent):
+    //    the pre-0010 fused streamed drive stays — there is no respond tool to
+    //    force, so the follow-up reply text is parsed as the candidate payload,
+    //    keeping typed behaviour total for unlowerable schemas.
+    //  - OFF-SESSION DEGRADED: the fused single-turn `complete()` drive stays;
+    //    the classified wrapper maps a provider failure to the discriminated
+    //    `FollowUpDriveFailure` (bug 0007) so the proximate `QueryError`
+    //    terminates repair instead of laundering into the schema-validation
+    //    channel.
+    // Untyped queries build no validation collaborator, so `driveFollowUp` is
+    // never consulted for them.
+    const driveFollowUp = (
+      prompt: string,
+    ): Promise<string | FollowUpDriveFailure | FollowUpRespondOutcome> =>
+      liveModel !== undefined && respond !== undefined
+        ? liveModel.driveRepairAttempt(prompt)
+        : liveModel !== undefined
+          ? driveStreamedUserTurn({
+              pi: deps.pi,
+              ctx: deps.ctx,
+              clock: root.clock,
+              queryText: prompt,
+              activeTools,
+            })
+          : offModel !== undefined && respond !== undefined
+            ? offModel.driveRepairAttempt(prompt)
+            : offSessionFollowUp(deps.ctx.model, prompt);
+    const validation =
+      lowered !== undefined
+        ? this.#buildTypedValidation(
+            expr,
+            env,
+            deps.theta,
+            driveFollowUp,
+            lowered,
+            // F6: the QRY-12 follow-ups must name the REGISTERED respond tool
+            // (collision-disambiguated when applicable), byte-equal to the
+            // forced choice. Absent only on the (unreachable-here) respond-less
+            // arm — lowered !== undefined implies respond !== undefined.
+            respond?.toolName,
+          )
+        : undefined;
 
     const config: QueryToolLoopConfig = {
-      // A typed query dispatches only the forced-respond terminator (no
-      // free-phase provider call), so its `max_rounds`-final branch fires at
-      // typed-query start; an untyped query drives one user-visible free-phase
-      // turn under the theta's configured cap.
-      maxRounds: typed ? 0 : deps.theta.frontmatter.toolLoop?.maxRounds ?? 25,
+      // Bug 0010: the restored two-phase path — live AND off-session
+      // (increment D) — runs its free phase under the REAL
+      // `tool_loop.max_rounds` cap (CIO-4). The `typed ? 0` collapse SURVIVES
+      // only where the fused single-turn mechanism survives — the degraded
+      // unlowerable-schema arm (reachable only via an empty `@<>`/whitespace
+      // annotation; a recorded RESIDUAL of the bug-0010 fix, see the
+      // forcedRespondTurn degraded arms and the bug doc's Fix §Residuals) —
+      // because there `forcedRespondTurn` still IS the single fused turn and
+      // a real free phase would double-dispatch it.
+      maxRounds: typed && respond === undefined ? 0 : maxRounds,
       querySite: {
         file: deps.theta.slashName,
         line: expr.range.start.line,
@@ -2186,41 +2313,220 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       renderedText,
       model,
       config,
-      ...(validation !== undefined ? { schemaValidation: validation.validation } : {}),
+      ...(validation !== undefined ? { schemaValidation: validation } : {}),
     };
   }
 
   /**
+   * Bug 0010 (QRY-14 step 2): assemble the typed query's `RespondTurnContext`
+   * — register (or cache-hit) the synthesised respond tool, resolve the
+   * respond model, and close over auth / AJV / the early-respond capture
+   * slot. Shared by BOTH drivers (increment D): the live driver arms the
+   * capture host around its session turns; the off-session driver services
+   * respond-tool calls itself over its held conversation and never arms it.
+   */
+  #buildRespondTurnContext(
+    lowered: LoweredSchema,
+    deps: {
+      readonly ctx: ExtensionCommandContext;
+      readonly theta: ConversationBindInput["theta"];
+      readonly signal: AbortSignal;
+    },
+  ): RespondTurnContext {
+    const { root, modelRegistry } = this.#input;
+    const { slug, toolName } = this.#registerRespondTool(lowered);
+    // The respond dispatch model (conversation-drive.md §Provider
+    // compatibility; bug 0010): the theta-resolved `model:` — matched against
+    // the registry's available set by the same exact-match rule the
+    // binder-model resolution uses — falling back to the invocation-pinned
+    // session model (`ctx.model`) when frontmatter omits `model:` or the
+    // reference does not resolve.
+    const modelRef = deps.theta.frontmatter.model;
+    // WHY no `?? deps.ctx.model` on the resolved arm (bug 0010, fix round 1):
+    // a PRESENT frontmatter `model:` that matches no available model is a
+    // refusal, mirroring the binder's unresolved-reference posture — silently
+    // substituting the session model would dispatch the respond turn against a
+    // model the author explicitly steered away from. The respond context's
+    // model stays `undefined` so `dispatchForcedRespondTurn` surfaces the
+    // existing model-unavailable transport `Err`. `ctx.model` is the fallback
+    // ONLY when frontmatter omits `model:` entirely.
+    const respondModel =
+      modelRef !== undefined
+        ? matchAvailableModel(modelRef, modelRegistry.getAvailable())
+        : deps.ctx.model;
+    // Bug 0010 increment C (conversation-drive.md §"Provider compatibility for
+    // typed queries"): the RUNTIME provider gate. A typed dispatch whose
+    // resolved respond model's api is outside the supported set must refuse
+    // BEFORE any provider turn — pi-ai exposes no named-tool toolChoice mapping
+    // for that api, so driving the free phase would waste a turn on a query
+    // whose forced respond dispatch cannot be forced. The gate error is carried
+    // on the context and short-circuited by the driver at both entry points
+    // (round 0 and the `max_rounds: 0` forcedRespondTurn). A model-less context
+    // (`undefined`) is NOT gated here — `dispatchForcedRespondTurn` owns the
+    // model-unavailable transport refusal.
+    const gateError =
+      respondModel !== undefined &&
+      !(TYPED_QUERY_SUPPORTED_PROVIDER_APIS as readonly string[]).includes(
+        String(respondModel.api),
+      )
+        ? synthesizeUnsupportedProviderTransportError(String(respondModel.api))
+        : undefined;
+    return {
+      slug,
+      toolName,
+      lowered,
+      ...(gateError !== undefined ? { gateError } : {}),
+      // QRY-15 names the REGISTERED tool (bug 0010 fix review, F6): under a
+      // PIC-44 slug collision `toolName` is the disambiguated minted name and
+      // the instruction must reference it byte-equal to the forced choice —
+      // never the bare recipe-derived `__theta_respond_<slug>`.
+      template: renderInitialRespondTurn({ loweredSchema: lowered, slug, toolName }),
+      model: respondModel,
+      // Auth threading copied from `#completeBinderReply` (bug 0010): the
+      // out-of-band `complete()` free function does not inherit the session's
+      // resolved credentials, so the respond dispatch resolves apiKey/headers
+      // off the model registry when the auth resolution succeeds. Resolution
+      // PROBES for the optional capability (increment D) — see
+      // `resolveRegistryAuth`.
+      auth: () => resolveRegistryAuth(modelRegistry, respondModel),
+      signal: deps.signal,
+      // The early-respond `execute`'s AJV verdict over the SAME lowered schema
+      // the loop validates against (QRY-14: the respond tool's execute
+      // AJV-validates the call payload).
+      validate: (payload: unknown) => {
+        const verdict = root.schemaValidator.compile(lowered).validate(payload);
+        if (verdict.ok) {
+          return { ok: true };
+        }
+        // The `<path> <message>` join mirrors the QRY-12 `<ajv-summary>` form so
+        // the model can correct in-turn from the same vocabulary.
+        return {
+          ok: false,
+          message: verdict.errors
+            .map((error) => `${error.instancePath} ${error.message}`.trim())
+            .join("; "),
+        };
+      },
+      captureHost: {
+        setActiveCapture: (capture): void => {
+          this.#activeRespondCapture = capture;
+        },
+        clearActiveCapture: (): void => {
+          this.#activeRespondCapture = null;
+        },
+      },
+    };
+  }
+
+  /**
+   * Bug 0010 (PIC-44): register the synthesised one-shot respond tool for a
+   * lowered response schema through the producer's registration cache. The
+   * slug is `respondSchemaSlug` — the SAME recipe that names the QRY-12/QRY-15
+   * template references — and the canonical-form bytes are
+   * `JSON.stringify(lowered)`, so a byte-equal schema re-uses the registration
+   * and a slug collision registers under a disambiguated name. NOTE the cache's
+   * `registerTool` callback receives the MINTED name (base or disambiguated) —
+   * the `ToolDefinition` is built with that name.
+   */
+  #registerRespondTool(lowered: LoweredSchema): {
+    readonly slug: string;
+    readonly toolName: string;
+  } {
+    const slug = respondSchemaSlug(lowered);
+    const toolName = registerToolInCache(
+      this.#respondRegistrationCache,
+      { kind: "respond", slug, canonicalFormBytes: JSON.stringify(lowered) },
+      {
+        registerTool: (name) =>
+          this.#input.pi.registerTool(this.#buildRespondToolDefinition(name, lowered)),
+        emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+      },
+    );
+    return { slug, toolName };
+  }
+
+  /**
+   * Bug 0010 (QRY-14 step 2): the pi `ToolDefinition` for one synthesised
+   * respond tool. `label` is the fixed `deriveToolLabel` literal, `parameters`
+   * wrap the lowered response schema, and `execute` dispatches through the
+   * producer's capture slot — the registration is PERMANENT (pi exposes no
+   * unregister), so the slot indirection is what scopes it to a live typed turn.
+   */
+  #buildRespondToolDefinition(name: string, lowered: LoweredSchema): ToolDefinition {
+    return {
+      name,
+      label: deriveToolLabel({ kind: "typed-query-respond" }),
+      description: RESPOND_TOOL_DESCRIPTION,
+      parameters: Type.Unsafe<unknown>(lowered),
+      execute: async (_toolCallId, params) => this.#executeRespondTool(name, params),
+    };
+  }
+
+  /**
+   * Bug 0010: one respond-tool `execute` dispatch. Dispositions, in order:
+   * no armed capture (or a different query's tool) → inert error result;
+   * CIO-3 depth walk BEFORE AJV (a depth-6+ payload is fed back, never
+   * validated); AJV-invalid → error result carrying the issue summary so the
+   * model can correct in-turn; valid → ONE-SHOT capture ("final answer
+   * recorded") — a repeat valid call is acknowledged inertly ("already
+   * recorded", not an error) so the first valid call wins.
+   */
+  async #executeRespondTool(
+    toolName: string,
+    params: unknown,
+  ): Promise<RespondToolExecuteResult> {
+    const capture = this.#activeRespondCapture;
+    if (capture === null || capture.toolName !== toolName) {
+      return respondToolExecuteResult("no typed query is active for this respond tool", true);
+    }
+    // CIO-3 (ceilings-3-and-4.md, model-driven row): depth-walk the
+    // model-produced payload BEFORE AJV; a depth-6+ document is fed back as a
+    // tool-error result with the canonical depth message and never validated.
+    const argDepthBreach = enforceModelToolArgDepth(params);
+    if (argDepthBreach !== undefined) {
+      return respondToolExecuteResult(argDepthBreach.message, true);
+    }
+    const verdict = capture.validate(params);
+    if (!verdict.ok) {
+      return respondToolExecuteResult(verdict.message, true);
+    }
+    if (!capture.captured) {
+      capture.captured = true;
+      capture.payload = params;
+      return respondToolExecuteResult(RESPOND_CAPTURED_TEXT, false);
+    }
+    return respondToolExecuteResult(RESPOND_REPEAT_TEXT, false);
+  }
+
+  /**
    * Build the typed-query schema-validation collaborator (QRY-22) for a typed
-   * `@`-query: lower the declared schema (a named `schema` decl resolved
-   * whole-file, or an inline object/type annotation) to the validating JSON
-   * Schema, and assemble the `TypedQuerySchemaValidation` over the root's AJV
-   * `SchemaValidator` and the `V13d` respond-repair loop, threading the mode's
-   * follow-up turn drive. Returns `undefined` when the query is untyped or the
-   * declared schema does not lower.
+   * `@`-query: assemble the `TypedQuerySchemaValidation` over the root's AJV
+   * `SchemaValidator` and the `V13d` respond-repair loop for the PRE-LOWERED
+   * declared schema (bug 0010: the caller lowers once and shares the result
+   * with the respond-tool registration and the QRY-15 template, avoiding a
+   * double lowering), threading the mode's follow-up turn drive.
    */
   #buildTypedValidation(
     expr: QueryExpr,
     env: LexicalEnvironment,
     theta: ConversationBindInput["theta"],
-    driveFollowUp: (prompt: string) => Promise<string | FollowUpDriveFailure>,
-  ): { readonly validation: TypedQuerySchemaValidation; readonly lowered: LoweredSchema } | undefined {
-    if (expr.schema === null) {
-      return undefined;
-    }
-    const lowered = lowerQueryResponseSchema(expr.schema, schemaDeclsOf(theta.body));
-    if (lowered === undefined) {
-      return undefined;
-    }
-    const validation = buildTypedQueryValidation({
+    driveFollowUp: (
+      prompt: string,
+    ) => Promise<string | FollowUpDriveFailure | FollowUpRespondOutcome>,
+    lowered: LoweredSchema,
+    respondToolName?: string,
+  ): TypedQuerySchemaValidation {
+    return buildTypedQueryValidation({
       lowered,
       resolveShape: resolveDeclaredShape(expr, env),
       schemaValidator: this.#input.root.schemaValidator,
       attempts: theta.frontmatter.respondRepair?.attempts ?? 3,
       maxRounds: theta.frontmatter.toolLoop?.maxRounds ?? 25,
       driveFollowUp,
+      // F6: QRY-12 template references stay byte-equal to the REGISTERED
+      // (possibly collision-disambiguated) respond-tool name.
+      ...(respondToolName !== undefined ? { respondToolName } : {}),
     });
-    return { validation, lowered };
   }
 
   /**
@@ -3098,6 +3404,98 @@ function buildBoundEnvironment(
   return env;
 }
 
+/** The fixed respond-tool description (bug-0010 design brief §Slug / naming). */
+const RESPOND_TOOL_DESCRIPTION =
+  "Return the final answer for the typed query, conforming to the response schema.";
+
+/**
+ * The one-shot capture acknowledgements a respond-tool call is answered with
+ * (bug 0010): the FIRST valid call records the final answer; a repeat valid
+ * call is acknowledged inertly (not an error). Shared by the live capture
+ * slot's `execute` and the off-session held-conversation servicing so the two
+ * drivers answer the model identically.
+ */
+const RESPOND_CAPTURED_TEXT = "final answer recorded";
+const RESPOND_REPEAT_TEXT = "final answer already recorded";
+
+/**
+ * Bug 0010 (QRY-14 early respond): the one-shot capture slot armed around each
+ * driven typed free-phase turn. The PERMANENTLY registered respond tool's
+ * `execute` dispatches into the producer's current slot, so a registration
+ * that outlives its query can never capture outside a live typed turn. The
+ * slot object is created per driven turn by the live driver, which keeps its
+ * own reference and reads `captured`/`payload` back after the turn settles.
+ */
+interface ActiveRespondCapture {
+  /** The registered respond-tool name this capture belongs to. */
+  readonly toolName: string;
+  /** AJV verdict over the lowered response schema (QRY-14 execute validation). */
+  readonly validate: (
+    payload: unknown,
+  ) => { readonly ok: true } | { readonly ok: false; readonly message: string };
+  /** One-shot: the FIRST valid call wins; later valid calls acknowledge inertly. */
+  captured: boolean;
+  payload?: unknown;
+}
+
+/** The producer's capture-slot accessor handed to the live driver (narrow closures). */
+interface RespondCaptureHost {
+  setActiveCapture(capture: ActiveRespondCapture): void;
+  clearActiveCapture(): void;
+}
+
+/**
+ * Bug 0010 (QRY-14 step 2): the LIVE typed query's respond-turn machinery —
+ * the registered `__theta_respond_<slug>` identity, the lowered response
+ * schema, the QRY-15 template, the resolved respond model with auth/signal
+ * threading for the off-session `complete()` dispatch, the early-respond AJV
+ * verdict, and the producer's capture-slot accessor.
+ */
+interface RespondTurnContext {
+  readonly slug: string;
+  /** The PIC-44 registered tool name (collision-disambiguated when applicable). */
+  readonly toolName: string;
+  readonly lowered: LoweredSchema;
+  /** The QRY-15 initial respond-turn template (`renderInitialRespondTurn`). */
+  readonly template: string;
+  /** The resolved respond model: theta `model:` → registry match, else `ctx.model`. */
+  readonly model: Model<Api> | undefined;
+  /** Resolve the respond dispatch's request auth (apiKey/headers), when available. */
+  readonly auth: () => Promise<
+    { readonly apiKey?: string; readonly headers?: Record<string, string> } | undefined
+  >;
+  /** The theta signal, threaded as `options.signal` (cancellation). */
+  readonly signal: AbortSignal;
+  /** The early-respond `execute`'s AJV verdict (same lowered schema as the loop). */
+  readonly validate: ActiveRespondCapture["validate"];
+  readonly captureHost: RespondCaptureHost;
+  /**
+   * Bug 0010 increment C (conversation-drive.md §"Provider compatibility for
+   * typed queries"): the RUNTIME provider gate's refusal, set when the
+   * resolved respond model's api-shaped `.api` is outside
+   * `TYPED_QUERY_SUPPORTED_PROVIDER_APIS`. When present, the typed query
+   * refuses BEFORE any provider traffic — `nextFreePhaseTurn` round 0 and
+   * `forcedRespondTurn` (the `max_rounds: 0` entry point) both short-circuit
+   * to `Err(TransportError)` with zero sends and zero `complete()` calls.
+   */
+  readonly gateError?: TransportError;
+}
+
+/**
+ * The respond tool's `execute` result: pi's `AgentToolResult` content/details
+ * plus the `isError` flag fed back to the model as a tool-error result.
+ */
+interface RespondToolExecuteResult {
+  content: { type: "text"; text: string }[];
+  details: undefined;
+  isError: boolean;
+}
+
+/** Lower one respond-tool `execute` disposition to its result shape. */
+function respondToolExecuteResult(text: string, isError: boolean): RespondToolExecuteResult {
+  return { content: [{ type: "text", text }], details: undefined, isError };
+}
+
 /**
  * The live prompt-mode `QueryModelDriver` (`V12a`/`V9c`): it drives real
  * user-visible turns into the shared user session. `nextFreePhaseTurn` issues
@@ -3105,6 +3503,13 @@ function buildBoundEnvironment(
  * `ctx.waitForIdle()` so the assistant streams into the transcript before the
  * interpreter resumes (SLSH-2), then extracts the trailing-turn assistant text
  * (PIC-53) as the plain-text terminating turn.
+ *
+ * Bug 0010: for a typed query (a present `respond` context) the driver runs
+ * the restored TWO-PHASE shape — the free phase on-session (respond tool in
+ * the PIC-17 install vector, early-respond capture armed, governor bounding
+ * the native loop per CIO-4) and the forced respond turn OFF-SESSION through
+ * pi-ai `complete()` with the provider's tool choice forced to the respond
+ * tool (`dispatchForcedRespondTurn`), attaching no session turn.
  */
 class LivePromptQueryModel implements QueryModelDriver {
   readonly #pi: ExtensionAPI;
@@ -3114,15 +3519,29 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #readMessages: () => readonly Message[];
   readonly #activeTools: readonly string[];
   readonly #thetaAbort: AbortController;
-  /** STAGE B: bounds the native tool loop; `undefined` for the exempt typed path. */
+  /** STAGE B: bounds the native tool loop (armed for typed and untyped alike — bug 0010). */
   readonly #governor: PromptToolLoopGovernor | undefined;
   readonly #maxRounds: number;
   /** PIC-50/51: the resolved provider for a synthesised `TransportError`. */
   readonly #provider: string;
+  /** Bug 0010: the typed query's respond-turn machinery (absent = untyped / degraded). */
+  readonly #respond: RespondTurnContext | undefined;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
   /** PIC-50: a `TransportError` synthesised from a `sendUserMessage` sync-throw. */
   #transportFromThrow: TransportError | undefined = undefined;
+  /** Bug 0010: whether a free-phase turn was driven (false at `max_rounds: 0`). */
+  #freePhaseDriven = false;
+  /**
+   * Bug 0010 (PIC-53 window): the session message-list length recorded
+   * immediately BEFORE the query's first `sendUserMessage` — the query-window
+   * start the off-session respond turn rebuilds its conversation from.
+   */
+  #queryWindowStart: number | undefined = undefined;
+  /** Bug 0010: the early-respond snapshot read back after each driven turn. */
+  #earlyRespond: { readonly captured: boolean; readonly payload?: unknown } = {
+    captured: false,
+  };
 
   constructor(deps: {
     readonly pi: ExtensionAPI;
@@ -3134,12 +3553,14 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly activeTools: readonly string[];
     /** CANCEL-2: the per-invocation controller `ctx.signal` is re-forwarded into per turn. */
     readonly thetaAbort: AbortController;
-    /** STAGE B: the round-cap governor for the untyped free-phase turn (undefined = exempt/typed). */
+    /** STAGE B / CIO-4: the round-cap governor for the driven free-phase turns. */
     readonly governor: PromptToolLoopGovernor | undefined;
     /** STAGE B: the theta's `tool_loop.max_rounds` for this query. */
     readonly maxRounds: number;
     /** PIC-50/51: the resolved provider for a synthesised `TransportError`. */
     readonly provider: string;
+    /** Bug 0010: the typed respond-turn machinery (absent = untyped / degraded arm). */
+    readonly respond?: RespondTurnContext;
   }) {
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
@@ -3151,16 +3572,35 @@ class LivePromptQueryModel implements QueryModelDriver {
     this.#governor = deps.governor;
     this.#maxRounds = deps.maxRounds;
     this.#provider = deps.provider;
+    this.#respond = deps.respond;
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
     if (round === 0) {
+      // Bug 0010 increment C (conversation-drive.md §Provider compatibility):
+      // the runtime provider gate refuses BEFORE any provider traffic — no
+      // window recording, no `sendUserMessage`, no `complete()`. The loop
+      // surfaces the transport Err directly.
+      if (this.#respond?.gateError !== undefined) {
+        return { kind: "transport", error: this.#respond.gateError };
+      }
+      // Bug 0010 (PIC-53 window): record the query-window start — the message
+      // count immediately before this query's first send — so the off-session
+      // respond turn replays exactly THIS query's turns. `??=` (never plain
+      // `=`): a respond-repair restart (Increment C) re-enters the two-phase
+      // loop at round 0, and the respond window must keep the ORIGINAL query
+      // turns — the window start is recorded ONCE per query, never rewound to
+      // a follow-up's send position.
+      this.#queryWindowStart ??= this.#readMessages().length;
       // SLSH-2: issue the rendered query as one streamed user-visible turn and
       // await its completion so the assistant text is committed before the
       // interpreter resumes. pi runs its NATIVE agentic tool loop for this turn;
       // the governor (STAGE B) bounds it to `tool_loop.max_rounds` by blocking
-      // any tool-use round beyond the cap (ceiling #2 / CIO-4).
+      // any tool-use round beyond the cap (ceiling #2 / CIO-4) — typed free
+      // phases included (bug 0010: the old typed exemption is retired; the
+      // forced respond turn is off-session and inherently ungoverned).
       await this.#driveUserVisibleTurn(true);
+      this.#freePhaseDriven = true;
       // PIC-50: a synchronous throw from `pi.sendUserMessage` was mapped to a
       // `TransportError` (no turn was issued); surface it as the free-phase
       // transport failure ahead of any exhaustion / text extraction.
@@ -3224,33 +3664,225 @@ class LivePromptQueryModel implements QueryModelDriver {
   }
 
   async forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    // A schema-typed query's forced-respond terminator drives one user-visible
-    // turn that streams the structured JSON as its assistant text, then parses
-    // that text as the candidate structured payload. The typed-query response
-    // schema is lowered from the declared annotation (`V5d`); the respond loop
-    // depth-walks and validates the payload against it. A non-JSON reply is
-    // surfaced as its raw text (never a thrown `JSON.parse`, never a bound
-    // `null`) so the schema validation reports the mismatch.
+    // Bug 0010 increment C: the provider gate short-circuits here too — this
+    // covers `max_rounds: 0`, where the loop's free phase is skipped entirely
+    // and `forcedRespondTurn` is the FIRST driver call (zero sends, zero
+    // completes). At `max_rounds >= 1` the round-0 gate already refused, so
+    // this arm is defence-in-depth.
+    if (this.#respond?.gateError !== undefined) {
+      return { kind: "transport", error: this.#respond.gateError };
+    }
+    // Bug 0010 (QRY-14 early respond): a payload the model already delivered
+    // through a VALID early respond-tool call resolves the query — the
+    // off-session forced turn is skipped entirely.
+    if (this.#earlyRespond.captured) {
+      return { kind: "respond", payload: this.#earlyRespond.payload };
+    }
+    if (this.#respond === undefined) {
+      // DEGRADED arm (bug 0010): the declared annotation did not lower, so no
+      // respond tool exists to force. Keep the pre-0010 fused mechanism — one
+      // user-visible turn carrying the typed-aware text, its trailing assistant
+      // text parsed as the candidate payload — so typed behaviour stays total
+      // for unlowerable schemas. A non-JSON reply is surfaced as its raw text
+      // (never a thrown `JSON.parse`, never a bound `null`).
+      //
+      // RESIDUAL DIVERGENCE (bug 0010 fix review, F5 — recorded in the bug
+      // doc's Fix §Residuals): `lowerQueryResponseSchema` returns `undefined`
+      // ONLY for an empty/whitespace annotation (`@<>` / `@<  >` — an
+      // author-error form the parser accepts with no diagnostic; every
+      // non-empty annotation lowers, permissively for unresolved names, since
+      // bug 0004). On that arm the ENTIRE pre-0010 fused mechanism survives:
+      // user-visible JSON-in-text turn, `maxRounds: 0` collapse, ungoverned
+      // native loop, no respond tool, no provider gate, and — because no
+      // lowered schema exists — NO schema-validation collaborator, so the
+      // parsed payload binds UNVALIDATED (the CIO-3 depth walk still runs in
+      // the loop; AJV does not). Pinned by the degraded-arm cells in
+      // tests/typed-two-phase-live.test.ts / tests/off-session-two-phase.test.ts.
+      await this.#driveUserVisibleTurn(false);
+      // PIC-50/51: a transport failure on the fused turn (send sync-throw or
+      // trailing `stopReason: "error"`) surfaces as the typed query's
+      // `Err(TransportError)` rather than being parsed as a structured payload.
+      if (this.#transportFromThrow !== undefined) {
+        return { kind: "transport", error: this.#transportFromThrow };
+      }
+      const probe = extractPromptModeQueryResult(this.#readMessages(), {
+        aborted: this.#thetaAbort.signal.aborted,
+        provider: this.#provider,
+      });
+      if (!probe.ok && probe.error.kind === "transport") {
+        return { kind: "transport", error: probe.error as TransportError };
+      }
+      const text = extractTrailingTurnText(this.#readMessages());
+      const parse = await parseStructuredPayload(text);
+      return { kind: "respond", payload: payloadForRespond(parse) };
+    }
+    // Bug 0010 (QRY-14 step 2 / SLSH-2): the forced respond turn dispatches
+    // OFF-SESSION through pi-ai `complete()` — no `pi.sendUserMessage`, no
+    // session turn, no transcript card. The conversation is the driven query
+    // window (PIC-53 read surface, opened at the query's first send) with the
+    // QRY-15 template as the trailing user message; at the `max_rounds: 0`
+    // boundary (no free-phase turn was issued) it is a SINGLE user message —
+    // the rendered prompt right-trimmed of trailing newlines, one U+000A, and
+    // the QRY-15 template body (QRY-14 step 2 boundary).
+    if (this.#freePhaseDriven) {
+      return this.#dispatchRespondOverWindow(this.#respond);
+    }
+    return dispatchForcedRespondTurn(this.#respond, [
+      {
+        role: "user",
+        content: this.#queryText.replace(/\n+$/, "") + "\n" + this.#respond.template,
+        timestamp: 0,
+      },
+    ]);
+  }
+
+  /**
+   * Bug 0010 increment C (QRY-14 ¶3): drive ONE respond-repair attempt as a
+   * FULL TWO-PHASE RESTART — the QRY-12 follow-up template opens a restarted
+   * ON-SESSION free phase (respond tool active in the PIC-17 install vector,
+   * early-respond capture RE-ARMED, governor RE-ARMED with a fresh
+   * `max_rounds` budget per QRY-16), terminated by a FRESH off-session forced
+   * respond dispatch over the query window (which now includes the follow-up
+   * turn) with the QRY-15 trailing template. At the `max_rounds: 0` boundary
+   * no on-session turn is issued and the fresh dispatch's SINGLE user message
+   * is the QRY-12 follow-up text ALONE (it already carries the instruction +
+   * schema — QRY-15 is never concatenated after it, and no prompt fusion
+   * applies).
+   *
+   * Result mapping for the widened `driveFollowUp` seam: a transport failure
+   * anywhere in the attempt → `provider_failure` (the proximate error
+   * terminates repair with no attempts debit — QRY-11 §non-validation / bug
+   * 0007); an early-captured or extracted payload → `respond_outcome.payload`
+   * (AJV-validated caller-side); an ERR-17 report →
+   * `respond_outcome.noncompliance` (one debit, the synthesised issue drives
+   * the next follow-up's <ajv-summary>).
+   */
+  async driveRepairAttempt(
+    prompt: string,
+  ): Promise<string | FollowUpDriveFailure | FollowUpRespondOutcome> {
+    const respond = this.#respond;
+    if (respond === undefined) {
+      // Unreachable by construction: `#resolvePromptQuery` wires this drive
+      // only when the respond context exists (the degraded arm keeps the old
+      // streamed drive). Kept total rather than throwing across the seam.
+      return {
+        kind: "provider_failure",
+        error: {
+          kind: "transport",
+          message: "no respond-turn machinery for the typed-query repair attempt",
+          http_status: null,
+          provider: this.#provider,
+          retryable: false,
+        },
+      };
+    }
+    // Defensive gate re-check (bug 0010 increment C): the round-0 /
+    // forcedRespondTurn gates already refused before any repair could open, so
+    // a gated context can never reach here through the loop — but the refusal
+    // stays total on this entry point too.
+    if (respond.gateError !== undefined) {
+      return { kind: "provider_failure", error: respond.gateError };
+    }
+    // Reset the per-attempt early-respond snapshot BEFORE the restarted phase:
+    // the capture slot is re-armed per driven turn inside
+    // `#driveUserVisibleTurn` (it arms whenever `#respond` is present), and the
+    // snapshot must reflect THIS attempt's turn — never a stale earlier phase
+    // (a captured earlier phase already resolved its own query/attempt, so a
+    // stale `captured: true` here could only mis-resolve the attempt).
+    this.#earlyRespond = { captured: false };
+    // Same hygiene for the sync-throw slot: a set value would have terminated
+    // the query (transport) before repair opened, so it is always undefined
+    // here — reset keeps the invariant local to the attempt.
+    this.#transportFromThrow = undefined;
+    if (this.#maxRounds > 0) {
+      // The restarted free phase: ONE bounded streamed turn opening with the
+      // QRY-12 follow-up as its user message. `#driveUserVisibleTurn(true, …)`
+      // re-arms the governor via `begin(this.#maxRounds)` — the FRESH
+      // per-follow-up `tool_loop` budget QRY-16 pins — and re-arms the
+      // early-respond capture slot around the turn.
+      await this.#driveUserVisibleTurn(true, prompt);
+      if (this.#transportFromThrow !== undefined) {
+        // PIC-50: a `sendUserMessage` sync-throw is the attempt's proximate
+        // transport failure — no attempts debit (QRY-11 §non-validation).
+        return { kind: "provider_failure", error: this.#transportFromThrow };
+      }
+      // PIC-51 / QRY-11 (bug 0010 fix review C, finding 1): the post-turn
+      // probe diverts on EVERY failure verdict. An error-stop on the streamed
+      // follow-up turn is the attempt's proximate transport failure; a
+      // cancellation observed after the turn settled (the probe's aborted arm
+      // synthesises `Err(cancelled)`) terminates repair as its own
+      // non-validation failure (query-failure-and-repair.md §Non-validation:
+      // `cancelled` is enumerated; the propagated error resolves to the CANCEL
+      // terminal outcome downstream, error-model.md §Terminal outcomes).
+      // Neither verdict is text-parsed, and neither falls through to the
+      // fresh off-session dispatch — an aborted attempt issues NO post-abort
+      // provider call.
+      const probe = extractPromptModeQueryResult(this.#readMessages(), {
+        aborted: this.#thetaAbort.signal.aborted,
+        provider: this.#provider,
+      });
+      if (!probe.ok) {
+        return { kind: "provider_failure", error: probe.error };
+      }
+      // QRY-14 ¶3: a valid mid-turn respond-tool call during the RESTARTED
+      // free phase resolves the attempt — the fresh off-session dispatch is
+      // skipped exactly as the original phase's early capture skips its
+      // initial respond turn.
+      if (this.#earlyRespond.captured) {
+        return {
+          kind: "respond_outcome",
+          turn: { kind: "payload", payload: this.#earlyRespond.payload },
+        };
+      }
+      // WHY no exhaustion branch (CIO-4 `max_rounds`-final on the restart): a
+      // repair turn that exhausts its FRESH budget is not the loop's free
+      // phase — there is no slot accounting to feed a synthetic `tool_use`
+      // round into, and a typed query never surfaces `tool_loop_exhausted`
+      // (QRY-16: the exempt terminator). The exhausted restart falls through
+      // to the fresh forced respond dispatch, exactly as the original phase's
+      // exhaustion falls to its `max_rounds`-final respond turn.
+      return mapForcedTurnToRepairOutcome(
+        await this.#dispatchRespondOverWindow(respond),
+        this.#thetaAbort.signal,
+      );
+    }
+    // `max_rounds: 0` (QRY-14 step 2 boundary applied to the restarted loop):
+    // NO on-session turn; the fresh dispatch's SINGLE user message is the
+    // QRY-12 follow-up text ALONE — the template already carries the
+    // instruction + schema, so the QRY-15 template is NOT concatenated after
+    // it and the initial turn's prompt fusion does not apply.
     //
-    // STAGE B: the forced-respond turn is the exempt-routed terminator (FRNT-1)
-    // and is NOT bounded by `tool_loop.max_rounds` — driven UNBOUNDED.
-    await this.#driveUserVisibleTurn(false);
-    // PIC-50/51: a transport failure on the forced-respond turn (send sync-throw
-    // or trailing `stopReason: "error"`) surfaces as the typed query's
-    // `Err(TransportError)` rather than being parsed as a structured payload.
-    if (this.#transportFromThrow !== undefined) {
-      return { kind: "transport", error: this.#transportFromThrow };
+    // Boundary abort check (the r7 discipline, bug 0010 fix review F1): an
+    // abort observed at this repair boundary terminates the attempt as the
+    // CancelledError — QRY-11 §non-validation, no attempts debit — and issues
+    // NO post-abort dispatch (the dispatch-level gate would refuse anyway,
+    // but its transport shape would mis-surface the cancellation as a
+    // transport failure at this seam).
+    if (this.#thetaAbort.signal.aborted) {
+      return { kind: "provider_failure", error: makeCancelledError() };
     }
-    const probe = extractPromptModeQueryResult(this.#readMessages(), {
-      aborted: this.#thetaAbort.signal.aborted,
-      provider: this.#provider,
-    });
-    if (!probe.ok && probe.error.kind === "transport") {
-      return { kind: "transport", error: probe.error as TransportError };
-    }
-    const text = extractTrailingTurnText(this.#readMessages());
-    const parse = await parseStructuredPayload(text);
-    return { kind: "respond", payload: payloadForRespond(parse) };
+    return mapForcedTurnToRepairOutcome(
+      await dispatchForcedRespondTurn(respond, [
+        { role: "user", content: prompt, timestamp: 0 },
+      ]),
+      this.#thetaAbort.signal,
+    );
+  }
+
+  /**
+   * Bug 0010 (QRY-14 step 2): the window-shaped forced respond dispatch — the
+   * driven query window (PIC-53 read surface, opened at the query's first
+   * send and never rewound) plus the trailing QRY-15 template user message.
+   * Shared by the initial `forcedRespondTurn` and each repair attempt's fresh
+   * dispatch (`driveRepairAttempt`), so both re-enter the SAME forced-respond
+   * mechanism byte-identically.
+   */
+  #dispatchRespondOverWindow(respond: RespondTurnContext): Promise<ForcedRespondTurn> {
+    const messages: Message[] = [
+      ...this.#readMessages().slice(this.#queryWindowStart ?? 0),
+      { role: "user", content: respond.template, timestamp: 0 },
+    ];
+    return dispatchForcedRespondTurn(respond, messages);
   }
 
   /**
@@ -3262,74 +3894,92 @@ class LivePromptQueryModel implements QueryModelDriver {
    * driver first waits for the run to become observably non-idle (bounded, on
    * the injected `Clock` macrotask queue, so a turn that never starts cannot
    * hang), then awaits idle for the run's `agent_end`.
+   *
+   * `text` defaults to the query's opening prompt; a respond-repair restart
+   * (Increment C) passes the follow-up template instead.
    */
-  async #driveUserVisibleTurn(bound: boolean): Promise<void> {
+  async #driveUserVisibleTurn(bound: boolean, text: string = this.#queryText): Promise<void> {
     // STAGE B: when `bound`, arm the governor around the native turn so pi's
     // internal agentic tool loop is capped at `tool_loop.max_rounds`. The bound
     // is armed IMMEDIATELY before `sendUserMessage` and disarmed right after the
     // turn settles, so it never affects unrelated turns or other queries. The
     // exhaustion snapshot is read by `nextFreePhaseTurn` after this resolves.
-    // A typed query's forced-respond turn passes `bound: false` (exempt).
+    // Bug 0010: typed free-phase turns are bound too (CIO-4); only the degraded
+    // fused arm passes `bound: false`.
     if (bound && this.#governor !== undefined) {
       this.#governor.begin(this.#maxRounds);
     }
-    // `pi.sendUserMessage` is fire-and-forget: it schedules a fresh agent run
-    // but returns before that run installs its active-run handle. `waitForIdle`
-    // is not a reliable barrier here — in a session bound without
-    // `commandContextActions` it is a no-op that resolves immediately — so the
-    // driver observes the run through `ctx.isIdle()` (the real `!isStreaming`
-    // flag): wait for the run to begin streaming, then for it to go idle again
-    // (its `agent_end`). Both waits are bounded on the injected `Clock` so a run
-    // that never starts (or one that starts and ends within a single tick)
-    // cannot hang. The final `waitForIdle` is the real-host completion barrier
-    // (PIC-18) when the session binds one.
-    // PIC-17 active-set gating (QTL-4): install exactly the theta's callable set
-    // — its underlying Pi-tool names — as the model's active tools for the query
-    // turn and restore the ambient set in a `finally`. The model can then call a
-    // declared `tools:` entry (and query-time tool loops / ceiling #2 become
-    // reachable), while the host session's ambient tools stay deliberately not
-    // inherited (a theta with no Pi tools in its set installs `[]`).
-    const ambientTools = this.#pi.getActiveTools();
-    this.#pi.setActiveTools([...this.#activeTools]);
+    // PIC-17 active-set gating (QTL-4 / bug 0010): install exactly
+    // `[...thetaCallableSetNames, respondToolName?]` — the theta's callable-set
+    // underlying Pi-tool names plus, on a typed query, the synthesised respond
+    // tool — as the model's active tools for the query turn, restoring the
+    // ambient snapshot in the gate's `finally`. Ambient tools are deliberately
+    // not inherited (a theta with no Pi tools installs `[respondTool?]`).
+    const install: CallableSetInstall = {
+      thetaCallableSetNames: this.#activeTools,
+      ...(this.#respond !== undefined ? { respondToolName: this.#respond.toolName } : {}),
+    };
     try {
-      // PIC-50: `pi.sendUserMessage` is the only failure the call surface itself
-      // can signal synchronously. Map such a throw to a `TransportError` (never
-      // `theta/runtime/internal-error`, never a swallowed `Ok("")`) and return
-      // without issuing a turn; the driver surfaces it as the query's transport
-      // `Err`. The `finally` still restores the ambient active set.
-      try {
-        this.#pi.sendUserMessage(this.#queryText);
-      } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — PIC-50 sendUserMessage sync-throw → TransportError
-        this.#transportFromThrow = mapPromptModeSyncThrow(thrown, this.#provider);
-        return;
-      }
-      await this.#pollWhile(() => this.#ctx.isIdle(), TURN_START_POLL_BOUND);
-      // CANCEL-2 (cancellation.md §Forwarding into `thetaAbort`, slash-command
-      // entry): the turn is now streaming, so `ctx.signal` is defined for THIS
-      // turn (it is `undefined` at idle slash-entry). Re-forward it INTO
-      // `thetaAbort` so an Esc during the `@`-query turn flips the single source
-      // of truth every checkpoint gates on — the end-to-end "Esc during
-      // `@`-query" path. Idempotent: the one-shot guard on `thetaAbort.abort()`
-      // makes a repeat forward a no-op, and the listener is `{ once: true }` on
-      // the per-turn transient `ctx.signal`, so no long-lived controller leaks.
-      // Decision 6 / Increment B2: this PER-TURN forward's detach is deliberately
-      // NOT collected onto the shared `forwardingSignals` sink — the listener sits
-      // on a per-turn-transient `ctx.signal` that self-cleans (`{once:true}` and
-      // GC'd with the turn), so collecting it would add per-turn push/splice
-      // churn for no shutdown-lifetime benefit. Only the invocation-scoped bind
-      // forwards are collected (sub-step 5 detaches those).
-      forwardSlashCommandCancel(this.#thetaAbort, this.#ctx.signal);
-      await this.#pollWhile(() => !this.#ctx.isIdle(), TURN_END_POLL_BOUND);
-      await this.#ctx.waitForIdle();
-      // CANCEL-2 (agent_end user-cancel trigger, CNCL-4 synthesised reason): a
-      // turn that ended aborted without a forwarded source reason flips
-      // `thetaAbort` with the synthesised `"theta cancelled by agent_end"` reason,
-      // so the next checkpoint observes the cancellation.
-      if (this.#ctx.signal?.aborted === true && !this.#thetaAbort.signal.aborted) {
-        abortForAgentEnd(this.#thetaAbort);
-      }
+      await withActiveSetGating(this.#pi, install, async () => {
+        // Bug 0010 (QRY-14 early respond): arm the producer's one-shot capture
+        // slot for the duration of the driven turn, so a mid-turn respond-tool
+        // call validates and captures against THIS query's lowered schema. The
+        // slot is cleared — and the captured payload snapshotted — in the
+        // `finally`, even on an error/abort path.
+        const capture: ActiveRespondCapture | undefined =
+          this.#respond !== undefined
+            ? { toolName: this.#respond.toolName, validate: this.#respond.validate, captured: false }
+            : undefined;
+        if (capture !== undefined) {
+          this.#respond?.captureHost.setActiveCapture(capture);
+        }
+        try {
+          // PIC-50: `pi.sendUserMessage` is the only failure the call surface itself
+          // can signal synchronously. Map such a throw to a `TransportError` (never
+          // `theta/runtime/internal-error`, never a swallowed `Ok("")`) and return
+          // without issuing a turn; the driver surfaces it as the query's transport
+          // `Err`. The gate's `finally` still restores the ambient active set.
+          try {
+            this.#pi.sendUserMessage(text);
+          } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — PIC-50 sendUserMessage sync-throw → TransportError
+            this.#transportFromThrow = mapPromptModeSyncThrow(thrown, this.#provider);
+            return;
+          }
+          await this.#pollWhile(() => this.#ctx.isIdle(), TURN_START_POLL_BOUND);
+          // CANCEL-2 (cancellation.md §Forwarding into `thetaAbort`, slash-command
+          // entry): the turn is now streaming, so `ctx.signal` is defined for THIS
+          // turn (it is `undefined` at idle slash-entry). Re-forward it INTO
+          // `thetaAbort` so an Esc during the `@`-query turn flips the single source
+          // of truth every checkpoint gates on — the end-to-end "Esc during
+          // `@`-query" path. Idempotent: the one-shot guard on `thetaAbort.abort()`
+          // makes a repeat forward a no-op, and the listener is `{ once: true }` on
+          // the per-turn transient `ctx.signal`, so no long-lived controller leaks.
+          // Decision 6 / Increment B2: this PER-TURN forward's detach is deliberately
+          // NOT collected onto the shared `forwardingSignals` sink — the listener sits
+          // on a per-turn-transient `ctx.signal` that self-cleans (`{once:true}` and
+          // GC'd with the turn), so collecting it would add per-turn push/splice
+          // churn for no shutdown-lifetime benefit. Only the invocation-scoped bind
+          // forwards are collected (sub-step 5 detaches those).
+          forwardSlashCommandCancel(this.#thetaAbort, this.#ctx.signal);
+          await this.#pollWhile(() => !this.#ctx.isIdle(), TURN_END_POLL_BOUND);
+          await this.#ctx.waitForIdle();
+          // CANCEL-2 (agent_end user-cancel trigger, CNCL-4 synthesised reason): a
+          // turn that ended aborted without a forwarded source reason flips
+          // `thetaAbort` with the synthesised `"theta cancelled by agent_end"` reason,
+          // so the next checkpoint observes the cancellation.
+          if (this.#ctx.signal?.aborted === true && !this.#thetaAbort.signal.aborted) {
+            abortForAgentEnd(this.#thetaAbort);
+          }
+        } finally {
+          if (capture !== undefined) {
+            this.#respond?.captureHost.clearActiveCapture();
+            if (capture.captured) {
+              this.#earlyRespond = { captured: true, payload: capture.payload };
+            }
+          }
+        }
+      });
     } finally {
-      this.#pi.setActiveTools(ambientTools);
       // STAGE B: disarm the governor and capture the exhaustion snapshot the
       // moment the turn settles, even on an error/abort path.
       if (bound && this.#governor !== undefined) {
@@ -3363,61 +4013,506 @@ function macrotask(clock: Clock, ms: number): Promise<void> {
 }
 
 /**
- * An off-session `QueryModelDriver`: it resolves the query through pi-ai's
- * `complete()` free function (no user session turn, no transcript card), so a
- * chained follow-up query in a body does not stream into the transcript
- * alongside the dispatch's primary user-visible turn. Each dispatch is the
- * CLASSIFIED off-session completion (bug 0007): a provider failure rides the
- * loop's transport arm; on a clean turn the untyped path returns the assistant
- * text and the typed path parses it as the structured payload.
+ * Bug 0010 increment C: map one fresh forced respond dispatch's seam result to
+ * the widened `driveFollowUp` repair-drive result — an extracted payload and
+ * an ERR-17 report both ride `respond_outcome` (validated / debited by the
+ * repair loop caller-side), a transport failure rides `provider_failure` (the
+ * proximate error terminates repair with no attempts debit, QRY-11
+ * §non-validation / bug 0007).
+ *
+ * `signal` is the THETA abort signal (bug 0010 fix round 2, R2-1): an abort
+ * landing while the fresh dispatch is in flight resolves through pi-ai as an
+ * aborted-stop reply and reaches this seam on the transport arm with the fixed
+ * "cancelled" message — with the theta signal aborted that is the
+ * cancellation, surfaced as `provider_failure: CancelledError` (QRY-11
+ * §non-validation: `cancelled` terminates repair with no debit; the propagated
+ * error resolves to the CANCEL terminal outcome downstream). The exact mirror
+ * of the loop's forced-respond guard (query-tool-loop.ts `runTypedQueryLoop`,
+ * signal-aborted transport → cancelled) applied to the repair-side dispatch. A
+ * transport verdict with a NON-aborted signal stays transport.
+ */
+function mapForcedTurnToRepairOutcome(
+  turn: ForcedRespondTurn,
+  signal: AbortSignal,
+): FollowUpDriveFailure | FollowUpRespondOutcome {
+  switch (turn.kind) {
+    case "respond":
+      return { kind: "respond_outcome", turn: { kind: "payload", payload: turn.payload } };
+    case "noncompliance":
+      return {
+        kind: "respond_outcome",
+        turn: {
+          kind: "noncompliance",
+          branch: turn.branch,
+          raw_response: turn.raw_response,
+        },
+      };
+    case "transport":
+      if (signal.aborted) {
+        return { kind: "provider_failure", error: makeCancelledError() };
+      }
+      return { kind: "provider_failure", error: turn.error };
+  }
+}
+
+/** The resolved request auth (apiKey/headers) an off-session `complete()` threads. */
+interface OffSessionRequestAuth {
+  readonly apiKey?: string;
+  readonly headers?: Record<string, string>;
+}
+
+/**
+ * Bug 0010 (auth threading, increments C+D): resolve a model's request auth
+ * off the model registry — the `#completeBinderReply` pattern — PROBING for
+ * the optional `getApiKeyAndHeaders` capability first. WHY the probe: the
+ * capability is genuinely optional on harness registries (the frozen bug-0007
+ * suite constructs `modelRegistry: {}`), and auth is an enrichment, not a
+ * precondition — its absence must not crash a dispatch that a credential-less
+ * host could still serve. `undefined` = thread no auth options.
+ */
+async function resolveRegistryAuth(
+  modelRegistry: ModelRegistry,
+  model: Model<Api> | undefined,
+): Promise<OffSessionRequestAuth | undefined> {
+  if (model === undefined) {
+    return undefined;
+  }
+  const registry = modelRegistry as {
+    readonly getApiKeyAndHeaders?: (m: Model<Api>) => Promise<{
+      readonly ok: boolean;
+      readonly apiKey?: string;
+      readonly headers?: Record<string, string>;
+    }>;
+  };
+  if (typeof registry.getApiKeyAndHeaders !== "function") {
+    return undefined;
+  }
+  const auth = await registry.getApiKeyAndHeaders(model);
+  if (!auth.ok) {
+    return undefined;
+  }
+  return {
+    ...(auth.apiKey !== undefined ? { apiKey: auth.apiKey } : {}),
+    ...(auth.headers !== undefined ? { headers: auth.headers } : {}),
+  };
+}
+
+/**
+ * Bug 0010 increment D: the theta's frozen callable-set pi-tool entries
+ * presented as free-phase `context.tools` entries for the off-session
+ * `complete()` tool loop (QRY-14: the callable set is "available to the model
+ * during query-time tool loops"). Duck-read off each entry's held
+ * `toolDefinition` — the same snapshot `callableSetPiToolNames` names — so
+ * presentation and dispatch resolution consult one source. A snapshot-less
+ * harness theta presents nothing (dispatch still resolves via the
+ * producer-wide `resolvePiTool` fallback).
+ */
+function callableSetPresentedTools(theta: ConversationBindInput["theta"]): readonly Tool[] {
+  const set = theta.callableSet;
+  if (set === undefined) {
+    return [];
+  }
+  const tools: Tool[] = [];
+  for (const entry of set.entries.values()) {
+    if (entry.kind !== "pi-tool") {
+      continue;
+    }
+    const definition = entry.toolDefinition as PiToolDispatch & {
+      readonly description?: unknown;
+      readonly parameters?: unknown;
+    };
+    tools.push({
+      name: definition.toolName,
+      description: typeof definition.description === "string" ? definition.description : "",
+      // An extension-shaped entry pins `parameters`; an execute-bearing host
+      // entry may omit it — present the accept-anything object schema then, so
+      // the provider can still call the tool it is entitled to.
+      parameters: (definition.parameters ??
+        Type.Unsafe<unknown>({ type: "object" })) as Tool["parameters"],
+    });
+  }
+  return tools;
+}
+
+/**
+ * An off-session `QueryModelDriver` (`subagent fn` in-process path): it
+ * resolves the query through pi-ai's `complete()` free function — no user
+ * session turn, no transcript card — over a HELD CONVERSATION (bug 0010
+ * increment D). The off-session path has no session to read back, so the
+ * driver accumulates its own message history: the opening rendered prompt,
+ * every free-phase assistant reply, every fed-back tool result, and each
+ * QRY-12 repair follow-up. The free phase is a real `complete()` tool loop
+ * (QRY-13): the theta's callable set (plus, on a typed query, the synthesised
+ * respond tool) rides `context.tools` with NO `toolChoice`; ToolCall replies
+ * are serviced through the same `lowerModelDrivenToolCall` lowering the
+ * subagent model-driven path uses and fed back as tool results. The typed
+ * query terminates through the SHARED `dispatchForcedRespondTurn` — forced
+ * respond exchanges never join the held conversation (the off-session mirror
+ * of SLSH-2's "no respond traffic on the session"). Every dispatch is
+ * CLASSIFIED per bug 0007: a provider failure rides the loop's transport arm.
  */
 class OffSessionQueryModel implements QueryModelDriver {
   readonly #model: Model<Api> | undefined;
   readonly #queryText: string;
   readonly #signal: AbortSignal;
+  /** Bug 0010: the typed respond-turn machinery (absent = untyped / degraded arm). */
+  readonly #respond: RespondTurnContext | undefined;
+  /** QRY-16/CIO-4: the fresh `tool_loop` budget each repair restart re-runs under. */
+  readonly #maxRounds: number;
+  /** QRY-14: the callable set presented as free-phase `context.tools` entries. */
+  readonly #freePhaseTools: readonly Tool[];
+  /** QRY-13: resolve a model-called name to its callable-set `execute` dispatch. */
+  readonly #resolveDispatch: (name: string) => PiToolDispatch | undefined;
+  /** Auth for the FREE-PHASE dispatch model (the respond dispatch resolves its own). */
+  readonly #auth: () => Promise<OffSessionRequestAuth | undefined>;
+  /** The held conversation (see the class doc); grows monotonically, never rewound. */
+  readonly #held: Message[] = [];
+  /** The latest free-phase reply's ToolCall parts, awaiting `runToolBatch`. */
+  #pendingCalls: readonly ToolCall[] = [];
+  /** QRY-14 early respond: one-shot — the FIRST valid respond call wins. */
+  #earlyRespond: { readonly captured: boolean; readonly payload?: unknown } = {
+    captured: false,
+  };
+  /** Whether a free-phase turn opened the held conversation (false at `max_rounds: 0`). */
+  #freePhaseDriven = false;
 
   constructor(deps: {
     readonly model: Model<Api> | undefined;
     readonly queryText: string;
     /** CANCEL-3: the theta signal the provider-Promise swallowing guard reads at settlement. */
     readonly signal: AbortSignal;
+    readonly maxRounds: number;
+    /** Bug 0010: the typed respond-turn machinery (absent = untyped / degraded arm). */
+    readonly respond?: RespondTurnContext;
+    readonly freePhaseTools: readonly Tool[];
+    readonly resolveDispatch: (name: string) => PiToolDispatch | undefined;
+    readonly auth: () => Promise<OffSessionRequestAuth | undefined>;
   }) {
     this.#model = deps.model;
     this.#queryText = deps.queryText;
     this.#signal = deps.signal;
+    this.#respond = deps.respond;
+    this.#maxRounds = deps.maxRounds;
+    this.#freePhaseTools = deps.freePhaseTools;
+    this.#resolveDispatch = deps.resolveDispatch;
+    this.#auth = deps.auth;
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
     if (round === 0) {
-      const completion = await this.#complete();
-      if (completion.kind === "failure") {
-        // Bug 0007 / PIC-50: the classified off-session provider failure rides
-        // the loop's transport arm — never masked as a terminating `Ok(text)`.
-        return { kind: "transport", error: completion.error };
+      // Bug 0010 increment D (conversation-drive.md §Provider compatibility):
+      // the runtime provider gate refuses BEFORE any provider traffic — the
+      // held conversation stays empty and ZERO `complete()` calls are issued.
+      if (this.#respond?.gateError !== undefined) {
+        return { kind: "transport", error: this.#respond.gateError };
       }
-      return { kind: "text", text: completion.text };
+      // The held conversation opens at the rendered prompt (QRY-14 step 1 —
+      // the bare template body; the schema is conveyed by the respond tool's
+      // parameters and the QRY-15 trailing template, never inlined here).
+      this.#held.push({ role: "user", content: this.#queryText, timestamp: 0 });
+      this.#freePhaseDriven = true;
     }
-    return { kind: "text", text: "" };
+    // QRY-14 early respond: a captured payload TERMINATES the free phase — no
+    // further `complete()` is issued; `forcedRespondTurn` returns the capture.
+    if (this.#earlyRespond.captured) {
+      return { kind: "text", text: "" };
+    }
+    return this.#driveFreePhaseRound();
   }
 
-  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
-    return Promise.resolve([]);
+  /**
+   * QRY-13: service EVERY held ToolCall of the latest free-phase reply — in
+   * reply order — and feed each result back into the held conversation, so the
+   * next round's `complete()` sees the full tool exchange. Returns no committed
+   * side effects: the serviced calls are model-driven rounds inside the query
+   * turn (the off-session analogue of pi's native loop), not theta-level
+   * batch commitments.
+   */
+  async runToolBatch(): Promise<readonly CommittedSideEffect[]> {
+    const calls = this.#pendingCalls;
+    this.#pendingCalls = [];
+    for (const call of calls) {
+      this.#held.push(await this.#serviceHeldCall(call));
+    }
+    return [];
   }
 
   async forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    const completion = await this.#complete();
-    if (completion.kind === "failure") {
-      // Bug 0007 / PIC-50: a forced-respond provider failure surfaces on the
-      // transport arm — never fed to `parseStructuredPayload`, which would
-      // launder it into the schema-validation channel and burn respond-repair
-      // attempts against a dead provider.
-      return { kind: "transport", error: completion.error };
+    // Bug 0010 increment D: the provider gate short-circuits here too — this
+    // covers `max_rounds: 0`, where the free phase is skipped entirely and
+    // `forcedRespondTurn` is the FIRST driver call (zero completes). At
+    // `max_rounds >= 1` the round-0 gate already refused, so this arm is
+    // defence-in-depth.
+    if (this.#respond?.gateError !== undefined) {
+      return { kind: "transport", error: this.#respond.gateError };
     }
-    const parse = await parseStructuredPayload(completion.text);
-    return { kind: "respond", payload: payloadForRespond(parse) };
+    // QRY-14 early respond: a payload the model already delivered through a
+    // VALID respond-tool call during the free phase resolves the query — the
+    // forced dispatch is skipped entirely.
+    if (this.#earlyRespond.captured) {
+      return { kind: "respond", payload: this.#earlyRespond.payload };
+    }
+    if (this.#respond === undefined) {
+      // DEGRADED arm (bug 0010): the declared annotation did not lower, so no
+      // respond tool exists to force. Keep the pre-0010 fused mechanism — one
+      // `complete()` carrying the typed-aware text, its reply text parsed as
+      // the candidate payload — so typed behaviour stays total for unlowerable
+      // schemas. RESIDUAL DIVERGENCE (bug 0010 fix review, F5): reachable only
+      // via the empty/whitespace `@<>` annotation (author error, parses
+      // clean); the payload binds with NO AJV (no validation collaborator is
+      // built without a lowered schema) — see the live arm's residual note and
+      // the bug doc's Fix §Residuals. A provider failure surfaces on the
+      // transport arm (bug 0007)
+      // — never fed to `parseStructuredPayload`, which would launder it into
+      // the schema-validation channel and burn respond-repair attempts
+      // against a dead provider.
+      const completion = await this.#completeFused();
+      if (completion.kind === "failure") {
+        return { kind: "transport", error: completion.error };
+      }
+      const parse = await parseStructuredPayload(completion.text);
+      return { kind: "respond", payload: payloadForRespond(parse) };
+    }
+    // Bug 0010 (QRY-14 step 2 / SLSH-2 mirror): the forced respond turn
+    // dispatches through the SHARED off-session `complete()` helper — the held
+    // conversation with the QRY-15 template as the trailing user message; at
+    // the `max_rounds: 0` boundary (no free-phase call was ever issued, the
+    // held conversation is empty) it is a SINGLE user message — the rendered
+    // prompt right-trimmed of trailing newlines, one U+000A, and the QRY-15
+    // template body.
+    if (this.#freePhaseDriven) {
+      return dispatchForcedRespondTurn(this.#respond, [
+        ...this.#held,
+        { role: "user", content: this.#respond.template, timestamp: 0 },
+      ]);
+    }
+    return dispatchForcedRespondTurn(this.#respond, [
+      {
+        role: "user",
+        content: this.#queryText.replace(/\n+$/, "") + "\n" + this.#respond.template,
+        timestamp: 0,
+      },
+    ]);
   }
 
-  #complete(): Promise<OffSessionCompletion> {
+  /**
+   * Bug 0010 increment D (QRY-14 ¶3): drive ONE respond-repair attempt as a
+   * FULL TWO-PHASE RESTART over the held conversation — the QRY-12 follow-up
+   * template joins it as a user message, the free-phase tool loop re-runs
+   * under a FRESH `max_rounds` budget (QRY-16), then a fresh forced respond
+   * dispatch (held conversation + trailing QRY-15) terminates the attempt. At
+   * the `max_rounds: 0` boundary no free-phase call is issued and the fresh
+   * dispatch's SINGLE user message is the QRY-12 follow-up text ALONE (it
+   * already carries the instruction + schema — QRY-15 is never concatenated
+   * after it, and no prompt fusion applies).
+   *
+   * Result mapping (the widened `driveFollowUp` seam): a transport failure
+   * anywhere in the attempt — or a cancellation observed at a round boundary
+   * — rides `provider_failure` (the proximate error terminates repair with no
+   * attempts debit, QRY-11 §non-validation / bug 0007); an early-captured or
+   * extracted payload rides `respond_outcome.payload` (AJV-validated
+   * caller-side); an ERR-17 report rides `respond_outcome.noncompliance`.
+   */
+  async driveRepairAttempt(
+    prompt: string,
+  ): Promise<string | FollowUpDriveFailure | FollowUpRespondOutcome> {
+    const respond = this.#respond;
+    if (respond === undefined) {
+      // Unreachable by construction: `#resolvePromptQuery` wires this drive
+      // only when the respond context exists (the degraded arm keeps the
+      // fused `offSessionFollowUp` drive). Kept total rather than throwing
+      // across the seam.
+      return {
+        kind: "provider_failure",
+        error: {
+          kind: "transport",
+          message: "no respond-turn machinery for the typed-query repair attempt",
+          http_status: null,
+          provider: String(this.#model?.api ?? "unknown"),
+          retryable: false,
+        },
+      };
+    }
+    // Defensive gate re-check (mirrors the live drive): a gated context can
+    // never reach here through the loop, but the refusal stays total.
+    if (respond.gateError !== undefined) {
+      return { kind: "provider_failure", error: respond.gateError };
+    }
+    // Reset the per-attempt capture BEFORE the restarted phase, so the
+    // snapshot reflects THIS attempt's rounds — never a stale earlier phase
+    // (a captured earlier phase already resolved its own query/attempt).
+    this.#earlyRespond = { captured: false };
+    if (this.#maxRounds > 0) {
+      // The restarted free phase: the QRY-12 follow-up joins the held
+      // conversation and the tool loop re-runs under a FRESH budget (QRY-16).
+      this.#held.push({ role: "user", content: prompt, timestamp: 0 });
+      this.#freePhaseDriven = true;
+      let slots = 0;
+      for (;;) {
+        // Cancellation preempts the restart at every round boundary (QRY-11
+        // §non-validation: `cancelled` terminates repair with no debit and NO
+        // post-abort dispatch — the increment-C r7 discipline).
+        if (this.#signal.aborted) {
+          return { kind: "provider_failure", error: makeCancelledError() };
+        }
+        if (slots === this.#maxRounds) {
+          break;
+        }
+        const turn = await this.#driveFreePhaseRound();
+        if (turn.kind === "transport") {
+          // A restarted-round failure observed WITH an aborted theta signal is
+          // the in-flight cancellation, not a provider fault — pi-ai RESOLVES
+          // an abort as a `stopReason: "aborted"` reply that classifies into
+          // the transport arm (bug 0010 fix review, F1). QRY-11
+          // §non-validation: `cancelled` terminates repair with no debit.
+          if (this.#signal.aborted) {
+            return { kind: "provider_failure", error: makeCancelledError() };
+          }
+          // The proximate provider failure terminates repair — no attempts
+          // debit (QRY-11 §non-validation / bug 0007).
+          return { kind: "provider_failure", error: turn.error };
+        }
+        if (turn.kind === "text") {
+          break;
+        }
+        await this.runToolBatch();
+        slots += 1;
+        // QRY-14 ¶3: a valid mid-loop respond-tool call resolves the attempt
+        // — the fresh dispatch is skipped exactly as the original phase's
+        // early capture skips its initial respond turn.
+        if (this.#earlyRespond.captured) {
+          break;
+        }
+      }
+      if (this.#earlyRespond.captured) {
+        return {
+          kind: "respond_outcome",
+          turn: { kind: "payload", payload: this.#earlyRespond.payload },
+        };
+      }
+      if (this.#signal.aborted) {
+        return { kind: "provider_failure", error: makeCancelledError() };
+      }
+      // An exhausted restart falls through to the fresh forced dispatch (the
+      // `max_rounds`-final branch: typed queries never surface
+      // `tool_loop_exhausted`, QRY-16), exactly as a text-terminated one.
+      return mapForcedTurnToRepairOutcome(
+        await dispatchForcedRespondTurn(respond, [
+          ...this.#held,
+          { role: "user", content: respond.template, timestamp: 0 },
+        ]),
+        this.#signal,
+      );
+    }
+    // `max_rounds: 0` (QRY-14 step 2 boundary applied to the restarted loop):
+    // NO free-phase call; the fresh dispatch's SINGLE user message is the
+    // QRY-12 follow-up text ALONE.
+    //
+    // Boundary abort check (the r7 discipline, bug 0010 fix review F1):
+    // mirrors the live drive's `max_rounds: 0` arm — an abort at this repair
+    // boundary is the CancelledError (QRY-11 §non-validation, no debit), and
+    // NO post-abort dispatch is issued.
+    if (this.#signal.aborted) {
+      return { kind: "provider_failure", error: makeCancelledError() };
+    }
+    return mapForcedTurnToRepairOutcome(
+      await dispatchForcedRespondTurn(respond, [
+        { role: "user", content: prompt, timestamp: 0 },
+      ]),
+      this.#signal,
+    );
+  }
+
+  /**
+   * Dispatch ONE free-phase `complete()` over the held conversation: tools =
+   * the presented callable set plus (typed) the respond tool, NO `toolChoice`
+   * (forcing applies only to the respond dispatch — QRY-14 step 2 / T34),
+   * `options.signal` + registry auth threaded. A classified provider failure
+   * rides the transport arm (bug 0007); a clean reply JOINS the held
+   * conversation, its ToolCall parts (if any) becoming the round's batch.
+   */
+  async #driveFreePhaseRound(): Promise<FreePhaseTurn> {
+    const model = this.#model;
+    if (model === undefined) {
+      throw new OffSessionModelUnavailableError(
+        "H8a: an off-session chained query has no resolved model (ctx.model is undefined).",
+      );
+    }
+    const tools: Tool[] = [
+      ...this.#freePhaseTools,
+      ...(this.#respond !== undefined ? [respondToolEntry(this.#respond)] : []),
+    ];
+    const auth = await this.#auth();
+    // CANCEL-3: attach the swallowing handler at the Promise's construction
+    // site, before the first microtask boundary, so a late rejection arriving
+    // after the query checkpoint surfaced `cause: "cancelled"` is absorbed.
+    const reply: AssistantMessage = await guardQueryProviderPromise(
+      complete(
+        model,
+        {
+          messages: [...this.#held],
+          // An empty vector is spelled by OMISSION (an untyped query over an
+          // empty callable set presents nothing), matching the fused drive's
+          // tool-less shape.
+          ...(tools.length > 0 ? { tools } : {}),
+        },
+        { signal: this.#signal, ...(auth ?? {}) },
+      ),
+      signalGuard(this.#signal),
+      noopSwallowChannels(),
+    );
+    const classified = classifyOffSessionReply(model, reply);
+    if (classified.kind === "failure") {
+      // Bug 0007 / PIC-50: the classified off-session provider failure rides
+      // the loop's transport arm — never masked as a terminating `Ok(text)`.
+      return { kind: "transport", error: classified.error };
+    }
+    this.#held.push(reply);
+    const calls = reply.content.filter(
+      (part): part is ToolCall => part.type === "toolCall",
+    );
+    if (calls.length > 0) {
+      this.#pendingCalls = calls;
+      return {
+        kind: "tool_use",
+        batch: calls.map((call) => ({ toolName: call.name, toolUseId: call.id })),
+      };
+    }
+    return { kind: "text", text: classified.text };
+  }
+
+  /**
+   * Service ONE held ToolCall (QRY-13). A respond-tool call mirrors the live
+   * capture slot's `execute` dispositions — CIO-3 depth walk BEFORE AJV, an
+   * AJV failure fed back as an `isError` tool-result so the model can correct
+   * in-turn, the first valid call captured one-shot, a repeat valid call
+   * acknowledged inertly. Every other name lowers through
+   * `lowerModelDrivenToolCall` over the resolved callable-set dispatch (a
+   * name outside the set feeds back the unavailable-tool `isError` result —
+   * ambient tools are never inherited).
+   */
+  async #serviceHeldCall(call: ToolCall): Promise<ToolResultMessage> {
+    const respond = this.#respond;
+    if (respond !== undefined && call.name === respond.toolName) {
+      const argDepthBreach = enforceModelToolArgDepth(call.arguments);
+      if (argDepthBreach !== undefined) {
+        return subagentToolResult(call, argDepthBreach.message, true);
+      }
+      const verdict = respond.validate(call.arguments);
+      if (!verdict.ok) {
+        return subagentToolResult(call, verdict.message, true);
+      }
+      if (!this.#earlyRespond.captured) {
+        this.#earlyRespond = { captured: true, payload: call.arguments };
+        return subagentToolResult(call, RESPOND_CAPTURED_TEXT, false);
+      }
+      return subagentToolResult(call, RESPOND_REPEAT_TEXT, false);
+    }
+    return lowerModelDrivenToolCall(call, this.#resolveDispatch(call.name), this.#signal);
+  }
+
+  /** The DEGRADED arm's fused single-message completion (pre-0010 mechanism). */
+  #completeFused(): Promise<OffSessionCompletion> {
     // CANCEL-3 (cancellation.md §"Race semantics — swallowing-handler
     // attachment on every abandonable Promise"): attach the swallowing handler
     // to the underlying `@`-query provider Promise at its construction site,
@@ -3587,12 +4682,12 @@ export async function lowerModelDrivenThetaCall(
 
 /**
  * Render one `@`-query to its wire text, appending the typed-query JSON-only
- * instruction for a schema-typed query. Shared by the prompt-mode and
- * subagent-mode drivers so both convey the declared shape identically. The
- * conveyance carries the LOWERED response schema (QRY-22) when the declared
- * schema lowered cleanly — not the bare type name — so the model sees the JSON
- * shape its response is validated against; it falls back to the annotation text
- * only when the schema did not lower.
+ * instruction for a schema-typed query. Bug 0010: this fused conveyance
+ * survives ONLY on the DEGRADED arm (an unlowerable annotation, no respond
+ * context) of both drivers — the two-phase paths open with the bare rendered
+ * template and convey the shape via the respond tool + QRY-15 template
+ * instead. The degraded conveyance falls back to the annotation text because
+ * the schema did not lower.
  */
 function renderTypedAwareQueryText(
   expr: QueryExpr,
@@ -3758,6 +4853,232 @@ function classifyOffSessionReply(
 }
 
 /**
+ * The synthesised respond tool as a pi-ai `Tool` entry: the PIC-44 registered
+ * name, the fixed description literal, and the lowered response schema as
+ * `parameters` (the same `Type.Unsafe` wrap the binder call shape uses). ONE
+ * builder feeds the forced respond dispatch's `context.tools` AND the
+ * off-session free phase's presentation (bug 0010 increment D), so the tool
+ * the model sees mid-loop and the tool the provider is forced to are
+ * byte-identical by construction.
+ */
+function respondToolEntry(respond: RespondTurnContext): Tool {
+  return {
+    name: respond.toolName,
+    description: RESPOND_TOOL_DESCRIPTION,
+    parameters: Type.Unsafe<unknown>(respond.lowered),
+  };
+}
+
+/**
+ * Bug 0010 (fix round 1) — the per-api SPELLING of the forced tool choice.
+ *
+ * The spec's normalized shape is `{ type: "tool", name }` (conversation-drive.md
+ * §complete-forced-tool-presupposition), but that section is a CONSUMPTION
+ * posture over pi-ai behaviour that is NOT part of pi-ai's typed surface — and
+ * at the theta-1.0 pi-ai pin the per-api adapters do NOT all normalise it:
+ * `anthropic-messages` passes `options.toolChoice` through verbatim (its
+ * Anthropic-native shape IS `{type:"tool",name}`) and `bedrock-converse-stream`
+ * maps that same shape, while `openai-completions` and `mistral-conversations`
+ * type and consume the provider-native OpenAI-style spelling directly —
+ * observed at dist/api/openai-completions.d.ts (verbatim `tool_choice`
+ * passthrough) and dist/api/mistral-conversations.js `mapToolChoice` (reads
+ * `choice.function.name`) — so handing them `{type:"tool",name}` yields a
+ * provider 400 / TypeError instead of a forced tool. Theta therefore supplies
+ * the per-api shape itself. An api OUTSIDE the table defaults to the spec's
+ * normalized `{type:"tool",name}` shape; the typed-query provider gate
+ * (Increment C) bounds which apis are reachable here. Spec: this per-api
+ * spelling is recorded as the *Pin clarification* under conversation-drive.md
+ * §"`complete()` forced-tool behavioural presupposition"
+ * (#complete-forced-tool-presupposition), which names this table.
+ */
+const FORCED_TOOL_CHOICE_BY_API: Readonly<Record<string, "tool" | "function">> =
+  Object.freeze({
+    "anthropic-messages": "tool",
+    "bedrock-converse-stream": "tool",
+    "amazon-bedrock": "tool",
+    "openai-completions": "function",
+    "mistral-conversations": "function",
+    "mistral": "function",
+  });
+
+/**
+ * The forced tool choice for the respond dispatch, spelled per the resolved
+ * respond model's api (see `FORCED_TOOL_CHOICE_BY_API`): the OpenAI-style
+ * `{type:"function",function:{name}}` for the function-style rows, the spec's
+ * normalized `{type:"tool",name}` for the tool-style rows AND for any api
+ * outside the table.
+ */
+function respondToolChoiceForApi(
+  api: string,
+  name: string,
+): { type: "tool"; name: string } | { type: "function"; function: { name: string } } {
+  return FORCED_TOOL_CHOICE_BY_API[api] === "function"
+    ? { type: "function", function: { name } }
+    : { type: "tool", name };
+}
+
+/**
+ * Bug 0010 (QRY-14 step 2 / SLSH-2 / conversation-drive.md typed bullet):
+ * dispatch ONE typed-query forced respond turn OFF-SESSION through pi-ai's
+ * `complete()` free function — the binder's channel, the only one that carries
+ * `options.toolChoice` (spec finding T34). `context.tools` is exactly the
+ * synthesised respond tool, the tool choice is forced to it, the theta signal
+ * and registry auth thread as options, and the reply resolves to the seam's
+ * `ForcedRespondTurn`:
+ *
+ *   - EXTRACTION FIRST (binder-inference.md rule): the FIRST `ToolCall` content
+ *     part naming the respond tool supplies the payload from its `arguments` —
+ *     success extraction PRECEDES stopReason classification, so a late `error`
+ *     stop never launders a delivered payload into a transport Err.
+ *   - No matching call + a non-normal stopReason: the 0007/0009-aligned
+ *     stop-reason classification (`classifyOffSessionReply`), provider = the
+ *     RESOLVED RESPOND MODEL's `.api` (queryerror-variants.md §provider
+ *     derivation). A non-string/absent stopReason stays a NORMAL terminator
+ *     (fixture shorthand is never classified as a failure).
+ *   - No matching call + a normal stopReason: ERR-17 non-compliance —
+ *     `wrong_tool` when any ToolCall is present (first block's name), else
+ *     `plain_text`; `raw_response` = the assistant text, or null when empty.
+ *
+ * A REJECTED `complete()` promise (pi-ai resolves provider failures, so a
+ * rejection is abort/defect-shaped) maps to the transport arm: "cancelled"
+ * when the theta signal aborted, else the coerced throw message.
+ */
+async function dispatchForcedRespondTurn(
+  respond: RespondTurnContext,
+  messages: readonly Message[],
+): Promise<ForcedRespondTurn> {
+  if (respond.signal.aborted) {
+    // Pre-dispatch abort gate (bug 0010 fix review, F1 — the r7 discipline
+    // generalised to EVERY forced respond dispatch): an already-aborted theta
+    // signal must never reach `complete()` — a post-abort provider call is
+    // token waste against a cancelled query and its reply could only be
+    // discarded. The fixed "cancelled" transport shape is returned for the
+    // seam's totality; the typed loop maps a signal-aborted transport outcome
+    // to its CANCELLED arm (cancellation.md §Surfacing), so this shape is not
+    // author-visible on the loop path.
+    return {
+      kind: "transport",
+      error: {
+        kind: "transport",
+        message: "cancelled",
+        http_status: null,
+        provider: String(respond.model?.api ?? "unknown"),
+        retryable: false,
+      },
+    };
+  }
+  if (respond.model === undefined) {
+    // No frontmatter `model:` resolution and no session-pinned `ctx.model`:
+    // there is nothing to dispatch against — a transport Err with the fixed
+    // sentinel provider, mirroring the off-session model-unavailable posture.
+    return {
+      kind: "transport",
+      error: {
+        kind: "transport",
+        message: "no resolved model for the typed-query forced respond turn",
+        http_status: null,
+        provider: "unknown",
+        retryable: false,
+      },
+    };
+  }
+  const model = respond.model;
+  const provider = String(model.api);
+  const tool: Tool = respondToolEntry(respond);
+  const auth = await respond.auth();
+  const options: Record<string, unknown> = {
+    // The forced tool choice — the entire content of spec finding T34
+    // (`pi.sendUserMessage` exposes no toolChoice; `complete()` is the channel)
+    // — spelled per the resolved respond model's api (bug 0010 fix round 1;
+    // see FORCED_TOOL_CHOICE_BY_API).
+    toolChoice: respondToolChoiceForApi(provider, respond.toolName),
+    // CANCEL-4-style in-flight forwarding: the theta signal threads into the
+    // provider invocation so an abort during the call propagates.
+    signal: respond.signal,
+    ...(auth ?? {}),
+  };
+  let reply: AssistantMessage;
+  try {
+    reply = await complete(model, { messages: [...messages], tools: [tool] }, options);
+  } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — an aborted/defective complete() rejection → transport Err
+    if (respond.signal.aborted) {
+      // Mirrors `#classifyBinderAttempt`: an abort observed at the rejection is
+      // the cancellation, not a retryable transport failure; the loop's
+      // checkpoint surfaces `cancelled` downstream.
+      return {
+        kind: "transport",
+        error: {
+          kind: "transport",
+          message: "cancelled",
+          http_status: null,
+          provider,
+          retryable: false,
+        },
+      };
+    }
+    return {
+      kind: "transport",
+      error: {
+        kind: "transport",
+        message: coerceUnderlyingString(thrown),
+        http_status: null,
+        provider,
+        retryable: false,
+      },
+    };
+  }
+  // EXTRACTION FIRST (binder-inference.md): the first ToolCall naming the
+  // respond tool supplies the payload — before ANY stopReason probe.
+  const calls = reply.content.filter(
+    (part): part is ToolCall => part.type === "toolCall",
+  );
+  const match = calls.find((call) => call.name === respond.toolName);
+  if (match !== undefined) {
+    return { kind: "respond", payload: match.arguments };
+  }
+  // Aborted precedence (bug 0010 fix round 1): pi-ai's `complete()` RESOLVES
+  // an abort — the adapter surfaces `stopReason: "aborted"` rather than
+  // rejecting — so the catch arm below never sees it. Mirror the prompt path's
+  // aborted precedence here: an aborted signal or an aborted-stop reply maps
+  // to the fixed "cancelled" transport Err (the loop's checkpoint surfaces
+  // `cancelled` downstream), never to ERR-17 non-compliance (an abort is not
+  // the model declining the tool). Extraction above still wins when a matching
+  // ToolCall is present — a raced valid answer is a valid answer.
+  const stopReason = (reply as { readonly stopReason?: string }).stopReason;
+  if (respond.signal.aborted || stopReason === "aborted") {
+    return {
+      kind: "transport",
+      error: {
+        kind: "transport",
+        message: "cancelled",
+        http_status: null,
+        provider,
+        retryable: false,
+      },
+    };
+  }
+  // No matching call: classify the stop reason through the 0007/0009-aligned
+  // table (provider = the resolved RESPOND model's `.api`).
+  const classified = classifyOffSessionReply(model, reply);
+  if (classified.kind === "failure") {
+    return { kind: "transport", error: classified.error };
+  }
+  // ERR-17: a normal terminator with no matching respond call is
+  // non-compliance — `wrong_tool` when the model called something else,
+  // `plain_text` when it called nothing.
+  const branch: ForcedRespondBranch =
+    calls.length > 0
+      ? {
+          kind: "wrong_tool",
+          providerToolName: calls[0]!.name,
+          respondToolName: respond.toolName,
+        }
+      : { kind: "plain_text" };
+  const raw = assistantText(reply);
+  return { kind: "noncompliance", branch, raw_response: raw !== "" ? raw : null };
+}
+
+/**
  * The off-session respond-repair follow-up drive (QRY-10 §respond-repair): map
  * the classified wrapper for `driveFollowUp` — reply text on success, the
  * discriminated `FollowUpDriveFailure` on a provider failure so the proximate
@@ -3778,11 +5099,17 @@ async function offSessionFollowUp(
 /**
  * Drive ONE user-visible streamed turn against the shared user session and
  * return its trailing-turn assistant text. Mirrors `LivePromptQueryModel`'s turn
- * drive: install the caller-supplied active tools for the turn (the theta's
- * callable set for a query follow-up, `[]` for the binder), issue the
+ * drive: install the caller-supplied active tools for the turn, issue the
  * fire-and-forget `pi.sendUserMessage`, then observe the run through
  * `ctx.isIdle()` (wait for it to begin streaming, then to go idle again) and the
  * `ctx.waitForIdle()` completion barrier — all bounded on the injected `Clock`.
+ *
+ * Bug 0010 increment C: this is NO LONGER the typed repair drive — the live
+ * typed path repairs through `LivePromptQueryModel.driveRepairAttempt` (the
+ * QRY-14 ¶3 two-phase restart). The sole remaining caller is the DEGRADED
+ * typed arm (`respond` context absent: an unlowerable annotation), whose
+ * repair follow-ups still drive one streamed turn and text-parse its trailing
+ * reply so typed behaviour stays total for unlowerable schemas.
  */
 async function driveStreamedUserTurn(deps: {
   readonly pi: ExtensionAPI;

@@ -42,6 +42,16 @@
 // (`createProductionProducerDeps` → `bindPromptConversation` → `executeBody`)
 // over a prompt-mode theta whose `subagent fn` body issues the `@`-query.
 // Deterministic; no live network.
+//
+// Bug 0010 increment D re-seam: the off-session typed drive is now TWO-PHASE
+// (a free-phase `complete()` tool loop over a held conversation, then the
+// forced respond `complete()` with tools + forced toolChoice — see
+// tests/off-session-two-phase.test.ts). The CLASSIFICATION this suite pins is
+// unchanged (the same `classifyOffSessionReply` runs on every dispatch), but
+// the typed cells' call SEATS moved: (vi)'s error-stop now lands on the
+// free-phase call, (vii)'s on the forced respond dispatch, and the (b) green
+// control scripts the two-phase happy path (free-phase stop turn + respond
+// ToolCall) instead of the retired fused JSON-in-text single shot.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -78,6 +88,7 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
+import { createHash } from "node:crypto";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -96,8 +107,10 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
+  type SchemaDecl,
   type ThetaDocument,
 } from "../src/parser/theta-document";
+import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
@@ -140,21 +153,61 @@ const OPENAI_MODEL = {
  * An `AssistantMessage`-shaped reply for the mocked `complete()`. `text`
  * undefined scripts EMPTY content (the usual error-stop shape); a string
  * scripts one text part (a mid-stream partial, or a clean terminating turn).
+ * `toolCalls` scripts pi-ai `ToolCall` content parts (the (b) green control's
+ * forced respond call — bug 0010 increment D).
  */
 function reply(fields: {
   readonly stopReason: string;
   readonly text?: string;
   readonly errorMessage?: string;
   readonly api?: string;
+  readonly toolCalls?: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly arguments: Record<string, unknown>;
+  }>;
 }): unknown {
+  const content: Record<string, unknown>[] =
+    fields.text !== undefined ? [{ type: "text", text: fields.text }] : [];
+  for (const call of fields.toolCalls ?? []) {
+    content.push({
+      type: "toolCall",
+      id: call.id,
+      name: call.name,
+      arguments: call.arguments,
+    });
+  }
   return {
     role: "assistant",
-    content: fields.text !== undefined ? [{ type: "text", text: fields.text }] : [],
+    content,
     api: fields.api ?? "anthropic-messages",
     stopReason: fields.stopReason,
     ...(fields.errorMessage !== undefined ? { errorMessage: fields.errorMessage } : {}),
     timestamp: 0,
   };
+}
+
+/**
+ * Bug 0010 increment D: the `Verdict` respond-tool name, derived through the
+ * SAME production collaborators the runtime uses (`lowerQueryResponseSchema`
+ * + the sha256-first-16-hex slug recipe of `respondSchemaSlug`), so the (b)
+ * green control scripts its forced respond ToolCall against the contract, not
+ * a copied constant.
+ */
+function respondToolName(): string {
+  const doc = parse(TYPED_THETA);
+  const decls = doc.body.statements.filter(
+    (stmt): stmt is SchemaDecl => stmt.kind === "schema",
+  );
+  const lowered = lowerQueryResponseSchema("Verdict", decls);
+  if (lowered === undefined) {
+    throw new Error("fixture defect: the Verdict schema annotation must lower");
+  }
+  const slug = createHash("sha256")
+    .update(JSON.stringify(lowered))
+    .digest("hex")
+    .slice(0, 16);
+  return `__theta_respond_${slug}`;
 }
 
 // --- The driven thetas ---------------------------------------------------------
@@ -269,7 +322,12 @@ async function driveTheta(source: string, model: unknown): Promise<BodyExecution
     body: doc.body,
   };
   const deps = createProductionProducerDeps({
-    pi: { sendMessage: () => {} } as unknown as ExtensionAPI,
+    // Bug 0010 harness accommodation: the shared respond-tool machinery routes
+    // a typed query through the PIC-44 registration cache, so the double
+    // tolerates (and ignores) the registration surface rather than crashing a
+    // conforming implementation. The registry stays `{}` — the fixed auth
+    // threading PROBES for `getApiKeyAndHeaders` and threads nothing here.
+    pi: { sendMessage: () => {}, registerTool: () => {} } as unknown as ExtensionAPI,
     root: rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
   });
@@ -465,12 +523,15 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
     ).toBe("context_overflow");
   });
 
-  it("(vi) typed: an error-stop on the forced respond turn is Err(transport) IMMEDIATELY — complete() called exactly ONCE, no respond-repair re-drives", async () => {
-    // Today: the transport failure is laundered into the schema-validation
+  it("(vi) typed: an error-stop on the typed query's FIRST provider call is Err(transport) IMMEDIATELY — complete() called exactly ONCE, no respond dispatch, no respond-repair re-drives", async () => {
+    // Pre-0007: the transport failure was laundered into the schema-validation
     // channel — Err(ValidationError { cause: "schema_validation" }) after
-    // 1 (forced respond) + respond_repair.attempts (default 3) = 4 complete()
-    // calls, each follow-up re-driving the dead provider and debiting an
-    // attempts slot the spec says a transport failure must not consume.
+    // 1 + respond_repair.attempts (default 3) = 4 complete() calls, each
+    // follow-up re-driving the dead provider and debiting an attempts slot the
+    // spec says a transport failure must not consume. Bug 0010 increment D:
+    // the first call is now the two-phase FREE-PHASE dispatch — its failure
+    // still terminates the typed query with ONE call (PIC-50; the forced
+    // respond dispatch is never issued after a dead free phase).
     scripted.queue = [
       reply({ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE }),
     ];
@@ -480,25 +541,26 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
     const err = expectErrQueryError(execution);
     expect(
       err.kind,
-      "the forced-respond provider failure classifies as transport — never laundered " +
+      "the free-phase provider failure classifies as transport — never laundered " +
         `into the validation channel; observed: ${JSON.stringify(err)}`,
     ).toBe("transport");
     expect(err.message, "the provider's errorMessage is carried").toBe(AUTH_ERROR_MESSAGE);
     expect(
       scripted.calls,
-      "the transport failure terminates the typed query at the forced-respond turn: " +
-        "exactly ONE complete() call — no respond-repair re-drives (today: 4 calls)",
+      "the transport failure terminates the typed query at its first (free-phase) " +
+        "call: exactly ONE complete() — no respond dispatch, no respond-repair " +
+        "re-drives (pre-0007: 4 calls)",
     ).toBe(1);
   });
 
-  it("(vii) typed: a respond-repair FOLLOW-UP transport failure terminates repair and propagates — complete() called exactly TWICE", async () => {
-    // First reply: a clean stop turn whose text does NOT validate against
-    // `Verdict` (opens respond-repair). Second reply: the follow-up's provider
-    // failure. query-failure-and-repair.md §respond-repair: a follow-up's
-    // non-validation failure propagates as its QueryError variant and
-    // terminates respond-repair immediately, consuming no attempts slot.
-    // Today: repair burns ALL attempts against the dead provider —
-    // 1 + 3 = 4 complete() calls — and returns Err(ValidationError).
+  it("(vii) typed: a transport failure on the FORCED RESPOND dispatch propagates — complete() called exactly TWICE, no repair re-drives", async () => {
+    // First reply: a clean stop turn terminating the free phase (bug 0010
+    // increment D: the two-phase shape's call #1). Second reply: the forced
+    // respond dispatch's provider failure. query-failure-and-repair.md
+    // §respond-repair / QRY-11 §non-validation: a transport failure terminates
+    // the typed query as its proximate QueryError, consuming no attempts slot.
+    // Pre-0007: repair burned ALL attempts against the dead provider —
+    // 1 + 3 = 4 complete() calls — and returned Err(ValidationError).
     scripted.queue = [
       reply({ stopReason: "stop", text: "not json at all" }),
       reply({ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE }),
@@ -509,17 +571,18 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
     const err = expectErrQueryError(execution);
     expect(
       err.kind,
-      "the follow-up's transport failure propagates as the query's Err — never the " +
-        `terminal validation misattribution; observed: ${JSON.stringify(err)}`,
+      "the respond dispatch's transport failure propagates as the query's Err — never " +
+        `the terminal validation misattribution; observed: ${JSON.stringify(err)}`,
     ).toBe("transport");
-    expect(err.message, "the follow-up failure's errorMessage is carried").toBe(
+    expect(err.message, "the respond-dispatch failure's errorMessage is carried").toBe(
       AUTH_ERROR_MESSAGE,
     );
     expect(
       scripted.calls,
-      "repair terminates at the follow-up's transport failure: the original " +
-        "forced-respond call + ONE follow-up = exactly TWO complete() calls " +
-        "(today: 4 — the full attempts budget burned against a dead provider)",
+      "the free-phase call + the failing forced respond dispatch = exactly TWO " +
+        "complete() calls; the transport failure terminates the query with no " +
+        "repair re-drives (pre-0007: 4 — the full attempts budget burned against " +
+        "a dead provider)",
     ).toBe(2);
   });
 });
@@ -544,17 +607,32 @@ describe("bug 0007 (GREEN controls) — clean off-session turns flow through the
     expect(scripted.calls, "exactly one provider call resolves the untyped query").toBe(1);
   });
 
-  it("(b) typed: a clean stop turn with schema-valid JSON resolves the parsed value — complete() called once", async () => {
-    scripted.queue = [reply({ stopReason: "stop", text: '{"score": 7}' })];
+  it("(b) typed: a clean two-phase drive — free-phase stop turn, then the forced respond ToolCall — resolves the validated payload with complete() called twice", async () => {
+    // Bug 0010 increment D re-pin: the fused single-call JSON-in-text drive is
+    // retired — the off-session typed query is two-phase (free phase over the
+    // held conversation, then the forced respond dispatch whose ToolCall
+    // arguments supply the payload). This control still proves the mocked
+    // complete() feeds the off-session driver end to end.
+    scripted.queue = [
+      reply({ stopReason: "stop", text: "thinking" }),
+      reply({
+        stopReason: "toolUse",
+        toolCalls: [{ id: "tc1", name: respondToolName(), arguments: { score: 7 } }],
+      }),
+    ];
 
     const execution = await driveTheta(TYPED_THETA, ANTHROPIC_MODEL);
 
-    expect(execution.outcome, "a schema-valid typed reply succeeds").toBe("success");
+    expect(execution.outcome, "a schema-valid typed respond call succeeds").toBe("success");
     expect(
       execution.result.value,
-      "the forced-respond JSON parses and validates against `Verdict`, and the parsed " +
-        "value flows out as the final value",
+      "the forced respond ToolCall's arguments validate against `Verdict`, and the " +
+        "validated value flows out as the final value",
     ).toEqual({ score: 7 });
-    expect(scripted.calls, "one forced-respond call; no repair follow-ups").toBe(1);
+    expect(
+      scripted.calls,
+      "the two-phase shape: one free-phase call + one forced respond dispatch " +
+        "(bug 0010 increment D)",
+    ).toBe(2);
   });
 });

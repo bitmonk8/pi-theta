@@ -6,6 +6,49 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-07-27
+
+### Fixed
+
+- **The typed-query forced respond turn now runs off-session through pi-ai's
+  `complete()` with the tool choice forced to the synthesised respond tool
+  (bug 0010).** Since the first live typed drive (0.9.0-era H8a wiring) the
+  implementation had fused both query phases into one user-visible
+  `pi.sendUserMessage` turn whose text inlined the lowered schema behind a
+  prose JSON-only instruction, obtained the payload by `JSON.parse` of the
+  streamed assistant text, registered no respond tool, forced no tool choice,
+  left the typed turn governor-exempt, and never wired the documented
+  provider gate — against four mutually-consistent spec pages and a resolved
+  blocker-level design decision (T34). The documented mechanism is restored
+  end to end: the respond tool `__theta_respond_<slug>` registers through the
+  PIC-44 cache and joins the session active set for the free phase (an early
+  valid respond call resolves the query); the free phase runs governed under
+  `tool_loop.max_rounds` (CIO-4); the forced respond turn rebuilds the
+  conversation from the session read surface, appends the QRY-15 template,
+  passes the respond tool as the single `context.tools` entry with the
+  per-api `toolChoice` spelling, dispatches on the theta-resolved `model:`
+  with signal + auth threaded, extracts the forced `ToolCall`'s arguments per
+  the binder extraction rule, and AJV-validates them — attaching nothing to
+  the driven session; respond-repair restarts the whole two-phase loop per
+  attempt with a fresh budget; `subagent fn` body queries run the same
+  two-phase shape off-session over a held conversation, including a real
+  free-phase tool loop over the inherited callable set; an abort at any point
+  surfaces the CANCEL outcome with no post-abort provider dispatch.
+  Operator-visible changes, stated plainly: the raw-JSON schema/instruction
+  turns no longer appear in the user session transcript (SLSH-2); simple
+  typed queries cost one extra provider round-trip (free phase + off-session
+  respond); typed free phases are now bounded where they ran unbounded; typed
+  queries on providers outside the pinned six-member api set now refuse with
+  a `TransportError` instead of dispatching unforced. Spec clarifications
+  landed with the fix (per-api `toolChoice` spelling and the six-member
+  KnownApi-shaped provider set at the theta-1.0 pin); overflow-signature
+  tables gained the two KnownApi alias keys. Residuals (empty-annotation
+  degraded arm; dropped load-phase warnings; untyped off-session mid-abort
+  classification) are recorded in the bug report's Fix section.
+  Token-gated acceptance/live typed fixtures now echo the validated value
+  behind committed sentinels — the streamed-raw-JSON observation channel is
+  dead by design.
+
 ## [0.19.0] - 2026-07-26
 
 ### Fixed

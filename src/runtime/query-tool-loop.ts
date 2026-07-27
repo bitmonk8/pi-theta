@@ -61,7 +61,9 @@ import type { RuntimeEvent } from "./runtime-event-channel";
 import { computeMasked } from "./runtime-event-channel";
 import {
   makeToolLoopExhaustedError,
+  synthesizeForcedRespondIssue,
   type ContextOverflowError,
+  type ForcedRespondBranch,
   type QueryError,
   type ToolLoopExhaustedError,
   type TransportError,
@@ -70,6 +72,7 @@ import {
 } from "./query-error";
 import { DEPTH_VIOLATION_MESSAGE, depthWalk } from "./depth-walk";
 import type { LoweredSchema } from "../seams/schema-validator";
+import { NONCOMPLIANCE_TERMINAL_MESSAGE } from "./query-respond-repair";
 import type { RespondRepairOutcome, ValidationFailure } from "./query-respond-repair";
 
 // ---------------------------------------------------------------------------
@@ -106,6 +109,17 @@ export type FreePhaseTurn =
  */
 export type ForcedRespondTurn =
   | { readonly kind: "respond"; readonly payload: unknown }
+  // ERR-17 (bug 0010): the off-session forced respond turn resolved NORMALLY
+  // but did not call the forced respond tool — a `wrong_tool` `ToolCall` or a
+  // plain-text reply. The driver reports the branch and the assistant text
+  // (`null` when empty); the loop routes it into the EXISTING respond-repair
+  // machinery (`ValidationFailure` already carries the `noncompliance` arm),
+  // never through AJV (there is no payload to validate).
+  | {
+      readonly kind: "noncompliance";
+      readonly branch: ForcedRespondBranch;
+      readonly raw_response: string | null;
+    }
   // PIC-50/51: the forced-respond provider turn failed at the transport layer
   // (`stopReason: "error"` / send sync-throw). Surfaced as a `transport`
   // typed-query outcome, never parsed as a structured payload. Widened for the
@@ -459,6 +473,18 @@ export async function runTypedQueryLoop(
     }
     const turn = await model.nextFreePhaseTurn(round);
     if (turn.kind === "transport") {
+      // Cancellation surfacing (bug 0010 fix review, F1): a free-phase turn
+      // that failed WHILE the theta signal is aborted is the in-flight abort,
+      // not a provider fault — pi-ai RESOLVES an abort as a `stopReason:
+      // "aborted"` reply that the off-session classifier folds into the
+      // transport arm, so without this mapping a mid-flight Esc surfaces as
+      // `Err(transport)` instead of the cancelled outcome (cancellation.md
+      // §Surfacing: an in-flight query whose signal aborts returns
+      // `Err(kind: "cancelled")`). A transport failure with a NON-aborted
+      // signal keeps its transport classification unchanged.
+      if (signal.aborted) {
+        return { kind: "cancelled", committed };
+      }
       // PIC-50/51: a free-phase transport failure aborts the typed query before
       // the forced-respond terminator is dispatched.
       return {
@@ -477,6 +503,19 @@ export async function runTypedQueryLoop(
     slotCount += 1;
     rounds.push({ round, batchSize: turn.batch.length, slotCountAfter: slotCount });
     round += 1;
+  }
+
+  // Cancellation re-check at the free-phase → forced-respond boundary (bug
+  // 0010 fix review, F1): the round-top check above only guards ROUND ENTRY;
+  // an abort observed DURING the final free-phase turn (Esc mid-stream — the
+  // live driver's post-idle probe synthesises `cancelled`, which is not a
+  // transport verdict, so the turn still surfaces as `text`) or at the
+  // `max_rounds`-final break would otherwise flow into a POST-ABORT forced
+  // respond dispatch. cancellation.md §Surfacing pins the cancelled outcome,
+  // and the r7 discipline (no post-abort provider dispatch) applies to the
+  // INITIAL forced respond turn exactly as it does to repair attempts.
+  if (signal.aborted) {
+    return { kind: "cancelled", committed };
   }
 
   // V13e (QRY-22): resolve the typed query's declared schema — a named `schema`
@@ -503,10 +542,73 @@ export async function runTypedQueryLoop(
     slotCountAtDispatch,
   };
   if (forced.kind === "transport") {
+    // Signal-aborted dispatch outcomes map to the CANCELLED arm (bug 0010 fix
+    // review, F1): an abort that lands while the forced respond dispatch is in
+    // flight resolves through pi-ai as an aborted-stop reply (or through the
+    // dispatch's own pre/post abort probes) and reaches here on the transport
+    // arm — with the theta signal aborted it is the cancellation, surfaced as
+    // the cancelled outcome per cancellation.md §Surfacing / error-model.md
+    // §Terminal outcomes. A transport verdict with a NON-aborted signal (e.g.
+    // a reply-side `stopReason: "aborted"` fabricated by the provider while
+    // the theta was never cancelled) stays transport. Both halves are pinned:
+    // the cancelled half (aborted signal → this guard) by
+    // tests/off-session-two-phase.test.ts (d15), the transport half
+    // (non-aborted signal stays transport) by the live suite's
+    // aborted-respond cell, tests/typed-two-phase-live.test.ts (l). A
+    // `respond` payload is NEVER rewritten here (CNCL-5: no retroactive
+    // rewrite of a completed Ok — a raced valid answer is a valid answer).
+    if (signal.aborted) {
+      return { kind: "cancelled", committed };
+    }
     // PIC-50/51: the forced-respond provider turn failed at the transport layer;
     // surface `Err(TransportError)` rather than parsing an empty/partial payload
     // as a structured value (which would mis-surface as a validation failure).
     return { kind: "transport", error: forced.error, rounds, forcedRespond, committed };
+  }
+
+  if (forced.kind === "noncompliance") {
+    // ERR-17 / QRY-9 (bug 0010): the forced respond turn resolved normally but
+    // did not call the forced respond tool. There is NO payload — the depth
+    // walk and AJV are unreachable for this arm; the report routes into the
+    // EXISTING respond-repair machinery as the `ValidationFailure`
+    // noncompliance arm (never re-cast through the AJV schema_validation
+    // channel, which would fabricate a validation of `undefined`).
+    if (schemaValidation !== undefined) {
+      const repair = await schemaValidation.runRespondRepair({
+        kind: "noncompliance",
+        branch: forced.branch,
+        raw_response: forced.raw_response,
+      });
+      switch (repair.kind) {
+        case "value":
+          // A respond-repair follow-up produced a validated value: it is the
+          // typed query's final result.
+          return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
+        case "validation": {
+          // Terminal non-compliance / non-conformance: surface the repair
+          // loop's ValidationError with the operator-facing RuntimeEvent.
+          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch);
+          return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
+        }
+        case "propagated":
+          // A proximate non-validation failure won respond-repair (QRY-11).
+          return { kind: "propagated", error: repair.error, rounds, forcedRespond, committed };
+      }
+    }
+    // No respond-repair machinery exists (no schema-validation collaborator):
+    // surface the ERR-17 terminal ValidationError DIRECTLY — attempts 0, the
+    // fixed terminal message, the synthesised branch issue, and the driver's
+    // raw_response — never a fabricated `value` outcome (bug 0010 seam law).
+    const error: ValidationError = {
+      kind: "validation",
+      cause: "schema_validation",
+      message: NONCOMPLIANCE_TERMINAL_MESSAGE,
+      attempts: 0,
+      validation_errors: [synthesizeForcedRespondIssue(forced.branch)],
+      raw_response: forced.raw_response,
+    };
+    const event = buildValidationEvent(config, error, slotCountAtDispatch);
+    return { kind: "validation", error, event, rounds, forcedRespond, committed };
   }
 
   // CIO-3: the theta-owned depth walk (`V5e`) runs at the typed-query response

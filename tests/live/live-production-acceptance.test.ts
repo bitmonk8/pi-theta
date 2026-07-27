@@ -47,21 +47,67 @@ function promptTheta(sentinel: string): string {
 }
 
 /**
- * A schema-typed `@`-query theta whose ONLY turn is the typed query (V5d schema
- * lowering/validation). Single-turn on purpose: `driveSlashCaptureText`
- * concatenates every streamed `text_delta`, so a trailing prose turn would
- * append non-JSON after the typed object and break a whole-stream `JSON.parse`
- * (FIND-S7-3 / D1). With just the typed query, the entire streamed transcript
- * is the structured JSON object the schema is validated against.
+ * A schema-typed `@`-query theta that echoes its validated value behind a
+ * committed sentinel. Bug 0010: the typed forced respond turn is dispatched
+ * off-session (pi-ai `complete()` with forced toolChoice) and never streams
+ * into the transcript, so the pre-0010 whole-stream `JSON.parse` observation
+ * channel is dead — the streamed deltas now carry only free-phase text. The
+ * fixture therefore surfaces the AJV-validated value itself: the final untyped
+ * query interpolates `answer` (QRY-18 compact JSON) behind the sentinel, and
+ * the capture extracts the JSON after the sentinel. The sentinel can only
+ * render if the typed binding resolved Ok (past AJV and past `?`).
  */
+export const LIVE_TYPED_SENTINEL = "LIVE TYPED RESULT";
+
 function typedQueryTheta(): string {
   return [
     "---",
     "mode: prompt",
     "---",
-    "let answer: { ok: bool, label: string } = @`Return an object describing whether the sky is blue.`",
+    "let answer: { ok: boolean, label: string } = @`Return an object describing whether the sky is blue.`?",
+    "@`Reply with exactly this text and nothing else, no markdown, no code fences: " +
+      LIVE_TYPED_SENTINEL +
+      " ${answer}`?",
     "",
   ].join("\n");
+}
+
+/**
+ * Extract the first balanced JSON object after the sentinel in a streamed
+ * transcript (bug 0010: free-phase turns stream arbitrary text — possibly
+ * containing brace pairs — so only the sentinel-anchored echo is trusted).
+ */
+function jsonAfterSentinel(transcript: string): unknown {
+  const at = transcript.lastIndexOf(LIVE_TYPED_SENTINEL);
+  if (at < 0) {
+    throw new Error(
+      `live typed capture: sentinel "${LIVE_TYPED_SENTINEL}" absent from the ` +
+        `streamed transcript — the echo turn did not run (typed binding failed?). ` +
+        `transcript: ${transcript}`,
+    );
+  }
+  const rest = transcript.slice(at + LIVE_TYPED_SENTINEL.length);
+  const start = rest.indexOf("{");
+  if (start < 0) {
+    throw new Error(
+      `live typed capture: no JSON object after the sentinel. transcript: ${transcript}`,
+    );
+  }
+  let depth = 0;
+  for (let i = start; i < rest.length; i += 1) {
+    const ch = rest[i];
+    if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return JSON.parse(rest.slice(start, i + 1));
+      }
+    }
+  }
+  throw new Error(
+    `live typed capture: unbalanced JSON after the sentinel. transcript: ${transcript}`,
+  );
 }
 
 /** A subagent-mode `.theta` whose one untyped query drives a private spawned session to completion. */
@@ -214,7 +260,9 @@ describe("H8a-T — typed-query lowering, bounded (Convention: live-host accepta
       // the binder-resolved reply must be STRUCTURALLY valid against the
       // declared, lowered schema (V5d) — not an exact-content match.
       const reply = await driveSlashCaptureText(handle.session, "/typed");
-      const value: unknown = JSON.parse(reply);
+      // Bug 0010: the validated value arrives via the fixture's sentinel echo,
+      // not as a streamed raw-JSON respond turn (that channel no longer exists).
+      const value: unknown = jsonAfterSentinel(reply);
       const validator = new AjvSchemaValidator({
         emit: () => undefined,
         slugOf: (schema) => {

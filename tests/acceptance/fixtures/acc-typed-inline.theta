@@ -3,5 +3,13 @@ mode: prompt
 ---
 // H9a acceptance area (c) — typed query with an INLINE object type (QRY-22).
 // The inline object annotation is lowered and the response validated against it.
-let r: { ok: boolean, label: string } = @`Return an object: set ok to true and label to a short descriptive string.`
-r
+//
+// Bug 0010: the forced respond turn runs OFF-SESSION (pi-ai `complete()` with
+// forced toolChoice) and never streams into the transcript, so the fixture
+// itself surfaces the AJV-validated value: the final untyped query interpolates
+// `r` (QRY-18 compact JSON) behind the committed sentinel, and that echo is the
+// run's LAST assistant message — the `pi -p` stdout observable the suite
+// parses. The sentinel can only appear if the typed binding resolved Ok (past
+// AJV and past `?`).
+let r: { ok: boolean, label: string } = @`Return an object: set ok to true and label to a short descriptive string.`?
+@`Reply with exactly this text and nothing else, no markdown, no code fences: ACC TYPED INLINE RESULT ${r}`?

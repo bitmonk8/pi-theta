@@ -45,15 +45,28 @@ import type {
 /**
  * The theta 1.0 typed-query-supported provider set
  * (conversation-drive.md §"Provider compatibility for typed queries" / the
- * `theta 1.0 seam — typed-query supported provider set`): the four `api`-shaped
+ * `theta 1.0 seam — typed-query supported provider set`): the `api`-shaped
  * values for which pi-ai exposes a named-tool `toolChoice` mapping. Exposed as a
  * single named constant so the set has one source of truth to widen.
+ *
+ * WHY six members (bug 0010 increment C): the four documented provider names
+ * PLUS the pin-observed KnownApi spellings at the theta-1.0 pi-ai pin —
+ * pi-ai's types.d.ts `KnownApi` spells the Mistral and Bedrock adapters
+ * `mistral-conversations` / `bedrock-converse-stream`, and those adapters map
+ * a working named-tool toolChoice (the FORCED_TOOL_CHOICE_BY_API rows), so a
+ * gate refusing them would refuse providers the dispatch demonstrably
+ * supports. The names `mistral` / `amazon-bedrock` are retained for the
+ * documented provider set. Spec: conversation-drive.md §"Provider
+ * compatibility for typed queries" pins exactly this six-member `api`-shaped
+ * set (the bug-0010 fix's spec clarification).
  */
 export const TYPED_QUERY_SUPPORTED_PROVIDER_APIS = [
   "anthropic-messages",
   "openai-completions",
   "mistral",
   "amazon-bedrock",
+  "mistral-conversations",
+  "bedrock-converse-stream",
 ] as const;
 
 /** The load-phase warning code for a typed query against an unsupported provider. */
@@ -148,13 +161,27 @@ export function synthesizeUnsupportedProviderTransportError(
  * signatures"). Each `|` is regex alternation; a backslash-escaped `\|` must not
  * appear in any signature. Matched against the pi-ai-formatted
  * `AssistantMessage.errorMessage` string.
+ *
+ * WHY the alias rows (bug 0010 fix round 2, n1): at the theta-1.0 pi-ai pin the
+ * `mistral-conversations` / `bedrock-converse-stream` KnownApi spellings are the
+ * SAME adapter modules the documented `mistral` / `amazon-bedrock` providers
+ * register (dist/providers/mistral.js wraps `mistralConversationsApi()`;
+ * dist/providers/amazon-bedrock.js wraps `bedrockConverseStreamApi()`), so the
+ * classifier-input `errorMessage` text is formatted by one formatter per pair
+ * (`formatMistralError` in dist/api/mistral-conversations.js,
+ * `formatBedrockError` in dist/api/bedrock-converse-stream.js) — api-identical
+ * across the spellings. The alias keys share the documented rows byte-for-byte;
+ * without them a body-overflow observed under the pin's KnownApi spelling would
+ * classify as generic transport instead of `ContextOverflowError`.
  */
 const OVERFLOW_SIGNATURES: Readonly<Record<string, RegExp>> = Object.freeze({
   "anthropic-messages":
     /(prompt is too long|exceeds .* context window|maximum context length)/i,
   "openai-completions": /maximum context length|context_length_exceeded/i,
   mistral: /context.*length/i,
+  "mistral-conversations": /context.*length/i,
   "amazon-bedrock": /(input is too long|context window)/i,
+  "bedrock-converse-stream": /(input is too long|context window)/i,
 });
 
 /**
@@ -205,6 +232,8 @@ function overflowStatusGateSatisfied(input: ProviderClassifierInput): boolean {
   switch (input.api) {
     case "anthropic-messages":
     case "mistral":
+    // Alias spelling of the same adapter/formatter (see OVERFLOW_SIGNATURES).
+    case "mistral-conversations":
       return input.httpStatus === 400;
     case "openai-completions":
       return (
@@ -212,6 +241,8 @@ function overflowStatusGateSatisfied(input: ProviderClassifierInput): boolean {
         (input.httpStatus === 200 && input.stopReason === "error")
       );
     case "amazon-bedrock":
+    // Alias spelling of the same adapter/formatter (see OVERFLOW_SIGNATURES).
+    case "bedrock-converse-stream":
       return true;
     default:
       return false;

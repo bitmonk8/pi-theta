@@ -208,9 +208,11 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "pi.sendMessage", kind: "namespace-function" },
     // RFC-0005: `createAgentSession` and the former in-process subagent
     // satellites (`SessionManager` / `DefaultResourceLoader` / `getAgentDir` /
-    // `defineTool` / `AgentToolResult` / `ToolDefinition`) have LEFT the
-    // inventory entirely (capability-inventory-items.md item 3) — the subagent
-    // drive spawns a child `pi` process and no `src/**` file imports them.
+    // `defineTool` / `AgentToolResult`) have LEFT the inventory entirely
+    // (capability-inventory-items.md item 3) — the subagent drive spawns a
+    // child `pi` process and no `src/**` file imports them. (`ToolDefinition`
+    // re-entered below as a peer-named-import for bug 0010's respond-tool
+    // registration — a `pi.registerTool` consumer, not an in-process satellite.)
     // The two non-capability category-(1) `pi.<member>` surfaces.
     { id: "pi.registerFlag", kind: "namespace-function" },
     { id: "pi.getFlag", kind: "namespace-function" },
@@ -270,6 +272,11 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // The H8a production composition root imports the host `ModelRegistry` type
     // (binder-model resolution + structured-output turns).
     { id: "ModelRegistry", kind: "peer-named-import" },
+    // Bug 0010 (QRY-14 step 2): the typed-query respond-tool registration
+    // builds a `ToolDefinition` for `pi.registerTool` (the PIC-44 registration
+    // cache's registry mutation) — the tool the off-session forced respond
+    // turn's `options.toolChoice` names.
+    { id: "ToolDefinition", kind: "peer-named-import" },
     // The H8a per-theta prompt-mode run-drive resolves the driven user session's
     // chronological message list through the `buildSessionContext` free function.
     { id: "buildSessionContext", kind: "peer-named-import" },

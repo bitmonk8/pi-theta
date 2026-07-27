@@ -95,7 +95,12 @@ import {
 } from "../discovery/discovery-walk";
 import { discoverPackageThetas } from "../discovery/package-discovery";
 import { loadSettings, type ThetaSettings } from "../discovery/settings";
-import { parseThetaDocument, type ThetaBody } from "../parser/theta-document";
+import {
+  detectTypedQueryExpression,
+  parseThetaDocument,
+  type ThetaBody,
+} from "../parser/theta-document";
+import { checkTypedQueryProviderSupport } from "../binder/provider-error-mapping";
 import {
   resolveCallableSet,
   type CallableSetDeps,
@@ -739,6 +744,35 @@ async function runComposePass(
       continue;
     }
 
+    // Bug 0010 increment C (conversation-drive.md §"Provider compatibility for
+    // typed queries"): the LOAD-time typed-query provider gate. A theta that
+    // CARRIES a typed query whose frontmatter `model:` load-resolves to an api
+    // outside the supported set warns with
+    // `theta/load/typed-query-unsupported-provider` — WARNING severity, so the
+    // theta STILL REGISTERS (no `continue`; the runtime gate refuses the typed
+    // dispatch itself). The diagnostic rides the SAME `emitDiagnostic` stream
+    // every other load-time warning rides (e.g. the binder-model
+    // strict-capability-unknown warning above). HONEST LIMIT (bug 0010 fix
+    // review, F4): BOTH production load-emit sinks drop non-error severities —
+    // `makeLoadEmit` and `composeExtensionInstance`'s `emitLoadNote` each
+    // early-return on `severity !== "error"` — so this warning (like EVERY
+    // load-phase warning today) is currently DROPPED, not surfaced anywhere in
+    // production. That is a pre-existing routing gap for all load warnings,
+    // recorded as a residual in the bug doc's Fix §Residuals; rewiring the
+    // load-warning channel is out of the bug-0010 fix's scope. The emission
+    // stays wired so the gate warning surfaces the moment the shared sink
+    // routes warnings, and so seam tests can observe it via an injected emit.
+    const typedQueryProviderWarning = checkThetaTypedQueryProviderSupport({
+      file: input.sourcePath ?? input.slashName,
+      body: input.body,
+      modelReference: input.frontmatter.model,
+      resolveModel: (reference) =>
+        matchAvailableModel(reference, ctx.modelRegistry.getAvailable()),
+    });
+    if (typedQueryProviderWarning !== null) {
+      emitDiagnostic(typedQueryProviderWarning);
+    }
+
     // Thread the frozen callable-set snapshot resolved above onto the runnable
     // theta so the runtime enforces the per-theta `tools:` set (QTL-2: code-driven
     // calls dispatch only through a held reference; QTL-4: prompt-mode query
@@ -1073,6 +1107,50 @@ function settingsFilePaths(
     resolvePath(ctx.cwd, ".pi", "settings.json"),
     resolvePath(fileSystem.homedir(), ".pi", "agent", "settings.json"),
   ];
+}
+
+/**
+ * Bug 0010 increment C — the LOAD-pass typed-query provider-gate wiring
+ * (conversation-drive.md §"Provider compatibility for typed queries"): compose
+ * the body walk (`detectTypedQueryExpression`), the frontmatter `model:`
+ * resolution (injected, `matchAvailableModel`-bound in production), and the
+ * existing `checkTypedQueryProviderSupport` emitter. Returns the
+ * `theta/load/typed-query-unsupported-provider` WARNING, or `null` when:
+ *
+ *  - the theta declares no `model:` (the session model is unknown at load; the
+ *    runtime gate still covers the `ctx.model` fallback);
+ *  - the reference resolves to no available model (an unresolvable `model:` is
+ *    already the binder-model machinery's concern — nothing to classify);
+ *  - the body carries no typed query;
+ *  - the resolved api is inside `TYPED_QUERY_SUPPORTED_PROVIDER_APIS` (the
+ *    emitter's own supported-set check).
+ *
+ * The theta registers either way — the diagnostic is warning-severity.
+ */
+export function checkThetaTypedQueryProviderSupport(input: {
+  readonly file: string;
+  readonly body: ThetaBody;
+  readonly modelReference: string | undefined;
+  readonly resolveModel: (
+    reference: string,
+  ) => { readonly api: string } | undefined;
+}): Diagnostic | null {
+  if (input.modelReference === undefined) {
+    return null;
+  }
+  const model = input.resolveModel(input.modelReference);
+  if (model === undefined) {
+    return null;
+  }
+  if (!detectTypedQueryExpression(input.body)) {
+    return null;
+  }
+  return checkTypedQueryProviderSupport({
+    file: input.file,
+    hasTypedQuery: true,
+    api: String(model.api),
+    modelReference: input.modelReference,
+  });
 }
 
 /**

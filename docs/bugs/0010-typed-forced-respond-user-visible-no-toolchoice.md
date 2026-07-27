@@ -1,6 +1,6 @@
 # Bug 0010 — Typed-query forced respond turn is a user-visible `sendUserMessage` turn with a JSON-in-text instruction, not the specified off-session `complete()` with forced tool choice
 
-- **Status:** open.
+- **Status:** fixed (0.20.0).
 - **Kind:** defect — implementation mechanism diverges from the documented
   conversation-drive contract. Four spec pages pin one mechanism for the typed
   query's forced respond turn: dispatched **off-session** through pi-ai's
@@ -47,6 +47,155 @@
 - **Observed at:** `0.19.0`, host Pi `0.82.1` (repo-local SDK pins
   `@earendil-works/pi-ai` / `pi-coding-agent` 0.80.10). Recorded verbatim as
   pre-existing and out of scope by the bug-0009 fix review (round 2).
+
+## Fix (0.20.0)
+
+Option 1, staged behind the unchanged `QueryModelDriver` seam. Facet by facet
+against the table below:
+
+- **Dispatch channel / session surface.** `LivePromptQueryModel.forcedRespondTurn`
+  now dispatches off-session through pi-ai `complete()`
+  (`dispatchForcedRespondTurn`, `src/extension/production-theta-producer.ts`):
+  the conversation is rebuilt from the PIC-53 read surface
+  (`buildSessionContext(ctx.sessionManager.getEntries(), getLeafId())`,
+  windowed to the query's own turns), the QRY-15 template is the trailing
+  `context.messages` entry, and nothing attaches to the driven session — zero
+  `sendUserMessage` calls for the respond turn, no transcript card. The fused
+  `maxRounds: typed ? 0` collapse and the `governor: typed ? undefined`
+  exemption are gone.
+- **Tool contract.** The synthesised `__theta_respond_<slug>` tool is
+  registered through the PIC-44 cache (byte-equality verify, `_<n>`
+  disambiguation) and installed in the session active set for every driven
+  typed turn (`withActiveSetGating`, install vector
+  `[...thetaCallableSetNames, respondToolName]`); an early on-session respond
+  call resolves the query one-shot (invalid payloads feed back `isError`
+  results). The forced dispatch passes the tool as the single `context.tools`
+  entry; its "execute AJV-validates" contract is realised caller-side — the
+  reply's first matching `ToolCall`'s `arguments` are extracted per
+  binder-inference.md (success extraction precedes `stopReason`
+  classification) and AJV-validated; the wrong-tool / plain-text arms produce
+  ERR-17's exact literals.
+- **Tool-choice forcing.** `options.toolChoice` is supplied from
+  `FORCED_TOOL_CHOICE_BY_API` — a fixed per-api spelling table keyed by the
+  resolved respond model's `.api` — because the pinned pi-ai adapters consume
+  provider-native spellings rather than mapping a uniform `{ type: "tool",
+  name }` (spec Pin clarification landed at conversation-drive.md
+  §`complete()`-forced-tool presupposition; §Runtime of
+  implementation-notes.md and version-bump-step2.md items (u)/(aa)/(ab)/(af)
+  reworded to match).
+- **Two-phase structure / CIO-4.** The free phase drives on-session via
+  `sendUserMessage` under the real `tool_loop.max_rounds` budget with the
+  governor armed; exhaustion falls to the forced respond terminator
+  (`runTypedQueryLoop`, `src/runtime/query-tool-loop.ts`). `max_rounds: 0`
+  fuses the rendered prompt and QRY-15 template into the single forced
+  message.
+- **Respond model + options.** The forced dispatch takes the theta-resolved
+  `model:` (invocation-pinned session model when frontmatter omits it), and
+  threads `options.signal` plus registry auth (`getApiKeyAndHeaders`, probed
+  as an optional capability).
+- **Respond-repair.** Each attempt restarts the whole two-phase loop
+  (QRY-14 ¶3): the QRY-12 follow-up — whose respond-tool reference now
+  threads the registered (possibly disambiguated) tool name — opens a
+  restarted governed free phase, terminated by a fresh off-session forced
+  dispatch; transport and cancelled failures terminate repair with no
+  attempts debit.
+- **Provider gate.** `checkTypedQueryProviderSupport` /
+  `synthesizeUnsupportedProviderTransportError` are wired at load
+  (`checkThetaTypedQueryProviderSupport`,
+  `src/extension/production-composition.ts`) and at dispatch (zero provider
+  calls outside the pinned six-member api set; the set and its rationale are
+  spec-pinned at conversation-drive.md §Provider compatibility).
+- **Off-session sibling.** `OffSessionQueryModel` (`subagent fn` bodies) runs
+  the same two-phase shape over a held conversation: a `complete()` tool loop
+  services free-phase `ToolCall`s over the inherited callable set
+  (`lowerModelDrivenToolCall`, previously unwired), early respond calls are
+  serviced in-loop, the forced dispatch appends QRY-15 to the held history,
+  and repair follow-ups rejoin it; respond exchanges never do. Untyped
+  off-session queries gain the same tool loop without a respond tool. The
+  subagent child inherits the live path unchanged.
+- **Cancellation discipline.** An abort anywhere — free phase, respond
+  dispatch, repair boundary, repair dispatch — surfaces the CANCEL terminal
+  outcome with no post-abort provider dispatch (`runTypedQueryLoop` guards,
+  the `dispatchForcedRespondTurn` pre-gate, and the signal-aware
+  `mapForcedTurnToRepairOutcome`); a reply-side `"aborted"` stop under a live
+  signal remains transport. Failure classification is otherwise the
+  0007/0009-aligned path, unchanged.
+
+Regression surface: `tests/typed-two-phase-live.test.ts`,
+`tests/off-session-two-phase.test.ts`, `tests/typed-repair-two-phase.test.ts`,
+`tests/typed-query-provider-gate.test.ts`,
+`tests/query-tool-loop-noncompliance.test.ts`,
+`tests/query-followup-render-initial.test.ts`, plus re-pinned cells in
+`tests/prompt-provider-field-derivation.test.ts`,
+`tests/off-session-transport-classification.test.ts`, and
+`tests/binder-inference-provider-mapping.test.ts` (overflow alias keys). The
+token-gated acceptance/live typed cases were reconciled to the fixed
+mechanism: fixtures echo the AJV-validated value behind committed sentinels
+(`ACC TYPED NAMED RESULT` / `ACC TYPED INLINE RESULT` /
+`LIVE TYPED RESULT`) and the suites anchor extraction to the sentinel — the
+streamed-raw-JSON observation channel the pre-0010 mechanism provided is
+dead, exactly as the H8a note predicted.
+
+### Residuals
+
+The residual record below is normative for the fix. Knowingly-kept
+divergences survive the option-1 restoration, recorded here so they are
+visible rather than silent:
+
+- **Degraded unlowerable-annotation arm keeps the entire pre-0010 fused
+  mechanism.** `lowerQueryResponseSchema` returns `undefined` only for an
+  empty or whitespace-only annotation (`@<>` / `@<  >`) — an author-error
+  form the parser accepts with no diagnostic; every non-empty annotation
+  lowers (unresolved names lower permissively since bug 0004). On that arm
+  both drivers deliberately keep the fused single-turn mechanism so typed
+  behaviour stays total: the live path drives one user-visible JSON-in-text
+  turn (`maxRounds: 0` collapse, ungoverned native loop), the off-session path
+  one fused `complete()`; no respond tool is registered or forced, the
+  provider gate does not apply, and — because no lowered schema exists — no
+  schema-validation collaborator is built, so the text-parsed payload binds
+  **unvalidated** (the CIO-3 depth walk still runs in the loop; AJV does not).
+  Pinned by the degraded-arm regression cells in
+  `tests/typed-two-phase-live.test.ts` and
+  `tests/off-session-two-phase.test.ts`; WHY comments sit at the two
+  `forcedRespondTurn` degraded arms and the `maxRounds` collapse in
+  `src/extension/production-theta-producer.ts`. A load-time diagnostic for the
+  empty-annotation form would need a new registered code and is deliberately
+  not taken here (scope).
+- **The load-time `theta/load/typed-query-unsupported-provider` warning is
+  emitted but unobservable in production.** The gate wiring
+  (`checkThetaTypedQueryProviderSupport`,
+  `src/extension/production-composition.ts`) emits the warning into the shared
+  load `emitDiagnostic` stream, but BOTH production load-emit sinks
+  (`makeLoadEmit` and `composeExtensionInstance`'s `emitLoadNote`) early-return
+  on `severity !== "error"`, so the warning — like every load-phase warning
+  today — is dropped. This is a pre-existing routing gap for ALL load
+  warnings, not specific to this gate; rewiring the load-warning channel is
+  out of this fix's scope. The wiring itself is seam-tested
+  (`tests/typed-query-provider-gate.test.ts`) and the warning becomes
+  user-visible the moment the shared sink routes warnings.
+
+Fix round 2 note — overflow-signature alias keys (reviewer note n1). The
+`OVERFLOW_SIGNATURES` / `overflowStatusGateSatisfied` tables in
+`src/binder/provider-error-mapping.ts` gained the two KnownApi alias keys
+(`mistral-conversations` sharing `mistral`'s row, `bedrock-converse-stream`
+sharing `amazon-bedrock`'s), so a body-overflow observed under the pin's
+KnownApi spelling classifies as `ContextOverflowError` rather than generic
+transport. Evidence the rows are api-identical at the theta-1.0 pi-ai pin: the
+documented providers are thin wrappers over the SAME adapter modules
+(`dist/providers/mistral.js` registers `mistralConversationsApi()`;
+`dist/providers/amazon-bedrock.js` registers `bedrockConverseStreamApi()`), so
+the classifier-input `errorMessage` is produced by one formatter per pair
+(`formatMistralError` in `dist/api/mistral-conversations.js`,
+`formatBedrockError` in `dist/api/bedrock-converse-stream.js`) regardless of
+which api spelling the resolved model handle carries. The spec's
+`provider-error-mapping.md` §Overflow signatures list stays keyed on the four
+documented provider names; the alias keys are the implementation-side
+projection of the six-member supported set pinned at conversation-drive.md
+§Provider compatibility for typed queries.
+
+One pre-existing neighbour is out of scope and recorded for a future report:
+UNTYPED off-session queries retain the transport-not-cancelled mid-abort
+classification that this fix corrected for typed loops.
 
 ## Summary
 

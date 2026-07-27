@@ -139,6 +139,48 @@ describe("V9j-T — provider classifier → QueryError (cka-35)", () => {
     expect(result.tokens_limit).toBeNull();
   });
 
+  it("cka-35: mistral-conversations alias — HTTP 400 context-length body → ContextOverflowError (bug 0010 fix round 2: the pinned KnownApi spelling shares mistral's signature row)", () => {
+    // At the SDK pin the Mistral provider registers as `mistral-conversations`
+    // with the same adapter module and error formatter as the documented
+    // `mistral` name, so the overflow signature must classify identically
+    // under either spelling.
+    const result = classifyProviderResponse(
+      classify({
+        api: "mistral-conversations",
+        httpStatus: 400,
+        errorMessage: "the context length was exceeded",
+      }),
+    ) as ContextOverflowError;
+    expect(result.kind).toBe("context_overflow");
+    expect(result.tokens_used).toBeNull();
+    expect(result.tokens_limit).toBeNull();
+  });
+
+  it("cka-35: bedrock-converse-stream alias — ValidationException overflow, no HTTP response → ContextOverflowError (bug 0010 fix round 2: signature precedence under the pinned KnownApi spelling)", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "bedrock-converse-stream",
+        httpStatus: null,
+        stopReason: "error",
+        errorMessage: "ValidationException: input is too long for requested model",
+      }),
+    ) as ContextOverflowError;
+    expect(result.kind).toBe("context_overflow");
+    expect(result.tokens_used).toBeNull();
+    expect(result.tokens_limit).toBeNull();
+  });
+
+  it("cka-35: mistral-conversations alias — a NON-overflow 400 stays transport (the alias adds the signature row, not a blanket reclassification)", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "mistral-conversations",
+        httpStatus: 400,
+        errorMessage: "invalid request: bad tool schema",
+      }),
+    );
+    expect(result.kind).toBe("transport");
+  });
+
   // --- deterministic overflow token-count extraction ----------------------
 
   it("cka-35: two numeric runs populate tokens_used (larger) and tokens_limit (smaller)", () => {
