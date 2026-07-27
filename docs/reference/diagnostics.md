@@ -117,6 +117,7 @@ namespace, **not** runtime diagnostics — no registry row, out of scope. Severi
 | `theta/parse/empty-template` | W | parse | `query template body is empty after newline-trim and dedent` |
 | `theta/parse/interpolated-result` | E | type | `Result value cannot be interpolated; unwrap with ? or match first` |
 | `theta/parse/explicit-schema-mismatch` | W | parse | `explicit @<Schema> ascription is not compatible with binding annotation` |
+| `theta/parse/empty-query-annotation` | E | parse | `` `@<>` query annotation is empty; write `@<Schema>` or drop the annotation for an untyped query `` |
 | `theta/parse/match-arm-type-mismatch` | E | type | `match arm body type does not match the common type of the other arms` |
 | `theta/parse/question-outside-result-fn` | E | type | `'?' used in a scope whose return type is not Result<T, QueryError>` |
 | `theta/parse/question-on-non-result` | E | type | `'?' requires a Result operand; got <type>` |

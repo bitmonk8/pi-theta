@@ -123,6 +123,8 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
 });
 
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -153,6 +155,33 @@ import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { renderFollowUpTurn } from "../src/runtime/query-followup-render";
 import type { ValidationIssue } from "../src/runtime/query-error";
+// @ts-expect-error — JS code-registry module, no type declarations.
+import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+
+// --- The bug-0014 parse rejection (re-pins the F5 residual's entry) -----------
+
+/** The registered code that rejects the empty `@<…>` annotation at parse. */
+const EMPTY_ANNOTATION_CODE = "theta/parse/empty-query-annotation";
+
+/**
+ * The rejection's normative Message (DIAG-4), sourced from the parse registry
+ * page — never copied prose — so this suite stays in lockstep with
+ * tests/empty-query-annotation.test.ts and the registry row itself.
+ */
+const EMPTY_ANNOTATION_MESSAGE = registryMessage(
+  parseRegistry(
+    readFileSync(
+      fileURLToPath(
+        new URL(
+          "../docs/spec_topics/diagnostics/code-registry-parse.md",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    ),
+  ),
+  EMPTY_ANNOTATION_CODE,
+) as string | undefined;
 
 // --- The resolved models ------------------------------------------------------
 // DISTINCT `.api` and `.provider` strings (the bug-0007/0009 fixture
@@ -230,9 +259,11 @@ const TYPED_FN_THETA_REPAIR1 = typedFnTheta(["respond_repair:", "  attempts: 1"]
 const TYPED_FN_THETA_REPAIR2 = typedFnTheta(["respond_repair:", "  attempts: 2"]);
 
 /**
- * (deg-off) degraded arm (bug 0010 fix review, F5): an EMPTY `@<>` annotation
- * — the one form `lowerQueryResponseSchema` cannot lower (author error; parses
- * clean) — so the off-session driver keeps the pre-0010 fused mechanism.
+ * (deg-off) degraded-arm fixture (bug 0010 fix review, F5): an EMPTY `@<>`
+ * annotation — the one form `lowerQueryResponseSchema` cannot lower. Since bug
+ * 0014 this source is REJECTED at parse (theta/parse/empty-query-annotation),
+ * so it never drives: the (deg-off) cell re-pins the parse refusal, and the
+ * kept degraded arm is pinned through the non-parse seam twin below.
  */
 const UNLOWERABLE_FN_THETA = [
   "---",
@@ -240,6 +271,25 @@ const UNLOWERABLE_FN_THETA = [
   "---",
   "subagent fn helper(a: string) {",
   "  let v = @<>`Ping`?",
+  "  v",
+  "}",
+  'let out = helper("x")',
+  "out",
+  "",
+].join("\n");
+
+/**
+ * The seam-base twin for the kept degraded-arm pin: parses CLEAN with
+ * `@<string>`; the (deg-off-seam) cell then blanks the parsed QueryExpr's
+ * schema to `""` — the direct construction that is the arm's only remaining
+ * entry now that bug 0014 rejects every empty `@<…>` spelling at parse.
+ */
+const UNLOWERABLE_FN_THETA_SEAM_BASE = [
+  "---",
+  "mode: prompt",
+  "---",
+  "subagent fn helper(a: string) {",
+  "  let v = @<string>`Ping`?",
   "  v",
   "}",
   'let out = helper("x")',
@@ -433,6 +483,31 @@ function parse(src: string): ThetaDocument {
   return doc;
 }
 
+/**
+ * Bug 0014 seam accommodation: blank the `subagent fn` body's single query
+ * `schema` to `""` IN PLACE (a narrowing cast over the parser's readonly
+ * field). Bug 0014 rejects every empty `@<…>` spelling at parse, so a
+ * `schema: ""` QueryExpr — the degraded arm's sole entry — is constructible
+ * only here, bypassing `parseQuery`. Fails loudly if the fixture shape drifts.
+ */
+function blankHelperQuerySchema(doc: ThetaDocument): void {
+  const fn = doc.body.statements[0];
+  if (fn?.kind !== "fn") {
+    throw new Error("seam guard: expected the subagent fn declaration first");
+  }
+  const stmt = fn.body.statements[0];
+  if (
+    stmt?.kind !== "let" ||
+    stmt.init?.kind !== "try" ||
+    stmt.init.operand.kind !== "query"
+  ) {
+    throw new Error(
+      "seam guard: expected `let v = @<string>`…`?` as the fn body's first statement",
+    );
+  }
+  (stmt.init.operand as { schema: string | null }).schema = "";
+}
+
 /** The production AJV validator (real schema validation for the typed cells). */
 function ajv(): AjvSchemaValidator {
   const slugOf = (schema: LoweredSchema): SchemaSlug => ({
@@ -528,9 +603,17 @@ async function driveTheta(
      * subagent-fn child derives its signal downward from it).
      */
     readonly thetaAbort?: AbortController;
+    /**
+     * Bug 0014 seam accommodation: mutate the (clean-parsed) document before
+     * binding — the (deg-off-seam) cell blanks the query's schema to `""` to
+     * construct the degraded arm's entry directly, now that the `@<>`
+     * spelling is rejected at parse.
+     */
+    readonly mutateDoc?: (doc: ThetaDocument) => void;
   },
 ): Promise<BodyExecution> {
   const doc = parse(source);
+  opts?.mutateDoc?.(doc);
   const theta: ThetaCompositionInput = {
     slashName: "probe",
     sourcePath: "/theta/probe.theta",
@@ -1702,18 +1785,53 @@ describe("bug 0010 fix review (F1/F7b) — off-session cancellation surfacing an
 });
 
 // ===========================================================================
-// Residual pin (bug 0010 fix review, F5) — the off-session degraded
-// unlowerable-annotation arm keeps the fused single-shot mechanism; pinned so
-// the residual is visible instead of silent (bug doc Fix §Residuals).
+// Residual pin (bug 0010 fix review, F5; re-pinned by bug 0014) — the
+// off-session degraded unlowerable-annotation arm keeps the fused single-shot
+// mechanism, but since bug 0014 the `@<>` spelling that reached it is REJECTED
+// at parse (theta/parse/empty-query-annotation, docs/bugs/0014-…), so the arm
+// is unreachable from parsed source and survives only as seam-level totality
+// over `lowerQueryResponseSchema`'s `undefined` contract. Two pins: the parse
+// refusal that gates the old entry, and the arm's behaviour via the seam.
 // ===========================================================================
 
-describe("bug 0010 (residual pin) — off-session degraded unlowerable annotation (`@<>`): the fused single-shot survives and the payload binds UNVALIDATED", () => {
-  it("(deg-off) `@<>` in a subagent-fn body drives ONE fused complete() — typed-aware text, NO tools, NO toolChoice — and binds the parsed payload with NO AJV", async () => {
-    // Reachability (fix review F5 investigation): `lowerQueryResponseSchema`
-    // returns `undefined` ONLY for an empty/whitespace annotation — the
-    // parser captures `@<>` as `schema: ""` with no diagnostic; every
-    // non-empty annotation lowers (permissively for unresolved names, bug
-    // 0004). This author-error form is the arm's only entry.
+describe("bug 0010 (residual pin, re-pinned by bug 0014) — off-session degraded unlowerable annotation (`@<>`): rejected at parse; the kept arm survives only as seam-level totality", () => {
+  it("(deg-off) the `@<>` subagent-fn source is REJECTED at parse with theta/parse/empty-query-annotation — the load gate refuses it, so the fused complete() is unreachable from source", () => {
+    // Bug 0014 (Option 1): the empty annotation — formerly this arm's ONLY
+    // entry, accepted with no diagnostic — now fails at parse, so production
+    // (production-composition.ts parseDiscoveredTheta, which drops any theta
+    // carrying an error-severity theta/parse/* diagnostic) never registers or
+    // drives it: no fused complete(), no unvalidated bind (end-to-end refusal
+    // coverage: tests/empty-query-annotation.test.ts RT-off/RT-load).
+    const source: ThetaSource = {
+      path: "probe.theta",
+      bytes: new TextEncoder().encode(UNLOWERABLE_FN_THETA),
+    };
+    const doc = parseThetaDocument(source, parseDeps());
+    const errors = doc.diagnostics.filter((d) => d.severity === "error");
+    expect(
+      errors.map((d) => d.code),
+      "the fixture that used to drive the degraded arm now parses with exactly " +
+        "the bug-0014 rejection",
+    ).toEqual([EMPTY_ANNOTATION_CODE]);
+    expect(
+      EMPTY_ANNOTATION_MESSAGE,
+      "the registry row exists (DIAG-2) — code-registry-parse.md",
+    ).toBeDefined();
+    expect(
+      errors[0]!.message,
+      "DIAG-4: the emitted message is the registry row's normative Message",
+    ).toBe(EMPTY_ANNOTATION_MESSAGE);
+    expect(
+      scripted.calls.length,
+      "nothing was driven — ZERO fused complete() dispatches for the refused form",
+    ).toBe(0);
+  });
+
+  it('(deg-off-seam) a directly-constructed schema:"" QueryExpr — the arm\'s only remaining entry — drives ONE fused complete() — typed-aware text, NO tools, NO toolChoice — and binds the parsed payload with NO AJV', async () => {
+    // Seam-level totality (bug 0014 fix decision — the arm is KEPT): parse the
+    // CLEAN `@<string>` twin, then blank the QueryExpr's schema to `""`
+    // (bypassing parseQuery) so the arm's pinned behaviour stays visible while
+    // it survives as totality over `lowerQueryResponseSchema`'s undefined arm.
     scripted.queue = [
       // The fused single-shot reply: JSON no schema sanctioned — it must bind
       // verbatim, proving the arm validates nothing.
@@ -1724,7 +1842,9 @@ describe("bug 0010 (residual pin) — off-session degraded unlowerable annotatio
         }),
     ];
 
-    const execution = await driveTheta(UNLOWERABLE_FN_THETA, ANTHROPIC_MODEL);
+    const execution = await driveTheta(UNLOWERABLE_FN_THETA_SEAM_BASE, ANTHROPIC_MODEL, {
+      mutateDoc: blankHelperQuerySchema,
+    });
 
     expect(
       scripted.calls.length,
@@ -1751,7 +1871,9 @@ describe("bug 0010 (residual pin) — off-session degraded unlowerable annotatio
     ).toBeUndefined();
     // THE RESIDUAL: the text-parsed payload binds UNVALIDATED — no lowered
     // schema exists, so no schema-validation collaborator (and no AJV) is
-    // built (bug doc Fix §Residuals; fix review F5).
+    // built (bug doc Fix §Residuals; fix review F5). Acceptable ONLY because
+    // bug 0014's parse rejection keeps this entry unreachable from source —
+    // the arm is pure seam-level totality.
     expectValue(
       execution,
       { unvalidated: true, score: "not-a-number" },

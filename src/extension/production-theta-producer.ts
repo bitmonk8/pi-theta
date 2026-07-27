@@ -3754,10 +3754,13 @@ class LivePromptQueryModel implements QueryModelDriver {
       //
       // RESIDUAL DIVERGENCE (bug 0010 fix review, F5 — recorded in the bug
       // doc's Fix §Residuals): `lowerQueryResponseSchema` returns `undefined`
-      // ONLY for an empty/whitespace annotation (`@<>` / `@<  >` — an
-      // author-error form the parser accepts with no diagnostic; every
+      // ONLY for an empty/whitespace annotation (`@<>` / `@<  >`; every
       // non-empty annotation lowers, permissively for unresolved names, since
-      // bug 0004). On that arm the ENTIRE pre-0010 fused mechanism survives:
+      // bug 0004). Since bug 0014 the parser REJECTS that form with
+      // theta/parse/empty-query-annotation, so the arm is unreachable from
+      // parsed source and survives only as seam-level totality over the
+      // lowering's `undefined` contract. On that arm the ENTIRE pre-0010
+      // fused mechanism survives:
       // user-visible JSON-in-text turn, `maxRounds: 0` collapse, ungoverned
       // native loop, no respond tool, no provider gate, and — because no
       // lowered schema exists — NO schema-validation collaborator, so the
@@ -4324,11 +4327,13 @@ class OffSessionQueryModel implements QueryModelDriver {
       // `complete()` carrying the typed-aware text, its reply text parsed as
       // the candidate payload — so typed behaviour stays total for unlowerable
       // schemas. RESIDUAL DIVERGENCE (bug 0010 fix review, F5): reachable only
-      // via the empty/whitespace `@<>` annotation (author error, parses
-      // clean); the payload binds with NO AJV (no validation collaborator is
-      // built without a lowered schema) — see the live arm's residual note and
-      // the bug doc's Fix §Residuals. A provider failure surfaces on the
-      // transport arm (bug 0007)
+      // via a `schema: ""` QueryExpr, which bug 0014's parse rejection
+      // (theta/parse/empty-query-annotation) makes unmintable from source —
+      // the arm survives only as seam-level totality over the lowering's
+      // `undefined` contract; the payload binds with NO AJV (no validation
+      // collaborator is built without a lowered schema) — see the live arm's
+      // residual note and the bug doc's Fix §Residuals. A provider failure
+      // surfaces on the transport arm (bug 0007)
       // — never fed to `parseStructuredPayload`, which would launder it into
       // the schema-validation channel and burn respond-repair attempts
       // against a dead provider.

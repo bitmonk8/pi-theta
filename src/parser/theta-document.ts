@@ -3742,6 +3742,29 @@ class BodyParser {
         parts.push(this.advance().text);
       }
       schema = parts.join("").trim();
+      // Bug 0014: the type grammar derives no empty `Type` (grammar.md §Type
+      // grammar; type-system.md applies the same grammar to the `@<T>`
+      // annotation position), so an interior that trims to empty — `@<>`,
+      // `@<  >`, tab/newline-only, or an unterminated `@<` at EOF — is not an
+      // ascription. Accepted silently, the minted `""` is the sole input
+      // `lowerQueryResponseSchema` cannot lower, and the runtime would bind
+      // the response with no validation on the degraded fused arm (QRY-22).
+      // Reject here — the one place the empty capture is manufactured (the
+      // bare `@Ident` arm below never mints an empty annotation, and
+      // `parseInvoke` normalises its empty capture to untyped `null`). The
+      // node still carries the minted `""` so the AST reflects the source;
+      // load refuses error thetas, and the lowering's `undefined` contract
+      // stays as defence in depth.
+      if (schema.length === 0) {
+        this.diagnostics.push({
+          severity: "error",
+          code: "theta/parse/empty-query-annotation",
+          file: this.file,
+          range: spanRange(at.range, this.prevRange()),
+          message:
+            "`@<>` query annotation is empty; write `@<Schema>` or drop the annotation for an untyped query",
+        });
+      }
     } else if (!this.isPunct("`")) {
       // A bare `@Schema` (no angle brackets) annotation.
       const ann = this.peek();

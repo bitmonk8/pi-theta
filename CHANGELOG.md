@@ -6,6 +6,55 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-07-28
+
+### Fixed
+
+- **An empty typed-query annotation is now rejected at parse
+  (`theta/parse/empty-query-annotation`) instead of silently minting
+  `schema: ""` and binding the response unvalidated through the retired
+  fused mechanism (bug 0014).** The type grammar derives no empty `Type`
+  (grammar.md §Type grammar; type-system.md applies the same grammar to the
+  `@<T>` annotation position), yet `parseQuery`'s angle-bracket capture
+  assigned `schema = parts.join("").trim()` unconditionally — so `@<>`,
+  `@<  >`, a tab- or newline-only interior, and an unterminated `@<` at end
+  of input all parsed with ZERO diagnostics and minted `""`, the sole input
+  for which `lowerQueryResponseSchema` returns `undefined`. On that arm both
+  query drivers kept the entire retired pre-0010 fused mechanism
+  (user-visible JSON-in-text turn on the live path / one fused `complete()`
+  off-session, `maxRounds: 0` collapse, ungoverned native loop, no respond
+  tool, no provider gate) and — because no lowered schema exists — the
+  text-parsed payload bound with NO AJV: QRY-22's "MUST NOT bind, as a typed
+  query's value, a response that has not been validated against its declared
+  schema" was silently void for a query the runtime itself marked typed. The
+  shadowing case was worse than absence: `let x: Triage = @<>`…`?` kept the
+  minted `""`, which blocked BOTH the direct-let propagation and the QRY-2
+  inference (each fires only on `schema === null`) with no QRY-4 mismatch
+  warning — the real declared `Triage` was silently ignored. Fix (bug doc
+  Option 1, the route bug 0010's F5 residual named): `parseQuery`'s
+  angle-bracket arm — the single place the empty capture is manufactured —
+  emits the new registered code (error severity, range on the `@<…>`
+  annotation span, registry-byte-equal message) whenever the trimmed capture
+  is empty; the node still carries the minted `""` so the AST reflects the
+  source, and load refuses error thetas. The emission fires ONLY in that
+  arm: an empty `let` annotation stays guarded-untyped and `invoke<>` keeps
+  its normalise-to-untyped contract. Registry row added to
+  `docs/spec_topics/diagnostics/code-registry-parse.md` (query cluster,
+  sibling of `explicit-schema-mismatch`; trigger names all four spellings
+  and the no-empty-derivation grammar) with the transcription row in
+  `docs/reference/diagnostics.md`. The degraded arm itself is KEPT as
+  seam-level totality per bug 0010's residual record — unreachable from
+  parsed source now — and `lowerQueryResponseSchema`'s `undefined` contract
+  is unchanged as defence in depth (both RESIDUAL DIVERGENCE comments
+  updated; the (deg-live)/(deg-off) residual pins re-pin the parse rejection
+  and keep the arm's fused single-shot coverage through a
+  direct-construction seam). BEHAVIOUR-TIGHTENING: a theta carrying `@<>`
+  (or any empty-trimming spelling) previously loaded and ran — it now fails
+  at parse. Committed-fixture sweep: zero offending thetas outside the two
+  residual pins (both re-pinned). Remedy: name a schema (`@<Schema>`) or
+  drop the annotation for an untyped query. Present since `04dbb013` (the
+  unguarded angle-bracket capture); recorded from bug 0010's Fix §Residuals.
+
 ## [0.22.0] - 2026-07-27
 
 ### Fixed

@@ -97,6 +97,8 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
 });
 
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -122,6 +124,33 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+// @ts-expect-error — JS code-registry module, no type declarations.
+import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+
+// --- The bug-0014 parse rejection (re-pins the F5 residual's entry) -----------
+
+/** The registered code that rejects the empty `@<…>` annotation at parse. */
+const EMPTY_ANNOTATION_CODE = "theta/parse/empty-query-annotation";
+
+/**
+ * The rejection's normative Message (DIAG-4), sourced from the parse registry
+ * page — never copied prose — so this suite stays in lockstep with
+ * tests/empty-query-annotation.test.ts and the registry row itself.
+ */
+const EMPTY_ANNOTATION_MESSAGE = registryMessage(
+  parseRegistry(
+    readFileSync(
+      fileURLToPath(
+        new URL(
+          "../docs/spec_topics/diagnostics/code-registry-parse.md",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    ),
+  ),
+  EMPTY_ANNOTATION_CODE,
+) as string | undefined;
 
 // --- The resolved models ------------------------------------------------------
 // DISTINCT `.api` and `.provider` strings (the bug-0007/0009 fixture
@@ -263,16 +292,32 @@ const TYPED_LIVE_THETA_MODEL_GHOST = [
 ].join("\n");
 
 /**
- * Degraded-arm cell (bug 0010 fix review, F5): an EMPTY `@<>` annotation — the
- * one annotation form `lowerQueryResponseSchema` cannot lower (author error;
- * parses clean, no diagnostic) — so no respond context is built and the
- * pre-0010 fused mechanism survives on this arm.
+ * Degraded-arm fixture (bug 0010 fix review, F5): an EMPTY `@<>` annotation —
+ * the one annotation form `lowerQueryResponseSchema` cannot lower. Since bug
+ * 0014 this source is REJECTED at parse (theta/parse/empty-query-annotation),
+ * so it never drives: the (deg-live) cell re-pins the parse refusal, and the
+ * kept degraded arm is pinned through the non-parse seam fixture below.
  */
 const TYPED_LIVE_THETA_UNLOWERABLE = [
   "---",
   "mode: prompt",
   "---",
   "let v = @<>`Ping`?",
+  "v",
+  "",
+].join("\n");
+
+/**
+ * The seam-base twin for the kept degraded-arm pin: parses CLEAN with
+ * `@<string>`; the (deg-live-seam) cell then blanks the parsed QueryExpr's
+ * schema to `""` — the direct construction that is the arm's only remaining
+ * entry now that bug 0014 rejects every empty `@<…>` spelling at parse.
+ */
+const TYPED_LIVE_THETA_SEAM_BASE = [
+  "---",
+  "mode: prompt",
+  "---",
+  "let v = @<string>`Ping`?",
   "v",
   "",
 ].join("\n");
@@ -552,6 +597,27 @@ function parse(src: string): ThetaDocument {
   expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
   expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
   return doc;
+}
+
+/**
+ * Bug 0014 seam accommodation: blank the fixture's single query `schema` to
+ * `""` IN PLACE (a narrowing cast over the parser's readonly field). Bug 0014
+ * rejects every empty `@<…>` spelling at parse, so a `schema: ""` QueryExpr —
+ * the degraded arm's sole entry — is constructible only here, bypassing
+ * `parseQuery`. Fails loudly if the fixture shape drifts.
+ */
+function blankQuerySchema(body: ThetaCompositionInput["body"]): void {
+  const stmt = body.statements[0];
+  if (
+    stmt?.kind !== "let" ||
+    stmt.init?.kind !== "try" ||
+    stmt.init.operand.kind !== "query"
+  ) {
+    throw new Error(
+      "seam guard: expected `let v = @<string>`…`?` as the fixture's first statement",
+    );
+  }
+  (stmt.init.operand as { schema: string | null }).schema = "";
 }
 
 /** The production AJV validator (real schema validation, as the sibling suites). */
@@ -1731,26 +1797,58 @@ describe("bug 0010 (regression pins) — live typed query: free phase on-session
 });
 
 // ===========================================================================
-// Residual pin (bug 0010 fix review, F5) — the degraded unlowerable-annotation
-// arm DELIBERATELY keeps the pre-0010 fused mechanism; this describe makes the
-// residual visible instead of silent (see the bug doc's Fix §Residuals).
+// Residual pin (bug 0010 fix review, F5; re-pinned by bug 0014) — the degraded
+// unlowerable-annotation arm DELIBERATELY keeps the pre-0010 fused mechanism,
+// but since bug 0014 the `@<>` spelling that reached it is REJECTED at parse
+// (theta/parse/empty-query-annotation, docs/bugs/0014-…), so the arm is
+// unreachable from parsed source and survives only as seam-level totality over
+// `lowerQueryResponseSchema`'s `undefined` contract. Two pins: the parse
+// refusal that gates the old entry, and the arm's behaviour via the seam.
 // ===========================================================================
 
-describe("bug 0010 (residual pin) — degraded unlowerable annotation (`@<>`): the fused mechanism survives and the payload binds UNVALIDATED", () => {
-  it("(deg-live) `@<>` drives ONE fused user-visible JSON-in-text turn, ZERO complete(), ZERO respond-tool registrations, and binds the parsed payload with NO AJV", async () => {
-    // Reachability (fix review F5 investigation): `lowerQueryResponseSchema`
-    // returns `undefined` ONLY for an empty/whitespace annotation — the
-    // parser captures `@<>` as `schema: ""` with no diagnostic; every
-    // non-empty annotation lowers (unresolved names lower permissively since
-    // bug 0004). So this author-error form is the arm's ONLY entry.
+describe("bug 0010 (residual pin, re-pinned by bug 0014) — degraded unlowerable annotation (`@<>`): rejected at parse; the kept arm survives only as seam-level totality", () => {
+  it("(deg-live) the `@<>` source is REJECTED at parse with theta/parse/empty-query-annotation — the load gate refuses it, so the fused turn is unreachable from source", () => {
+    // Bug 0014 (Option 1): the empty annotation — formerly this arm's ONLY
+    // entry, accepted with no diagnostic — now fails at parse, so production
+    // (production-composition.ts parseDiscoveredTheta, which drops any theta
+    // carrying an error-severity theta/parse/* diagnostic) never registers or
+    // drives it: no fused user-visible turn, no unvalidated bind (end-to-end
+    // refusal coverage: tests/empty-query-annotation.test.ts RT-live/RT-load).
+    const source: ThetaSource = {
+      path: "probe.theta",
+      bytes: new TextEncoder().encode(TYPED_LIVE_THETA_UNLOWERABLE),
+    };
+    const doc = parseThetaDocument(source, parseDeps());
+    const errors = doc.diagnostics.filter((d) => d.severity === "error");
+    expect(
+      errors.map((d) => d.code),
+      "the fixture that used to drive the degraded arm now parses with exactly " +
+        "the bug-0014 rejection",
+    ).toEqual([EMPTY_ANNOTATION_CODE]);
+    expect(
+      EMPTY_ANNOTATION_MESSAGE,
+      "the registry row exists (DIAG-2) — code-registry-parse.md",
+    ).toBeDefined();
+    expect(
+      errors[0]!.message,
+      "DIAG-4: the emitted message is the registry row's normative Message",
+    ).toBe(EMPTY_ANNOTATION_MESSAGE);
+  });
+
+  it('(deg-live-seam) a directly-constructed schema:"" QueryExpr — the arm\'s only remaining entry — drives ONE fused user-visible JSON-in-text turn, ZERO complete(), ZERO respond-tool registrations, and binds the parsed payload with NO AJV', async () => {
+    // Seam-level totality (bug 0014 fix decision — the arm is KEPT): parse the
+    // CLEAN `@<string>` twin, then blank the QueryExpr's schema to `""`
+    // (bypassing parseQuery) so the arm's pinned behaviour stays visible while
+    // it survives as totality over `lowerQueryResponseSchema`'s undefined arm.
     const harness = makeHarness({
-      source: TYPED_LIVE_THETA_UNLOWERABLE,
+      source: TYPED_LIVE_THETA_SEAM_BASE,
       // The fused turn's streamed reply: JSON that NO schema sanctioned — it
       // must bind verbatim, proving the arm validates nothing.
       sessionReplies: [
         { stopReason: "stop", text: '{"unvalidated": true, "score": "not-a-number"}' },
       ],
     });
+    blankQuerySchema(harness.theta.body);
     scripted.queue = []; // any complete() dispatch would throw loudly
 
     const execution = await drive(harness);
@@ -1778,6 +1876,8 @@ describe("bug 0010 (residual pin) — degraded unlowerable annotation (`@<>`): t
     // THE RESIDUAL: the text-parsed payload binds UNVALIDATED — no lowered
     // schema exists, so no schema-validation collaborator (and no AJV) is
     // built; only the loop's CIO-3 depth walk ran (bug doc Fix §Residuals).
+    // Acceptable ONLY because bug 0014's parse rejection keeps this entry
+    // unreachable from source — the arm is pure seam-level totality.
     expectValue(
       execution,
       { unvalidated: true, score: "not-a-number" },

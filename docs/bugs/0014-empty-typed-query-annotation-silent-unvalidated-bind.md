@@ -1,6 +1,11 @@
 # Bug 0014 — An empty typed-query annotation (`@<>`) parses with no diagnostic and binds its payload unvalidated through the retired fused mechanism
 
-- **Status:** open.
+- **Status:** fixed (0.23.0). Option 1 adopted — an explicit `@<…>` query
+  annotation whose interior trims to empty is rejected at parse with the new
+  registered `theta/parse/empty-query-annotation` (E, parse); the degraded
+  arm is kept as seam-level totality (unreachable from parsed source) and
+  `lowerQueryResponseSchema`'s `undefined` contract is unchanged as defence
+  in depth.
 - **Kind:** defect — parse-acceptance gap plus a QRY-22 violation on the arm it
   opens. The type grammar derives no empty type (`Type ::=` has no empty
   alternative, and type-system.md pins that same grammar for the `@<T>`
@@ -43,6 +48,79 @@
   `@earendil-works/pi-ai` / `pi-coding-agent` 0.80.10). Recorded as a residual
   by the bug-0010 fix (Fix §Residuals, first bullet; fix review F5), which
   confined the fused mechanism to this arm and pinned it.
+
+## Fix (0.23.0)
+
+Option 1, adopted as prescribed.
+
+**Parse (the fix).** `parseQuery`'s angle-bracket arm
+(`src/parser/theta-document.ts`) — the single place the empty capture is
+manufactured — emits the new registered `theta/parse/empty-query-annotation`
+(severity error; range spanning the annotation from the `@` sigil through the
+last consumed token, which covers the unterminated-at-EOF spelling; message
+byte-equal to the registry row) whenever the captured interior trims to
+empty: `@<>`, `@<  >`, tab- or newline-only, unterminated `@<` at EOF. The
+node still carries the minted `""` so the AST reflects the source; load
+refuses error thetas (`parseDiscoveredTheta`'s `hasLoadParseError` gate drops
+the theta before registration, `loadCalleeComposition` refuses callees), so
+no runtime path consumes it. The emission fires only in this arm: an empty
+`let` annotation stays guarded-untyped and `invoke<>` keeps its
+normalise-to-`null` contract — both pinned by controls.
+
+**Spec.** Registry row in
+`docs/spec_topics/diagnostics/code-registry-parse.md`, placed in the query
+cluster beside `explicit-schema-mismatch` — trigger names all four spellings
+and the no-empty-derivation grammar (grammar.md §Type grammar;
+type-system.md's annotation-position sentence), remedy names the two exits
+(name a schema or drop the annotation), message
+`` `@<>` query annotation is empty; write `@<Schema>` or drop the annotation
+for an untyped query `` — with the transcription row in
+`docs/reference/diagnostics.md`, per the bug-0016 precedent. DIAG-2's closed
+registry is satisfied in both directions: the row's asserting tests source
+their expected strings from the registry via `registryMessage` (DIAG-4). No
+grammar change (the grammar already derives no empty type).
+
+**Degraded arm.** Kept as seam-level totality, per this report's Option 1
+downstream note and bug 0010's residual record: both RESIDUAL DIVERGENCE
+comments (live and off-session arms,
+`src/extension/production-theta-producer.ts`) now record that the parse
+rejection makes a `schema: ""` `QueryExpr` unmintable from source, so the arm
+survives only over `lowerQueryResponseSchema`'s unchanged `undefined`
+contract. No mechanism facet changed (§Non-goals).
+
+**Tests.** New `tests/empty-query-annotation.test.ts`, written first — 16
+cells, 10 red at `bfd6f7c5` for the documented reasons (zero diagnostics,
+`schema: ""` minting, the fused turn driving with the verbatim pre-0010
+instruction text, the unsanctioned payload binding verbatim), 6 controls
+green: the registry row (DIAG-2/DIAG-4), all five empty spellings with
+exact-range pins, the shadowing case, the `@<string>` / `@<Triage>` /
+bare-`@` / empty-`let`-annotation / `invoke<>` controls, the lowering's
+defence-in-depth contract, and three runtime-consequence cells — live
+refusal (no fused `sendUserMessage` turn), off-session refusal (no fused
+`complete()`), and the real production load seam
+(`discoverAndComposeFixtures` over a planted workspace: the theta is dropped
+and the registry message reaches `ctx.ui.notify`). The (deg-live)/(deg-off)
+residual pins re-pin to the diagnostic and KEEP the arm's original fused
+single-shot assertion sets through a direct-construction seam
+(`blankQuerySchema` / `blankHelperQuerySchema` blank a clean `@<string>`
+twin's `QueryExpr` to `""` — the arm's only remaining entry — failing loudly
+on fixture drift).
+
+**Verification.** Full default suite 212 files / 2432 tests green (baseline
+211/2414 + 16 new + 2 net-new from the residual-pin splits); typecheck and
+lint clean; one review round (CLEAN, no findings). Live e2e: the hardening
+prompt-transport typed cell
+(`tests/hardening/session-prompt-transport.test.ts`, real extension
+discovery → live `AgentSession` → typed two-phase forced respond with AJV)
+binds `token=PONG` and interpolates it into the follow-up turn — well-formed
+typed queries unregressed through the real stack (its untyped sibling cell
+also ran via vitest's substring `-t` matching and passed).
+
+**Residuals.** The wider absence of type-grammar checks over NON-empty
+`@<…>` annotation text (§Non-goals, fourth bullet) is unchanged — the empty
+form was the only spelling that voided validation entirely. The load-warning
+routing gap (bug 0013) is untouched; the new code is error-severity, which
+both production sinks honour.
 
 ## Summary
 
