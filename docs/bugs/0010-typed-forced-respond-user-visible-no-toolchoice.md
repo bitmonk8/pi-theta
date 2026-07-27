@@ -10,8 +10,10 @@
   it as a **user-visible `pi.sendUserMessage` turn** — fused with the free
   phase into one streamed turn whose text inlines the lowered schema behind a
   prose JSON-only instruction — and obtains the payload by `JSON.parse` of the
-  trailing-turn assistant text. No code path outside the binder sets
-  `toolChoice`; no respond tool is ever registered or passed. The directionality
+  trailing-turn assistant text. No production code path sets `toolChoice` at
+  all — the one setter in `src/` is a test-only binder call constructor
+  (`buildBinderCompleteCall`, `src/binder/binder-inference.ts:159`, no
+  production caller); no respond tool is ever registered or passed. The directionality
   is not ambiguous: the spec side is a deliberately-resolved blocker-level
   design decision (spec-review finding T34, resolved 2026-06-05), and the
   commit that introduced the implementation mechanism recorded in its own notes
@@ -33,10 +35,15 @@
   the producer imports only `deriveToolLabel`, :219), the typed-query provider
   gate (`checkTypedQueryProviderSupport` /
   `synthesizeUnsupportedProviderTransportError`,
-  `src/binder/provider-error-mapping.ts:101/:133` — no production callers), and
+  `src/binder/provider-error-mapping.ts:101/:133` — no production callers),
   the QRY-12 follow-up renderer's `__theta_respond_<slug>` tool reference
   (`src/runtime/query-followup-render.ts:88`), which names a tool that is never
-  registered in any session.
+  registered in any session, and the PIC-17 active-set install-vector machinery
+  (`withActiveSetGating` / `CallableSetInstall`,
+  `src/runtime/conversation-drive.ts` — the `[...thetaCallableSetNames,
+  respondToolName?]` step-2 vector), exercised only by
+  `tests/conversation-drive.test.ts`; the live drive installs the callable set
+  inline without a respond-tool slot (:3292–3293).
 - **Observed at:** `0.19.0`, host Pi `0.82.1` (repo-local SDK pins
   `@earendil-works/pi-ai` / `pi-coding-agent` 0.80.10). Recorded verbatim as
   pre-existing and out of scope by the bug-0009 fix review (round 2).
@@ -65,7 +72,9 @@ waits for idle, and `JSON.parse`s the trailing-turn assistant text
 (`parseStructuredPayload`, `src/runtime/typed-query-validation.ts:49` — the
 slice from first `{` to last `}`). AJV runs downstream in the loop, not in a
 tool `execute`. `rg toolChoice src/` returns hits only in `src/binder/`
-(`binder-inference.ts:159` — the binder's own call). Respond-repair follow-ups
+(`binder-inference.ts:159` — inside `buildBinderCompleteCall`, a call-triple
+constructor invoked only by tests; the production binder call passes no
+`toolChoice` either, see Non-goals). Respond-repair follow-ups
 drive further user-visible turns, each rendered from the QRY-12 template that
 instructs the model to call `__theta_respond_<slug>` — a tool that does not
 exist in the session.
@@ -176,9 +185,9 @@ as the candidate structured payload." The body drives
 | Tool contract | synthesised `__theta_respond_<slug>` as single `context.tools` entry; `execute` AJV-validates | no respond tool registered or passed; AJV runs downstream on parsed text |
 | Tool-choice forcing | `options.toolChoice = { type: "tool", name }` | none (`toolChoice` exists only in `src/binder/`) |
 | Two-phase structure | free phase bounded by `max_rounds`, then respond turn | fused: `maxRounds: typed ? 0` (:2173) — the respond turn is the only turn; pi's native loop tools inside it |
-| CIO-4 bound on typed free phase | free-phase rounds counted and capped | `governor: typed ? undefined` (:2154) — comment: "NOT bounded by `tool_loop.max_rounds` — driven UNBOUNDED" (:3234) |
+| CIO-4 bound on typed free phase | free-phase rounds counted and capped | `governor: typed ? undefined` (:2154) — comment: "NOT bounded by `tool_loop.max_rounds` — driven UNBOUNDED" (:3235–3236) |
 | Instruction wording | QRY-15 template naming the respond tool, single U+000A separator | "Respond with ONLY a single minified JSON object …" with `\n\n` (:3608–3611) |
-| Respond-repair follow-ups | restart the two-phase loop; respond turn off-session | each follow-up is another user-visible streamed turn (:2113–2123 → :3787); the QRY-12 template names `__theta_respond_<slug>`, which is not registered |
+| Respond-repair follow-ups | restart the two-phase loop; respond turn off-session | each follow-up is another user-visible streamed turn (:2114–2124 → :3787); the QRY-12 template names `__theta_respond_<slug>`, which is not registered |
 | Provider gate | load warning + runtime `Err` outside the supported set | `checkTypedQueryProviderSupport` / `synthesizeUnsupportedProviderTransportError` have no production callers; typed queries dispatch on any provider |
 | Failure classification | Provider error mapping table over the `complete()` reply | PIC-50/51 trailing-message probe — **aligned in output** since bugs 0007/0009 |
 
@@ -257,8 +266,12 @@ History — the divergence was born, not drifted:
    off-session: rebuild the conversation from the session read surface (the
    binder's `buildSessionContext` pattern), append the QRY-15 template as the
    trailing user message, pass the synthesised respond tool as the single
-   `context.tools` entry with `toolChoice` forced (the
-   `binder-inference.ts:159` pattern), AJV-validate in its `execute`. Give
+   `context.tools` entry with `toolChoice` forced (the shape
+   `buildBinderCompleteCall` builds, `binder-inference.ts:159` — itself
+   built-but-unwired: no production caller), AJV-validate its returned
+   `ToolCall.arguments` in the tool's `execute` (pi-ai's `complete()` does not
+   run `execute`; the caller extracts the forced call from
+   `AssistantMessage.content` per binder-inference.md's extraction rule). Give
    `OffSessionQueryModel` the same `complete()` shape, wire the provider gate,
    and route respond-repair follow-ups through the restarted two-phase loop.
    The unit machinery exists (tool-registration respond naming, QRY-12/QRY-15
@@ -300,9 +313,15 @@ repair-loop restart can land as separate increments behind the unchanged
 
 ## Non-goals
 
-- The binder's `complete()` call (`#classifyBinderAttempt`,
-  `binder-inference.ts`) — conforming; it is the pattern to copy, not a
-  subject.
+- The binder's `complete()` call — out of scope here, but **not** a live
+  conforming precedent: the production attempt (`#classifyBinderAttempt` →
+  `#completeBinderReply`, `production-theta-producer.ts:791/:869`) passes no
+  `tools` and no `toolChoice` and text-parses its envelope from the reply,
+  diverging from binder-inference.md's forced-tool call shape on the same
+  facets (a sibling defect, not this report's subject). The conforming call
+  shape exists only as the test-only constructor `buildBinderCompleteCall`
+  (`binder-inference.ts:132/:159`); that constructor, plus binder-inference.md's
+  `ToolCall`-extraction rule, is the pattern to copy.
 - The 0007/0009 classification and `provider`-field derivations — fixed;
   unchanged by either option.
 - Untyped-query mechanics (PIC-50/51/51b/53, SLSH-2 streaming, the governor on
@@ -338,7 +357,9 @@ repair-loop restart can land as separate increments behind the unchanged
   `src/runtime/typed-query-validation.ts` (:49, repair driver :170–205),
   `src/runtime/query-followup-render.ts` (:88),
   `src/runtime/tool-registration.ts` (:306–313),
-  `src/binder/binder-inference.ts` (:159 — the only `toolChoice` in `src/`),
+  `src/binder/binder-inference.ts` (:159 — the only `toolChoice` in `src/`,
+  inside the test-only `buildBinderCompleteCall` (:132); the production binder
+  call at `production-theta-producer.ts:869` passes no `toolChoice`),
   `src/binder/provider-error-mapping.ts` (:52, :101, :133 — no production
   callers for the gate pair).
 - History: `7f759475` (2026-06-05, resolves spec-review blocker T34 — quoted),
