@@ -113,7 +113,10 @@ trigger set is closed:
 
 - The `?` trigger is the **ternary head only**; the postfix error-propagation `?`
   is a complete-expression terminator (it desugars to `return Err(e)`) and never
-  continues.
+  continues. Depth-0 `?`s followed by an expression-starting token and `:`s
+  pair innermost-first: a `?` reads as a ternary head only when a depth-0 `:`
+  pairs with **it**, so a following statement's own ternary `:` cannot
+  re-classify a preceding postfix `?`.
 - Blank lines do not break a continuation: `let x =\n\n  foo` is one statement.
 - A `[` that begins a line begins a new statement: postfix index access must
   open its `[` on the same line as its receiver's end. The open-bracket trigger
@@ -555,6 +558,12 @@ ToolField ::= Ident ":" Expr
   and `ReturnType` termination at a `WithClause`:
   `docs/bugs/0005-subagent-fn-return-annotation-misparse.md` (fixed 0.14.0,
   Option 1).
+- Depth-0 `?`/`:` pairing in the ternary-head disambiguation (a depth-0 `:`
+  classifies a preceding `?` as a ternary head only when it pairs with that
+  `?`, not with a nested head's own `?` — restores the postfix-`?` boundary
+  before keyword-free statements):
+  `docs/bugs/0015-postfix-question-swallows-keyword-free-ternary-stmt.md`
+  (fixed 0.21.0, Option 1).
 - Implementation confirmation: reserved-keyword set in `src/lexer/lexer.ts:152`
   matches the spec list byte-for-byte; `src/lexer/lexer.ts` trailing/leading
   continuation-trigger sets match the closed trigger table.

@@ -1,6 +1,9 @@
 # Bug 0015 — After a postfix-`?` line, a keyword-free statement carrying a depth-0 ternary is swallowed by the ternary-head scan — silently when it is an expression statement
 
-- **Status:** open
+- **Status:** fixed (0.21.0). Option 1 adopted: the ternary-head scan pairs
+  depth-0 `?`s and `:`s innermost-first — a `?` classifies as a ternary head
+  only when a depth-0 `:` pairs with *it*, so a following statement's own
+  ternary `:` no longer re-classifies a preceding postfix `?`.
 - **Kind:** defect — statement segmentation. The bug-0005 (b) fix restores the
   postfix-`?` statement boundary only when the next statement begins with a
   statement-only keyword; a keyword-free next statement (a reassignment or an
@@ -16,6 +19,37 @@
   `:` by fabricating a `null` alternate with no diagnostic, which is what
   makes the expression-statement cells fully silent.
 - **Observed at:** `0.20.0` (parse-lint via `parseThetaDocument`).
+
+## Fix (0.21.0)
+
+Option 1, adopted at the scan the root cause names: `isTernaryHead`
+(`src/parser/theta-document.ts`) now pairs depth-0 `?`s and `:`s
+innermost-first — a depth-0 `?` whose next token can start an expression
+opens a nested ternary head, a depth-0 `:` pairs with the innermost open
+nested head first, and the `?` under test classifies as a ternary head only
+on meeting a depth-0 `:` that pairs with *it*. In every misparsing cell the
+deciding `:` pairs with the next statement's own `?`, so the scan runs on to
+the real boundary (`stmt-sep`/`eof`/stop keyword/unmatched closer) and
+answers postfix. No lexer change; the keyword stop set and bug-0006's `[`
+guard are untouched. The named co-factor is closed too: `parseTernary`'s
+missing-`:` recovery emits `theta/parse/unsupported-feature` ("ternary '?'
+without ':' after its consequent") instead of silently fabricating the
+`null` alternate, converting any future boundary leak of this family into a
+loud parse error. Both documented multi-line ternary forms and the
+nested-consequent form keep their readings; the residual ambiguity narrows
+to the corner named under Options — an inner postfix `?` directly followed
+by an expression-lead token inside a real ternary arm now reads as postfix.
+Rule recorded in `docs/reference/grammar.md` §"Statement termination &
+newline continuation" (+ provenance entry); fixtures in
+`tests/postfix-question-ternary-statement-boundary.test.ts` pin every
+Verified-matrix row (both columns), the three reproductions, the braced-body
+widening, the multi-line/nested ternary controls, and the missing-`:` emit
+(8 red on 0.20.0, 24 green now).
+
+Follow-up recorded during review (out of scope here, same family): the
+alternate-side recovery one line below — `parseTernary() ?? nullExpr(…)`
+after a consumed `:` — still fabricates silently (`let z = c ? 1 :` at eof
+parses clean); a candidate for the same loud-net treatment.
 
 ## Summary
 

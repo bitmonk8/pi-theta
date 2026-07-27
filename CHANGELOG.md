@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-07-27
+
+### Fixed
+
+- **A statement ending in postfix `?` now keeps its boundary before a
+  keyword-free next statement — depth-0 `?`s and `:`s pair innermost-first
+  in the ternary-head scan (bug 0015).** The lexer swallows the newline
+  after any trailing `?` (would-be ternary continuation; irreducible at the
+  lexer per bug 0005 (b)), and `isTernaryHead`'s bounded scan proved
+  boundary-crossing only via depth-0 statement-only keywords — so a
+  keyword-free next statement (a reassignment or an expression statement)
+  carrying a depth-0 ternary offered no stop token, the scan met that
+  ternary's own `:`, and the preceding postfix `?` classified as a ternary
+  head over the swallowed statement. A reassignment RHS ternary
+  (`x = c ? a : b`) failed loudly at the wrong construct (stray `=`, the
+  `reassign` statement gone); an expression-statement ternary (`c ? 1 : 2`
+  as a bare statement or the `ThetaBody` tail) misparsed **silently** —
+  zero diagnostics, the statement swallowed as consequent, the missing
+  alternate fabricated as `null`, the postfix `?`'s `Err` propagation
+  deleted, and the theta's final value degraded to `null`. Inside braced
+  bodies (no `stmt-sep` at bracket depth > 0) any keyword-free run after a
+  postfix-`?` line was exposed. The scan now pairs depth-0 `?`s (those
+  followed by an expression-starting token) with depth-0 `:`s
+  innermost-first and answers "ternary head" only when a `:` pairs with the
+  `?` under test, so a following statement's own ternary `:` can no longer
+  re-classify a preceding postfix `?`; and `parseTernary`'s missing-`:`
+  recovery now emits `theta/parse/unsupported-feature` ("ternary '?'
+  without ':' after its consequent") instead of fabricating silently. Both
+  documented multi-line ternary continuations and the nested-consequent
+  form keep their readings; the irreducible head/postfix ambiguity narrows
+  to an inner postfix `?` directly followed by an expression-lead token
+  inside a real ternary arm (now read as postfix). Rule recorded in
+  `docs/reference/grammar.md` §"Statement termination & newline
+  continuation". Present since 0.14.0.
+
 ## [0.20.0] - 2026-07-27
 
 ### Fixed

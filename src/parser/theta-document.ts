@@ -2490,11 +2490,12 @@ class BodyParser {
   /**
    * Whether the `?` at the cursor is a ternary head rather than the postfix
    * error-propagation `?`. A ternary head's `?` is immediately followed by an
-   * expression-starting token and, at the same bracket depth, a `:` before the
-   * statement terminates; a postfix `?` is followed by a statement boundary, a
-   * closing bracket, or a statement keyword. Distinguishing by the trailing `:`
-   * keeps `foo()?` (postfix, `try`) separate from `c ? a : b` (ternary), even
-   * across the lexer's swallowed continuation newline after a trailing `?`.
+   * expression-starting token and, at the same bracket depth, a `:` that
+   * pairs with it before the statement terminates; a postfix `?` is followed
+   * by a statement boundary, a closing bracket, or a statement keyword.
+   * Distinguishing by the pairing `:` keeps `foo()?` (postfix, `try`)
+   * separate from `c ? a : b` (ternary), even across the lexer's swallowed
+   * continuation newline after a trailing `?`.
    *
    * The lexer cannot make this call: a ternary head at line end and a postfix
    * `?` at line end are lexically identical up to the newline, so `?` must stay
@@ -2505,12 +2506,30 @@ class BodyParser {
    * f(...): T` return annotation, the param parens having closed) masquerades
    * as the ternary's `:` — `subagent` then parses as the consequent and the
    * modifier is dropped (bug 0005 (b)).
+   *
+   * The keyword stop protects only keyword-headed next statements; a
+   * keyword-free next statement (a reassignment or an expression statement)
+   * offers no stop token, so the scan additionally PAIRS depth-0 `?`s: a
+   * depth-0 `?` whose next token can start an expression opens a nested
+   * ternary head, and each depth-0 `:` pairs with the innermost open nested
+   * head first — only a `:` with no nested head open belongs to the `?` under
+   * test. Without pairing, the next statement's own ternary `:` (`x = c ? a :
+   * b`, or a bare `c ? 1 : 2` tail) classified the preceding postfix `?` as a
+   * ternary head and swallowed the whole statement (bug 0015). Pairing keeps
+   * the nested-consequent reading of `c ? d ? 1 : 2 : 3` (the first `:` pairs
+   * with `d`'s head, the second with `c`'s). Accepted residual (bug 0015
+   * §Options 1): an inner postfix `?` directly followed by an expression-lead
+   * token inside a real ternary arm (e.g. `c ?` ␤ `f()? - 1 : b`) is
+   * miscounted as a nested head and the real ternary misread as postfix — the
+   * irreducible head/postfix ambiguity class bug 0005 (b) named, narrowed to
+   * that corner.
    */
   private isTernaryHead(): boolean {
     if (!canStartExpression(this.peek(1))) {
       return false;
     }
     let depth = 0;
+    let openNestedHeads = 0;
     for (let i = 1; ; i += 1) {
       const t = this.peek(i);
       if (t.kind === "eof" || t.kind === "stmt-sep") {
@@ -2536,8 +2555,21 @@ class BodyParser {
             return false;
           }
           depth -= 1;
+        } else if (x === "?" && depth === 0) {
+          // A depth-0 `?` reading as a ternary head itself (its next token
+          // starts an expression) opens a nested head whose own `:` must not
+          // pair with the `?` under test (bug 0015). A `?` behind brackets is
+          // already invisible via the depth guard, same as the `:` arm.
+          if (canStartExpression(this.peek(i + 1))) {
+            openNestedHeads += 1;
+          }
         } else if (x === ":" && depth === 0) {
-          return true;
+          if (openNestedHeads === 0) {
+            return true;
+          }
+          // Pairs with the innermost open nested head, not the `?` under
+          // test — keep scanning for a `:` of our own.
+          openNestedHeads -= 1;
         }
       }
     }
@@ -2555,6 +2587,28 @@ class BodyParser {
       const consequent = this.parseTernary() ?? nullExpr(q.range);
       if (this.isPunct(":")) {
         this.advance();
+      } else {
+        // isTernaryHead's token-level scan committed to a head on a pairing
+        // depth-0 `:` ahead, but the actual consequent PARSE stopped short
+        // of it — this branch fires whenever the scan's pairing prediction
+        // and the consequent parse diverge. Ordinarily that is malformed
+        // consequent material (e.g. juxtaposed expressions `c ? 1 2 : b`:
+        // the scan walks token-wise over `2` to the pairing `:`, the parse
+        // stops at `1`); and should a statement-boundary leak of the
+        // bug-0015 family reappear, it fires there too — silently
+        // fabricating the `null` alternate is what made the swallowed
+        // expression-statement cells parse clean while meaning a different
+        // program (bug 0015), so emit loudly instead. Reuses the closed
+        // registry's unsupported-feature code (DIAG-2: the registry is
+        // closed; a new code is a spec change).
+        this.diagnostics.push({
+          severity: "error",
+          code: "theta/parse/unsupported-feature",
+          file: this.file,
+          range: q.range,
+          message:
+            "unsupported syntactic feature: ternary '?' without ':' after its consequent",
+        });
       }
       const alternate = this.parseTernary() ?? nullExpr(q.range);
       return {
@@ -2643,11 +2697,12 @@ class BodyParser {
     for (;;) {
       if (this.isPunct("?")) {
         // Postfix error-propagation `?` vs ternary head `cond ? a : b`. A `?`
-        // whose consequent is an expression followed (at the same bracket
-        // depth) by a `:` is a ternary head: leave it unconsumed so
-        // `parseTernary` builds the ternary. Otherwise it is the postfix
-        // error-propagation terminator (grammar.md §"Newline continuation" —
-        // "the `?` trigger is the ternary head only").
+        // followed by an expression and a depth-0 `:` that PAIRS with it
+        // (innermost-first pairing of depth-0 `?`s — see isTernaryHead) is a
+        // ternary head: leave it unconsumed so `parseTernary` builds the
+        // ternary. Otherwise it is the postfix error-propagation terminator
+        // (grammar.md §"Newline continuation" — "the `?` trigger is the
+        // ternary head only").
         if (this.isTernaryHead()) {
           break;
         }
