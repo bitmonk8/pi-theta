@@ -55,7 +55,7 @@ import { makeCancelledError, runCancellableSequence } from "./cancellation-core"
 import { HostFatal, isThetaPanic } from "./runtime-panics";
 import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
-import { PiToolArgShapeDefectError } from "./tool-call";
+import { PiToolArgShapeDefectError, ShadowedCalleeDispatchDefectError } from "./tool-call";
 import { functionResult, type FunctionResult, type TerminalOutcome } from "./function-result";
 import type { LexicalEnvironment } from "./lexical-environment";
 import { evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion } from "./runtime-panics";
@@ -275,12 +275,17 @@ function terminalFlow(result: Exclude<EvalResult, { flow: "value" }>): Flow {
  * `{ ok: false, flow }`. A non-`call` effect, a `.theta`-callable call (the
  * invoke trampoline lowers its own argument), or a ZERO-argument Pi-tool call
  * yields `args: undefined` so the host lowers arguments on its ordinary path.
- * A Pi-tool call carrying a non-object first argument is an internal DEFECT
- * (bug 0003): the parse-time shape gate
+ * A call whose callee is a callable-set name shadowed by an activation-local
+ * binding is an internal DEFECT (bug 0016): the parse gate
+ * (`theta/parse/shadowed-callable-call`) rejects that call site, so
+ * dispatching it would execute a callable the site does not lexically denote
+ * — it throws `ShadowedCalleeDispatchDefectError` before ANY argument
+ * handling. A Pi-tool call carrying a non-object first argument is an internal
+ * DEFECT (bug 0003): the parse-time shape gate
  * (`theta/parse/tool-arg-not-object-literal`) rejects that form, so silently
  * lowering it here would drop the author's argument object — it throws
- * `PiToolArgShapeDefectError` to the `theta/runtime/internal-error` surface
- * instead.
+ * `PiToolArgShapeDefectError`. Both defects route to the
+ * `theta/runtime/internal-error` surface.
  */
 async function preEvaluateToolArgs(
   expr: Expr,
@@ -292,6 +297,19 @@ async function preEvaluateToolArgs(
 > {
   if (expr.kind !== "call") {
     return { ok: true, args: undefined };
+  }
+  // Bug 0016 belt-and-braces: never dispatch on a lexically shadowed callee.
+  // This seam is shared by BOTH executor dispatch sites (the `evalExpr` call
+  // arm and `evalAsResult`, the `?`/`match` operand path), so one guard covers
+  // every dispatch route; it sits BEFORE the theta-callable skip and the
+  // zero-arg early return below because a shadowed `.theta`-callable name and
+  // a shadowed zero-arg call are equally parse-rejected
+  // (`theta/parse/shadowed-callable-call`) — skipping first would dispatch
+  // them. Arm-"fn"/"import" callees never reach here (`resolveUserFn`
+  // intercepts them before the effect path); unshadowed / non-colliding
+  // callees pass through unchanged (see `localShadowsCallable`).
+  if (env.localShadowsCallable(expr.callee)) {
+    throw new ShadowedCalleeDispatchDefectError(expr.callee);
   }
   // RFC 0002 / Finding #3: only a Pi-tool call consumes the pre-evaluated
   // `evaluatedToolArgs`. A `.theta`-callable call dispatches through the invoke
@@ -310,11 +328,11 @@ async function preEvaluateToolArgs(
     return { ok: true, args: undefined };
   }
   if (first.kind !== "object") {
-    // Bug 0003 belt-and-braces: the theta-callable skip above already ran, so
-    // this IS a Pi-tool call whose first argument the parse gate must have
-    // rejected. Failing loudly here (instead of the pre-0.16.0
-    // `args: undefined` degradation) keeps any future parse-gate gap from
-    // silently arg-dropping.
+    // Bug 0003 belt-and-braces: the shadowed-callee guard and the
+    // theta-callable skip above already ran, so this IS an unshadowed Pi-tool
+    // call whose first argument the parse gate must have rejected. Failing
+    // loudly here (instead of the pre-0.16.0 `args: undefined` degradation)
+    // keeps any future parse-gate gap from silently arg-dropping.
     throw new PiToolArgShapeDefectError(expr.callee);
   }
   const args: Record<string, ThetaValue> = {};
@@ -376,7 +394,13 @@ async function evalUserFnCall(
   if (expr.args.length !== fn.params.length) {
     throw new ThetaFnArityError(fn.name, fn.params.length, expr.args.length);
   }
-  const scope = env.child();
+  // The body scope chains to the caller's environment for the shared root
+  // registries, but is marked an ACTIVATION BOUNDARY (bug 0016): theta 1.0 has
+  // no closures, so a caller-frame local must never count as an in-scope
+  // shadow when `preEvaluateToolArgs` asks `localShadowsCallable` inside the
+  // body — the parse gate resolves the body's call sites against the
+  // whole-file declarations plus these parameters only.
+  const scope = env.childFnActivation();
   for (let i = 0; i < fn.params.length; i += 1) {
     const arg = await evalExpr(expr.args[i] as Expr, env, deps);
     if (arg.flow !== "value") {

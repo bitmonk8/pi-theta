@@ -148,6 +148,7 @@ import {
   enforceCodeToolArgDepth,
   enforceModelToolArgDepth,
   PiToolArgShapeDefectError,
+  ShadowedCalleeDispatchDefectError,
 } from "../runtime/tool-call";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
@@ -1053,7 +1054,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       return [];
     }
     const doc = parseDocument(yamlText);
-    const env = buildBoundEnvironment(theta.body, undefined, theta.imports);
+    const env = buildBoundEnvironment(
+      theta.body,
+      undefined,
+      theta.imports,
+      presentedCallableNames(theta),
+    );
     const defaults: DefaultedField[] = [];
     for (const wireName of defaultedFields) {
       const raw = doc.getIn(["params", wireName]);
@@ -1329,7 +1335,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     };
 
     const executeDeps: ExecuteBodyDeps = {
-      env: buildBoundEnvironment(theta.body, bindInput.paramBindings, theta.imports),
+      env: buildBoundEnvironment(
+        theta.body,
+        bindInput.paramBindings,
+        theta.imports,
+        presentedCallableNames(theta),
+      ),
       host: createEffectfulStatementHost(hostDeps),
       checkpoint: root.checkpoint,
       signal,
@@ -1570,7 +1581,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     };
 
     const executeDeps: ExecuteBodyDeps = {
-      env: buildBoundEnvironment(theta.body, bindInput.paramBindings, theta.imports),
+      env: buildBoundEnvironment(
+        theta.body,
+        bindInput.paramBindings,
+        theta.imports,
+        presentedCallableNames(theta),
+      ),
       host: createEffectfulStatementHost(hostDeps),
       checkpoint: root.checkpoint,
       signal,
@@ -3344,7 +3360,13 @@ function thetaCalleePath(
  * Lower a code-side `<name>(args)` call's arguments to the JSON params object the
  * host tool's `execute(...)` receives (V14g). The call convention is a single
  * object-literal argument (`grep({ pattern, path })`): its fields are evaluated
- * against the environment and become the JSON params object. A ZERO-argument
+ * against the environment and become the JSON params object. A callee that a
+ * local binding shadows is an internal defect (bug 0016,
+ * docs/bugs/0016-shadowed-tool-name-runtime-dispatch.md): the parse gate
+ * (`theta/parse/shadowed-callable-call`) rejects that call site, so lowering
+ * (and then dispatching) would execute a callable the site does not lexically
+ * denote — the guard mirrors the executor's `preEvaluateToolArgs` seam so the
+ * 0016 belt, like the 0003 belt, exists in BOTH lowerings. A ZERO-argument
  * call lowers to an empty params object; a NON-object first argument is an
  * internal defect (bug 0003,
  * docs/bugs/0003-tool-arg-shape-rule-not-enforced.md): the parse-time shape
@@ -3353,6 +3375,9 @@ function thetaCalleePath(
  * the author's argument object. Throwing keeps any future parse-gate gap loud.
  */
 function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<string, unknown> {
+  if (env.localShadowsCallable(expr.callee)) {
+    throw new ShadowedCalleeDispatchDefectError(expr.callee);
+  }
   const first = expr.args[0];
   if (first === undefined) {
     return {};
@@ -3368,14 +3393,49 @@ function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<st
 }
 
 /**
+ * The presented (post-`as` / post-hyphen→underscore) callable names of a
+ * theta's `tools:` set, for the environment's resolution arm 4 (bug 0016): the
+ * frozen snapshot's keys ARE the presented names; a theta carrying NO snapshot
+ * (an in-memory harness fixture) falls back to deriving per-entry names from
+ * `frontmatter.tools` — the same snapshot-absent fallback pattern
+ * `thetaCalleePath` / `#resolvePiToolForTheta` use, so production always takes
+ * the snapshot arm.
+ */
+function presentedCallableNames(theta: ConversationBindInput["theta"]): readonly string[] {
+  const set = theta.callableSet;
+  if (set !== undefined) {
+    return [...set.entries.keys()];
+  }
+  return (theta.frontmatter.tools ?? []).map((entry) => {
+    const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);
+    if (parts.length >= 3 && parts[1] === "as") {
+      return parts[2] ?? "";
+    }
+    const spec = parts[0] ?? "";
+    return /^[A-Za-z_][A-Za-z0-9_]*$/.test(spec) ? spec : thetaCallableName(spec);
+  });
+}
+
+/**
  * Build the executor's root environment for a body, binding any invoke-supplied
- * positional args onto the callee's declared params as local slots (V15k final
- * value / arg binding) so the body can read them.
+ * positional args onto the callee's declared params as `params:`-field local
+ * slots (V15k final value / arg binding) so the body can read them and the
+ * bug-0016 dispatch belt sees them across `fn` activation boundaries exactly
+ * as the parse gate does (rootLocals are visible in every plain-`fn` body).
+ * The theta's presented
+ * callable names populate the environment's arm-4 callable registry (bug
+ * 0016): the `localShadowsCallable` dispatch guard needs callable-set
+ * membership to fire only where the parse gate
+ * (`theta/parse/shadowed-callable-call`) fires — with the registry empty the
+ * belt would be inert in production. `resolve()`'s behaviour is otherwise
+ * unchanged: every consumer branches only on the "local"/"fn"/"import" arms,
+ * treating "callable" and "unresolved" identically.
  */
 function buildBoundEnvironment(
   body: ThetaBody,
   paramBindings: ReadonlyMap<string, ThetaValue> | undefined,
   imports: readonly MaterializedImport[] | undefined,
+  callableNames: readonly string[],
 ): LexicalEnvironment {
   // Register top-level `enum` declarations (with their captured variant names
   // and any explicit `= "..."` wire values) so `Enum.Variant` access resolves
@@ -3394,11 +3454,17 @@ function buildBoundEnvironment(
   const env = buildEnvironment({
     body,
     enums,
+    callables: callableNames,
     ...(imports !== undefined ? { imports } : {}),
   });
   if (paramBindings !== undefined) {
     for (const [name, value] of paramBindings) {
-      env.defineLocal(name, value, false);
+      // `params:` fields go through the marking entry point (bug 0016): the
+      // parse gate treats them as in scope inside every plain-`fn` body, so
+      // `localShadowsCallable` must see them across an activation boundary —
+      // a plain `defineLocal` here would leave the dispatch belt blind to a
+      // params-shadowed callee inside an `fn` body.
+      env.defineParamsFieldLocal(name, value);
     }
   }
   return env;

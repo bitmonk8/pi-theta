@@ -35,4 +35,4 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0013 — Load-phase warning diagnostics are dropped by both production sinks](./0013-load-warnings-dropped-by-both-production-sinks.md) — open
 - [0014 — An empty typed-query annotation (`@<>`) parses with no diagnostic and binds its payload unvalidated through the retired fused mechanism](./0014-empty-typed-query-annotation-silent-unvalidated-bind.md) — open
 - [0015 — After a postfix-`?` line, a keyword-free statement carrying a depth-0 ternary is swallowed by the ternary-head scan](./0015-postfix-question-swallows-keyword-free-ternary-stmt.md) — fixed (0.21.0)
-- [0016 — A call to a lexically shadowed Pi-tool name dispatches the tool at runtime; the object-literal form executes it silently](./0016-shadowed-tool-name-runtime-dispatch.md) — open
+- [0016 — A call to a lexically shadowed Pi-tool name dispatches the tool at runtime; the object-literal form executes it silently](./0016-shadowed-tool-name-runtime-dispatch.md) — fixed (0.22.0)

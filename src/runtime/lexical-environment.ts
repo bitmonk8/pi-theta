@@ -213,6 +213,17 @@ export class LexicalEnvironment {
   /** This scope's local `let` / parameter slots (`_` discards are never recorded). */
   private readonly locals = new Map<string, LocalSlot>();
 
+  /**
+   * The subset of this frame's `locals` bound from frontmatter `params:`
+   * fields (`defineParamsFieldLocal`) — populated at the root only. WHY (bug
+   * 0016): the parse gate's scope model seeds every plain-`fn` body with the
+   * whole-file rootLocals — exactly the `params:` fields — plus the fn's own
+   * parameters, so `localShadowsCallable` must count these across an `fn`
+   * activation boundary while top-level `let` locals (which share the root
+   * frame's `locals` map) stay invisible there under the no-closures model.
+   */
+  private readonly paramsFieldLocals = new Set<string>();
+
   /** Hoisted top-level `fn` declarations — populated at the root only. */
   private readonly fns: Map<string, FnDecl>;
   /** Registered top-level + imported `schema` declarations — root only. */
@@ -229,6 +240,22 @@ export class LexicalEnvironment {
   private readonly imports: Map<string, MaterializedImport>;
   /** The callable-set names (`tools:`, `V6c`) — the arm `V19b` defines but does not populate. */
   private readonly callables: ReadonlySet<string>;
+
+  /**
+   * True iff this scope is the root of a plain `fn` call's activation
+   * (`childFnActivation`). WHY (bug 0016): theta 1.0 has no closures — an `fn`
+   * body sees only the whole-file declarations plus its own parameters
+   * (expressions.md §Identifier resolution; the parse walks model exactly
+   * that) — but the executor chains the body scope to the CALLER's environment
+   * so the shared registries resolve. The flag lets `localShadowsCallable`
+   * stop its local walk at the activation edge — consulting only the root
+   * frame's `params:`-field locals beyond it — so a caller-frame local that
+   * happens to share a callable's name is not mistaken for an in-scope shadow
+   * inside the body (the parse gate treats that call as the callable, and the
+   * runtime must agree) while a `params:`-field shadow, which the parse gate
+   * sees in every fn body, still counts.
+   */
+  private fnActivationBoundary = false;
 
   public constructor(
     inputs: EnvironmentInputs,
@@ -309,6 +336,23 @@ export class LexicalEnvironment {
   }
 
   /**
+   * Define a frontmatter `params:`-field binding (the binder's bound args, or
+   * an invoke's positional args bound onto the callee's declared params) as an
+   * immutable ROOT-frame local, recording it as a `params:` field. WHY the
+   * distinct entry point (bug 0016): a `params:` field is the one local kind
+   * the parse gate treats as visible inside every plain-`fn` body (it seeds
+   * each fn body scope with the rootLocals), so `localShadowsCallable` must
+   * distinguish it from a top-level `let` sharing the same root frame when
+   * its walk crosses an `fn` activation boundary.
+   */
+  public defineParamsFieldLocal(name: string, value: ThetaValue): void {
+    this.defineLocal(name, value, false);
+    if (name !== "_") {
+      this.paramsFieldLocals.add(name);
+    }
+  }
+
+  /**
    * Write a reassignment against a local binding: accepted only against a
    * `let mut` slot, rejected against an immutable `let` slot at the scope layer
    * (bindings.md `cka-6`). The write targets the nearest enclosing local slot;
@@ -364,6 +408,71 @@ export class LexicalEnvironment {
   /** Open a nested lexical scope (a `{ … }` block / loop body). */
   public child(): LexicalEnvironment {
     return new LexicalEnvironment({ body: { statements: [], tail: null } }, this);
+  }
+
+  /**
+   * Open the scope a plain `fn` call binds its parameters into. Identical to
+   * `child()` except the scope is marked as an activation boundary, so
+   * `localShadowsCallable` sees the fn's own parameters, body locals, and the
+   * root frame's `params:`-field locals (the parse model's rootLocals) but
+   * never the caller's frames — the no-closures scope model the parse walks
+   * enforce (bug 0016; a `subagent fn` gets the stronger `spawnIsolatedScope`
+   * instead, whose `parent: null` bounds the walk structurally).
+   */
+  public childFnActivation(): LexicalEnvironment {
+    const scope = this.child();
+    scope.fnActivationBoundary = true;
+    return scope;
+  }
+
+  /**
+   * Whether `name` is a callable-set name that a local binding shadows within
+   * the CURRENT `fn` activation — the runtime mirror of the parse gate
+   * `theta/parse/shadowed-callable-call` (bug 0016). Both conjuncts are
+   * deliberate:
+   *
+   *   - callable-set membership first, so a non-colliding local callee
+   *     (`let g = "x"` … `g()`) keeps its existing disposition (the
+   *     unknown-tool `Err`) instead of becoming a defect — the parse gate
+   *     fires only on collision, and the belt must not out-reject the gate;
+   *   - the local walk stops at an `fn` activation boundary (inclusive of the
+   *     boundary frame's own parameter slots), because a caller-frame local is
+   *     not in scope inside the body under the spec's no-closures model —
+   *     `resolve()`'s unbounded walk would false-positive there;
+   *   - AT the boundary the ROOT frame's `params:`-field locals are consulted
+   *     before returning (parse-model parity, bug 0016): the parse gate seeds
+   *     every plain-`fn` body scope with the whole-file rootLocals — the
+   *     `params:` fields, which `buildBoundEnvironment` defines onto the root
+   *     frame via `defineParamsFieldLocal` — plus the fn's own parameters, so
+   *     a params-shadowed callee inside an `fn` body is gate-rejected and the
+   *     belt must reject it too. The consultation reads `paramsFieldLocals`,
+   *     NOT the root's full `locals` map, because top-level `let` locals share
+   *     that map yet are invisible inside an `fn` body (no closures — the
+   *     caller-frame rule above). KNOWN RESIDUAL: the parse gate DOES fire
+   *     for a `params:`-field shadow inside a `subagent fn` body (the walk
+   *     seeds rootLocals into every fn body, subagent included), but this
+   *     belt cannot — the `spawnIsolatedScope` root carries no
+   *     `params:`-field locals and no boundary flag, so that shape is
+   *     gate-only covered. Accepted: at runtime the isolated scope genuinely
+   *     resolves the name to the callable (`params:` fields are not
+   *     materialised into subagent scopes — the pre-existing parse/runtime
+   *     divergence over `params:` visibility), so a belt throw there would
+   *     assert a gate gap the runtime scope model does not support.
+   */
+  public localShadowsCallable(name: string): boolean {
+    const root = this.root();
+    if (!root.callables.has(name)) {
+      return false;
+    }
+    for (let env: LexicalEnvironment | null = this; env !== null; env = env.parent) {
+      if (env.locals.has(name)) {
+        return true;
+      }
+      if (env.fnActivationBoundary) {
+        return root.paramsFieldLocals.has(name);
+      }
+    }
+    return false;
   }
 
   /**

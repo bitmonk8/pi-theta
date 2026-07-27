@@ -769,14 +769,17 @@ export function parseThetaDocument(
     file,
   );
 
-  // Bug 0003 (docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) — the
-  // surviving RFC 0002 Pi-tool argument SHAPE rule (grammar.md §"Pi-tool
-  // argument grammar": `ToolArg` is one inline bare object literal;
-  // `read(args)` does not satisfy it). `checkToolCallArguments`
-  // (../runtime/tool-call.ts) implements the rule but had no production caller,
-  // so the code was registered-but-never-emitted; this walk makes
-  // `theta/parse/tool-arg-not-object-literal` fire from the whole-file parse.
-  const toolArgShapeDiags = checkPiToolArgShapes(
+  // The lexical call-site walk — bug 0003 (docs/bugs/0003-tool-arg-shape-rule-
+  // not-enforced.md: the surviving RFC 0002 Pi-tool argument SHAPE rule,
+  // `theta/parse/tool-arg-not-object-literal`) and bug 0016
+  // (docs/bugs/0016-shadowed-tool-name-runtime-dispatch.md: a call of a
+  // callable-set name shadowed by a local is erroneous —
+  // `theta/parse/shadowed-callable-call` — and the §Object construction
+  // bare-object carve-out is Pi-tool-callee-only, so the sole bare-object
+  // argument of any OTHER callee is `theta/parse/bare-object-literal`). One
+  // walk resolves each callee per expressions.md §"Identifier resolution" and
+  // emits all three codes from that single judgement.
+  const callSiteLexicalDiags = checkLexicalCallSites(
     { statements, tail: resolvedTail },
     frontmatter,
     file,
@@ -806,7 +809,7 @@ export function parseThetaDocument(
     docScan.diagnostics,
     structuralDiags,
     unknownIdentDiags,
-    toolArgShapeDiags,
+    callSiteLexicalDiags,
     typeLayerDiags,
     thetalibTopLevelDiags,
     resolvedQuery.diagnostics,
@@ -4163,9 +4166,12 @@ function walkIdentExpr(
 }
 
 // --------------------------------------------------------------------------
-// Bug 0003 — Pi-tool argument shape rule
-// (theta/parse/tool-arg-not-object-literal; grammar.md §"Pi-tool argument
-// grammar"; code-registry-parse.md)
+// Lexical call-site rules — bug 0003 (Pi-tool argument shape) + bug 0016
+// (shadowed callable callee; the lexical bare-object carve-out)
+// (theta/parse/tool-arg-not-object-literal, theta/parse/shadowed-callable-call,
+// theta/parse/bare-object-literal; grammar.md §"Pi-tool argument grammar";
+// expressions.md §"Identifier resolution" / §"Object construction";
+// code-registry-parse.md)
 // --------------------------------------------------------------------------
 
 /**
@@ -4177,7 +4183,8 @@ function walkIdentExpr(
  * trampoline and lower their own whole-value argument (`sentiment(text)` is
  * legal), so the `ToolArg` shape rule below never applies to them. Companion
  * to `toolCallableName`, which derives the name for EVERY entry kind (the
- * unknown-identifier root scope needs both kinds).
+ * unknown-identifier root scope and the shadowed-callable check below need
+ * both kinds).
  */
 function piToolCallableName(entry: string): string | undefined {
   const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);
@@ -4214,273 +4221,441 @@ function toolArgShapeDiagnostic(
 }
 
 /**
- * Emit `theta/parse/tool-arg-not-object-literal` (bug 0003,
- * docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) for every call site
- * whose callee resolves to a frontmatter `tools:` Pi tool and whose FIRST
- * argument exists but is not an inline bare object literal — the surviving
- * RFC 0002 shape rule (grammar.md §"Pi-tool argument grammar": field VALUES
- * are full expressions, the argument SHAPE is one inline `{ ... }`). A named
- * schema-constructor argument (`read(Args { ... })`) is not a BARE literal
- * and is rejected too, matching `isBareObjectLiteral`'s text-level judgement.
- *
- * Emission mirrors the SHAPE arm of `checkToolCallArguments`
- * (../runtime/tool-call.ts) rather than calling it: that check's documented
- * arity→shape→type ordering short-circuits a multi-argument call onto the
- * arity code, and `theta/parse/tool-arg-arity` remains UNWIRED — a separate
- * registered-but-never-emitted code outside bug 0003's scope — so threading
- * the real positional count through it would start emitting arity here as a
- * side effect. A multi-argument call whose first argument is non-object fires
- * the shape code alone; `read({...}, {...})` (first argument IS an inline
- * literal) fires nothing.
- *
- * Zero-argument calls are legal (`read()` lowers to `{}`; the shape rule only
- * constrains an argument that exists). Callee resolution mirrors
- * `checkUnknownIdentifiers`' lexical model so the check never misfires on a
- * call that resolves to something LOCAL rather than the tool: whole-file
- * declarations (`fn` / `schema` / `enum` names, import/export symbols,
- * `params:` fields — the load layer separately rejects the `fn`/import
- * collisions via `theta/load/tool-name-collision`) shadow the tool name
- * everywhere, `let` bindings shadow it from their binding statement onward,
- * and `for` / `par for` variables, `match`-arm pattern bindings, and `fn`
- * parameters shadow it inside their scopes (an `fn` body sees only the
- * whole-file declarations plus its own parameters — theta 1.0 has no
- * closures). Under-reporting on a shadowed name is safe: the runtime
- * lowerings back-stop with a loud `PiToolArgShapeDefectError` defect throw.
+ * The registered `theta/parse/bare-object-literal` rejection (expressions.md
+ * §"Object construction"; code-registry-parse.md). Shared by the TWO emission
+ * sites so the message can never drift from the normative registry row
+ * (DIAG-4): `checkObjectExpr` (the structural walk — every position outside
+ * the sole-call-argument carve-out) and `walkCallSiteExpr` (the lexical walk —
+ * the sole bare-object argument of a call whose callee is not lexically an
+ * unshadowed Pi tool; bug 0016 part B).
  */
-function checkPiToolArgShapes(
+function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/bare-object-literal",
+    file,
+    range,
+    message:
+      "bare object literal not permitted in this position; name the schema (Schema { ... })",
+  };
+}
+
+/**
+ * One arm-1 local binder tracked by the lexical call-site walk (bug 0016):
+ * which construct bound the name, and the 1-indexed source line of that
+ * construct where the AST carries one. `line` is absent only for `params:`
+ * fields — frontmatter fields carry no body source range — so the rendered
+ * binder phrase degrades from e.g. "let binding at line 6" to "params: field".
+ * A `FnParam` and a `match` pattern carry no ranges of their own, so those
+ * binders borrow the nearest enclosing node's start line: the `fn`
+ * declaration (its parameter list sits on the declaration line) and the arm
+ * BODY expression (an arm's body starts on the arm's own line, immediately
+ * after `=>`).
+ */
+interface LocalBinder {
+  readonly kind: "let" | "fn-param" | "for" | "par-for" | "match" | "params-field";
+  readonly line?: number;
+}
+
+/** Render a `LocalBinder` for the shadowed-callable-call message's `<binder>` placeholder. */
+function binderPhrase(binder: LocalBinder): string {
+  const noun: Record<LocalBinder["kind"], string> = {
+    "let": "let binding",
+    "fn-param": "fn parameter",
+    "for": "for variable",
+    "par-for": "par for variable",
+    "match": "match binding",
+    "params-field": "params: field",
+  };
+  const kindText = noun[binder.kind];
+  return binder.line === undefined ? kindText : `${kindText} at line ${binder.line}`;
+}
+
+/**
+ * The exact registered diagnostic for one call of a locally shadowed
+ * callable-set name (bug 0016; code-registry-parse.md
+ * `theta/parse/shadowed-callable-call` row; DIAG-4 message emitted
+ * character-for-character with `<name>` / `<binder>` substituted). The `range`
+ * targets the CALL node: `CallExpr` carries no separate callee-identifier
+ * span, and the call node's start IS the callee's first character, so the
+ * author's editor lands on the offending callee. The hint renders the
+ * registry row's Hint column verbatim, backticks included — the
+ * `immutable-rebinding` / `redundant-wire-name` emitter convention (only the
+ * Message column is DIAG-4-normative; keeping the Hint byte-identical too
+ * means neither can drift).
+ */
+function shadowedCallableCallDiagnostic(
+  callee: string,
+  binder: LocalBinder,
+  callRange: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/shadowed-callable-call",
+    file,
+    range: callRange,
+    message: `call of '${callee}' resolves to the local ${binderPhrase(binder)} that shadows the callable-set entry '${callee}'; locals are not callable`,
+    hint: "Rename the local binding, or give the `tools:` entry a distinct name with `as`.",
+  };
+}
+
+/**
+ * The per-file invariants of the lexical call-site walk, threaded explicitly
+ * through the walkers (no module state) alongside the per-scope `locals` map.
+ */
+interface CallSiteWalkContext {
+  /**
+   * The arm-1 binders visible everywhere in the body regardless of source
+   * order: `params:` fields, which materialise as root-environment locals at
+   * runtime (`buildBoundEnvironment` defines them via `defineLocal`), so a
+   * call of a params-shadowed name resolves to the local. Each `fn` body's
+   * scope restarts from this map — theta 1.0 has no closures.
+   */
+  readonly rootLocals: ReadonlyMap<string, LocalBinder>;
+  /**
+   * Whole-file names on resolution arms (2)–(3): top-level `fn` declarations
+   * and import/export symbols. A call of such a name is a legal user-fn /
+   * import call, NOT a shadowed-callable-call site (a `tools:` collision with
+   * these names is separately load-rejected via
+   * `theta/load/tool-name-collision`), and its callee is not lexically a Pi
+   * tool, so the carve-out and the shape rule both stand down. `schema` /
+   * `enum` names are deliberately NOT here: they are not call-position
+   * resolution arms (expressions.md §"Identifier resolution" ranks
+   * local > fn > import > callable only), so a callee colliding with one
+   * still resolves to the callable-set entry and keeps the tool's rules.
+   */
+  readonly fnImportDecls: ReadonlySet<string>;
+  /** The Pi-tool subset of the callable set (bare-identifier `tools:` entries, post-`as`). */
+  readonly piTools: ReadonlySet<string>;
+  /** EVERY callable-set name — Pi tools AND `.theta` callables — post-rename. */
+  readonly callables: ReadonlySet<string>;
+  readonly file: string;
+  readonly out: Diagnostic[];
+}
+
+/**
+ * The whole-body lexical call-site walk. It resolves every `<name>(args)`
+ * callee against the expressions.md §"Identifier resolution" first-match order
+ * — tracking scopes exactly as `checkUnknownIdentifiers` does (whole-file
+ * declarations visible everywhere; `let` bindings shadow from their binding
+ * statement onward; `for` / `par for` variables, `match`-arm pattern bindings,
+ * and `fn` parameters shadow inside their scopes; an `fn` body sees only the
+ * whole-file declarations plus its own parameters — theta 1.0 has no
+ * closures) — and emits three registered codes from that single resolution
+ * judgement:
+ *
+ *   1. `theta/parse/shadowed-callable-call` (bug 0016,
+ *      docs/bugs/0016-shadowed-tool-name-runtime-dispatch.md) for a call whose
+ *      callee resolves to an arm-1 LOCAL while colliding with a callable-set
+ *      name (Pi tool or `.theta` callable alike): locals are never callable
+ *      (functions are not first-class), so the call site is erroneous — and
+ *      before this gate existed the runtime executed the callable at a site
+ *      that does not denote it (silently, for the object-literal and zero-arg
+ *      forms). Binding the name without calling it stays legal: only CALL
+ *      position emits.
+ *   2. `theta/parse/tool-arg-not-object-literal` (bug 0003,
+ *      docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) for a call whose
+ *      callee resolves to a Pi tool and whose FIRST argument exists but is
+ *      not an inline bare object literal — the surviving RFC 0002 shape rule
+ *      (grammar.md §"Pi-tool argument grammar": field VALUES are full
+ *      expressions, the argument SHAPE is one inline `{ ... }`). Unchanged
+ *      for unshadowed callees; a locally shadowed callee is not the tool, so
+ *      the shape rule stands down there (the callee rejection above owns the
+ *      site), and an fn/import-shadowed callee is a user-fn call. Emission
+ *      mirrors the SHAPE arm of `checkToolCallArguments`
+ *      (../runtime/tool-call.ts) rather than calling it — that check's
+ *      arity→shape→type ordering would drag the UNWIRED
+ *      `theta/parse/tool-arg-arity` code into scope. Zero-argument calls are
+ *      legal (`read()` lowers to `{}`).
+ *   3. `theta/parse/bare-object-literal` (bug 0016 part B) for a SOLE
+ *      bare-object argument whose callee is NOT (lexically) an unshadowed Pi
+ *      tool: expressions.md §"Object construction" scopes the carve-out to
+ *      Pi-tool callees only — `f({ ... })` for a user `fn`, a `let`-bound
+ *      name, a `.theta` callable, or a shadowed tool name is outside it. The
+ *      structural walk (`walkExpr` `case "call"`) suppresses the check for
+ *      exactly this position, so the two sites partition the emission (never
+ *      double-emitting for one node), and both build the diagnostic through
+ *      `bareObjectLiteralDiagnostic` so the message cannot drift.
+ *
+ * The walk REPORTS on shadowed names (bug 0016 superseded the earlier
+ * under-reporting contract, whose runtime back-stop was loud only for
+ * non-object argument nodes); the runtime lowerings still back-stop a gate
+ * gap with `ShadowedCalleeDispatchDefectError` / `PiToolArgShapeDefectError`
+ * (../runtime/tool-call.ts) — belts behind this gate, not substitutes for it.
+ * The walk runs even with an empty callable set: emission (3) is
+ * callee-sensitive, not tool-dependent, so `f({ ... })` in a tools-less theta
+ * or a `.thetalib` is still rejected.
+ */
+function checkLexicalCallSites(
   body: Block,
   frontmatter: ParsedFrontmatter | null,
   file: string,
 ): Diagnostic[] {
   const piTools = new Set<string>();
+  const callables = new Set<string>();
   for (const entry of frontmatter?.tools ?? []) {
-    const name = piToolCallableName(entry);
-    if (name !== undefined && name.length > 0) {
-      piTools.add(name);
+    const piName = piToolCallableName(entry);
+    if (piName !== undefined && piName.length > 0) {
+      piTools.add(piName);
+    }
+    const presented = toolCallableName(entry);
+    if (presented.length > 0) {
+      callables.add(presented);
     }
   }
-  if (piTools.size === 0) {
-    return [];
-  }
 
-  // Whole-file shadow roots: every non-tool binding source `collectIdentRoots`
-  // folds into the root scope. A tool name colliding with any of them cannot
-  // be assumed to resolve to the tool at this call site.
-  const declared = new Set<string>();
+  const fnImportDecls = new Set<string>();
   for (const s of body.statements) {
     switch (s.kind) {
       case "fn":
-      case "schema":
-      case "enum":
-        declared.add(s.name);
+        fnImportDecls.add(s.name);
         break;
       case "import":
       case "export":
         for (const sym of s.symbols) {
-          declared.add(sym);
+          fnImportDecls.add(sym);
         }
         break;
       default:
         break;
     }
   }
+
+  const rootLocals = new Map<string, LocalBinder>();
   for (const f of frontmatter?.params?.fields ?? []) {
-    declared.add(f.wireName);
+    rootLocals.set(f.wireName, { kind: "params-field" });
   }
 
-  const out: Diagnostic[] = [];
-  walkToolArgBlock(body, new Set(declared), declared, piTools, file, out);
-  return out;
+  const walkCtx: CallSiteWalkContext = {
+    rootLocals,
+    fnImportDecls,
+    piTools,
+    callables,
+    file,
+    out: [],
+  };
+  walkCallSiteBlock(body, new Map(rootLocals), walkCtx);
+  return walkCtx.out;
 }
 
-function walkToolArgBlock(
+function walkCallSiteBlock(
   block: Block,
-  shadows: Set<string>,
-  root: ReadonlySet<string>,
-  piTools: ReadonlySet<string>,
-  file: string,
-  out: Diagnostic[],
+  locals: Map<string, LocalBinder>,
+  walkCtx: CallSiteWalkContext,
 ): void {
   for (const s of block.statements) {
-    walkToolArgStmt(s, shadows, root, piTools, file, out);
+    walkCallSiteStmt(s, locals, walkCtx);
   }
   if (block.tail !== null) {
-    walkToolArgExpr(block.tail, shadows, root, piTools, file, out);
+    walkCallSiteExpr(block.tail, locals, walkCtx);
   }
 }
 
-function walkToolArgStmt(
+function walkCallSiteStmt(
   s: Stmt,
-  shadows: Set<string>,
-  root: ReadonlySet<string>,
-  piTools: ReadonlySet<string>,
-  file: string,
-  out: Diagnostic[],
+  locals: Map<string, LocalBinder>,
+  walkCtx: CallSiteWalkContext,
 ): void {
   switch (s.kind) {
     case "let":
       // The initialiser is evaluated BEFORE the name binds, so a tool call in
       // it still resolves to the tool; the binding shadows from here onward.
       if (s.init !== null) {
-        walkToolArgExpr(s.init, shadows, root, piTools, file, out);
+        walkCallSiteExpr(s.init, locals, walkCtx);
       }
       if (s.name !== "_") {
-        shadows.add(s.name);
+        locals.set(s.name, { kind: "let", line: s.range.start.line });
       }
       return;
     case "reassign":
-      walkToolArgExpr(s.value, shadows, root, piTools, file, out);
+      walkCallSiteExpr(s.value, locals, walkCtx);
       return;
     case "if": {
-      walkToolArgExpr(s.condition, shadows, root, piTools, file, out);
-      walkToolArgBlock(s.then, new Set(shadows), root, piTools, file, out);
+      walkCallSiteExpr(s.condition, locals, walkCtx);
+      walkCallSiteBlock(s.then, new Map(locals), walkCtx);
       if (s.otherwise !== null) {
         if ("statements" in s.otherwise) {
-          walkToolArgBlock(s.otherwise, new Set(shadows), root, piTools, file, out);
+          walkCallSiteBlock(s.otherwise, new Map(locals), walkCtx);
         } else {
-          walkToolArgStmt(s.otherwise, new Set(shadows), root, piTools, file, out);
+          walkCallSiteStmt(s.otherwise, new Map(locals), walkCtx);
         }
       }
       return;
     }
     case "while":
-      walkToolArgExpr(s.condition, shadows, root, piTools, file, out);
-      walkToolArgBlock(s.body, new Set(shadows), root, piTools, file, out);
+      walkCallSiteExpr(s.condition, locals, walkCtx);
+      walkCallSiteBlock(s.body, new Map(locals), walkCtx);
       return;
     case "for": {
-      walkToolArgExpr(s.iterand, shadows, root, piTools, file, out);
-      const inner = new Set(shadows);
-      inner.add(s.variable);
-      walkToolArgBlock(s.body, inner, root, piTools, file, out);
+      walkCallSiteExpr(s.iterand, locals, walkCtx);
+      const inner = new Map(locals);
+      inner.set(s.variable, { kind: "for", line: s.range.start.line });
+      walkCallSiteBlock(s.body, inner, walkCtx);
       return;
     }
     case "fn": {
       // Closure-free (`walkIdentStmt` precedent): an `fn` body sees only the
       // whole-file declarations plus its own parameters, so a tool call inside
       // a helper body is still a tool call — `fn helper() { read(args) }`
-      // fires — while `fn f(read) { read(x) }` is parameter-shadowed.
-      const fnShadows = new Set(root);
+      // fires — while `fn f(read) { read(x) }` is parameter-shadowed. A
+      // `FnParam` carries no range of its own; the declaration's start line
+      // locates the parameter list.
+      const fnLocals = new Map(walkCtx.rootLocals);
       for (const p of s.params) {
-        fnShadows.add(p.name);
+        fnLocals.set(p.name, { kind: "fn-param", line: s.range.start.line });
       }
-      walkToolArgBlock(s.body, fnShadows, root, piTools, file, out);
+      walkCallSiteBlock(s.body, fnLocals, walkCtx);
       return;
     }
     case "return":
       if (s.operand !== null) {
-        walkToolArgExpr(s.operand, shadows, root, piTools, file, out);
+        walkCallSiteExpr(s.operand, locals, walkCtx);
       }
       return;
     case "query":
-      walkToolArgExpr(s.query, shadows, root, piTools, file, out);
+      walkCallSiteExpr(s.query, locals, walkCtx);
       return;
     case "tool-call":
-      walkToolArgExpr(s.call, shadows, root, piTools, file, out);
+      walkCallSiteExpr(s.call, locals, walkCtx);
       return;
     case "invoke":
-      walkToolArgExpr(s.invoke, shadows, root, piTools, file, out);
+      walkCallSiteExpr(s.invoke, locals, walkCtx);
       return;
     case "expr":
-      walkToolArgExpr(s.expr, shadows, root, piTools, file, out);
+      walkCallSiteExpr(s.expr, locals, walkCtx);
       return;
     default:
       // schema / enum / import / export / break / continue / doc-comment carry
-      // no call sites (their names were pre-collected as whole-file shadows).
+      // no call sites (fn / import / export names were pre-collected as
+      // whole-file declarations; schema / enum names are not resolution arms).
       return;
   }
 }
 
-function walkToolArgExpr(
+function walkCallSiteExpr(
   e: Expr,
-  shadows: Set<string>,
-  root: ReadonlySet<string>,
-  piTools: ReadonlySet<string>,
-  file: string,
-  out: Diagnostic[],
+  locals: Map<string, LocalBinder>,
+  walkCtx: CallSiteWalkContext,
 ): void {
   switch (e.kind) {
     case "call": {
+      const localBinder = locals.get(e.callee);
+      // (1) Bug 0016: a call of a locally shadowed callable-set name is
+      // erroneous — arm 1 wins the resolution, and a local never holds a
+      // callable.
+      if (localBinder !== undefined && walkCtx.callables.has(e.callee)) {
+        walkCtx.out.push(
+          shadowedCallableCallDiagnostic(e.callee, localBinder, e.range, walkCtx.file),
+        );
+      }
+      // The callee is lexically the Pi tool iff no higher-precedence arm
+      // (local / fn / import) captures the name.
+      const resolvesToPiTool =
+        walkCtx.piTools.has(e.callee) &&
+        localBinder === undefined &&
+        !walkCtx.fnImportDecls.has(e.callee);
       const first = e.args[0];
+      // (2) Bug 0003: `ToolArg` is a BARE inline object literal — any
+      // non-object node (identifier, string, call, member, …) and a NAMED
+      // schema-constructor (`typeName !== null`) both fail the shape.
       if (
-        piTools.has(e.callee) &&
-        !shadows.has(e.callee) &&
+        resolvesToPiTool &&
         first !== undefined &&
-        // `ToolArg` is a BARE inline object literal: any non-object node
-        // (identifier, string, call, member, …) and a NAMED schema-constructor
-        // (`typeName !== null`) both fail the shape.
         !(first.kind === "object" && first.typeName === null)
       ) {
-        out.push(toolArgShapeDiagnostic(e.callee, first.range, file));
+        walkCtx.out.push(toolArgShapeDiagnostic(e.callee, first.range, walkCtx.file));
+      }
+      // (3) Bug 0016 part B: the §Object construction carve-out admits a sole
+      // bare-object argument ONLY under a (lexically) Pi-tool callee; under
+      // every other callee that argument is the ordinary bare-object
+      // rejection. The structural walk suppressed exactly this position
+      // (callee-blind), so this is the single emission site for it.
+      if (
+        !resolvesToPiTool &&
+        e.args.length === 1 &&
+        first !== undefined &&
+        first.kind === "object" &&
+        first.typeName === null
+      ) {
+        walkCtx.out.push(bareObjectLiteralDiagnostic(first.range, walkCtx.file));
       }
       for (const arg of e.args) {
-        walkToolArgExpr(arg, shadows, root, piTools, file, out);
+        walkCallSiteExpr(arg, locals, walkCtx);
       }
       return;
     }
     case "binary":
-      walkToolArgExpr(e.left, shadows, root, piTools, file, out);
-      walkToolArgExpr(e.right, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.left, locals, walkCtx);
+      walkCallSiteExpr(e.right, locals, walkCtx);
       return;
     case "ternary":
-      walkToolArgExpr(e.condition, shadows, root, piTools, file, out);
-      walkToolArgExpr(e.consequent, shadows, root, piTools, file, out);
-      walkToolArgExpr(e.alternate, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.condition, locals, walkCtx);
+      walkCallSiteExpr(e.consequent, locals, walkCtx);
+      walkCallSiteExpr(e.alternate, locals, walkCtx);
       return;
     case "try":
-      walkToolArgExpr(e.operand, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.operand, locals, walkCtx);
       return;
     case "invoke":
       for (const arg of e.args) {
-        walkToolArgExpr(arg, shadows, root, piTools, file, out);
+        walkCallSiteExpr(arg, locals, walkCtx);
       }
       return;
     case "member":
-      walkToolArgExpr(e.target, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.target, locals, walkCtx);
       return;
     case "index":
-      walkToolArgExpr(e.target, shadows, root, piTools, file, out);
-      walkToolArgExpr(e.index, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.target, locals, walkCtx);
+      walkCallSiteExpr(e.index, locals, walkCtx);
       return;
     case "method-call":
-      walkToolArgExpr(e.target, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.target, locals, walkCtx);
       for (const arg of e.args) {
-        walkToolArgExpr(arg, shadows, root, piTools, file, out);
+        walkCallSiteExpr(arg, locals, walkCtx);
       }
       return;
     case "object":
-      // RFC 0002: field VALUES are full expressions — a nested Pi-tool call
-      // inside a legal `{ ... }` argument is itself checked.
+      // RFC 0002: field VALUES are full expressions — a nested call inside a
+      // legal `{ ... }` argument is itself checked. Bare-object legality in
+      // non-call-argument positions stays the structural walk's concern.
       for (const field of e.fields) {
-        walkToolArgExpr(field.value, shadows, root, piTools, file, out);
+        walkCallSiteExpr(field.value, locals, walkCtx);
       }
       return;
     case "array":
       for (const el of e.elements) {
-        walkToolArgExpr(el, shadows, root, piTools, file, out);
+        walkCallSiteExpr(el, locals, walkCtx);
       }
       return;
     case "result-ctor":
-      walkToolArgExpr(e.arg, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.arg, locals, walkCtx);
       return;
     case "match":
-      walkToolArgExpr(e.scrutinee, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.scrutinee, locals, walkCtx);
       for (const arm of e.arms) {
-        const armShadows = new Set(shadows);
-        collectPatternBindings(arm.pattern, armShadows);
-        walkToolArgExpr(arm.body, armShadows, root, piTools, file, out);
+        // A pattern node carries no range; the arm's BODY starts on the arm's
+        // own line, so its start line locates the binding for the message.
+        const bound = new Set<string>();
+        collectPatternBindings(arm.pattern, bound);
+        const armLocals = new Map(locals);
+        for (const name of bound) {
+          armLocals.set(name, { kind: "match", line: arm.body.range.start.line });
+        }
+        walkCallSiteExpr(arm.body, armLocals, walkCtx);
       }
       return;
     case "par-for": {
       // Reached explicitly (unlike the ident walk, which predates RFC 0003):
       // a `par for` body is a call-site-bearing block and its per-iteration
       // variable shadows.
-      walkToolArgExpr(e.iterand, shadows, root, piTools, file, out);
+      walkCallSiteExpr(e.iterand, locals, walkCtx);
       if (e.max !== null) {
-        walkToolArgExpr(e.max, shadows, root, piTools, file, out);
+        walkCallSiteExpr(e.max, locals, walkCtx);
       }
-      const inner = new Set(shadows);
-      inner.add(e.variable);
-      walkToolArgBlock(e.body, inner, root, piTools, file, out);
+      const inner = new Map(locals);
+      inner.set(e.variable, { kind: "par-for", line: e.range.start.line });
+      walkCallSiteBlock(e.body, inner, walkCtx);
       return;
     }
     default:
@@ -4846,14 +5021,10 @@ function checkObjectExpr(
 ): void {
   if (e.typeName === null) {
     if (!bareAllowed) {
-      out.push({
-        severity: "error",
-        code: "theta/parse/bare-object-literal",
-        file,
-        range: e.range,
-        message:
-          "bare object literal not permitted in this position; name the schema (Schema { ... })",
-      });
+      // Shared builder (bug 0016 part B): the lexical call-site walk emits the
+      // same code for the sole-call-argument position this walk suppresses, so
+      // both sites must render the identical registered message.
+      out.push(bareObjectLiteralDiagnostic(e.range, file));
     }
     return;
   }
@@ -4918,10 +5089,18 @@ function walkExpr(
       walkExpr(e.operand, refs, file, out);
       return;
     case "call":
-      // Carve-out: a bare `{ … }` as the single argument of a Pi-tool call is
-      // permitted (expressions.md §"Object construction"). A sole bare-object
-      // argument is walked with the bare-object check suppressed; its nested
-      // fields are still validated.
+      // Sole-call-argument position: this walk suppresses the bare-object
+      // check here UNCONDITIONALLY and the lexical call-site walk
+      // (`walkCallSiteExpr`, bug 0016 part B) owns the emission for it,
+      // because the §Object construction carve-out is CALLEE-sensitive — it
+      // admits the sole bare `{ … }` argument only when the callee lexically
+      // resolves to a Pi tool — and this structural walk carries neither the
+      // frontmatter tool set nor any scope tracking. Splitting by POSITION
+      // keeps each code emitted exactly once per node (the two walks
+      // partition the positions); the alternative — threading the tool set
+      // and a full shadow model into every structural walker — would
+      // duplicate the lexical walk's scope machinery here. Nested fields are
+      // still validated.
       for (const arg of e.args) {
         const soleBareObject =
           e.args.length === 1 &&
@@ -5157,7 +5336,7 @@ function interpolationChildExprs(e: Expr): readonly Expr[] {
  * the body tail, `let` initializers, `fn` / `subagent fn` bodies, match arms,
  * and nested control flow. A missed nesting is a silent false negative (the
  * warning never fires for that theta), so the walk is exhaustive over the
- * `Stmt` / `Expr` unions in the `walkToolArgStmt` / `walkToolArgExpr` house
+ * `Stmt` / `Expr` unions in the `walkCallSiteStmt` / `walkCallSiteExpr` house
  * style.
  */
 export function detectTypedQueryExpression(body: ThetaBody): boolean {

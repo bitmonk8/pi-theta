@@ -102,6 +102,7 @@ namespace, **not** runtime diagnostics — no registry row, out of scope. Severi
 | `theta/parse/void-in-non-return-position` | E | parse | `'void' is only permitted as a function or theta return type` |
 | `theta/parse/result-in-schema-position` | E | parse | `'Result' has no lowered-schema form and is not permitted in a schema-feeding position` |
 | `theta/parse/unknown-identifier` | E | parse | `unknown identifier '<name>'` |
+| `theta/parse/shadowed-callable-call` | E | parse | `call of '<name>' resolves to the local <binder> that shadows the callable-set entry '<name>'; locals are not callable` |
 | `theta/parse/unknown-method` | E | parse | `unknown method '<method>' on type <type>` |
 | `theta/parse/non-array-iterand` | E | type | `'for' expects array<T> after 'in'; got <type>` |
 | `theta/parse/break-outside-loop` | E | parse | `'break' outside of a loop` |

@@ -430,24 +430,55 @@ export function computeToolArgSchemaConflict(
  * a Pi-tool call whose first argument is not an inline object literal is
  * rejected at parse time (`theta/parse/tool-arg-not-object-literal`, the shape
  * rule above), so one reaching a runtime lowering means the parse gate did not
- * reject this call site. Two causes are reachable: a lexically shadowed callee
- * (`let read = "x"` … `read(args)?`) parses clean by design — the parse walk
- * honours the shadow — yet still dispatches as the Pi tool because runtime
- * classification is callable-set-only; or a genuine gap in the gate. Lowering
- * to `{}` / `args: undefined` silently drops the author's argument object and
- * misattributes the failure to the tool — the 0.12.0 defect — so both
- * lowerings (`preEvaluateToolArgs`, `lowerToolCallParams`) throw this instead:
- * a thrown Error routed to the `theta/runtime/internal-error` surface (the
- * `ThetaFnArityError` / `ToolReturnShapeDefectError` pattern), so either cause
- * fails loudly instead of arg-dropping. Zero-argument calls are NOT defects
- * (parse admits `read()`; both lowerings keep degrading them to `{}`).
+ * reject this call site — a genuine gap in the gate. A lexically shadowed
+ * callee never reaches this throw: bug 0016 rejects such call sites at parse
+ * (`theta/parse/shadowed-callable-call`) and both lowerings guard the
+ * shadowed callee with `ShadowedCalleeDispatchDefectError` BEFORE the shape
+ * test below runs. Lowering to `{}` / `args: undefined` silently drops the
+ * author's argument object and misattributes the failure to the tool — the
+ * 0.12.0 defect — so both lowerings (`preEvaluateToolArgs`,
+ * `lowerToolCallParams`) throw this instead: a thrown Error routed to the
+ * `theta/runtime/internal-error` surface (the `ThetaFnArityError` /
+ * `ToolReturnShapeDefectError` pattern), so the gap fails loudly instead of
+ * arg-dropping. Zero-argument calls are NOT defects (parse admits `read()`;
+ * both lowerings keep degrading them to `{}`).
  */
 export class PiToolArgShapeDefectError extends Error {
   public constructor(toolName: string) {
     super(
-      `internal defect: Pi tool '${toolName}' call reached the runtime lowering with a non-object-literal first argument; the parse-time shape gate (theta/parse/tool-arg-not-object-literal) did not reject this call site — a lexically shadowed callee that still dispatches as the Pi tool, or a gate gap (bug 0003)`,
+      `internal defect: Pi tool '${toolName}' call reached the runtime lowering with a non-object-literal first argument; the parse-time shape gate (theta/parse/tool-arg-not-object-literal) did not reject this call site — a gate gap (bug 0003)`,
     );
     this.name = "PiToolArgShapeDefectError";
+  }
+}
+
+/**
+ * Bug 0016 (docs/bugs/0016-shadowed-tool-name-runtime-dispatch.md)
+ * belt-and-braces: a call whose callee is a callable-set name lexically
+ * shadowed by a local binding is rejected at parse time
+ * (`theta/parse/shadowed-callable-call` — expressions.md §Identifier
+ * resolution ranks the local arm first and locals are never callable), so one
+ * reaching a runtime lowering means the parse gate did not reject this call
+ * site. Dispatching anyway would execute the callable at a call site that does
+ * not denote it (the 0016 defect: runtime classification was
+ * callable-set-membership only and never consulted the lexical environment),
+ * so both lowerings (`preEvaluateToolArgs`, `lowerToolCallParams`) throw this
+ * BEFORE any argument handling: a thrown Error routed to the
+ * `theta/runtime/internal-error` surface exactly as `PiToolArgShapeDefectError`
+ * above (a plain Error caught by the top-level slash runtime-defect surface
+ * and framed via `surfaceUnexpectedThrow`). The guard keys on
+ * `LexicalEnvironment.localShadowsCallable` — callable-set membership AND an
+ * arm-1 local within the current `fn` activation — so a user-`fn` callee (arm
+ * "fn"/"import", intercepted by `resolveUserFn` before the effect path), an
+ * unshadowed callable (arm "callable"), and a non-colliding local callee (arm
+ * "local" but not a callable-set name) never hit it.
+ */
+export class ShadowedCalleeDispatchDefectError extends Error {
+  public constructor(calleeName: string) {
+    super(
+      `internal defect: call of '${calleeName}' reached the runtime lowering although the call site lexically resolves to a local binding that shadows the callable-set entry '${calleeName}'; dispatching the callable would execute code the site does not denote — the parse gate (theta/parse/shadowed-callable-call) rejects this call site, so reaching here is a gate gap (bug 0016)`,
+    );
+    this.name = "ShadowedCalleeDispatchDefectError";
   }
 }
 

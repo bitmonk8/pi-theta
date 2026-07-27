@@ -6,6 +6,57 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-27
+
+### Fixed
+
+- **A call to a lexically shadowed callable name is now rejected at parse
+  (`theta/parse/shadowed-callable-call`) instead of dispatching the Pi tool
+  at runtime (bug 0016).** expressions.md §Identifier resolution ranks a
+  local `let` binding / `fn` parameter first and the callable set last, and
+  the parse walks honoured that — but runtime call classification was
+  callable-set-membership only (`resolveUserFn` consulted only the
+  `fn`/`import` arms; `checkpointFor` / `#classifyCall` / `#resolveToolCall`
+  keyed on the callee name against the frozen snapshot; the environment's
+  spec-conformant four-arm `resolve` was never asked), so a parse-clean
+  `read(...)` under an in-scope local named `read` executed the host tool
+  anyway at both executor dispatch sites (the `evalExpr` call routing and
+  the `?`/`match`-operand `evalAsResult` path): **silently with real
+  arguments** for the object-literal and zero-argument forms, or as a
+  misattributed `theta/runtime/internal-error`
+  (`PiToolArgShapeDefectError`, blaming the bug-0003 gate) for every other
+  argument form. A call of a non-callable local is provably erroneous
+  (functions are not first-class), so the fix closes the recorded spec gap
+  at parse: the bug-0003 lexical shape walk is generalised into a single
+  call-site walk (`checkLexicalCallSites`) that resolves every callee once
+  per §Identifier resolution and emits the new registered code for any call
+  whose callee is shadowed by a local (`let`, `fn` parameter, `for` /
+  `par for` variable, `match` binding, `params:` field) while colliding
+  with a callable-set entry (Pi tool or `.theta` callable, both
+  post-rename), naming the shadowing binder and its line; binding the name
+  without calling it stays legal. The §Object construction bare-object
+  carve-out is now lexical to match the spec: a sole bare-object argument
+  whose callee is not an unshadowed Pi tool fires
+  `theta/parse/bare-object-literal` (previously suppressed for ANY call —
+  user `fn`s and shadowed callees included), and `schema` / `enum` names no
+  longer suppress the bug-0003 shape check (they are not resolution arms).
+  Belt-and-braces mirroring bug 0003: both runtime lowerings
+  (`preEvaluateToolArgs`, `lowerToolCallParams`) throw a new
+  `ShadowedCalleeDispatchDefectError` ahead of dispatch when the callee
+  resolves to a local — the guard sits at the shared seam in front of BOTH
+  dispatch sites, with fn-activation-bounded resolution so the no-closures
+  model holds (`params:`-field shadows are visible inside plain `fn`
+  bodies; the sole gate-only residual — `subagent fn` bodies, whose
+  isolated scope genuinely carries no `params:` locals — is recorded at the
+  guard). Registry row added to
+  `docs/spec_topics/diagnostics/code-registry-parse.md`; rule recorded in
+  expressions.md §Identifier resolution. BEHAVIOUR-TIGHTENING:
+  previously-executing shadowed forms now fail at parse (and defect-throw
+  at runtime instead of dispatching); remedy — rename the local binding, or
+  give the `tools:` entry a distinct name with `as`. Present since the
+  first Pi-tool dispatch wiring; recorded from bug 0003's residual, whose
+  "fail-loud" claim held only for non-object argument forms.
+
 ## [0.21.0] - 2026-07-27
 
 ### Fixed

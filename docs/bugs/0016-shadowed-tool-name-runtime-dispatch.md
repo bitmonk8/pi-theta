@@ -1,6 +1,11 @@
 # Bug 0016 — A call to a lexically shadowed Pi-tool name dispatches the tool at runtime; the object-literal form executes it silently
 
-- **Status:** open
+- **Status:** fixed (0.22.0). Option 1 adopted — a call whose callee is
+  lexically shadowed by a local that collides with a callable-set name is
+  rejected at parse (`theta/parse/shadowed-callable-call`), the bare-object
+  carve-out is lexical per §Object construction, and both runtime lowerings
+  defect-throw (`ShadowedCalleeDispatchDefectError`) instead of dispatching
+  a shadowed callee.
 - **Kind:** defect — parse-time call resolution is lexical (per
   expressions.md §Identifier resolution), runtime call classification is
   callable-set-membership only. A parse-clean call site whose callee the spec
@@ -24,6 +29,81 @@
   (:336) implements the spec's four-arm precedence correctly but is never
   consulted for call classification.
 - **Observed at:** `0.20.0` (30492948), Windows.
+
+## Fix (0.22.0)
+
+Option 1, adopted at all three layers the Options section names.
+
+**Parse (primary).** The bug-0003 shape walk (`checkPiToolArgShapes`) is
+generalised into a single lexical call-site walk — `checkLexicalCallSites` /
+`walkCallSite*` in `src/parser/theta-document.ts` — that resolves every
+callee once per expressions.md §Identifier resolution and emits three codes
+from that one judgement: (1) the new registered
+`theta/parse/shadowed-callable-call` (error; range on the call node; message
+names the shadowing binder kind and its line plus the collided callable) for
+any call whose callee is an arm-1 local — `let`, `fn` parameter, `for` /
+`par for` variable, `match`-arm binding, or `params:` field — colliding with
+a callable-set entry, covering both callable kinds (bare Pi-tool names and
+post-rename `.theta`-callable names); (2) the bug-0003 shape code, unchanged
+for unshadowed callees; (3) `theta/parse/bare-object-literal` for a sole
+bare-object argument whose callee is not an unshadowed Pi tool — the
+§Object construction carve-out made lexical (the structural walk keeps
+suppressing in sole-call-argument position; the lexical walk owns the
+callee-sensitive emission; a shared builder guarantees byte-identity, so the
+two walks partition by position and never double-emit). Two refinements the
+spec forces: whole-file `fn`/import shadowers do NOT emit the new code (they
+win resolution on arms 2/3 — a legal user-`fn` call; the `tools:` collision
+is separately load-rejected), and `schema`/`enum` names no longer suppress
+the shape check or the carve-out (they are not resolution arms; no legal
+call-position use exists). Binding the shadowing name without calling it
+stays legal, preserving the §Identifier resolution shadowing sentence.
+
+**Runtime belt (mirroring 0003's structure).** Both lowerings —
+`preEvaluateToolArgs` (`src/runtime/statement-executor.ts`, the seam shared
+by the `evalExpr` call arm and the `?`/`match`-operand `evalAsResult` path)
+and `lowerToolCallParams` (`src/extension/production-theta-producer.ts`) —
+throw a new `ShadowedCalleeDispatchDefectError` (`src/runtime/tool-call.ts`,
+`theta/runtime/internal-error` surface) ahead of dispatch, before the
+theta-callable skip and the zero-arg lowering, when
+`LexicalEnvironment.localShadowsCallable` answers that the callee is a
+callable-set name shadowed by a local. The resolution is
+fn-activation-bounded (`childFnActivation`) so the no-closures model holds —
+a caller-frame `let` cannot leak into an `fn` body — while `params:`-field
+shadows stay visible inside plain `fn` bodies via a root-frame marker
+(`defineParamsFieldLocal`, populated by `buildBoundEnvironment`, which now
+also threads the presented callable names into the environment's arm-4
+registry). `PiToolArgShapeDefectError`'s message and contract are
+reconciled: the shadowed-callee cause is unreachable (this guard precedes
+the shape test in both lowerings), so the 0003 defect now names only a
+genuine gate gap. Known residual, recorded at the guard: a `params:`-field
+shadow inside a `subagent fn` body is gate-only covered — the isolated
+scope genuinely carries no `params:` locals, so a belt throw there would
+assert a gap the runtime scope model does not support.
+
+**Spec.** The registry row for `theta/parse/shadowed-callable-call` is added
+to `docs/spec_topics/diagnostics/code-registry-parse.md` (trigger, hint,
+message template — closing the gap §Expected behaviour records), the rule is
+recorded in expressions.md §Identifier resolution, and
+`docs/reference/diagnostics.md` transcribes the new row.
+
+**Tests.** `tests/shadowed-callable-call.test.ts`: the full §Reproduction
+matrix at both layers and both dispatch sites (12 red at 1d24bca6, written
+first), extended through review to 29 green cells — all six binder kinds,
+both callable kinds, both dispatch sites, the three argument forms, the
+carve-out tightening (`f({…})` on a user `fn`), the schema/enum
+tightening pins, the misattribution pin (the crashing arm rejects with the
+new defect, not `PiToolArgShapeDefectError`), and controls pinning what must
+keep working (unshadowed 0003 behaviour, binding-without-call, fn-decl
+shadowers, the no-closures boundary from both sides, `R-params` belt
+coverage). Bug-0003's residual record ("lands on the defect throw —
+fail-loud") is corrected by this report and fully closed by this fix.
+
+**Verification.** Full default suite 211 files / 2414 tests green; typecheck
+and lint clean; three review rounds (7 findings → 2 comment-only → clean);
+live e2e: the RFC 0002 computed-tool-args hardening drive (real extension
+discovery → live `AgentSession` → production `read` dispatch through the
+guarded lowerings) reads its planted sentinel — unshadowed dispatch through
+the real stack intact.
 
 ## Summary
 
