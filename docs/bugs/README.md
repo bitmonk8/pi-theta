@@ -30,3 +30,9 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0008 — Subagent child receives only the last theta discovery root when the parent has ≥ 2 roots](./0008-subagent-child-drops-all-but-last-theta-root.md) — fixed (0.17.0)
 - [0009 — Prompt-mode transport errors carry the short provider id (`.provider`) where the spec pins the api-shaped `.api`](./0009-live-prompt-queryerror-provider-field-derivation.md) — fixed (0.19.0)
 - [0010 — Typed-query forced respond turn is a user-visible `sendUserMessage` turn with a JSON-in-text instruction, not the specified off-session `complete()` with forced tool choice](./0010-typed-forced-respond-user-visible-no-toolchoice.md) — fixed (0.20.0)
+- [0011 — The production binder `complete()` call passes no tools and no `toolChoice`: the envelope is obtained by prose instruction and text parsing](./0011-binder-complete-no-forced-tool-free-text-envelope.md) — open
+- [0012 — Untyped queries surface a mid-flight abort as `Err(TransportError)` off-session (and as `Ok(<partial text>)` live), never the specified `cancelled` outcome](./0012-untyped-off-session-mid-abort-transport-not-cancelled.md) — open
+- [0013 — Load-phase warning diagnostics are dropped by both production sinks](./0013-load-warnings-dropped-by-both-production-sinks.md) — open
+- [0014 — An empty typed-query annotation (`@<>`) parses with no diagnostic and binds its payload unvalidated through the retired fused mechanism](./0014-empty-typed-query-annotation-silent-unvalidated-bind.md) — open
+- [0015 — After a postfix-`?` line, a keyword-free statement carrying a depth-0 ternary is swallowed by the ternary-head scan](./0015-postfix-question-swallows-keyword-free-ternary-stmt.md) — open
+- [0016 — A call to a lexically shadowed Pi-tool name dispatches the tool at runtime; the object-literal form executes it silently](./0016-shadowed-tool-name-runtime-dispatch.md) — open
