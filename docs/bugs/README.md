@@ -29,3 +29,4 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0007 — Off-session queries swallow a `stopReason: "error"` completion as `Ok("")`](./0007-off-session-error-stop-swallowed-as-ok-empty.md) — fixed (0.18.0)
 - [0008 — Subagent child receives only the last theta discovery root when the parent has ≥ 2 roots](./0008-subagent-child-drops-all-but-last-theta-root.md) — fixed (0.17.0)
 - [0009 — Prompt-mode transport errors carry the short provider id (`.provider`) where the spec pins the api-shaped `.api`](./0009-live-prompt-queryerror-provider-field-derivation.md) — fixed (0.19.0)
+- [0010 — Typed-query forced respond turn is a user-visible `sendUserMessage` turn with a JSON-in-text instruction, not the specified off-session `complete()` with forced tool choice](./0010-typed-forced-respond-user-visible-no-toolchoice.md) — open
