@@ -4,25 +4,12 @@ import { configDefaults } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
-    // The opt-in acceptance suites burn real tokens and need network +
-    // credentials, so the default `npm test` never runs them; each has its own
-    // runner under config/vitest/: the H8a programmatic live suite
-    // (`npm run test:live` / `config/vitest/vitest.live.config.ts`), the H9a
-    // non-interactive `pi -p` suite (`npm run test:acceptance` /
-    // `config/vitest/vitest.acceptance.config.ts`), and the V20g production-path
-    // conformance suite (`npm run test:conformance` /
-    // `config/vitest/vitest.conformance.config.ts`).
-    exclude: [
-      ...configDefaults.exclude,
-      "tests/live/**",
-      "tests/acceptance/**",
-      "tests/conformance/**",
-      // Live-host hardening probes (own runner:
-      // config/vitest/vitest.hardening.config.ts);
-      // they boot a real session against a live provider, so they never run
-      // under the default offline `npm test`.
-      "tests/hardening/**",
-    ],
+    // The opt-in live suites burn real tokens and need network + credentials,
+    // so the default `npm test` never runs them: the H8a programmatic suite and
+    // the H9a non-interactive `pi -p` suite both live under `tests/live/**` and
+    // share one runner (`npm run test:live` /
+    // `config/vitest/vitest.live.config.ts`).
+    exclude: [...configDefaults.exclude, "tests/live/**"],
     environment: "node",
   },
 });

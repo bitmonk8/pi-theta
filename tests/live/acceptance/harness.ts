@@ -5,9 +5,9 @@
 // stderr, and exit code, so the acceptance suite drives theta the way an operator
 // actually runs it — through real extension auto-load, flag/arg parsing, and
 // discovery — rather than through the H8a programmatic `createAgentSession`
-// harness. It exists only to give the opt-in `npm run test:acceptance` suite a
-// live, black-box `pi -p` driver; it is excluded from the default `npm test`
-// and from the H8a `npm run test:live` suite (see `config/vitest/vitest.acceptance.config.ts`).
+// harness. It exists only to give the H9a half of the opt-in `npm run
+// test:live` suite a live, black-box `pi -p` driver; it is excluded from the
+// default `npm test` (see `config/vitest/vitest.live.config.ts`).
 //
 // INTENDED-REASON RED (current H9a-T state): the fuller feature-theta fixtures
 // this suite drives — one `.theta` per functionality area (a)–(i) — are NOT yet
@@ -26,21 +26,21 @@ import { assert } from "vitest";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
-} from "../../src/seams/schema-validator";
+} from "../../../src/seams/schema-validator";
 import {
   buildBinderEnvelopeSchema,
   type BuildBinderEnvelopeSchemaInput,
-} from "../../src/binder/binder-envelope";
+} from "../../../src/binder/binder-envelope";
 import {
   ModelRegistry,
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { SUBAGENT_EXTENSION_PIN_ENV } from "../../src/runtime/subagent-launcher";
+import { SUBAGENT_EXTENSION_PIN_ENV } from "../../../src/runtime/subagent-launcher";
 
 /** The real `pi` CLI entry the acceptance runner spawns (the shipped `pi -p` binary). */
 export const PI_CLI_ENTRY = fileURLToPath(
   new URL(
-    "../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+    "../../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
     import.meta.url,
   ),
 );
@@ -54,16 +54,16 @@ export const PI_CLI_ENTRY = fileURLToPath(
  * globally-installed theta build from an unrelated checkout.
  */
 export const EXTENSION_ENTRY = fileURLToPath(
-  new URL("../../extensions", import.meta.url),
+  new URL("../../../extensions", import.meta.url),
 );
 
 /**
  * Resolve the live provider/model the spawned `pi -p` session drives its turns
  * against. By default this resolves the operator's CONFIGURED default the same
- * way the H8a live suite (`tests/live/harness.ts` `requireLiveProvider`) does —
+ * way the H8a half (`tests/live/harness.ts` `requireLiveProvider`) does —
  * `ModelRegistry.getAvailable()`, preferring `opus` — so the acceptance suite
- * drives the model the operator actually runs (symmetric with
- * `npm run test:live`) rather than a hardcoded provider/model. Setting BOTH
+ * drives the model the operator actually runs rather than a hardcoded
+ * provider/model. Setting BOTH
  * `PI_THETA_ACC_PROVIDER` and `PI_THETA_ACC_MODEL` pins a specific live host
  * without editing the suite. `pi -p` inherits `process.env`, so a missing
  * credential surfaces as the live-host precondition failure (never a silent
@@ -91,7 +91,7 @@ export async function resolveAcceptanceHost(): Promise<{
     failLoudly(
       "live-host precondition unmet: no live provider/model configured " +
         "(ModelRegistry.getAvailable() is empty). Configure a provider and " +
-        "credentials before running `npm run test:acceptance`, or pin one with " +
+        "credentials before running `npm run test:live`, or pin one with " +
         "PI_THETA_ACC_PROVIDER + PI_THETA_ACC_MODEL; this suite never silently " +
         "skips.",
     );
@@ -118,7 +118,7 @@ export const FEATURE_THETA_DIR = fileURLToPath(
  * manual smoke never diverge into separate permitted-code sets.
  */
 export const PERMITTED_CODES_PATH = fileURLToPath(
-  new URL("../fixtures/h7a/permitted-codes.json", import.meta.url),
+  new URL("../../fixtures/h7a/permitted-codes.json", import.meta.url),
 );
 
 /** Fail loudly (never a silent skip — *No silent test skipping*), narrowing to `never`. */

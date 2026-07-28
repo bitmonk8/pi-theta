@@ -50,10 +50,8 @@ import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
 // and the real whole-file parser (`parseThetaDocument`) — rather than through the
 // isolated per-module seams. It is the regression net for the meta-failure the
 // hardening campaign exposed: 1539 isolated unit tests stayed green while the
-// shipped dispatch was broken. It runs under a dedicated runner
-// (`npm run test:conformance` / `config/vitest/vitest.conformance.config.ts`) excluded from the
-// default `npm test`, a sibling to the H8a `test:live` and H9a `test:acceptance`
-// runners.
+// shipped dispatch was broken. It is deterministic and offline (no live model
+// turn), so it runs as part of the default `npm test`.
 //
 // Convention: conventions.md (phase categories — end-to-end harness; the
 // live-host acceptance pair exception). Narrative spec references:

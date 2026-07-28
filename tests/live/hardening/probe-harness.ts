@@ -50,7 +50,7 @@ import {
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 export const SHIPPED_EXTENSION_ENTRY = fileURLToPath(
-  new URL("../../extensions/index.ts", import.meta.url),
+  new URL("../../../extensions/index.ts", import.meta.url),
 );
 
 export function failLoudly(message: string): never {
@@ -140,7 +140,18 @@ export interface ProbeTurn {
    */
   readonly systemNotes: readonly string[];
   /** Any error thrown while driving this invocation. */
-  readonly error?: string;
+  readonly error?: string | undefined;
+}
+
+/** The recorded turn at `index` (default 0), failing loudly when absent (never a silent skip). */
+export function turnAt(probe: ProbeResult, index = 0): ProbeTurn {
+  const turn = probe.turns[index];
+  if (turn === undefined) {
+    throw new Error(
+      `probe recorded no turn at index ${index} (turns=${probe.turns.length})`,
+    );
+  }
+  return turn;
 }
 
 export interface ProbeResult {

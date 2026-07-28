@@ -71,7 +71,7 @@ export const SUBAGENT_PARENT_PID_ENV = "PI_THETA_SUBAGENT_PARENT_PID";
  * `-ne -e <dir>` to the child argv, so the child loads EXACTLY that theta
  * extension build instead of whatever ambient discovery finds. Production
  * default (var absent): ambient discovery, unchanged. Set by the acceptance
- * harness (tests/acceptance/harness.ts), which pins the OUTER `pi -p` process
+ * harness (tests/live/acceptance/harness.ts), which pins the OUTER `pi -p` process
  * to the working tree's `extensions/` the same way — without the pin the INNER
  * child can silently bind to a stale globally-installed theta build (a
  * parent/child version-skew hazard; bug 0002 defect 2). Because the child

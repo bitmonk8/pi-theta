@@ -23,7 +23,7 @@
 // return validation), XMODE-* are prior findings and not re-reported.
 
 import { describe, it, expect } from "vitest";
-import { requireLiveProvider, runProbe } from "./probe-harness";
+import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
 import type { PlantedFile } from "./probe-harness";
 
 const provider = requireLiveProvider();
@@ -65,7 +65,7 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
         drives: ["/fparent"],
       });
       try {
-        const t = probe.turns[0];
+        const t = turnAt(probe);
         const joined = t.userTexts.join("\n");
         console.log("CONV-3 userTexts:", JSON.stringify(t.userTexts));
         console.log("CONV-3 error:", t.error);
@@ -159,7 +159,7 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
         drives: ["/drive"],
       });
       try {
-        const t = probe.turns[0];
+        const t = turnAt(probe);
         const U = t.userTexts.join("\n");
         console.log("BATCH userTexts:", JSON.stringify(t.userTexts));
         console.log("BATCH error:", t.error);

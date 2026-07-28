@@ -305,7 +305,7 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
  * parent awaits the `theta_result` envelope, the child awaits stdin EOF —
  * deadlock on every uncancelled run. `"ignore"` gives the child an
  * already-closed stdin so it runs immediately — the same treatment the acceptance harness applies to the outer
- * `pi -p` process it spawns (tests/acceptance/harness.ts). The child needs no
+ * `pi -p` process it spawns (tests/live/acceptance/harness.ts). The child needs no
  * stdin input: params ride PIC-60's env/temp-file channel, and cancellation is
  * the PIC-66 kill.
  */

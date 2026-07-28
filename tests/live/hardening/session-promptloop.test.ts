@@ -17,12 +17,12 @@
 //     tail (unhandled), so the slash boundary emits the SNK-h note.
 //   * default (25)   => the chain completes (final marker reached), no exhaustion.
 //
-// Findings: PL-1 (tests/hardening/session-findings/promptloop.md). Spec:
+// Spec:
 // frontmatter.md (FRNT-1), hard-ceilings.md (ceiling #2 / CIO-4),
 // errors-and-results.md (ERR-19), discovery-cli.md (SNK-h).
 
 import { describe, it, expect } from "vitest";
-import { requireLiveProvider, runProbe } from "./probe-harness";
+import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
 import type { PlantedFile } from "./probe-harness";
 
 const provider = requireLiveProvider();
@@ -88,7 +88,7 @@ describe("prompt-mode tool_loop.max_rounds enforcement (ceiling #2 / STAGE B)", 
         }),
       );
       try {
-        const t = probe.turns[0];
+        const t = turnAt(probe);
         const notes = t.systemNotes.join("\n");
         // eslint-disable-next-line no-console
         console.log("PL-1 systemNotes:", JSON.stringify(t.systemNotes));
@@ -139,7 +139,7 @@ describe("prompt-mode tool_loop.max_rounds enforcement (ceiling #2 / STAGE B)", 
         }),
       );
       try {
-        const t = probe.turns[0];
+        const t = turnAt(probe);
         const notes = t.systemNotes.join("\n");
         // eslint-disable-next-line no-console
         console.log("PL-1-control assistantText:", JSON.stringify(t.assistantText));

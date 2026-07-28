@@ -27,10 +27,10 @@
 // literal text. It is bound to `_` (explicit discard) so it still dispatches a
 // user-visible turn without tripping QRY-19; the second stays the void tail.
 //
-// Findings: QTL-1 (tests/hardening/cli-findings/queries-toolloop.md).
+
 
 import { describe, it, expect } from "vitest";
-import { requireLiveProvider, runProbe } from "./probe-harness";
+import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
 import type { PlantedFile } from "./probe-harness";
 
 const provider = requireLiveProvider();
@@ -61,7 +61,7 @@ describe("prompt-mode user-visible streaming for every query (SLSH-2 / QTL-1)", 
         drives: ["/twostream"],
       });
       try {
-        const t = probe.turns[0];
+        const t = turnAt(probe);
         console.log("QTL-1 assistantText:", JSON.stringify(t.assistantText));
         console.log("QTL-1 userTexts:", JSON.stringify(t.userTexts));
         console.log("QTL-1 error:", t.error);

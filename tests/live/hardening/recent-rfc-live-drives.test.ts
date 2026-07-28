@@ -5,7 +5,7 @@
 //
 // State: LIVE tier (boots the shipped extension against a REAL AgentSession and
 // a REAL provider via requireLiveProvider(); excluded from the default offline
-// `npm test`, which does not collect tests/hardening/**). Each drive issues real
+// `npm test`, which does not collect tests/live/**). Each drive issues real
 // model turns and is TOKEN-BOUNDED to a few short turns.
 //
 // DETERMINISM DISCIPLINE (binding): every assertion reads only a DETERMINISTIC

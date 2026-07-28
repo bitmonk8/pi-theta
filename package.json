@@ -44,9 +44,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint --no-error-on-unmatched-pattern \"src/**/*.ts\"",
     "test": "vitest run",
-    "test:live": "vitest run --config config/vitest/vitest.live.config.ts",
-    "test:acceptance": "vitest run --config config/vitest/vitest.acceptance.config.ts",
-    "test:conformance": "vitest run --config config/vitest/vitest.conformance.config.ts"
+    "test:live": "vitest run --config config/vitest/vitest.live.config.ts"
   },
   "dependencies": {
     "ajv": "^8.17.1",

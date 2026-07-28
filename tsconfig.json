@@ -17,6 +17,5 @@
     "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["src", "tests", "extensions"],
-  "exclude": ["tests/hardening"]
+  "include": ["src", "tests", "extensions"]
 }

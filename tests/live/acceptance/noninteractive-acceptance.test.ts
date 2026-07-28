@@ -11,9 +11,9 @@
 // emitted `theta-system-note` codes ⊆ the committed permitted-code list. It is
 // Phase 1 of the two-phase theta 1.0 release gate (real-host-smoke-gate.md).
 //
-// It has its own runner (`config/vitest/vitest.acceptance.config.ts` / `npm run
-// test:acceptance`), excluded from the default `npm test` and the H8a
-// `npm run test:live` suite; it spends real tokens and needs a live host. It
+// It is the H9a half of the opt-in live suite (`config/vitest/vitest.live.config.ts`
+// / `npm run test:live`, alongside the H8a programmatic suite), excluded from
+// the default `npm test`; it spends real tokens and needs a live host. It
 // closes no spec REQ-ID and adds no coverage-matrix row (the live-host
 // acceptance pair exception, as for H8a).
 //
@@ -285,9 +285,9 @@ describe("H9a-T (d) params theta forcing an OFF-session binder pass (no envelope
     // on `pi -p` print-mode text stdout (custom system-note renderer output is
     // not streamed to print-mode stdout; DOC-73 / FIND-S7-4 / D2). The
     // black-box acceptance harness captures only stdout/stderr, so it cannot and
-    // must not assert the note on stdout — that channel observation belongs to
-    // the in-process `tests/hardening/session-binder.test.ts` probe, which reads
-    // `turn.systemNotes` for `Running /<stem>: …`. Here the spec-promised stdout
+    // must not assert the note on stdout — that channel observation is pinned
+    // offline by `tests/e2e-s5-binder-echo-emission.test.ts`, which asserts the
+    // `Running /<stem>: …` note on the theta-system-note channel. Here the spec-promised stdout
     // observables are the ones asserted above: no-error exit, permitted codes,
     // and no envelope leak.
   });
