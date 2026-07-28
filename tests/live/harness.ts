@@ -32,10 +32,36 @@ import type {
   ExtensionRunner,
   ResolvedCommand,
 } from "@earendil-works/pi-coding-agent";
+import { SUBAGENT_EXTENSION_PIN_ENV } from "../../src/runtime/subagent-launcher";
 
 /** The shipped Pi extension entry — the way Pi loads theta (re-exports the `src/**` factory). */
 export const SHIPPED_EXTENSION_ENTRY = fileURLToPath(
   new URL("../../extensions/index.ts", import.meta.url),
+);
+
+// #subagent-child-pins — this harness is an IN-PROCESS vitest host, not a real
+// `pi` process, so the RFC-0006 subagent-child launch machinery (reached by the
+// H8a-T subagent-mode drive through the shipped composition root's
+// `createProductionSpawnFn`) would otherwise mis-resolve both of its ambient
+// inputs, exactly as the hardening probe harness documents:
+//   • executable — rung 1 of the two-rung ladder
+//     (production-subagent-host.ts `createExecutableHost`) reads
+//     `process.argv[1]`, which under vitest is VITEST's entry script; the
+//     subagent-mode drive would spawn `node <vitest-entry> … -p "/<slug>"` and
+//     die instantly as a fail-closed infra error. Point argv[1] at the real pi
+//     CLI entry so rung 1 resolves the child the way a real `pi` parent does.
+//   • extension identity — without the #subagent-extension-pin env (bug 0002
+//     defect 2) the child relies on ambient extension discovery and can bind a
+//     stale globally-installed theta build (or none at all) instead of THIS
+//     working tree. Pin every spawned child to the tree under test, exactly as
+//     the H9a acceptance harness and the hardening probe harness do.
+// Both mutations are process-global but vitest isolates each test FILE in its
+// own worker process, so they scope to this harness's importers.
+process.argv[1] = fileURLToPath(
+  new URL("../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
+);
+process.env[SUBAGENT_EXTENSION_PIN_ENV] = fileURLToPath(
+  new URL("../../extensions", import.meta.url),
 );
 
 /** A live model resolved from `getAvailable()`. */
@@ -148,6 +174,12 @@ export function plantThetaWorkspace(thetas: readonly PlantedTheta[]): LiveWorksp
 export interface LiveExtensionHandle {
   readonly session: AgentSession;
   readonly runner: ExtensionRunner;
+  /**
+   * The in-memory `SessionManager` backing the session — the deterministic
+   * settled-transcript read used to observe `theta-system-note` entries (the
+   * SLSH-3 top-level err note, panic framings, …) independent of event timing.
+   */
+  readonly sessionManager: SessionManager;
   /** The slash command discovery registered under `stem`, or `undefined` if none. */
   command(stem: string): ResolvedCommand | undefined;
   /** Slash-command names the shipped extension registered after `session_start`. */
@@ -182,6 +214,7 @@ export async function bootShippedExtension(options: {
   });
   await resourceLoader.reload();
 
+  const sessionManager = SessionManager.inMemory(workspace.cwd);
   const { session } = await createAgentSession({
     cwd: workspace.cwd,
     agentDir,
@@ -190,7 +223,7 @@ export async function bootShippedExtension(options: {
     modelRuntime: provider.modelRuntime,
     model: provider.model,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(workspace.cwd),
+    sessionManager,
   });
 
   const runner = session.extensionRunner;
@@ -208,6 +241,7 @@ export async function bootShippedExtension(options: {
   return {
     session,
     runner,
+    sessionManager,
     command: (stem: string) => runner.getCommand(stem),
     registeredNames: () => runner.getRegisteredCommands().map((c) => c.name),
     dispose: async (): Promise<void> => {
@@ -227,6 +261,71 @@ export async function driveSlashCaptureText(
   session: AgentSession,
   slashInvocation: string,
 ): Promise<string> {
+  return (await driveSlash(session, slashInvocation)).text;
+}
+
+/** What one driven slash invocation made observable. */
+export interface DrivenTurn {
+  /** Streamed assistant text of the user session (stochastic). */
+  readonly text: string;
+  /**
+   * `theta-system-note` channel entries appended during THIS drive, read off
+   * the settled in-memory `SessionManager` after `prompt()` resolves
+   * (deterministic; no dependence on event timing). EVERY fail-closed ending
+   * of a top-level drive lands here — the SLSH-3 err note
+   * (`theta /<name> returned Err: …`), the cancelled note (`theta /<name>
+   * cancelled`), and the panic framings (`theta /<name> aborted…`) — so a test
+   * asserting their absence reds when the drive failed, even though `prompt()`
+   * itself resolves (failures are surfaced as notes, not throws).
+   */
+  readonly systemNotes: readonly string[];
+}
+
+/**
+ * Drive one live turn via a registered slash command and capture BOTH the
+ * streamed assistant text and the `theta-system-note` entries the drive
+ * appended. Used where the pass/fail observable is the note channel — e.g. the
+ * subagent-mode drive, whose spawned transcript is private (no user-session
+ * text streams), leaving the absence of a fail-closed note as the success
+ * signal.
+ */
+export async function driveSlashCaptureTurn(
+  handle: LiveExtensionHandle,
+  slashInvocation: string,
+): Promise<DrivenTurn> {
+  const entriesBefore = handle.sessionManager.getEntries().length;
+  const driven = await driveSlash(handle.session, slashInvocation);
+  // Slice off only the entries THIS drive appended, then extract the
+  // `theta-system-note` channel contents (string or text-part-array content).
+  const appended = handle.sessionManager.getEntries().slice(entriesBefore);
+  return { text: driven.text, systemNotes: collectSystemNotes(appended) };
+}
+
+/**
+ * Extract the `theta-system-note` channel contents from a slice of in-memory
+ * SessionManager entries (their `content`, string or text-part array). Mirrors
+ * the hardening probe harness's reader of the same channel.
+ */
+function collectSystemNotes(entries: readonly unknown[]): readonly string[] {
+  const notes: string[] = [];
+  for (const entry of entries) {
+    const e = entry as { customType?: string; content?: unknown };
+    if (e.customType !== "theta-system-note") continue;
+    if (typeof e.content === "string") notes.push(e.content);
+    else if (Array.isArray(e.content)) {
+      for (const part of e.content) {
+        const t = (part as { text?: string }).text;
+        if (typeof t === "string") notes.push(t);
+      }
+    }
+  }
+  return notes;
+}
+
+async function driveSlash(
+  session: AgentSession,
+  slashInvocation: string,
+): Promise<{ text: string }> {
   let text = "";
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     if (event.type === "message_update") {
@@ -241,5 +340,5 @@ export async function driveSlashCaptureText(
   } finally {
     unsubscribe();
   }
-  return text;
+  return { text };
 }

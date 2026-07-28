@@ -26,6 +26,7 @@ import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureText,
+  driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
@@ -306,12 +307,29 @@ describe("H8a-T — subagent-mode drive against a live model (Convention: live-h
           "no discovered theta. Registered: " + JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
 
-      // The fixed subagent driver spawns, drives the private session to its
-      // terminal `agent_end`, extracts the result, and tears the session down;
-      // the invocation resolves cleanly (no forced mid-stream cancel). The
-      // spawned session is private, so no user-session assistant text streams —
-      // the observable here is a clean drive-to-completion, not stdout content.
-      await expect(driveSlashCaptureText(handle.session, "/subrun")).resolves.toBeDefined();
+      // The subagent driver spawns a REAL child `pi` process (RFC-0006),
+      // awaits its `theta_result` envelope, and tears the child down; the
+      // invocation resolves cleanly. The spawned transcript is private, so no
+      // user-session assistant text streams — and `prompt()` resolves even on a
+      // fail-closed drive (failures surface as notes, not throws), so
+      // resolution alone witnesses nothing. The deterministic observable is
+      // the `theta-system-note` channel: EVERY fail-closed ending of a
+      // top-level drive lands there — the SLSH-3 err note (`theta /subrun
+      // returned Err: …`), the cancelled note (`theta /subrun cancelled`), or
+      // a panic framing (`theta /subrun aborted…`) — while a successful drive
+      // appends none of them. Asserting their absence reds this test when the
+      // child path is broken — e.g. the harness mis-resolves the child
+      // executable or the child binds a stale ambient extension build (the
+      // #subagent-child-pins hazards in ./harness.ts).
+      const turn = await driveSlashCaptureTurn(handle, "/subrun");
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/subrun (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the subagent drive did not reach a success terminal — it surfaced " +
+          "fail-closed system note(s): " + JSON.stringify(failureNotes),
+      ).toEqual([]);
     } finally {
       await handle.dispose();
       workspace.dispose();
