@@ -59,13 +59,10 @@ export const EXTENSION_ENTRY = fileURLToPath(
 
 /**
  * Resolve the live provider/model the spawned `pi -p` session drives its turns
- * against. By default this resolves the operator's CONFIGURED default the same
- * way the H8a half (`tests/live/harness.ts` `requireLiveProvider`) does —
- * `ModelRegistry.getAvailable()`, preferring `opus` — so the acceptance suite
- * drives the model the operator actually runs rather than a hardcoded
- * provider/model. Setting BOTH
- * `PI_THETA_ACC_PROVIDER` and `PI_THETA_ACC_MODEL` pins a specific live host
- * without editing the suite. `pi -p` inherits `process.env`, so a missing
+ * against — the ONE model-selection rule every `npm run test:live` half shares
+ * (`tests/live/harness.ts` `requireLiveProvider`, this resolver, and
+ * `tests/live/hardening/probe-harness.ts`): `ModelRegistry.getAvailable()`,
+ * preferring `claude-sonnet-5`. `pi -p` inherits `process.env`, so a missing
  * credential surfaces as the live-host precondition failure (never a silent
  * skip).
  */
@@ -73,11 +70,6 @@ export async function resolveAcceptanceHost(): Promise<{
   readonly provider: string;
   readonly model: string;
 }> {
-  const envProvider = process.env["PI_THETA_ACC_PROVIDER"];
-  const envModel = process.env["PI_THETA_ACC_MODEL"];
-  if (envProvider !== undefined && envModel !== undefined) {
-    return { provider: envProvider, model: envModel };
-  }
   // 0.80.x: `ModelRegistry.create` is gone and `AuthStorage` is no longer a
   // public root export. Build the canonical `ModelRuntime` (its default
   // `CredentialStore` reads the operator's `agentDir/auth.json`), wrap it in the
@@ -91,17 +83,16 @@ export async function resolveAcceptanceHost(): Promise<{
     failLoudly(
       "live-host precondition unmet: no live provider/model configured " +
         "(ModelRegistry.getAvailable() is empty). Configure a provider and " +
-        "credentials before running `npm run test:live`, or pin one with " +
-        "PI_THETA_ACC_PROVIDER + PI_THETA_ACC_MODEL; this suite never silently " +
-        "skips.",
+        "credentials before running `npm run test:live`; this suite never " +
+        "silently skips.",
     );
   }
   const idOf = (m: unknown): string => (m as { id?: string }).id ?? "";
   const providerOf = (m: unknown): string =>
     (m as { provider?: string }).provider ?? "";
   const model =
-    available.find((m) => idOf(m) === "claude-opus-4-8") ??
-    available.find((m) => idOf(m).includes("opus")) ??
+    available.find((m) => idOf(m) === "claude-sonnet-5") ??
+    available.find((m) => idOf(m).includes("sonnet")) ??
     available[0];
   return { provider: providerOf(model), model: idOf(model) };
 }
@@ -391,8 +382,8 @@ export interface SpawnPiPrintOptions {
  */
 export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrintResult> {
   const thetaDirs = [options.thetaDir, ...(options.extraThetaDirs ?? [])];
-  // Drive the turns against the operator's configured default model (resolved
-  // like the H8a live suite), or an explicit PI_THETA_ACC_* pin.
+  // Drive the turns against the model the shared live-suite selection rule
+  // resolves (see resolveAcceptanceHost).
   const host = await resolveAcceptanceHost();
   const args = [
     PI_CLI_ENTRY,

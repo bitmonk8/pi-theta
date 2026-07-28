@@ -94,8 +94,8 @@ async function resolveLiveProvider(): Promise<ResolvedProvider> {
   }
   const idOf = (m: unknown): string => (m as { id?: string }).id ?? "";
   const model =
-    available.find((m) => idOf(m) === "claude-opus-4-8") ??
-    available.find((m) => idOf(m).includes("opus")) ??
+    available.find((m) => idOf(m) === "claude-sonnet-5") ??
+    available.find((m) => idOf(m).includes("sonnet")) ??
     available[0];
   if (model === undefined) failLoudly("no resolvable live model");
   return { modelRuntime, modelRegistry, model, modelId: idOf(model) };

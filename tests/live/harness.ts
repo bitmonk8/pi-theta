@@ -59,9 +59,10 @@ export interface LiveProvider {
  * Resolve the live-host precondition: a configured, credentialed live
  * provider/model. When none is configured this **fails loudly** naming the
  * missing precondition (never a silent skip), per the leaf's *fails loudly when
- * its live-provider precondition is unmet*. Prefers the shipping default model
- * (`claude-opus-4-8`) so the suite exercises the same model the operator runs,
- * rather than a divergent cheap stand-in.
+ * its live-provider precondition is unmet*. Model selection is the ONE rule
+ * every `npm run test:live` half shares (this resolver, the acceptance
+ * harness, and the probe harness): prefer `claude-sonnet-5`, else the first
+ * `sonnet` id, else the first available model.
  */
 export async function requireLiveProvider(): Promise<LiveProvider> {
   // 0.80.x: `ModelRegistry.create` is gone and `AuthStorage` is no longer a
@@ -82,13 +83,13 @@ export async function requireLiveProvider(): Promise<LiveProvider> {
         "silently skips.",
     );
   }
-  const preferredFirst = ["claude-opus-4-8"];
+  const preferredFirst = ["claude-sonnet-5"];
   const idOf = (m: LiveModel): string => (m as { id?: string }).id ?? "";
   const model =
     preferredFirst
       .map((id) => available.find((m) => idOf(m) === id))
       .find((m): m is LiveModel => m !== undefined) ??
-    available.find((m): m is LiveModel => idOf(m).includes("opus")) ??
+    available.find((m): m is LiveModel => idOf(m).includes("sonnet")) ??
     available[0];
   if (model === undefined) {
     failLoudly("live-host precondition unmet: no resolvable live model.");

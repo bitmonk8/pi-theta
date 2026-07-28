@@ -1,6 +1,6 @@
 ---
 mode: prompt
-model: anthropic/claude-opus-4-8
+model: anthropic/claude-sonnet-5
 tools:
   - read_file
   - search

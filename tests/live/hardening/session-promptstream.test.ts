@@ -17,7 +17,7 @@
 //
 // The load-bearing SLSH-2/QTL-1 claim ("both queries dispatch a user-visible
 // turn") is pinned on `userTexts` (model-independent), NOT on the model obeying
-// "Reply with exactly" — opus does not reliably obey that, so asserting
+// "Reply with exactly" — live models do not reliably obey that, so asserting
 // `assistantText` contains the sentinel is flaky. `assistantText` is only
 // checked non-empty to confirm each turn streamed.
 //
@@ -76,7 +76,7 @@ describe("prompt-mode user-visible streaming for every query (SLSH-2 / QTL-1)", 
         // send the literal "/twostream" to the model instead.
         expect(t.userTexts.join("\n")).not.toContain("/twostream");
         // Each dispatched turn streamed a non-empty reply into the transcript.
-        // (NOT asserting the sentinel content — opus does not reliably obey
+        // (NOT asserting the sentinel content — live models do not reliably obey
         // "Reply with exactly", so a content assert is flaky; dispatch is the
         // SLSH-2/QTL-1 contract and is pinned by userTexts above.)
         expect(t.assistantText.length).toBeGreaterThan(0);
