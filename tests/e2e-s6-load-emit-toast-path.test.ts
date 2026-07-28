@@ -13,19 +13,25 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 //
 // code-surface.md §5 flags a "load-phase routing gap": full `theta-system-note`
 // routing for discovery diagnostics is deferred on the `makeLoadEmit` path
-// (production-composition.ts:120). It is CLOSED on the shipped default export's
-// `composeExtensionInstance` path (proven by
-// tests/load-phase-pre-eval-routing.test.ts). This test pins the ACTUAL
-// behaviour of the OTHER path — `discoverAndComposeFixtures`, used by the H8a
-// `discoverFixtures` wiring / hardening probe harness — so the gap is a
-// documented, tested state rather than an unknown: a load/parse error surfaces
-// via the transient `ctx.ui.notify(message,"error")` toast AND, in the no-UI
-// (`-p` / CI / RPC) case, is mirrored to `process.stderr` (never the note
-// channel, never stdout). The failing theta is dropped; siblings still compose.
+// (production-composition.ts:166-182 — the router holds no channel deps). It
+// is CLOSED on the shipped default export's `composeExtensionInstance` path
+// (proven by tests/load-phase-pre-eval-routing.test.ts). This test pins the
+// ACTUAL behaviour of the OTHER path — `discoverAndComposeFixtures`, used by
+// the H8a `discoverFixtures` wiring / hardening probe harness — so the gap is
+// a documented, tested state rather than an unknown. The router is
+// severity-routed (bug 0013): a load/parse ERROR surfaces via the transient
+// `ctx.ui.notify(message,"error")` toast AND, in the no-UI (`-p` / CI / RPC)
+// case, is mirrored to `process.stderr`; a load-phase WARNING is mirrored to
+// that SAME no-UI stderr arm ONLY — never a toast (the `UiNotifier` surface
+// is error-typed). Neither severity ever reaches the note channel or stdout
+// on this path. The failing theta is dropped; siblings still compose. The
+// warning arm's delivery contract is pinned in
+// tests/load-warning-delivery.test.ts (B cells); here it appears as the
+// tolerated settings-warning stderr lines in the clean-load cell.
 //
 // Spec: errors-and-results/error-model.md (pre-eval failure surfacing);
 // REQ-PIC-11/87 surfacing surface; the FMC-1 / DISCLI-2 / IMPORTS-3 no-UI gap
-// noted inline at production-composition.ts:127-141.
+// noted inline at production-composition.ts:188-199.
 
 const GOOD_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join(
   "\n",
@@ -119,7 +125,7 @@ describe("S6 — discoverAndComposeFixtures load diagnostics route to the ctx.ui
       // No-UI (`-p`/CI/RPC) mirror to stderr so the failure is not silent.
       const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
       expect(stderrText).toMatch(/theta\/load\/unknown-tool/);
-      // stderr line is prefixed `theta: ` per production-composition.ts:139.
+      // stderr line is prefixed `theta: ` per production-composition.ts:201.
       expect(stderrText).toMatch(/^theta: /m);
 
       // This path does NOT route load diagnostics onto the note channel.
@@ -157,7 +163,7 @@ describe("S6 — discoverAndComposeFixtures load diagnostics route to the ctx.ui
     }
   });
 
-  it("a clean load produces no error toast and no stderr mirror", async () => {
+  it("a clean load produces no error toast and no error stderr mirror", async () => {
     writeFileSync(join(thetaDir, "goodtool.theta"), GOOD_THETA, "utf8");
 
     const recorder: Recorder = { notifications: [], notes: [] };
@@ -172,8 +178,24 @@ describe("S6 — discoverAndComposeFixtures load diagnostics route to the ctx.ui
       );
       expect(thetas.map((l) => l.slashName)).toContain("goodtool");
       expect(recorder.notifications.filter((n) => n.type === "error")).toHaveLength(0);
+      // The headless mirror carries WARNING lines too (bug 0013), and this
+      // workspace is not warning-free: the settings source reads BOTH halves
+      // through the real filesystem (no home-dir seam), so the planted
+      // workspace's missing `.pi/settings.json` emits
+      // `theta/load/settings-unreadable`, while the runner's REAL global
+      // `~/.pi/agent/settings.json` is machine-dependent — missing (→
+      // `settings-unreadable`) or present but malformed JSON (→
+      // `theta/load/settings-invalid-json`); both are the settings-source W
+      // rows of package-and-settings.md §Failure modes. The clean-load pin is
+      // therefore: every theta line on stderr is a settings-source WARNING —
+      // nothing error-severity, nothing about the planted theta.
       const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
-      expect(stderrText).not.toMatch(/theta\//);
+      const thetaLines = stderrText
+        .split("\n")
+        .filter((line) => line.includes("theta/"));
+      for (const line of thetaLines) {
+        expect(line).toMatch(/theta\/load\/settings-(unreadable|invalid-json)/);
+      }
     } finally {
       stderrSpy.mockRestore();
     }

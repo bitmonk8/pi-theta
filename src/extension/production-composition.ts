@@ -132,6 +132,7 @@ import {
 } from "./reload-wiring";
 import {
   SYSTEM_NOTE_CHANNEL,
+  emitDiagnosticBatch,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import {
@@ -162,24 +163,36 @@ export interface ComposeSeamOverrides {
 }
 
 /**
- * The error-severity diagnostic router the shipped load path uses: a transient
- * toast (`ctx.ui.notify`), mirrored to stderr in headless print / RPC mode.
- * See notes.md — full `theta-system-note` routing for discovery diagnostics is
- * deferred (the known load-phase routing gap).
+ * The per-diagnostic toast/stderr router for the H8a helper path, retained on
+ * the shipped path only as the note channel's off-channel delivery-failure
+ * fallback. Severity-routed:
+ *
+ *  - error   → transient toast (`ctx.ui.notify`), mirrored to stderr in
+ *              headless print / RPC mode;
+ *  - warning → headless stderr ONLY. diagnostic-shape.md's
+ *              persistent-diagnostics default carries no severity carve-out,
+ *              but this router cannot reach the `theta-system-note` channel:
+ *              it holds no channel deps, its `UiNotifier` surface is typed
+ *              `"error"`-only (and the transient-toast MUST NOT forbids
+ *              toasting author-facing diagnostics as a primary sink anyway),
+ *              and its fallback instance must stay off-channel so a throwing
+ *              `pi.sendMessage` never re-enters the channel (PIC-54). stderr
+ *              is the one surface a warning can use here without violating
+ *              either constraint.
  */
 function makeLoadEmit(ctx: ExtensionContext): (diagnostic: Diagnostic) => void {
   return (diagnostic: Diagnostic): void => {
-    if (diagnostic.severity !== "error") {
-      return;
+    if (diagnostic.severity === "error") {
+      ctx.ui.notify(diagnostic.message, "error");
     }
-    ctx.ui.notify(diagnostic.message, "error");
     // In headless print / RPC mode there is no UI, so `ctx.ui.notify` resolves to
-    // the runner's default no-op and every load/parse error that drops a theta
-    // would vanish: the slash command silently fails to register, the raw
+    // the runner's default no-op and every load/parse diagnostic would vanish: a
+    // dropped theta's slash command silently fails to register (the raw
     // `/stem …` text is forwarded to the model as chat, and the run still exits 0
-    // — the user gets no signal their theta is broken (the exact FMC-1 / DISCLI-2 /
-    // IMPORTS-3 gap). Mirror the diagnostic to stderr in that case so a `-p` / CI
-    // user observes it. stderr (never stdout) is used so the model reply and the
+    // — the exact FMC-1 / DISCLI-2 / IMPORTS-3 gap), and a warning's condition
+    // (a shadowed theta, a typo'd settings file) has no other observable at all.
+    // Mirror the diagnostic to stderr in that case so a `-p` / CI user observes
+    // it. stderr (never stdout) is used so the model reply and the
     // `--mode json` event stream on stdout stay uncorrupted. `process.stderr` is
     // not a gated ambient primitive (no-ambient-primitives MEMBER_RULES covers
     // `process.env` / `process.cwd` only), and this write is confined to the
@@ -187,6 +200,47 @@ function makeLoadEmit(ctx: ExtensionContext): (diagnostic: Diagnostic) => void {
     if (!ctx.hasUI) {
       process.stderr.write(`theta: ${renderDiagnosticLine(diagnostic)}\n`);
     }
+  };
+}
+
+/**
+ * The per-pass load-diagnostic sink `runComposePass` emits through. `emit`
+ * delivers one diagnostic; `emitGroup` delivers one already-assembled group
+ * (one `.theta`'s parse batch, one subsystem scan) so a sink with a batching
+ * warning arm keeps a file's warnings inside ONE `theta-system-note`
+ * (diagnostic-shape.md multi-error reporting: one `pi.sendMessage` per
+ * `.theta`) instead of fanning out one note per warning. Both arms deliver
+ * synchronously at the call site — neither buffers across calls — so no
+ * warning can rot undelivered when a pass ends (or unwinds mid-way), and a
+ * post-pass emit through a retained single-diagnostic handle (the
+ * `buildRuntimeRoot` → `AjvSchemaValidator` feed, which outlives the pass)
+ * still delivers immediately.
+ */
+interface LoadDiagnosticSink {
+  /** Deliver one diagnostic — equivalent to a group of one. */
+  readonly emit: (diagnostic: Diagnostic) => void;
+  /**
+   * Deliver one assembled group: errors exactly as `emit` per element (in
+   * array order); the group's warnings as one batch on a batching sink.
+   */
+  readonly emitGroup: (diagnostics: readonly Diagnostic[]) => void;
+}
+
+/**
+ * Lift a per-diagnostic emit into a `LoadDiagnosticSink` for routers with no
+ * cross-diagnostic batching surface: `makeLoadEmit`'s toast/stderr router
+ * writes one line per diagnostic, so a group is just its members in order.
+ */
+function sinkOverPerDiagnosticEmit(
+  emit: (diagnostic: Diagnostic) => void,
+): LoadDiagnosticSink {
+  return {
+    emit,
+    emitGroup: (diagnostics: readonly Diagnostic[]): void => {
+      for (const diagnostic of diagnostics) {
+        emit(diagnostic);
+      }
+    },
   };
 }
 
@@ -288,7 +342,7 @@ export async function discoverAndComposeFixtures(
     pi,
     ctx,
     root,
-    emitDiagnostic,
+    sinkOverPerDiagnosticEmit(emitDiagnostic),
     new ActiveInvocationRegistry(),
     // No `session_shutdown` wiring on this path (that is the `composeInstance`
     // path), so it composes against a throwaway forwarding sink no teardown
@@ -302,8 +356,9 @@ export async function discoverAndComposeFixtures(
  * One discovery + compose pass against an already-constructed runtime root.
  * Factored out of `discoverAndComposeFixtures` so `composeExtensionInstance`
  * can re-run it on every hot-reload (the "hot-reload re-runs the computation"
- * of discovery-sources.md §"Discovery roots"), with a per-pass `emitDiagnostic`
- * (load-toast at session_start, ERR-7 note-channel at watcher time).
+ * of discovery-sources.md §"Discovery roots"), with a per-pass diagnostic
+ * `sink` (toast/stderr on the helper path; the `theta-system-note` channel on
+ * the shipped `session_start` and watcher-time ERR-7 paths alike).
  *
  * `excludeOwnedNames` names the extension's own previously-registered thetas so
  * a hot-reload pass does NOT drop them as cross-format collisions against
@@ -317,7 +372,7 @@ async function runComposePass(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   root: RuntimeRoot,
-  emitDiagnostic: (diagnostic: Diagnostic) => void,
+  sink: LoadDiagnosticSink,
   // Decision 6 / Increment B1: the extension-instance-scoped shared registry of
   // in-flight invocations, threaded into every composed theta's producer so the
   // bind choke points register into the SAME instance the factory's
@@ -343,9 +398,7 @@ async function runComposePass(
   // Merged, validated settings (V10c) drive the settings discovery source and
   // the package-walk bounds.
   const settingsResult = await loadSettings(fileSystem);
-  for (const diagnostic of settingsResult.diagnostics) {
-    emitDiagnostic(diagnostic);
-  }
+  sink.emitGroup(settingsResult.diagnostics);
   const settings: ThetaSettings = settingsResult.settings;
 
   // Discovery walk. CLI `--theta` roots are split on the platform path
@@ -358,9 +411,7 @@ async function runComposePass(
     cliPaths,
     piOwnedNames,
   });
-  for (const diagnostic of walk.diagnostics) {
-    emitDiagnostic(diagnostic);
-  }
+  sink.emitGroup(walk.diagnostics);
 
   // Package source (V10b, priority 4) — merged in at the composition root: a
   // package theta registers only when its slash name is not already claimed by a
@@ -374,9 +425,7 @@ async function runComposePass(
     clock,
     settings,
   });
-  for (const diagnostic of packageWalk.diagnostics) {
-    emitDiagnostic(diagnostic);
-  }
+  sink.emitGroup(packageWalk.diagnostics);
   const claimed = new Set(walk.thetas.map((theta) => theta.name));
   const discovered: DiscoveredTheta[] = [...walk.thetas];
   for (const pkg of packageWalk.thetas) {
@@ -406,7 +455,7 @@ async function runComposePass(
     const model = matchAvailableModel(reference, ctx.modelRegistry.getAvailable());
     return model === undefined ? undefined : (model as unknown as StrictCapableProbe);
   };
-  const systemNote = buildSystemNoteDeps(pi, ctx, emitDiagnostic);
+  const systemNote = buildSystemNoteDeps(pi, ctx, sink.emit);
   const parseDeps = { systemNote, modelMatcher };
 
   // INV-5 (invocation.md §Resolution): the active discovery-root union threaded
@@ -533,8 +582,9 @@ async function runComposePass(
     // and stored on the frozen callable-set entry (`attachLoadTimeClosureHashes`
     // in `resolveThetaToolsAtLoad`); the launch marshals that stored value, so
     // the producer needs no spawn-time hash resolver.
-    // The runtime-defect / spawn-failure / wire-failure diagnostic sink.
-    emitDiagnostic,
+    // The runtime-defect / spawn-failure / wire-failure diagnostic sink (the
+    // per-diagnostic arm; runtime emits are not per-file scan batches).
+    emitDiagnostic: sink.emit,
     // H8b: parse an `invoke` / `.theta`-callable callee against the caller's
     // directory, reusing the shared parser deps.
     parseCallee: (callerPath, calleePath) =>
@@ -556,12 +606,19 @@ async function runComposePass(
       modelMatcher,
     });
     if ("dropped" in parsed) {
-      // FM-3: surface the load/parse diagnostics that un-registered this theta.
-      // `emitDiagnostic` routes only error-severity entries to `ctx.ui.notify`.
-      for (const diagnostic of parsed.dropped) {
-        emitDiagnostic(diagnostic);
-      }
+      // FM-3: surface the load/parse diagnostics that un-registered this theta,
+      // as ONE per-file group — errors route per-diagnostic; any warnings
+      // co-fired in the same dropped batch deliver as one batched note.
+      sink.emitGroup(parsed.dropped);
       continue;
+    }
+    // Bug 0013 (drop site 3): a theta that REGISTERS can still carry
+    // warning-severity parse/frontmatter diagnostics (a warning alone never
+    // un-registers). diagnostic-shape.md's persistent-diagnostics default
+    // covers them, so forward the document batch as ONE per-file group rather
+    // than discarding it with the fixture.
+    if (parsed.diagnostics.length > 0) {
+      sink.emitGroup(parsed.diagnostics);
     }
     parsedInputs.push(parsed.fixture);
   }
@@ -588,7 +645,7 @@ async function runComposePass(
     // executable is unresolvable — refuse fail-closed here rather than at first
     // spawn, emitting the pinned diagnostic once per refused theta.
     if (input.frontmatter.mode === "subagent" && !subagentExecutableProbe.ok) {
-      emitDiagnostic(subagentExecutableProbe.diagnostic);
+      sink.emit(subagentExecutableProbe.diagnostic);
       continue;
     }
     // V20a — resolve the `tools:` callable set against the shipped Pi tool
@@ -607,9 +664,7 @@ async function runComposePass(
       // Optional-chained: harness `pi` fakes without `getAllTools` yield `[]`.
       () => pi.getAllTools?.() ?? [],
     );
-    for (const diagnostic of toolResult.diagnostics) {
-      emitDiagnostic(diagnostic);
-    }
+    sink.emitGroup(toolResult.diagnostics);
     if (toolResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       continue;
     }
@@ -635,9 +690,7 @@ async function runComposePass(
       probe: dispatchLadderProbe,
       file: input.sourcePath ?? input.slashName,
     });
-    for (const diagnostic of reachabilityDiagnostics) {
-      emitDiagnostic(diagnostic);
-    }
+    sink.emitGroup(reachabilityDiagnostics);
     if (reachabilityDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       continue;
     }
@@ -653,9 +706,7 @@ async function runComposePass(
       resolveCalleeArity: (absolutePath) =>
         resolveCalleeArity(fileSystem, absolutePath, parseDeps),
     });
-    for (const diagnostic of invokeDiagnostics) {
-      emitDiagnostic(diagnostic);
-    }
+    sink.emitGroup(invokeDiagnostics);
     if (invokeDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       continue;
     }
@@ -673,9 +724,7 @@ async function runComposePass(
       file: input.sourcePath ?? input.slashName,
       parseDiagnostics: [],
     });
-    for (const diagnostic of subagentFnDiagnostics) {
-      emitDiagnostic(diagnostic);
-    }
+    sink.emitGroup(subagentFnDiagnostics);
     if (subagentFnDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       continue;
     }
@@ -690,9 +739,7 @@ async function runComposePass(
       input.sourcePath ?? input.slashName,
       modelMatcher,
     );
-    for (const diagnostic of subagentFnModelDiagnostics) {
-      emitDiagnostic(diagnostic);
-    }
+    sink.emitGroup(subagentFnModelDiagnostics);
     if (subagentFnModelDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       continue;
     }
@@ -707,9 +754,7 @@ async function runComposePass(
       fs: fileSystem,
       parseDeps,
     });
-    for (const diagnostic of importCheck.diagnostics) {
-      emitDiagnostic(diagnostic);
-    }
+    sink.emitGroup(importCheck.diagnostics);
     if (importCheck.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       continue;
     }
@@ -720,7 +765,7 @@ async function runComposePass(
     // `modelMatcher` the `model:` resolution binds. A non-bypass theta whose
     // chain resolves to no model fails to load with
     // `theta/load/binder-model-unresolved` (E) — the diagnostic surfaces through
-    // `emitDiagnostic` and the theta does NOT register. Bypass-eligible thetas
+    // the load-diagnostic sink and the theta does NOT register. Bypass-eligible thetas
     // (no-params / single-string) skip resolution entirely (they never call the
     // binder). The resolved reference is carried onto the runnable theta so the
     // runtime dispatches the binder OFF-session against it.
@@ -736,9 +781,7 @@ async function runComposePass(
       matcher: modelMatcher,
       probeStrictCapable,
     });
-    for (const diagnostic of binderModelResolution.diagnostics) {
-      emitDiagnostic(diagnostic);
-    }
+    sink.emitGroup(binderModelResolution.diagnostics);
     if (!binderModelResolution.resolved) {
       // A non-bypass theta with no resolvable binder model fails to load.
       continue;
@@ -750,18 +793,14 @@ async function runComposePass(
     // outside the supported set warns with
     // `theta/load/typed-query-unsupported-provider` — WARNING severity, so the
     // theta STILL REGISTERS (no `continue`; the runtime gate refuses the typed
-    // dispatch itself). The diagnostic rides the SAME `emitDiagnostic` stream
-    // every other load-time warning rides (e.g. the binder-model
-    // strict-capability-unknown warning above). HONEST LIMIT (bug 0010 fix
-    // review, F4): BOTH production load-emit sinks drop non-error severities —
-    // `makeLoadEmit` and `composeExtensionInstance`'s `emitLoadNote` each
-    // early-return on `severity !== "error"` — so this warning (like EVERY
-    // load-phase warning today) is currently DROPPED, not surfaced anywhere in
-    // production. That is a pre-existing routing gap for all load warnings,
-    // recorded as a residual in the bug doc's Fix §Residuals; rewiring the
-    // load-warning channel is out of the bug-0010 fix's scope. The emission
-    // stays wired so the gate warning surfaces the moment the shared sink
-    // routes warnings, and so seam tests can observe it via an injected emit.
+    // dispatch itself). The diagnostic rides the SAME sink every other
+    // load-time warning rides (e.g. the binder-model
+    // strict-capability-unknown warning above), and both production sinks
+    // deliver warnings (bug 0013): the shipped path routes them onto the
+    // `theta-system-note` channel, the helper path mirrors them to headless
+    // stderr — so the gate's two-stage design (warn at load, refuse at
+    // dispatch) is operator-visible. The composition-level integration cell
+    // lives in tests/load-warning-delivery.test.ts (A1).
     const typedQueryProviderWarning = checkThetaTypedQueryProviderSupport({
       file: input.sourcePath ?? input.slashName,
       body: input.body,
@@ -770,7 +809,7 @@ async function runComposePass(
         matchAvailableModel(reference, ctx.modelRegistry.getAvailable()),
     });
     if (typedQueryProviderWarning !== null) {
-      emitDiagnostic(typedQueryProviderWarning);
+      sink.emit(typedQueryProviderWarning);
     }
 
     // Thread the frozen callable-set snapshot resolved above onto the runnable
@@ -820,7 +859,7 @@ async function runComposePass(
     fileSystem,
     ctx,
     parseDeps,
-    emitDiagnostic,
+    sink.emit,
   );
   return { thetas: survivors, activeRoots };
 }
@@ -993,23 +1032,49 @@ export async function composeExtensionInstance(
   // rather than the transient toast (closing notes.md's "known load-phase
   // routing gap"). error-model.md pins that every pre-evaluation failure
   // "surfaces per Diagnostics on the theta-system-note channel, does not fire a
-  // new turn (triggerTurn:false)". WHY error-severity only: the eight pre-eval
-  // FAILURES are all error-severity; a load-phase warning is not a pre-eval
-  // failure and does not surface at load (unchanged). A routed note is
-  // best-effort and never aborts `session_start` (the theta is dropped, not the
-  // session).
+  // new turn (triggerTurn:false)". Severity split (bug 0013): the eight
+  // pre-eval FAILURES are all error-severity, so ERRORS route per-diagnostic
+  // through the pre-eval router; a load-phase WARNING is not a pre-eval
+  // failure (the V4e router's cause mapping is error-shaped), but
+  // diagnostic-shape.md's persistent-diagnostics default carries no severity
+  // carve-out, so a group's warnings deliver DIRECTLY onto the same
+  // `theta-system-note` channel as ONE `emitDiagnosticBatch` note per emitted
+  // group (content: the rendered batch; display:true; details.diagnostics;
+  // triggerTurn:false) — one file's warnings never fan out one note per
+  // warning (the multi-error one-`sendMessage`-per-`.theta` rule). A routed
+  // note is best-effort and never aborts `session_start` (the theta is
+  // dropped, not the session).
   const preEvalRouter = createLoadFailurePreEvalRouter({ channel });
-  const emitLoadNote = (diagnostic: Diagnostic): void => {
-    if (diagnostic.severity !== "error") {
-      return;
+  const emitLoadNoteGroup = (diagnostics: readonly Diagnostic[]): void => {
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.severity !== "error") {
+        continue;
+      }
+      preEvalRouter.routePreEvalFailure(preEvalCauseOf(diagnostic.code), {
+        content: renderDiagnosticBatch([diagnostic]),
+        display: true,
+        details: { diagnostics: [diagnostic] },
+      });
     }
-    preEvalRouter.routePreEvalFailure(preEvalCauseOf(diagnostic.code), {
-      content: renderDiagnosticBatch([diagnostic]),
-      display: true,
-      details: { diagnostics: [diagnostic] },
-    });
+    const warnings = diagnostics.filter(
+      (diagnostic) => diagnostic.severity === "warning",
+    );
+    if (warnings.length > 0) {
+      emitDiagnosticBatch(warnings, channel);
+    }
+  };
+  const emitLoadNote = (diagnostic: Diagnostic): void => {
+    emitLoadNoteGroup([diagnostic]);
+  };
+  const loadSink: LoadDiagnosticSink = {
+    emit: emitLoadNote,
+    emitGroup: emitLoadNoteGroup,
   };
 
+  // The single-diagnostic handle outlives the pass (the `AjvSchemaValidator`
+  // seam retains it); its warning arm delivers immediately — nothing buffers —
+  // so a post-pass emit cannot rot (schema-validator constructs error-only
+  // diagnostics today, so no live warning arrives here at the pin).
   const root = buildRuntimeRoot(ctx, emitLoadNote, overrides);
 
   // Decision 6 / Increment B1 (active-invocation-registry.md): ONE
@@ -1033,14 +1098,16 @@ export async function composeExtensionInstance(
   // same channel routing as the initial load pass, so load and reload surface
   // load-phase failures identically (the ERR-7 `theta/runtime/registry-swap-failed`
   // failure proper is emitted separately inside hot-reload.ts).
-  // package-and-settings.md §"Watcher-time reload failures".
-  const emitErr7 = emitLoadNote;
+  // package-and-settings.md §"Watcher-time reload failures". Reusing the same
+  // sink means watcher-time re-compose delivers WARNINGS identically too — a
+  // re-scan re-emits with no dedup (diagnostic-shape.md re-scan rule).
+  const emitErr7 = loadSink;
 
   const initial = await runComposePass(
     pi,
     ctx,
     root,
-    emitLoadNote,
+    loadSink,
     activeInvocations,
     forwardingSignals,
     undefined,
@@ -1773,11 +1840,20 @@ function thetaBasename(path: string): string {
 
 /**
  * The outcome of parsing one discovered `.theta`: either a runnable composition
- * input, or a drop carrying the load/parse diagnostics that caused the drop so
- * the caller can surface them (FM-3 / DIAG-1).
+ * input together with the document's surviving diagnostics, or a drop carrying
+ * the load/parse diagnostics that caused the drop, so the caller can surface
+ * BOTH outcomes' batches (FM-3 / DIAG-1). The registering arm's `diagnostics`
+ * are warning-severity by construction — an error-severity load/parse
+ * diagnostic takes the dropped arm — and must be forwarded, not discarded: a
+ * warning alone never un-registers a theta, so this arm is the ONLY route by
+ * which a registering theta's parse/frontmatter warnings reach a sink
+ * (bug 0013 drop site 3).
  */
 type ParsedDiscoveredTheta =
-  | { readonly fixture: ThetaCompositionInput }
+  | {
+      readonly fixture: ThetaCompositionInput;
+      readonly diagnostics: readonly Diagnostic[];
+    }
   | { readonly dropped: readonly Diagnostic[] };
 
 /** Read + parse one discovered `.theta` into its `V19a` frontmatter + body AST. */
@@ -1831,6 +1907,10 @@ async function parseDiscoveredTheta(
       frontmatter: document.frontmatter,
       body: document.body,
     },
+    // The registering path's document batch (warning-severity by the gate
+    // above); the caller forwards it into the load-diagnostic sink as one
+    // per-file group.
+    diagnostics: document.diagnostics,
   };
 }
 

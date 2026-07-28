@@ -32,7 +32,7 @@
 // path [control]; (E) real-spawn end-to-end: a callee in the FIRST of two
 // roots completes through a REAL child [RED until fixed].
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -161,6 +161,16 @@ describe("bug 0008 — the joined --theta value splits back to both roots on the
       ui: { notify: (): void => {} },
     } as unknown as ExtensionContext;
 
+    // Scoped stderr spy — noise suppression for the bug-0013 warning surface,
+    // NOT behaviour under test: this headless (hasUI:false) composition now
+    // mirrors real warning lines to stderr (`theta/load/settings-unreadable`
+    // for the scratch workspace's absent `.pi/settings.json`,
+    // `theta/load/unreadable-source` for its absent project `.pi/theta/` root
+    // — both deliberately absent: the cell drives CLI roots only), which
+    // would print into every `npm test` run. Nothing here asserts on stderr.
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((): boolean => true);
     try {
       const thetas = await discoverAndComposeFixtures(pi, ctx);
       const slugs = thetas.map((theta) => theta.slashName);
@@ -170,6 +180,7 @@ describe("bug 0008 — the joined --theta value splits back to both roots on the
       expect(slugs).toContain("bug8a-unit");
       expect(slugs).toContain("bug8b-unit");
     } finally {
+      stderrSpy.mockRestore();
       rmSync(workspace, { recursive: true, force: true });
     }
   });

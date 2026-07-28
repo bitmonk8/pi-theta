@@ -56,6 +56,12 @@ describe("S6 FIND-S6-1 — description drop on the discoverAndComposeFixtures pa
       THETA_WITH_DESC,
       "utf8",
     );
+    // A minimal valid settings file — noise suppression for the bug-0013
+    // warning surface, NOT behaviour under test: without it the headless
+    // helper path mirrors a `theta/load/settings-unreadable` WARNING for the
+    // workspace's absent `.pi/settings.json` to real stderr in every
+    // `npm test` run.
+    writeFileSync(join(workspace, ".pi", "settings.json"), "{}", "utf8");
   });
   afterEach(() => rmSync(workspace, { recursive: true, force: true }));
 

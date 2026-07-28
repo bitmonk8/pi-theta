@@ -5,10 +5,12 @@ import { requireLiveProvider, runProbe, type PlantedFile, type ProbeResult } fro
 // DIAGNOSTICS. Every probe here drives NO model turns (drives: []), so they are
 // zero-token: they observe `probe.registeredNames` (did the theta register?) and
 // `probe.systemNotes` (the load-phase `theta-system-note` channel entries the
-// shipped V4e load path routes error-severity load/parse diagnostics onto —
+// shipped load path routes load/parse diagnostics onto — error-severity
+// pre-eval notes and, since bug 0013, warning-severity batch notes alike —
 // `probe.diagnostics` (ctx.ui.notify) is empty at load time; see the probe-
 // harness header). Each note is rendered `<[file:line:col:] >code: message`, so
-// the expected registry message is a substring of the note. Findings are
+// the expected registry message is a substring of the note; probes match by
+// content, never by assuming an entry's severity. Findings are
 // documented in findings/frontmatter-diagnostics.md.
 
 const fm = (...frontmatterAndBody: string[]): string => frontmatterAndBody.join("\n");

@@ -60,8 +60,9 @@ describe("discovery-dynamics hardening", () => {
       // DISCO-1 FIXED. With theta.binderModel set to a resolvable model, the
       // two-step chain (bind_model: → theta.binderModel) resolves over the
       // shared model matcher and the theta registers (the strict-capability
-      // probe is the universal-W branch under the Pi-SDK pin — a warning,
-      // suppressed by the error-only route, and the theta still registers).
+      // probe is the universal-W branch under the Pi-SDK pin — a warning note
+      // on the theta-system-note channel, never a toast, and the theta still
+      // registers).
       expect(probe.registeredNames).toContain("hasbind");
       expect(
         probe.diagnostics.some((d) => d.message.includes("binder model unresolved")),
@@ -256,8 +257,8 @@ describe("discovery-dynamics hardening", () => {
     });
     try {
       // Verified-conformant: invalid-JSON settings treated as {}, no crash; the
-      // project theta still registers. (invalid-json is a warning, suppressed by
-      // the error-only ctx.ui.notify route — the known routing gap.)
+      // project theta still registers. (invalid-json is a warning: it lands on
+      // the theta-system-note channel as a batch note, never the toast.)
       expect(probe.registeredNames).toContain("plain");
     } finally {
       await probe.dispose();

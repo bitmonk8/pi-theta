@@ -46,26 +46,23 @@
 // (`checkThetaTypedQueryProviderSupport`,
 // src/extension/production-composition.ts — null when no `model:`, when the
 // reference does not resolve, when no typed query exists, or when the api is
-// supported). A full-composition integration cell (through
-// `discoverAndComposeFixtures` / `composeExtensionInstance`) is NOT tractable
-// for a WARNING: both production load-emit sinks filter to ERROR severity
-// (`makeLoadEmit` early-returns on non-error, and `composeExtensionInstance`'s
-// `emitLoadNote` does the same before routing to the note channel —
-// src/extension/production-composition.ts), so a warning-severity diagnostic
-// emitted into them is UNOBSERVABLE from any injectable surface
-// (`ctx.ui.notify` sees errors only; `emitDiagnostic` is constructed
-// internally, not injectable). The wiring is therefore pinned at the highest
-// observable seams — the two exported helpers — below.
+// supported). The full-composition integration cell for the WARNING lives in
+// tests/load-warning-delivery.test.ts (cell A1): since the bug-0013 fix the
+// shipped sink routes load-phase warnings onto the `theta-system-note`
+// channel (and the helper path mirrors them to headless stderr), so the gate
+// warning is observable end-to-end there. The cells below stay at the two
+// exported helper seams — the right level for pinning the gate's
+// classification table (which inputs warn, which are null) independent of
+// delivery.
 //
-// TODO resolution (fix review, F3/F4): the disposition is now RECORDED rather
-// than pending — production load sinks DROP all warnings (a pre-existing gap
-// for every load-phase warning, not this gate's), documented honestly at the
-// gate's wiring comment in src/extension/production-composition.ts and in the
-// bug doc's Fix §Residuals. Rewiring the load-warning channel is out of the
-// bug-0010 fix's scope, so NO integration cell through
-// discoverAndComposeFixtures is possible or added; the helper-seam cells here
-// pin the decision logic, and they become extendable to an integration cell
-// the moment the shared sink routes warnings.
+// TODO resolution (fix review, F3/F4): RESOLVED by the bug-0013 fix — both
+// production load sinks deliver warnings (the shipped path onto the
+// `theta-system-note` channel; the helper path onto headless stderr), and the
+// integration cell those findings anticipated exists:
+// tests/load-warning-delivery.test.ts drives this gate's warning through the
+// real factory + `composeExtensionInstance` end-to-end. The helper-seam cells
+// here continue to pin the decision logic; the delivery pin lives in that
+// suite rather than duplicated here.
 //
 // e2e-s4 INVESTIGATION (ordered by the increment-C brief): neither
 // tests/e2e-s4-never-emitted-diagnostics.test.ts nor

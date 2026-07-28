@@ -6,17 +6,19 @@ import { requireLiveProvider, runProbe, type PlantedFile } from "./probe-harness
 // error-severity load diagnostics the load phase routes onto the
 // `theta-system-note` channel (`probe.systemNotes`).
 //
-// NOTE ON OBSERVABILITY (V4e): the shipped composition root routes ALL
-// error-severity load/parse/settings/binder-model diagnostics through
-// `emitLoadNote` onto the `theta-system-note` channel, so they land on
-// `probe.systemNotes`, NOT `probe.diagnostics` (ctx.ui.notify), which is empty
-// at load time (see the probe-harness header). Load-phase WARNINGS
-// (case-collision, cross-source-shadow, non-canonical-extension,
-// settings-unreadable/invalid-json, unreadable) route to neither surface
-// (`emitLoadNote` is error-only). Probes therefore assert on the error notes
-// (each rendered `<[file:line:col:] >code: message`) and on `registeredNames`;
-// every entry on `systemNotes` is error-severity, so the old per-diagnostic
-// `type === "error"` checks are now implicit.
+// NOTE ON OBSERVABILITY (V4e + bug 0013): the shipped composition root routes
+// ALL load/parse/settings/binder-model diagnostics onto the
+// `theta-system-note` channel — errors per-diagnostic via `emitLoadNote`'s
+// pre-eval routing, WARNINGS (case-collision, cross-source-shadow,
+// non-canonical-extension, settings-unreadable/invalid-json, unreadable) as
+// per-group batch notes — so BOTH severities land on `probe.systemNotes`,
+// never `probe.diagnostics` (ctx.ui.notify), which stays empty at load time
+// (see the probe-harness header). `systemNotes` entries are therefore MIXED
+// severity: probes MUST discriminate by message content (each rendered
+// `<[file:line:col:] >code: message`), never by assuming every entry is an
+// error. A workspace whose machine lacks a global `~/.pi/agent/settings.json`
+// additionally carries one `settings-unreadable` warning note (the missing-file
+// failure mode), so exact whole-array equality over `systemNotes` is unsound.
 //
 // Findings written to tests/hardening/findings/discovery-cli.md.
 
@@ -133,9 +135,12 @@ describe("discovery — correct behaviour (baseline guards)", () => {
     });
     try {
       expect(probe.registeredNames).toEqual([]);
-      expect(msgs(probe)).toEqual([
-        expect.stringContaining("does not end in .theta") as unknown as string,
-      ]);
+      // Content-filtered (not whole-array equality): warning-severity notes
+      // ride the same channel since bug 0013.
+      const wrongType = probe.systemNotes.filter((n) =>
+        n.includes("does not end in .theta"),
+      );
+      expect(wrongType, `expected one invalid-extension error; got ${JSON.stringify(msgs(probe))}`).toHaveLength(1);
     } finally {
       await probe.dispose();
     }
@@ -184,7 +189,7 @@ describe("discovery — correct behaviour (baseline guards)", () => {
 // ===========================================================================
 
 describe("DISC-1 — missing explicit settings path emits theta/load/missing-source (error)", () => {
-  it("absolute path with a genuinely-missing intermediate ancestor is unreadable (warning, suppressed), not a clean-leaf missing", async () => {
+  it("absolute path with a genuinely-missing intermediate ancestor is unreadable (warning note), not a clean-leaf missing", async () => {
     const probe = await runProbe({
       provider,
       files: [theta("project", "p.theta")],
@@ -193,14 +198,21 @@ describe("DISC-1 — missing explicit settings path emits theta/load/missing-sou
     try {
       // Registration proceeds. `/definitely` itself does not exist, so this is
       // NOT an "otherwise-clean leaf": per DISC-2 the ancestor walk hits an
-      // ENOENT ancestor and classifies the path as `unreadable` (warning),
-      // which the shipped error-only `emitDiagnostic` filter then suppresses.
+      // ENOENT ancestor and classifies the path as `unreadable-source`
+      // (warning) — delivered as a warning note on the channel since bug 0013.
       // This is spec-correct — the DISC-1 bug is the clean-leaf case below.
       expect(probe.registeredNames).toEqual(["p"]);
-      const errors = probe.systemNotes;
+      const unreadable = probe.systemNotes.filter((n) =>
+        n.includes("discovery source is unreadable"),
+      );
       expect(
-        errors.length,
-        `a missing intermediate ancestor is unreadable (warning), not a missing error; got ${JSON.stringify(msgs(probe))}`,
+        unreadable.length,
+        `a missing intermediate ancestor is one unreadable-source warning; got ${JSON.stringify(msgs(probe))}`,
+      ).toBe(1);
+      const missing = probe.systemNotes.filter((n) => n.includes("does not exist"));
+      expect(
+        missing.length,
+        `NOT a missing-source error — the leaf is not clean; got ${JSON.stringify(msgs(probe))}`,
       ).toBe(0);
     } finally {
       await probe.dispose();

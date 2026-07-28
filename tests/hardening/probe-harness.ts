@@ -13,17 +13,17 @@
 //     pipeline registered (observes discovery/validity/collision outcomes with
 //     ZERO model turns).
 //   * `diagnostics`     — every `ctx.ui.notify(message, type)` the load phase
-//     emitted. NOTE (V4e): the shipped load path
-//     (`composeExtensionInstance`) routes ALL error-severity load-phase
-//     diagnostics (discovery / settings / binder-model / parse) through
-//     `emitLoadNote` → the `theta-system-note` channel, NOT through
-//     `ctx.ui.notify`. So `diagnostics` is normally EMPTY at load time; the
-//     error-severity load failures land on the load-phase `systemNotes` field
-//     below. Load-phase WARNINGS (e.g. invalid-json settings) are not pre-eval
-//     failures and route to neither surface — `emitLoadNote` is error-only.
+//     emitted. NOTE (V4e + bug 0013): the shipped load path
+//     (`composeExtensionInstance`) routes ALL load-phase diagnostics
+//     (discovery / settings / binder-model / parse) onto the
+//     `theta-system-note` channel — errors per-diagnostic via the pre-eval
+//     router, warnings as per-group batch notes — NOT through
+//     `ctx.ui.notify`. So `diagnostics` is normally EMPTY at load time; both
+//     severities land on the load-phase `systemNotes` field below.
 //   * `systemNotes`     — the LOAD-PHASE `theta-system-note` channel entries
-//     (error-severity load/parse/settings/binder diagnostics) appended during
-//     bind / session_start, before any drive. Read off the in-memory
+//     (load/parse/settings/binder diagnostics of BOTH severities — probes must
+//     discriminate by message content, not assume error-severity) appended
+//     during bind / session_start, before any drive. Read off the in-memory
 //     SessionManager (deterministic; no dependence on event timing).
 //   * per-drive `userTexts` — the exact user-turn text the theta CODE computed
 //     and sent to the model (deterministic; reveals control-flow / expression /
@@ -147,10 +147,11 @@ export interface ProbeResult {
   readonly registeredNames: readonly string[];
   readonly diagnostics: readonly Diagnostic[];
   /**
-   * LOAD-PHASE `theta-system-note` channel entries (V4e): the error-severity
+   * LOAD-PHASE `theta-system-note` channel entries (V4e + bug 0013): the
    * load/parse/settings/binder-model diagnostics the shipped
    * `composeExtensionInstance` pass routed onto the channel during bind /
-   * session_start, before any drive. Snapshotted off the in-memory
+   * session_start, before any drive — error-severity pre-eval notes AND
+   * warning-severity batch notes alike. Snapshotted off the in-memory
    * SessionManager after `registeredNames` is computed. Per-drive notes stay on
    * `turn.systemNotes`.
    */
@@ -293,12 +294,12 @@ export async function runProbe(options: {
 
   const registeredNames = runner.getRegisteredCommands().map((c) => c.name);
 
-  // Snapshot the LOAD-PHASE `theta-system-note` entries: every error-severity
-  // load diagnostic (discovery / settings / binder-model) the bind /
-  // session_start compose pass routed onto the channel (V4e), read off the
-  // in-memory SessionManager AFTER `registeredNames` is computed but BEFORE any
-  // drive runs, so it captures only load-time notes (per-drive notes live on
-  // `turn.systemNotes`). See the header note on the V4e routing change.
+  // Snapshot the LOAD-PHASE `theta-system-note` entries: every load diagnostic
+  // (discovery / settings / binder-model; error notes AND warning batch notes —
+  // V4e + bug 0013) the bind / session_start compose pass routed onto the
+  // channel, read off the in-memory SessionManager AFTER `registeredNames` is
+  // computed but BEFORE any drive runs, so it captures only load-time notes
+  // (per-drive notes live on `turn.systemNotes`). See the header note.
   const systemNotes = collectSystemNotes(sessionManager.getEntries());
 
   const turns: ProbeTurn[] = [];

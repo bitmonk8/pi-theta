@@ -1,6 +1,11 @@
 # Bug 0013 — Load-phase warning diagnostics are dropped by both production sinks
 
-- **Status:** open.
+- **Status:** fixed (0.24.0). Option 1 adopted — warning-severity load
+  diagnostics are delivered onto the `theta-system-note` channel on the
+  shipped path (symmetric to the error path, not through the pre-eval
+  router), mirrored to headless stderr on the helper path, and the
+  registering path forwards `document.diagnostics` (drop site 3); warnings
+  batch per emitted group, errors route byte-identically to before.
 - **Kind:** defect — documented behaviour absent. The diagnostics contract
   delivers **all** `theta/load/*` diagnostics through the persistent
   `theta-system-note` channel (five carved-out exceptions, every one a
@@ -38,6 +43,122 @@
   first live composition (H8a, commit `3a8732da`) and survived both sink
   evolutions unchanged. Recorded as a residual by the bug-0010 fix
   (§Residuals) and as fix-review finding F4.
+
+## Fix (0.24.0)
+
+Option 1, adopted as prescribed, all three drop sites.
+
+**Shipped sink.** `composeExtensionInstance`'s per-diagnostic `emitLoadNote`
+is generalised to a severity-split group sink (`emitLoadNoteGroup`,
+`src/extension/production-composition.ts`): each group's **errors** route
+per-diagnostic through the V4e `routePreEvalFailure` with the byte-identical
+pre-fix payload (same `preEvalCauseOf` mapping, same envelope, same order and
+timing); the group's **warnings** deliver directly onto the
+`theta-system-note` channel as ONE `emitDiagnosticBatch` call — the pinned
+envelope (`content: renderDiagnosticBatch(...)`, `display: true`,
+`details: { diagnostics }`, `triggerTurn: false`), never the pre-eval router
+(warnings are not pre-evaluation failures). The channel's PIC-54
+delivery-failure fallback is unchanged (off-channel toast; the
+delivery-failed diagnostic is E-severity). The watcher re-compose path
+reuses the same sink, so hot reload delivers warnings identically.
+
+**Helper sink.** `makeLoadEmit` gains the warning arm as headless stderr
+ONLY: when `!ctx.hasUI`, a warning writes the same
+`theta: ${renderDiagnosticLine(...)}` line the error arm writes; it never
+toasts (the `UiNotifier` surface is typed `"error"`-only) and never touches
+the channel (the :981 instance stays the deliberately off-channel PIC-54
+fallback; `tests/e2e-s6-load-emit-toast-path.test.ts` keeps its
+never-the-note-channel pin). A warning on the helper path with a live UI
+remains undelivered by design — the bug's recommended option scopes the
+helper arm to stderr.
+
+**Drop site 3.** `parseDiscoveredTheta`'s registering arm now returns the
+parse `document.diagnostics` alongside the fixture (warning-severity by
+construction — the `hasLoadParseError` gate sends any error batch down the
+dropped arm) and `runComposePass` forwards them as one per-file group, so
+frontmatter/parse warnings on a theta that registers reach the sink.
+
+**Batching (obligation b).** Per-group call-site batching, no buffering: a
+`LoadDiagnosticSink { emit, emitGroup }` replaces the bare per-diagnostic
+function through `runComposePass`, and every already-assembled group
+(settings scan, discovery walk, package walk, per-file parse batch — dropped
+and registering — tools / reachability / invoke / subagent-fn / imports /
+binder groups) reaches the sink whole. One file's parse warnings arrive in
+one note (the multi-error rule's subject); scan-stage groups arrive as one
+note per subsystem — within the option's "per pass or per file" latitude.
+Both arms deliver synchronously at the call site, so nothing buffers, a
+mid-pass throw strands nothing, and the single-diagnostic handle retained by
+`AjvSchemaValidator` via `buildRuntimeRoot` (which outlives the pass)
+delivers a post-pass warning immediately as a batch of one — no dead buffer
+(none arrives today: the validator's only construction is error-severity,
+`src/seams/schema-validator.ts:131`, unchanged). The re-scan no-dedup rule is
+inherited knowingly: warning-bearing workspaces see a recurring per-pass
+note, the documented contract (§Options honest noise accounting).
+
+**Tests.** New `tests/load-warning-delivery.test.ts`, written first — 9
+cells, 6 red at `6ff550f7` for the documented reasons (no note ever arrives,
+no stderr line, warnings absent from `details.diagnostics`), 3 controls
+green. Driven through the real `createThetaExtension` factory /
+`composeExtensionInstance` and the real `discoverAndComposeFixtures` over
+temp workspaces with real files on disk; four W codes covered
+(`typed-query-unsupported-provider` — the bug-0010 gate warning and the
+integration cell `tests/typed-query-provider-gate.test.ts:60–68` recorded as
+extendable — plus `settings-invalid-json`,
+`binder-model-strict-capability-unknown`, `unknown-frontmatter-field`;
+`case-collision` is intractable on a case-insensitive filesystem and is
+documented in the suite header). Expected messages sourced from the registry
+(DIAG-4). The batching cell pins one .theta's two warnings within ONE
+`sendMessage`; error-routing controls pin both sinks unchanged. Ripples
+reconciled: the provider-gate suite's UNOBSERVABLE comments now point at the
+new integration cell; the gate-wiring HONEST LIMIT comment and the V4e WHY
+comment are rewritten; the hardening probes' all-notes-are-errors
+assumptions are re-stated per probe (`probe-harness.ts`,
+`discovery-cli.test.ts` — whose DISC-1 ancestor-ENOENT cell now asserts the
+delivered `unreadable` warning note, `frontmatter-diagnostics.test.ts`,
+`session-binder.test.ts`, `session-discodyn.test.ts`); six default suites
+that drive headless composition plant a `{}` settings file or a scoped
+stderr spy to silence the newly-visible warning mirror (noise suppression
+only, no assertion changes).
+
+**Verification.** Full default suite 213 files / 2441 tests green (baseline
+212/2432 + 9 new); typecheck and lint clean; two review rounds (6 findings,
+none blocking → CLEAN). Live e2e: `tests/hardening/discovery-cli.test.ts`
+(real `pi` binary, real extension discovery over planted workspaces) — the
+DISC-1 cell proves a warning-severity `theta/load/unreadable-source`
+diagnostic arriving as one persistent `theta-system-note` through the real
+stack; 10/11 cells passed, with one intermittent failure in an unrelated,
+unchanged baseline cell (`settings-value-out-of-range` error note observed
+absent once in full-file context; passes in isolation on both trees, passed
+full-file at HEAD, and passed three subsequent multi-cell re-runs —
+exonerated as a fix defect by code-path identity, recorded here as an
+environment flake to watch).
+
+**Residuals.**
+
+- `theta/load/settings-unreadable` fires for a *missing* settings file
+  (`readSettingsFile` maps a failed `readBytes` to `unreadable`) — backed by
+  package-and-settings.md §Failure modes ("File missing or unreadable") but
+  contradicting the registry row's trigger ("exists but is unreadable"), and
+  the diagnostic carries `file:` although diagnostic-shape.md's located-site
+  classification pins the row location-less. Both pre-date this fix; the fix
+  makes them *visible* (a workspace with no `.pi/settings.json` now sees a
+  recurring warning note per pass). Reconciliation is a DIAG-2-governed spec
+  edit, out of scope here; no new test enshrines either nonconformance.
+- Imported `.thetalib` parse **warnings** are still discarded
+  (`src/extension/import-static-checks.ts` filters the imported document's
+  diagnostics to registration errors), as are callee-parse warnings on the
+  runtime `invoke` path (`parseCalleeTheta`) — both outside this bug's three
+  enumerated drop sites.
+- The helper path with a live UI delivers warnings nowhere (stderr arm is
+  `!ctx.hasUI`-gated; the toast surface is error-typed) — the recommended
+  option's stated scope.
+- `tests/e2e-s6-load-emit-toast-path.test.ts`'s clean-load cell tolerates the
+  machine-dependent settings-W stderr lines but not W lines from
+  warning-bearing content under the runner's real global roots
+  (`~/.pi/agent/theta|npm|git`); the analogous E-severity exposure pre-dates
+  this fix. A home-dir seam would close it and is out of scope.
+- The watcher-time re-merge's `settings-invalid-json`-as-error emission
+  (§Non-goals) is unchanged.
 
 ## Summary
 

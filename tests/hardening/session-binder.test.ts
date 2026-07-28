@@ -277,8 +277,9 @@ describe("binder — typed-param extraction from free-form slash args", () => {
         console.log("BIND schema-param diagnostics:", JSON.stringify(probe.diagnostics));
         console.log("BIND schema-param nUserTexts:", t?.userTexts.length);
         console.log("BIND schema-param systemNotes:", JSON.stringify(t?.systemNotes));
-        // Registers clean (the binder-model strict-capability-unknown warning is
-        // suppressed by the error-only route), and the binder runs OFF-session:
+        // Registers clean (the binder-model strict-capability-unknown warning
+        // rides the theta-system-note channel, never the toast, so
+        // `probe.diagnostics` stays empty), and the binder runs OFF-session:
         // exactly one user turn (the constant body), no false SLSH-1 note.
         expect(probe.registeredNames).toContain("shape");
         expect(probe.diagnostics).toHaveLength(0);

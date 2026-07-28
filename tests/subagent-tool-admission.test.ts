@@ -220,6 +220,12 @@ beforeAll(async () => {
   for (const l of THETAS) {
     writeFileSync(join(projectThetaDir, `${l.stem}.theta`), l.text, "utf8");
   }
+  // A minimal valid settings file — noise suppression for the bug-0013
+  // warning surface, NOT behaviour under test: without it the headless
+  // helper path mirrors a `theta/load/settings-unreadable` WARNING for the
+  // workspace's absent `.pi/settings.json` to real stderr in every
+  // `npm test` run.
+  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
   outcome = await runProductionLoad(workspaceDir);
 });
 

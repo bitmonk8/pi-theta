@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-07-28
+
+### Fixed
+
+- **Warning-severity load diagnostics are now delivered instead of silently
+  dropped by both production sinks (bug 0013).** The diagnostics contract
+  delivers all `theta/load/*` diagnostics through the persistent
+  `theta-system-note` channel (diagnostic-shape.md's persistent-diagnostics
+  default has five carved-out exceptions, none a load code and none
+  severity-based), yet both functions production ever installed as the
+  load-pass emit stream early-returned on `severity !== "error"` — so every
+  warning-emittable load row in the closed registry (15 pure-W codes plus
+  the warning arms of three E/W codes) was unobservable by an operator: no
+  transcript note, no toast (the surface is error-typed), no headless stderr
+  line, nothing. That included the bug-0010 typed-query provider gate's
+  spec-pinned load warning (`theta/load/typed-query-unsupported-provider` —
+  emitted and dropped, so a typed theta pinned to an unsupported provider
+  registered with zero signal), every silent-mistake detector row
+  (`case-collision`, `cross-source-shadow`, `non-canonical-extension`,
+  `settings-invalid-json`, `unreadable` — each condition's only documented
+  observable), and the registry-documented universal branch
+  (`binder-model-strict-capability-unknown`). A third, upstream drop site
+  compounded the sinks: `parseDiscoveredTheta` discarded
+  `document.diagnostics` entirely for a theta that registers, so
+  frontmatter/parse warnings never reached a sink at all. Fix (bug doc
+  Option 1): the shipped sink (`composeExtensionInstance`) splits each
+  diagnostic group by severity — errors route per-diagnostic through the V4e
+  pre-eval router byte-identically to before; warnings deliver directly onto
+  the `theta-system-note` channel as one `emitDiagnosticBatch` per group with
+  the pinned envelope (`display: true`, `details: { diagnostics }`,
+  `triggerTurn: false`), never through the pre-eval router (warnings are not
+  pre-evaluation failures). The helper sink (`makeLoadEmit`) mirrors warnings
+  to stderr in headless `-p`/CI mode exactly as it does errors — stderr only,
+  never a toast, never the channel (it stays the off-channel PIC-54
+  fallback). The registering parse path forwards its warning-severity
+  `document.diagnostics` as one per-file group. Batching is per emitted
+  group at the call sites (one note per `.theta` parse batch, one per scan
+  subsystem) with no buffering, so nothing can strand: both arms deliver
+  synchronously, the watcher re-compose path reuses the same sink, and the
+  post-pass `AjvSchemaValidator` handle delivers a batch of one immediately.
+  Warning notes recur per reload in warning-bearing workspaces — the
+  documented no-dedup contract; if a row's volume is judged wrong now that it
+  is visible, the remedy is a DIAG-2 spec change to that row, not renewed
+  dropping.
+
 ## [0.23.0] - 2026-07-28
 
 ### Fixed
