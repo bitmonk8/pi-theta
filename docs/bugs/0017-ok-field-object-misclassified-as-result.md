@@ -101,9 +101,11 @@ false`; `null member access: .label`; `expected null to deeply equal
 
 Adjacent pre-existing issues identified during review, out of scope: (i) `?`
 on member/index/identifier operands bypasses `asResultValue` normalisation
-(the ERR-18 static gap; a silent corruption path predating this fix);
+(the ERR-18 static gap; a silent corruption path predating this fix) — filed
+as [bug 0019](./0019-question-operand-bypasses-result-normalisation.md);
 (ii) the enum/schema tags (`__thetaEnum` / `__thetaSchema`) still classify by
-presence-only `hasOwnProperty`, not by descriptor.
+presence-only `hasOwnProperty`, not by descriptor — filed as
+[bug 0020](./0020-enum-schema-tags-presence-only-forgeable.md).
 
 ## Summary
 

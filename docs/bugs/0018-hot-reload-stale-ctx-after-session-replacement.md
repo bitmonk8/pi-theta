@@ -111,6 +111,15 @@ red-at-HEAD-proven (§Reproduction). Live e2e:
 `registry swap failed` — and the collateral hardening probe file equally
 green and cascade-free.
 
+Adjacent pre-existing issues identified during review, out of scope: (i) a
+second `session_start` overwrites the single-slot hot-reload handle and
+leaks the superseded generation's armed watcher — filed as
+[bug 0021](./0021-double-session-start-leaks-armed-watcher.md); (ii) the
+late-completing compose tail still performs registration work against the
+invalidated runtime (PIC-67 suppresses only the watcher arming; the
+regression suite's Case C baselines this arm out) — filed as
+[bug 0022](./0022-late-compose-tail-registration-on-invalidated-runtime.md).
+
 ## Summary
 
 During a live run, a watcher-debounced reload fired in a window where the
