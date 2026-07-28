@@ -258,10 +258,21 @@ interface Boot {
   readonly harness: StaleHarness;
   readonly fakeWatcher: FakeFileWatcher;
   readonly fakeClock: FakeClock;
+  /**
+   * Every diagnostic the factory constructed and routed through the
+   * `ThetaExtensionDeps.emitDiagnostic` seam, in construction order. Bug-0022
+   * witness: the production default export leaves the seam UNWIRED (every
+   * construct is dropped by the `deps.emitDiagnostic?.()` optional chain), so
+   * this recorder is the only way to observe "zero diagnostics constructed" —
+   * the spec-correct posture wherever the factory can know of the teardown
+   * without touching (PIC-67: the delivery channel is dead, clause (c)
+   * forbids the attempt, so nothing may be built for it either).
+   */
+  readonly diagnostics: Diagnostic[];
   wiring(): ExtensionInstanceWiring | undefined;
-  /** Case C seam: true once the gated compose has parked at the gate. */
+  /** Case C / bug-0022 seam: true once the gated compose has parked at its gate. */
   composeParked(): boolean;
-  /** Case C seam: release the parked compose so `session_start` completes. */
+  /** Case C / bug-0022 seam: release the parked compose so `session_start` completes. */
   releaseCompose(): void;
 }
 
@@ -353,10 +364,13 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
       );
   }
 
-  function boot(options: { gateCompose?: boolean } = {}): Boot {
+  function boot(
+    options: { gateCompose?: boolean; gateBeforeCompose?: boolean } = {},
+  ): Boot {
     const harness = makeStaleHarness(workspace);
     const fakeWatcher = new FakeFileWatcher();
     const fakeClock = new FakeClock();
+    const diagnostics: Diagnostic[] = [];
     let wiring: ExtensionInstanceWiring | undefined;
     let parked = false;
     let release: () => void = (): void => {};
@@ -366,7 +380,21 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
 
     const deps: ThetaExtensionDeps = {
       fixtures: [],
+      // Bug 0022 witness: record every diagnostic the factory routes through
+      // the seam (production drops them all — see Boot.diagnostics).
+      emitDiagnostic: (d) => {
+        diagnostics.push(d);
+      },
       composeInstance: async (pi, ctx) => {
+        if (options.gateBeforeCompose === true) {
+          // Bug 0022 variant-2 seam: park BEFORE the real compose starts, so
+          // a `session_shutdown` + `invalidate()` can land at the compose's
+          // FIRST await. The resumed compose then dies on its first guarded
+          // read (`ctx.cwd` in buildRuntimeRoot) and the throw funnels into
+          // the factory's compose-supplier catch arm.
+          parked = true;
+          await gate;
+        }
         const composed = await composeExtensionInstance(pi, ctx, {
           fileWatcher: fakeWatcher,
           clock: fakeClock,
@@ -389,6 +417,7 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
       harness,
       fakeWatcher,
       fakeClock,
+      diagnostics,
       wiring: () => wiring,
       composeParked: () => parked,
       releaseCompose: () => release(),
@@ -622,11 +651,9 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
     b.releaseCompose();
     await startPending;
 
-    // Baseline AFTER the late arm: only the watcher-driven phase is under
-    // test here (the late `registerFixtures` stale reads are session_start
-    // work, a separate arm of the same defect).
-    b.harness.staleTouches.length = 0;
-    stderrCalls.length = 0;
+    // No baseline reset: from the consumed shutdown on, the WHOLE late tail
+    // AND the watcher-driven phase must stay zero-touch and stderr-silent
+    // (the bug-0022 describe below carries the fine-grained per-arm locks).
     const notesBefore = b.harness.notes.length;
 
     // A watcher event + the debounce boundary: PIC-57 says this must not
@@ -653,5 +680,238 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
       b.harness.notes.length,
       "no note can deliver through the dead captured channel; quiescence is the only spec-correct shape here",
     ).toBe(notesBefore);
+  });
+
+  // -------------------------------------------------------------------------
+  // Bug 0022 — the OTHER arm of the same race: the late-completing
+  // session_start compose TAIL (docs/bugs/0022-late-compose-tail-registration-
+  // on-invalidated-runtime.md). The 0018 fix placed the PIC-67 generation
+  // check immediately before `installHotReload` — the LAST step of the
+  // continuation — so everything between compose-settle and the check still
+  // runs against the invalidated runtime: the four `live*` publishes, the
+  // full `registerFixtures` pass (whose first action touches the invalidated
+  // `pi.getCommands`), and on the catch arm the `registerFixtures(deps.fixtures)`
+  // fallback. PIC-67 (session-shutdown-semantics.md#pic-67, last sentence)
+  // pins zero guarded touches wherever the runtime can know of the teardown
+  // WITHOUT touching — and the factory CAN know here: it snapshots
+  // `shutdownEventsObserved` at compose start and holds the same evidence
+  // before `registerFixtures` that it consults before the arming.
+  // -------------------------------------------------------------------------
+
+  describe("bug 0022 — late session_start compose tail vs consumed session_shutdown (PIC-67)", () => {
+    /**
+     * The shared bug-0022 interleaving (both gate placements): park the
+     * compose in flight, consume a `session_shutdown` (the factory handler's
+     * lazy `liveRegistry` read sees `undefined` and no-ops the teardown, but
+     * the PIC-67 counter records the delivery — from here on the factory can
+     * know of the teardown without touching), invalidate the runtime (the
+     * host replacement order), then release the compose and let the whole
+     * `session_start` handler settle. Returns the note-count baseline the
+     * invariants compare against.
+     */
+    async function driveShutdownDuringParkedCompose(
+      b: Boot,
+    ): Promise<{ notesBefore: number }> {
+      const startPending = b.harness.fireSessionStart();
+      await waitFor(() => b.composeParked(), "compose to park at the gate");
+      await b.harness.fireSessionShutdown();
+      b.harness.invalidate();
+      const notesBefore = b.harness.notes.length;
+      // Control (green both worlds): while the compose is parked nothing has
+      // touched the invalidated runtime — every touch recorded after this
+      // point belongs to the released compose/tail under test.
+      expect(
+        b.harness.staleTouches,
+        "control: no guarded touch may precede the compose release",
+      ).toStrictEqual([]);
+      b.releaseCompose();
+      await startPending;
+      return { notesBefore };
+    }
+
+    // --- Variant 1 — the whole late tail after a SUCCESSFUL compose (the
+    // Case C interleaving, observed from the release instead of post-arm) ---
+
+    it("bug 0022 / PIC-67 variant 1 (RED at HEAD): the late compose tail after a consumed session_shutdown performs zero guarded touches", async () => {
+      const b = boot({ gateCompose: true });
+      const { notesBefore } = await driveShutdownDuringParkedCompose(b);
+
+      // PIC-67's requirement sentence: zero guarded touches wherever the
+      // runtime can know of the teardown without touching. The factory holds
+      // the `shutdownEventsObserved` evidence BEFORE `registerFixtures`, so
+      // from the consumed shutdown on, NOTHING may touch. At HEAD this FAILS
+      // with ["pi.getCommands"]: the continuation runs the `registerFixtures`
+      // collision-pass read (factory.ts registerFixtures) before the
+      // generation check, which guards only the arming.
+      expect(
+        b.harness.staleTouches,
+        "PIC-67: the late compose tail must perform zero guarded touches after a consumed session_shutdown",
+      ).toStrictEqual([]);
+
+      // Invariants (green both worlds): the collision-pass throw precedes
+      // every `pi.registerCommand`, so nothing registers either way; no note
+      // can deliver through the dead captured channel; and nothing may land
+      // on stderr — neither the PIC-54 cascade nor the PIC-67 quiesce line
+      // (the shutdown ran: knowing without touching has nothing to report).
+      expect(
+        b.harness.commands.size,
+        "no slash command may register into the outgoing session",
+      ).toBe(0);
+      expect(
+        b.harness.notes.length,
+        "no note may be delivered post-invalidate",
+      ).toBe(notesBefore);
+      expect(
+        cascades(),
+        "no stderr cascade from the late tail",
+      ).toStrictEqual([]);
+      expect(
+        quiesceLines(),
+        "no quiesce stderr line: the factory knew of the teardown without touching",
+      ).toStrictEqual([]);
+    });
+
+    it("bug 0022 / PIC-67 variant 1 (RED at HEAD): the late tail constructs zero diagnostics for the dead, unwired channel", async () => {
+      const b = boot({ gateCompose: true });
+      await driveShutdownDuringParkedCompose(b);
+
+      // The tail's swallowed stale throw is converted into a
+      // `theta/load/extension-bootstrap-failed` diagnostic that production
+      // drops (the default export wires no `emitDiagnostic`) and that a wired
+      // emitter could not deliver either — the System-notes chain rides the
+      // same invalidated runtime, and PIC-67 clause (c) forbids the delivery
+      // attempt. Spec-correct posture: knowing of the teardown, construct
+      // NOTHING. At HEAD this FAILS with one diagnostic carrying
+      // `details.capability: "pi.getCommands"`.
+      expect(
+        b.diagnostics,
+        "zero diagnostics may be constructed by the late tail after a consumed session_shutdown",
+      ).toStrictEqual([]);
+    });
+
+    it("bug 0022 / PIC-67 variant 1 (RED at HEAD): the late tail must not publish the dead generation's live* resources — a second session_shutdown finds nothing to tear down", async () => {
+      const b = boot({ gateCompose: true });
+      await driveShutdownDuringParkedCompose(b);
+
+      // The live*-publish witness. The factory's `session_shutdown` handler
+      // reads `liveRegistry` LAZILY: if the late tail published the dead
+      // generation's wiring (HEAD behaviour), this second shutdown runs the
+      // full five-sub-step teardown against it and flips its drain state to
+      // `{ drained: true, tag: "shutting-down" }`; if the fix suppressed the
+      // publish, the handler sees `undefined` and no-ops, leaving the
+      // registry at its factory-state `{ drained: false }`. The teardown over
+      // an empty invocation registry settles without FakeClock advancement
+      // (the Case B control proves the pattern), so this await is
+      // deterministic in both worlds.
+      await b.harness.fireSessionShutdown();
+
+      const wiring = b.wiring();
+      expect(
+        wiring,
+        "harness control: the gated compose resolved, so the harness captured the wiring regardless of what the factory did with it",
+      ).toBeDefined();
+      expect(
+        wiring!.registry.readDrainState().drained,
+        "PIC-67: the dead generation's registry must never be published for a later teardown to find — its drain state must stay at the factory value",
+      ).toBe(false);
+      expect(
+        b.harness.staleTouches,
+        "the second shutdown must find nothing to tear down and touch nothing",
+      ).toStrictEqual([]);
+    });
+
+    it("bug 0022 variant 1 control (GREEN at HEAD): the 0018-fixed arming suppression holds — a watcher boundary after the settled tail adds zero further touches", async () => {
+      const b = boot({ gateCompose: true });
+      await driveShutdownDuringParkedCompose(b);
+
+      // The 0018-fixed arm: the generation check DID suppress
+      // `installHotReload`, so no watcher is armed and a change event + the
+      // debounce boundary + a real-timer settle must add nothing — relative
+      // to whatever the tail itself touched (at HEAD the tail's own
+      // ["pi.getCommands"]; post-fix []). Snapshot-based so this control is
+      // green in BOTH worlds: it pins that stage 2's tail fix must not
+      // regress the arming suppression.
+      const touchesAfterTail = [...b.harness.staleTouches];
+      b.fakeWatcher.emit({
+        kind: "change",
+        path: join(thetaDir, "greet.theta"),
+      });
+      b.fakeClock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(
+        b.harness.staleTouches,
+        "the suppressed arming must stay suppressed: a watcher boundary adds zero further touches",
+      ).toStrictEqual(touchesAfterTail);
+      expect(
+        quiesceLines(),
+        "no quiesce line: nothing was armed, so nothing quiesces",
+      ).toStrictEqual([]);
+    });
+
+    // --- Variant 2 — the invalidation lands BEFORE the compose's guarded
+    // reads (gate ahead of composeExtensionInstance): the compose dies on its
+    // first guarded read and the throw funnels into the factory catch arm ---
+
+    it("bug 0022 / PIC-67 variant 2 (RED at HEAD): after a mid-compose shutdown the catch arm adds no guarded touch beyond the compose's own death-read", async () => {
+      const b = boot({ gateBeforeCompose: true });
+      const { notesBefore } = await driveShutdownDuringParkedCompose(b);
+
+      // The compose was already in flight when the shutdown landed, so its
+      // own guarded death-read is unavoidable — the existing reactive path:
+      // released, it dies on `buildRuntimeRoot`'s `ctx.cwd` read and the
+      // throw funnels into the compose-supplier catch arm. The zero-touch
+      // obligation covers the factory TAIL: once the compose settles the
+      // factory can know of the teardown without touching, so the catch arm
+      // must add NOTHING — exactly ["ctx.cwd"], deliberately not []. At HEAD
+      // this FAILS with ["ctx.cwd", "pi.getCommands"]: the catch-arm fallback
+      // `registerFixtures(deps.fixtures)` performs one more guarded touch for
+      // a fixture list that is empty in production.
+      expect(
+        b.harness.staleTouches,
+        "PIC-67: exactly the compose pass's own in-flight death-read — the catch arm must add no touch after the compose settles",
+      ).toStrictEqual(["ctx.cwd"]);
+
+      // Invariants (green both worlds): the compose never resolved, so no
+      // wiring may exist; nothing registers; nothing delivers; stderr stays
+      // empty on both designed prefixes.
+      expect(
+        b.wiring(),
+        "the compose died before resolving — no wiring may be captured",
+      ).toBeUndefined();
+      expect(
+        b.harness.commands.size,
+        "no slash command may register into the outgoing session",
+      ).toBe(0);
+      expect(
+        b.harness.notes.length,
+        "no note may be delivered post-invalidate",
+      ).toBe(notesBefore);
+      expect(
+        cascades(),
+        "no stderr cascade from the catch arm",
+      ).toStrictEqual([]);
+      expect(
+        quiesceLines(),
+        "no quiesce stderr line: the factory knew of the teardown without touching",
+      ).toStrictEqual([]);
+    });
+
+    it("bug 0022 / PIC-67 variant 2 (RED at HEAD): the catch arm constructs zero diagnostics for the mid-compose death", async () => {
+      const b = boot({ gateBeforeCompose: true });
+      await driveShutdownDuringParkedCompose(b);
+
+      // At HEAD the catch arm constructs TWO dropped diagnostics: the
+      // compose-supplier catch labels the `ctx.cwd` stale death
+      // `capability: "pi.registerCommand"` (misattributed — nothing reached
+      // `pi.registerCommand`), then the fallback `registerFixtures`'s
+      // collision-pass catch adds a second labelled `pi.getCommands`.
+      // Spec-correct: the factory knows of the teardown the moment the
+      // compose settles; it must construct NOTHING (the channel is dead and
+      // PIC-67 clause (c) forbids the delivery attempt).
+      expect(
+        b.diagnostics,
+        "zero diagnostics may be constructed once the compose settles on a known-torn-down runtime",
+      ).toStrictEqual([]);
+    });
   });
 });

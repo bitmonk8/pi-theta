@@ -6,6 +6,75 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-07-28
+
+### Fixed
+
+- **The late-completing `session_start` compose tail now does nothing when a
+  `session_shutdown` was consumed while the compose was in flight — no
+  live-resource publication, no registration pass, no diagnostic
+  construction, no watcher arming — closing the arm the bug-0018 fix left
+  open (bug 0022).** The 0018 fix placed the PIC-67 generation check at the
+  LAST step of `runComposeInstanceRegistration`, immediately before
+  `installHotReload`, so after a shutdown was consumed mid-compose the tail
+  still published the dead generation's `liveRegistry` / `liveClock` /
+  `liveActiveInvocations` / `liveForwardingSignals` (a populated
+  dead-generation registry no teardown would ever visit, drain state never
+  set), ran `registerFixtures` — whose collision-pass `pi.getCommands` read
+  is a guarded touch on the invalidated runtime — and on the catch arm
+  emitted a diagnostic and ran the static-fixture fallback, all silent: the
+  production default export wires no `emitDiagnostic`, and the delivery
+  channel rides the invalidated runtime, through which PIC-67 clause (c)
+  forbids any delivery attempt. Fix (bug doc Option 1): a single
+  factory-closure-local predicate `composeOutlivedSession`
+  (`shutdownEventsObserved !== shutdownsAtComposeStart`), evaluated
+  immediately after `deps.composeInstance` settles, on BOTH arms — catch arm
+  before the diagnostic and the static-fixture fallback, success arm before
+  the `live*` publishes and `registerFixtures` — returns zero-touch on
+  mismatch: no publish, no registration, no diagnostic construction, no
+  stderr. The now-dead late check before `installHotReload` was folded into
+  it (the tail is await-free after the check, so one check per arm
+  suffices), and the predicate's comment marks it as the single decision
+  site where future touch-free staleness evidence for the late tail joins
+  as a disjunct. The shutdown-LESS mid-compose invalidation stays on the
+  existing reactive paths — no new probe touch, preserving the PIC-67
+  zero-touch pin for the shutdown-observed race. PIC-67's final requirement
+  sentence (`session-shutdown-semantics.md#pic-67`) is extended: the MUST
+  now names the whole suppressed continuation (live-resource publication;
+  the registration pass on the success arm and the compose-throw catch
+  arm's static-fixture fallback; diagnostic construction; step-5 watcher
+  arming), states the joint PIC-57 attribution (not arming is
+  PIC-57-correct; the rest is pinned by the sentence itself), and pins the
+  compose-settle boundary: an in-flight compose is not cancelled — once the
+  invalidation has landed its next guarded read dies reactively, and that
+  swallowed in-flight read is not a violation of the sentence. Offline
+  lock: six new tests in `tests/hot-reload-stale-ctx-replacement.test.ts`
+  (5 red at the pre-fix HEAD + 1 green arming-suppression control) on the
+  bug-0018 Case C harness with an `emitDiagnostic` recorder and a
+  `gateBeforeCompose` seam — variant 1 (compose settled before the gate)
+  locks zero `staleTouches` (HEAD: `["pi.getCommands"]`), zero constructed
+  diagnostics (HEAD: one `extension-bootstrap-failed`, capability
+  `pi.getCommands`), and the no-publish witness (a second
+  `session_shutdown` finds nothing to tear down; `readDrainState()` stays
+  `{ drained: false }`, where HEAD flips it to drained); variant 2
+  (shutdown at the compose's first await) locks `staleTouches` to exactly
+  `["ctx.cwd"]` — the compose's own in-flight death-read, nothing after the
+  compose settles (HEAD: `["ctx.cwd", "pi.getCommands"]`) — and zero
+  diagnostics (HEAD: two, the first mislabelled capability
+  `pi.registerCommand`); the old Case C post-arm baseline was deleted, so
+  Case C now locks the whole tail zero-touch from the consumed shutdown on.
+  Live regression witness (the bug has no positive live observable):
+  `tests/live/live-production-acceptance.test.ts` 5/5,
+  `tests/live/acceptance/noninteractive-acceptance.test.ts` 10/10 (its
+  permitted-codes assertion over stdout+stderr would fail on a
+  `system-note delivery failed:` cascade quoting a non-permitted code),
+  `tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3. The two
+  separable diagnostic-surface defects the report recorded — the production
+  default export drops every bootstrap diagnostic (`emitDiagnostic`
+  unwired), and the compose-supplier catch labels every compose throw
+  `capability: "pi.registerCommand"` — are deliberately not folded in;
+  filed as bug 0023.
+
 ## [0.28.0] - 2026-07-28
 
 ### Fixed

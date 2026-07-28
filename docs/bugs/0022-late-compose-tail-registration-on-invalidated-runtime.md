@@ -1,6 +1,12 @@
 # Bug 0022 — The late-completing `session_start` compose tail performs registration work against the invalidated runtime; the PIC-67 zero-touch suppression covers only the watcher arming
 
-- **Status:** open
+- **Status:** fixed (0.29.0). A single factory-closure-local predicate
+  (`composeOutlivedSession`) evaluated on both arms the moment the compose
+  settles gates the WHOLE post-compose continuation zero-touch — no `live*`
+  publish, no registration pass, no diagnostic construction, no watcher
+  arming — when a `session_shutdown` was consumed mid-compose; PIC-67's
+  requirement sentence now names the suppressed continuation and pins the
+  compose-settle boundary.
 - **Kind:** defect — the implementation violates a spec sentence. PIC-67
   (`session-shutdown-semantics.md#pic-67`, added by the bug-0018 fix) pins:
   "Zero guarded touches remain the requirement wherever the runtime can know
@@ -237,3 +243,79 @@ same defect)" — and the 0018 report's root-cause section names the
 arm-after-teardown race as "same defect class". This report substantiates
 that recorded arm: origin bug-0018 fix Case C baseline comment plus the
 reviewer residual record from the 0018 review rounds.
+
+## Fix (0.29.0)
+
+Option 1 of the report, adopted in full: the PIC-67 generation check moves
+from the last step of the continuation to the first — the factory evaluates
+its touch-free teardown evidence the moment the compose settles and, on a
+mismatch, does nothing at all. Option 2's entry probe was not added: the
+shutdown-less mid-compose invalidation stays on the existing reactive paths
+(no new probe touch), preserving the PIC-67 zero-touch pin for the
+shutdown-observed race.
+
+**Guard (`src/extension/factory.ts`).** A single factory-closure-local
+predicate, `composeOutlivedSession`
+(`shutdownEventsObserved !== shutdownsAtComposeStart`), evaluated
+immediately after `deps.composeInstance` settles, on BOTH arms — catch arm
+before the diagnostic and the static-fixture fallback, success arm before
+the `live*` publishes and `registerFixtures` — returning zero-touch on
+mismatch: no publish, no registration, no diagnostic construction, no
+stderr. The now-dead late check before `installHotReload` was folded into
+it — the tail is await-free after the check (`registerFixtures` is
+synchronous), so one check per arm suffices; no shutdown can interleave
+past it. The comment marks the predicate as the single decision site where
+future touch-free staleness evidence for the late tail joins as a
+disjunct.
+
+**Spec (`session-shutdown-semantics.md#pic-67`).** The final requirement
+sentence is extended: the MUST now names the whole suppressed continuation
+— the publication of the composed generation's live teardown resources, the
+registration pass on the success arm and equally on the compose-throw catch
+arm's static-fixture fallback, any diagnostic construction, and the arming
+of the step-5 watcher — states the joint PIC-57 attribution (not arming is
+already PIC-57-correct there; the rest is pinned by the sentence itself),
+and pins the compose-settle boundary: a compose pass already in flight when
+the shutdown lands is not cancelled — once the invalidation has landed, its
+next guarded read dies reactively, and that swallowed in-flight read is not
+a violation of the sentence.
+
+**Regression lock (`tests/hot-reload-stale-ctx-replacement.test.ts`).** Six
+new tests in a bug-0022 describe (5 red at the pre-fix HEAD + 1 green
+arming-suppression control), built on the bug-0018 Case C harness with an
+`emitDiagnostic` recorder and a `gateBeforeCompose` seam. Variant 1
+(compose settled before the gate): zero `staleTouches` (HEAD:
+`["pi.getCommands"]`), zero constructed diagnostics (HEAD: one
+`extension-bootstrap-failed`, capability `pi.getCommands`), and the
+no-publish witness — a second `session_shutdown` finds nothing to tear
+down, `readDrainState()` stays `{ drained: false }` (HEAD: flips to
+drained). Variant 2 (gate ahead of the compose; shutdown at the compose's
+first await): `staleTouches` exactly `["ctx.cwd"]` — the compose's own
+in-flight death-read — and nothing after the compose settles (HEAD:
+`["ctx.cwd", "pi.getCommands"]`); zero diagnostics (HEAD: two, the first
+mislabelled capability `pi.registerCommand`). The old Case C post-arm
+baseline (`staleTouches.length = 0`) was deleted, so Case C now locks the
+whole tail zero-touch from the consumed shutdown on. Both directions
+proven: with `factory.ts` reverted to HEAD the file runs 6 failed /
+6 passed with exactly those signatures.
+
+**Live witness.** The bug has no positive live observable (the defect is
+silence), so the live suites serve as regression witnesses: H8a-T
+`tests/live/live-production-acceptance.test.ts` 5/5; H9a-T
+`tests/live/acceptance/noninteractive-acceptance.test.ts` 10/10 — its
+permitted-codes assertion over stdout+stderr would fail on a
+`system-note delivery failed:` cascade quoting a non-permitted code;
+hardening `tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3.
+
+**Residuals / filed separately.** The two diagnostic-surface defects this
+report recorded under §"Fix options and recommendation" item 3 are
+deliberately not folded in and are filed as
+[bug 0023](./0023-production-bootstrap-diagnostics-dropped-and-mislabelled.md):
+the production default export supplies no `emitDiagnostic`, so every
+factory/`session_start` bootstrap diagnostic is constructed and dropped in
+production regardless of staleness (extension-bootstrap-and-per-theta.md
+prescribes delivery through the **System notes** fallback chain); and the
+compose-supplier catch labels every compose throw
+`capability: "pi.registerCommand"` even when nothing reached
+`pi.registerCommand` — an honest label needs a registry amendment, because
+`details.capability` is a spec-pinned closed set.

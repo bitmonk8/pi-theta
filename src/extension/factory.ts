@@ -271,17 +271,19 @@ export function createThetaExtension(
     // the shutdown handler falls back to an empty list (a no-op sub-step 5) when
     // compose never ran, keeping the compose-never-ran path safe.
     let liveForwardingSignals: ForwardingSignalSource[] | undefined;
-    // Bug 0018 (PIC-67) — arm-after-teardown race: count of `session_shutdown`
-    // deliveries observed by this extension instance. An async `session_start`
-    // compose captures the count at its own start and, on completion, arms the
-    // step-5 watcher only if no shutdown was consumed while it was in flight —
-    // otherwise the freshly-armed watcher would outlive the teardown (the
-    // handler's lazy `liveRegistry` read saw `undefined` and no-oped) and its
-    // first debounced reload would run against the invalidated runtime. The
-    // capture-at-compose-start comparison is per-compose-generation (a
-    // legitimate later `session_start` captures the newer count and arms
-    // normally) and race-free within the single JS thread: the shutdown handler
-    // increments synchronously before a parked compose can resume.
+    // Bugs 0018/0022 (PIC-67) — arm-after-teardown race: count of
+    // `session_shutdown` deliveries observed by this extension instance. An
+    // async `session_start` compose snapshots the count at its own start; a
+    // mismatch when it settles is the factory's TOUCH-FREE evidence that a
+    // shutdown was consumed mid-flight, and the single decision site in
+    // `runComposeInstanceRegistration` then gates the WHOLE post-compose
+    // continuation zero-touch on both arms — no `live*` publish, no
+    // registration pass, no diagnostic construction, no step-5 watcher arming
+    // (full rationale at the decision site). The capture-at-compose-start
+    // comparison is per-compose-generation (a legitimate later `session_start`
+    // captures the newer count and proceeds normally) and race-free within the
+    // single JS thread: the shutdown handler increments synchronously before a
+    // parked compose can resume.
     let shutdownEventsObserved = 0;
     // Step 1 — `--theta` flag. Synchronous-void; per-call wrapped. A
     // `registerFlag` throw is FATAL to the whole extension: step 1's `--theta`
@@ -492,15 +494,46 @@ export function createThetaExtension(
       ctx: ExtensionContext,
     ): Promise<void> {
       // Bug 0018 (PIC-67): snapshot the shutdown count before the async compose
-      // so the arm decision below can tell whether a `session_shutdown` was
-      // consumed while this compose pass was in flight.
+      // so the whole-tail decision below can tell whether a `session_shutdown`
+      // was consumed while this compose pass was in flight.
       const shutdownsAtComposeStart = shutdownEventsObserved;
+      // Bug 0022 (PIC-67), subsuming the bug-0018 arming check: the single
+      // decision site for the whole post-compose continuation, evaluated on
+      // both arms the moment the compose settles. The factory holds teardown
+      // evidence TOUCH-FREE: a `session_shutdown` was consumed while THIS
+      // compose was in flight, so the teardown that ran can never visit the
+      // generation this compose would publish (this compose's wiring was
+      // necessarily unpublished at teardown time), and the runtime is
+      // invalidated (or about to be). Knowing that, nothing in the tail may
+      // run: no `live*` publish (a populated dead-generation registry no
+      // teardown would ever visit), no registration pass (its collision read is
+      // a guarded touch on the invalidated runtime — or, before the
+      // invalidation lands, live registration work for a generation whose
+      // teardown already ran), no diagnostic construction (the delivery channel
+      // rides the same invalidated runtime — PIC-67 clause (c) — or, before the
+      // invalidation lands, would deliver into the outgoing session for a
+      // generation whose teardown already ran), and no watcher arming (a
+      // watcher nothing will ever detach, whose first reload would run against
+      // the invalidated runtime). Zero-touch return; not arming IS the
+      // PIC-57-correct posture, and the registration/publish suppression is
+      // pinned by PIC-67 itself. One check per arm suffices: the tail is
+      // await-free after it (registerFixtures is synchronous), so no shutdown
+      // can interleave past the check. Any future touch-free staleness evidence
+      // for this late tail joins here as a disjunct.
+      const composeOutlivedSession = (): boolean =>
+        shutdownEventsObserved !== shutdownsAtComposeStart;
       let wiring: ExtensionInstanceWiring | undefined;
       try {
         wiring = await deps.composeInstance!(pi, ctx);
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+        if (composeOutlivedSession()) {
+          return;
+        }
         deps.emitDiagnostic?.(bootstrapFailedDiagnostic("pi.registerCommand", e));
         registerFixtures(deps.fixtures);
+        return;
+      }
+      if (composeOutlivedSession()) {
         return;
       }
       // Publish the live resources for the lazy `session_shutdown` teardown read.
@@ -522,15 +555,6 @@ export function createThetaExtension(
       // inside it is exactly the behaviour the env marker suppresses (subagent.md
       // #pic-58). The parent still arms the watcher normally.
       if (deps.isSubagentChild === true) {
-        return;
-      }
-      // Bug 0018 (PIC-67): a `session_shutdown` consumed during this compose's
-      // flight found nothing to tear down (liveRegistry was still unpublished)
-      // and the runtime is invalidated (or about to be) — arming now would
-      // install a watcher nothing will ever detach, whose first reload runs
-      // against the invalidated runtime. Do not arm; quiesce silently (the
-      // teardown DID run — not arming IS the spec-correct posture, PIC-57).
-      if (shutdownEventsObserved !== shutdownsAtComposeStart) {
         return;
       }
       try {
@@ -559,9 +583,11 @@ export function createThetaExtension(
     // it inside the try to preserve await-ordering.
     try {
       pi.on("session_shutdown", (event) => {
-        // Bug 0018 (PIC-67): record the delivery before anything can throw or
-        // short-circuit, so an in-flight `session_start` compose observes it at
-        // arm time even when the lazy reads below no-op this teardown.
+        // Bug 0018 (PIC-67), arming check subsumed by bug 0022's
+        // compose-settle gate: record the delivery before anything can throw
+        // or short-circuit, so an in-flight `session_start` compose observes
+        // it at its compose-settle boundary even when the lazy reads below
+        // no-op this teardown.
         shutdownEventsObserved += 1;
         try {
           // Read the live resources LAZILY (the subscription fires before compose
