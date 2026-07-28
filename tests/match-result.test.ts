@@ -13,7 +13,7 @@ import {
   type MatchArm,
 } from "../src/runtime/match-result";
 import type { CompatType, PrimitiveName, TypeEnv } from "../src/parser/type-compat";
-import type { ThetaValue } from "../src/runtime/value";
+import { makeOk, type ThetaValue } from "../src/runtime/value";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // V4a-T — failing tests for the paired `V4a` "`match`, `?`, and `Result`"
@@ -255,7 +255,10 @@ describe("V4a-T — runtime `match` raise-versus-bind exhaustion (theta/runtime/
   });
 
   it("theta/runtime/match-error: a constructor pattern matches the Result variant and binds its inner value", () => {
-    const okValue: ThetaValue = { ok: true, value: "inner" };
+    // A genuine constructor-built Result: only makeOk/makeErr-branded values
+    // classify as Results (bug 0017), so a forged { ok, value } literal would
+    // match no constructor pattern.
+    const okValue: ThetaValue = makeOk("inner");
     const arms: readonly MatchArm[] = [
       {
         pattern: { kind: "constructor", ctor: "Ok", inner: { kind: "identifier", name: "v" } },

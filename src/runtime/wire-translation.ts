@@ -15,8 +15,9 @@
 //     the same enum. Anonymous string-literal-union positions are absent from
 //     the sidecar and receive no tag — equality on those falls back to plain
 //     string equality (`Severity.Low == "low"` remains `false`). The walk
-//     recurses through arrays, nested object fields, and `Result.Ok` /
-//     `Result.Err` payloads. Theta code never sees wire names.
+//     recurses through arrays and nested object fields (`Result` has no
+//     lowered-schema form, so an inbound value never contains one). Theta
+//     code never sees wire names.
 //   - *Outbound* (theta value → JSON): the runtime walks the theta-side value and
 //     produces wire-named JSON before AJV validation.
 //

@@ -10,8 +10,12 @@
 //     interpreter-private declaring-enum tag (the tag MUST NOT appear in JSON
 //     output — `JSON.stringify` of an enum value yields the bare wire string);
 //     a `Result<T, E>` is internally tagged with an `Ok`/`Err` discriminator
-//     carrying the payload and is never lowered to wire (it has no lowered-
-//     schema form, so a `Result` value never crosses the wire).
+//     carrying the payload, guarded by an interpreter-private non-enumerable
+//     brand (`__thetaResult`) so a user/model object that happens to carry a
+//     boolean `ok` field can never classify as a `Result` (type-system.md
+//     `Result` row: "observed only via constructors"; bug 0017); a `Result` is
+//     never lowered to wire (it has no lowered-schema form, so a `Result`
+//     value never crosses the wire).
 //   - Structural equality (`==`): cross-type compares to `false` (no parse
 //     diagnostic, no runtime panic); primitives compare by value with the two
 //     fixed refinements `NaN == NaN` is `true` and `+0 == -0` is `true`; arrays
@@ -54,16 +58,34 @@ const ENUM_TAG = "__thetaEnum";
  */
 export type EnumValue = { readonly [enumBrand]: "theta-enum" };
 
+/** Brand marking a value as a constructor-built `Result` (type-level only). */
+declare const resultBrand: unique symbol;
+
+/**
+ * The interpreter-private property name branding a `Result` runtime value.
+ * Installed **non-enumerable** by `makeOk` / `makeErr` — mirroring the enum
+ * tag — so it never appears in JSON output, `Object.keys`, or the
+ * {@link valuesEqual} key walk. {@link isResultValue} tests this brand, not the
+ * `{ ok: boolean }` shape: user/model data carrying a boolean `ok` field must
+ * never classify as (or forge) a `Result` (type-system.md, `Result` row —
+ * "observed only via constructors"; bug 0017).
+ */
+const RESULT_TAG = "__thetaResult";
+
 /**
  * A `Result<T, E>` runtime value: internally tagged with an `Ok`/`Err`
  * discriminator carrying the payload (runtime-value-model.md, value-
- * representation table, `Result` row). Theta code observes `Result` only through
- * `Ok` / `Err` constructors, `match`, and `?`; `Result` has no lowered-schema
- * form and never crosses the wire.
+ * representation table, `Result` row). Construct only via `makeOk` / `makeErr`
+ * — they install the interpreter-private non-enumerable `__thetaResult` brand
+ * that `isResultValue` classifies by (the type-level `resultBrand` member
+ * forces literal construction through the constructors). Theta code observes
+ * `Result` only through `Ok` / `Err` constructors, `match`, and `?`; `Result`
+ * has no lowered-schema form and never crosses the wire.
  */
-export type ResultValue =
+export type ResultValue = (
   | { readonly ok: true; readonly value: ThetaValue }
-  | { readonly ok: false; readonly error: ThetaValue };
+  | { readonly ok: false; readonly error: ThetaValue }
+) & { readonly [resultBrand]: "theta-result" };
 
 /**
  * The interpreter representation of any Theta value (runtime-value-model.md,
@@ -169,25 +191,60 @@ export function isEnumValue(value: ThetaValue): value is EnumValue {
   return enumTagOf(value) !== undefined;
 }
 
-/** Whether `value` is a `Result` runtime value (carries an `ok` discriminator). */
+/**
+ * Whether `value` is a `Result` runtime value — i.e. carries the brand exactly
+ * as `brandResult` installs it: a **non-enumerable** own `__thetaResult`
+ * property. Tag presence alone is insufficient: JSON parsing and theta-side
+ * construction produce only enumerable keys, so an enumerable same-named key
+ * is ordinary user/model data, not a brand — accepting it would let a wire
+ * payload `{"__thetaResult": true, "ok": false, …}` forge an `Err`. Declared
+ * object schemas lower closed (`additionalProperties: false`,
+ * body-type-lowering.ts) and reject such a payload, but it still enters
+ * through permissive `{}` lowerings (forward/self/unresolved refs,
+ * query-schema-lowering.ts) and unvalidated ingress (code-tool return
+ * payloads, untyped invoke-envelope values). The `{ ok: boolean }` shape is
+ * likewise not consulted: an `ok` field is ordinary user/model data (bug
+ * 0017).
+ */
 export function isResultValue(value: ThetaValue): value is ResultValue {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    enumTagOf(value) === undefined &&
-    typeof (value as { ok?: unknown }).ok === "boolean"
-  );
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const brand = Object.getOwnPropertyDescriptor(value, RESULT_TAG);
+  return brand !== undefined && !brand.enumerable;
+}
+
+/**
+ * Install the interpreter-private `Result` brand. Non-enumerable — like the
+ * enum tag — so the brand is invisible on every theta-visible surface and in
+ * JSON output; a clone that walks enumerable keys (JSON, `structuredClone`)
+ * drops it, so a boundary that legitimately round-trips a `Result`'s arms must
+ * re-enter through `makeOk` / `makeErr` at decode. Non-enumerability doubles
+ * as the forgery guard: {@link isResultValue} rejects an enumerable same-named
+ * key, which is all JSON/user data can produce.
+ */
+function brandResult(
+  result:
+    | { readonly ok: true; readonly value: ThetaValue }
+    | { readonly ok: false; readonly error: ThetaValue },
+): ResultValue {
+  Object.defineProperty(result, RESULT_TAG, {
+    value: true,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return result as ResultValue;
 }
 
 /** Construct an `Ok(value)` `Result` runtime value. */
 export function makeOk(value: ThetaValue): ResultValue {
-  return { ok: true, value };
+  return brandResult({ ok: true, value });
 }
 
 /** Construct an `Err(error)` `Result` runtime value. */
 export function makeErr(error: ThetaValue): ResultValue {
-  return { ok: false, error };
+  return brandResult({ ok: false, error });
 }
 
 /**

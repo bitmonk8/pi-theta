@@ -1,6 +1,11 @@
 # Bug 0017 — A user object carrying a boolean `ok` field is misclassified as a `Result` runtime value; typed-query payloads and callee final values are silently corrupted
 
-- **Status:** open.
+- **Status:** fixed (0.27.0). Option 1 adopted — `Result` values carry an
+  interpreter-private non-enumerable brand (`__thetaResult`) installed only by
+  `makeOk` / `makeErr`; `isResultValue` classifies by the brand's own-property
+  descriptor (present AND non-enumerable), so user/model data shaped
+  `{ ok: boolean, … }` — including a payload naming the tag — can no longer
+  forge a `Result` at any classification boundary.
 - **Kind:** defect — implementation representation diverges from the documented
   value model. `docs/reference/type-system.md` (Result row) pins `Result<T, E>`
   as "internally tagged `Ok`/`Err` with payload; **observed only via
@@ -36,6 +41,69 @@
 - **Observed at:** `0.26.0`, host Pi pins `~0.80.10`, live model
   `claude-sonnet-5` (`npm run test:live`); the corruption itself is offline
   and deterministic (no live model required — see Reproduction).
+
+## Fix (0.27.0)
+
+Option 1, adopted — the private tag, mirroring the enum precedent.
+
+**Brand.** `RESULT_TAG = "__thetaResult"` (`src/runtime/value.ts`), a
+non-enumerable / non-writable / non-configurable own property installed by a
+private `brandResult` helper that `makeOk` / `makeErr` route through — the
+same mechanism as `ENUM_TAG` (`__thetaEnum`) and `SCHEMA_TAG`
+(`__thetaSchema`). `isResultValue` classifies by the brand and requires the
+own-property descriptor to exist AND be non-enumerable: JSON parsing and
+theta-side construction produce only enumerable keys, so neither an
+`ok`-carrying object nor a payload naming the tag
+(`{"__thetaResult": true, "ok": false, …}`) can forge a `Result`. A
+type-level unique-symbol brand on `ResultValue` makes bare `{ ok, value }`
+literals fail typecheck — constructor-only construction at compile time too.
+`valuesEqual` and `isWireLowerable` inherit the fix through `isResultValue`.
+
+**Residual duck-typing sites.** Two sites in `src/runtime/match-result.ts`
+still shape-tested the `ok` field — `summariseScrutinee` and `matchPattern`'s
+constructor case — both converted to `isResultValue`, so user data
+`{ ok: boolean, … }` matches no `Ok`/`Err` pattern and summarises as an
+ordinary object. Audit outcome: every other `src/` construction/classification
+site already routed through `makeOk` / `makeErr` / `isResultValue`; the PIC-59
+child envelope already decomposes genuine `Result`s into envelope ok/err arms
+child-side and re-tags at decode via `makeOk` / `makeErr`
+(`production-theta-producer.ts` ~:1866–1870) — exactly the
+re-tag-at-decode boundary the non-enumerable (hence non-serialising) brand
+requires.
+
+**Docs.** `docs/spec_topics/runtime-value-model.md` (reference-encoding
+paragraph) and `docs/reference/type-system.md` (concrete-shapes sentence) now
+name the `__thetaResult` brand: recognition is by brand, never by the
+`{ ok, … }` shape. The `src/runtime/wire-translation.ts` header's false claim
+that the inbound walk recurses through `Result` payloads is removed (`Result`
+has no lowered-schema form; an inbound value never contains one).
+
+**Tests.** `tests/result-value-privacy.test.ts`, written first (14 red at
+b1262d46 with the report's signatures, 9 controls green), grown through
+review to 25: `isResultValue` misclassification plus forged-enumerable-tag
+rejection (a-series), `?`/`match` corruption through the production executor
+including `{ ok: false, … }` data taking the `Ok` arm (b-series),
+`surfaceCalleeFinalValue` at the invoke boundary (c-series), `valuesEqual`
+(d), `isWireLowerable` (e), and genuine-constructor controls (f). Two test
+doubles forging `{ ok, … }` literals in `ThetaValue` positions routed through
+the constructors (`tests/match-result.test.ts` → `makeOk`;
+`tests/invoke-prompt-suspend.test.ts` → `makeErr`).
+
+**Verification.** Full default suite 216 files / 2519 tests green; typecheck
+and lint clean. The two documented correct-reason live reds went green
+unchanged: H8a "typed-query lowering, bounded"
+(`tests/live/live-production-acceptance.test.ts`, whole file 5/5) and H9a
+area (c) (`tests/live/acceptance/noninteractive-acceptance.test.ts`, whole
+file 10/10). Bidirectionality: temporarily reinstating the duck-type
+predicate turned 16/25 red with the pre-fix signatures (`expected true to be
+false`; `null member access: .label`; `expected null to deeply equal
+{ ok: true, label: 'x' }`); byte-exact restore → 25/25 green.
+
+Adjacent pre-existing issues identified during review, out of scope: (i) `?`
+on member/index/identifier operands bypasses `asResultValue` normalisation
+(the ERR-18 static gap; a silent corruption path predating this fix);
+(ii) the enum/schema tags (`__thetaEnum` / `__thetaSchema`) still classify by
+presence-only `hasOwnProperty`, not by descriptor.
 
 ## Summary
 
@@ -165,6 +233,7 @@ independently).
    (`{ ok: true, value: … }` is plausible user data), and it silently changes
    which user objects are corrupted rather than eliminating the class.
 
-Until fixed, the live-suite typed-query reds (H8a "typed-query lowering,
-bounded" and H9a area (c)) are correct-reason failures of this bug, not test
-defects; H9a area (b) passes only because its schema avoids the field name.
+While the bug was open, the live-suite typed-query reds (H8a "typed-query
+lowering, bounded" and H9a area (c)) were correct-reason failures of this
+bug, not test defects; H9a area (b) passed only because its schema avoids the
+field name. Both reds went green unchanged with the fix (§Fix).

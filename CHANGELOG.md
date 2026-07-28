@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-07-28
+
+### Fixed
+
+- **`Result` runtime values now carry an interpreter-private non-enumerable
+  brand (`__thetaResult`); user/model data carrying a boolean `ok` field no
+  longer forges a `Result` (bug 0017).** `makeOk` / `makeErr` built bare
+  `{ ok: true, value }` / `{ ok: false, error }` objects and `isResultValue`
+  duck-typed any non-array, non-enum object with a boolean `ok` property as a
+  `Result` — so an `ok`-carrying object forged a `Result` at every
+  classification boundary: the CONV-6 `asResultValue` wrap passed it through
+  unwrapped and `?` / `match Ok(v)` then read its nonexistent `.value`
+  (typed-query payloads with an `ok: boolean` schema field bound
+  `null`/`undefined`, aborting on the next member access);
+  `surfaceCalleeFinalValue` surfaced `{ ok: false, … }` callee **data** to
+  the `invoke` parent as an `Err`; `valuesEqual` and `isWireLowerable`
+  misrouted the same objects. Fix (bug doc Option 1, the enum-tag precedent):
+  the constructors route through a private `brandResult` helper installing a
+  non-enumerable / non-writable / non-configurable `__thetaResult` own
+  property, and `isResultValue` classifies by that brand — requiring the
+  descriptor to be non-enumerable, so a wire payload naming the tag cannot
+  forge it either (JSON produces only enumerable keys). A type-level
+  unique-symbol brand makes bare `{ ok, value }` literals fail typecheck.
+  Two residual duck-typing sites in `match-result.ts` (`summariseScrutinee`,
+  `matchPattern`'s constructor case) converted to `isResultValue`; the
+  PIC-59 child envelope already re-tags at decode via `makeOk` / `makeErr`.
+  Typed-query payloads with `ok: boolean` fields now bind intact, and the two
+  documented correct-reason live reds (H8a typed-query, H9a area (c)) went
+  green unchanged.
+
 ## [0.26.0] - 2026-07-28
 
 ### Fixed

@@ -54,7 +54,7 @@ npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-prod
 
 Some live tests are intentionally left red while a filed bug is open (e.g. bug
 0017 kept the H8a typed-query test and H9a area (c) red with a pinned failure
-signature). Before attributing a red to your change, check `docs/bugs/` for an
+signature until its fix in 0.27.0). Before attributing a red to your change, check `docs/bugs/` for an
 open report whose signature matches. Do not "fix" such a test by weakening it.
 
 ### No silent skipping

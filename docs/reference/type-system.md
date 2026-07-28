@@ -112,9 +112,11 @@ Theta values are native JavaScript values, tagged where type recovery is needed:
 | Enum variant | wire string plus an interpreter-private declaring-enum tag; cross-enum equality compares both; `JSON.stringify` yields the bare wire string |
 | `Result<T, E>` | internally tagged `Ok`/`Err` with payload; observed only via constructors, `match`, `?`; never lowered to a schema (`theta/parse/result-in-schema-position`), never crosses the wire |
 
-The reference interpreter's concrete shapes (`__thetaEnum` property, `{ ok, value }`
-/ `{ ok, error }` for `Result`) are non-normative implementation details, not
-reachable from theta code.
+The reference interpreter's concrete shapes (`__thetaEnum` property; `{ ok, value }`
+/ `{ ok, error }` plus a non-enumerable `__thetaResult` brand for `Result`) are
+non-normative implementation details, not reachable from theta code. The
+interpreter recognises a `Result` by the brand, never by the `{ ok, … }` shape:
+an object carrying a boolean `ok` field classifies as an ordinary object.
 
 ### Equality (`==`)
 

@@ -22,7 +22,7 @@
 // value), not on a compile error, a missing fixture, or a harness throw. The
 // paired V4a implementation leaf fills it in.
 
-import { type ThetaValue, type ResultValue, valuesEqual } from "./value";
+import { type ThetaValue, isResultValue, valuesEqual } from "./value";
 import { ThetaPanic } from "./runtime-panics";
 
 /** The registry code carried by the non-exhaustive-`match` runtime panic. */
@@ -77,12 +77,13 @@ function summariseScrutinee(value: ThetaValue): string {
   if (Array.isArray(value)) {
     return JSON.stringify(value);
   }
-  // A `Result` value renders as `Ok(<inner>)` / `Err(<inner>)`.
-  if (typeof (value as { ok?: unknown }).ok === "boolean") {
-    const result = value as ResultValue;
-    return result.ok
-      ? `Ok(${summariseScrutinee(result.value)})`
-      : `Err(${summariseScrutinee(result.error)})`;
+  // A `Result` value renders as `Ok(<inner>)` / `Err(<inner>)`. Classified by
+  // the constructor-installed brand, never the `ok` shape — a user object
+  // carrying a boolean `ok` field is a schema-typed object (bug 0017).
+  if (isResultValue(value)) {
+    return value.ok
+      ? `Ok(${summariseScrutinee(value.value)})`
+      : `Err(${summariseScrutinee(value.error)})`;
   }
   // Any other schema-typed object: compact `JSON.stringify`.
   return JSON.stringify(value);
@@ -180,26 +181,23 @@ function matchPattern(
       return valuesEqual(value, pattern.value);
     case "constructor": {
       // `Ok(p)` / `Err(p)` match the named `Result` variant and recurse into the
-      // payload. The scrutinee must be a `Result` value (an `ok` discriminator).
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        Array.isArray(value) ||
-        typeof (value as { ok?: unknown }).ok !== "boolean"
-      ) {
+      // payload. The scrutinee must be a genuine constructor-built `Result` —
+      // classification is by the interpreter-private brand, never the `ok`
+      // shape, so user data `{ ok: boolean, … }` matches no constructor pattern
+      // (bug 0017).
+      if (!isResultValue(value)) {
         return false;
       }
-      const result = value as { ok: boolean; value?: ThetaValue; error?: ThetaValue };
       if (pattern.ctor === "Ok") {
-        if (!result.ok) {
+        if (!value.ok) {
           return false;
         }
-        return matchPattern(pattern.inner, result.value as ThetaValue, bindings);
+        return matchPattern(pattern.inner, value.value, bindings);
       }
-      if (result.ok) {
+      if (value.ok) {
         return false;
       }
-      return matchPattern(pattern.inner, result.error as ThetaValue, bindings);
+      return matchPattern(pattern.inner, value.error, bindings);
     }
     case "object": {
       // An object/schema pattern matches an object whose listed fields match

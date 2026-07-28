@@ -4,6 +4,7 @@ import {
   type PromptSuspendPi,
 } from "../src/runtime/invoke-prompt-suspend";
 import type { CrossModeCell } from "../src/runtime/invoke-cross-mode";
+import { makeErr } from "../src/runtime/value";
 
 // V15d-T — failing tests for the paired `V15d` prompt→prompt parent-suspend and
 // `setActiveTools` snapshot/restore.
@@ -195,7 +196,9 @@ describe("PIC-17 step-4 finally restore on inner failure, prompt→prompt invoke
 
   it("PIC-17: after the child FAILS (returns Err) inside the window, restores the pre-invoke snapshot and surfaces the Err unmasked", async () => {
     const pi = new RecordingActiveSetPi(AMBIENT_SNAPSHOT);
-    const errValue = { ok: false as const, error: "callee returned Err" };
+    // A genuine constructor-built Err (bug 0017: only makeOk/makeErr-branded
+    // values are Results; the suspend window surfaces it by identity).
+    const errValue = makeErr("callee returned Err");
 
     const childBody = async (): Promise<typeof errValue> => {
       pi.setActiveTools([...FOREIGN_MID_WINDOW]);
