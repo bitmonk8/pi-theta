@@ -164,6 +164,34 @@ describe("V11c-T — envelope is a relaxed params copy with a maxLength:500 mode
     expect(argsRequired).toEqual([]);
   });
 
+  it("$defs closure: the params schema's root $defs hoists to the ENVELOPE document root (dropped from the args copy) so #/$defs refs resolve — the spec pins the closure on the envelope schema document", () => {
+    // A NamedType param lowers to `{ "$ref": "#/$defs/<name>" }` with the
+    // resolved fragment under the params schema's root `$defs`. JSON-Schema
+    // `#/…` pointers resolve from the DOCUMENT root, so the closure must ride
+    // the envelope root — nested inside the ok arm's args it is unreachable to
+    // AJV (the bug-0011 routing step compiles the envelope document) and to the
+    // attachment inliner (which dereferences the attached copy's refs against
+    // the envelope document's root $defs — the bug-0011 live-round wire shape;
+    // this AJV-side hoist cell is unchanged by that flip).
+    const authorDef = { type: "object", properties: { name: { type: "string" } } };
+    const schema = buildBinderEnvelopeSchema({
+      paramsSchema: {
+        type: "object",
+        properties: { author: { $ref: "#/$defs/Author" } },
+        required: ["author"],
+        additionalProperties: false,
+        $defs: { Author: authorDef },
+      },
+      defaultedFields: [],
+    });
+    expect((schema as { $defs?: unknown }).$defs).toEqual({ Author: authorDef });
+    const args = propOf(armByKind(schema, "ok"), "args");
+    expect(args?.["$defs"]).toBeUndefined();
+    expect((args?.["properties"] as Record<string, unknown>)["author"]).toEqual({
+      $ref: "#/$defs/Author",
+    });
+  });
+
   it("model budget: message carries maxLength:500 on both failure arms (not a user cap)", () => {
     const schema = buildBinderEnvelopeSchema({
       paramsSchema: paramsSchemaOf({ query: { type: "string" } }, ["query"]),

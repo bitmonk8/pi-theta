@@ -6,6 +6,69 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-07-28
+
+### Fixed
+
+- **The production binder call now issues the spec-pinned forced-tool
+  structured-output `complete()` — rendered system prompt, fixed user
+  literal, exactly one forced `__theta_bind_<slug>` tool, deterministic
+  seed, provider-response capture — instead of a prose prompt parsed as free
+  text (bug 0011).** Since the first live binder pass (H9a, 2026-07-03) the
+  implementation had sent one user message carrying a rendered prose prompt
+  with a JSON-only instruction and text-parsed the reply into the envelope:
+  no `context.systemPrompt`, no `tools`, no `toolChoice`, no seed, no
+  `onResponse`, structural-only envelope routing, and a classifier fed a
+  fabricated `httpStatus: 200` — while the conforming call constructor
+  (`buildBinderCompleteCall`) sat test-only. The divergence was deliberately
+  recorded (`d848f1b2`): the pinned tool `parameters` — a top-level three-arm
+  `anyOf` — is not a valid provider `input_schema`, so the forced call
+  returned empty arguments. That finding falsified only the *attachment
+  shape*, not the forcing mechanism, so the fix aligns production to the
+  pinned call and amends only the attachment clause: the tool `parameters`
+  root the envelope schema in an object wrapper
+  (`{type:"object", properties:{envelope:<anyOf>}, required:["envelope"],
+  additionalProperties:false}`, BNDR-1/BNDR-2 preserved verbatim one level
+  down) with every `#/$defs/<name>` reference transitively inlined into the
+  attachment copy (live testing showed the provider also degrades
+  `$ref`-carrying tool schemas — NamedType/enum params bound malformed until
+  dereferenced), while AJV keeps validating the unwrapped envelope document
+  itself. Facet by facet: `context.systemPrompt` is the rendered V11d binder
+  system prompt (the parser now retains each default's literal source and
+  the `argument-hint` value to feed it; the BNDR-10 session-context block
+  rides item 6); `context.messages` is the fixed literal `Bind the
+  slash-command arguments now.`; `options.toolChoice` is forced with the
+  per-api spelling shared with the typed respond dispatch (the constructor's
+  hardcoded normalized spelling was wrong on `openai-completions` /
+  `mistral`-family apis; the table moved to `src/binder/forced-tool-choice.ts`);
+  the FNV-1a seed rides the provider's seed field per the seed-field table;
+  `options.onResponse` is registered per attempt so the provider-error
+  classifier reads the real captured HTTP status (`null` when it never
+  fired — the fabricated 200 is gone, and the HTTP-status arm of the mapping
+  table is reachable for the binder); the envelope is extracted from the
+  first matching `ToolCall`'s `arguments.envelope` and AJV-validated against
+  the true `anyOf` at the routing step (the `maxLength: 500` model budget is
+  enforced, extra keys are rejected, a non-object `ok.args` is malformed
+  rather than a silent `{}` bind), with plain text or a wrong-name `ToolCall`
+  routed to the malformed-envelope class. The free-text machinery
+  (`renderBinderTurnPrompt` / `parseBinderEnvelope` / `parseOkEnvelopeArgs`)
+  is retired. The retry taxonomy, per-class budgets, cancellation discipline,
+  bypass arms, defaults-merge, and echo/failure notes are unchanged
+  (mechanism-agnostic seams). Live-confirmed against the real provider
+  (`tests/hardening/session-binder.test.ts`, 10/10 — the `d848f1b2`
+  falsification retest): an intermediate run falsified the `$defs`-hoisted
+  attachment for NamedType params (3/10 malformed) before the inline landed;
+  the final run binds enum, schema-typed, and mixed params through the
+  forced call. Operator-visible changes: the binder's provider traffic
+  changes shape (structured tool call instead of prose; envelope compliance
+  is provider-enforced rather than prose-hope); binder determinism gains the
+  seed; needs_info/ambiguous messages over the 500-char budget now fail
+  malformed instead of passing unvalidated. Residuals (the upstream
+  nested-`$defs` lowering gap for two-level NamedType chains; the
+  canonical-hash citation for the synthesized tool-name slugs; the
+  off-session query path's own fabricated 200) are recorded in the bug
+  report's Fix section.
+
 ## [0.25.0] - 2026-07-28
 
 ### Fixed

@@ -177,6 +177,14 @@ export interface ParsedFrontmatter {
    * omitted or empty (the command registers without description text).
    */
   readonly description?: string;
+  /**
+   * The theta's `argument-hint:` frontmatter (frontmatter-fields-a.md) —
+   * binder-grounding-only in theta 1.0: it renders as the binder system
+   * prompt's `Argument hint:` line (binder-bypass-and-envelope.md
+   * §System-prompt structure item 3). Absent when omitted, empty, or a
+   * non-string scalar (the line is then omitted entirely).
+   */
+  readonly argumentHint?: string;
 }
 
 /** The outcome of a frontmatter parse: registration decision + diagnostics. */
@@ -649,6 +657,9 @@ function extractParsedParams(
       wireName: name,
       type: typeSource,
       hasDefault: defaultSource !== undefined,
+      // Retained for the binder system prompt's `default=<literal>` requirement
+      // token (V11d Parameters block) — the bypass classification ignores it.
+      ...(defaultSource !== undefined ? { defaultSource } : {}),
       nullable: typeSourceIsNullable(typeSource),
     });
     if (defaultSource !== undefined) {
@@ -725,6 +736,7 @@ export function parseFrontmatter(
   let bindEchoRange: SourceRange | undefined;
   let argumentHintPresent = false;
   let argumentHintRange: SourceRange | undefined;
+  let argumentHintValue: string | undefined;
   let toolLoopNode: Node | null | undefined;
   let respondRepairNode: Node | null | undefined;
   let paramsNode: Node | null | undefined;
@@ -780,12 +792,18 @@ export function parseFrontmatter(
       }
       if (key === "argument-hint") {
         // frontmatter-fields-a.md: `argument-hint` is binder-grounding-only in
-        // theta 1.0 (Pi has no `argumentHint` slot for extension commands).
-        // Capture presence + range so the advisory
-        // `theta/load/argument-hint-not-displayed` can fire when no `description:`
-        // accompanies it (an empty autocomplete entry).
+        // theta 1.0 (Pi has no `argumentHint` slot for extension commands) —
+        // that grounding is the binder system prompt's `Argument hint:` line
+        // (binder-bypass-and-envelope.md §System-prompt structure item 3), so
+        // the scalar VALUE is retained alongside the presence + range the
+        // advisory `theta/load/argument-hint-not-displayed` reads (fired when
+        // no `description:` accompanies it — an empty autocomplete entry).
         argumentHintPresent = true;
         argumentHintRange = keyRange;
+        argumentHintValue =
+          isScalar(item.value) && typeof item.value.value === "string"
+            ? item.value.value
+            : undefined;
         continue;
       }
       if (key === "bind_echo") {
@@ -1138,6 +1156,11 @@ export function parseFrontmatter(
     // slash-command autocomplete entry.
     ...(descriptionValue !== undefined && descriptionValue !== ""
       ? { description: descriptionValue }
+      : {}),
+    // A non-empty `argument-hint:` grounds the binder system prompt's
+    // `Argument hint:` line (its only theta 1.0 consumer).
+    ...(argumentHintValue !== undefined && argumentHintValue !== ""
+      ? { argumentHint: argumentHintValue }
       : {}),
   };
   return { registered: true, frontmatter, diagnostics };

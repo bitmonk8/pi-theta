@@ -1,6 +1,6 @@
 # Bug 0011 — The production binder `complete()` call passes no tools and no `toolChoice`: the envelope is obtained by prose instruction and text parsing, not the pinned forced-tool structured output
 
-- **Status:** open.
+- **Status:** fixed (0.26.0).
 - **Kind:** defect — implementation mechanism diverges from the documented
   binder call shape. The binder's own spec page
   (`pi-integration-contract/binder-inference.md`) pins the forced-tool call for
@@ -50,6 +50,137 @@
   `@earendil-works/pi-ai` / `pi-coding-agent` 0.80.10). Recorded as a sibling
   defect by bug 0010's Non-goals and its triage commit `f8909cdf`
   ("binder-precedent claim corrected"); this report is that record.
+
+## Fix (0.26.0)
+
+Option 1, staged behind the unchanged `BinderAttemptOutcome` classifier seam
+and the `runBinderCallWithCancellation` retry driver. Facet by facet against
+the table below:
+
+- **Call construction.** `#completeBinderReply` now dispatches through
+  `buildBinderCompleteCall` (`src/binder/binder-inference.ts`) — the
+  previously test-only conforming constructor — and threads the registry auth
+  (`getApiKeyAndHeaders` → `apiKey`/`headers`) into the returned options,
+  keeping the constructor auth-free. `context.messages` is the fixed
+  single-element literal `Bind the slash-command arguments now.`;
+  `options.temperature` is 0 and `options.signal` is the forwarded
+  `thetaAbort.signal`, both as before.
+- **System prompt.** `context.systemPrompt` is the rendered V11d
+  `buildBinderSystemPrompt` (cka-45 eight-item structure). Two parser
+  retentions feed it: `BypassParamsField.defaultSource` (the `= <literal>`
+  RHS in Theta surface syntax, for the item-4 `default=<literal>` rendering)
+  and `ParsedFrontmatter.argumentHint` (the `argument-hint:` value —
+  previously presence-only — for item 3). The BNDR-10 `bind_context: session`
+  compact transcript moved from the retired prose prompt into item 6.
+- **Attachment shape (the one spec amendment).** `context.tools` is exactly
+  one `__theta_bind_<slug>` tool (slug = `respondSchemaSlug` over the
+  envelope `anyOf` document — the same recipe the respond tool name uses;
+  description fixed literal). Its `parameters` root the envelope schema in
+  the object attachment wrapper `{type:"object",
+  properties:{envelope:<anyOf>}, required:["envelope"],
+  additionalProperties:false}` — BNDR-1/BNDR-2 preserved verbatim one level
+  down — with every `#/$defs/<name>` reference transitively inlined into the
+  attachment copy and no `$defs` key attached (`binderToolParametersSchema`).
+  AJV validates the unwrapped envelope document itself (whose root now
+  carries the params schema's root `$defs`, hoisted by
+  `buildBinderEnvelopeSchema` so `#/$defs/…` refs resolve at the routing
+  step). binder-inference.md's `context.tools` bullet and
+  binder-bypass-and-envelope.md's handed-to-the-provider sentence were
+  amended accordingly; the pinned `label` was resolved as registration-only
+  (pi-ai's `Tool` on a `complete()` call is `{name, description,
+  parameters}` — no label carrier — the same wrinkle resolution as the
+  0.20.0 respond dispatch).
+- **Tool-choice forcing.** `options.toolChoice` is supplied per-api from the
+  bug-0010 spelling table, extracted to `src/binder/forced-tool-choice.ts`
+  and shared by the respond dispatch and the binder constructor (whose
+  hardcoded normalized `{type:"tool",name}` was wrong on
+  `openai-completions` / `mistral`-family apis).
+- **Determinism seed.** `deriveBinderSeed` (FNV-1a over the bare command
+  name) rides the provider's seed field per the seed-field table
+  (`openai-completions` → `seed`, `mistral` → `random_seed`,
+  anthropic/bedrock → omitted).
+- **Extraction and envelope validation.** The envelope is read from the
+  first `ToolCall` whose `name` matches the binder tool
+  (`extractBinderEnvelope`; extraction precedes stopReason classification),
+  at its `arguments.envelope` key, and is AJV-validated against the true
+  `anyOf` at the routing step in `#classifyBinderAttempt`: the
+  `maxLength: 500` model budget is enforced, extra keys are rejected, a
+  non-object `ok.args` is malformed (never a silent `{}` bind), and the
+  rule-4 empty-after-stripping message check is retained post-AJV. Plain
+  text, a wrong-name `ToolCall`, or unusable `arguments` route to the
+  malformed-envelope class; the free-text parsers
+  (`renderBinderTurnPrompt` / `parseBinderEnvelope` / `parseOkEnvelopeArgs`)
+  are retired.
+- **Classifier input.** `options.onResponse` is registered per attempt
+  (last-firing-wins per the classifier-input pin); the classifier reads the
+  captured `ProviderResponse.status`, or `null` when `onResponse` never
+  fired — the fabricated `httpStatus: 200` is gone and the HTTP-status arm
+  of the provider-error-mapping table is reachable for the binder.
+- **Unchanged (mechanism-agnostic).** The retry taxonomy and per-class
+  budgets, the checkpoint/cancellation discipline, the bypass arms, the
+  defaults-merge, and the echo/failure-note surfaces.
+
+**Live confirmation (the `d848f1b2` falsification retest).** The bug report
+required the wrapped forced call to be live-confirmed before the free-text
+path was deleted. Two live runs of the token-gated
+`tests/hardening/session-binder.test.ts` (real pi binary, binder model
+`anthropic/claude-haiku-4-5`): the first falsified the intermediate
+`$defs`-hoisted attachment for NamedType params — 7/10 green but all three
+enum/schema-typed cases bound malformed (the `d848f1b2` class, scoped to
+`$ref`-carrying schemas) — which drove the reference-inlining attachment
+design; the second run passed 10/10, including `sev=High` enum binding,
+schema-typed object binding, and mixed enum + nullable binding through the
+forced call (`Running /triage: sev=High`,
+`Running /triage2: sev=High, note="the login page crashes on submit"`). The
+unwrapped-`anyOf` finding of `d848f1b2` thus stands falsified only for the
+attachment shape it tested; the wrapped, dereferenced forced call is
+live-proven.
+
+Regression surface: `tests/binder-forced-tool-dispatch.test.ts` (new — 13
+red-at-HEAD mechanism pins + 4 boundary controls + the post-live-round enum
+inline pin), re-pinned cells in `tests/binder-inference-provider-mapping.test.ts`
+(wrapper parameters, per-api toolChoice spellings, `$defs` inline/transitive/
+nested cells), the re-scripted `tests/e2e-s5-binder-echo-emission.test.ts`
+(ToolCall-bearing replies), and one envelope-root `$defs`-hoist cell in
+`tests/binder-bypass-envelope.test.ts`.
+
+### Residuals
+
+Knowingly-kept divergences and neighbour findings recorded so they are
+visible rather than silent:
+
+- **Upstream nested-`$defs` lowering gap (neighbour-report candidate).** A
+  two-level NamedType chain whose inner name is not directly
+  params-referenced (`params: t: Task` + `schema Task { sev: Severity }`)
+  lowers the inner fragment into a `$defs` nested ON the referring fragment
+  (`lowerObjectFields`, `src/parser/body-type-lowering.ts`) instead of the
+  document-root closure, so `#/$defs/Severity` dangles from every document
+  root — the params document, the envelope document (whose AJV compile
+  throws at the routing step), and the attachment copy (which carries the
+  unresolvable ref verbatim per the spec carve-out landed with this fix).
+  Pre-broken before this fix on the params-document AJV path; not worsened;
+  out of scope (the spec's closure obligation sits on the lowering).
+- **Canonical-hash citation (neighbour-report candidate).**
+  binder-inference.md cites the schema-subset canonical-schema-hash recipe
+  for the `__theta_bind_<slug>` name — as conversation-drive.md does for
+  `__theta_respond_<slug>` — but the shipped recipe for both is
+  `respondSchemaSlug` (sha256 over `JSON.stringify`, first 16 hex,
+  insertion-order keys), not the sorted-key canonical form. Pre-existing at
+  0.20.0 for the respond name; the names are ephemeral wire artifacts, so
+  the divergence is behaviourally inert.
+- **Off-session query path keeps its fabricated `httpStatus: 200`.**
+  `classifyOffSessionReply` (typed/untyped query classification) still
+  fabricates 200 — the bug-0010 posture, out of this report's scope; only
+  the binder path gained real statuses. Its comment no longer mis-attributes
+  the fabrication to the binder.
+- **Defensive cycle guard.** The attachment inliner carries a residual
+  `$defs` closure at the wrapper root only for a cyclic reference chain,
+  which the shipped lowering cannot construct (fragments reference strictly
+  earlier fragments); recorded in the spec parenthetical as the sole,
+  currently-unreachable exception to the no-`$defs` attachment pin.
+- **Stale V9j-T stub comments** on the fully-implemented functions in
+  `src/binder/provider-error-mapping.ts` — cosmetic, untouched (outside this
+  fix's diff surface).
 
 ## Summary
 

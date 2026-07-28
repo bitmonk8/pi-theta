@@ -74,11 +74,19 @@ export type BinderEnvelopeSchema = Readonly<Record<string, unknown>>;
  * embedding the relaxed params copy and the `needs_info` / `ambiguous` arms
  * carrying the `maxLength: 500` message budget (and, on `ambiguous`, the
  * retained `candidates: array<string> | null`).
+ *
+ * The params schema's root-level `$defs` (the transitive closure a `NamedType`
+ * param's `#/$defs/<name>` refs resolve against) is HOISTED to the envelope
+ * document root and dropped from the nested args copy — the spec pins the
+ * closure on "the envelope schema document" (§Binder envelope), and JSON-Schema
+ * `#/…` pointers resolve from the document root, so a closure left nested
+ * inside the `ok` arm's `args` fragment would be unreachable to both AJV and
+ * the provider.
  */
 export function buildBinderEnvelopeSchema(
   input: BuildBinderEnvelopeSchemaInput,
 ): BinderEnvelopeSchema {
-  const relaxedArgs = relaxParamsSchema(input.paramsSchema, input.defaultedFields);
+  const { relaxedArgs, defs } = relaxParamsSchema(input.paramsSchema, input.defaultedFields);
   const messageSchema = { type: "string", maxLength: BINDER_ENVELOPE_MESSAGE_MAX_LENGTH } as const;
   return {
     anyOf: [
@@ -114,6 +122,7 @@ export function buildBinderEnvelopeSchema(
         additionalProperties: false,
       },
     ],
+    ...(defs !== undefined ? { $defs: defs } : {}),
   };
 }
 
@@ -122,27 +131,38 @@ export function buildBinderEnvelopeSchema(
  * `ok` arm's `args` (§Binder envelope): each defaulted field is removed from
  * `required` (its type is unchanged); required-without-default fields are
  * unchanged; the copy keeps `additionalProperties: false`. When every field has
- * a default, the copy's `required` is `[]`.
+ * a default, the copy's `required` is `[]`. The params schema's root `$defs`
+ * is split off (returned separately) for the envelope-document-root hoist.
  */
 function relaxParamsSchema(
   paramsSchema: LoweredSchema,
   defaultedFields: readonly string[],
-): Readonly<Record<string, unknown>> {
-  const source = paramsSchema as Record<string, unknown>;
+): {
+  readonly relaxedArgs: Readonly<Record<string, unknown>>;
+  readonly defs: unknown;
+} {
+  const { $defs, ...source } = paramsSchema as Record<string, unknown>;
   const defaulted = new Set(defaultedFields);
   const originalRequired = Array.isArray(source["required"])
     ? (source["required"] as string[])
     : [];
   const relaxedRequired = originalRequired.filter((name) => !defaulted.has(name));
   return {
-    ...source,
-    required: relaxedRequired,
+    relaxedArgs: {
+      ...source,
+      required: relaxedRequired,
+    },
+    defs: $defs,
   };
 }
 
 // --- binder bypass (§Binder bypass) -----------------------------------------
 
-/** One declared `params:` field, for the load-time bypass classification. */
+/**
+ * One declared `params:` field. Feeds BOTH the load-time bypass classification
+ * (`classifyBinderBypass`) and the binder system prompt's per-field Parameters
+ * line (the V11d `default=<literal>` requirement token rides `defaultSource`).
+ */
 export interface BypassParamsField {
   /** The field's wire name. */
   readonly wireName: string;
@@ -150,6 +170,14 @@ export interface BypassParamsField {
   readonly type: string;
   /** Whether the field declared a default. */
   readonly hasDefault: boolean;
+  /**
+   * The field's default RHS in the Theta-literal surface syntax (e.g.
+   * `"neutral"`, `[]`, `Severity.High`), verbatim from the `params:` scalar.
+   * Present iff the field declared a default; rendered byte-exact after
+   * `default=` on the binder system prompt's per-field line (V11d
+   * *Default-literal rendering*).
+   */
+  readonly defaultSource?: string;
   /** Whether the field is optional. */
   readonly optional?: boolean;
   /** Whether the field's type is nullable (e.g. `string | null`). */

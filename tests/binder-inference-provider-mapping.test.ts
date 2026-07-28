@@ -8,6 +8,7 @@ import {
   buildBinderCompleteCall,
   type BinderCompleteCallInput,
 } from "../src/binder/binder-inference";
+import { deriveBinderSeed } from "../src/binder/binder-seed";
 import {
   TYPED_QUERY_UNSUPPORTED_PROVIDER_CODE,
   checkTypedQueryProviderSupport,
@@ -21,21 +22,26 @@ import type {
 } from "../src/runtime/query-error";
 import type { BinderEnvelopeSchema } from "../src/binder/binder-envelope";
 
-// V9j-T — failing tests for the paired `V9j` "Binder inference call and
-// provider-error mapping". Closes the code-keyed obligation areas `cka-34`
+// Unit pins for the `V9j` "Binder inference call and provider-error mapping"
+// pair. Closes the code-keyed obligation areas `cka-34`
 // (binder-inference.md §Binder inference call) and `cka-35`
 // (provider-error-mapping.md §Provider error mapping / seed-field mapping), and
 // supplies the asserting test for the load warning code
 // `theta/load/typed-query-unsupported-provider`.
 //
-// Each test reds on its own primary assertion because the V9j behaviour is
-// absent: `classifyProviderResponse` returns a sentinel `CancelledError` (never
-// a `transport` / `context_overflow` variant), `buildBinderCompleteCall`
-// returns an inert triple (no forced tool, no `temperature`, no seed, no
-// signal, no `onResponse`, no user message), `checkTypedQueryProviderSupport`
-// returns a non-matching sentinel diagnostic, and
-// `synthesizeUnsupportedProviderTransportError` returns a wrong sentinel. No
-// test reds on a compile error, a missing fixture, or a harness throw.
+// Bug 0011 updated the cka-34 cells to the production-wired call shape: the
+// tool `parameters` is the envelope schema rooted in the OBJECT ATTACHMENT
+// WRAPPER (a top-level `anyOf` is not a valid provider `input_schema`;
+// BNDR-1/BNDR-2 survive at `properties.envelope`), and the forced
+// `options.toolChoice` is spelled PER-API from the shared
+// `FORCED_TOOL_CHOICE_BY_API` table (the normalized `{type:"tool",name}` is a
+// 400/TypeError on the openai-completions / mistral-family adapters).
+// The bug-0011 LIVE round then flipped the wrapper's `$defs` transport from
+// hoist to INLINE: provider tool input-schema `$ref`/`$defs` handling degrades
+// the forced arguments (every NamedType bind failed live), so the attachment
+// copy dereferences every `#/$defs/...` ref and carries no `$defs` key, while
+// AJV/slug keep consuming the envelope schema document itself (refs + root
+// `$defs` intact).
 //
 // Spec: pi-integration-contract/binder-inference.md,
 // pi-integration-contract/provider-error-mapping.md,
@@ -57,6 +63,32 @@ function classify(
     stopReason: "error",
     ...overrides,
   };
+}
+
+/**
+ * Deep scan: every path at which the object key `key` occurs anywhere within
+ * `value` (nested objects and arrays). `[]` means the key is entirely absent —
+ * the bug-0011 live-round pin for `$ref` / `$defs` on the attachment copy.
+ */
+function deepKeyOccurrences(value: unknown, key: string): string[] {
+  const hits: string[] = [];
+  const visit = (node: unknown, path: string): void => {
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => visit(item, `${path}[${index}]`));
+      return;
+    }
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+    for (const [k, child] of Object.entries(node as Record<string, unknown>)) {
+      if (k === key) {
+        hits.push(`${path}.${k}`);
+      }
+      visit(child, `${path}.${k}`);
+    }
+  };
+  visit(value, "$");
+  return hits;
 }
 
 // ============================================================================
@@ -390,20 +422,242 @@ describe("V9j-T — complete() binder envelope (cka-34)", () => {
     expect(call.context.systemPrompt).toBe("You are the binder.");
   });
 
-  it("cka-34: context.tools carries exactly the forced structured-output tool", () => {
+  it("cka-34: context.tools carries exactly the forced structured-output tool with the object-rooted wrapper parameters", () => {
     const call = buildBinderCompleteCall(callInput("anthropic-messages", 7));
     expect(call.context.tools).toHaveLength(1);
     const tool = call.context.tools?.[0];
     expect(tool?.name).toBe(binderToolName("triage"));
     expect(tool?.description).toBe(BINDER_TOOL_DESCRIPTION);
-    // parameters is the envelope schema wrapped as `Type.Unsafe<unknown>`.
-    expect(tool?.parameters).toEqual(Type.Unsafe(envelope));
+    // parameters is the envelope schema ROOTED IN THE OBJECT ATTACHMENT
+    // WRAPPER (bug 0011: a top-level anyOf is not a valid provider
+    // input_schema), wrapped as `Type.Unsafe<unknown>`; the anyOf envelope
+    // document survives verbatim at properties.envelope.
+    expect(tool?.parameters).toEqual(
+      Type.Unsafe({
+        type: "object",
+        properties: { envelope },
+        required: ["envelope"],
+        additionalProperties: false,
+      }),
+    );
   });
 
-  it("cka-34: options force the tool choice to the single binder tool", () => {
+  // Navigate to the ok arm's `args.properties.<field>` inside the attachment.
+  function argsPropertyOf(parameters: unknown, field: string): unknown {
+    const wrapper = parameters as {
+      readonly properties?: {
+        readonly envelope?: { readonly anyOf?: ReadonlyArray<Record<string, unknown>> };
+      };
+    };
+    const okArm = wrapper.properties?.envelope?.anyOf?.[0] as
+      | { readonly properties?: { readonly args?: Record<string, unknown> } }
+      | undefined;
+    const argsProperties = okArm?.properties?.args?.["properties"] as
+      | Record<string, unknown>
+      | undefined;
+    return argsProperties?.[field];
+  }
+
+  it("cka-34: $defs refs on the envelope schema document are INLINED into the attachment copy — no $ref/$defs survives; the input document is unmutated (bug 0011 live round: provider $ref handling)", () => {
+    // The live-gate failure class: provider tool input_schema handling of
+    // $ref/$defs degrades the forced arguments (the d848f1b2 class scoped to
+    // refs — all three NamedType cases failed every bind), so the attachment
+    // copy dereferences the closure; AJV keeps consuming the envelope schema
+    // document itself (refs + root $defs intact — the envelope-root hoist cell
+    // in binder-bypass-envelope.test.ts pins that side).
+    const envelopeWithDefs: BinderEnvelopeSchema = {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            kind: { const: "ok" },
+            args: {
+              type: "object",
+              properties: { sev: { $ref: "#/$defs/Severity" } },
+              required: ["sev"],
+              additionalProperties: false,
+            },
+          },
+          required: ["kind", "args"],
+        },
+      ],
+      $defs: { Severity: { type: "string", enum: ["Low", "High"] } },
+    };
+    const snapshot = structuredClone(envelopeWithDefs);
+
+    const call = buildBinderCompleteCall({
+      ...callInput("anthropic-messages", 7),
+      envelopeSchema: envelopeWithDefs,
+    });
+    const parameters = call.context.tools?.[0]?.parameters;
+
+    // (a) Deep scan: the attachment carries NO $ref and NO $defs anywhere.
+    expect(deepKeyOccurrences(parameters, "$ref")).toEqual([]);
+    expect(deepKeyOccurrences(parameters, "$defs")).toEqual([]);
+    // (b) The Severity fragment is inlined at the ref site.
+    expect(argsPropertyOf(parameters, "sev")).toEqual({
+      type: "string",
+      enum: ["Low", "High"],
+    });
+    // (c) The INPUT envelope schema document is unmutated — it is also the
+    // slug/AJV artifact.
+    expect(envelopeWithDefs).toEqual(snapshot);
+  });
+
+  it("cka-34: transitive $defs — an entry referencing another entry inlines fully (bug 0011 live round)", () => {
+    // A `schema` decl referencing an `enum` lowers with a ref INSIDE the
+    // schema's $defs fragment; the inliner must dereference transitively.
+    const envelopeWithDefs: BinderEnvelopeSchema = {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            kind: { const: "ok" },
+            args: {
+              type: "object",
+              properties: { item: { $ref: "#/$defs/Item" } },
+              required: ["item"],
+              additionalProperties: false,
+            },
+          },
+          required: ["kind", "args"],
+        },
+      ],
+      $defs: {
+        Item: {
+          type: "object",
+          properties: { sev: { $ref: "#/$defs/Severity" } },
+          required: ["sev"],
+          additionalProperties: false,
+        },
+        Severity: { type: "string", enum: ["Low", "High"] },
+      },
+    };
+    const snapshot = structuredClone(envelopeWithDefs);
+
+    const call = buildBinderCompleteCall({
+      ...callInput("anthropic-messages", 7),
+      envelopeSchema: envelopeWithDefs,
+    });
+    const parameters = call.context.tools?.[0]?.parameters;
+
+    expect(deepKeyOccurrences(parameters, "$ref")).toEqual([]);
+    expect(deepKeyOccurrences(parameters, "$defs")).toEqual([]);
+    // Item inlined at the ref site with Severity inlined inside it.
+    expect(argsPropertyOf(parameters, "item")).toEqual({
+      type: "object",
+      properties: { sev: { type: "string", enum: ["Low", "High"] } },
+      required: ["sev"],
+      additionalProperties: false,
+    });
+    expect(envelopeWithDefs).toEqual(snapshot);
+  });
+
+  it("cka-34: production-lowered NESTED $defs — the outer ref inlines, the inner dangling ref survives verbatim, the nested $defs key is dropped (upstream lowering gap; residual)", () => {
+    // The production lowering (`lowerObjectFields`, body-type-lowering.ts)
+    // nests a referenced schema's inner fragment in a `$defs` ON the referring
+    // fragment instead of contributing it to the document-root closure, so a
+    // two-level NamedType chain (`params: t: Task` + `schema Task { sev:
+    // Severity }`, the enum not directly params-referenced) ships a
+    // `#/$defs/Severity` ref that dangles from EVERY document root. That case
+    // is pre-broken upstream regardless of attachment shape — the envelope
+    // document's AJV compile throws on the same dangling ref at the routing
+    // step (a recorded residual / neighbour-report candidate, outside this
+    // bug's blast radius). This cell pins the inliner's contract over that
+    // shape: inline what resolves, pass the dangling ref through verbatim
+    // (the binder-inference.md carve-out), drop the nested `$defs` key, mint
+    // no root `$defs`, mutate nothing.
+    const envelopeWithNestedDefs: BinderEnvelopeSchema = {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            kind: { const: "ok" },
+            args: { $ref: "#/$defs/Task" },
+          },
+          required: ["kind", "args"],
+        },
+      ],
+      $defs: {
+        Task: {
+          type: "object",
+          properties: { sev: { $ref: "#/$defs/Severity" } },
+          required: ["sev"],
+          additionalProperties: false,
+          $defs: { Severity: { type: "string", enum: ["Low", "High"] } },
+        },
+      },
+    };
+    const snapshot = structuredClone(envelopeWithNestedDefs);
+
+    const call = buildBinderCompleteCall({
+      ...callInput("anthropic-messages", 7),
+      envelopeSchema: envelopeWithNestedDefs,
+    });
+    const parameters = call.context.tools?.[0]?.parameters;
+
+    // (a) No $defs key anywhere: Task's nested table is dropped, and the
+    // dangling-passthrough branch mints no residual root closure (that
+    // residual is cycle-guard-only).
+    expect(deepKeyOccurrences(parameters, "$defs")).toEqual([]);
+    // (b) Exactly one $ref survives — the INNER dangling Severity ref,
+    // verbatim at the inlined Task's sev site; the outer Task ref inlined.
+    expect(deepKeyOccurrences(parameters, "$ref")).toEqual([
+      "$.properties.envelope.anyOf[0].properties.args.properties.sev.$ref",
+    ]);
+    const okArm = (
+      parameters as {
+        readonly properties?: {
+          readonly envelope?: {
+            readonly anyOf?: ReadonlyArray<Record<string, unknown>>;
+          };
+        };
+      }
+    ).properties?.envelope?.anyOf?.[0];
+    expect(okArm?.["properties"]).toEqual({
+      kind: { const: "ok" },
+      args: {
+        type: "object",
+        properties: { sev: { $ref: "#/$defs/Severity" } },
+        required: ["sev"],
+        additionalProperties: false,
+      },
+    });
+    // (c) The input envelope schema document is unmutated — it is also the
+    // slug/AJV artifact.
+    expect(envelopeWithNestedDefs).toEqual(snapshot);
+  });
+
+  it("cka-34: options force the tool choice to the single binder tool — anthropic-messages spells {type:'tool',name}", () => {
     const call = buildBinderCompleteCall(callInput("anthropic-messages", 7));
     const options = call.options as Record<string, unknown>;
     expect(options["toolChoice"]).toEqual({
+      type: "tool",
+      name: binderToolName("triage"),
+    });
+  });
+
+  it("cka-34: openai-completions spells the forced tool choice {type:'function',function:{name}}", () => {
+    // The per-api spelling table (bug 0011 wires the same
+    // FORCED_TOOL_CHOICE_BY_API rows the respond dispatch uses): the
+    // openai-completions adapter consumes the OpenAI-style spelling directly;
+    // the normalized {type:'tool',name} yields a provider 400.
+    const call = buildBinderCompleteCall(callInput("openai-completions", 7));
+    const options = call.options as Record<string, unknown>;
+    expect(options["toolChoice"]).toEqual({
+      type: "function",
+      function: { name: binderToolName("triage") },
+    });
+  });
+
+  it("cka-34: mistral spells the forced tool choice {type:'function',function:{name}}; an api outside the table takes the normalized spelling", () => {
+    const mistral = buildBinderCompleteCall(callInput("mistral", 7));
+    expect((mistral.options as Record<string, unknown>)["toolChoice"]).toEqual({
+      type: "function",
+      function: { name: binderToolName("triage") },
+    });
+    const outside = buildBinderCompleteCall(callInput("unknown-api", 7));
+    expect((outside.options as Record<string, unknown>)["toolChoice"]).toEqual({
       type: "tool",
       name: binderToolName("triage"),
     });
@@ -432,6 +686,9 @@ describe("V9j-T — complete() binder envelope (cka-34)", () => {
     const call = buildBinderCompleteCall(callInput("openai-completions", 42));
     const options = call.options as Record<string, unknown>;
     expect(options["seed"]).toBe(42);
+    // The seed VALUE production supplies is the FNV-1a hash of the bare
+    // command name (determinism-cancellation-failure.md reference vector).
+    expect(deriveBinderSeed("code-review")).toBe(0x7ba86b63);
   });
 
   it("cka-35: mistral maps the seed under the `random_seed` field", () => {

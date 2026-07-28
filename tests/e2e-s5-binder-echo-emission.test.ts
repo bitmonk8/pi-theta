@@ -6,11 +6,14 @@
 // test of the SAME production emission surface the acceptance run exercised,
 // with the live provider replaced by a scripted binder model:
 //
-//   ProductionThetaProducer.runBinder()            (production-theta-producer.ts:437)
-//     → off-session `complete()` (MOCKED here)    (:750)
-//     → parse the free-text envelope → `ok`       (:709)
-//     → #emitBinderEchoNote()                     (:618)
-//       → pi.sendMessage({customType:"theta-system-note", "Running /…"}, {triggerTurn:false})  (:647)
+//   ProductionThetaProducer.runBinder()
+//     → off-session forced-tool `complete()` (MOCKED here; bug 0011 — the
+//       binder call attaches the single `__theta_bind_<slug>` tool and forces
+//       `options.toolChoice` to it, binder-inference.md)
+//     → extract the envelope from the matching ToolCall's `arguments.envelope`
+//       → AJV at the routing step → `ok`
+//     → #emitBinderEchoNote()
+//       → pi.sendMessage({customType:"theta-system-note", "Running /…"}, {triggerTurn:false})
 //
 // The existing S5 suite covers the echo RENDERER purely (argument-echo.test.ts,
 // binder-system-note-determinism.test.ts) and the binder retry/model helpers,
@@ -28,8 +31,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The scripted off-session binder reply. `vi.hoisted` so the `vi.mock` factory
 // (hoisted above the imports) can close over a mutable holder each test sets.
+// `replyFor` scripts the reply as a FUNCTION of the captured call so a ToolCall
+// reply can name whatever binder tool production actually attached.
 const scripted = vi.hoisted(() => ({
-  reply: undefined as unknown,
+  replyFor: undefined as undefined | ((context: unknown) => unknown),
 }));
 
 // Replace ONLY the off-session `complete()` free function; every other pi-ai
@@ -38,7 +43,9 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
-    complete: vi.fn(async () => scripted.reply),
+    complete: vi.fn(async (_model: unknown, context: unknown) =>
+      scripted.replyFor?.(context),
+    ),
   };
 });
 
@@ -57,6 +64,11 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import {
+  AjvSchemaValidator,
+  type LoweredSchema,
+  type SchemaSlug,
+} from "../src/seams/schema-validator";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
@@ -67,13 +79,23 @@ interface CapturedNote {
   readonly display?: boolean;
 }
 
-/** An assistant reply whose text content is the given free-text envelope JSON. */
-function envelopeReply(json: string): unknown {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text: json }],
-    stopReason: "end_turn",
-    timestamp: 0,
+/**
+ * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
+ * `arguments`, naming the binder tool production actually attached on the
+ * captured call (`context.tools[0].name`) — the bug-0011 forced-tool
+ * extraction reads the envelope from the FIRST ToolCall naming the binder
+ * tool; a free-text reply would be the malformed-envelope class.
+ */
+function scriptEnvelope(envelope: unknown): void {
+  scripted.replyFor = (context: unknown): unknown => {
+    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
+    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
+    return {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
+      stopReason: "toolUse",
+      timestamp: 0,
+    };
   };
 }
 
@@ -100,12 +122,23 @@ function parse(src: string) {
   return doc;
 }
 
-/** A runtime-root double sufficient for a binder pass with NO defaulted fields. */
+/**
+ * A runtime-root double sufficient for a binder pass with NO defaulted fields.
+ * Carries the REAL AJV validator: the bug-0011 forced-tool routing validates
+ * the extracted envelope against the anyOf envelope schema before routing.
+ */
 function rootDouble(): RuntimeRoot {
   return {
     checkpoint: { before: (): Promise<void> => Promise.resolve() },
     idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
     clock: { wallNow: (): number => 0 },
+    schemaValidator: new AjvSchemaValidator({
+      emit: (): void => {},
+      slugOf: (schema: LoweredSchema): SchemaSlug => {
+        const canonicalBytes = JSON.stringify(schema);
+        return { slug: canonicalBytes, canonicalBytes };
+      },
+    }),
   } as unknown as RuntimeRoot;
 }
 
@@ -178,7 +211,7 @@ function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
 }
 
 beforeEach(() => {
-  scripted.reply = undefined;
+  scripted.replyFor = undefined;
 });
 
 afterEach(() => {
@@ -188,9 +221,7 @@ afterEach(() => {
 describe("e2e-s5 CAND-2 — binder echo note emission through the production producer", () => {
   it("REQ-BINDER-21 (ok arm): a scripted `ok` binder reply emits the `Running /…` echo note on the theta-system-note channel", async () => {
     // The off-session binder returns a well-formed `ok` envelope.
-    scripted.reply = envelopeReply(
-      JSON.stringify({ kind: "ok", args: { topic: "async", audience: "team" } }),
-    );
+    scriptEnvelope({ kind: "ok", args: { topic: "async", audience: "team" } });
     const { deps, notes } = producerWithCapture();
 
     const result = await deps.runBinder({
@@ -216,9 +247,7 @@ describe("e2e-s5 CAND-2 — binder echo note emission through the production pro
   });
 
   it("REQ-BINDER-36: `bind_echo: false` suppresses the echo note — the binder still binds, no note is emitted", async () => {
-    scripted.reply = envelopeReply(
-      JSON.stringify({ kind: "ok", args: { topic: "async", audience: "team" } }),
-    );
+    scriptEnvelope({ kind: "ok", args: { topic: "async", audience: "team" } });
     const { deps, notes } = producerWithCapture();
 
     const result = await deps.runBinder({
@@ -235,9 +264,7 @@ describe("e2e-s5 CAND-2 — binder echo note emission through the production pro
   });
 
   it("REQ-BINDER-21/38 (needs_info arm): a `needs_info` envelope emits the failure note and does NOT bind", async () => {
-    scripted.reply = envelopeReply(
-      JSON.stringify({ kind: "needs_info", message: "which repository?" }),
-    );
+    scriptEnvelope({ kind: "needs_info", message: "which repository?" });
     const { deps, notes } = producerWithCapture();
 
     const result = await deps.runBinder({
@@ -258,13 +285,13 @@ describe("e2e-s5 CAND-2 — binder echo note emission through the production pro
   });
 
   it("determinism: a second identical `ok` pass emits a byte-identical echo note", async () => {
-    const okReply = JSON.stringify({ kind: "ok", args: { topic: "async", audience: "team" } });
+    const okEnvelope = { kind: "ok", args: { topic: "async", audience: "team" } };
 
-    scripted.reply = envelopeReply(okReply);
+    scriptEnvelope(okEnvelope);
     const first = producerWithCapture();
     await first.deps.runBinder({ theta: twoParamTheta(), args: "x", ctx: ctxDouble() });
 
-    scripted.reply = envelopeReply(okReply);
+    scriptEnvelope(okEnvelope);
     const second = producerWithCapture();
     await second.deps.runBinder({ theta: twoParamTheta(), args: "x", ctx: ctxDouble() });
 

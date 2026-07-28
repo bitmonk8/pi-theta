@@ -74,6 +74,7 @@ import type {
   AssistantMessage,
   Message,
   Model,
+  ProviderResponse,
   Tool,
   ToolCall,
   ToolResultMessage,
@@ -215,7 +216,7 @@ import type {
 import { parseExpressionSource } from "../parser/theta-document";
 import { renderSystemPrompt } from "../parser/system-interpolation";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
-import type { LoweredSchema } from "../seams/schema-validator";
+import type { CompiledValidator, LoweredSchema } from "../seams/schema-validator";
 import type { ResolvedCallable } from "../parser/callable-set";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
@@ -246,7 +247,20 @@ import {
   buildBinderEnvelopeSchema,
   classifyBinderBypass,
   trimSlashArgumentWhitespace,
+  type BinderEnvelopeSchema,
+  type BypassParamsField,
 } from "../binder/binder-envelope";
+import {
+  binderToolName,
+  buildBinderCompleteCall,
+  extractBinderEnvelope,
+} from "../binder/binder-inference";
+import {
+  buildBinderSystemPrompt,
+  type SystemPromptParamField,
+} from "../binder/binder-system-prompt";
+import { deriveBinderSeed } from "../binder/binder-seed";
+import { forcedToolChoiceForApi } from "../binder/forced-tool-choice";
 import { fillDefaultsAndRevalidate, type DefaultedField } from "../binder/defaulting";
 import { matchAvailableModel } from "../binder/binder-model";
 import {
@@ -548,6 +562,43 @@ class NoopConversationMutator implements CommittedConversationMutator {
  */
 class UnknownHostToolError extends Error {}
 
+/**
+ * The per-dispatch binder forced-tool call ingredients (binder-inference.md
+ * §"Binder inference call"), built ONCE per slash invocation and reused across
+ * every budgeted attempt: the resolved binder model, the rendered V11d system
+ * prompt, the TRUE anyOf envelope schema plus its content-addressed slug and
+ * derived `__theta_bind_<slug>` tool name, the FNV-1a seed, and the
+ * memoising envelope-validator accessor (compiled at most once per dispatch —
+ * the malformed retry re-issues against the SAME schema).
+ */
+interface BinderForcedToolDispatch {
+  readonly model: Model<Api>;
+  readonly systemPrompt: string;
+  readonly envelopeSchema: BinderEnvelopeSchema;
+  readonly slug: string;
+  readonly toolName: string;
+  readonly seed: number;
+  readonly envelopeValidator: () => CompiledValidator;
+}
+
+/**
+ * Map one parsed `params:` field to its V11d system-prompt per-field descriptor
+ * (binder-bypass-and-envelope.md §System-prompt structure item 4): the surface
+ * type verbatim, the requirement token `required` or `default=<literal>` from
+ * the parser-retained default RHS. The `params:` syntax carries no per-field
+ * description, so that segment is always absent.
+ */
+function binderPromptParamField(field: BypassParamsField): SystemPromptParamField {
+  return {
+    wireName: field.wireName,
+    type: field.type,
+    requirement:
+      field.hasDefault && field.defaultSource !== undefined
+        ? { kind: "default", literal: field.defaultSource }
+        : { kind: "required" },
+  };
+}
+
 /** The basename of a `.theta`-callable path, minus its `.theta` extension. */
 function thetaCallableName(path: string): string {
   const base = path.slice(path.replace(/\\/g, "/").lastIndexOf("/") + 1);
@@ -658,21 +709,49 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       this.#emitCustomTypeUnsafeNote(binderInput.theta.slashName, sessionContext.value);
       return { bound: false };
     }
-    const prompt = renderBinderTurnPrompt({
-      slashName: binderInput.theta.slashName,
-      args: binderInput.args,
-      paramsSchema: params.loweredSchema,
-      defaultedFields: params.defaultedFields,
-      envelopeSchema,
-      ...(sessionContext.kind === "block" ? { sessionContext: sessionContext.body } : {}),
+    // The per-dispatch forced-tool call ingredients (binder-inference.md
+    // §"Binder inference call"), built once and reused across every budgeted
+    // attempt: the slug is content-addressed over the TRUE anyOf envelope
+    // document (not its object attachment wrapper) by the same recipe the
+    // typed-query respond tool name uses; the seed is the FNV-1a hash of the
+    // bare command name; the V11d system prompt carries the whole variable
+    // binding context (theta identity, parameters, raw arguments, and the
+    // BNDR-10 session-context block), so the single user message stays the
+    // fixed literal. The envelope validator compiles AT MOST once per dispatch
+    // and is reused across attempts, deferred to the first extraction so the
+    // checkpoint-gated pre-call abort path performs no validator work.
+    const slug = respondSchemaSlug(envelopeSchema);
+    const fm = binderInput.theta.frontmatter;
+    const systemPrompt = buildBinderSystemPrompt({
+      name: binderInput.theta.slashName,
+      ...(fm.description !== undefined ? { description: fm.description } : {}),
+      ...(fm.argumentHint !== undefined ? { argumentHint: fm.argumentHint } : {}),
+      params: params.fields.map(binderPromptParamField),
+      rawArguments: binderInput.args,
+      ...(sessionContext.kind === "block"
+        ? { sessionContext: { transcriptBody: sessionContext.body } }
+        : {}),
     });
+    let compiledEnvelope: CompiledValidator | undefined;
+    const dispatch: BinderForcedToolDispatch = {
+      model,
+      systemPrompt,
+      envelopeSchema,
+      slug,
+      toolName: binderToolName(slug),
+      seed: deriveBinderSeed(binderInput.theta.slashName),
+      envelopeValidator: () => {
+        compiledEnvelope ??= this.#input.root.schemaValidator.compile(envelopeSchema);
+        return compiledEnvelope;
+      },
+    };
     // OFF-session completion via pi-ai `complete()` against the resolved binder
-    // model (never `driveStreamedUserTurn`, never `ctx.model`): the reply text
-    // is parsed as the envelope but is NEVER sent to the user session. Auth is
-    // resolved off the model registry and passed as request options — the
-    // out-of-band `complete()` free function does not inherit the session's
-    // resolved credentials, so an un-authed call would return an empty
-    // error-stop reply.
+    // model (never `driveStreamedUserTurn`, never `ctx.model`): the envelope is
+    // extracted from the forced ToolCall's arguments and is NEVER sent to the
+    // user session. Auth is resolved off the model registry and threaded into
+    // the constructed options — the out-of-band `complete()` free function does
+    // not inherit the session's resolved credentials, so an un-authed call
+    // would return an empty error-stop reply.
     //
     // CANCEL-4 (cancellation.md §Granularity binder-call clause; §Surfacing
     // cancelled-binder arm): the `binder-call` checkpoint fires immediately
@@ -692,9 +771,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // §Failure-class taxonomy so the per-class retry budget (HC3-a transport /
     // HC3-b malformed, driven by `runBinderCallWithCancellation`) actually
     // re-drives a transient failure — a provider throw / `stopReason:"error"` /
-    // overflow classifies as `transport` (one retry), an unparseable envelope as
-    // `malformed` (one retry); `ok`/`needs_info`/`ambiguous` are terminal. The
-    // winning `ok` attempt's parsed args are captured for the defaults-merge.
+    // overflow classifies as `transport` (one retry), a missing/invalid forced
+    // ToolCall envelope as `malformed` (one retry); `ok`/`needs_info`/
+    // `ambiguous` are terminal. The winning `ok` attempt's extracted args are
+    // captured for the defaults-merge.
     let okArgs: Record<string, unknown> = {};
     const phase = await runCheckpointedBinderCall(
       this.#input.root.checkpoint,
@@ -705,7 +785,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaName: binderInput.theta.slashName,
           signal,
           attempt: async (_attemptIndex, attemptSignal) => {
-            const classified = await this.#classifyBinderAttempt(model, prompt, attemptSignal);
+            const classified = await this.#classifyBinderAttempt(dispatch, attemptSignal);
             if (classified.okArgs !== undefined) {
               okArgs = classified.okArgs;
             }
@@ -813,26 +893,43 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   /**
    * Classify ONE binder attempt (determinism-cancellation-failure.md
    * §Failure-class taxonomy) into a `BinderAttemptOutcome` the per-class retry
-   * budget driver consumes. A synchronous/async throw from the provider call, or
-   * a reply carrying `stopReason:"error"`/`"length"`/overflow, classifies as
-   * `transport` (folding ContextOverflow into transport per the taxonomy) with
-   * `provider = Model<Api>.api`; a clean reply is parsed as the envelope and
-   * routed `ok`/`needs_info`/`ambiguous`/`malformed`. The `ok` arm's parsed args
-   * are returned for the defaults-merge. `temperature: 0` is set (spec
-   * Determinism); the FNV-1a seed / forced-tool structured output are NOT used
-   * (the pinned forced-tool mechanism is unrealizable against the available
-   * providers — a top-level `anyOf` envelope is not a valid tool `input_schema`,
-   * yielding empty tool args — so the binder stays a free-text envelope call).
+   * budget driver consumes. The dispatch is the FORCED-TOOL structured-output
+   * call pinned by binder-inference.md — the tool's `parameters` attachment is
+   * object-rooted (the envelope wrapper) because a top-level `anyOf` is not a
+   * valid provider `input_schema`. Routing order mirrors the typed-query
+   * forced respond dispatch (`dispatchForcedRespondTurn`):
+   *
+   *   1. a rejected `complete()` → transport ("cancelled" when the abort
+   *      landed, else the coerced throw message);
+   *   2. EXTRACTION FIRST: the first ToolCall naming the binder tool wins
+   *      regardless of stopReason / errorMessage / HTTP status; its envelope
+   *      is AJV-validated against the TRUE anyOf envelope schema, then routed
+   *      by `kind` (`ok` → args for the defaults-merge; `needs_info` /
+   *      `ambiguous` keep the rule-4 empty-after-stripping check); an
+   *      AJV-invalid envelope or unusable arguments → `malformed`;
+   *   3. no matching ToolCall + a non-normal stopReason, a non-empty
+   *      errorMessage, or a captured non-200 HTTP status → the shared
+   *      provider-error classifier with the onResponse-captured REAL HTTP
+   *      status (ContextOverflow folds into transport per the taxonomy);
+   *   4. otherwise (a clean normal-stop reply — plain text or a wrong-name
+   *      ToolCall) → `malformed`.
    */
   async #classifyBinderAttempt(
-    model: Model<Api>,
-    prompt: string,
+    dispatch: BinderForcedToolDispatch,
     signal: AbortSignal,
   ): Promise<{ readonly outcome: BinderAttemptOutcome; readonly okArgs?: Record<string, unknown> }> {
-    const provider = String(model.api);
+    const provider = String(dispatch.model.api);
+    // The per-attempt provider-response capture (binder-inference.md
+    // `options.onResponse`): the last firing before resolution wins; when it
+    // never fires the classifier's HTTP-status input is the network-level
+    // `null` class — never a fabricated 200.
+    let captured: ProviderResponse | undefined;
+    const onResponse = (response: ProviderResponse): void => {
+      captured = response;
+    };
     let reply: AssistantMessage;
     try {
-      reply = await this.#completeBinderReply(model, prompt, signal);
+      reply = await this.#completeBinderReply(dispatch, signal, onResponse);
     } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — a provider transport throw → HC3-a transport class
       // A cancellation abort is surfaced by the caller's before/after-attempt
       // signal checks, not misclassified as a retryable transport failure.
@@ -841,18 +938,61 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       }
       return { outcome: { kind: "transport", provider, message: coerceUnderlyingString(thrown) } };
     }
-    const stopReason = (reply as { readonly stopReason?: string }).stopReason ?? "";
-    // A non-turn-boundary stop reason (provider error / output-limit overflow)
-    // classifies through the shared provider-error taxonomy; ContextOverflow
-    // folds into the transport class before the retry driver (HC3-a).
-    if (stopReason === "error" || stopReason === "length" || stopReason === "content_filter") {
+    // EXTRACTION FIRST (binder-inference.md): a matching ToolCall wins over
+    // any stopReason / errorMessage / HTTP-status failure classification.
+    const extraction = extractBinderEnvelope(reply, dispatch.toolName);
+    if (extraction.kind === "match") {
+      // Envelope AJV at the routing step: the unwrapped envelope value is
+      // validated against the TRUE three-arm anyOf schema (the maxLength-500
+      // message budget, additionalProperties:false, the object-shaped
+      // ok.args), so a structurally invalid envelope is the malformed class —
+      // never a silent `{}` bind.
+      const verdict = dispatch.envelopeValidator().validate(extraction.envelope);
+      if (!verdict.ok) {
+        return { outcome: { kind: "malformed" } };
+      }
+      const envelope = extraction.envelope as Record<string, unknown>;
+      if (envelope["kind"] === "ok") {
+        // Schema-guaranteed: the validated ok arm requires an object `args`.
+        return {
+          outcome: { kind: "ok" },
+          okArgs: envelope["args"] as Record<string, unknown>,
+        };
+      }
+      const kind = envelope["kind"] as "needs_info" | "ambiguous";
+      const message = envelope["message"] as string;
+      // Rule 4: a message empty after rule-1 stripping is a malformed
+      // envelope, not an empty note.
+      if (classifyModelContent({ message }) === "empty-malformed") {
+        return { outcome: { kind: "malformed" } };
+      }
+      return { outcome: { kind, message } };
+    }
+    if (extraction.kind === "match-malformed") {
+      // The binder tool WAS called but its arguments are unusable (not an
+      // object, or no envelope key): malformed-envelope, never transport.
+      return { outcome: { kind: "malformed" } };
+    }
+    // No matching ToolCall: failure routing. A non-normal stopReason, a
+    // non-empty errorMessage, or a captured non-200 HTTP status classifies
+    // through the shared provider-error taxonomy; ContextOverflow folds into
+    // the transport class before the retry driver (HC3-a). A non-string /
+    // absent stopReason is fixture shorthand for a normal terminator (the
+    // `classifyOffSessionReply` posture), never a failure.
+    const stopReason = (reply as { readonly stopReason?: string }).stopReason;
+    const errorMessage = (reply as { readonly errorMessage?: string }).errorMessage;
+    const stopReasonNonNormal =
+      typeof stopReason === "string" && !OFF_SESSION_NORMAL_STOP_REASONS.has(stopReason);
+    if (
+      stopReasonNonNormal ||
+      (typeof errorMessage === "string" && errorMessage !== "") ||
+      (captured !== undefined && captured.status !== 200)
+    ) {
       const classified = classifyProviderResponse({
         api: provider,
-        httpStatus: 200,
-        stopReason,
-        ...(typeof (reply as { errorMessage?: string }).errorMessage === "string"
-          ? { errorMessage: (reply as { errorMessage?: string }).errorMessage }
-          : {}),
+        httpStatus: captured?.status ?? null,
+        stopReason: typeof stopReason === "string" ? stopReason : "",
+        ...(typeof errorMessage === "string" ? { errorMessage } : {}),
       });
       const message =
         classified.kind === "transport" && classified.message !== ""
@@ -860,40 +1000,40 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           : "provider transport failure";
       return { outcome: { kind: "transport", provider, message } };
     }
-    // Clean reply: parse and route the free-text envelope.
-    const routing = await parseBinderEnvelope(assistantText(reply));
-    if (routing.kind === "ok") {
-      const okArgs = await parseOkEnvelopeArgs(assistantText(reply));
-      return { outcome: { kind: "ok" }, okArgs };
-    }
-    return { outcome: routing };
+    // A clean normal-stop reply with no matching ToolCall — plain text only,
+    // or a ToolCall with a different name — is the malformed-envelope
+    // condition (binder-inference.md extraction rule).
+    return { outcome: { kind: "malformed" } };
   }
 
   /**
    * Issue ONE OFF-session binder `complete()` against the resolved binder
-   * `Model<Api>` and return the raw reply. Resolves the model's request auth
-   * (apiKey / headers) off the injected model registry and passes it as request
-   * options; the fixed `context.messages` is the rendered prompt as a single
-   * `user` message, at `temperature: 0` (Determinism). No user-session turn, no
-   * transcript card — the reply is runtime-internal (BND-3).
+   * `Model<Api>` and return the raw reply. The call triple is the pinned
+   * forced-tool constructor (`buildBinderCompleteCall`: system prompt, fixed
+   * user-message literal, the single forced `__theta_bind_<slug>` tool,
+   * temperature 0, per-api seed placement, signal, onResponse); registry auth
+   * (apiKey / headers) is threaded INTO the returned options HERE — the
+   * constructor stays auth-free — because the out-of-band `complete()` free
+   * function does not inherit the session's resolved credentials. No
+   * user-session turn, no transcript card — the reply is runtime-internal
+   * (BND-3).
    */
   async #completeBinderReply(
-    model: Model<Api>,
-    prompt: string,
+    dispatch: BinderForcedToolDispatch,
     signal: AbortSignal,
+    onResponse: (response: ProviderResponse, model: Model<Api>) => void,
   ): Promise<AssistantMessage> {
-    const auth = await this.#input.modelRegistry.getApiKeyAndHeaders(model);
-    const options: Record<string, unknown> = {};
-    // CANCEL-4 in-flight forwarding: thread `thetaAbort.signal` into the binder
-    // provider invocation as `options.signal` (pi-ai `StreamOptions.signal`), so
-    // an abort observed during the call propagates to the provider's abort path.
-    options["signal"] = signal;
-    // Determinism (determinism-cancellation-failure.md §Determinism): the binder
-    // call is `temperature: 0` (the FNV-1a seed is omitted here — omitted for the
-    // anthropic-messages / amazon-bedrock transports the binder guidance steers
-    // toward, and the forced-tool structured-output call it belongs to is not
-    // realizable against the available providers).
-    options["temperature"] = 0;
+    const call = buildBinderCompleteCall({
+      model: dispatch.model,
+      systemPrompt: dispatch.systemPrompt,
+      envelopeSchema: dispatch.envelopeSchema,
+      slug: dispatch.slug,
+      seed: dispatch.seed,
+      signal,
+      onResponse,
+    });
+    const auth = await this.#input.modelRegistry.getApiKeyAndHeaders(dispatch.model);
+    const options = call.options as Record<string, unknown>;
     if (auth.ok) {
       if (auth.apiKey !== undefined) {
         options["apiKey"] = auth.apiKey;
@@ -902,11 +1042,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         options["headers"] = auth.headers;
       }
     }
-    return complete(
-      model,
-      { messages: [{ role: "user", content: prompt, timestamp: 0 }] },
-      options,
-    );
+    return complete(call.model, call.context, call.options);
   }
 
   /**
@@ -994,8 +1130,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * PRESENT in `args` is preserved unchanged (a user-supplied value wins over the
    * default); a wire name ABSENT takes its declared default.
    *
-   * The declared default VALUES are not carried on the parsed `ParsedParams`
-   * (it retains only the defaulted wire names, not their literals), so they are
+   * The parser retains each default's literal source on the parsed `ParsedParams`
+   * (`fields[].defaultSource`, feeding the binder system prompt's
+   * `default=<literal>` line), but not its evaluated value, so the values are
    * recovered here from the theta's own source: the `params:` field scalar is
    * re-read via the `FileSystem` seam, its `= <literal>` default RHS is split
    * off, and the literal is parsed + evaluated through the same pure evaluator
@@ -1027,10 +1164,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * Recover the declared default literal VALUE for each defaulted wire name from
-   * the theta's source file. The parsed `ParsedParams` drops the default literals
-   * (retaining only the wire names), so this re-reads the `.theta`, extracts the
-   * frontmatter YAML, reads each `params:` field's scalar, splits its `= <literal>`
+   * Recover the declared default's evaluated VALUE for each defaulted wire name
+   * from the theta's source file. The parsed `ParsedParams` retains each default's
+   * literal source (`fields[].defaultSource`, feeding the binder system prompt's
+   * `default=<literal>` line) but not its evaluated value, so this re-reads the
+   * `.theta`, extracts the frontmatter YAML, reads each `params:` field's
+   * scalar, splits its `= <literal>`
    * default RHS, and parses + evaluates the literal with the body's pure evaluator
    * (so an enum / schema-literal default resolves against the body's declarations).
    */
@@ -4863,10 +5002,10 @@ async function offSessionComplete(
  * the off-session call. A normal terminator passes through to the text
  * extraction; EVERY other string `stopReason` (`"error"`, `"length"`,
  * `"aborted"`, `"content_filter"`, any unrecognised) routes through the
- * existing `classifyProviderResponse` table, mirroring
- * `#classifyBinderAttempt`'s classifier input — fixed `httpStatus: 200`
- * because the off-session path captures no real HTTP status, and 200 is what
- * admits the openai HTTP-200 stopReason-error overflow gate.
+ * existing `classifyProviderResponse` table with a fixed `httpStatus: 200` —
+ * the off-session QUERY path registers no `onResponse` and captures no real
+ * HTTP status, and 200 is what admits the openai HTTP-200 stopReason-error
+ * overflow gate.
  */
 function classifyOffSessionReply(
   model: Model<Api>,
@@ -4942,54 +5081,6 @@ function respondToolEntry(respond: RespondTurnContext): Tool {
 }
 
 /**
- * Bug 0010 (fix round 1) — the per-api SPELLING of the forced tool choice.
- *
- * The spec's normalized shape is `{ type: "tool", name }` (conversation-drive.md
- * §complete-forced-tool-presupposition), but that section is a CONSUMPTION
- * posture over pi-ai behaviour that is NOT part of pi-ai's typed surface — and
- * at the theta-1.0 pi-ai pin the per-api adapters do NOT all normalise it:
- * `anthropic-messages` passes `options.toolChoice` through verbatim (its
- * Anthropic-native shape IS `{type:"tool",name}`) and `bedrock-converse-stream`
- * maps that same shape, while `openai-completions` and `mistral-conversations`
- * type and consume the provider-native OpenAI-style spelling directly —
- * observed at dist/api/openai-completions.d.ts (verbatim `tool_choice`
- * passthrough) and dist/api/mistral-conversations.js `mapToolChoice` (reads
- * `choice.function.name`) — so handing them `{type:"tool",name}` yields a
- * provider 400 / TypeError instead of a forced tool. Theta therefore supplies
- * the per-api shape itself. An api OUTSIDE the table defaults to the spec's
- * normalized `{type:"tool",name}` shape; the typed-query provider gate
- * (Increment C) bounds which apis are reachable here. Spec: this per-api
- * spelling is recorded as the *Pin clarification* under conversation-drive.md
- * §"`complete()` forced-tool behavioural presupposition"
- * (#complete-forced-tool-presupposition), which names this table.
- */
-const FORCED_TOOL_CHOICE_BY_API: Readonly<Record<string, "tool" | "function">> =
-  Object.freeze({
-    "anthropic-messages": "tool",
-    "bedrock-converse-stream": "tool",
-    "amazon-bedrock": "tool",
-    "openai-completions": "function",
-    "mistral-conversations": "function",
-    "mistral": "function",
-  });
-
-/**
- * The forced tool choice for the respond dispatch, spelled per the resolved
- * respond model's api (see `FORCED_TOOL_CHOICE_BY_API`): the OpenAI-style
- * `{type:"function",function:{name}}` for the function-style rows, the spec's
- * normalized `{type:"tool",name}` for the tool-style rows AND for any api
- * outside the table.
- */
-function respondToolChoiceForApi(
-  api: string,
-  name: string,
-): { type: "tool"; name: string } | { type: "function"; function: { name: string } } {
-  return FORCED_TOOL_CHOICE_BY_API[api] === "function"
-    ? { type: "function", function: { name } }
-    : { type: "tool", name };
-}
-
-/**
  * Bug 0010 (QRY-14 step 2 / SLSH-2 / conversation-drive.md typed bullet):
  * dispatch ONE typed-query forced respond turn OFF-SESSION through pi-ai's
  * `complete()` free function — the binder's channel, the only one that carries
@@ -5062,8 +5153,9 @@ async function dispatchForcedRespondTurn(
     // The forced tool choice — the entire content of spec finding T34
     // (`pi.sendUserMessage` exposes no toolChoice; `complete()` is the channel)
     // — spelled per the resolved respond model's api (bug 0010 fix round 1;
-    // see FORCED_TOOL_CHOICE_BY_API).
-    toolChoice: respondToolChoiceForApi(provider, respond.toolName),
+    // see FORCED_TOOL_CHOICE_BY_API in binder/forced-tool-choice.ts, shared
+    // with the binder inference call since bug 0011).
+    toolChoice: forcedToolChoiceForApi(provider, respond.toolName),
     // CANCEL-4-style in-flight forwarding: the theta signal threads into the
     // provider invocation so an abort during the call propagates.
     signal: respond.signal,
@@ -5189,9 +5281,10 @@ async function driveStreamedUserTurn(deps: {
   readonly clock: Clock;
   readonly queryText: string;
   /**
-   * QTL-4: the active tool names to install for the turn (the theta's
-   * callable-set underlying Pi-tool names for a query follow-up; `[]` for the
-   * binder turn, which emits a structured envelope and calls no tools).
+   * QTL-4: the active tool names to install for the turn — the theta's
+   * callable-set underlying Pi-tool names for a query follow-up. (The binder
+   * never drives a streamed user turn: it runs off-session through the forced
+   * structured-output `complete()` call, binder-inference.md.)
    */
   readonly activeTools: readonly string[];
 }): Promise<string> {
@@ -5216,89 +5309,6 @@ async function driveStreamedUserTurn(deps: {
     deps.pi.setActiveTools(ambientTools);
   }
   return extractTrailingTurnText(readMessages());
-}
-
-/**
- * Render the binder-turn prompt: instruct the model to bind the raw slash
- * arguments into the theta's typed `params:` object and emit ONLY the minified
- * three-arm envelope JSON (`ok | needs_info | ambiguous`) validating against the
- * per-theta envelope schema — no prose, no markdown, no code fences.
- */
-function renderBinderTurnPrompt(input: {
-  readonly slashName: string;
-  readonly args: string;
-  readonly paramsSchema: Readonly<Record<string, unknown>>;
-  readonly defaultedFields: readonly string[];
-  readonly envelopeSchema: Readonly<Record<string, unknown>>;
-  /** BNDR-10 Recent session context transcript body (`bind_context: session`). */
-  readonly sessionContext?: string;
-}): string {
-  const defaulted =
-    input.defaultedFields.length > 0 ? input.defaultedFields.join(", ") : "(none)";
-  // BNDR-10: ground the binder in the recent session transcript when present.
-  const sessionBlock =
-    input.sessionContext !== undefined
-      ? `Recent session context (most recent 20 turns / 8000 tokens):\n${input.sessionContext}\n`
-      : "";
-  return (
-    `You are the argument binder for the theta slash command /${input.slashName}. ` +
-    `Bind the raw slash-command arguments to the theta's typed parameters.\n\n` +
-    sessionBlock +
-    `Raw arguments: ${JSON.stringify(input.args)}\n\n` +
-    `Parameter schema (JSON Schema): ${JSON.stringify(input.paramsSchema)}\n` +
-    `Defaulted parameters (may be omitted from your args — defaults are applied ` +
-    `downstream): ${defaulted}\n\n` +
-    `Respond with ONLY a single minified JSON object and nothing else — no prose, ` +
-    `no markdown, no code fences — matching exactly one of these three arms:\n` +
-    `  {"kind":"ok","args":{ ...bound parameters... }}\n` +
-    `  {"kind":"needs_info","message":"..."}\n` +
-    `  {"kind":"ambiguous","message":"...","candidates":["..."]}\n\n` +
-    `Prefer the "ok" arm when the arguments can be bound. Your object MUST ` +
-    `validate against this envelope JSON Schema: ${JSON.stringify(input.envelopeSchema)}`
-  );
-}
-
-/**
- * The routed classification of the off-session binder reply. `ok` runs the theta
- * body; `needs_info` / `ambiguous` carry the model's message for their
- * failure-mode note; `malformed` is a reply that does not parse as an envelope
- * object, carries an out-of-set `kind`, or whose model message is empty after
- * rule-1 stripping (§"System-note rendering" rule 4).
- */
-type BinderReplyRouting =
-  | { readonly kind: "ok" }
-  | { readonly kind: "needs_info"; readonly message: string }
-  | { readonly kind: "ambiguous"; readonly message: string }
-  | { readonly kind: "malformed" };
-
-/**
- * Parse and route the off-session binder reply text, NON-throwing (it reuses the
- * `V13e` `parseStructuredPayload` promise-rejection handler, never a broad
- * `catch`). A reply that does not parse as a JSON object, carries a `kind`
- * outside `ok | needs_info | ambiguous`, or whose `message` is empty after
- * rule-1 stripping is routed to `malformed`. The parsed text is never surfaced
- * verbatim to the user (BND-3) — only the routed note is.
- */
-async function parseBinderEnvelope(text: string): Promise<BinderReplyRouting> {
-  const parse = await parseStructuredPayload(text);
-  if (!parse.parsed || typeof parse.value !== "object" || parse.value === null) {
-    return { kind: "malformed" };
-  }
-  const obj = parse.value as Record<string, unknown>;
-  const kind = obj["kind"];
-  if (kind === "ok") {
-    return { kind: "ok" };
-  }
-  if (kind === "needs_info" || kind === "ambiguous") {
-    const message = typeof obj["message"] === "string" ? (obj["message"] as string) : "";
-    // Rule 4: a message empty after rule-1 stripping is a malformed envelope,
-    // not an empty note.
-    if (classifyModelContent({ message }) === "empty-malformed") {
-      return { kind: "malformed" };
-    }
-    return { kind, message };
-  }
-  return { kind: "malformed" };
 }
 
 /**
@@ -5377,14 +5387,6 @@ function loweredSchemaKindIsInteger(property: unknown, value: number): boolean {
 }
 
 /**
- * Extract the `ok` envelope's `args` object from the streamed binder reply,
- * NON-throwing: it reuses the `V13e` `parseStructuredPayload` (a promise
- * rejection handler, never a broad `catch`). A reply that does not parse as a
- * JSON object, or an `ok` envelope carrying no `args` object, yields `{}` (the
- * body still runs on the `ok` arm, with no param slots). The authoritative
- * envelope schema validation lives in the acceptance runner.
- */
-/**
  * Extract the YAML frontmatter block (the text between the leading `---` fence
  * and the next `---` line) from a `.theta` source, or `undefined` when the file
  * carries no fenced frontmatter. Mirrors the parser's own block isolation so the
@@ -5447,18 +5449,6 @@ function splitParamDefaultSource(raw: string): string | undefined {
     }
   }
   return undefined;
-}
-
-async function parseOkEnvelopeArgs(text: string): Promise<Readonly<Record<string, unknown>>> {
-  const parse = await parseStructuredPayload(text);
-  if (!parse.parsed || typeof parse.value !== "object" || parse.value === null) {
-    return {};
-  }
-  const args = (parse.value as Record<string, unknown>)["args"];
-  if (typeof args === "object" && args !== null && !Array.isArray(args)) {
-    return args as Readonly<Record<string, unknown>>;
-  }
-  return {};
 }
 
 /**
