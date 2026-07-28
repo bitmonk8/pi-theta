@@ -48,9 +48,37 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { SUBAGENT_EXTENSION_PIN_ENV } from "../../../src/runtime/subagent-launcher";
 
 export const SHIPPED_EXTENSION_ENTRY = fileURLToPath(
   new URL("../../../extensions/index.ts", import.meta.url),
+);
+
+// #subagent-child-pins — the probe harness is an IN-PROCESS vitest host, not a
+// real `pi` process, so the RFC-0006 subagent-child launch machinery would
+// otherwise mis-resolve both of its ambient inputs:
+//   • executable — rung 1 of the two-rung ladder
+//     (production-subagent-host.ts `createExecutableHost`) reads
+//     `process.argv[1]`, which under vitest is VITEST's entry script; every
+//     `invoke("./x.theta")` of a subagent-mode theta would spawn
+//     `node <vitest-entry> … -p "/x"` and die instantly as `invoke_infra`.
+//     Point argv[1] at the real pi CLI entry so rung 1 resolves the child the
+//     way a real `pi` parent does.
+//   • extension identity — without the #subagent-extension-pin env (bug 0002
+//     defect 2) the child relies on ambient extension discovery and can bind a
+//     stale globally-installed theta build (or none at all) instead of THIS
+//     working tree. Pin every spawned child to the tree under test, exactly as
+//     the H9a acceptance harness does for its `pi -p` processes.
+// Both mutations are process-global but vitest isolates each test FILE in its
+// own worker process, so they scope to probe-harness importers.
+process.argv[1] = fileURLToPath(
+  new URL(
+    "../../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+    import.meta.url,
+  ),
+);
+process.env[SUBAGENT_EXTENSION_PIN_ENV] = fileURLToPath(
+  new URL("../../../extensions", import.meta.url),
 );
 
 export function failLoudly(message: string): never {
