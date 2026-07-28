@@ -96,6 +96,20 @@ type BootstrapCapability =
   | "pi.getCommands";
 
 /**
+ * Bug 0021 (PIC-68): the teardown-reach residue of one superseded compose
+ * generation. A repeat `session_start`'s supersede-before-publish step detaches
+ * the outgoing generation's watcher and drains its registry immediately, but
+ * its in-flight invocation registry and forwarding-signal list must stay
+ * reachable so ONE later `session_shutdown` can cancel + reason-stamp the
+ * invocations (sub-steps 2/3) and detach the listeners (sub-step 5) across
+ * every generation the instance ever published — not only the latest.
+ */
+interface SupersededGeneration {
+  readonly activeInvocations: ActiveInvocationRegistry | undefined;
+  readonly forwardingSignals: ForwardingSignalSource[] | undefined;
+}
+
+/**
  * Construct the `theta/load/extension-bootstrap-failed` diagnostic for a
  * factory-time or `session_start`-time bootstrap failure surface.
  * `details.error` carries the caught throw's underlying-error string
@@ -217,9 +231,12 @@ export interface ThetaExtensionDeps {
    * (registration-steps.md#watcher-hot-reload-registration). When present the
    * `session_start` handler runs it, registers the composed thetas, and arms ONE
    * hot-reload watcher over the discovery-root union + settings-file paths; the
-   * `session_shutdown` handler detaches it. Takes precedence over
-   * `discoverFixtures`. The shipped production default export supplies this;
-   * the `H4a` in-memory harness omits it.
+   * `session_shutdown` handler detaches it, and a shutdown-less repeat
+   * `session_start` supersedes the prior generation — detaching its watcher and
+   * draining its registry — before arming its own (bug 0021, PIC-68), so the
+   * instance holds at most one armed watcher across repeat deliveries. Takes
+   * precedence over `discoverFixtures`. The shipped production default export
+   * supplies this; the `H4a` in-memory harness omits it.
    */
   readonly composeInstance?: (
     pi: ExtensionAPI,
@@ -248,8 +265,12 @@ export function createThetaExtension(
 ): (pi: ExtensionAPI) => void {
   return function thetaExtension(pi: ExtensionAPI): void {
     // The step-5 hot-reload teardown handle, armed by the `session_start`
-    // compose-instance path and detached by `session_shutdown`. Closed over by
-    // both handlers (one extension instance, no module-level state).
+    // compose-instance path and detached by `session_shutdown` — or, on a
+    // shutdown-less repeat `session_start`, by that pass's
+    // supersede-before-publish step (bug 0021, PIC-68). The slot is
+    // single-occupancy, so the extension instance holds at most ONE armed
+    // watcher (registration-steps.md#watcher-hot-reload-registration). Closed
+    // over by both handlers (one extension instance, no module-level state).
     let hotReloadHandle: HotReloadHandle | undefined;
     // Factory-scoped live resources the `session_shutdown` teardown reads
     // LAZILY. `wiring` (holding the registry + clock) is a local in
@@ -271,20 +292,49 @@ export function createThetaExtension(
     // the shutdown handler falls back to an empty list (a no-op sub-step 5) when
     // compose never ran, keeping the compose-never-ran path safe.
     let liveForwardingSignals: ForwardingSignalSource[] | undefined;
-    // Bugs 0018/0022 (PIC-67) — arm-after-teardown race: count of
-    // `session_shutdown` deliveries observed by this extension instance. An
-    // async `session_start` compose snapshots the count at its own start; a
-    // mismatch when it settles is the factory's TOUCH-FREE evidence that a
-    // shutdown was consumed mid-flight, and the single decision site in
+    // Bugs 0018/0021/0022 (PIC-67/PIC-68) — the two touch-free staleness
+    // counters an async `session_start` compose snapshots at its own start and
+    // re-reads when it settles. A mismatch on either is the factory's
+    // TOUCH-FREE evidence that the settling compose no longer owns this
+    // extension instance, and the single decision site in
     // `runComposeInstanceRegistration` then gates the WHOLE post-compose
     // continuation zero-touch on both arms — no `live*` publish, no
     // registration pass, no diagnostic construction, no step-5 watcher arming
-    // (full rationale at the decision site). The capture-at-compose-start
-    // comparison is per-compose-generation (a legitimate later `session_start`
-    // captures the newer count and proceeds normally) and race-free within the
-    // single JS thread: the shutdown handler increments synchronously before a
-    // parked compose can resume.
+    // (full rationale at the decision site). Two evidence kinds:
+    //   • `session_shutdown` deliveries (bugs 0018/0022, PIC-67) — a mismatch
+    //     means a shutdown was consumed mid-flight, so the teardown that ran
+    //     can never visit the settling compose's generation and the runtime is
+    //     invalidated (or about to be);
+    //   • `session_start` compose passes entered (bug 0021, PIC-68) — a
+    //     mismatch means a NEWER compose started mid-flight, so the settling
+    //     compose is already superseded and the newest-started pass owns all
+    //     publication, registration, and arming.
+    // Both comparisons are capture-at-compose-start, per-compose-generation (a
+    // legitimate later `session_start` captures the newer counts and proceeds
+    // normally) and race-free within the single JS thread: each handler
+    // increments synchronously before a parked compose can resume.
     let shutdownEventsObserved = 0;
+    let composeStartsObserved = 0;
+    // Bug 0021 repeat-start diagnostic
+    // (registration-steps.md#repeat-start-supersession) — the
+    // `shutdownEventsObserved` value as of the LAST compose pass entered. WHY
+    // a per-start snapshot: it lets each `session_start` delivery decide
+    // repeat-without-shutdown locally (zero `session_shutdown` deliveries
+    // consumed since the previous start) instead of from a cumulative
+    // starts-vs-shutdowns imbalance, which one shutdown-less supersession
+    // would skew forever — every later legitimate start-after-shutdown rebind
+    // would keep misfiring the note.
+    let shutdownsAtLastComposeStart = 0;
+    // Bug 0021 (PIC-68) — the supersession fold: the teardown-reach residue of
+    // every generation a repeat `session_start` superseded. Watcher detach and
+    // registry drain happen AT supersession time (the supersede-before-publish
+    // step in `runComposeInstanceRegistration`); what must outlive the
+    // overwrite are the superseded in-flight invocation registries and
+    // forwarding-signal lists, so one `session_shutdown`'s sub-steps 2/3/5
+    // reach every generation the instance has published. Consumed (emptied)
+    // by the shutdown handler, making a later start-after-shutdown
+    // supersession a structural no-op.
+    const supersededGenerations: SupersededGeneration[] = [];
     // Step 1 — `--theta` flag. Synchronous-void; per-call wrapped. A
     // `registerFlag` throw is FATAL to the whole extension: step 1's `--theta`
     // flag is what every subsequent discovery / `resources_discover` walk reads
@@ -497,44 +547,135 @@ export function createThetaExtension(
       // so the whole-tail decision below can tell whether a `session_shutdown`
       // was consumed while this compose pass was in flight.
       const shutdownsAtComposeStart = shutdownEventsObserved;
-      // Bug 0022 (PIC-67), subsuming the bug-0018 arming check: the single
-      // decision site for the whole post-compose continuation, evaluated on
-      // both arms the moment the compose settles. The factory holds teardown
-      // evidence TOUCH-FREE: a `session_shutdown` was consumed while THIS
-      // compose was in flight, so the teardown that ran can never visit the
-      // generation this compose would publish (this compose's wiring was
-      // necessarily unpublished at teardown time), and the runtime is
-      // invalidated (or about to be). Knowing that, nothing in the tail may
-      // run: no `live*` publish (a populated dead-generation registry no
-      // teardown would ever visit), no registration pass (its collision read is
-      // a guarded touch on the invalidated runtime — or, before the
-      // invalidation lands, live registration work for a generation whose
-      // teardown already ran), no diagnostic construction (the delivery channel
-      // rides the same invalidated runtime — PIC-67 clause (c) — or, before the
-      // invalidation lands, would deliver into the outgoing session for a
-      // generation whose teardown already ran), and no watcher arming (a
-      // watcher nothing will ever detach, whose first reload would run against
-      // the invalidated runtime). Zero-touch return; not arming IS the
-      // PIC-57-correct posture, and the registration/publish suppression is
-      // pinned by PIC-67 itself. One check per arm suffices: the tail is
-      // await-free after it (registerFixtures is synchronous), so no shutdown
-      // can interleave past the check. Any future touch-free staleness evidence
-      // for this late tail joins here as a disjunct.
-      const composeOutlivedSession = (): boolean =>
-        shutdownEventsObserved !== shutdownsAtComposeStart;
+      // Bug 0021 repeat-start predicate
+      // (registration-steps.md#repeat-start-supersession), decided BEFORE this
+      // pass stamps its own entry below: fires iff a prior compose pass was
+      // entered and no shutdown was consumed since that pass entered — i.e.
+      // this delivery follows a previous `session_start` delivery with zero
+      // `session_shutdown` deliveries in between. A start-after-shutdown
+      // rebind keeps `shutdownEventsObserved` ahead of the snapshot and emits
+      // nothing.
+      const repeatStartWithoutShutdown =
+        composeStartsObserved > 0 &&
+        shutdownEventsObserved === shutdownsAtLastComposeStart;
+      // Bug 0021 (PIC-68): stamp this pass's compose generation before the
+      // async compose, so the whole-tail decision below can tell whether a
+      // NEWER `session_start` compose started while this one was in flight.
+      composeStartsObserved += 1;
+      const generationAtComposeStart = composeStartsObserved;
+      // Refresh the last-start shutdown snapshot the repeat-start predicate
+      // reads, so the NEXT delivery decides against this pass's entry point.
+      shutdownsAtLastComposeStart = shutdownEventsObserved;
+      // Bug 0021 repeat-start diagnostic: a shutdown-less repeat delivery
+      // (`repeatStartWithoutShutdown` above) is a contemplated host input —
+      // registration-steps.md step 3's supersession-pass language,
+      // `bindExtensions` re-delivery — but an anomalous lifecycle worth
+      // exactly one operator-visible note per repeat delivery, emitted at
+      // delivery time (before the compose runs) so it fires even in the
+      // overlap case where a superseded pass never reaches its own tail.
+      // Best-effort: a failed diagnostic must not abort this registration
+      // pass.
+      if (repeatStartWithoutShutdown) {
+        try {
+          pi.sendMessage(
+            {
+              customType: SYSTEM_NOTE_CHANNEL,
+              content:
+                "theta: repeat session_start without session_shutdown; superseding prior hot-reload generation",
+              display: true,
+              details: { event: {} },
+            },
+            { triggerTurn: false },
+          );
+        } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+          void e;
+        }
+      }
+      // Bugs 0021/0022 (PIC-67/PIC-68), subsuming the bug-0018 arming check:
+      // the single decision site for the whole post-compose continuation,
+      // evaluated on both arms the moment the compose settles. The factory
+      // holds staleness evidence TOUCH-FREE, one disjunct per evidence kind.
+      // Disjunct 1 (bugs 0018/0022, PIC-67): a `session_shutdown` was consumed
+      // while THIS compose was in flight, so the teardown that ran can never
+      // visit the generation this compose would publish (this compose's wiring
+      // was necessarily unpublished at teardown time), and the runtime is
+      // invalidated (or about to be). Disjunct 2 (bug 0021, PIC-68): a NEWER
+      // `session_start` compose started while this one was in flight, so THIS
+      // compose is already superseded — the newest-started pass owns all
+      // publication, registration, and arming (it supersedes the then-live
+      // generation itself; a last-completing older pass publishing over it
+      // would invert ownership and strand the newest generation's armed
+      // watcher and undrained registry). On either disjunct nothing in the
+      // tail may run: no `live*` publish (a populated dead- or superseded-
+      // generation registry no teardown or supersession would ever visit), no
+      // registration pass (a guarded touch on the invalidated runtime, or live
+      // re-registration binding pi's commands to a generation that owns
+      // nothing), no diagnostic construction (the delivery channel rides the
+      // same invalidated runtime — PIC-67 clause (c) — or would deliver for a
+      // pass that owns nothing), and no watcher arming (a watcher no teardown
+      // or supersession will ever detach). Zero-touch return; not arming IS
+      // the PIC-57-correct posture, and the suppression is pinned by PIC-67
+      // and PIC-68. One check per arm suffices: the tail is await-free after
+      // it (the supersession fold and registerFixtures are synchronous), so
+      // no shutdown and no newer start can interleave past the check. Any
+      // future touch-free staleness evidence for this late tail joins here as
+      // a disjunct.
+      const composeTailSuperseded = (): boolean =>
+        shutdownEventsObserved !== shutdownsAtComposeStart ||
+        composeStartsObserved !== generationAtComposeStart;
       let wiring: ExtensionInstanceWiring | undefined;
       try {
         wiring = await deps.composeInstance!(pi, ctx);
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        if (composeOutlivedSession()) {
+        if (composeTailSuperseded()) {
           return;
         }
         deps.emitDiagnostic?.(bootstrapFailedDiagnostic("pi.registerCommand", e));
         registerFixtures(deps.fixtures);
         return;
       }
-      if (composeOutlivedSession()) {
+      if (composeTailSuperseded()) {
         return;
+      }
+      // Bug 0021 (registration-steps.md#watcher-hot-reload-registration,
+      // PIC-57/PIC-68) — supersede-before-publish: the live-resource slots
+      // below are single-occupancy, so overwriting them while a prior
+      // generation is published would strand that generation's armed watcher
+      // and undrained registry where no teardown can ever reach them (the
+      // `session_shutdown` handler reads the slots lazily and sees only the
+      // latest occupant). The prior generation is therefore superseded BEFORE
+      // the overwrite, against the live runtime the guard above just
+      // evidenced: fold its in-flight invocation registry and forwarding-
+      // signal list into `supersededGenerations` so one `session_shutdown`
+      // still reaches them (sub-steps 2/3/5); drain its registry so every
+      // pi-registered handler still bound to it fails safe at dispatch with
+      // the drain-state arm-(b) shutting-down note (Pi has no unregister); and
+      // detach its watcher so no superseded-generation reload can rebuild or
+      // re-register again (PIC-57). Infallible steps run first (an array push,
+      // then the drain field-write — idempotent) so a throwing detach cannot
+      // strand the fold; the handle slot is cleared before `detach()` so no
+      // later path can double-detach the same handle. On a first start and on
+      // a start-after-shutdown rebind this whole step is a structural no-op
+      // (nothing published: no fold, drain idempotent-or-absent, no handle).
+      if (liveActiveInvocations !== undefined || liveForwardingSignals !== undefined) {
+        supersededGenerations.push({
+          activeInvocations: liveActiveInvocations,
+          forwardingSignals: liveForwardingSignals,
+        });
+      }
+      liveRegistry?.drain();
+      const outgoingHandle = hotReloadHandle;
+      hotReloadHandle = undefined;
+      try {
+        outgoingHandle?.detach();
+      } catch (e: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
+        // Same isolation posture as the teardown's Per-step isolation for the
+        // identical `discoveryWatcher.close` step: a detach throw must not
+        // abort the superseding pass's publication/registration and must not
+        // escape into the host `session_start` dispatch. Swallowed without a
+        // diagnostic — the outgoing registry is already drained, so the
+        // superseded generation fails safe at dispatch regardless.
+        void e;
       }
       // Publish the live resources for the lazy `session_shutdown` teardown read.
       liveRegistry = wiring.registry;
@@ -570,17 +711,22 @@ export function createThetaExtension(
     }
 
     // `session_shutdown` (step 4) — run the five-sub-step teardown
-    // (session-shutdown-semantics.md). This increment wires the factory half:
-    // sub-step 1 (drain + init drain-state tag) and sub-step 4 (watcher-close +
-    // debounce-cancel) are REAL; the handler-entry short-circuit is REAL; and
-    // sub-steps 2/3/5 are live-but-empty (an empty `ActiveInvocationRegistry`
-    // and an empty `forwardingSignals` list make them instant no-ops until
-    // Increment B threads the real shared registry + signal list). The whole
-    // handler body stays wrapped in the never-throw factory boundary so a throw
-    // surfaces one diagnostic rather than propagating into the host teardown.
-    // `runSessionShutdown` is async and the host awaits a returned promise
-    // (`emitSessionShutdownEvent` → `await handler(...)`), so the handler returns
-    // it inside the try to preserve await-ordering.
+    // (session-shutdown-semantics.md): sub-step 1 (drain + init drain-state
+    // tag) on the latest registry, sub-steps 2/3 over the MERGED in-flight
+    // invocation registry, sub-step 4 (watcher-close + debounce-cancel) via
+    // the captured teardown handle, and sub-step 5 over the MERGED
+    // forwarding-signal list. Bug 0021 (PIC-68) — teardown reach across
+    // generations: the merged inputs span every generation the instance has
+    // published (the supersession fold plus the latest), so one shutdown's
+    // reach stays complete even after shutdown-less repeat `session_start`
+    // deliveries; sub-steps 1/4 operate on the latest generation only because
+    // the superseded generations were already drained/detached at
+    // supersession time. The whole handler body stays wrapped in the
+    // never-throw factory boundary so a throw surfaces one diagnostic rather
+    // than propagating into the host teardown. `runSessionShutdown` is async
+    // and the host awaits a returned promise (`emitSessionShutdownEvent` →
+    // `await handler(...)`), so the handler returns it inside the try to
+    // preserve await-ordering.
     try {
       pi.on("session_shutdown", (event) => {
         // Bug 0018 (PIC-67), arming check subsumed by bug 0022's
@@ -612,14 +758,41 @@ export function createThetaExtension(
             return;
           }
 
+          // Bug 0021 (PIC-68): capture the teardown handle at the lazy-read
+          // point and build BOTH sub-step-4 adapters below over the captured
+          // local — the mutable slot is cleared before `runSessionShutdown`'s
+          // awaited sequence reaches sub-step 4, so an adapter reading the
+          // slot at call time would observe `undefined` and skip the detach.
+          const handle = hotReloadHandle;
+
+          // Bug 0021 (PIC-68) — teardown reach across generations: sub-steps
+          // 2/3 consume ONE merged handler-local `ActiveInvocationRegistry`
+          // (the superseded generations' entries in supersession order, then
+          // the latest generation's) and sub-step 5 consumes the concatenated
+          // forwarding-signal lists in the same order. Entries are shared
+          // references, so the reason-stamp/abort and the listener detach
+          // reach the real objects; the merged containers are handler-local
+          // and discarded with this teardown.
+          const mergedActiveInvocations = new ActiveInvocationRegistry();
+          const mergedForwardingSignals: ForwardingSignalSource[] = [];
+          for (const generation of supersededGenerations) {
+            for (const entry of generation.activeInvocations?.snapshot() ?? []) {
+              mergedActiveInvocations.add(entry);
+            }
+            mergedForwardingSignals.push(...(generation.forwardingSignals ?? []));
+          }
+          for (const entry of liveActiveInvocations?.snapshot() ?? []) {
+            mergedActiveInvocations.add(entry);
+          }
+          mergedForwardingSignals.push(...(liveForwardingSignals ?? []));
+
           const shutdownDeps: SessionShutdownDeps = {
             registry,
-            // Increment B1: the live shared registry the producer's bind choke
-            // points register in-flight invocations into, so sub-step 2 (cancel
-            // in-flight) + sub-step 3 (await dispose) operate on REAL entries.
-            // Falls back to a fresh empty registry only when compose never ran
-            // (nothing was ever registered), keeping that path an instant no-op.
-            activeInvocations: liveActiveInvocations ?? new ActiveInvocationRegistry(),
+            // Increment B1, widened by bug 0021: the merged registry above, so
+            // sub-step 2 (cancel in-flight) + sub-step 3 (await dispose)
+            // operate on the REAL entries of every published generation. Empty
+            // when nothing is in flight, keeping that path an instant no-op.
+            activeInvocations: mergedActiveInvocations,
             clock,
             // ClosableWatcher ADAPTER — documented spec-vs-impl drift: the spec
             // deps model TWO watchers (`discoveryWatcher` + `settingsWatcher`)
@@ -635,7 +808,7 @@ export function createThetaExtension(
             // the two shapes.
             discoveryWatcher: {
               close: (): void => {
-                hotReloadHandle?.detach();
+                handle?.detach();
               },
             },
             settingsWatcher: { close: (): void => {} },
@@ -648,21 +821,21 @@ export function createThetaExtension(
             // Both members are optional on `HotReloadHandle`, so a lightweight
             // handle that only supplies `detach()` degrades to a no-op quiesce.
             debouncer:
-              hotReloadHandle !== undefined
+              handle !== undefined
                 ? {
                     markTornDown: (): void => {
-                      hotReloadHandle?.markTornDown?.();
+                      handle.markTornDown?.();
                     },
                     whenIdle: (): Promise<void> =>
-                      hotReloadHandle?.whenIdle?.() ?? Promise.resolve(),
+                      handle.whenIdle?.() ?? Promise.resolve(),
                   }
                 : undefined,
-            // Increment B2: the live shared forwarding-listener sink the producer's
-            // bind choke points push invocation-scoped sources onto, so sub-step 5
-            // detaches the listeners still attached for an invocation in-flight at
-            // shutdown. Falls back to an empty list only when compose never ran
-            // (nothing was ever pushed), keeping that path an instant no-op.
-            forwardingSignals: liveForwardingSignals ?? [],
+            // Increment B2, widened by bug 0021: the merged forwarding-signal
+            // list above, so sub-step 5 detaches the listeners still attached
+            // for an invocation in-flight at shutdown under ANY published
+            // generation. Empty when nothing was ever pushed, keeping that
+            // path an instant no-op.
+            forwardingSignals: mergedForwardingSignals,
             inventory: undefined,
             sink: {
               emit: (line: unknown): void => {
@@ -671,6 +844,20 @@ export function createThetaExtension(
               serialise: (d: Diagnostic): string => JSON.stringify(d),
             },
           };
+
+          // Bug 0021 (PIC-68): consume the per-generation state synchronously,
+          // before the awaited teardown runs — the deps above already hold
+          // every reference the five sub-steps need. A later
+          // start-after-shutdown supersession is then a structural no-op
+          // (nothing left to fold, drain idempotent, no handle to detach), so
+          // no generation can be torn down twice. `liveRegistry`/`liveClock`
+          // are KEPT so the host-prerequisites clause-(b) re-delivery
+          // short-circuit above still runs through the drain-state read as
+          // pinned.
+          hotReloadHandle = undefined;
+          liveActiveInvocations = undefined;
+          liveForwardingSignals = undefined;
+          supersededGenerations.length = 0;
 
           return runSessionShutdown({ reason: event.reason }, shutdownDeps);
         } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only

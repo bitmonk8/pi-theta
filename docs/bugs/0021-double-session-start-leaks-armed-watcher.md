@@ -1,6 +1,16 @@
 # Bug 0021 — A second `session_start` at one extension instance overwrites the single-slot hot-reload handle: the superseded generation's watcher stays armed (leaked) and keeps publishing, and `session_shutdown` tears down only the latest generation
 
-- **Status:** open
+- **Status:** fixed (0.30.0). A shutdown-less repeat `session_start` is now a
+  supersession pass: the completing compose detaches the prior generation's
+  watcher and drains its registry BEFORE overwriting the live-resource slots,
+  folds that generation's in-flight invocation registry and forwarding-signal
+  list into a factory-scoped supersession list so one `session_shutdown`'s
+  sub-steps 2/3/5 reach every published generation, goes zero-touch when a
+  newer compose started during its own flight (closing the overlap
+  inversion), and emits one repeat-start system note per shutdown-less repeat
+  delivery. Pinned as
+  `registration-steps.md#repeat-start-supersession` and PIC-68
+  (`session-shutdown-semantics.md#pic-68`).
 - **Kind:** defect — the factory violates its own "arms ONE hot-reload watcher
   … the `session_shutdown` handler detaches it" wiring contract
   (`registration-steps.md` [step 5](../spec_topics/pi-integration-contract/registration-steps.md#watcher-hot-reload-registration),
@@ -23,13 +33,16 @@
   supersession pass" ([superseded-entry dispatch](../spec_topics/pi-integration-contract/registration-steps.md#superseded-entry-dispatch)),
   so a repeat delivery is a contemplated input the runtime must survive, not a
   contract violation by the host.
-- **Affected:** `src/extension/factory.ts` at HEAD (28ce714d) —
-  `hotReloadHandle` single slot (:253, overwritten at :537 with no detach of
-  the prior handle); the four live-teardown slots `liveRegistry` /
-  `liveClock` / `liveActiveInvocations` / `liveForwardingSignals`
-  (:262–273, overwritten at :507–516), which the `session_shutdown` handler
-  reads lazily (:570 ff.) so one teardown reaches only the latest generation;
-  the PIC-67 arm guard (:497/:533) which counts only `session_shutdown`
+- **Affected:** `src/extension/factory.ts` at ea5de328 (line citations
+  re-resolved against the ea5de328 tree — the bug-0022 fix rewrote the same
+  region after the 28ce714d observation) — `hotReloadHandle` single slot
+  (:253, overwritten at :561 with no detach of the prior handle); the four
+  live-teardown slots `liveRegistry` / `liveClock` / `liveActiveInvocations` /
+  `liveForwardingSignals` (:262–273, overwritten at :540–549), which the
+  `session_shutdown` handler reads lazily (:596 ff.) so one teardown reaches
+  only the latest generation; the PIC-67 compose-settle guard (:499,
+  :523–536 — the bug-0022 fix subsumed the earlier arming-only check into
+  this whole-tail zero-touch gate) which still counts only `session_shutdown`
   deliveries and passes on a shutdown-less second start. Per-compose resource
   construction: `composeExtensionInstance`
   (`src/extension/production-composition.ts:1012` — one `PiFileWatcher`
@@ -40,6 +53,104 @@
 - **Observed at:** `0.28.0` (28ce714d), host Pi pin `~0.80.10`. Mechanical
   reproduction (offline scratch vitest over the shipped composition); no live
   observation. Origin: residual recorded by the bug-0018 fix reviewers.
+
+## Fix (0.30.0)
+
+Bug doc Option 1 (supersede-before-publish plus the compose-generation
+capture-compare) with Option 3's one-note diagnostic folded in, all in
+`src/extension/factory.ts` (line anchors at the fix commit).
+
+**Supersede-before-publish (`factory.ts:660–679`).** A completing compose
+pass, before overwriting the live-resource slots (:681–690), supersedes the
+current occupants against the still-live runtime: it folds the outgoing
+generation's in-flight `ActiveInvocationRegistry` and forwarding-signal list
+into the factory-scoped `supersededGenerations` list (declared :337, fold
+:660–665), drains the outgoing registry (:666) so every pi-registered handler
+still bound to it fails safe at dispatch with the drain-state arm-(b)
+shutting-down note (Pi has no unregister), and detaches the outgoing watcher
+with the handle slot cleared before `detach()` (:667–670) so no later path can
+double-detach the same handle. The infallible steps (fold, drain) run before
+the fallible detach, so a throwing detach cannot strand the fold; on a first
+start and on a start-after-shutdown rebind the whole step is a structural
+no-op.
+
+**Compose-generation zero-touch guard (`factory.ts:317, :564–565,
+:623–637`).** `composeStartsObserved` (:317) joins `shutdownEventsObserved` as
+a second kind of touch-free staleness evidence: each pass stamps its own
+generation before the async compose (:564–565), and the bug-0022
+compose-settle predicate widens to `composeTailSuperseded` (:623–625),
+evaluated on both arms (catch :630, success :637) — a compose that observes a
+newer compose started during its own flight publishes, registers, and arms
+nothing. This closes the overlap variant's last-completer-wins inversion: only
+the newest-started compose owns publication, and it supersedes the then-live
+generation itself.
+
+**Teardown reach across generations (`factory.ts:766–860`).** The
+`session_shutdown` handler captures the teardown handle at the lazy-read point
+(:766) and builds merged teardown inputs — one handler-local
+`ActiveInvocationRegistry` and one concatenated forwarding-signal list
+spanning the superseded generations in supersession order, then the latest
+(:776–787) — so one shutdown's sub-steps 2/3 (reason-stamp + cancel, bounded
+dispose-await) and 5 (forwarding-listener detach) reach every generation the
+instance ever published. Sub-steps 1/4 stay latest-only: each superseded
+generation's registry was already drained and its watcher already detached at
+supersession time. The handler then consumes the supersession state
+synchronously (:857–860), making a later start-after-shutdown supersession a
+structural no-op; `liveRegistry`/`liveClock` are kept so the
+host-prerequisites clause-(b) re-delivery short-circuit still routes through
+the drain-state read.
+
+**Repeat-start diagnostic (`factory.ts:327, :558–593`).** One system note per
+shutdown-less repeat delivery — content byte-exact `theta: repeat
+session_start without session_shutdown; superseding prior hot-reload
+generation` (`display: true`, `triggerTurn: false`) — emitted at delivery
+time, before the compose runs, so the overlap case still yields exactly one.
+The predicate keys on the shutdown count as of the LAST compose start
+(`shutdownsAtLastComposeStart`, :327): zero shutdowns consumed since the
+previous start, never a cumulative starts-vs-shutdowns imbalance — so a
+start-after-shutdown rebind emits none.
+
+**Spec.** `registration-steps.md` step 5 gains the
+`#repeat-start-supersession` pin: a shutdown-less repeat `session_start` is a
+supersession pass; at most ONE armed watcher across repeat deliveries; detach
++ drain before publish (a surviving stale-bound name fails safe on arm (b));
+zero-touch for a superseded-in-flight compose; the pinned one-note diagnostic.
+`session-shutdown-semantics.md` gains PIC-68: the compose-generation evidence
+joins PIC-67's compose-settle continuation suppression as a second disjunct at
+the same boundary; the supersession fold; one-shutdown teardown reach with
+sub-steps 1/4 latest-only. `coverage-matrix.md` gains the PIC-68 row.
+
+**Verification.** Full default suite 219 files / 2545 tests green; typecheck
+and lint clean. Offline lock: four tests in
+`tests/double-session-start-supersession.test.ts` (single-start control;
+sequential double start; overlap; start-after-shutdown rebind control) —
+tests 2 and 3 red at ea5de328 with 14 signature failures, green post-fix, red
+direction re-proven by the verifier via base revert. Live witness (H8a):
+`tests/live/double-session-start-live.test.ts` — double `bindExtensions`,
+real chokidar churn across the 250 ms production debounce, a
+shutdown-emitting dispose, a second churn, asserting ZERO
+`theta hot-reload quiesced:` stderr lines; green post-fix and red-proven at
+ea5de328, where exactly one quiesced line is captured (misattributed to bug
+0018's bare-dispose path). Live regression witness:
+`tests/live/live-production-acceptance.test.ts` 5/5.
+
+**Residuals.** (i) After ANY re-bind of the same extension instance
+(shutdown-less supersession or start-after-shutdown rebind), a slash name
+that survives into the new generation's discovery is collision-dropped
+against the instance's own prior `pi.registerCommand` registration: the
+`session_start` compose pass reads `pi.getCommands()` with no own-name
+exclusion (unlike the hot-reload pass), and Pi has no unregister, so the
+name's handler stays bound to the superseded, drained registry and dispatch
+yields the arm-(b) `theta /<name>: extension shutting down` note until the
+operator runs `/reload`. Fail-safe, contemplated by the step-5 pin, and
+materially better than the pre-fix silent dispatch against a stale stranded
+registry — but the supersession pass does not re-own surviving names, and
+the note misnames the state on a live session. Filed as
+[bug 0024](./0024-rebind-self-collision-drops-surviving-names.md). (ii)
+Accepted asymmetry (reviewer round 1): a throwing supersession detach is
+swallowed without a diagnostic (documented at the site, `factory.ts:671–679`)
+— the outgoing registry is already drained, so the superseded generation
+fails safe at dispatch regardless.
 
 ## Summary
 
@@ -66,10 +177,12 @@ without detaching the first generation's handle, so:
   invocation-registry cancelled — every other generation's watcher, registry,
   in-flight invocations, and forwarding listeners are missed.
 
-The PIC-67 `shutdownEventsObserved` guard added by the bug-0018 fix closes
-only the arm-after-teardown race (a `session_shutdown` consumed while a
-compose is in flight). It counts shutdowns, not compose generations, so it
-passes for both composes here and both watchers arm.
+The PIC-67 `shutdownEventsObserved` guard added by the bug-0018 fix — widened
+at ea5de328 by the bug-0022 fix into the compose-settle whole-tail zero-touch
+gate (`composeOutlivedSession`, factory.ts:523–536) — closes only the
+arm-after-teardown race (a `session_shutdown` consumed while a compose is in
+flight). It counts shutdowns, not compose generations, so it passes for both
+composes here and both watchers arm.
 
 ## Reproduction
 
@@ -141,17 +254,19 @@ live resources, not strand them.
 
 Single-slot overwrite. `runComposeInstanceRegistration` completes by
 publishing `wiring.registry/clock/activeInvocations/forwardingSignals` into
-the four factory-scoped mutables (:507–516) and assigning
-`hotReloadHandle = wiring.installHotReload(…)` (:537). Nothing at either site
+the four factory-scoped mutables (:540–549) and assigning
+`hotReloadHandle = wiring.installHotReload(…)` (:561). Nothing at either site
 detaches, drains, or otherwise supersedes the values being replaced, so the
 first generation's handle becomes unreachable the moment the second compose
-completes. The `session_shutdown` handler reads the slots lazily (:570 ff.)
+completes. The `session_shutdown` handler reads the slots lazily (:596 ff.)
 — by design, because the subscription is installed before compose runs
 (Factory-ordering pin) — so it can only ever tear down the one generation the
 slots name at teardown time.
 
-The bug-0018 guard (:497/:533) compares `shutdownEventsObserved` before and
-after the compose flight; a second `session_start` increments nothing, so
+The bug-0018 guard — at ea5de328 the bug-0022 fix's compose-settle
+`composeOutlivedSession` gate (:499, :523–536), which subsumed the original
+arming-only check — compares `shutdownEventsObserved` before and after the
+compose flight; a second `session_start` increments nothing, so
 both composes arm. In the overlap variant the slot additionally ends on the
 **last completer**, which may be the older start — the teardown then detaches
 the older generation and leaks the newer one.
@@ -187,7 +302,7 @@ held for the process lifetime.
   generation's registry stays undrained and a post-shutdown dispatch of a
   superseded-generation-bound name **runs** instead of returning the
   shutting-down note, bypassing the sub-step-1 fail-safe. By the same slot
-  reads (`factory.ts:596/:639`), sub-steps 2/3/5 operate on the latest
+  reads (`factory.ts:622/:665`), sub-steps 2/3/5 operate on the latest
   generation's `ActiveInvocationRegistry` and forwarding-signal list, so a
   superseded generation's in-flight invocations are neither reason-stamped
   nor aborted and its forwarding listeners are never detached.
@@ -232,11 +347,13 @@ new host surfaces.
 - Origin: residual recorded by the bug-0018 fix reviewers (fix commit
   28ce714d, reviewers R1–R3): "double-arm/leak hazard on two rapid
   session_starts (single-slot handle, pre-existing)".
-- Implementation evidence: `src/extension/factory.ts` (:253, :262–273, :285,
-  :497, :507–516, :533, :537, :565, :570, :612),
+- Implementation evidence: `src/extension/factory.ts` (:253, :262–273, :287,
+  :499, :523–536, :540–549, :561, :591, :596, :638),
   `src/extension/production-composition.ts` (:312, :955–1012, :1137–1176),
   `src/extension/hot-reload.ts` (`installHotReload`, `detach`,
-  `quiesceOnStaleCtx`), all at HEAD 28ce714d.
+  `quiesceOnStaleCtx`), all at ea5de328 (the factory.ts citations re-resolved
+  after the bug-0022 fix; production-composition.ts and hot-reload.ts are
+  byte-identical between 28ce714d and ea5de328).
 - Host evidence at the `~0.80.10` pin:
   `dist/core/agent-session-runtime.js` (`teardownCurrent` — every replacement
   path emits `session_shutdown` then disposes; `createRuntime` builds fresh

@@ -6,6 +6,80 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-07-29
+
+### Fixed
+
+- **A shutdown-less repeat `session_start` at one extension instance now
+  supersedes the prior hot-reload generation instead of stranding it —
+  supersede-before-publish detach + drain, a compose-generation zero-touch
+  guard for overlapping starts, one repeat-start system note, and a
+  `session_shutdown` whose teardown reaches every published generation
+  (bug 0021).** The factory's live-resource slots — the step-5 teardown
+  handle plus the four lazily-read teardown inputs (`liveRegistry` /
+  `liveClock` / `liveActiveInvocations` / `liveForwardingSignals`) — are
+  single-occupancy, and each completing `session_start` compose pass
+  assigned all five unconditionally. A repeat `session_start` with no
+  intervening `session_shutdown` — not reachable through the shipped CLI
+  hosts, which always interpose `session_shutdown`, but reachable
+  in-product through the public host SDK: `AgentSession.bindExtensions()`
+  carries no once-guard and re-emits the stored `session_start` to the same
+  factory closure — therefore overwrote the slots without superseding the
+  prior generation: the superseded generation's armed watcher + debouncer
+  leaked with no reachable teardown; its reloads kept publishing and
+  re-registering live slash commands against the superseded registry; one
+  `session_shutdown` tore down only the latest generation — superseded
+  in-flight invocations never reason-stamped or aborted, forwarding
+  listeners never detached, and the undrained superseded registry let a
+  post-shutdown dispatch bypass the drain fail-safe; and in the overlap
+  variant the LAST completer owned the slots, stranding the NEWER
+  generation. Fix (bug doc Option 1 plus Option 3's diagnostic), all in
+  `src/extension/factory.ts`: supersede-before-publish at the
+  compose-completion publish site — fold the outgoing generation's
+  in-flight invocation registry and forwarding-signal list into a
+  factory-scoped supersession list, drain the outgoing registry so a
+  stale-bound name fails safe at dispatch on the drain-state arm (b), and
+  detach the outgoing watcher with the handle slot cleared first so no
+  double-detach path exists; a compose-generation counter joins the
+  bug-0022 compose-settle predicate as a second zero-touch disjunct
+  (`composeTailSuperseded`), closing the overlap inversion — only the
+  newest-started compose publishes, registers, and arms; the
+  `session_shutdown` handler builds merged teardown inputs (the superseded
+  generations in supersession order, then the latest) so one shutdown's
+  sub-steps 2/3/5 reach every published generation, then consumes the
+  supersession state synchronously — sub-steps 1/4 stay latest-only
+  because superseded generations were already drained/detached at
+  supersession time; and each shutdown-less repeat delivery emits exactly
+  one system note (content byte-exact `theta: repeat session_start without
+  session_shutdown; superseding prior hot-reload generation`), keyed on the
+  shutdown count at the last compose start so a start-after-shutdown
+  rebind emits none. Spec: `registration-steps.md` step 5 gains the
+  `#repeat-start-supersession` pin (a repeat delivery is a supersession
+  pass; at most ONE armed watcher across repeat deliveries; detach + drain
+  before publish; the pinned note); `session-shutdown-semantics.md` gains
+  PIC-68 (compose-generation evidence joining PIC-67's compose-settle
+  suppression, the supersession fold, one-shutdown teardown reach);
+  `coverage-matrix.md` gains the PIC-68 row. Offline lock: four tests in
+  `tests/double-session-start-supersession.test.ts` (single-start control;
+  sequential double start; overlap; start-after-shutdown rebind control) —
+  tests 2 and 3 red at ea5de328 with 14 signature failures, green
+  post-fix, red direction re-proven by base revert. Live witness (H8a):
+  `tests/live/double-session-start-live.test.ts` — double
+  `bindExtensions`, real chokidar churn across the 250 ms debounce, a
+  shutdown-emitting dispose, a second churn, asserting ZERO
+  `theta hot-reload quiesced:` stderr lines; green post-fix and red-proven
+  at ea5de328, where exactly one quiesced line is captured (misattributed
+  to bug 0018's bare-dispose path). Live regression witness:
+  `tests/live/live-production-acceptance.test.ts` 5/5. Residual, filed as
+  bug 0024: after any re-bind of the same extension instance, a slash name
+  that survives into the new generation's discovery is collision-dropped
+  against the instance's own prior `pi.registerCommand` registration (the
+  `session_start` compose pass reads `pi.getCommands()` with no own-name
+  exclusion, unlike the hot-reload pass), so the name's handler stays
+  bound to the superseded drained registry and dispatch yields the arm-(b)
+  shutting-down note until `/reload` — fail-safe, but the supersession
+  pass does not re-own surviving names.
+
 ## [0.29.0] - 2026-07-28
 
 ### Fixed
