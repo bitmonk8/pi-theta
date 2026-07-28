@@ -1,6 +1,13 @@
 # Bug 0018 — Watcher hot-reload runs against a stale captured `ctx` after session replacement; the failure note's own delivery then fails on the same stale surface
 
-- **Status:** open.
+- **Status:** fixed (0.28.0). The reload pass performs one deliberate
+  `ctx.cwd` stale probe at entry and quiesces permanently on the host's
+  stale-ctx error — torn-down debouncer, detached watcher, one latched
+  `theta hot-reload quiesced:` stderr line per extension instance; the
+  system-note channel marks itself permanently dead on a stale send and
+  rethrows instead of cascading through the equally stale fallback arms; the
+  arm-after-teardown race is closed zero-touch. The posture is pinned as
+  PIC-67 (`session-shutdown-semantics.md#pic-67`).
 - **Kind:** defect — the hot-reload path violates the host's ctx-lifetime rule.
   Pi invalidates a captured `ExtensionContext` / `pi` surface on session
   replacement or reload ("Do not use a captured pi or command ctx after
@@ -25,6 +32,84 @@
   (`tests/live/live-production-acceptance.test.ts`), where the programmatic
   harness boots and disposes a real `AgentSession` per test and the planted
   workspace's file churn arms the real watcher.
+
+## Fix (0.28.0)
+
+The report's fix sketch proposed re-binding to the current session surface or
+send-time re-resolution; neither is possible — the host fires no event on the
+invalidating path and exposes no non-throwing staleness probe, and every
+fallback arm rides the same invalidated runtime — so the adopted posture is
+reactive detection and permanent quiescence, pinned as the new PIC-67 clause
+(`docs/spec_topics/pi-integration-contract/session-shutdown-semantics.md`,
+anchor `#pic-67`).
+
+**Detection (`src/extension/stale-ctx.ts`, new).** `isStaleCtxError`
+recognises the host's stale-ctx invalidation error by its stable message
+prefix (`This extension ctx is stale after session replacement or reload` —
+byte-identical across every host `invalidate(...)` call site at the pin;
+prefix-only, so a guidance-tail wording tweak does not break detection);
+`STALE_QUIESCE_STDERR_PREFIX` (`theta hot-reload quiesced:`) and
+`StaleQuiesceLog`, a fail-loud-once stderr latch whose `console.error` sink is
+defended (a sink throw is swallowed and, the latch being set first, never
+retried).
+
+**Reload pass (`src/extension/hot-reload.ts` `runReload`).** Entry probe: one
+deliberate side-effect-free guarded touch (`void ctx.cwd`, injected as
+`probeRuntime`) before any other surface is reached; the recognised stale
+throw routes to `quiesceOnStaleCtx` — permanent `tornDown`,
+`debouncer.markTornDown()`, watcher unsub, one latched stderr line. A
+belt-and-braces arm catches a stale error escaping the rediscover/rebuild
+mid-flight (invalidation landing after the probe passed) and quiesces the
+same way. An unrecognised error rethrows — the posture narrows no other
+failure handling. ERR-7 is never attempted through a stale channel.
+
+**Note channel (`src/extension/system-note-channel.ts`).**
+`SystemNoteChannelHealth`: a stale `pi.sendMessage` throw marks the channel
+permanently dead and rethrows — the `ctx.ui.notify` fallback arm rides the
+same invalidated runtime and is never re-entered, and no
+`system-note delivery failed:` line is produced for the stale case; a dead
+channel rethrows the recorded error without touching any host surface; the
+non-stale terminal `console.error` is once-bounded per channel instance.
+
+**Arm-after-teardown race (`src/extension/factory.ts`).**
+`shutdownEventsObserved` is snapshotted before the async `session_start`
+compose; arming the step-5 watcher is suppressed when a `session_shutdown`
+was consumed mid-flight — zero probe touches, no stderr line (not arming is
+already the PIC-57-correct posture there).
+
+**Terminal-signal arm (`src/extension/watcher-recovery.ts`).** A stale throw
+from the PIC-55 `watcher-terminated` note delivery is swallowed (the watcher
+is already torn down on that path) and emits one latched quiesce line through
+the shared `StaleQuiesceLog` — at most one line per install across both arms.
+
+**Debouncer (`src/extension/reload-debounce.ts`).** The rebuild-rejection arm
+logs `theta hot-reload rebuild rejected:` through a defended sink and
+releases the PIC-49 guard in a `finally`, so `whenIdle()` waiters never hang
+on a rethrown unrecognised error.
+
+**Live harness (`tests/live/harness.ts`).** `dispose` now emits
+`session_shutdown` (reason `"quit"`, `hasHandlers`-guarded) before
+`session.dispose()`, mirroring the host's own graceful
+`AgentSessionRuntime.dispose()` ordering.
+
+**Spec.** The PIC-67 clause pins the shutdown-less-invalidation posture: one
+probe touch per reload pass, permanent quiesce, exactly one wrapped stderr
+line per extension instance across all three evidence sites, no delivery
+attempt through an invalidated runtime, zero-touch arm-after-teardown
+suppression. `registration-steps.md` scopes the step-4 "Pi fires
+`session_shutdown` before `invalidate(...)`" presupposition to the
+replacement/quit paths and cross-refs PIC-67 from PIC-55;
+`runtime-event-channel.md` scopes the fallback chain's "never aborts" to a
+live runtime and pins the terminal line once-bounded; `diagnostic-shape.md`
+gains the live-runtime qualifier; `coverage-matrix.md` gains the PIC-67 row.
+
+**Verification.** Full default suite 218 files / 2535 tests green; typecheck
+and lint clean; three review rounds. Bidirectionality: the six-test lock is
+red-at-HEAD-proven (§Reproduction). Live e2e:
+`tests/live/live-production-acceptance.test.ts` 5/5 green (~21 s) with a
+0-byte stderr capture — zero `system-note delivery failed:`, zero
+`registry swap failed` — and the collateral hardening probe file equally
+green and cascade-free.
 
 ## Summary
 
@@ -60,34 +145,75 @@ did not fail any test — which is exactly the problem: the reload machinery
 dies quietly, the registry stays permanently stale for the remainder of the
 session, and the operator-facing failure note never arrives.
 
+## Reproduction
+
+Offline, deterministic — `tests/hot-reload-stale-ctx-replacement.test.ts`,
+written first: 5 red / 1 green at fa58456b with the exact stderr cascade
+signatures. The harness mirrors the watcher-hot-reload integration suite
+(real `createThetaExtension` + `composeExtensionInstance`, `FakeFileWatcher`
++ `FakeClock`), but the hand-rolled `pi` / `ctx` fakes carry a host-faithful
+stale switch: `invalidate()` arms an `assertActive()` in every guarded `pi.*`
+member and `ctx.*` getter that records the touch and throws the byte-exact
+host message. Six tests: the exact `["ctx.cwd"]` single-probe detection set
+plus second-boundary permanence and the fail-loud-once stderr latch; zero
+`settings-unreadable` cascade; zero ERR-7 cascade; the quiesce-or-deliver
+disjunction; Case C — the arm-after-teardown race through a deferred-compose
+seam, locked zero-touch; and Control B — shutdown-then-invalidate, the
+ordinary teardown path, green pre-fix. Supporting witnesses:
+`tests/hot-reload-stale-quiesce-arms.test.ts` (mid-flight belt-and-braces),
+`tests/system-note-channel.test.ts` (stale-dead channel arms),
+`tests/watcher-terminated-recovery.test.ts` (stale terminal arm, shared
+latch, defended sink), `tests/reload-debounce.test.ts` (rejection log and
+guard release). Live witness: the H8a file per §Fix, 0-byte stderr capture.
+
 ## Expected behaviour
 
 Per the host rule, post-replacement work must re-acquire the current session
 surface (`withSession` / fresh ctx) rather than reusing a captured one; per
-PIC-57 (`package-and-settings.md` §watcher teardown), a reload racing
+PIC-57 (`pi-integration-contract/session-shutdown-semantics.md`, anchor
+`#pic-57`), a reload racing
 teardown/replacement must be suppressed or quiesced, and per ERR-7 a genuine
 watcher-time rebuild failure must surface on the `theta-system-note` channel
 — which presupposes a live delivery surface.
 
-## Actual behaviour / root cause (hypothesis — needs wiring investigation)
+## Actual behaviour / root cause
 
-The reload wiring composed at `session_start` closes over that session's
-`ctx`/`pi` (filesystem reads via `ctx.cwd`, note delivery via
-`pi.sendMessage`). Session replacement invalidates those surfaces, but:
+The invalidation that leaves the watcher armed is *shutdown-less*: a bare
+`AgentSession.dispose()` — a public host SDK API — calls
+`_extensionRunner.invalidate(...)` WITHOUT emitting `session_shutdown` first
+(`dist/core/agent-session.js:573` at the `~0.80.10` pin), unlike every host
+replacement path (`newSession` / `switchSession` / `fork` / `reload` / quit),
+all of which emit `session_shutdown` before invalidating. The H8a harness's
+per-test `session.dispose()` is exactly that path. The reload wiring composed
+at `session_start` closes over that session's `ctx`/`pi`; the guarded
+surfaces the compose pass reads through are `pi.getFlag`, `pi.getCommands`,
+`ctx.modelRegistry`, `pi.sendMessage`, and `ctx.ui` — not the filesystem
+(`PiFileSystem` captures `cwd` as a string at construction,
+`src/seams/pi-file-system.ts:31–34`, so fs reads never throw stale). After
+the bare dispose:
 
-- the `tornDown` flag is only set by the explicit teardown path
-  (`markTornDown()` / `detach()`); a session *replacement* that does not run
-  theta's shutdown wiring leaves the watcher armed with stale captures; and
-- even when the rebuild fails, the ERR-7 emit path uses the same stale
-  channel, so the failure is unreportable through the designed channel.
+- the `tornDown` flag was only ever set by the `session_shutdown` teardown
+  (`markTornDown()` / `detach()`), which never ran, so the watcher stayed
+  armed over stale captures; the debounced reload then drove `runComposePass`
+  against them and every guarded touch threw the host stale-ctx error; and
+- the ERR-7 emit path (and the earlier load-diagnostic emission) used the
+  same invalidated channel, so both delivery attempts died on the same dead
+  surface — the two `system-note delivery failed:` cascades — and the
+  registry stayed permanently stale.
 
-Open questions for the fix: which replacement/reload events the extension can
-observe to re-bind or quiesce the watcher; whether the note channel should
-resolve the current session surface at send time instead of capture time;
-and whether the H8a harness's dispose ordering (session disposed while the
-watcher debounce window is open) is also reachable in a real interactive
-session via `ctx.newSession()` / `ctx.reload()` (the host error text implies
-it is).
+The questions the report left open are answered. The host fires no event on
+the bare dispose and exposes no non-throwing staleness probe (`staleMessage`
+is private; there is no `isStale` / `isActive` / `isDisposed` member), so the
+extension cannot re-bind: a deliberate guarded touch that recognises the
+thrown error is the only detection, and quiescence the only posture —
+resolving the current session surface at send time is not possible because
+every fallback arm rides the same invalidated runtime. The interactive
+`ctx.newSession()` / `ctx.reload()` paths DO emit `session_shutdown` first;
+the shutdown-less ordering is nevertheless reachable in-product via any SDK
+embedder's bare `dispose()`, and — same defect class — via the
+arm-after-teardown race, where a `session_shutdown` consumed while the async
+`session_start` compose is in flight tears down before the compose completes
+and arms a watcher nothing will ever detach.
 
 ## Why it matters
 
@@ -100,14 +226,3 @@ it is).
   (`settings-unreadable` above), compounding bug 0013's territory at the
   delivery layer.
 
-## Fix sketch
-
-Re-acquire or re-bind the session surface for watcher-time work (move
-post-replacement work into `withSession`, or subscribe to the host's
-session-replacement event to re-wire/quiesce, mirroring the existing
-session-shutdown teardown), and make system-note delivery resolve the
-*current* surface at send time with a fail-loud-but-once fallback. Add a
-regression lock that drives a reload after a session replacement and asserts
-either quiescence or a delivered ERR-7 — the existing
-`reload-teardown-quiesce` / `watcher-terminated-recovery` suites cover
-teardown, not replacement.

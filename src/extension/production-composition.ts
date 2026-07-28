@@ -132,6 +132,7 @@ import {
 } from "./reload-wiring";
 import {
   SYSTEM_NOTE_CHANNEL,
+  SystemNoteChannelHealth,
   emitDiagnosticBatch,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
@@ -1155,6 +1156,16 @@ export async function composeExtensionInstance(
           ).thetas,
         reRegister,
         initialNames: initial.thetas.map((theta) => theta.slashName),
+        // Bug 0018 (PIC-67) stale-runtime entry probe: read the `ctx.cwd`
+        // getter — side-effect-free on a live ctx, and the cheapest guarded
+        // surface this wiring already holds. On a runtime invalidated WITHOUT
+        // `session_shutdown` (bare `AgentSession.dispose()` — the one host path
+        // that never runs the step-4 teardown, so `detach()` never marked the
+        // debouncer torn-down) the read throws the host stale-ctx error and the
+        // reload pass quiesces before touching any other surface.
+        probeRuntime: () => {
+          void ctx.cwd;
+        },
       });
     },
   };
@@ -1987,7 +1998,11 @@ function buildSystemNoteDeps(
   ctx: ExtensionContext,
   emitDiagnostic: (diagnostic: Diagnostic) => void,
 ): SystemNoteChannelDeps {
+  // Bug 0018 (PIC-67): one mutable delivery-health latch per channel instance
+  // (stale-dead + fail-loud-once), closure-scoped — no module-level state.
+  const health = new SystemNoteChannelHealth();
   return {
+    health,
     pi: {
       sendMessage: (message, _options) => {
         pi.sendMessage(

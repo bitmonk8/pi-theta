@@ -19,8 +19,10 @@ import {
 } from "../src/diagnostics/diagnostic";
 import { createSystemNoteRenderer } from "../src/extension/system-note-renderer";
 import {
+  RendererGate,
   SYSTEM_NOTE_CHANNEL,
   SYSTEM_NOTE_DELIVERY_FAILED_CODE,
+  SystemNoteChannelHealth,
   emitDiagnosticBatch,
   sendSystemNote,
   type SystemNote,
@@ -50,6 +52,8 @@ function makeChannel(opts?: {
   readonly sendThrows?: unknown;
   readonly notifyThrows?: unknown;
   readonly emitThrows?: unknown;
+  readonly health?: SystemNoteChannelHealth;
+  readonly rendererGate?: RendererGate;
 }): ChannelFixture {
   const sent: SentNote[] = [];
   const notified: Array<readonly [string, string]> = [];
@@ -79,6 +83,8 @@ function makeChannel(opts?: {
         throw opts.emitThrows;
       }
     },
+    ...(opts?.rendererGate !== undefined ? { rendererGate: opts.rendererGate } : {}),
+    ...(opts?.health !== undefined ? { health: opts.health } : {}),
   };
   return { deps, sent, notified, emitted };
 }
@@ -375,5 +381,154 @@ describe("V7d-T — theta/runtime/system-note-delivery-failed fallback chain", (
     // its throw MUST NOT propagate out of the sendSystemNote fallback chain.
     expect(() => sendSystemNote(note(), deps)).not.toThrow();
     expect(errorSpy).toHaveBeenCalled();
+  });
+});
+
+// --- bug 0018 (PIC-67) — stale-dead latch + fail-loud-once bounding --------
+
+describe("bug 0018 (PIC-67) — stale-dead latch and fail-loud-once terminal bounding", () => {
+  /**
+   * The host's stale-ctx invalidation message, byte-exact from the installed
+   * host package (dist/core/extensions/loader.js `invalidate` default;
+   * identical text in runner.js and the agent-session.js bare-dispose call).
+   * Deliberately the full host literal rather than the src prefix constant so
+   * these tests witness recognition of the REAL host message.
+   */
+  const HOST_STALE_MESSAGE =
+    "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
+
+  function panicNote(): SystemNote {
+    return {
+      content: "theta /demo aborted: boom",
+      display: true,
+      details: { diagnostics: [] },
+    };
+  }
+
+  it("PIC-67: a stale pi.sendMessage throw marks the channel dead and rethrows — no fallback arm, no diagnostic, no stderr", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation((): void => {});
+    const health = new SystemNoteChannelHealth();
+    const staleError = new Error(HOST_STALE_MESSAGE);
+    const { deps, notified, emitted } = makeChannel({
+      sendThrows: staleError,
+      health,
+    });
+
+    let caught: unknown;
+    try {
+      sendSystemNote(panicNote(), deps);
+    } catch (thrown) {
+      caught = thrown;
+    }
+
+    expect(caught, "the stale throw must surface to the caller").toBe(staleError);
+    expect(
+      health.staleError(),
+      "the channel records the stale error (permanently dead)",
+    ).toBe(staleError);
+    expect(
+      notified,
+      "the equally-stale ctx.ui arm must not be re-entered",
+    ).toHaveLength(0);
+    expect(emitted, "no delivery-failed diagnostic for the stale case").toHaveLength(0);
+    expect(errorSpy, "no stderr for the stale case").not.toHaveBeenCalled();
+  });
+
+  it("PIC-67: a dead channel rethrows the recorded stale error touch-free (no pi / ui / diagnostic touch)", () => {
+    const health = new SystemNoteChannelHealth();
+    const staleError = new Error(HOST_STALE_MESSAGE);
+    health.markStale(staleError);
+    // A working (non-throwing) fixture: any touch after death would RECORD.
+    const { deps, sent, notified, emitted } = makeChannel({ health });
+
+    let caught: unknown;
+    try {
+      sendSystemNote(panicNote(), deps);
+    } catch (thrown) {
+      caught = thrown;
+    }
+
+    expect(caught, "the recorded stale error is rethrown by identity").toBe(
+      staleError,
+    );
+    expect(sent, "pi.sendMessage must not be touched on a dead channel").toHaveLength(0);
+    expect(notified).toHaveLength(0);
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("PIC-67 fail-loud-once: two non-stale double-failures log exactly one terminal line with health present, two without", () => {
+    const stderr: unknown[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]): void => {
+      stderr.push(args[0]);
+    });
+    const terminalLines = (): number =>
+      stderr.filter(
+        (first) =>
+          typeof first === "string" &&
+          first.startsWith("system-note delivery failed:"),
+      ).length;
+
+    // Both channels fail (non-stale) → the PIC-54 terminal arm. With a health
+    // latch: exactly one line across two failures on the same channel instance.
+    const latched = makeChannel({
+      sendThrows: new Error("send dead"),
+      emitThrows: new Error("diagnostics dead"),
+      health: new SystemNoteChannelHealth(),
+    });
+    sendSystemNote(panicNote(), latched.deps);
+    sendSystemNote(panicNote(), latched.deps);
+    expect(
+      terminalLines(),
+      "health bounds the terminal line to once per channel instance",
+    ).toBe(1);
+
+    // Without health (lightweight double): the unbounded pre-0018 behaviour.
+    stderr.length = 0;
+    const unlatched = makeChannel({
+      sendThrows: new Error("send dead"),
+      emitThrows: new Error("diagnostics dead"),
+    });
+    sendSystemNote(panicNote(), unlatched.deps);
+    sendSystemNote(panicNote(), unlatched.deps);
+    expect(terminalLines(), "no health latch → one line per failure").toBe(2);
+  });
+
+  it("PIC-67: on a degraded-renderer instance a stale ctx.ui.notify throw marks the channel dead and rethrows — no terminal line, and later sends rethrow touch-free", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation((): void => {});
+    const health = new SystemNoteChannelHealth();
+    const gate = new RendererGate();
+    gate.degrade();
+    const staleError = new Error(HOST_STALE_MESSAGE);
+    const { deps, sent, emitted, notified } = makeChannel({
+      notifyThrows: staleError,
+      health,
+      rendererGate: gate,
+    });
+
+    let caught: unknown;
+    try {
+      sendSystemNote(panicNote(), deps);
+    } catch (thrown) {
+      caught = thrown;
+    }
+
+    expect(caught).toBe(staleError);
+    expect(health.staleError()).toBe(staleError);
+    // The degraded arm's single notify touch IS the evidence touch.
+    expect(notified).toHaveLength(1);
+    expect(sent, "the degraded arm never touches pi.sendMessage").toHaveLength(0);
+    expect(emitted).toHaveLength(0);
+    expect(errorSpy, "no terminal line for the stale case").not.toHaveBeenCalled();
+
+    // Follow-up send: the channel is now dead — touch-free rethrow.
+    let second: unknown;
+    try {
+      sendSystemNote(panicNote(), deps);
+    } catch (thrown) {
+      second = thrown;
+    }
+    expect(second).toBe(staleError);
+    expect(notified, "a dead channel adds no further touches").toHaveLength(1);
+    expect(sent).toHaveLength(0);
   });
 });

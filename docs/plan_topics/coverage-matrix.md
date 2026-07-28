@@ -86,6 +86,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-64 | RFC 0006 (child-process theta execution — mode-independent host-loop dispatch ladder; successor to the retired PIC-61) |
 | PIC-65 | bug 0002 fix (subagent child-process lifecycle and orphan prevention — bounded-await teardown, closed-stdin launch; successor to the retired PIC-9, whose V9i-closed teardown heritage carries over) |
 | PIC-66 | bug 0002 fix (subagent cancellation — abort → child kill, process-tree on Windows / direct SIGKILL elsewhere; successor to the retired PIC-63) |
+| PIC-67 | bug 0018 fix (shutdown-less runtime invalidation — reload-pass stale probe, permanent quiesce with one designed stderr line, stale-dead note channel, arm-after-teardown suppression) |
 | INV-1 | `V15a` |
 | INV-2, INV-3 | `V15k` |
 | INV-4 | `V15b` |

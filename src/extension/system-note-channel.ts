@@ -10,8 +10,16 @@
 //
 // The V7d implementation fills in the delivery / fallback behaviour the
 // V7d-T tests-task declared.
+//
+// Bug 0018 (PIC-67) carve-out: the fallback chain applies only to a LIVE
+// runtime. A `pi.sendMessage` throw recognised as the host's stale-ctx
+// invalidation error (stale-ctx.ts) means the whole runtime — including the
+// `ctx.ui` fallback arm — is invalidated; the channel marks itself permanently
+// dead and rethrows so the caller quiesces instead of walking a fallback chain
+// whose every arm is equally stale.
 
 import { renderDiagnosticBatch, type Diagnostic } from "../diagnostics/diagnostic";
+import { isStaleCtxError } from "./stale-ctx";
 
 /** Extract a human-readable message from an arbitrary thrown value. */
 function throwMessage(thrown: unknown): string {
@@ -109,6 +117,50 @@ export class RendererGate {
   }
 }
 
+/**
+ * Bug 0018 (PIC-67) — per-channel mutable delivery-health state. Constructed
+ * once per channel-deps instance and injected (no module-level state), like
+ * `RendererGate`:
+ *
+ *  - **stale-dead latch** — the first `pi.sendMessage` throw recognised as the
+ *    host's stale-ctx invalidation error marks the channel permanently dead
+ *    (the runtime is invalidated; `ctx.ui` is the SAME invalidated runtime and
+ *    is guaranteed equally stale, so no fallback arm can ever deliver again).
+ *    A dead channel surfaces the recorded stale error to its caller instead of
+ *    touching any invalidated surface.
+ *  - **fail-loud-once latch** — the PIC-54 terminal `console.error` fires at
+ *    most once per channel instance, so a repeated delivery failure cannot
+ *    cascade unboundedly onto stderr.
+ */
+export class SystemNoteChannelHealth {
+  /** The first observed stale-ctx error; `undefined` while the channel is live. */
+  #staleError: Error | undefined;
+  /** True once the PIC-54 terminal `console.error` has fired for this channel. */
+  #terminalLogged = false;
+
+  /** The recorded stale-ctx error once the channel is dead, else `undefined`. */
+  staleError(): Error | undefined {
+    return this.#staleError;
+  }
+
+  /** Mark the channel permanently dead (first stale error wins; idempotent). */
+  markStale(error: Error): void {
+    this.#staleError ??= error;
+  }
+
+  /**
+   * Claim the single PIC-54 terminal `console.error` slot: `true` exactly once
+   * (the caller logs), `false` thereafter (the caller suppresses).
+   */
+  claimTerminalLog(): boolean {
+    if (this.#terminalLogged) {
+      return false;
+    }
+    this.#terminalLogged = true;
+    return true;
+  }
+}
+
 /** Construction dependencies for the delivery channel. */
 export interface SystemNoteChannelDeps {
   /** The `theta-system-note` send seam (adapts `pi.sendMessage`). */
@@ -127,6 +179,14 @@ export interface SystemNoteChannelDeps {
    * V9p implementation.
    */
   readonly rendererGate?: RendererGate;
+  /**
+   * Bug 0018 (PIC-67): the per-channel delivery-health state (stale-dead latch
+   * + fail-loud-once terminal-log latch). Optional so lightweight test doubles
+   * need not supply it; absent means the pre-0018 behaviour (no stale latch,
+   * unbounded terminal logging) except that a recognised stale-ctx send error
+   * still rethrows rather than re-entering the equally-stale `ctx.ui` fallback.
+   */
+  readonly health?: SystemNoteChannelHealth;
 }
 
 /**
@@ -138,6 +198,16 @@ export function sendSystemNote(
   note: SystemNote,
   deps: SystemNoteChannelDeps,
 ): void {
+  // Bug 0018 (PIC-67): a channel already marked stale-dead surfaces the
+  // recorded stale error WITHOUT touching any `pi.*` / `ctx.*` surface — every
+  // guarded member of the invalidated runtime would throw the same error, and
+  // re-touching it would only re-witness the invalidation. The throw is the
+  // staleness signal callers quiesce on (hot-reload.ts); the compose pass MUST
+  // NOT swallow-and-continue against a dead channel.
+  const priorStale = deps.health?.staleError();
+  if (priorStale !== undefined) {
+    throw priorStale;
+  }
   // Degraded-instance branch (V9p): when the factory-time
   // `pi.registerMessageRenderer` registration failed the `RendererGate` is
   // permanently degraded for this extension instance, so the
@@ -155,13 +225,21 @@ export function sendSystemNote(
       try {
         deps.ui.notify(note.content, "error");
       } catch (notifyError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        try {
-          console.error(
-            `system-note delivery failed: ${note.content}`,
-            notifyError,
-          );
-        } catch (consoleError: unknown) { // allow-broad-catch: PIC-54 — runtime-event-channel.md#pic-54
-          void consoleError;
+        // Bug 0018 (PIC-67): a stale-ctx throw from the toast arm means the
+        // runtime is invalidated — mark the channel dead and surface it.
+        if (isStaleCtxError(notifyError)) {
+          deps.health?.markStale(notifyError);
+          throw notifyError;
+        }
+        if (deps.health === undefined || deps.health.claimTerminalLog()) {
+          try {
+            console.error(
+              `system-note delivery failed: ${note.content}`,
+              notifyError,
+            );
+          } catch (consoleError: unknown) { // allow-broad-catch: PIC-54 — runtime-event-channel.md#pic-54
+            void consoleError;
+          }
         }
       }
     }
@@ -181,6 +259,18 @@ export function sendSystemNote(
     );
     return;
   } catch (sendError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+    // Bug 0018 (PIC-67): the host's stale-ctx error means the extension runtime
+    // was invalidated (session replacement / reload / bare
+    // `AgentSession.dispose()`). The `ctx.ui` fallback arm is the SAME
+    // invalidated runtime — guaranteed equally stale — so re-entering it can
+    // only add stale touches; and the delivery-failed diagnostic would route
+    // back through the same dead surfaces. Mark the channel permanently dead
+    // and rethrow so the caller quiesces (hot-reload.ts entry probe /
+    // belt-and-braces arm) instead of continuing the pass on a dead channel.
+    if (isStaleCtxError(sendError)) {
+      deps.health?.markStale(sendError);
+      throw sendError;
+    }
     // Fallback step 1 — transient toast so the user still sees the message in
     // the current session. Skipped when `display: false` (the author handled
     // the underlying `Err`, or it is a subagent-private cascade) and when
@@ -191,6 +281,10 @@ export function sendSystemNote(
       try {
         deps.ui.notify(note.content, "error");
       } catch (notifyError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+        // No stale check here (unlike the degraded arm above): this arm is
+        // reached only when `pi.sendMessage` threw NON-stale in the same
+        // synchronous tick, and invalidation cannot interleave mid-tick — a
+        // stale runtime would have thrown stale from `sendMessage` first.
         void notifyError;
       }
     }
@@ -210,20 +304,27 @@ export function sendSystemNote(
       // Terminal `console.error` (PIC-54): wrapped so a throw from it is
       // silently swallowed and never propagates out of the fallback chain,
       // regardless of the reach-path. The original note content and both
-      // underlying throws are logged for post-mortem triage.
-      try {
-        console.error(
-          `system-note delivery failed: ${note.content}`,
-          sendError,
-          emitError,
-        );
-      } catch (consoleError: unknown) { // allow-broad-catch: PIC-54 — runtime-event-channel.md#pic-54
-        void consoleError;
+      // underlying throws are logged for post-mortem triage. Bug 0018
+      // (PIC-67): fail-loud-once — with a health latch present the terminal
+      // line fires at most once per channel instance so a repeated delivery
+      // failure cannot cascade unboundedly onto stderr.
+      if (deps.health === undefined || deps.health.claimTerminalLog()) {
+        try {
+          console.error(
+            `system-note delivery failed: ${note.content}`,
+            sendError,
+            emitError,
+          );
+        } catch (consoleError: unknown) { // allow-broad-catch: PIC-54 — runtime-event-channel.md#pic-54
+          void consoleError;
+        }
       }
     }
   }
-  // The fallback never aborts the slash-command handler or spawned subagent
-  // session: control returns normally on every path above.
+  // On every live-runtime path above control returns normally — the fallback
+  // never aborts the slash-command handler or spawned subagent session. The
+  // sole throwing exits are the stale-ctx rethrows (bug 0018, PIC-67), where no
+  // valid delivery surface remains and the caller must quiesce.
 }
 
 /**

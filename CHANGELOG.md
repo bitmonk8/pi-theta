@@ -6,6 +6,56 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-07-28
+
+### Fixed
+
+- **The hot-reload watcher now quiesces once on a shutdown-less runtime
+  invalidation — one `ctx.cwd` stale probe at reload-pass entry, permanent
+  teardown, a single designed `theta hot-reload quiesced:` stderr line — and
+  the system-note channel marks itself permanently dead on a stale send
+  instead of cascading `system-note delivery failed:` onto stderr
+  (bug 0018).** A bare `AgentSession.dispose()` — a public host SDK API —
+  invalidates the extension runtime without emitting `session_shutdown` first
+  (every host replacement path — `newSession` / `switchSession` / `fork` /
+  `reload` / quit — emits it), so the step-4 teardown never ran, nothing
+  marked the debouncer torn-down, and the armed watcher outlived the runtime
+  over stale captures: the debounced reload drove `runComposePass` into
+  guarded `pi.*` / `ctx.*` surfaces that all throw the host's stale-ctx
+  error, and both the load-diagnostic and the ERR-7
+  `theta/runtime/registry-swap-failed` delivery attempts died on the same
+  dead channel — two `system-note delivery failed:` stderr cascades, hot
+  reload permanently dead for the session, no operator-facing note. The host
+  exposes no non-throwing staleness probe and fires no event on the
+  bare-dispose path, so the fix pins the reactive posture as the new PIC-67
+  clause (`session-shutdown-semantics.md#pic-67`): each reload pass performs
+  exactly one deliberate side-effect-free guarded touch at entry (`ctx.cwd`)
+  and, on the recognised stale-ctx error (stable message prefix `This
+  extension ctx is stale after session replacement or reload`; detection
+  centralised in `src/extension/stale-ctx.ts`), quiesces permanently —
+  debouncer marked torn-down per PIC-57, watcher detached, exactly one
+  latched `theta hot-reload quiesced:` line per extension instance (one latch
+  shared with the PIC-55 terminal-signal arm), no ERR-7 attempt through the
+  invalidated channel; a stale error escaping a pass already in flight
+  quiesces on the same arm, and an unrecognised error rethrows. The
+  system-note channel (`SystemNoteChannelHealth`) marks itself permanently
+  dead on a stale `pi.sendMessage` throw and rethrows — never re-entering the
+  equally stale `ctx.ui.notify` fallback — and a dead channel rethrows the
+  recorded error touch-free; the non-stale terminal
+  `system-note delivery failed:` line is once-bounded per channel instance.
+  The arm-after-teardown race — a `session_shutdown` consumed while the async
+  `session_start` compose is in flight, which would arm a watcher nothing
+  detaches — is closed zero-touch by suppressing the arm when a shutdown was
+  observed mid-flight. The debouncer's rejection arm logs
+  `theta hot-reload rebuild rejected:` and releases the PIC-49 guard in a
+  `finally`. The H8a live harness's `dispose` now emits `session_shutdown`
+  (reason `"quit"`) before `session.dispose()`, mirroring the host's own
+  graceful `AgentSessionRuntime.dispose()` ordering. Offline lock:
+  `tests/hot-reload-stale-ctx-replacement.test.ts` (host-faithful
+  stale-switch fakes; 5 red / 1 green at the pre-fix HEAD with the exact
+  cascade signatures); live: the H8a acceptance file runs 5/5 with a 0-byte
+  stderr capture.
+
 ## [0.27.0] - 2026-07-28
 
 ### Fixed

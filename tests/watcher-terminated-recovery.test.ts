@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import {
@@ -25,6 +25,10 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileWatchEvent } from "../src/seams/file-watcher";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import {
+  STALE_QUIESCE_STDERR_PREFIX,
+  StaleQuiesceLog,
+} from "../src/extension/stale-ctx";
 
 // V9q-T — failing tests for the paired `V9q` "Watcher post-error terminal
 // recovery posture" implementation.
@@ -204,5 +208,138 @@ describe("V9q-T — watcher terminal recovery posture (PIC-55)", () => {
     expect(details.diagnostics?.[0]?.code).toBe(WATCHER_TERMINATED_CODE);
     expect(details.diagnostics?.[0]?.code).toBe("theta/runtime/watcher-terminated");
     expect(details.diagnostics?.[0]?.message).toBe(expectedMessage);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bug 0018 (PIC-67) — terminal signal on an invalidated runtime.
+// ---------------------------------------------------------------------------
+
+describe("bug 0018 (PIC-67) — terminal signal on an invalidated runtime", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Byte-exact host stale-ctx message (see tests/system-note-channel.test.ts). */
+  const HOST_STALE_MESSAGE =
+    "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
+
+  function staleChannel(): {
+    readonly channel: SystemNoteChannelDeps;
+    readonly notify: ReturnType<typeof vi.fn>;
+  } {
+    const pi: SystemNoteSender = {
+      sendMessage(): void {
+        throw new Error(HOST_STALE_MESSAGE);
+      },
+    };
+    const notify = vi.fn<UiNotifier["notify"]>();
+    return {
+      channel: { pi, ui: { notify }, emitDiagnostic: vi.fn() },
+      notify,
+    };
+  }
+
+  function stderrLines(spyCalls: unknown[][]): {
+    quiesce: string[];
+    cascades: string[];
+  } {
+    const firsts = spyCalls
+      .map((args) => args[0])
+      .filter((first): first is string => typeof first === "string");
+    return {
+      quiesce: firsts.filter((line) =>
+        line.startsWith(STALE_QUIESCE_STDERR_PREFIX),
+      ),
+      cascades: firsts.filter((line) =>
+        line.startsWith("system-note delivery failed:"),
+      ),
+    };
+  }
+
+  it("PIC-67: a stale watcher-terminated note delivery is swallowed (no throw into the seam), the watcher stays torn down, and exactly one latched quiesce line lands on stderr", () => {
+    const calls: unknown[][] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]): void => {
+      calls.push(args);
+    });
+    const registry = new ThetaRegistry();
+    const { channel, notify } = staleChannel();
+    const fw = new FakeFileWatcher();
+    const changes: FileWatchEvent[] = [];
+
+    armWatcherWithTerminalRecovery({
+      watcher: fw,
+      roots: ["/root"],
+      onChange: (event) => changes.push(event),
+      registry,
+      channel,
+    });
+
+    // The terminal signal must not throw into the FileWatcher seam's dispatch.
+    expect(() => fw.terminate({ roots: ["/root"] })).not.toThrow();
+
+    // Torn down: a later change no longer reaches the handler.
+    fw.emit({ kind: "change", path: "/root/greet.theta" });
+    expect(changes).toEqual([]);
+
+    // The equally-stale fallback arm was never re-entered.
+    expect(notify).not.toHaveBeenCalled();
+
+    // Fail-loud-once: exactly one designed quiesce line, never the PIC-54
+    // cascade prefix (the disease bug 0018 fixed).
+    const { quiesce, cascades } = stderrLines(calls);
+    expect(quiesce, "one designed stderr line on the stale terminal arm").toHaveLength(1);
+    expect(cascades, "never a delivery-failed cascade for the stale case").toEqual([]);
+  });
+
+  it("PIC-67: a throwing console.error at the quiesce line is swallowed — the stale terminal arm still does not throw into the seam's terminate dispatch", () => {
+    // Defended last-resort sink (the PIC-24/PIC-27/PIC-54 invariant family):
+    // closed stdio, fd exhaustion, or a console-proxying host makes the
+    // stderr write itself throw. Unwrapped, that throw would escape the
+    // onTerminate callback into the watcher seam's terminate dispatch
+    // (production: chokidar's error-event dispatch — an uncaught exception).
+    vi.spyOn(console, "error").mockImplementation((): void => {
+      throw new Error("stderr closed");
+    });
+    const { channel } = staleChannel();
+    const fw = new FakeFileWatcher();
+    armWatcherWithTerminalRecovery({
+      watcher: fw,
+      roots: ["/root"],
+      onChange: () => {},
+      registry: new ThetaRegistry(),
+      channel,
+    });
+
+    expect(() => fw.terminate({ roots: ["/root"] })).not.toThrow();
+  });
+
+  it("PIC-67: an installer-shared StaleQuiesceLog that already logged suppresses the terminal arm's line (at most one per extension instance)", () => {
+    const calls: unknown[][] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]): void => {
+      calls.push(args);
+    });
+    const shared = new StaleQuiesceLog();
+    shared.log("reload-pass quiesce fired first (simulated)");
+    expect(stderrLines(calls).quiesce).toHaveLength(1);
+
+    const { channel } = staleChannel();
+    const fw = new FakeFileWatcher();
+    armWatcherWithTerminalRecovery({
+      watcher: fw,
+      roots: ["/root"],
+      onChange: () => {},
+      registry: new ThetaRegistry(),
+      channel,
+      staleLog: shared,
+    });
+
+    expect(() => fw.terminate({ roots: ["/root"] })).not.toThrow();
+
+    // The shared latch already fired: the terminal arm adds no second line.
+    expect(
+      stderrLines(calls).quiesce,
+      "the shared latch bounds the whole instance to one line",
+    ).toHaveLength(1);
   });
 });

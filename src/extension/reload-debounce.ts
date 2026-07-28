@@ -189,7 +189,26 @@ export class ReloadDebouncer {
     this.#inFlight = true;
     void this.#rebuild().then(
       () => this.#onRebuildSettled(),
-      () => this.#onRebuildSettled(),
+      (reason: unknown) => {
+        // A rejection is outside the PIC-36 publish/discard completion signal:
+        // the designed reload outcomes (publish, ERR-7 discard, PIC-67 stale
+        // quiesce) all RESOLVE, so a rejection reaching here is an
+        // unrecognised throw the reload pass deliberately rethrew
+        // (hot-reload.ts inspect-and-rethrow arms). This arm is that throw's
+        // only sink — log the reason (greppable) instead of discarding it.
+        // The log is a defended last-resort sink (the PIC-54-style wrap): a
+        // `console.error` throw (closed stdio, fd exhaustion, a
+        // console-proxying host) is swallowed, and the `finally` releases the
+        // PIC-49 guard regardless, so `whenIdle()` waiters never hang on a
+        // failing stderr write.
+        try {
+          console.error("theta hot-reload rebuild rejected:", reason);
+        } catch (consoleError: unknown) { // allow-broad-catch: PIC-49 — registration-steps.md#pic-49
+          void consoleError;
+        } finally {
+          this.#onRebuildSettled();
+        }
+      },
     );
   }
 

@@ -31,6 +31,7 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { ThetaRegistry } from "./reload-wiring";
 import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
 import { renderDiagnosticLine } from "../diagnostics/diagnostic";
+import { isStaleCtxError, StaleQuiesceLog } from "./stale-ctx";
 
 /**
  * The diagnostics-registry code the terminal recovery posture emits, per the
@@ -77,6 +78,15 @@ export interface WatcherTerminalRecoveryDeps {
   readonly registry: ThetaRegistry;
   /** The V7d `theta-system-note` delivery channel dependencies. */
   readonly channel: SystemNoteChannelDeps;
+  /**
+   * Bug 0018 (PIC-67): the fail-loud-once latch for the designed
+   * `theta hot-reload quiesced:` stderr line. The step-5 installer
+   * (hot-reload.ts) passes the same instance its reload-pass quiesce logs
+   * through, so the extension instance emits at most one line across all
+   * evidence sites. Optional — a standalone arm without one constructs its
+   * own latch, so the stale terminal arm is never silent.
+   */
+  readonly staleLog?: StaleQuiesceLog;
 }
 
 /**
@@ -95,6 +105,10 @@ export interface WatcherTerminalRecoveryDeps {
 export function armWatcherWithTerminalRecovery(
   deps: WatcherTerminalRecoveryDeps,
 ): Unsubscribe {
+  // Bug 0018 (PIC-67): the stderr latch for a terminal signal landing on an
+  // invalidated runtime — shared with the reload-pass quiesce when the
+  // installer supplies it, else instance-local.
+  const staleLog = deps.staleLog ?? new StaleQuiesceLog();
   const unsub = deps.watcher.watch(deps.roots, deps.onChange, () => {
     // (1) Tear the watcher down — leave it torn down rather than re-armed. The
     // seam's `Unsubscribe` is idempotent, so this is safe on any terminal path.
@@ -105,14 +119,35 @@ export function armWatcherWithTerminalRecovery(
     // carries the single terminal diagnostic; its rendered content is sourced
     // from the registry *Message* column via the location-less diagnostic line.
     const diagnostic = watcherTerminatedDiagnostic();
-    sendSystemNote(
-      {
-        content: renderDiagnosticLine(diagnostic),
-        display: true,
-        details: { diagnostics: [diagnostic] },
-      },
-      deps.channel,
-    );
+    try {
+      sendSystemNote(
+        {
+          content: renderDiagnosticLine(diagnostic),
+          display: true,
+          details: { diagnostics: [diagnostic] },
+        },
+        deps.channel,
+      );
+    } catch (terminalNoteError: unknown) { // allow-broad-catch: PIC-67 — session-shutdown-semantics.md#pic-67
+      // Bug 0018 (PIC-67): on an invalidated runtime the channel rethrows the
+      // host stale-ctx error instead of walking its (equally stale) fallback
+      // chain. The watcher is already torn down (step 1) and delivers no
+      // further events, so no debounce boundary is guaranteed to follow — this
+      // arm owns its own fail-loud signal: one stderr line through the shared
+      // PIC-67 latch (at most one per extension instance). The stale error
+      // itself is swallowed rather than thrown into the `FileWatcher` seam's
+      // terminate dispatch; a still-pending debounce window quiesces at its
+      // own boundary via the PIC-67 entry probe without a second line.
+      // Anything else rethrows.
+      if (!isStaleCtxError(terminalNoteError)) {
+        throw terminalNoteError;
+      }
+      staleLog.log(
+        "watcher terminal signal on an invalidated extension runtime; the " +
+          "watcher-terminated note is undeliverable, hot reload halted for " +
+          "this extension instance (bug 0018, PIC-67)",
+      );
+    }
 
     // (3) The `ThetaRegistry` is deliberately untouched: no drain-state tag is
     // written from this path, keeping it live and dispatchable.

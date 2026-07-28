@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ReloadDebouncer,
   RELOAD_DEBOUNCE_WINDOW_MS,
@@ -214,6 +214,97 @@ describe("V10d-T — cross-window rebuild serialization (PIC-49)", () => {
     // Releasing rebuild #1 runs exactly one deferred rebuild for the collapsed
     // windows — not one per deferred window.
     settle("published");
+    await flush();
+    expect(rebuild).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug 0018 review follow-up — a rebuild rejection is not a silent sink.
+// ---------------------------------------------------------------------------
+
+describe("rebuild-rejection sink — the dropped reason is logged (greppable)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a rebuild rejection logs one 'theta hot-reload rebuild rejected:' line carrying the reason and still releases the PIC-49 guard", async () => {
+    // The designed reload outcomes (publish / ERR-7 discard / PIC-67 stale
+    // quiesce) all RESOLVE; a rejection reaching the debouncer is an
+    // unrecognised throw runReload deliberately rethrew (hot-reload.ts
+    // inspect-and-rethrow arms). The rejection arm is that throw's only sink,
+    // so it must surface the reason instead of discarding it.
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation((): void => {});
+    const clock = new FakeClock();
+    const boom = new Error("unrecognised rebuild defect");
+    let callCount = 0;
+    const rebuild = vi.fn(async (): Promise<RebuildOutcome> => {
+      callCount++;
+      if (callCount === 1) {
+        throw boom;
+      }
+      return "published";
+    });
+    const debouncer = new ReloadDebouncer({ clock, rebuild });
+
+    debouncer.onWatcherEvent();
+    clock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+    await flush();
+
+    // The reason is logged, not discarded.
+    expect(errorSpy).toHaveBeenCalledWith(
+      "theta hot-reload rebuild rejected:",
+      boom,
+    );
+
+    // The PIC-49 guard released on the rejection: a later window runs.
+    debouncer.onWatcherEvent();
+    clock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+    await flush();
+    expect(rebuild).toHaveBeenCalledTimes(2);
+  });
+
+  it("the PIC-49 guard release survives a throwing console.error: whenIdle() resolves and a later window still runs (the last-resort sink is defended)", async () => {
+    // The repo's defended-sink invariant family (PIC-24/PIC-27/PIC-54): the
+    // last-resort console.error can itself throw (closed stdio, fd
+    // exhaustion, a console-proxying host). The rejection arm must swallow
+    // that throw and still release the PIC-49 guard — an unwrapped sink would
+    // skip the release, leaving whenIdle() waiters hung and every later
+    // debounce window deferred against a never-released guard.
+    vi.spyOn(console, "error").mockImplementation((): void => {
+      throw new Error("stderr closed");
+    });
+    const clock = new FakeClock();
+    let callCount = 0;
+    const rebuild = vi.fn(async (): Promise<RebuildOutcome> => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("unrecognised rebuild defect");
+      }
+      return "published";
+    });
+    const debouncer = new ReloadDebouncer({ clock, rebuild });
+
+    debouncer.onWatcherEvent();
+    clock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+    await flush();
+
+    // Guard released despite the throwing sink: whenIdle() resolves ahead of
+    // a full microtask-queue drain (a stuck guard parks the waiter forever,
+    // so the race deterministically yields "hung" rather than timing out).
+    await expect(
+      Promise.race([
+        debouncer.whenIdle().then(() => "idle"),
+        flush().then(() => "hung"),
+      ]),
+    ).resolves.toBe("idle");
+
+    // ... and a later window starts a fresh rebuild rather than deferring
+    // against a never-released guard.
+    debouncer.onWatcherEvent();
+    clock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
     await flush();
     expect(rebuild).toHaveBeenCalledTimes(2);
   });

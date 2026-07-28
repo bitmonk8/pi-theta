@@ -245,6 +245,17 @@ export async function bootShippedExtension(options: {
     command: (stem: string) => runner.getCommand(stem),
     registeredNames: () => runner.getRegisteredCommands().map((c) => c.name),
     dispose: async (): Promise<void> => {
+      // Bug 0018: a bare `AgentSession.dispose()` invalidates the extension
+      // runtime WITHOUT emitting `session_shutdown` first (only the host's
+      // replacement/quit paths emit it), so theta's step-4 teardown never runs
+      // and an armed watcher outlives the runtime. Mirror the host's own
+      // graceful path — `AgentSessionRuntime.dispose()` awaits
+      // `emitSessionShutdownEvent(runner, { type: "session_shutdown",
+      // reason: "quit" })` before `session.dispose()` — via the public
+      // `ExtensionRunner.emit`, guarded like the host helper.
+      if (runner.hasHandlers("session_shutdown")) {
+        await runner.emit({ type: "session_shutdown", reason: "quit" });
+      }
       session.dispose();
       await Promise.resolve();
     },
