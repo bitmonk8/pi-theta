@@ -277,6 +277,20 @@ const TYPED_LIVE_THETA_MODEL_OAI = [
   "",
 ].join("\n");
 
+/**
+ * Bug 0012 (p2): the UNTYPED live twin — same prompt, no schema annotation.
+ * A top-level untyped `@`-query drives the LIVE seam (`userVisible: true` →
+ * `LivePromptQueryModel`) through `runUntypedQueryLoop`.
+ */
+const UNTYPED_LIVE_THETA = [
+  "---",
+  "mode: prompt",
+  "---",
+  "let v = @`Ping`?",
+  "v",
+  "",
+].join("\n");
+
 /** Cell (k): frontmatter `model:` names a reference NO available model matches. */
 const TYPED_LIVE_THETA_MODEL_GHOST = [
   "---",
@@ -1926,5 +1940,74 @@ describe("bug 0010 (control) — free-phase transport failure precedes any respo
     ).toBe("anthropic-messages");
     expect(err.http_status).toBeNull();
     expect(err.retryable).toBe(false);
+  });
+});
+
+// ===========================================================================
+// Bug 0012 — the UNTYPED live loop's cancellation surfacing
+// (docs/bugs/0012-untyped-off-session-mid-abort-transport-not-cancelled.md).
+// The bug-0010 F1 guards were written into `runTypedQueryLoop` ONLY;
+// `runUntypedQueryLoop`'s text arm returns unconditionally with no
+// `signal.aborted` re-check, so an Esc during the untyped streamed turn
+// surfaces the torn turn's partial text as a SUCCESS value — the PIC-51
+// probe's synthesised Err(cancelled) is discarded by the driver's
+// transport-only divert. (p2) is the (m) mirror over the untyped fixture and
+// REDS AT HEAD.
+// ===========================================================================
+
+describe("bug 0012 — live UNTYPED query: Esc during the streamed turn is the CANCEL outcome, never Ok(partial text) (cancellation.md §Surfacing, PIC-51/PIC-53, FN-5)", () => {
+  it("(p2) Esc DURING the untyped free-phase streamed turn (torn stream, trailing stopReason 'aborted' with partial text): the CANCEL terminal outcome — never Ok('partial answer') — and ZERO complete() dispatches", async () => {
+    // Bug 0012, the (m) mirror over the UNTYPED fixture (defect pin — RED at
+    // HEAD). The CANCEL-2 route: the per-turn `ctx.signal` aborts mid-stream,
+    // `#driveUserVisibleTurn` flips thetaAbort after the turn settles, and
+    // the post-idle probe's aborted arm synthesises Err(cancelled) (PIC-51's
+    // cancellation short-circuit — the probe module conforms). But the live
+    // driver forwards only `kind: "transport"` verdicts into the loop; the
+    // cancelled verdict falls through to the `{kind:"text"}` extraction of
+    // the torn turn's partial text, and `runUntypedQueryLoop`'s text arm
+    // returns UNCONDITIONALLY (no `signal.aborted` re-check — contrast the
+    // typed loop's free-phase → forced-respond boundary guard, whose F1
+    // comment names exactly these text-shaped mid-abort turns), so the abort
+    // surfaces as a SUCCESS outcome binding Ok("partial answer") — violating
+    // FN-5 ("on cancellation, NO final value flows"), PIC-53's extraction
+    // ordering (the short-circuit fired and the extraction ran anyway), and
+    // error-model.md §Terminal outcomes (the pinned contract: the CANCEL
+    // arm, as the typed twin (m) observes at HEAD).
+    const harness = makeHarness({
+      source: UNTYPED_LIVE_THETA,
+      // The torn stream's trailing assistant message: an aborted stop carrying
+      // the partial text the extraction would (wrongly) bind as the value.
+      sessionReplies: [{ stopReason: "aborted", text: "partial answer" }],
+      onMidTurn: (h): void => {
+        // An Esc while the untyped turn is in flight: pi surfaces the per-turn
+        // ctx.signal only while a turn streams (idle entry models
+        // `signal: undefined`), so the hook plants an already-aborted signal
+        // mid-turn (the (m) trigger, unchanged).
+        (h.ctx as unknown as { signal: AbortSignal | undefined }).signal =
+          AbortSignal.abort();
+      },
+    });
+    // The queue stays EMPTY: an untyped live query issues NO complete() at
+    // all — any dispatch would throw loudly AND fail the count pin.
+    scripted.queue = [];
+
+    const execution = await drive(harness);
+
+    expect(
+      execution.outcome,
+      "cancellation is its own TERMINAL OUTCOME — the cancel arm, never a " +
+        "success outcome binding the torn turn's partial text (bug 0012, the " +
+        "(m) mirror; FN-5: on cancellation NO final value flows); observed " +
+        `final value: ${JSON.stringify(execution.result.value)}`,
+    ).toBe("cancel");
+    expect(
+      scripted.calls.length,
+      "ZERO complete() calls — an untyped live query never dispatches " +
+        "off-session, aborted or not",
+    ).toBe(0);
+    expect(
+      harness.session.sendUserMessageCalls,
+      "exactly one on-session turn — the free-phase turn the abort landed in",
+    ).toBe(1);
   });
 });

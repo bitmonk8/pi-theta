@@ -392,12 +392,41 @@ export async function runUntypedQueryLoop(
 
     const turn = await model.nextFreePhaseTurn(round);
     if (turn.kind === "transport") {
+      // Cancellation surfacing (bug 0012, mirroring the typed loop's F1
+      // free-phase guard): a free-phase turn that failed WHILE the theta
+      // signal is aborted is the in-flight abort, not a provider fault —
+      // pi-ai RESOLVES an abort as a `stopReason: "aborted"` reply that the
+      // off-session classifier folds into the transport arm, so without this
+      // mapping a mid-flight Esc surfaces as `Err(transport)` instead of the
+      // cancelled outcome (cancellation.md §Surfacing; error-model.md
+      // §Terminal outcomes). Keyed on the THETA SIGNAL, never the stop
+      // reason: a reply-side aborted stop under a NON-aborted signal keeps
+      // its transport classification. Both halves pinned:
+      // tests/off-session-two-phase.test.ts (p1)/(l-off), alongside the
+      // typed twins (d12) / tests/typed-two-phase-live.test.ts (l).
+      if (signal.aborted) {
+        return { kind: "cancelled", committed };
+      }
       // PIC-50/51: the free-phase provider turn failed at the transport layer.
       // Surface it as the untyped query's `Err(TransportError)` — never masked
       // as a terminating `Ok(text)`.
       return { kind: "transport", error: turn.error, rounds, committed };
     }
     if (turn.kind === "text") {
+      // Cancellation re-check on the terminating turn (bug 0012, the
+      // analogue of the typed free-phase → forced-respond boundary guard):
+      // the live driver's post-idle probe synthesises `cancelled` per PIC-51,
+      // which is not a transport verdict, so a mid-abort turn surfaces here
+      // as `text` carrying the torn stream's partial content. Honour the
+      // PIC-51/PIC-53 cancellation short-circuit instead of materialising
+      // `Ok(partial)` (cancellation.md §Surfacing; error-model.md §Terminal
+      // outcomes: on cancellation NO final value flows). Inside CNCL-5: the
+      // guard fires BEFORE the query's `Ok` materialises to theta code — a
+      // completed `Ok` bound before the abort is untouched. Pinned:
+      // tests/typed-two-phase-live.test.ts (p2).
+      if (signal.aborted) {
+        return { kind: "cancelled", committed };
+      }
       // Terminating plain-text turn: this is the untyped query's final response.
       return { kind: "text", text: turn.text, rounds, committed };
     }

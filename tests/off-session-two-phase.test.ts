@@ -1785,6 +1785,110 @@ describe("bug 0010 fix review (F1/F7b) — off-session cancellation surfacing an
 });
 
 // ===========================================================================
+// Bug 0012 — the UNTYPED off-session loop's cancellation surfacing
+// (docs/bugs/0012-untyped-off-session-mid-abort-transport-not-cancelled.md).
+// The bug-0010 F1 guards were written into `runTypedQueryLoop` ONLY;
+// `runUntypedQueryLoop`'s transport arm returns unconditionally with no
+// `signal.aborted` re-check, so a mid-flight abort during an untyped
+// `subagent fn` body query surfaces as Err(transport) under a SUCCESS outcome
+// instead of the CANCEL terminal outcome. (p1) is the (d12) mirror over the
+// suite's untyped fixture and REDS AT HEAD; (l-off) is the control pinning
+// the reply-side-vs-signal-side distinction the fix must preserve (green at
+// HEAD, must stay green).
+// ===========================================================================
+
+describe("bug 0012 — off-session UNTYPED cancellation surfacing: mid-flight abort vs reply-side aborted stop (cancellation.md §Surfacing, error-model.md §Terminal outcomes)", () => {
+  it("(p1) mid-flight abort during the untyped FREE-PHASE complete(): the CANCEL terminal outcome — never Err(transport 'provider transport failure') — with exactly ONE complete() and no post-abort round", async () => {
+    // Bug 0012, the (d12) mirror over the UNTYPED fixture (defect pin — RED
+    // at HEAD). pi-ai RESOLVES an abort — the adapter surfaces `stopReason:
+    // "aborted"` — and `classifyOffSessionReply` folds every non-normal stop
+    // into the transport arm; `runUntypedQueryLoop`'s transport arm returns
+    // UNCONDITIONALLY (no post-turn `signal.aborted` re-check — contrast the
+    // typed loop's free-phase F1 guard the twin (d12) pins), so the
+    // mid-flight Esc surfaces as the fail arm's Err(transport) instead of
+    // cancellation. The spec names ONE correct surface, with no typed/untyped
+    // split: the CANCEL terminal outcome (cancellation.md §Surfacing: an
+    // in-flight query whose signal aborts returns Err(kind:"cancelled");
+    // error-model.md §Terminal outcomes) — and the parent's OWN thetaAbort
+    // aborts here, so per the per-cause table the surface is bare
+    // `cancelled`, exactly the typed (d12) pin's shape: outcome "cancel",
+    // one complete(), no bound Err.
+    const thetaAbort = new AbortController();
+    scripted.queue = [
+      // complete() #1 — the untyped free-phase round-0 call: the abort lands
+      // WHILE the call is in flight (the factory flips the theta signal), and
+      // pi-ai resolves it as an aborted-stop reply — the d12 script, minus
+      // the respond tool (none exists for an untyped query).
+      () => {
+        thetaAbort.abort();
+        return assistantReply({ stopReason: "aborted" });
+      },
+      // Defensive sticky-last: the contract forbids ANY dispatch after the
+      // abort — a terminating text reply here keeps a regressed post-abort
+      // free-phase round observable on the count pin (it would RESOLVE and
+      // bind Ok('late answer'), so the outcome pin below would red too).
+      () => assistantReply({ stopReason: "stop", text: "late answer" }),
+    ];
+
+    const execution = await driveTheta(UNTYPED_FN_THETA, ANTHROPIC_MODEL, { thetaAbort });
+
+    expect(
+      execution.outcome,
+      "cancellation is its own TERMINAL OUTCOME — the cancel arm, never a " +
+        "success outcome binding Err(transport 'provider transport failure') " +
+        "classified from the aborted-stop reply (bug 0012, the (d12) mirror; " +
+        "cancellation.md §Surfacing has no untyped exemption); observed final " +
+        `value: ${JSON.stringify(execution.result.value)}`,
+    ).toBe("cancel");
+    expect(
+      scripted.calls.length,
+      "exactly ONE complete() — the aborted free-phase call; the aborted " +
+        "untyped query issues NO post-abort round",
+    ).toBe(1);
+  });
+
+  it("(l-off) reply-side aborted stop under a LIVE (non-aborted) theta signal: Err(transport 'provider transport failure') through the classifier's fold — NOT cancellation", async () => {
+    // Bug 0012 CONTROL (green at HEAD, must STAY green after the fix): the
+    // untyped (l) mirror at the off-session seam — the only untyped seam
+    // where an aborted-stop reply classifies into a transport verdict. The
+    // THETA SIGNAL is never aborted in this cell — the `"aborted"` stop is
+    // purely reply-side (a provider-fabricated stop while the theta was never
+    // cancelled) — so the reply legitimately rides `classifyOffSessionReply`'s
+    // transport fold to Err(transport): the scripted reply carries no
+    // errorMessage, the classifier's empty transport message takes PIC-51's
+    // fixed fallback (the bug-0007 discipline). The bug-0012 fix must key its
+    // guard on the theta signal, NOT the stop reason, leaving this
+    // distinction unmoved (its typed twin: tests/typed-two-phase-live.test.ts
+    // (l)).
+    scripted.queue = [() => assistantReply({ stopReason: "aborted" })];
+
+    const execution = await driveTheta(UNTYPED_FN_THETA, ANTHROPIC_MODEL);
+
+    expect(
+      scripted.calls.length,
+      "exactly ONE complete() — the aborted-stop reply terminates the untyped query",
+    ).toBe(1);
+    const err = expectErrQueryError(execution);
+    expect(err.kind, `observed: ${JSON.stringify(err)}`).toBe("transport");
+    expect(
+      err.message,
+      "the scripted aborted-stop reply carries no errorMessage — the " +
+        "classifier's empty transport message takes PIC-51's fixed fallback",
+    ).toBe("provider transport failure");
+    expect(
+      err.provider,
+      "provider derives from the dispatched model's api-shaped `.api` " +
+        "(queryerror-variants.md §provider derivation)",
+    ).toBe("anthropic-messages");
+    expect(err.http_status, "no HTTP status is observable at the complete() seam").toBeNull();
+    expect(
+      err.retryable,
+      "a stop-reason classification is a definite outcome — retryable: false",
+    ).toBe(false);
+  });
+});
+
+// ===========================================================================
 // Residual pin (bug 0010 fix review, F5; re-pinned by bug 0014) — the
 // off-session degraded unlowerable-annotation arm keeps the fused single-shot
 // mechanism, but since bug 0014 the `@<>` spelling that reached it is REJECTED

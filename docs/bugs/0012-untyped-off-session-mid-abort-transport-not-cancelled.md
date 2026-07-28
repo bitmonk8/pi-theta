@@ -1,6 +1,10 @@
 # Bug 0012 — Untyped queries surface a mid-flight abort as `Err(TransportError)` off-session (and as `Ok(<partial text>)` live), never the specified `cancelled` outcome
 
-- **Status:** open.
+- **Status:** fixed (0.25.0). Option 1 adopted as prescribed — two
+  signal-keyed guards in `runUntypedQueryLoop` (transport arm and text arm)
+  mirror the bug-0010 typed F1 guards; a mid-flight abort now surfaces the
+  CANCEL terminal outcome on both untyped drivers, a reply-side aborted stop
+  under a live signal stays transport, and neither driver changed.
 - **Kind:** defect — cancellation surfacing. The bug-0010 fix added
   signal-aware cancellation mapping to every **typed**-query surface (the
   `runTypedQueryLoop` F1 guards, the `dispatchForcedRespondTurn` pre-gate and
@@ -47,6 +51,74 @@
   "One pre-existing neighbour is out of scope and recorded for a future
   report: UNTYPED off-session queries retain the transport-not-cancelled
   mid-abort classification that this fix corrected for typed loops."
+
+## Fix (0.25.0)
+
+Option 1, adopted as prescribed: two signal-keyed guards in
+`runUntypedQueryLoop` (`src/runtime/query-tool-loop.ts`), mirroring the
+bug-0010 typed guards. Neither driver changed, no consumer change.
+
+- **Transport arm** (the analogue of `runTypedQueryLoop`'s free-phase F1
+  guard): `if (signal.aborted) return { kind: "cancelled", committed };`
+  before the transport outcome returns. Fixes (p1): an aborted-stop reply
+  folded to the transport arm by `classifyOffSessionReply` while the theta
+  signal is aborted is the in-flight cancellation, not a provider fault.
+- **Text arm** (the analogue of the typed free-phase → forced-respond
+  boundary re-check): the same guard before the text outcome returns. Fixes
+  (p2): the live driver's transport-only divert drops the PIC-51 probe's
+  synthesised `Err(cancelled)`, so a mid-abort turn surfaces as `text`
+  carrying the torn stream's partial content; the guard honours the
+  PIC-51/PIC-53 short-circuit instead of materialising `Ok(partial)`.
+
+Both guards key on the theta signal, never the stop reason — the cell-(l)
+distinction is preserved (a reply-side `"aborted"` stop under a live signal
+stays `Err(transport)` off-session, now pinned untyped by (l-off)) — and
+CNCL-5 holds: the text-arm guard fires before the query's `Ok` materialises
+to theta code; a completed `Ok` bound before the abort is untouched. The
+loop's `cancelled` outcome flows through the unchanged `runQueryEffect`
+mapping to `Err(QueryError { kind: "cancelled" })` and the CANCEL terminal
+outcome. One comment-only ripple: the live driver's PIC-51 divert comment
+attributed cancellation handling to "the loop's checkpoint" — the exact
+false premise behind (p2) — reworded to the enclosing loop's signal guards
+(bug 0010 F1 / bug 0012).
+
+Tests, written first and red at `1046f93a` for the documented reasons:
+
+- `tests/off-session-two-phase.test.ts` **(p1)** — the (d12) mirror over the
+  suite's untyped `subagent fn` fixture: `complete()` #1 flips `thetaAbort`
+  mid-call and resolves `{ stopReason: "aborted", content: [] }`. Red as
+  `outcome: "success"` with `Err(invoke_callee → transport "provider
+  transport failure")` — the §Reproduction values verbatim; green as the
+  CANCEL outcome with exactly one `complete()` (a defensive sticky-last text
+  reply keeps any regressed post-abort round observable on both pins).
+- `tests/off-session-two-phase.test.ts` **(l-off)** — the untyped (l)
+  control: the same aborted-stop reply under a live (non-aborted) signal
+  stays `Err(transport)` with the PIC-51 fallback shape. Green at HEAD,
+  green after — the preserved distinction.
+- `tests/typed-two-phase-live.test.ts` **(p2)** — the (m) mirror over an
+  untyped fixture: `onMidTurn` plants the aborted per-turn signal (CANCEL-2
+  forwarding flips `thetaAbort` after the turn settles), the torn stream
+  trails `{ stopReason: "aborted", text: "partial answer" }`. Red as
+  `outcome: "success"` with `Ok("partial answer")`; green as the CANCEL
+  outcome with zero `complete()` dispatches and one `sendUserMessage`.
+
+Verification: typecheck + lint clean; full default suite 213 files / 2444
+tests green (2441 baseline + 3 new); no committed pin moved. Three review
+rounds (two findings round 1, one round 2 — all comment-accuracy, applied →
+CLEAN). Live e2e: `tests/hardening/session-cancellation.test.ts` (real pi
+binary, real provider) green — its single cell drives a real untyped
+`@`-query through the shipped extension across the new text-arm guard under
+a never-aborted signal, pinning the guards' negative half (no misfire on a
+clean run); the hardening harness cannot inject a mid-turn abort into a
+live drive (documented limitation), so the abort-positive halves rest on
+the (p1)/(p2) seam pins, which exercise the real classifier fold and the
+real PIC-51 probe against scripted turns.
+
+Residual: the adjacent PIC-51b live-path gap is unchanged by scope — a
+reply-side aborted stop under a live signal still extracts as `Ok(text)`
+on the live path (the probe classifies no non-`"error"` stop reason);
+recorded in §Options and §Non-goals as adjacent to, not part of, this
+report.
 
 ## Summary
 

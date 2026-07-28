@@ -3686,8 +3686,9 @@ class LivePromptQueryModel implements QueryModelDriver {
       // PIC-51: probe the driven turn's trailing `assistant` `stopReason` before
       // extracting text. A `stopReason: "error"` turn maps to
       // `Err(TransportError)` (never masked as `Ok(text)`); the cancellation and
-      // plain-text paths are unchanged (cancellation is handled by the loop's
-      // checkpoint, so only a `transport` verdict diverts here).
+      // plain-text paths are unchanged (cancellation is handled by the
+      // enclosing loop's signal guards (bug 0010 F1 / bug 0012), so only a
+      // `transport` verdict diverts here).
       const probe = extractPromptModeQueryResult(this.#readMessages(), {
         aborted: this.#thetaAbort.signal.aborted,
         provider: this.#provider,

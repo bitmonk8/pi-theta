@@ -6,6 +6,43 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-07-28
+
+### Fixed
+
+- **Untyped `@`-queries now surface a mid-flight abort as the `cancelled`
+  outcome on both drivers, instead of `Err(TransportError)` off-session and
+  `Ok(<partial text>)` live (bug 0012).** The bug-0010 fix added
+  signal-aware cancellation guards to every typed-query surface; the untyped
+  loop (`runUntypedQueryLoop`) kept the pre-0010 shape — once a free-phase
+  turn resolved, its transport and text arms returned unconditionally, with
+  no `signal.aborted` re-check. An abort landing while an untyped query's
+  provider call was in flight therefore surfaced as the wrong terminal
+  outcome on both untyped drivers. Off-session (`subagent fn` body
+  `@`-queries): pi-ai resolves an in-flight abort as a `stopReason:
+  "aborted"` reply that `classifyOffSessionReply` folds into the transport
+  arm, so Esc read as a provider fault (`Err(TransportError { message:
+  "provider transport failure", … })`) — an author `match` arm on `kind:
+  "cancelled"` never fired and retry-on-transport logic would retry a user
+  cancellation. Live prompt-mode: the post-idle probe correctly synthesised
+  `Err(cancelled)` per PIC-51, but the driver forwards only `kind:
+  "transport"` verdicts, so the mid-abort turn fell through to text
+  extraction and the query terminated `Ok(<partial text>)` — fabricated
+  success carrying a torn stream's truncated data, bypassing the PIC-53
+  ordering and FN-5's "on cancellation, NO final value flows". Fix (bug doc
+  Option 1): two signal-keyed guards in `runUntypedQueryLoop`, mirroring the
+  typed loop's bug-0010 F1 guards — before the transport arm and before the
+  text arm return, an aborted theta signal maps the turn to the loop's
+  existing `cancelled` outcome, which `runQueryEffect` already surfaces as
+  `Err(QueryError { kind: "cancelled" })` and the CANCEL terminal outcome.
+  Both guards key on the theta signal, never the stop reason: a reply-side
+  `"aborted"` stop under a live (non-aborted) signal keeps its transport
+  classification (the cell-(l) distinction, now pinned untyped too), and the
+  text-arm guard fires before the query's `Ok` materialises to theta code,
+  inside CNCL-5 — a completed `Ok` bound before the abort is untouched.
+  Neither driver changes; the typed loops and the checkpoint/round-boundary
+  guards are untouched.
+
 ## [0.24.0] - 2026-07-28
 
 ### Fixed
