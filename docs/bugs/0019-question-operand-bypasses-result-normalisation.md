@@ -39,7 +39,7 @@
   - `evalTry` (`src/runtime/statement-executor.ts:1035`) — casts the operand
     value blind (`operand.value as ResultValue`, :1040) and hands it to
     `evaluateQuestion` (`src/runtime/runtime-panics.ts:222`), which reads
-    `.ok` off the cast value (:225) with no `isResultValue` check.
+    `.ok` off the cast value (:225–226) with no `isResultValue` check.
   - Downstream mis-surfacing: the prompt-mode `surface`
     (`src/extension/production-theta-producer.ts:1559`) and
     `surfaceCalleeFinalValue` (:3311) both map a fail outcome through
@@ -180,7 +180,7 @@ Three layers, each individually defensible, jointly a silent-corruption path:
    member/index/binary/ternary/method-call operands raw (:976–985, on the
    explicit premise that ERR-18 already guaranteed `Result`-ness) and bare
    identifiers raw through the pure host (:987–990). `evalTry` (:1040)
-   casts blind; `evaluateQuestion` (`runtime-panics.ts:225`) reads `.ok`
+   casts blind; `evaluateQuestion` (`runtime-panics.ts:225–226`) reads `.ok`
    with no `isResultValue` check. For a non-`Result`: `.ok` is `undefined`
    (or user data), so the unwrap manufactures `Err(undefined)` or unwraps a
    nonexistent `.value`.

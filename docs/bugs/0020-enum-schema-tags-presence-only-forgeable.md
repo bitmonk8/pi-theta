@@ -242,7 +242,9 @@ against the declared-schema environment and applies its renames.
    non-writable / non-configurable, and every `src/` construction site
    routes through them (`lexical-environment.ts:533` for `Enum.Variant`
    access, `wire-translation.ts:167` for the inbound re-tag,
-   `statement-executor.ts:666` for ctor branding). `valuesEqual`,
+   `statement-executor.ts:666` and `production-theta-producer.ts:5648` —
+   the effectful and pure-expression hosts — for ctor branding).
+   `valuesEqual`,
    `isEnumValue`, `interpolationTypeOf`, and both
    `translateInterpolationOutbound` sites inherit the fix. JSON output is
    unchanged (tags already never serialise). Kills both ingress classes at

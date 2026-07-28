@@ -82,7 +82,7 @@ Offline, deterministic. Take the bug-0018 Case C harness
 (`tests/hot-reload-stale-ctx-replacement.test.ts` — real
 `createThetaExtension` + `composeExtensionInstance`, host-faithful stale
 switch recording every guarded touch) and remove the post-arm baseline
-(`b.harness.staleTouches.length = 0` at `:629`), observing from the
+(`b.harness.staleTouches.length = 0` at `:628`), observing from the
 `releaseCompose()` point instead. Two interleavings:
 
 **Variant 1 — Case C exact interleaving** (compose resolved before the gate;
