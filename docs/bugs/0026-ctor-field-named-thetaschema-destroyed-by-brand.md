@@ -1,6 +1,11 @@
 # Bug 0026 — A schema ctor whose declared field is literally named `__thetaSchema` has that field silently destroyed: `brandSchemaValue` redefines the constructor-assigned enumerable field into the non-enumerable brand, replacing its value with the schema name
 
-- **Status:** open
+- **Status:** fixed (0.33.0). §Fix as settled — `ENUM_TAG`, `SCHEMA_TAG` and
+  `RESULT_TAG` migrated in one stroke from string keys to module `Symbol`s in
+  `src/runtime/value.ts`; `privateBrandOf` takes a `symbol`. Neither ctor host
+  changed: the collision class disappears because the brands left the
+  string-key namespace. Also closes the brand-key half of bug
+  [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md).
 - **Kind:** defect — constructor-side, orthogonal to the classification
   privacy bug [0020](./0020-enum-schema-tags-presence-only-forgeable.md) fixed
   (0.32.0). Both ctor hosts evaluate a schema constructor by assigning every
@@ -56,6 +61,105 @@
   [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md). The Symbol migration in §Fix
   also closes 0027's brand-key half; 0027 is re-scoped against the post-0026
   baseline and ships as a separate commit.
+
+## Fix (0.33.0)
+
+The settled §Fix, implemented as written. Line anchors are at the fix commit.
+
+**Symbol brands (`src/runtime/value.ts`).** The three interpreter-private
+brands leave the string-key namespace: `ENUM_TAG` (`:56`), `RESULT_TAG`
+(`:88`) and `SCHEMA_TAG` (`:233`) are module `Symbol`s, and `privateBrandOf`
+(`:186`) takes a `symbol` key. A symbol key is unreachable from `JSON.parse`
+and from theta-side object construction — both mint string keys only — so a
+declared field named `__thetaSchema` and the brand occupy disjoint key spaces
+and the ctor's assign-then-brand sequence can no longer overwrite the field.
+The three constructors keep their non-enumerable / non-writable /
+non-configurable install (`makeEnumValue` `:137`, `brandSchemaValue` `:251`,
+`brandResult` `:326`) and `privateBrandOf` keeps the non-enumerable
+predicate: the descriptor posture bounds propagation through spread /
+`Object.assign`, which copy own *enumerable* symbol-keyed properties, and
+keeps the read side aligned with what the constructors write. The three
+readers (`enumTagOf` `:206`, `schemaTagOf` `:270`, `isResultValue` `:304`)
+route through the helper unchanged. Four code lines changed in total; every
+other hunk in the module is docstring text re-anchored on the symbol
+encoding.
+
+**Neither ctor host changed.** `statement-executor.ts:671` and
+`production-theta-producer.ts:5648` call `brandSchemaValue` exactly as
+before — they remain the only two call sites in `src/`.
+
+**Docs.** `docs/spec_topics/runtime-value-model.md:16` — the non-normative
+reference-encoding paragraph re-anchored on the symbol encoding under its own
+"may change without a spec revision" licence; the bug-0017 claim (recognised
+by the brand, never by the `{ ok, … }` shape) and the bug-0020 claim
+(recognised by the descriptor, never by key presence) are preserved, the
+latter strengthened to hold unconditionally — a string key can never equal
+the symbol, so its enumerability no longer enters the guarantee.
+`docs/reference/type-system.md:115–119` — the same correction to its
+concrete-shapes parenthetical. Neither edit adds or removes a normative
+requirement, a REQ-ID, or a diagnostic code. `__thetaSchema` was never named
+in either paragraph, so neither needed a removal.
+
+**Cross-bug records.** Bug 0020's §`Fix (0.32.0)` gains a
+`**Superseded mechanism (0.33.0).**` paragraph: its string-tag +
+non-enumerable-descriptor mechanism is re-encoded here, its residual (i) is
+discharged, and its residual (ii)'s brand-key half is closed. The
+"OUT OF SCOPE (fix option 1)" header at
+`tests/enum-schema-tag-privacy.test.ts:96` is discharged and now points at
+this bug's lock.
+
+**Bug 0027.** The migration closes 0027's brand-key half, verified against
+the code: `stdlib-object.ts:104` tests `hasOwnProperty` with a string
+argument, which never matches a symbol-keyed property, so
+`obj.has("__thetaSchema")` answers `false`; `runtime-panics.ts:157` raises
+the documented `MissingObjectKeyPanic` on the absent string key; `:176`
+member access no longer reads a brand. In 0027's probe table that closes
+rows **E1–E3** (`s.has("__thetaEnum")`, `s["__thetaEnum"]`, `s.__thetaEnum`)
+and **R1–R3** (the `Result` equivalents), plus this report's own four
+schema-brand read surfaces. Everything else in that table — E4–E13, R4–R10,
+E7–E8/R9, the unknown-member aborts — is receiver-shaped, not key-shaped,
+and survives untouched: 0027 re-scopes to its receiver-dispatch defect
+against this baseline and ships as a separate commit.
+
+**Offline lock.** `tests/schema-brand-symbol-migration.test.ts` (12 tests,
+5 groups, no provider), covering the §Fix's five minimum items: (a) the unit
+mechanics — `brandSchemaValue` over an object already carrying an own
+enumerable `__thetaSchema`, descriptor pinned before and after; (b) the
+end-to-end ctor through the production executor, including the
+zero-error-diagnostic parse admission; (c) provenance-twin equality in both
+argument orders; (d) the QRY-18 outbound render at the `pi.sendUserMessage`
+seam through *both* ctor hosts — `let`-bound (effectful,
+`statement-executor.ts:657–673`) and written inline in the interpolation
+(pure, `production-theta-producer.ts:5643–5649`); (e) the sibling-tag
+controls plus a partial-migration guard (e4) asserting no brand occupies a
+string key.
+
+**Verification.** Full default suite 225 files / 2645 tests green; lint and
+typecheck clean. Red direction proven twice by temporary local revert of
+`src/runtime/value.ts` with byte-identical restore (SHA-256 verified both
+times): reverting all three tags to strings reds exactly the 8 RED-labelled
+tests with this report's verbatim signatures (descriptor
+`{"value":"F",false,false,false}`, `{"x":1}`, `payload: {"x":1}`,
+`valuesEqual` false both ways) while the 4 controls stay green; migrating
+`SCHEMA_TAG` alone reds e4 and only e4. Live: no new test — the surface
+already has end-to-end coverage, and all three migrated brands were driven
+through a real provider.
+`tests/live/live-production-acceptance.test.ts` 7/7 (the QRY-18
+enum-interpolation render through a genuine `ENUM_TAG`, and the
+forged-`__thetaEnum` wire-ingress witness whose child-side ctor value carries
+a genuine `SCHEMA_TAG` brand);
+`tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3 (`match` over live
+`Result`s through `RESULT_TAG`).
+
+**Residuals.** (i) Pre-existing prose defects in `src/runtime/value.ts`,
+present at the fix base and outside the §Fix's enumerated docstring ranges,
+left for whoever next edits the module: the V2c-T plan-history paragraph in
+the module header (`:30–38`) describes the behaviour-bearing functions as
+inert stubs, which is false of the module as it stands; `valuesEqual`'s
+docstring (`:352`) carries the banned word `simply`; two docstrings end on a
+dangling ` *` line (`:353`, `:436`). (ii) The QRY-22 lowering still marks a declared
+`__thetaSchema` field required and the schema closed — correct, and now
+consistent with the render, which carries the field.
 
 ## Summary
 

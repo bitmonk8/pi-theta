@@ -46,9 +46,10 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // Spec: docs/spec_topics/runtime-value-model.md (value-representation table,
 // enum row) — an enum value carries the wire string plus "an
 // interpreter-PRIVATE tag identifying the declaring enum"; the
-// reference-encoding paragraph pins the tag as "a non-enumerable `__thetaEnum`
-// string property" and claims the concrete shapes are "not reachable from
-// theta code" — and already states the required posture for the sibling
+// reference-encoding paragraph pins the tag as "a non-enumerable symbol
+// property on the JS string wrapper (described for debugging as
+// `__thetaEnum`)" and says of the concrete shapes that "neither is reachable
+// from theta code" — and already states the required posture for the sibling
 // `Result` brand (post-0017): recognised "by that brand, never by the
 // `{ ok, … }` shape". docs/spec_topics/query/query-escapes-stringification.md
 // (QRY-18) — an interpolation renders by the Theta static type, "NOT by
@@ -93,9 +94,10 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // that genuine constructor-built values — `makeEnumValue`, `brandSchemaValue`,
 // `Enum.Variant` access, the `translateInbound` sidecar re-tag — keep their
 // classification, equality, and JSON-output semantics (green now, green
-// after). OUT OF SCOPE (fix option 1): the ctor-collision wrinkle (a schema
-// field literally named `__thetaSchema` destroyed by `brandSchemaValue`) is
-// constructor-side and deliberately NOT pinned here.
+// after). The ctor-collision wrinkle (a schema field literally named
+// `__thetaSchema`) is constructor-side and pinned by
+// tests/schema-brand-symbol-migration.test.ts (bug 0026's symbol-brand
+// migration).
 //
 // PROBED CURRENT SIGNATURES (655e4d39, all offline and deterministic):
 //   - isEnumValue(JSON.parse('{"__thetaEnum":"Severity"}'))        → true

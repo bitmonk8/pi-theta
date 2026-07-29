@@ -156,6 +156,24 @@ code reading): `stdlib-object.ts:104` — in-language
 admitting surface stays invisible to the author — the ingress this report
 used, unchanged by this fix.
 
+**Superseded mechanism (0.33.0).** The encoding this fix hardened — the
+three tags as non-enumerable *string* properties, classified by descriptor
+— is replaced by module `Symbol`s in bug
+[0026](./0026-ctor-field-named-thetaschema-destroyed-by-brand.md)'s
+migration of `ENUM_TAG` / `SCHEMA_TAG` / `RESULT_TAG`. `privateBrandOf`
+and the non-enumerable installs survive that migration unchanged, so the
+one-posture-for-three-tags classifier this fix introduced still holds; what
+changes is that a brand no longer shares a key space with theta-side field
+names, so the enumerable-key forgery closed here is foreclosed by the
+encoding and not by the descriptor check alone. Residual (i) is discharged
+there: a declared field named `__thetaSchema` survives construction, pinned
+by `tests/schema-brand-symbol-migration.test.ts`. Residual (ii)'s
+brand-key half is closed by the same migration —
+`obj.has("__thetaSchema")` answers `false` and indexed access raises
+`MissingObjectKeyPanic` — leaving the receiver-dispatch defect tracked as
+bug [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md).
+Residual (iii) is untouched by it.
+
 ## Summary
 
 `makeEnumValue` (`value.ts:119`) and `brandSchemaValue` (`value.ts:158`)

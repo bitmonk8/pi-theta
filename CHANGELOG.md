@@ -6,6 +6,68 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-07-30
+
+### Fixed
+
+- **A schema ctor whose *declared* field was literally named `__thetaSchema`
+  had that field silently destroyed: both ctor hosts assign every declared
+  field as an ordinary enumerable property and then brand the object, and
+  `brandSchemaValue`'s unconditional `Object.defineProperty` redefined the
+  same key — legal, because the assigned property was still configurable —
+  replacing both halves of it, the value (`"user-data"` → the schema name)
+  and the descriptor (enumerable → frozen non-enumerable).
+  `F { __thetaSchema: "user-data", x: 1 }` bound as `{"x":1}` with a healthy
+  schema tag `F`, with no diagnostic at parse or runtime (bug 0026).** Every
+  declared field is mandatory in a ctor, so a schema declaring the field
+  forced *every* in-language construction through the destruction; the field
+  was absent from `JSON.stringify`, `keys()`, the `valuesEqual` walk and the
+  QRY-18 outbound render, while QRY-22 lowered it required and the schema
+  closed — so a typed query showed the model `{"x":1}` and demanded
+  `__thetaSchema` back, and a ctor-built value never compared equal to its
+  wire-provenance twin. Honest reachability, as filed: the trigger requires
+  an author to declare a field named after an interpreter internal, so
+  accidental collision is improbable; when it fires it is deterministic and
+  diagnostic-free. Root cause: the brand lived in the same string-key
+  namespace as user field names. Fix: `ENUM_TAG`, `SCHEMA_TAG` and
+  `RESULT_TAG` in `src/runtime/value.ts` are module `Symbol`s and
+  `privateBrandOf` takes a `symbol` key — one migration of all three tags, so
+  the collision class disappears wholesale rather than per-name. A symbol key
+  is unreachable from `JSON.parse` and from theta-side object construction,
+  which mint string keys only, so a declared `__thetaSchema` field and the
+  brand occupy disjoint key spaces. Neither ctor host changed:
+  `statement-executor.ts` and `production-theta-producer.ts` call
+  `brandSchemaValue` exactly as before. The constructors keep their
+  non-enumerable / non-writable / non-configurable install and
+  `privateBrandOf` keeps the non-enumerable predicate — the descriptor
+  posture bounds propagation through spread / `Object.assign`, which copy own
+  enumerable symbol-keyed properties — so the enumerable-key forgery class
+  closed by bugs 0017 and 0020 cannot re-open through the new encoding. Four
+  code lines changed; JSON and wire output are byte-unchanged. The
+  non-normative reference-encoding paragraphs of `runtime-value-model.md` and
+  `type-system.md` re-anchor on the symbol encoding, and the bug-0020
+  guarantee strengthens to hold unconditionally: a string key can never equal
+  the symbol, so its enumerability no longer enters it. This also closes the
+  brand-key half of bug 0027 — `obj.has("__thetaSchema")` answers `false`,
+  indexed access raises the documented `MissingObjectKeyPanic`, and member
+  access stops reading the brand (its probe rows E1–E3 and R1–R3); 0027's
+  receiver-dispatch defect is re-scoped against this baseline and ships
+  separately. Verification: full default suite 225 files / 2645 tests green;
+  typecheck and lint clean. Offline lock:
+  `tests/schema-brand-symbol-migration.test.ts` (12 tests — the unit
+  destruction mechanics with the descriptor pinned before and after, the
+  end-to-end ctor through the production executor with its zero-diagnostic
+  parse admission, provenance-twin equality in both argument orders, the
+  QRY-18 render at the `pi.sendUserMessage` seam through both ctor hosts, and
+  the sibling-tag controls with a partial-migration guard). Red direction
+  proven twice by temporary revert with byte-identical restore: reverting all
+  three tags to strings reds exactly the 8 witnesses with the report's
+  verbatim signatures, and migrating `SCHEMA_TAG` alone reds the
+  partial-migration guard and only it. Live:
+  `tests/live/live-production-acceptance.test.ts` 7/7 and
+  `tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3 — all three
+  migrated brands driven end-to-end through a real provider.
+
 ## [0.32.0] - 2026-07-29
 
 ### Fixed

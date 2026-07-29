@@ -11,7 +11,7 @@
 //     output — `JSON.stringify` of an enum value yields the bare wire string);
 //     a `Result<T, E>` is internally tagged with an `Ok`/`Err` discriminator
 //     carrying the payload, guarded by an interpreter-private non-enumerable
-//     brand (`__thetaResult`) so a user/model object that happens to carry a
+//     brand (`RESULT_TAG`) so a user/model object that happens to carry a
 //     boolean `ok` field can never classify as a `Result` (type-system.md
 //     `Result` row: "observed only via constructors"; bug 0017); a `Result` is
 //     never lowered to wire (it has no lowered-schema form, so a `Result`
@@ -40,12 +40,20 @@
 declare const enumBrand: unique symbol;
 
 /**
- * The interpreter-private property name carrying an enum value's declaring-enum
- * tag. It is installed **non-enumerable** so `JSON.stringify` of the boxed-
- * string enum value yields the bare wire string and the tag never appears in
- * JSON output (runtime-value-model.md, value-representation table, enum row).
+ * The interpreter-private symbol carrying an enum value's declaring-enum tag.
+ * A symbol key is unreachable from `JSON.parse` and from theta-side object
+ * construction — both produce string keys only — so the tag can never
+ * collide with a declared field of the same name, and the string-keyed
+ * surfaces skip it whatever its enumerability: it never appears in
+ * `JSON.stringify` output or in `Object.keys` (runtime-value-model.md,
+ * value-representation table, enum row). That an enum value serialises to
+ * its bare wire string is a separate property of the boxed-`String` carrier
+ * {@link makeEnumValue} builds, which installs the tag **non-enumerable** —
+ * the posture {@link privateBrandOf} states. The `"__thetaEnum"` description
+ * is debug-only, carries no semantics, and exists only so the brand reads
+ * legibly under a debugger and greps against the spec and bug docs.
  */
-const ENUM_TAG = "__thetaEnum";
+const ENUM_TAG = Symbol("__thetaEnum");
 
 /**
  * An enum runtime value. Carries the variant's wire string plus an
@@ -62,25 +70,32 @@ export type EnumValue = { readonly [enumBrand]: "theta-enum" };
 declare const resultBrand: unique symbol;
 
 /**
- * The interpreter-private property name branding a `Result` runtime value.
- * Installed **non-enumerable** by `makeOk` / `makeErr` — mirroring the enum
- * tag — so it never appears in JSON output, `Object.keys`, or the
- * {@link valuesEqual} key walk. {@link isResultValue} tests this brand, not the
- * `{ ok: boolean }` shape: user/model data carrying a boolean `ok` field must
- * never classify as (or forge) a `Result` (type-system.md, `Result` row —
- * "observed only via constructors"; bug 0017).
+ * The interpreter-private symbol branding a `Result` runtime value. A symbol
+ * key is unreachable from `JSON.parse` and from theta-side object
+ * construction — both produce string keys only — so the tag can never
+ * collide with a declared field of the same name, and it reaches neither JSON
+ * output, nor `Object.keys`, nor the {@link valuesEqual} key walk: those
+ * surfaces are string-keyed and skip it whatever its enumerability. `makeOk`
+ * / `makeErr` install it **non-enumerable**, mirroring the enum tag — the
+ * posture {@link privateBrandOf} states. {@link isResultValue} tests this
+ * brand, not the `{ ok: boolean }` shape: user/model data carrying a boolean
+ * `ok` field must never classify as (or forge) a `Result` (type-system.md,
+ * `Result` row — "observed only via constructors"; bug 0017). The
+ * `"__thetaResult"` description is debug-only, carries no semantics, and
+ * exists only so the brand reads legibly under a debugger and greps against
+ * the spec and bug docs.
  */
-const RESULT_TAG = "__thetaResult";
+const RESULT_TAG = Symbol("__thetaResult");
 
 /**
  * A `Result<T, E>` runtime value: internally tagged with an `Ok`/`Err`
  * discriminator carrying the payload (runtime-value-model.md, value-
  * representation table, `Result` row). Construct only via `makeOk` / `makeErr`
- * — they install the interpreter-private non-enumerable `__thetaResult` brand
- * that `isResultValue` classifies by (the type-level `resultBrand` member
- * forces literal construction through the constructors). Theta code observes
- * `Result` only through `Ok` / `Err` constructors, `match`, and `?`; `Result`
- * has no lowered-schema form and never crosses the wire.
+ * — they install the interpreter-private non-enumerable `RESULT_TAG` symbol
+ * brand that `isResultValue` classifies by (the type-level `resultBrand`
+ * member forces literal construction through the constructors). Theta code
+ * observes `Result` only through `Ok` / `Err` constructors, `match`, and `?`;
+ * `Result` has no lowered-schema form and never crosses the wire.
  */
 export type ResultValue = (
   | { readonly ok: true; readonly value: ThetaValue }
@@ -109,12 +124,13 @@ export type ThetaValue =
  * The resulting value carries the wire string plus the interpreter-private
  * declaring-enum tag, and `JSON.stringify` of it yields the bare wire string.
  *
- * The reference encoding is a non-enumerable `__thetaEnum` tag installed on a
- * boxed `String`: `JSON.stringify` of a boxed string yields the bare wire
- * string, and the non-enumerable tag is excluded from JSON output, so the value
- * serialises to the bare wire string while still carrying its declaring-enum
- * tag for cross-enum equality. The concrete shape is an implementation detail
- * not reachable from Theta code.
+ * The reference encoding is a non-enumerable symbol tag (`ENUM_TAG`,
+ * described for debugging as `__thetaEnum`) installed on a boxed `String`:
+ * `JSON.stringify` of a boxed string yields the bare wire string, and the
+ * symbol tag is excluded from JSON output regardless of enumerability, so the
+ * value serialises to the bare wire string while still carrying its
+ * declaring-enum tag for cross-enum equality. The concrete shape is an
+ * implementation detail not reachable from Theta code.
  */
 export function makeEnumValue(declaringEnum: string, wire: string): EnumValue {
   const boxed = new String(wire);
@@ -133,14 +149,41 @@ export function makeEnumValue(declaringEnum: string, wire: string): EnumValue {
  * tags (`ENUM_TAG` / `SCHEMA_TAG` / `RESULT_TAG`): a brand is genuine only
  * when the own-property descriptor exists AND is non-enumerable — exactly as
  * the constructors (`makeEnumValue` / `brandSchemaValue` / `brandResult`)
- * install it. Key presence is never consulted: JSON parsing and theta-side
- * object construction produce only enumerable keys, so an enumerable
- * same-named key is ordinary user/model data, not a brand — accepting one
- * would let a wire payload or a parse-clean theta ctor forge an enum, a
- * schema brand, or a `Result` (bugs 0017, 0020). Arrays never carry a brand;
- * the boxed-`String` enum carrier is an object and passes the guard.
+ * install it. `tag` is always one of the three module-private symbols.
+ *
+ * The rationale for that posture — cross-referenced from the three tag
+ * declarations rather than restated at each — has three independent parts:
+ *
+ *   1. The **symbol key alone** hides the brand. A symbol-keyed property is
+ *      absent from every string-keyed surface: `JSON.stringify` output,
+ *      `Object.keys` / `Object.entries`, `for…in`, the {@link valuesEqual}
+ *      key walk, and membership tests taking a string argument. Its
+ *      enumerability bears on none of them. The same key space forecloses
+ *      forgery and collision: JSON parsing and theta-side object
+ *      construction produce string keys only, so no wire payload and no
+ *      theta ctor can construct a key `===` to a module symbol (the
+ *      enumerable-key forgery class of bugs 0017 and 0020), and no declared
+ *      field can occupy a brand's key (bug 0026).
+ *   2. The **non-enumerable install** bounds propagation, the one surface
+ *      the symbol key does not cover: object spread and `Object.assign` copy
+ *      own *enumerable* symbol-keyed properties. A non-enumerable brand
+ *      stays behind, so a copy that no constructor produced does not carry
+ *      the classification of the value it was copied from.
+ *   3. The **read-side enumerability test** consults exactly one descriptor
+ *      bit and rejects exactly one posture: an *enumerable* brand. That is
+ *      the departure worth rejecting — enumerable is what ordinary property
+ *      creation produces (plain assignment `value[tag] = …`, and every key
+ *      `JSON.parse` mints on the string-keyed side), and per part 2 it is
+ *      the one posture that propagates through spread / `Object.assign`, so
+ *      a brand installed enumerably reads back `undefined` here rather than
+ *      classifying. `writable` and `configurable` are not consulted: a
+ *      non-enumerable data property holding the brand value classifies
+ *      whatever those two bits say.
+ *
+ * Arrays never carry a brand; the boxed-`String` enum carrier is an object
+ * and passes the guard.
  */
-function privateBrandOf(value: ThetaValue, tag: string): unknown {
+function privateBrandOf(value: ThetaValue, tag: symbol): unknown {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return undefined;
   }
@@ -151,12 +194,14 @@ function privateBrandOf(value: ThetaValue, tag: string): unknown {
 /**
  * The declaring-enum tag of `value` if it is an enum value, else `undefined`.
  * The brand is the **non-enumerable** descriptor {@link makeEnumValue}
- * installs, never the key name: JSON parsing and theta-side object
- * construction produce only enumerable keys, so an object carrying an
- * enumerable `__thetaEnum` key is ordinary user/model data — it takes the
- * object arm of `==` and the object rule of the QRY-18 render like any other
- * plain object (runtime-value-model.md, enum row: the tag is
- * interpreter-private; bug 0020).
+ * installs on the module-private `ENUM_TAG` symbol, never a same-described
+ * string key: JSON parsing and theta-side object construction produce only
+ * string keys, so an object carrying an enumerable `__thetaEnum` STRING key
+ * (e.g. `{ __thetaEnum: "Severity" }`) occupies an entirely different key
+ * from the brand and is ordinary user/model data — it takes the object arm of
+ * `==` and the object rule of the QRY-18 render like any other plain object
+ * (runtime-value-model.md, enum row: the tag is interpreter-private; bug
+ * 0020).
  */
 function enumTagOf(value: ThetaValue): string | undefined {
   const brand = privateBrandOf(value, ENUM_TAG);
@@ -164,24 +209,40 @@ function enumTagOf(value: ThetaValue): string | undefined {
 }
 
 /**
- * The interpreter-private property name recording the declaring `schema` of an
- * object-schema value. Installed **non-enumerable** so it is invisible to every
- * theta-visible object surface — `JSON.stringify`, `Object.keys` / `.entries`
- * (`obj.keys()`), and the {@link valuesEqual} structural relation all iterate
- * enumerable keys only, so the tag never appears in JSON output, never appears
- * in a `keys()` result, and never affects equality (runtime-value-model.md: an
- * object schema is a "JS plain object keyed by theta-side names"). Its sole
- * consumer is the QRY-18 interpolation render path, which needs to recover the
- * declaring schema to apply outbound wire-name translation recursively.
+ * The interpreter-private symbol recording the declaring `schema` of an
+ * object-schema value. A symbol key occupies no string name at all, so a
+ * schema field declared with the same description — a field literally named
+ * `__thetaSchema` — is an ordinary string-keyed property the ctor's field
+ * assignment and this brand install can coexist on; neither can overwrite the
+ * other because they target disjoint key spaces (bug 0026). That disjointness
+ * is also what makes the tag invisible to every theta-visible object surface
+ * — `JSON.stringify`, `Object.keys` / `.entries` (`obj.keys()`), and the
+ * {@link valuesEqual} structural relation all walk string keys, so the tag
+ * never appears in JSON output, never appears in a `keys()` result, and never
+ * affects equality (runtime-value-model.md: an object schema is a "JS plain
+ * object keyed by theta-side names"). {@link brandSchemaValue} installs it
+ * **non-enumerable**, the posture {@link privateBrandOf} states. Two
+ * consumers recover it: the QRY-18 interpolation render path, which needs
+ * the declaring schema to apply outbound wire-name translation recursively,
+ * and the `QuestionOperandDefectError` operand summariser
+ * (`runtime-panics.ts`), which names the schema in its diagnostic text.
+ * The `"__thetaSchema"` description is debug-only, carries no semantics, and
+ * exists only so the brand reads legibly under a debugger and greps against
+ * the bug docs.
  */
-const SCHEMA_TAG = "__thetaSchema";
+const SCHEMA_TAG = Symbol("__thetaSchema");
 
 /**
  * Brand a freshly-constructed object-schema value with its declaring `schema`
- * name, so a later consumer can recover the schema to apply outbound wire-name
- * translation (QRY-18). The tag is installed **non-enumerable**, so the branded
- * value is indistinguishable from a plain object on every theta-visible surface;
- * only {@link schemaTagOf} reads it. Returns the same object for chaining.
+ * name, so a later consumer can recover the schema to apply outbound
+ * wire-name translation (QRY-18). The tag is installed **non-enumerable** on
+ * the module-private `SCHEMA_TAG` symbol, a key no declared field can ever
+ * occupy — even a field literally named `__thetaSchema` is an ordinary
+ * string-keyed property that this install neither reads nor touches (bug
+ * 0026). Branding is therefore purely additive: the branded value is
+ * indistinguishable from a plain object on every theta-visible surface, and
+ * no declared field's value or descriptor is ever at risk from the install.
+ * Only {@link schemaTagOf} reads it. Returns the same object for chaining.
  */
 export function brandSchemaValue(
   value: { [key: string]: ThetaValue },
@@ -198,11 +259,13 @@ export function brandSchemaValue(
 
 /**
  * The declaring-`schema` tag of `value` if it carries one, else `undefined`.
- * Only the **non-enumerable** descriptor {@link brandSchemaValue} installs
- * classifies — an enumerable same-named key is ordinary user/model data, so a
- * wire payload or theta ctor field naming `__thetaSchema` cannot select, by
- * name, which declared schema's theta→wire renames the QRY-18 outbound render
- * applies to its carrying object (bug 0020).
+ * Only the **non-enumerable** descriptor {@link brandSchemaValue} installs on
+ * the module-private `SCHEMA_TAG` symbol classifies — a string key spelled
+ * `__thetaSchema`, enumerable or not, occupies a different key from the
+ * symbol and is always ordinary user/model data, so a wire payload or theta
+ * ctor field naming `__thetaSchema` cannot select, by name, which declared
+ * schema's theta→wire renames the QRY-18 outbound render applies to its
+ * carrying object (bug 0020).
  */
 export function schemaTagOf(value: ThetaValue): string | undefined {
   const brand = privateBrandOf(value, SCHEMA_TAG);
@@ -221,14 +284,16 @@ export function isEnumValue(value: ThetaValue): value is EnumValue {
 
 /**
  * Whether `value` is a `Result` runtime value — i.e. carries the brand exactly
- * as `brandResult` installs it: a **non-enumerable** own `__thetaResult`
- * property. Tag presence alone is insufficient: JSON parsing and theta-side
- * construction produce only enumerable keys, so an enumerable same-named key
- * is ordinary user/model data, not a brand — accepting it would let a wire
- * payload `{"__thetaResult": true, "ok": false, …}` forge an `Err`. Declared
- * object schemas lower closed (`additionalProperties: false`,
- * body-type-lowering.ts) and reject such a payload, but it still enters
- * through permissive `{}` lowerings (forward/self/unresolved refs,
+ * as `brandResult` installs it: a **non-enumerable** own property keyed by
+ * the module-private `RESULT_TAG` symbol. A same-described string key is
+ * never sufficient, on two independent grounds: JSON parsing and theta-side
+ * construction produce only string keys, never a key `===` to the symbol,
+ * and even a hypothetical string key spelled `__thetaResult` would be
+ * ordinary user/model data regardless of its own enumerability — accepting
+ * it would let a wire payload `{"__thetaResult": true, "ok": false, …}` forge
+ * an `Err`. Declared object schemas lower closed (`additionalProperties:
+ * false`, body-type-lowering.ts) and reject such a payload, but it still
+ * enters through permissive `{}` lowerings (forward/self/unresolved refs,
  * query-schema-lowering.ts) and unvalidated ingress (code-tool return
  * payloads, untyped invoke-envelope values). The `{ ok: boolean }` shape is
  * likewise not consulted: an `ok` field is ordinary user/model data (bug
@@ -241,13 +306,17 @@ export function isResultValue(value: ThetaValue): value is ResultValue {
 }
 
 /**
- * Install the interpreter-private `Result` brand. Non-enumerable — like the
- * enum tag — so the brand is invisible on every theta-visible surface and in
- * JSON output; a clone that walks enumerable keys (JSON, `structuredClone`)
- * drops it, so a boundary that legitimately round-trips a `Result`'s arms must
- * re-enter through `makeOk` / `makeErr` at decode. Non-enumerability doubles
- * as the forgery guard: {@link isResultValue} rejects an enumerable same-named
- * key, which is all JSON/user data can produce.
+ * Install the interpreter-private `Result` brand on the module-private
+ * `RESULT_TAG` symbol. The symbol key is what makes the brand invisible on
+ * every theta-visible surface and in JSON output: a symbol key is excluded
+ * from `JSON.stringify` and `structuredClone` regardless of enumerability,
+ * so a clone that round-trips through either drops it, and a boundary that
+ * legitimately round-trips a `Result`'s arms must re-enter through `makeOk`
+ * / `makeErr` at decode. The same key space forecloses forgery outright —
+ * string keys are all JSON and theta ctors can produce, and no string key is
+ * `===` to `RESULT_TAG`, so a same-described string key is ordinary
+ * user/model data that {@link isResultValue} does not classify. The install
+ * is **non-enumerable**, the posture {@link privateBrandOf} states.
  */
 function brandResult(
   result:
