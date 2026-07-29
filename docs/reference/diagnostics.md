@@ -166,6 +166,7 @@ namespace, **not** runtime diagnostics — no registry row, out of scope. Severi
 | Code | Sev | Phase | Message |
 |---|---|---|---|
 | `theta/load/extension-bootstrap-failed` | E | load | `extension bootstrap failed: <capability> threw <error>` |
+| `theta/load/extension-compose-failed` | E | load | `extension compose failed: <error>` |
 | `theta/load/host-incompatible` | E | load | `host incompatible (<kind>): observed <observed>, required <required>` |
 | `theta/load/invalid-encoding` | E | lex | `invalid UTF-8 encoding at byte offset <offset>` |
 | `theta/load/unknown-frontmatter-field` | W | load | `unknown frontmatter field '<field>'` |

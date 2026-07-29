@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import {
+import thetaExtension, {
   createThetaExtension,
   EXTENSION_BOOTSTRAP_FAILED_CODE,
 } from "../src/extension/factory";
+import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 
 // V9k-T — failing tests for the extension-bootstrap SDK-failure abort surfaces
 // (paired V9k implementation leaf).
@@ -188,4 +189,103 @@ describe("V9k extension bootstrap — pi.on(...) subscription failure (theta/loa
       ).toBe(true);
     });
   }
+});
+
+// ── Bug 0023 — the same abort surface through the SHIPPED default export ─────
+
+// Every test above drives `createThetaExtension` with an INJECTED recorder, so
+// all of them are structurally blind to what the shipped composition wires: at
+// bug 0023's HEAD the production default export supplied no `emitDiagnostic`,
+// so the same diagnostic was constructed and then discarded by an optional
+// chain. Bug 0023 (§Regression locks) adds this arm on the V9k abort surfaces,
+// asserting the delivery ARRIVES on a real surface — the inversion of the bug
+// document's §Reproduction probe A, which records `{sends:0, error:0, write:0}`.
+
+/** A recorded `pi.sendMessage` envelope (the bootstrap sink's tier-1 arm). */
+interface ProductionNote {
+  readonly customType: string;
+  readonly details: unknown;
+}
+
+interface ProductionHost {
+  readonly pi: ExtensionAPI;
+  /** Host-binding calls attempted, in call order. */
+  readonly calls: string[];
+  readonly notes: ProductionNote[];
+}
+
+/**
+ * A recording host conformant to the step-0 capability probe: it carries all
+ * eight factory-probable SDK members (capability-probe.md Step 0 (c)) so the
+ * probe passes and the test exercises the V9k abort surface it names, rather
+ * than a host-incompatible refusal.
+ */
+function makeProductionHost(throwOn: string): ProductionHost {
+  const calls: string[] = [];
+  const notes: ProductionNote[] = [];
+  const guard = (key: string): void => {
+    calls.push(key);
+    if (key === throwOn) {
+      throw new Error(`${key} host seam absent`);
+    }
+  };
+  const pi = {
+    registerFlag: (): void => guard("registerFlag"),
+    getFlag: (): undefined => undefined,
+    getCommands: (): readonly unknown[] => [],
+    on: (event: string): void => guard(`on:${event}`),
+    registerCommand: (): void => {},
+    sendUserMessage: (): void => {},
+    registerTool: (): void => {},
+    setActiveTools: (): void => {},
+    getActiveTools: (): readonly unknown[] => [],
+    getAllTools: (): readonly unknown[] => [],
+    registerMessageRenderer: (): void => guard("registerMessageRenderer"),
+    sendMessage: (message: { customType: string; details: unknown }): void => {
+      notes.push({ customType: message.customType, details: message.details });
+    },
+  };
+  return { pi: pi as unknown as ExtensionAPI, calls, notes };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("V9k extension bootstrap — the shipped default export (bug 0023)", () => {
+  it("theta/load/extension-bootstrap-failed: a fatal pi.registerFlag throw through the production default export DELIVERS one diagnostic on the theta-system-note channel", () => {
+    const host = makeProductionHost("registerFlag");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation((): void => {});
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((): boolean => true);
+
+    expect(() => thetaExtension(host.pi)).not.toThrow();
+
+    if (host.notes.length !== 1) {
+      expect.fail(
+        `expected exactly one theta-system-note delivery, got ${host.notes.length}`,
+      );
+    }
+    const note = host.notes[0] as ProductionNote;
+    expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
+    const batch = (note.details as { diagnostics?: readonly Diagnostic[] })
+      .diagnostics;
+    if (batch === undefined || batch.length !== 1) {
+      expect.fail(
+        `expected exactly one diagnostic in details.diagnostics, got ${JSON.stringify(note.details)}`,
+      );
+    }
+    const d = batch[0] as Diagnostic;
+    expect(d.code).toBe(EXTENSION_BOOTSTRAP_FAILED_CODE);
+    expect(d.details?.capability).toBe("pi.registerFlag");
+    expect(d.details?.error).toBe("registerFlag host seam absent");
+
+    // The transcript arm carried it, so neither terminal fallback fires.
+    expect(errorSpy.mock.calls).toEqual([]);
+    expect(stderrSpy.mock.calls).toEqual([]);
+
+    // The V9k fatal abort is unchanged by the wiring.
+    expect(host.calls).toEqual(["registerFlag"]);
+  });
 });

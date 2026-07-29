@@ -19,12 +19,15 @@
 // Spec (narrative): pi-integration-contract/extension-bootstrap-and-per-theta.md,
 // pi-integration-contract/registration-steps.md, discovery.md.
 
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import {
   delimiter as PATH_DELIMITER,
   dirname,
   isAbsolute,
   resolve as resolvePath,
 } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -38,6 +41,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import {
   hashCallableClosure,
   type ClosureSource,
@@ -62,7 +66,7 @@ import {
   probeGetToolDefinitionSurface,
   probeHostLoopSurfaces,
 } from "./production-host-loop-dispatch";
-import { probeSubagentExecutable } from "./capability-probe";
+import { probeSubagentExecutable, type ProbeHost } from "./capability-probe";
 import {
   parseInboundInvokeDepth,
 } from "../runtime/invoke-depth-cycle";
@@ -134,8 +138,10 @@ import {
   SYSTEM_NOTE_CHANNEL,
   SystemNoteChannelHealth,
   emitDiagnosticBatch,
+  type RendererGate,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
+import { isStaleCtxError } from "./stale-ctx";
 import {
   createLoadFailurePreEvalRouter,
   type PreEvalFailureCause,
@@ -324,11 +330,13 @@ interface ComposePassResult {
 }
 
 /**
- * The `session_start` production supplier: construct the runtime root over the
- * real host seams, run the five-source discovery walk keyed to the host
+ * A standalone discover-and-compose helper: construct the runtime root over
+ * the real host seams, run the five-source discovery walk keyed to the host
  * `ctx.cwd`, parse each discovered `.theta`, and compose each into a runnable
- * `ThetaFixture`. Returned to `factory.ts`, which registers each via
- * `pi.registerCommand`.
+ * `ThetaFixture`. The shipped `session_start` path composes through
+ * `composeExtensionInstance` below instead (which shares one runtime root and
+ * registry across hot-reload passes); this helper is driven directly by tests
+ * that want a single discover-and-compose pass with no reload wiring.
  */
 export async function discoverAndComposeFixtures(
   pi: ExtensionAPI,
@@ -336,9 +344,9 @@ export async function discoverAndComposeFixtures(
 ): Promise<readonly ThetaFixture[]> {
   const emitDiagnostic = makeLoadEmit(ctx);
   const root = buildRuntimeRoot(ctx, emitDiagnostic);
-  // The H8a `discoverFixtures` path has no `session_shutdown` wiring reading a
-  // shared registry (that is the `composeInstance` path), so it composes against
-  // a throwaway registry no teardown observes.
+  // This helper has no `session_shutdown` wiring reading a shared registry
+  // (that is the `composeInstance` path), so it composes against a throwaway
+  // registry no teardown observes.
   const pass = await runComposePass(
     pi,
     ctx,
@@ -391,6 +399,13 @@ async function runComposePass(
   // and the producer's launch seam read. Production reads the running process;
   // a test injects a both-rungs-failing host to witness the load refusal.
   passExecutableHost?: ExecutableHost,
+  // Bug 0023 element 2: this extension instance's renderer gate, threaded onto
+  // the parse-time note channel below so a renderer-degraded instance routes
+  // its parse diagnostics to `ctx.ui.notify` too. The degrade rule is per
+  // INSTANCE, not per channel, so every channel this instance owns must read
+  // the same gate; the reload-less `discoverAndComposeFixtures` helper holds no
+  // instance and passes none.
+  rendererGate?: RendererGate,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
@@ -456,7 +471,7 @@ async function runComposePass(
     const model = matchAvailableModel(reference, ctx.modelRegistry.getAvailable());
     return model === undefined ? undefined : (model as unknown as StrictCapableProbe);
   };
-  const systemNote = buildSystemNoteDeps(pi, ctx, sink.emit);
+  const systemNote = buildSystemNoteDeps(pi, ctx, sink.emit, rendererGate);
   const parseDeps = { systemNote, modelMatcher };
 
   // INV-5 (invocation.md §Resolution): the active discovery-root union threaded
@@ -1013,6 +1028,7 @@ export async function composeExtensionInstance(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   overrides?: ComposeSeamOverrides,
+  rendererGate?: RendererGate,
 ): Promise<ExtensionInstanceWiring> {
   // The transient toast + stderr emit. Retained ONLY as the `theta-system-note`
   // channel's own delivery-failure fallback: it MUST stay off-channel so a
@@ -1024,7 +1040,10 @@ export async function composeExtensionInstance(
   // structural-change note, the LOAD-phase pre-evaluation failures
   // (ERR-1…ERR-6/ERR-16), and the watcher-time reload failures (ERR-7) — all
   // `triggerTurn:false`. Its fallback emit is the off-channel toast.
-  const channel = buildSystemNoteDeps(pi, ctx, emitToast);
+  // `rendererGate` (bug 0023 element 2) threads the SAME instance the factory
+  // degrades on a `pi.registerMessageRenderer` failure, so the degrade branch
+  // below reads live state instead of a permanently-absent gate.
+  const channel = buildSystemNoteDeps(pi, ctx, emitToast, rendererGate);
 
   // V4e — the load-time pre-evaluation failure router. Each error-severity
   // load-phase diagnostic routes onto the `theta-system-note` channel with the
@@ -1113,6 +1132,7 @@ export async function composeExtensionInstance(
     forwardingSignals,
     undefined,
     overrides?.subagentExecutableHost,
+    rendererGate,
   );
 
   // The watched set: the active discovery-root union plus the two settings-file
@@ -1152,6 +1172,7 @@ export async function composeExtensionInstance(
               forwardingSignals,
               new Set(registry.snapshot().keys()),
               overrides?.subagentExecutableHost,
+              rendererGate,
             )
           ).thetas,
         reRegister,
@@ -1992,11 +2013,18 @@ function readPiOwnedCommands(
   return owned;
 }
 
-/** Adapt the host `pi` / `ctx` surface to the `V19a` parser note-channel deps. */
+/**
+ * Adapt the host `pi` / `ctx` surface to the `V19a` parser note-channel deps.
+ * `rendererGate` (bug 0023 element 2) is threaded onto the returned
+ * `SystemNoteChannelDeps.rendererGate` so `system-note-channel.ts`'s degrade
+ * branch reads this extension instance's live gate state instead of a
+ * permanently-absent gate.
+ */
 function buildSystemNoteDeps(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   emitDiagnostic: (diagnostic: Diagnostic) => void,
+  rendererGate?: RendererGate,
 ): SystemNoteChannelDeps {
   // Bug 0018 (PIC-67): one mutable delivery-health latch per channel instance
   // (stale-dead + fail-loud-once), closure-scoped — no module-level state.
@@ -2020,5 +2048,255 @@ function buildSystemNoteDeps(
       notify: (message: string, type: "error") => ctx.ui.notify(message, type),
     },
     emitDiagnostic,
+    ...(rendererGate !== undefined ? { rendererGate } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Bug 0023 — the production step-0 `ProbeHost` and the two-tier bootstrap-
+// diagnostic sink.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the step-0 `ProbeHost` (capability-probe.md) from the running
+ * process, the injected `pi` handle, and the installed lock-step peers. The
+ * `pi` member is the SAME object reference the factory was handed — not a
+ * copy — so the probe inspects the host's real namespace rather than a
+ * synthetic stand-in.
+ */
+export function createProductionProbeHost(pi: ExtensionAPI): ProbeHost {
+  // This module's own directory is the rung-2 walk's starting point (below):
+  // `import.meta.url` is exempt from the ambient-primitive ban (the ban
+  // covers `process.env` / `process.cwd` / timers / `Date.now`, not
+  // `import.meta` or `process.versions`).
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  return {
+    nodeVersion: process.versions.node,
+    abortController: AbortController,
+    abortSignal: AbortSignal,
+    pi: pi as unknown as Readonly<Record<string, unknown>>,
+    typeboxType: Type,
+    readPeerVersion: (pkg: string) => readPeerVersion(pkg, moduleDir),
+  };
+}
+
+/**
+ * The `readPeerVersion` mechanic (capability-probe.md Step 0 (d) /
+ * `#step-0-d-recommended-recipe`) — load-bearing, not a simplification
+ * candidate. The doc's own recommended recipe
+ * (`createRequire(import.meta.url).resolve("<pkg>")` + parent walk) throws
+ * `ERR_PACKAGE_PATH_NOT_EXPORTED` against three of the four pinned
+ * `@earendil-works/*` peers: their `"."` export publishes only `types` and
+ * `import` conditions, leaving the CJS resolver no `require` condition to
+ * match. That throw is outside Step 0 (d)'s four closed conditions, so a bare
+ * recipe routes those peers to `kind: "probe-failed"` and the shipped
+ * extension would refuse to load on every host. `import.meta.resolve`
+ * is `undefined` under vitest, so it cannot be the sole mechanic either. The
+ * doc permits "any `exports`-independent mechanic" — this two-rung ladder
+ * reproduces the four installation-observable conditions without depending on
+ * either gap: rung 1 is the direct `./package.json` subpath resolution (a hit
+ * whenever a package has no `exports` map, or exports that subpath — it misses
+ * the two peers whose `exports` map omits a `./package.json` entry); rung 2
+ * walks `node_modules` ancestor directories from this module's own directory,
+ * which finds an ESM-only peer's `package.json` directly on disk regardless of
+ * its `exports` map (a plain file read consults no `exports` field at all).
+ * First success wins; a resolved candidate whose `name` does not match `pkg`
+ * keeps walking rather than answering "unresolvable" prematurely.
+ *
+ * Exported — rather than reached only through `createProductionProbeHost` —
+ * because `moduleDir` is the walk's only ambient input, so a caller supplying a
+ * planted tree witnesses each of the four installation-observable conditions,
+ * and the throw-rather-than-answer arm that routes a genuine read/parse failure
+ * to `kind: "probe-failed"`, directly at this seam.
+ */
+export function readPeerVersion(pkg: string, moduleDir: string): string | undefined {
+  for (const candidate of peerPackageJsonCandidates(pkg, moduleDir)) {
+    const parsed = readCandidatePackageJson(candidate);
+    if (parsed === undefined) {
+      continue; // no file at this candidate — keep walking.
+    }
+    if (parsed.name !== pkg) {
+      continue; // a different package's package.json — keep walking.
+    }
+    // Conditions (2)/(3) collapse into the same `undefined` answer as
+    // "unresolvable": a located `package.json` with no own (string) `version`
+    // field is exactly as unreadable as no candidate at all.
+    return typeof parsed.version === "string" ? parsed.version : undefined;
+  }
+  // Conditions (1)/(2): no candidate anywhere parsed to an object named `pkg`.
+  return undefined;
+}
+
+/**
+ * The ordered candidate `package.json` paths for `pkg`: rung 1 (the direct
+ * `require.resolve` subpath hit, when resolvable) followed by rung 2 (the
+ * `node_modules` ancestor walk from `moduleDir` up to the filesystem root).
+ */
+function peerPackageJsonCandidates(pkg: string, moduleDir: string): readonly string[] {
+  const candidates: string[] = [];
+  const direct = resolvePackageJsonViaRequire(pkg);
+  if (direct !== undefined) {
+    candidates.push(direct);
+  }
+  let dir = moduleDir;
+  for (;;) {
+    candidates.push(resolvePath(dir, "node_modules", pkg, "package.json"));
+    const parent = dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+  return candidates;
+}
+
+/**
+ * Rung 1: the direct `./package.json` subpath resolution. `undefined` when the
+ * CJS resolver cannot resolve it — e.g. `ERR_PACKAGE_PATH_NOT_EXPORTED` against
+ * an `exports` map with no `./package.json` entry, which is how two of the four
+ * pinned peers behave — so rung 2's ancestor walk answers for them instead. A
+ * rung-1 miss is a step in the ladder, not a probe-failed condition.
+ */
+function resolvePackageJsonViaRequire(pkg: string): string | undefined {
+  try {
+    return createRequire(import.meta.url).resolve(`${pkg}/package.json`);
+  } catch (resolveError: unknown) { // allow-broad-catch: theta/load/host-incompatible — pi-integration-contract/capability-probe.md#step-0-d-recommended-recipe
+    void resolveError;
+    return undefined;
+  }
+}
+
+/**
+ * Read and parse one candidate `package.json` path. `undefined` when the path
+ * does not exist (the ladder's next candidate is tried); any other read/parse
+ * failure (`EACCES`, malformed JSON, a non-object root) propagates so
+ * `runCapabilityProbe`'s Step 0 (d) loop routes it to `kind: "probe-failed"`
+ * per capability-probe.md's Self-failure clause — `readPeerVersion` itself
+ * never swallows a genuine read error.
+ */
+function readCandidatePackageJson(candidatePath: string): Record<string, unknown> | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(candidatePath, "utf8"); // allow-sync: capability-probe step-0(d) peer-version read at factory-entry construction, before any async wiring
+  } catch (readError: unknown) { // allow-broad-catch: theta/load/host-incompatible — pi-integration-contract/capability-probe.md#step-0-d-recommended-recipe
+    if (readError instanceof Error && (readError as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw readError;
+  }
+  const parsed: unknown = JSON.parse(raw);
+  if (parsed === null || typeof parsed !== "object") {
+    throw new Error(`peer package.json at '${candidatePath}' did not parse to a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * The production bootstrap-diagnostic sink (bug 0023, two-tier). Tier 1 (no
+ * `ctx` latched — factory-time and any pre-`session_start` emission) delivers
+ * through the partial `pi.sendMessage` → `console.error` chain, the
+ * `ctx.ui.notify` rung being unreachable before any `ExtensionContext` exists.
+ * Tier 2 (a `ctx` has been latched) delivers through the full
+ * `sendSystemNote` → `ctx.ui.notify` → `console.error` chain via
+ * `emitDiagnosticBatch` over channel deps built ONCE per latched `ctx`, so the
+ * `SystemNoteChannelHealth` stale-dead and fail-loud-once latches persist
+ * across every emission on that ctx. A repeat `session_start` re-latches with
+ * fresh channel deps (a fresh `ctx` warrants a fresh health latch).
+ */
+export interface BootstrapDiagnosticSink {
+  /** The `ThetaExtensionDeps.emitDiagnostic` seam. */
+  readonly emit: (diagnostic: Diagnostic) => void;
+  /** The `ThetaExtensionDeps.latchSessionContext` seam. */
+  readonly latchSessionContext: (ctx: ExtensionContext) => void;
+}
+
+export function createBootstrapDiagnosticSink(
+  pi: ExtensionAPI,
+  rendererGate: RendererGate,
+): BootstrapDiagnosticSink {
+  // The tier-2 latch: `undefined` until `latchSessionContext` fills it, then
+  // held for the rest of this extension instance's life (or until a repeat
+  // `session_start` re-latches). Closure-scoped — no module-level state.
+  let latched: { readonly channelDeps: SystemNoteChannelDeps } | undefined;
+
+  return {
+    emit: (diagnostic: Diagnostic): void => {
+      if (latched === undefined) {
+        emitBootstrapTier1(pi, rendererGate, diagnostic);
+        return;
+      }
+      emitBootstrapTier2(latched.channelDeps, diagnostic);
+    },
+    latchSessionContext: (ctx: ExtensionContext): void => {
+      latched = {
+        channelDeps: buildSystemNoteDeps(pi, ctx, makeLoadEmit(ctx), rendererGate),
+      };
+    },
+  };
+}
+
+/**
+ * Tier 1 (bug 0023 D1): no `ctx` exists yet, so the `ctx.ui.notify` rung is
+ * unreachable. `rendererGate.available()` selects the transcript arm; a
+ * `pi.sendMessage` throw `isStaleCtxError` delivers nothing (PIC-67 clause
+ * (c) — the runtime is invalidated and no surface of it can deliver); a
+ * degraded gate or any other throw falls to the terminal `console.error`.
+ */
+function emitBootstrapTier1(
+  pi: ExtensionAPI,
+  rendererGate: RendererGate,
+  diagnostic: Diagnostic,
+): void {
+  if (rendererGate.available()) {
+    try {
+      pi.sendMessage(
+        {
+          customType: SYSTEM_NOTE_CHANNEL,
+          content: renderDiagnosticBatch([diagnostic]),
+          display: true,
+          details: { diagnostics: [diagnostic] },
+        },
+        { triggerTurn: false },
+      );
+      return;
+    } catch (sendError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+      if (isStaleCtxError(sendError)) {
+        return;
+      }
+      // Non-stale throw — fall through to the terminal console.error below.
+    }
+  }
+  emitBootstrapTerminal(diagnostic);
+}
+
+/**
+ * Tier 2 (bug 0023 D1): a `ctx` has been latched, so `sendSystemNote`'s full
+ * chain (owned by system-note-channel.ts) applies via `emitDiagnosticBatch`.
+ * `isStaleCtxError` escaping it delivers nothing (PIC-67 clause (c)); any
+ * other throw falls to the terminal `console.error`.
+ */
+function emitBootstrapTier2(
+  channelDeps: SystemNoteChannelDeps,
+  diagnostic: Diagnostic,
+): void {
+  try {
+    emitDiagnosticBatch([diagnostic], channelDeps);
+  } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+    if (isStaleCtxError(e)) {
+      return;
+    }
+    emitBootstrapTerminal(diagnostic);
+  }
+}
+
+/**
+ * The wrapped terminal `console.error` both tiers share: itself wrapped so a
+ * throwing console (closed stdio, fd exhaustion) cannot escape.
+ */
+function emitBootstrapTerminal(diagnostic: Diagnostic): void {
+  try {
+    console.error(`theta: ${renderDiagnosticLine(diagnostic)}`);
+  } catch (consoleError: unknown) { // allow-broad-catch: PIC-54 — runtime-event-channel.md#pic-54
+    void consoleError;
+  }
 }

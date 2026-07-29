@@ -23,6 +23,7 @@
 
 import semver from "semver";
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import { renderHostIncompatible } from "../diagnostics/placeholder";
 import {
   resolveSubagentExecutable,
   SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,
@@ -72,6 +73,13 @@ export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
  * redeclare) and that `V18c`'s build-time literal-read assertion reads.
  */
 export const SHUTDOWN_AWAIT_CAP_MS = 2000;
+
+/**
+ * The diagnostics-registry code the step-0 refusal emits on any of the seven
+ * `HostIncompatibleKind` outcomes (bug 0023 element 3;
+ * diagnostics/code-registry-load.md `theta/load/host-incompatible`).
+ */
+export const HOST_INCOMPATIBLE_CODE = "theta/load/host-incompatible";
 
 /** The pinned Node floor (capability-probe.md Step 0 (a)). */
 const NODE_FLOOR = ">=22.19.0";
@@ -403,6 +411,24 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
   }
 
   return { ok: true };
+}
+
+/**
+ * Build the single `theta/load/host-incompatible` refusal diagnostic (bug
+ * 0023 element 3) from a failing probe outcome's `details`. `message` is the
+ * registry template rendered by `renderHostIncompatible`
+ * (src/diagnostics/placeholder.ts); the diagnostic's own `details` carries
+ * exactly the `ProbeFailureDetails` members the outcome set (`kind`,
+ * `observed`, `required`, and whichever of `member` / `package` / `step` /
+ * `cause` applies).
+ */
+export function hostIncompatibleDiagnostic(details: ProbeFailureDetails): Diagnostic {
+  return {
+    severity: "error",
+    code: HOST_INCOMPATIBLE_CODE,
+    message: renderHostIncompatible(details),
+    details: { ...details },
+  };
 }
 
 // ---------------------------------------------------------------------------

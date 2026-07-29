@@ -1,6 +1,12 @@
 # Bug 0023 — The production composition omits its V9k / V9p / step-0 seams: every bootstrap diagnostic is constructed and dropped, the renderer-degrade gate never engages, and the step-0 capability probe never runs — and the one live compose-supplier catch mislabels every compose throw `capability: "pi.registerCommand"`
 
-- **Status:** open
+- **Status:** fixed (0.34.0). The default export now constructs one
+  `RendererGate` and one two-tier bootstrap-diagnostic sink per extension
+  instance, runs the step-0 capability probe before its first host-binding
+  call, and threads the gate through every live system-note channel; a throw
+  escaping the whole `composeInstance` pass is delivered under its own minted
+  code `theta/load/extension-compose-failed` instead of being mislabelled
+  `capability: "pi.registerCommand"`.
 - **Kind:** defect + spec-gap — four elements against one composition
   function. Three are defects (implementation ≠ spec) and share one root
   cause: the shipped default export constructs the factory with three of its
@@ -88,6 +94,185 @@
   [bug 0029](./0029-throwing-supersession-detach-swallowed-watcher-rearmed.md),
   whose fix emits through `deps.emitDiagnostic` and is dead in production
   until element 1 wires it.
+
+## Fix (0.34.0)
+
+The settled §Fix, implemented as written — all four elements. Line anchors are
+at the fix commit.
+
+**Element 1 — the two-tier bootstrap-diagnostic sink.**
+`createBootstrapDiagnosticSink(pi, rendererGate)`
+(`src/extension/production-composition.ts:2213`) returns the two seams the
+factory needs: `emit` (the `ThetaExtensionDeps.emitDiagnostic` seam) and
+`latchSessionContext` (a new declared seam, `src/extension/factory.ts:232`).
+With no `ctx` latched, `emit` takes tier 1 (`emitBootstrapTier1`, `:2245`) —
+the partial `pi.sendMessage` → `console.error` chain, the `ctx.ui.notify` rung
+being unreachable before any `ExtensionContext` exists. Once a `ctx` is
+latched, `emit` takes tier 2 (`emitBootstrapTier2`, `:2278`) — the full
+`sendSystemNote` → `ctx.ui.notify` → `console.error` chain via
+`emitDiagnosticBatch` over channel deps built ONCE per latched `ctx`, so the
+`SystemNoteChannelHealth` stale-dead and fail-loud-once latches persist across
+every emission on that ctx; a repeat `session_start` re-latches with fresh
+channel deps. `latchSessionContext` is the first statement of the
+`session_start` handler (`src/extension/factory.ts:430`), before any
+registration work, so every handler-time site is on tier 2. Both tiers absorb
+an `isStaleCtxError` throw without delivering (PIC-67 clause (c)) and share one
+wrapped terminal `console.error` (`emitBootstrapTerminal`, `:2296`) so a
+throwing console cannot escape (PIC-54). The latch and the sink state are
+closure-scoped per extension instance; no module-level mutable state.
+
+Ten emission sites, not the eleven the §Affected list pins: the dead
+`runProductionRegistration` / `discoverFixtures` seam (the sibling mislabel at
+the old `:524`) was deleted, which §Fix element 4 explicitly sanctions —
+`rg "discoverFixtures|runProductionRegistration" src tests docs` hits only
+this report. Five sites are factory-time (`src/extension/factory.ts:377`
+`pi.registerFlag`, `:392` `pi.registerMessageRenderer`, `:413`/`:444` the
+`pi.on` subscriptions, `:884` `pi.on` `session_shutdown`) and five
+handler-time (`:468` `pi.getCommands`, `:491` per-theta `pi.registerCommand`,
+`:646` the compose-supplier catch, `:720` the `installHotReload` arming throw,
+`:877` the `session_shutdown` body throw). The default export passes
+`sink.emit`, so no `deps.emitDiagnostic?.()` site is unwired in production.
+
+**Element 2 — one `RendererGate` per extension instance.**
+`new RendererGate()` at `src/extension/factory.ts:910`, degraded on the
+renderer-registration catch at `:391`, and threaded to every live consumer:
+the deps object (so `:391` degrades the same instance the sink consults), the
+`composeExtensionInstance` call, and all three live `buildSystemNoteDeps`
+sites — the compose pass's parse-time channel
+(`src/extension/production-composition.ts:474`), the load-diagnostic channel
+(`:1046`), and the sink's tier-2 channel (`:2232`) — plus the hot-reload
+rebuild pass through `runComposePass`. `system-note-channel.ts:223` therefore
+reads live per-instance state, and the V9p renderer-degrade route to the
+`ctx.ui.notify` arm engages. The reload-less `discoverAndComposeFixtures`
+helper holds no instance and passes none; it is test-only.
+
+**Element 3 — the step-0 capability probe in the default export.**
+`runCapabilityProbe(createProductionProbeHost(pi))`
+(`src/extension/factory.ts:921`) runs before `createThetaExtension` and hence
+before the first `pi.registerFlag` call. `createProductionProbeHost`
+(`src/extension/production-composition.ts:2067`) snapshots the running
+process (`process.versions.node`, `AbortController`/`AbortSignal`), the SAME
+`pi` object reference the factory was handed (not a copy), the imported
+`typebox` `Type`, and a `readPeerVersion` closure over this module's own
+directory. `readPeerVersion` (`:2112`) is a parent walk that keeps walking past
+a name mismatch and past `ENOENT`, and propagates any other read or parse
+failure so the probe's Self-failure clause routes it to `probe-failed` with
+`step: "peer-dep-version"` and the package name — the doc's own recommended
+`createRequire(...).resolve` recipe throws `ERR_PACKAGE_PATH_NOT_EXPORTED`
+against three of the four pinned peers, which is why the walk is load-bearing.
+On a failure the export emits exactly one
+`hostIncompatibleDiagnostic(probe.details)` (new builder,
+`src/extension/capability-probe.ts:425`, rendering the registry template
+through `renderHostIncompatible`) through the tier-1 sink and returns — no
+`pi.register*` call, no `pi.on` call, no handler installed. `ProbeHost` and the
+probe's checks are unchanged: it covers (a)–(e), and PIC-5's count of six is
+intact because sub-step (f) (`probeSubagentExecutable`) stays where it was, in
+the per-theta compose pass.
+
+**Element 4 — `theta/load/extension-compose-failed` minted.**
+`composeFailedDiagnostic` (`src/extension/factory.ts:170`) is emitted at the
+one live compose-supplier catch (`:646`), preserving the
+`composeTailSuperseded()` guard on both arms; `details: { error }` carries the
+underlying-error coercion, so a non-Error throw yields a deterministic
+payload. `BootstrapCapability` (`:91–96`) stays closed and byte-unchanged: a
+compose throw is a distinct phase with its own remedy, not a sixth host call.
+Every remaining `bootstrapFailedDiagnostic` site names a call actually made.
+
+**Spec (DIAG-2).** New 7-column registry row in
+`docs/spec_topics/diagnostics/code-registry-load.md` for
+`theta/load/extension-compose-failed` (trigger, spec-rule link, `/reload`
+remedy, Message `extension compose failed: <error>`), the mirror row in
+`docs/reference/diagnostics.md`, and the code added to §8's
+caught-thrown-value list in
+`docs/spec_topics/diagnostics/placeholder-rendering-b.md`. The partial-chain
+rule element 1 introduces is pinned at all three prescription sites:
+`extension-bootstrap-and-per-theta.md:17` (the five factory-time sites and the
+step-0 refusal hold no `ctx`, so they deliver through `pi.sendMessage` →
+`console.error`; the `session_start`/`session_shutdown` sites use the full
+chain), the `theta/load/host-incompatible` registry row, and
+`capability-probe.md` clause (ii), which additionally records the (f) ordering
+discrepancy — (a)–(e) refuse on the partial chain at step 0, (f) emits from
+inside the compose pass with a `ctx` in scope. `H9a`'s permitted-code list
+(`tests/fixtures/h7a/permitted-codes.json`) carries the new slug via the
+coordinated bug-0030 edit. No REQ-ID changed; no closed union widened.
+
+**Offline locks.** Two new files, both driving the **shipped default export**
+or the real sink rather than an injected recorder:
+
+- `tests/extension-bootstrap-production-wiring.test.ts` — 7 tests, one group
+  per element: element 1 (fatal `pi.registerFlag` and fatal
+  `pi.on("session_start")` throws each deliver one tier-1 transcript note and
+  still abort the remaining steps), element 2 (a
+  `pi.registerMessageRenderer` throw degrades the gate so tier 1 skips the
+  transcript arm and lands on `console.error`; the degraded gate reaches the
+  handler-time chain, routing a later compose diagnostic through
+  `ctx.ui.notify` and never through `pi.sendMessage`), element 4 (the compose
+  throw arrives under `theta/load/extension-compose-failed`), element 3 (a
+  host missing one factory-probable SDK member is refused with
+  `kind: "sdk-capability-missing"` and issues NO host-binding call; a
+  conformant host passes and emits no refusal — the both-directions control).
+- `tests/extension-bootstrap-sink-liveness.test.ts` — 17 tests: tier
+  selection at the sink's own seam; the D4 / PIC-67 obligation for the two
+  guard-uncovered sites (`installHotReload` arming throw, `session_shutdown`
+  body throw), each proven BOTH directions — on an invalidated runtime the
+  diagnostic reaches no surface (notes, notify, `console.error`, stderr all
+  empty), on a live runtime the same throw DOES deliver; the production
+  `ProbeHost` snapshot (all four lock-step peers resolve to the versions
+  installed in this tree, `runCapabilityProbe` passes against it under
+  vitest); `readPeerVersion` at its exported seam (conditions (1) and (3),
+  wrong-name keep-walking, and malformed/`EISDIR` propagation to
+  `probe-failed`); and the per-instance gate reaching the compose pass's
+  parse-time channel.
+
+The two pre-existing witness files each gained a production-export arm
+asserting a delivery *arrives* — the inversion of §Reproduction probes A and
+B2: `tests/extension-bootstrap-failures.test.ts` (V9k, the fatal
+`pi.registerFlag` abort) and `tests/extension-bootstrap-nonabort.test.ts`
+(V9p, the renderer failure delivering on the degraded chain's terminal rung).
+Their injected-recorder tests are unmodified. The hunks in
+`tests/hot-reload-stale-ctx-replacement.test.ts` and
+`tests/e2e-s6-load-emit-toast-path.test.ts` are comment-only, no assertion
+touched: three present-tense claims that production leaves the seam unwired and
+drops every construct, one naming the eliminated `pi.registerCommand` mislabel
+as current state, and one citing the deleted `discoverFixtures` wiring as a
+caller of `discoverAndComposeFixtures`.
+
+**Verification.** Full default suite 225 files / 2650 tests green; `npm run
+typecheck` and `npm run lint` clean. Red direction proven by six independent
+temporary neutralisations, one per element or per new seam so each red is
+attributable, every restore confirmed byte-identical by `md5sum`: unwiring
+`emitDiagnostic`/`latchSessionContext` reds 5 tests with this report's verbatim
+`got 0` signature (§Reproduction A/B2); unwiring the gate at the factory end
+reds 2; dropping the gate from the parse-time channel reds 1; removing the
+step-0 probe call reds 1; restoring the `pi.registerCommand` label reds 1 with
+§Reproduction B's signature; disabling tier 2's stale absorption reds the two
+invalidated-runtime PIC-67 tests while their live-runtime pair stays green.
+Live: `tests/live/double-session-start-live.test.ts` 1/1 (chosen because it is
+outside bug 0030's edited set and boots the shipped default export twice in
+one instance, so step 0 runs against the real `pi` namespace, the real
+`process.versions.node` and the real installed peers, and `latchSessionContext`
+fires on both `session_start` deliveries) and
+`tests/live/live-production-acceptance.test.ts` 7/7 (real model turns plus a
+real subagent child spawn, which runs step 0 in a separate real process). The
+live axis was proven both directions too: making `readPeerVersion` answer
+`undefined` reds the double-session test with `Registered: []` — step 0
+refused the host and the export returned before any `pi.register*` call.
+
+**Residuals.** (i) The sub-step (f) ordering discrepancy is recorded, not
+fixed: `capability-probe.md` places `probeSubagentExecutable` in the step-0
+short-circuit sequence and the implementation runs it per-theta inside the
+compose pass. `ProbeHost` has no (f) member, so closing the gap means moving
+the check, which §Fix did not order. (ii) One unspied stderr line leaks into
+suite output from the sink-liveness "tier 2: a non-stale `pi.sendMessage`
+throw" test: it pins only the first toast, so fallback step 2's own
+`theta/runtime/system-note-delivery-failed` diagnostic rides the channel's
+`emitDiagnostic` to `makeLoadEmit`'s no-UI stderr mirror unspied. Cosmetic;
+those surfaces are the pre-existing V7d/PIC-54 contract, not this bug's.
+(iii) `createProductionProbeHost` reads
+`dirname(fileURLToPath(import.meta.url))` outside every trap, so a loader
+leaving `import.meta.url` undefined would make the factory throw, violating
+PIC-6. Unreachable today — the package is `"type": "module"` and pi's loader
+shims `import.meta` — and noted for whoever hardens the factory entry.
 
 ## Summary
 

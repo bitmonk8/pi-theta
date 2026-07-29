@@ -32,7 +32,7 @@ import type {
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
 import { createSystemNoteRenderer } from "./system-note-renderer";
-import type { RendererGate } from "./system-note-channel";
+import { RendererGate } from "./system-note-channel";
 import type { ThetaRegistry, ParsedTheta } from "./reload-wiring";
 import {
   resolveSlashDispatchWithReadFailover,
@@ -48,8 +48,11 @@ import type { Clock } from "../seams/clock";
 import type { HotReloadHandle } from "./hot-reload";
 import {
   composeExtensionInstance,
+  createBootstrapDiagnosticSink,
+  createProductionProbeHost,
   type ExtensionInstanceWiring,
 } from "./production-composition";
+import { hostIncompatibleDiagnostic, runCapabilityProbe } from "./capability-probe";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 
 /**
@@ -62,6 +65,18 @@ import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
  */
 export const EXTENSION_BOOTSTRAP_FAILED_CODE =
   "theta/load/extension-bootstrap-failed";
+
+/**
+ * The diagnostics-registry code a throw escaping the whole `composeInstance`
+ * pass surfaces (bug 0023 element 4; diagnostics/code-registry-load.md
+ * `theta/load/extension-compose-failed`). Distinct from
+ * `EXTENSION_BOOTSTRAP_FAILED_CODE`: a compose-pass throw (discovery walk,
+ * settings read, parse, schema compile, registry build) is a distinct phase
+ * from a host-binding call failure, so it carries its own code rather than the
+ * closed `BootstrapCapability` union's nearest member.
+ */
+export const EXTENSION_COMPOSE_FAILED_CODE =
+  "theta/load/extension-compose-failed";
 
 /** The CLI flag the extension registers for `.theta` discovery roots. */
 const THETA_FLAG = "theta";
@@ -143,6 +158,26 @@ function bootstrapFailedDiagnostic(
 }
 
 /**
+ * Construct the `theta/load/extension-compose-failed` diagnostic (bug 0023
+ * element 4) for a throw escaping the whole `deps.composeInstance` pass —
+ * discovery walk, settings read, parse, schema compile, registry build — a
+ * distinct phase from any single host-binding call, so it carries its own
+ * `details: { error }` rather than the closed `BootstrapCapability` label.
+ * `details.error` is the same underlying-error coercion
+ * (placeholder-rendering-b.md#underlying-error-coercion) the bootstrap
+ * diagnostic uses.
+ */
+function composeFailedDiagnostic(caught: unknown): Diagnostic {
+  const error = renderUnderlyingError(caught);
+  return {
+    severity: "error",
+    code: EXTENSION_COMPOSE_FAILED_CODE,
+    message: `extension compose failed: ${error}`,
+    details: { error },
+  };
+}
+
+/**
  * One in-memory theta fixture: a slash name plus the body run when the command
  * is dispatched. This is the seam the `H4a` harness's in-memory fixture-supply
  * mechanism drives and that `M` / `M-T` bind against for single-source
@@ -170,30 +205,9 @@ export interface ThetaExtensionDeps {
    * handler registers. The `H4a` harness supplies fixtures here for its
    * in-memory end-to-end tests; the shipped production composition root
    * (`H8a`) supplies none here and discovers them at `session_start` via
-   * `discoverFixtures`.
+   * `composeInstance` below.
    */
   readonly fixtures: readonly ThetaFixture[];
-
-  /**
-   * The `H8a` production discovery-and-composition supplier. When present, the
-   * `session_start` handler runs it (against the host `ctx`, whose `cwd` /
-   * `modelRegistry` the five-source discovery walk and per-theta composition
-   * read) and registers every discovered `.theta`-derived `ThetaFixture`
-   * alongside the static `fixtures`. Absent on the `H4a` in-memory harness
-   * path, which supplies its fixtures synchronously through `fixtures`.
-   *
-   * Supplying this makes the `session_start` handler asynchronous (the walk
-   * reads the real filesystem through the `V8b` `PiFileSystem` seam); the
-   * host runner awaits the returned promise before reading the registered
-   * command list. A discovery-supplier throw is trapped like any other
-   * `session_start`-time host-boundary failure and surfaces one
-   * `theta/load/extension-bootstrap-failed` diagnostic rather than propagating
-   * into the host `session_start` dispatch.
-   */
-  readonly discoverFixtures?: (
-    pi: ExtensionAPI,
-    ctx: ExtensionContext,
-  ) => Promise<readonly ThetaFixture[]>;
 
   /**
    * The diagnostic-emission seam the factory routes a
@@ -204,6 +218,18 @@ export interface ThetaExtensionDeps {
    * `H4a` harness path omits it, so it is optional.
    */
   readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
+
+  /**
+   * The ctx-latching slot the `session_start` handler fills as the first
+   * statement of its body, before any registration work (bug 0023 D1). Once
+   * filled, `emitDiagnostic` sites reached from inside a handler (which always
+   * hold a `ctx`) route through the sink's full System-notes chain; the five
+   * factory-time sites run before any `session_start` delivery and so use the
+   * ctx-free partial chain instead. A repeat `session_start` re-latches with a
+   * fresh `ctx`. Optional: the `H4a` harness path that injects its own
+   * recorder omits it.
+   */
+  readonly latchSessionContext?: (ctx: ExtensionContext) => void;
 
   /**
    * The renderer-availability gate (V9p). On a factory-time
@@ -234,9 +260,10 @@ export interface ThetaExtensionDeps {
    * `session_shutdown` handler detaches it, and a shutdown-less repeat
    * `session_start` supersedes the prior generation — detaching its watcher and
    * draining its registry — before arming its own (bug 0021, PIC-68), so the
-   * instance holds at most one armed watcher across repeat deliveries. Takes
-   * precedence over `discoverFixtures`. The shipped production default export
-   * supplies this; the `H4a` in-memory harness omits it.
+   * instance holds at most one armed watcher across repeat deliveries. The
+   * shipped production default export supplies this; the `H4a` in-memory
+   * harness omits it (falling back to the static `registerFixtures(deps.fixtures)`
+   * path).
    */
   readonly composeInstance?: (
     pi: ExtensionAPI,
@@ -396,20 +423,22 @@ export function createThetaExtension(
     // Pi's `session_start` dispatch.
     try {
       pi.on("session_start", (_event, ctx: ExtensionContext) => {
+        // Bug 0023 D1: latch the ctx BEFORE any registration work, so every
+        // `emitDiagnostic` site reached from inside this handler (or later,
+        // e.g. `session_shutdown`) can route through the sink's full
+        // System-notes chain instead of the factory-time partial one.
+        deps.latchSessionContext?.(ctx);
         // The H4a in-memory path registers its static fixtures synchronously
         // (the harness fires `session_start` synchronously and reads the
-        // registered list immediately). The H8a production path additionally
-        // discovers fixtures from the real filesystem — an async walk keyed to
-        // the host `ctx.cwd` — so when `discoverFixtures` is present the handler
-        // returns a promise the host runner awaits before reading commands.
+        // registered list immediately). The H8a production path composes an
+        // extension instance instead (an async walk keyed to the host
+        // `ctx.cwd`), so when `composeInstance` is present the handler returns
+        // a promise the host runner awaits before reading commands.
         if (deps.composeInstance !== undefined) {
           return runComposeInstanceRegistration(ctx);
         }
-        if (deps.discoverFixtures === undefined) {
-          registerFixtures(deps.fixtures);
-          return;
-        }
-        return runProductionRegistration(ctx);
+        registerFixtures(deps.fixtures);
+        return;
       });
     } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
       deps.emitDiagnostic?.(
@@ -507,38 +536,17 @@ export function createThetaExtension(
     }
 
     /**
-     * The H8a production `session_start` pass: run the discovery-and-
-     * composition supplier against the host `ctx`, then register the
-     * discovered fixtures alongside the static ones through the shared
-     * `registerFixtures` body. A discovery-supplier throw is trapped here (an
-     * exempt Pi-SDK-boundary broad-catch site) so it surfaces one
-     * `theta/load/extension-bootstrap-failed` diagnostic rather than
-     * propagating into the host `session_start` dispatch; the static fixtures
-     * still register.
-     */
-    async function runProductionRegistration(ctx: ExtensionContext): Promise<void> {
-      let discovered: readonly ThetaFixture[] = [];
-      try {
-        discovered = await deps.discoverFixtures!(pi, ctx);
-      } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        deps.emitDiagnostic?.(
-          bootstrapFailedDiagnostic("pi.registerCommand", e),
-        );
-      }
-      registerFixtures([...deps.fixtures, ...discovered]);
-    }
-
-    /**
      * The Phase-5 production `session_start` pass: compose one extension
      * instance, register its thetas alongside the static ones, then arm the
      * step-5 watcher / debounced hot-reload
      * (registration-steps.md#watcher-hot-reload-registration). The arming
      * closure re-uses `registerFixtures` as its reload re-registration step
-     * (collision pass + `pi.registerCommand`). A compose-supplier throw is
-     * trapped like any other `session_start`-time host-boundary failure and
-     * surfaces one `theta/load/extension-bootstrap-failed` diagnostic; an arming
-     * throw likewise surfaces a single diagnostic rather than propagating into
-     * the host `session_start` dispatch.
+     * (collision pass + `pi.registerCommand`). A compose-supplier throw fails
+     * the whole compose phase rather than a single host-binding call, so it
+     * surfaces one `theta/load/extension-compose-failed` diagnostic; an arming
+     * throw is a host-binding failure and surfaces one
+     * `theta/load/extension-bootstrap-failed` diagnostic. Both are trapped here
+     * rather than propagating into the host `session_start` dispatch.
      */
     async function runComposeInstanceRegistration(
       ctx: ExtensionContext,
@@ -630,7 +638,12 @@ export function createThetaExtension(
         if (composeTailSuperseded()) {
           return;
         }
-        deps.emitDiagnostic?.(bootstrapFailedDiagnostic("pi.registerCommand", e));
+        // Bug 0023 element 4: a throw escaping the whole compose pass — the
+        // discovery walk, settings read, parse, schema compile, or registry
+        // build — is a distinct phase from a single host-binding call, so it
+        // carries its own `theta/load/extension-compose-failed` code rather
+        // than the closed `BootstrapCapability` union's nearest member.
+        deps.emitDiagnostic?.(composeFailedDiagnostic(e));
         registerFixtures(deps.fixtures);
         return;
       }
@@ -879,15 +892,38 @@ export function createThetaExtension(
 /**
  * The production Pi extension factory — the standard
  * `default function (pi: ExtensionAPI)` export the `extensions/index.ts` entry
- * shim re-exports. It constructs a fresh factory per call (no module-level
- * mutable state) wired to the `H8a` production composition root: no static
- * fixtures, and a `discoverFixtures` supplier that at `session_start` runs the
- * five-source discovery walk over the real host seams, parses each discovered
- * `.theta`, composes it into a runnable `ThetaFixture`, and returns them for
- * registration. So the shipped extension actually discovers, registers, and
- * runs `.theta` slash commands.
+ * shim re-exports. It constructs a fresh `RendererGate`, bootstrap-diagnostic
+ * sink, and `composeInstance` closure per call (no module-level mutable
+ * state), runs the step-0 capability probe before any factory-time
+ * host-binding call, and wires the `H8a` production composition root
+ * (`composeExtensionInstance`) so the `session_start` handler discovers,
+ * parses, and composes every `.theta` over the real host seams and registers
+ * the result. So the shipped extension actually discovers, registers, and
+ * runs `.theta` slash commands — and, per bug 0023, actually delivers its
+ * bootstrap diagnostics instead of constructing and dropping them.
  */
 export default function thetaExtension(pi: ExtensionAPI): void {
+  // Bug 0023 elements 2/1: one `RendererGate` and one bootstrap-diagnostic
+  // sink per extension instance (no module-level state) — the sink is what
+  // makes every `deps.emitDiagnostic?.()` site below actually deliver instead
+  // of constructing a diagnostic no seam observes.
+  const rendererGate = new RendererGate();
+  const sink = createBootstrapDiagnosticSink(pi, rendererGate);
+
+  // Bug 0023 element 3 / capability-probe.md Step 0: run before the first
+  // factory-time host-binding call (`pi.registerFlag` below). On failure,
+  // refuse every subsequent `pi.register*` / `pi.on` call and emit the single
+  // `theta/load/host-incompatible` refusal through the tier-1 sink (no `ctx`
+  // exists yet). Sub-step (f) (`probeSubagentExecutable`) is NOT run here: it
+  // stays inside the per-theta compose pass (production-composition.ts), one
+  // step later than capability-probe.md's short-circuit sequence places it —
+  // a documented ordering discrepancy, not an omission (bug 0023 §Fix item 3).
+  const probe = runCapabilityProbe(createProductionProbeHost(pi));
+  if (!probe.ok) {
+    sink.emit(hostIncompatibleDiagnostic(probe.details));
+    return;
+  }
+
   // RFC-0006 (PIC-58): read the subagent-root regime marker ONCE at factory
   // entry. `process.env` is a localised ambient read here (exempted) — the
   // marker's presence identifies a spawned subagent child and gates the step-5
@@ -897,8 +933,11 @@ export default function thetaExtension(pi: ExtensionAPI): void {
     process.env[SUBAGENT_ROOT_ENV_MARKER] !== undefined; // allow-ambient: process.env — RFC-0006 subagent-root regime marker (subagent.md #pic-58)
   createThetaExtension({
     fixtures: [],
+    emitDiagnostic: sink.emit,
+    rendererGate,
+    latchSessionContext: sink.latchSessionContext,
     composeInstance: (pi, ctx: ExtensionContext) =>
-      composeExtensionInstance(pi, ctx),
+      composeExtensionInstance(pi, ctx, undefined, rendererGate),
     isSubagentChild,
   })(pi);
 }

@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
+  renderDiagnosticLine,
+  type Diagnostic,
+} from "../src/diagnostics/diagnostic";
+import thetaExtension, {
   createThetaExtension,
   EXTENSION_BOOTSTRAP_FAILED_CODE,
   type ThetaFixture,
@@ -363,5 +366,106 @@ describe("V9p extension bootstrap — pi.getCommands() read failure (theta/load/
       drained: false,
       tag: undefined,
     });
+  });
+});
+
+// ── Bug 0023 — the same non-abort surface through the SHIPPED default export ─
+
+// Every test above drives `createThetaExtension` with an INJECTED recorder and
+// an INJECTED `RendererGate`, so all of them are structurally blind to what the
+// shipped composition wires: at bug 0023's HEAD the production default export
+// supplied neither, so the renderer diagnostic was discarded and the degrade
+// recorded nothing. Bug 0023 (§Regression locks) adds this arm on the V9p
+// non-abort surfaces, asserting the delivery ARRIVES on a real surface — the
+// inversion of the bug document's §Reproduction probes A / B2, which record
+// `{sends:0, error:0, write:0}`.
+//
+// The renderer surface is the one the fallback chain exists for ("because the
+// renderer itself may be the failing capability"): the gate degrades in the
+// same catch that emits, so the factory-time tier skips the transcript arm
+// (delivering into a transcript that renders nothing) and the delivery lands on
+// the terminal `console.error` rung instead.
+
+interface ProductionRendererHost {
+  readonly pi: ExtensionAPI;
+  /** Host-binding calls attempted, in call order. */
+  readonly calls: string[];
+  /** `pi.sendMessage` envelopes — MUST stay empty once the gate is degraded. */
+  readonly notes: unknown[];
+}
+
+/**
+ * A recording host conformant to the step-0 capability probe (all eight
+ * factory-probable SDK members, capability-probe.md Step 0 (c)) whose
+ * `pi.registerMessageRenderer` faults, so the probe passes and the test
+ * exercises the V9p renderer-degrade surface it names.
+ */
+function makeProductionRendererHost(): ProductionRendererHost {
+  const calls: string[] = [];
+  const notes: unknown[] = [];
+  const pi = {
+    registerFlag: (): void => {
+      calls.push("registerFlag");
+    },
+    getFlag: (): undefined => undefined,
+    getCommands: (): readonly unknown[] => [],
+    on: (event: string): void => {
+      calls.push(`on:${event}`);
+    },
+    registerCommand: (): void => {},
+    sendUserMessage: (): void => {},
+    registerTool: (): void => {},
+    setActiveTools: (): void => {},
+    getActiveTools: (): readonly unknown[] => [],
+    getAllTools: (): readonly unknown[] => [],
+    registerMessageRenderer: (): void => {
+      calls.push("registerMessageRenderer");
+      throw new Error("registerMessageRenderer host seam absent");
+    },
+    sendMessage: (message: unknown): void => {
+      notes.push(message);
+    },
+  };
+  return { pi: pi as unknown as ExtensionAPI, calls, notes };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("V9p extension bootstrap — the shipped default export (bug 0023)", () => {
+  it("theta/load/extension-bootstrap-failed: a pi.registerMessageRenderer throw through the production default export DELIVERS the diagnostic on the degraded chain's terminal rung, and the remaining steps still run", () => {
+    const host = makeProductionRendererHost();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation((): void => {});
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((): boolean => true);
+
+    expect(() => thetaExtension(host.pi)).not.toThrow();
+
+    // The gate is constructed per extension instance and degraded in the same
+    // catch that emits, so the transcript arm is skipped for this instance.
+    expect(host.notes).toEqual([]);
+
+    // `renderDiagnosticLine` keys on file/range/code/message/hint/related only,
+    // so this location-less diagnostic renders byte-identically to the one the
+    // factory constructs for this surface.
+    const expectedLine = renderDiagnosticLine({
+      severity: "error",
+      code: EXTENSION_BOOTSTRAP_FAILED_CODE,
+      message:
+        "extension bootstrap failed: pi.registerMessageRenderer threw registerMessageRenderer host seam absent",
+    });
+    expect(errorSpy.mock.calls).toEqual([[`theta: ${expectedLine}`]]);
+    expect(stderrSpy.mock.calls).toEqual([]);
+
+    // Non-abort: the factory still completes the remaining steps.
+    expect(host.calls).toEqual([
+      "registerFlag",
+      "registerMessageRenderer",
+      "on:resources_discover",
+      "on:session_start",
+      "on:session_shutdown",
+    ]);
   });
 });

@@ -17,7 +17,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // is CLOSED on the shipped default export's `composeExtensionInstance` path
 // (proven by tests/load-phase-pre-eval-routing.test.ts). This test pins the
 // ACTUAL behaviour of the OTHER path — `discoverAndComposeFixtures`, used by
-// the H8a `discoverFixtures` wiring / hardening probe harness — so the gap is
+// tests wanting a single reload-less discover-and-compose pass — so the gap is
 // a documented, tested state rather than an unknown. The router is
 // severity-routed (bug 0013): a load/parse ERROR surfaces via the transient
 // `ctx.ui.notify(message,"error")` toast AND, in the no-UI (`-p` / CI / RPC)

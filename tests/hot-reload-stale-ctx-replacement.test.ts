@@ -261,12 +261,12 @@ interface Boot {
   /**
    * Every diagnostic the factory constructed and routed through the
    * `ThetaExtensionDeps.emitDiagnostic` seam, in construction order. Bug-0022
-   * witness: the production default export leaves the seam UNWIRED (every
-   * construct is dropped by the `deps.emitDiagnostic?.()` optional chain), so
-   * this recorder is the only way to observe "zero diagnostics constructed" —
-   * the spec-correct posture wherever the factory can know of the teardown
-   * without touching (PIC-67: the delivery channel is dead, clause (c)
-   * forbids the attempt, so nothing may be built for it either).
+   * witness: production wires that seam to a delivering bootstrap sink, so
+   * every construct becomes a delivery attempt, and this recorder is the only
+   * way to observe "zero diagnostics constructed" — the spec-correct posture
+   * wherever the factory can know of the teardown without touching (PIC-67:
+   * the delivery channel is dead, clause (c) forbids the attempt, so nothing
+   * may be built for it either).
    */
   readonly diagnostics: Diagnostic[];
   wiring(): ExtensionInstanceWiring | undefined;
@@ -381,7 +381,8 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
     const deps: ThetaExtensionDeps = {
       fixtures: [],
       // Bug 0022 witness: record every diagnostic the factory routes through
-      // the seam (production drops them all — see Boot.diagnostics).
+      // the seam production wires to its delivering sink — see
+      // Boot.diagnostics.
       emitDiagnostic: (d) => {
         diagnostics.push(d);
       },
@@ -776,10 +777,9 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
       await driveShutdownDuringParkedCompose(b);
 
       // The tail's swallowed stale throw is converted into a
-      // `theta/load/extension-bootstrap-failed` diagnostic that production
-      // drops (the default export wires no `emitDiagnostic`) and that a wired
-      // emitter could not deliver either — the System-notes chain rides the
-      // same invalidated runtime, and PIC-67 clause (c) forbids the delivery
+      // `theta/load/extension-bootstrap-failed` diagnostic that a wired
+      // emitter could not deliver — the System-notes chain rides the same
+      // invalidated runtime, and PIC-67 clause (c) forbids the delivery
       // attempt. Spec-correct posture: knowing of the teardown, construct
       // NOTHING. At HEAD this FAILS with one diagnostic carrying
       // `details.capability: "pi.getCommands"`.
@@ -900,11 +900,11 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
       const b = boot({ gateBeforeCompose: true });
       await driveShutdownDuringParkedCompose(b);
 
-      // At HEAD the catch arm constructs TWO dropped diagnostics: the
-      // compose-supplier catch labels the `ctx.cwd` stale death
-      // `capability: "pi.registerCommand"` (misattributed — nothing reached
-      // `pi.registerCommand`), then the fallback `registerFixtures`'s
-      // collision-pass catch adds a second labelled `pi.getCommands`.
+      // The catch arm has two constructions to suppress, neither of which a
+      // wired emitter could deliver: the compose-supplier catch's
+      // `theta/load/extension-compose-failed` for the `ctx.cwd` stale death,
+      // then a second `theta/load/extension-bootstrap-failed` labelled
+      // `pi.getCommands` from the fallback `registerFixtures`'s collision pass.
       // Spec-correct: the factory knows of the teardown the moment the
       // compose settles; it must construct NOTHING (the channel is dead and
       // PIC-67 clause (c) forbids the delivery attempt).

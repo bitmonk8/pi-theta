@@ -6,6 +6,90 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-07-29
+
+### Fixed
+
+- **The shipped production composition omitted three of the seven seams
+  `ThetaExtensionDeps` declares, so three implemented-and-unit-tested V-leaves
+  were inert in the extension that actually ships: every bootstrap diagnostic
+  the factory constructed was dropped by a `deps.emitDiagnostic?.()` optional
+  chain (V9k/V9p) — a `pi.registerFlag` abort, a `pi.on` subscription failure,
+  a per-theta `pi.registerCommand` failure, a `pi.getCommands` collision-pass
+  read failure and any compose-pass throw all yielded no transcript note, no
+  toast and no stderr line, although the registry's remedy column names
+  `/reload` and so presupposes the operator learns a recovery is needed; the
+  `RendererGate` was unwired at both ends, so the renderer-degrade route to
+  `ctx.ui.notify` never engaged on the one surface the fallback chain exists
+  for; and the step-0 capability probe had no caller in `src/**` at all, so an
+  incompatible host — below the Node floor, missing an `AbortSignal` member,
+  missing a factory-probable SDK member, carrying an out-of-range lock-step
+  peer, or lacking a callable `Type.Unsafe` — was never refused at load and
+  failed later as an uncaught `TypeError`, the outcome PIC-5's enumeration
+  exists to prevent. The one catch that saw every compose-pass throw also
+  labelled it `capability: "pi.registerCommand"`, so a `ctx.cwd` read failure
+  in the discovery walk reported as a slash-registration failure (bug 0023).**
+  One root cause: the default export constructed the factory with those seams
+  absent, and every existing witness drove `createThetaExtension` with an
+  injected recorder, so the offline suite was structurally blind to the
+  production wiring. Fix, all four settled elements. (1) A two-tier bootstrap
+  sink, `createBootstrapDiagnosticSink` — tier 1 (no `ctx` latched) delivers
+  through the partial `pi.sendMessage` → `console.error` chain, the
+  `ctx.ui.notify` rung being unreachable before any `ExtensionContext` exists;
+  tier 2 (a `ctx` latched by the new `latchSessionContext` seam, called as the
+  first statement of the `session_start` handler) delivers through the full
+  `sendSystemNote` → `ctx.ui.notify` → `console.error` chain over channel deps
+  built once per latched `ctx`, so the channel's stale-dead and
+  fail-loud-once latches persist across emissions. Both tiers absorb an
+  `isStaleCtxError` throw without delivering (PIC-67 clause (c)) and share one
+  wrapped terminal `console.error` (PIC-54). Ten emission sites, all wired —
+  the eleventh was the dead `runProductionRegistration` / `discoverFixtures`
+  seam, deleted. (2) One `RendererGate` per extension instance, degraded on
+  the renderer-registration catch and threaded to all three live
+  `buildSystemNoteDeps` sites plus the hot-reload rebuild pass, so
+  `system-note-channel.ts`'s degrade branch reads live state. (3)
+  `runCapabilityProbe(createProductionProbeHost(pi))` runs in the default
+  export before the first `pi.registerFlag` call; on failure it emits exactly
+  one `theta/load/host-incompatible` through tier 1 and returns, issuing no
+  `pi.register*` or `pi.on` call. The production `ProbeHost` snapshots the
+  running process, the same `pi` object reference the factory was handed, the
+  imported `typebox` `Type`, and a parent-walk `readPeerVersion` that keeps
+  walking past a name mismatch and `ENOENT` and propagates every other read or
+  parse failure to `probe-failed`. Sub-step (f) stays in the compose pass, and
+  that ordering discrepancy is now recorded in the spec rather than left
+  implicit. (4) `theta/load/extension-compose-failed` minted for a throw
+  escaping the whole `composeInstance` pass, with its own registry row and
+  `/reload` remedy; `BootstrapCapability` stays closed and unchanged, because a
+  compose throw is a distinct phase, not a sixth host call. Spec (DIAG-2): new
+  row in `code-registry-load.md`, mirror row in `docs/reference/diagnostics.md`,
+  the code added to placeholder-rendering §8's caught-thrown-value list, and
+  the factory-time partial-chain rule pinned at all three prescription sites
+  (`extension-bootstrap-and-per-theta.md`, the `host-incompatible` registry
+  row, `capability-probe.md` clause (ii)). Verification: full default suite
+  225 files / 2650 tests green; typecheck and lint clean. Offline locks:
+  `tests/extension-bootstrap-production-wiring.test.ts` (7 tests, one group per
+  element, all driving the shipped default export) and
+  `tests/extension-bootstrap-sink-liveness.test.ts` (17 tests — tier
+  selection, the PIC-67 obligation for the two guard-uncovered sites proven
+  both directions, the production `ProbeHost` snapshot, and `readPeerVersion`
+  at its exported seam), plus a production-export arm added to each pre-existing
+  V9k/V9p witness asserting a delivery *arrives*. Red direction proven by six
+  independent temporary neutralisations, one per element or new seam, every
+  restore confirmed byte-identical: unwiring the sink reds 5 tests with the
+  report's verbatim `got 0` signature, unwiring the gate reds 2 at the factory
+  end and 1 at the parse-time channel, removing the probe call reds 1,
+  restoring the `pi.registerCommand` label reds 1, and disabling tier 2's stale
+  absorption reds the two invalidated-runtime tests while their live-runtime
+  pair stays green. Live: `tests/live/double-session-start-live.test.ts` 1/1 —
+  it boots the shipped default export twice in one instance, so step 0 runs
+  against the real `pi` namespace, the real `process.versions.node` and the
+  real installed peers, and the ctx latch fires on both `session_start`
+  deliveries — and `tests/live/live-production-acceptance.test.ts` 7/7,
+  including a real subagent child spawn that runs step 0 in a separate real
+  process. The live axis was proven both directions too: making
+  `readPeerVersion` answer `undefined` reds the double-session test with
+  `Registered: []`, step 0 having refused the host before any registration.
+
 ## [0.33.0] - 2026-07-30
 
 ### Fixed
