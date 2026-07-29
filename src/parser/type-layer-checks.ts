@@ -832,10 +832,14 @@ class TypeLayerWalk {
   /**
    * Classify a `?` operand for the operand-type check. A query / `Result`-
    * constructor operand is a `Result` (no diagnostic). A statically-concrete
-   * non-`Result` type (a primitive, literal, or array) is a `non-result`. A
-   * statically-unresolvable operand (a `named` reference — an unresolved call
-   * result, etc.) is left unclassified (`undefined`) so no false positive is
-   * raised; it defers to the runtime safety net.
+   * non-`Result` type (a primitive, literal, array, union, or inline object
+   * type) is a `non-result`. Only a statically-unresolvable operand (a
+   * `named` reference — an unresolved call result, a member/index
+   * placeholder, and every genuine-`Result` placeholder: `Ok` / `Err` /
+   * `Result<…>` / a query result) is left unclassified (`undefined`) so no
+   * false positive is raised; the runtime net (`evalTry`'s brand-based guard,
+   * bug 0019) rejects a non-`Result` that reaches the unwrap through this
+   * arm.
    */
   private questionOperandKind(
     operand: Expr,
@@ -852,6 +856,13 @@ class TypeLayerWalk {
         return { kind: "non-result", display: type.typesAs };
       case "array":
         return { kind: "non-result", display: "array" };
+      case "union":
+      case "object":
+        // Non-`Result` by construction — a `Result` types as a `named`
+        // placeholder (`Ok` / `Err` / `Result<…>` / a query result), never as
+        // a union or an inline object type — so classifying these can never
+        // false-positive a genuine `Result` (bug 0019).
+        return { kind: "non-result", display: displayType(type) };
       default:
         return undefined;
     }

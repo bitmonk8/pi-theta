@@ -116,6 +116,29 @@ describe("V20c-T — question-on-non-result fires in production", () => {
     const codes = codesOf("let x = 5?");
     expect(codes).toContain("theta/parse/question-on-non-result");
   });
+
+  it("rejects `?` on a union-typed fn parameter (bug 0019 — widened ERR-18 gate; reds today)", () => {
+    // theta/parse/question-on-non-result — `x?` where `x: number | string`.
+    // Bug 0019: the ERR-18 classifier handles only prim/literal/array
+    // CompatTypes; a `union` falls to the unclassified arm and the theta
+    // loads. The fn-param route is the one source-level route to a `union`
+    // CompatType at a `?` operand site: `walkFn` seeds the fn scope with
+    // `annotationToCompatType(p.type)` (a `let` annotation does NOT work —
+    // bindings store the RHS inferred type). No return annotation → the
+    // enclosing scope is `inferred`, so no `question-outside-result-fn`
+    // noise.
+    const diag = parse(
+      ["fn f(x: number | string) {", "  let v = x?", "  v", "}"].join("\n"),
+    ).diagnostics.find(
+      (d: Diagnostic) => d.code === "theta/parse/question-on-non-result",
+    );
+    expect(diag).toBeDefined();
+    // Pin the widened union arm's `display: displayType(type)` interpolation
+    // through the production route (match-result.ts message template) — code
+    // containment alone stays green if the display regresses to a raw kind
+    // tag like "union".
+    expect(diag?.message).toBe("'?' requires a Result operand; got number | string");
+  });
 });
 
 // ===========================================================================

@@ -1,6 +1,13 @@
 # Bug 0019 — `?` on a member/index/identifier operand bypasses both the ERR-18 static gate and `asResultValue` normalisation; the blind unwrap forges a fabricated cancellation or silently binds `undefined`
 
-- **Status:** open
+- **Status:** fixed (0.31.0). Bug doc Option 1, both halves — `evalTry`
+  verifies the resolved operand with the brand-based `isResultValue` after
+  `evalAsResult` and throws `QuestionOperandDefectError` (a plain Error on
+  the `theta/runtime/internal-error` surface, the precedent defect-class
+  routing) instead of blind-casting, and `questionOperandKind` classifies
+  `union` / `object` CompatTypes as non-result so a union-typed operand is
+  rejected at load. No new diagnostic code; the closed panic-source list
+  and both code registries are unchanged.
 - **Kind:** defect — implementation diverges from the specified static
   contract. [ERR-18](../spec_topics/expressions.md#err-18) pins the `?`
   operand-type precondition as a **total static check**: an operand that does
@@ -49,6 +56,128 @@
     ("NEVER fabricate a `cancelled` for a fail (STL-6)").
 - **Observed at:** `0.28.0` (`28ce714d`). Fully offline and deterministic —
   no live model, no provider.
+
+## Fix (0.31.0)
+
+Bug doc Option 1, both halves: the brand-based runtime guard at the unwrap
+(the load-bearing half — total over unknowable-typed ingress) plus the
+incremental widening of the ERR-18 static classifier. Guard in
+`src/runtime/statement-executor.ts` / `src/runtime/runtime-panics.ts`,
+widening in `src/parser/type-layer-checks.ts` (line anchors at the fix
+commit).
+
+**Runtime brand guard (`statement-executor.ts:1061–1063`).** `evalTry`
+(:1046) verifies the resolved operand value with the brand-based
+`isResultValue` and throws `QuestionOperandDefectError` for a non-`Result`;
+the blind `as ResultValue` cast is removed. Placement (rationale comment
+:1051–1060): the guard sits in `evalTry`, not `evalAsResult` — that path
+also serves `match` scrutinees, which legitimately need the raw
+non-`Result` value for by-value arm matching — and AFTER `evalAsResult`, so
+bullet-1 operands (object / array / user-`fn` call) are already
+`asResultValue`-normalised (the pinned b-series `f()?` implicit-`Ok`
+wrap-unwrap stays a silent success) and a genuine stored `Result` passes
+the brand test untouched. What remains at the guard is exactly the ingress
+no static check can classify — member / index / identifier operands typed
+as `named` placeholders, code-tool returns, permissive `{}` lowerings — so
+the guard is total where the gate cannot be: both silent-corruption
+flavours become one loud abort, and the `error === undefined` feeder into
+the `?? makeCancelledError()` fabrication is starved (`executeBody`
+rejects; `binding.surface` is never fed the forged fail).
+
+**Defect error (`runtime-panics.ts:257–264`).** `QuestionOperandDefectError`
+is housed beside `evaluateQuestion` — the unwrap whose `Result`-operand
+precondition it enforces — as the precedent defect classes live beside the
+lowerings whose parse-gate preconditions they enforce
+(`PiToolArgShapeDefectError`, bug 0003, and
+`ShadowedCalleeDispatchDefectError`, bug 0016, both
+`src/runtime/tool-call.ts`). It is a plain thrown Error routed to the
+`theta/runtime/internal-error` surface by the top-level slash catch and
+framed via `surfaceUnexpectedThrow`, exactly like those precedents. The
+message (:260) names the spec anchor whose gate leaked and the gate that
+should have rejected the site: `internal defect: '?' operand evaluated to a
+non-Result value (<summary>); the parse-time ERR-18 operand gate
+(theta/parse/question-on-non-result) did not reject this site — a gate gap
+(bug 0019)`. The summary is `summariseNonResultOperand` (:277–299),
+defensive by construction: `typeof` plus, for objects, a shallow
+descriptor — the interpreter-private schema/enum tag when present, else an
+own enumerable key list capped at four names — never field values, never
+`JSON.stringify` (cycles, unbounded size). `evaluateQuestion` keeps its
+internal cast, now documented as sound only under the caller contract
+(:222–224): a new caller must guard likewise.
+
+**Static widening (`type-layer-checks.ts:859–865`).** `questionOperandKind`
+(:844) gains `union` and `object` arms classifying as `non-result` with
+`display: displayType(type)`, so a union-annotated `fn` parameter under `?`
+is rejected at load with the registry message (`'?' requires a Result
+operand; got number | string`). The `named` arm is deliberately untouched:
+every genuine-`Result` placeholder — `Ok` / `Err` / `Result<…>` / a query
+result — types as a `named` reference, so classifying it would
+false-positive real `Result`s; those operands stay with the runtime guard.
+The new arms cannot false-positive either: a `Result` never types as a
+union or an inline object type, and `#commonType`
+(`static-type-inference.ts:335`) never synthesizes a union (it selects an
+existing candidate or falls back to the first), so a union reaches a `?`
+operand site only through a fn-param annotation — and a union carrying a
+`Result` alternative is still not `Result<T, QueryError>`, so rejecting it
+is the outcome ERR-18 specifies, not a false positive. No real source
+constructs an `object` CompatType at a `?` operand site today (an inline
+object annotation lowers to a nominal `named` reference; the inference pass
+never yields an `object` CompatType there), so that arm is pinned at the
+seam level (message contract).
+
+**Registries.** No new diagnostic code is minted: the defect rides the
+existing `theta/runtime/internal-error` surface, the closed runtime
+panic-source list (`error-model.md`) stays closed, and both code registries
+(`code-registry-parse.md`, `code-registry-runtime.md`) are unchanged. No
+new REQ-ID; the coverage matrix is unchanged — the `ERR-18 | V4a` row
+(`docs/plan_topics/coverage-matrix.md`) remains the closing leaf.
+
+**Verification.** Full default suite 220 files / 2560 tests green;
+typecheck and lint clean. Offline lock:
+`tests/question-operand-defect.test.ts` — the m1–m6 matrix driven through
+the production prompt-mode binding, the s1 surface-chain pin (the m1 defect
+rejects out of `executeBody`, so `binding.surface` is never fed the forged
+fail), the s2 genuine-`Err` control (the real leaf error renders —
+`theta /bug0019 returned Err: transport — boom` — never `cancelled`), and
+the identifier / index stored-`Result` pass-through controls (`?` over a
+genuine stored `Ok` still unwraps). 7 red at 7fa76517 with the pre-fix
+signatures (outcome `fail` with `error === undefined`; m4 outcome `success`
+carrying `null`), green post-fix; the red direction re-proven by reverting
+the guard and restoring byte-identical (hash-verified). Static gate: the
+union fn-param case red-then-green through the production parse in
+`tests/match-result.test.ts`,
+`tests/type-layer-diagnostics-production.test.ts` (the exact message pinned
+through the production route), and
+`tests/conformance/production-conformance.test.ts`, plus the seam-level
+message-contract pins for both widened arms. Live:
+`tests/live/live-production-acceptance.test.ts` 5/5;
+`tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3 — its drives run
+`?` over genuine live `Result`s (query / `invoke` / tool-call results) on
+the guarded path, the live false-positive witness. New hardening witness
+`tests/live/hardening/question-operand-defect-abort.test.ts`: the m1
+fixture end-to-end through the shipped extension and a real slash dispatch,
+asserted on per-turn `systemNotes` — exactly one
+`theta /bug0019m1 aborted with internal error: …` note naming ERR-18 and
+`theta/parse/question-on-non-result`, zero `theta /bug0019m1 cancelled`
+notes, no user turn reaching the model (the body is pure); red-proven under
+guard revert, where the fabricated `theta /bug0019m1 cancelled` note
+reappears verbatim, then restored green.
+
+**Boundary (reviewer).** At the ERR-20 `par for` iteration boundary the
+defect throw is downgraded — like every non-panic interpreter throw — to
+that element's `Err(invoke_infra, cause "internal_error")`
+(`parForPanicError`, `statement-executor.ts:1170`): the message is
+preserved in the element `Err`, siblings run to completion, nothing is
+silent.
+
+Adjacent pre-existing issue identified during review, out of scope, not
+filed here: schema-constructor field values are presence-checked only
+(`theta/parse/missing-object-field` / `theta/parse/extra-object-field`
+check field names, never field-value types), and an undeclared-schema
+constructor (`Mystery { r: Ok(1) }`) parses clean and runs —
+`checkObjectExpr` defers when the constructor name is not a declared object
+schema. Surfaced while probing the member-route control; a static-gate gap
+family distinct from ERR-18.
 
 ## Summary
 

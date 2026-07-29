@@ -15,6 +15,13 @@ import {
 import type { CompatType, PrimitiveName, TypeEnv } from "../src/parser/type-compat";
 import { makeOk, type ThetaValue } from "../src/runtime/value";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
+import type { ThetaSource } from "../src/lexer/lexer";
+import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import {
+  parseThetaDocument,
+  type ParseThetaDocumentDeps,
+} from "../src/parser/theta-document";
 
 // V4a-T — failing tests for the paired `V4a` "`match`, `?`, and `Result`"
 // implementation.
@@ -91,6 +98,86 @@ describe("V4a-T — `?` operand-type precondition (ERR-18)", () => {
   it("ERR-18: `?` on a `Result<T, QueryError>` operand fires no diagnostic", () => {
     const operand: QuestionOperandType = { kind: "result", errIsQueryError: true };
     expect(checkQuestionOperand(operand, site())).toBeUndefined();
+  });
+});
+
+// --- bug 0019 — ERR-18 gate widening: `union` / `object` CompatTypes --------
+//
+// Bug 0019 (docs/bugs/0019-question-operand-bypasses-result-normalisation.md):
+// the production classifier feeding `checkQuestionOperand`
+// (`questionOperandKind`, src/parser/type-layer-checks.ts) classifies only
+// `prim` / `literal` / `array` inferred CompatTypes; `union` and `object` —
+// non-`Result` BY CONSTRUCTION — fall to the unclassified arm and the theta
+// loads in violation of ERR-18. The seam itself (`checkQuestionOperand`) is
+// total for classified input, so the gap is pinned through the production
+// whole-file parse; the seam cases below pin the message the widened arms
+// must interpolate (display via `displayType`).
+//
+// Source reachability (verified at 7fa76517):
+//   - `union`: reachable ONLY through a fn-param annotation — `walkFn` seeds
+//     the fn scope with `annotationToCompatType(p.type)`, and
+//     `annotationToCompatType` maps `number | string` to a `union` CompatType.
+//     A `let` annotation does NOT reach the `?` site (bindings store the RHS
+//     INFERRED type, not the annotation).
+//   - `object`: NOT constructible at a `?` operand site from real source —
+//     `annotationToCompatType` maps an inline object annotation (`{ a: T }`)
+//     to a nominal `named` reference, and the inference pass's `#typeExpr`
+//     never yields an `object` CompatType (an object ctor types as
+//     `named <schema>`). The object arm is therefore covered at the seam
+//     level only (message contract), not with a fabricated source fixture.
+
+describe("bug 0019 — ERR-18 gate widening (union / object CompatTypes classify as non-result)", () => {
+  /** The production whole-file parse (the route through `questionOperandKind`). */
+  function productionCodesOf(src: string): string[] {
+    const systemNote: SystemNoteChannelDeps = {
+      pi: { sendMessage: (): void => {} },
+      ui: { notify: (): void => {} },
+      emitDiagnostic: (): void => {},
+    };
+    const modelMatcher: ModelReferenceMatcher = {
+      resolve: (): "resolved" => "resolved",
+    };
+    const deps: ParseThetaDocumentDeps = { systemNote, modelMatcher };
+    const source: ThetaSource = { path: "bug0019.theta", bytes: new TextEncoder().encode(src) };
+    return parseThetaDocument(source, deps).diagnostics.map((d) => d.code);
+  }
+
+  it("RED: `?` on a union-typed fn param fires theta/parse/question-on-non-result in the production parse (fn-param route)", () => {
+    // `x` carries the union CompatType `number | string` (fn-param route);
+    // the fn has no return annotation, so the enclosing scope is `inferred`
+    // and no `question-outside-result-fn` fires — the operand diagnostic is
+    // the only one expected, asserted by containment.
+    const codes = productionCodesOf(
+      ["fn f(x: number | string) {", "  let v = x?", "  v", "}"].join("\n"),
+    );
+    expect(
+      codes,
+      "bug 0019: a union-typed `?` operand is non-Result by construction and must fire ERR-18's theta/parse/question-on-non-result at load",
+    ).toContain("theta/parse/question-on-non-result");
+  });
+
+  it("message contract: a union display renders through the registry message (green now — pins the widened arm's output)", () => {
+    // The widened `union` arm classifies as
+    // `{ kind: "non-result", display: displayType(type) }`;
+    // `displayType({ union [number, string] })` renders "number | string".
+    const diag = checkQuestionOperand(
+      { kind: "non-result", display: "number | string" },
+      site(),
+    );
+    expect(diag?.code).toBe("theta/parse/question-on-non-result");
+    expect(diag?.message).toBe("'?' requires a Result operand; got number | string");
+  });
+
+  it("message contract: an object display renders through the registry message (green now — seam-level only, see reachability note)", () => {
+    // No real source constructs an `object` CompatType at a `?` operand site
+    // (see the describe comment), so the object arm's coverage is the seam
+    // message it must interpolate via `displayType` once widened.
+    const diag = checkQuestionOperand(
+      { kind: "non-result", display: "{ a: number }" },
+      site(),
+    );
+    expect(diag?.code).toBe("theta/parse/question-on-non-result");
+    expect(diag?.message).toBe("'?' requires a Result operand; got { a: number }");
   });
 });
 

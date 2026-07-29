@@ -364,6 +364,18 @@ describe("V20g-T conformance — type-layer diagnostics (gap #2 V20c over the V2
     expect(codesOf("let x = 5?")).toContain("theta/parse/question-on-non-result");
   });
 
+  it("theta/parse/question-on-non-result: `?` on a union-typed fn parameter is rejected (bug 0019)", () => {
+    // Bug 0019 widened ERR-18 gate: a `union` CompatType is non-Result by
+    // construction and must classify. The fn-param annotation is the one
+    // source-level route to a `union` at a `?` operand site (fn scopes store
+    // `annotationToCompatType(p.type)`; `let` bindings store the RHS inferred
+    // type). No return annotation keeps the scope `inferred`, so the only
+    // expected diagnostic is the operand one.
+    expect(
+      codesOf(["fn f(x: number | string) {", "  let v = x?", "  v", "}"].join("\n")),
+    ).toContain("theta/parse/question-on-non-result");
+  });
+
   it("theta/parse/array-no-common-type: an array literal whose elements share no common type is rejected", () => {
     expect(codesOf('let xs = [1, "a"]')).toContain("theta/parse/array-no-common-type");
   });

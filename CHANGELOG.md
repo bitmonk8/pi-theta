@@ -6,6 +6,73 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-07-29
+
+### Fixed
+
+- **`?` applied to a member, index, or identifier operand bypassed both the
+  ERR-18 static gate and `asResultValue` normalisation; the blind unwrap
+  read `.ok` off a non-`Result`, silently corrupting in both directions — a
+  valid value became a body failure whose `undefined` error payload the
+  terminal surface laundered through `?? makeCancelledError()` into a
+  fabricated `theta /<name> cancelled` (the STL-6 violation), and
+  failure-shaped user data (`ok: true` / `ok: false` fields) became a
+  success carrying `null` or a forged propagation — bug 0017's corruption
+  signature surviving its fix (bug 0019).** Three layers: the static
+  classifier is partial — `questionOperandKind` classified only `prim` /
+  `literal` / `array` CompatTypes, and the inference pass types a member
+  access as a nominal reference to its own field name, an index read as
+  `named "index"`, and a call as `named <callee>`, so those operands never
+  reached the ERR-18 check; no runtime net existed — `evalAsResult` returns
+  member / index / binary / ternary / method-call operands raw (the raw
+  path exists for `match` scrutinees, which need the true value for
+  by-value arm matching) and `evalTry` blind-cast the raw value to
+  `ResultValue`; and the fail-outcome surface mappers fabricate a
+  `CancelledError` for an `undefined` error payload. Fix (bug doc Option 1,
+  both halves): (a) a brand-based guard in `evalTry`
+  (`src/runtime/statement-executor.ts`), after `evalAsResult` and before
+  `evaluateQuestion` — a non-`Result` operand value throws the new
+  `QuestionOperandDefectError` (`src/runtime/runtime-panics.ts`, beside
+  `evaluateQuestion`), a plain Error routed to the
+  `theta/runtime/internal-error` surface exactly like
+  `PiToolArgShapeDefectError` (bug 0003) and
+  `ShadowedCalleeDispatchDefectError` (bug 0016), its message naming
+  ERR-18, the `theta/parse/question-on-non-result` gate, and a defensive
+  value summary (`summariseNonResultOperand`: typeof / array length /
+  schema-enum tag / capped key names — never values, never
+  `JSON.stringify`); the blind cast is removed, and the placement after
+  `evalAsResult` keeps `match` scrutinees, the bullet-1 implicit-`Ok` wrap
+  (the pinned b-series `f()?`), and genuine stored-`Result` unwraps
+  untouched. (b) `questionOperandKind` (`src/parser/type-layer-checks.ts`)
+  widened: `union` and `object` CompatTypes now classify as non-result
+  (display via `displayType`), so a union-annotated fn parameter under `?`
+  is rejected at load; the `named` arm is deliberately untouched — the
+  genuine-`Result` placeholders (`Ok` / `Err` / query results) live there.
+  No new diagnostic code; the closed panic-source list and both code
+  registries are unchanged. Verification: full default suite 220 files /
+  2560 tests green; typecheck and lint clean. Offline lock:
+  `tests/question-operand-defect.test.ts` — the bug doc's m1–m6 matrix plus
+  the surface chain (s1), the genuine-`Err` note control (s2), and the
+  identifier / index stored-`Result` pass-through controls; 7 red at
+  7fa76517 with the pre-fix signatures (outcome `fail` with
+  `error === undefined`; m4 outcome `success` carrying `null`), green
+  post-fix, red direction re-proven by guard revert plus byte-identical
+  restore. Static-gate cases red-then-green in
+  `tests/match-result.test.ts`,
+  `tests/type-layer-diagnostics-production.test.ts` (the exact message
+  `'?' requires a Result operand; got number | string` pinned through the
+  production route), and `tests/conformance/production-conformance.test.ts`.
+  Live: `tests/live/live-production-acceptance.test.ts` 5/5 and
+  `tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3 (its drives run
+  `?` over genuine live `Result`s on the guarded path — the false-positive
+  witness); new live hardening witness
+  `tests/live/hardening/question-operand-defect-abort.test.ts` pins the m1
+  fixture end-to-end on per-turn `systemNotes`: exactly one
+  `theta /bug0019m1 aborted with internal error: …` note naming ERR-18 and
+  the gate code, zero `theta /bug0019m1 cancelled` notes — red-proven under
+  guard revert (the fabricated cancellation reappears verbatim), restored
+  green.
+
 ## [0.30.0] - 2026-07-29
 
 ### Fixed

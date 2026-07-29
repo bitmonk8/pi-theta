@@ -58,7 +58,12 @@ import { evaluateForLoop, type ForLoopHost } from "./control-flow";
 import { PiToolArgShapeDefectError, ShadowedCalleeDispatchDefectError } from "./tool-call";
 import { functionResult, type FunctionResult, type TerminalOutcome } from "./function-result";
 import type { LexicalEnvironment } from "./lexical-environment";
-import { evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion } from "./runtime-panics";
+import {
+  evaluateIndexAccess,
+  evaluateMemberAccess,
+  evaluateQuestion,
+  QuestionOperandDefectError,
+} from "./runtime-panics";
 import { evaluateStringMember } from "./stdlib-string";
 import { evaluateArrayMember } from "./stdlib-array";
 import { evaluateObjectMember } from "./stdlib-object";
@@ -939,9 +944,12 @@ function applyStdlibMethod(receiver: ThetaValue, method: string, args: readonly 
  *     catch it;
  *   - a cancellation surfaces the cancel flow (never a `Result`).
  *
- * A pure operand is evaluated through the host and returned verbatim — ERR-18
- * guarantees a `?` operand is `Result`-typed, and a `match` scrutinee is
- * whatever value the pure expression produced.
+ * A pure operand is evaluated through the host and returned verbatim — a
+ * `match` scrutinee is whatever value the pure expression produced, and a `?`
+ * operand's `Result`-ness is enforced at the unwrap by the ERR-18 parse gate
+ * plus `evalTry`'s brand guard (bug 0019: the gate is partial for
+ * statically-unresolvable operand types, so the guard is what keeps a raw
+ * non-`Result` from reaching the unwrap).
  */
 async function evalAsResult(
   operand: Expr,
@@ -969,8 +977,11 @@ async function evalAsResult(
   // it through the async executor so a nested inline-composite effect (e.g.
   // `[someQuery()][0]`) dispatches, and return the RAW resolved value. NO
   // `asResultValue` wrap — `match` needs the true scrutinee value (wrapping a
-  // non-Result value in `Ok(...)` would break by-value arm matching), and ERR-18
-  // guarantees a `?` operand is already `Result`-typed. `evalExpr` fully handles
+  // non-Result value in `Ok(...)` would break by-value arm matching); a `?`
+  // operand's `Result`-ness is enforced at the unwrap by ERR-18 plus
+  // `evalTry`'s brand guard (bug 0019 — the raw value may be a non-`Result`
+  // the partial gate could not classify, and the guard rejects it loudly
+  // instead of letting the unwrap corrupt). `evalExpr` fully handles
   // these kinds (bullet-2), carrying short-circuit / fail / cancel flows and the
   // same branding primitives as the pure host, so value/branding cannot diverge.
   if (
@@ -1037,7 +1048,20 @@ async function evalTry(expr: TryExpr, env: LexicalEnvironment, deps: ExecuteBody
   if (operand.flow !== "value") {
     return operand;
   }
-  const rv = operand.value as ResultValue;
+  // Bug 0019 belt-and-braces: the guard lives HERE, not in `evalAsResult` —
+  // that path also serves `match` scrutinees, which legitimately need the raw
+  // non-`Result` value for by-value arm matching. And it sits AFTER
+  // `evalAsResult` so bullet-1 operands (object / array / user-`fn` call) are
+  // already `asResultValue`-normalised (the pinned implicit-`Ok` wrap-unwrap
+  // stays a silent success) and a genuine stored `Result` passes the brand
+  // test. What remains is a value the partial ERR-18 gate could not classify
+  // (member / index / identifier operands, unknowable-typed ingress):
+  // blind-unwrapping it forges `Err(undefined)` or strips the payload, so
+  // throw the defect instead.
+  const rv = operand.value;
+  if (!isResultValue(rv)) {
+    throw new QuestionOperandDefectError(rv);
+  }
   const q = evaluateQuestion(() => rv);
   if (q.kind === "value") {
     return { flow: "value", value: q.value };

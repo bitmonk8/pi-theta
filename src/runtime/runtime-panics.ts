@@ -35,7 +35,7 @@
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { renderInteger } from "../diagnostics/placeholder";
-import type { ThetaValue, ResultValue } from "./value";
+import { isEnumValue, schemaTagOf, type ResultValue, type ThetaValue } from "./value";
 
 /** The registry codes carried by the five panic sources this module owns. */
 export const INDEX_OUT_OF_BOUNDS_CODE = "theta/runtime/index-out-of-bounds";
@@ -218,6 +218,10 @@ export type QuestionResult =
  * Invoking `operand` *outside* any surrounding catch is the mechanism by which
  * a panic bypasses `?`: a thrown `ThetaPanic` (or `MatchError`) propagates from
  * this call unchanged, never becoming a `propagate` outcome.
+ *
+ * The internal `as ResultValue` cast is sound only under the caller contract:
+ * the operand thunk must yield a brand-verified `ResultValue` (`evalTry`'s
+ * `isResultValue` guard — bug 0019); a new caller must guard likewise.
  */
 export function evaluateQuestion(operand: () => ThetaValue): QuestionResult {
   // A panic thrown while producing the operand propagates past this call
@@ -226,6 +230,72 @@ export function evaluateQuestion(operand: () => ThetaValue): QuestionResult {
   return result.ok
     ? { kind: "value", value: result.value }
     : { kind: "propagate", err: result.error };
+}
+
+/**
+ * Bug 0019 (docs/bugs/0019-question-operand-bypasses-result-normalisation.md)
+ * belt-and-braces: the `?` operand-type precondition is a static gate — a
+ * non-`Result` operand is rejected at parse time (ERR-18,
+ * `theta/parse/question-on-non-result`) — so a non-`Result` value reaching the
+ * unwrap means the gate did not reject this site: the operand's inferred type
+ * is an unresolvable `named` placeholder (a member access, an index read, a
+ * stored binding), or the value entered through unknowable-typed ingress (a
+ * code-tool return, a permissive `{}` lowering) no static check can see.
+ * Unwrapping anyway reads `.ok` off a non-`Result` — forging `Err(undefined)`
+ * (laundered downstream into a fabricated cancellation) or stripping a user
+ * payload to `undefined` — so `evalTry` throws this instead, BEFORE
+ * `evaluateQuestion`: a thrown Error routed to the
+ * `theta/runtime/internal-error` surface exactly as `PiToolArgShapeDefectError`
+ * (a plain Error caught by the top-level slash runtime-defect surface and
+ * framed via `surfaceUnexpectedThrow`), so the gap fails loudly instead of
+ * corrupting silently. Housed beside `evaluateQuestion` — the unwrap whose
+ * `Result`-operand precondition it enforces — as the precedent defect classes
+ * live beside the lowerings whose parse-gate preconditions they enforce
+ * (`PiToolArgShapeDefectError` / `ShadowedCalleeDispatchDefectError`,
+ * src/runtime/tool-call.ts).
+ */
+export class QuestionOperandDefectError extends Error {
+  public constructor(operand: ThetaValue) {
+    super(
+      `internal defect: '?' operand evaluated to a non-Result value (${summariseNonResultOperand(operand)}); the parse-time ERR-18 operand gate (theta/parse/question-on-non-result) did not reject this site — a gate gap (bug 0019)`,
+    );
+    this.name = "QuestionOperandDefectError";
+  }
+}
+
+/**
+ * Render the offending-operand summary of a `QuestionOperandDefectError`
+ * message. Defensive by construction — the value is by definition outside the
+ * interpreter's `Result` contract, so no `JSON.stringify` (cycles, unbounded
+ * size), only `typeof` plus, for objects, a shallow descriptor (the
+ * interpreter-private schema/enum tag when present, else an own enumerable key
+ * list capped at four names). Never throws or mutates on any plain-data
+ * `ThetaValue`; an exotic proxy receiver whose traps throw from the key walk
+ * fails into the same top-level `theta/runtime/internal-error` surface this
+ * defect targets, so the abort stays loud either way.
+ */
+function summariseNonResultOperand(value: ThetaValue): string {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value !== "object") {
+    return `a ${typeof value}`;
+  }
+  if (Array.isArray(value)) {
+    return `an array (length ${value.length})`;
+  }
+  if (isEnumValue(value)) {
+    return "an enum value";
+  }
+  const schema = schemaTagOf(value);
+  if (schema !== undefined) {
+    return `a '${schema}' schema object`;
+  }
+  const keys = Object.keys(value);
+  if (keys.length === 0) {
+    return "an object with no keys";
+  }
+  return `an object with keys ${keys.slice(0, 4).join(", ")}${keys.length > 4 ? ", …" : ""}`;
 }
 
 /**
