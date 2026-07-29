@@ -1,39 +1,71 @@
 # Bug 0024 — After a re-bind, a surviving slash name is collision-dropped against the extension instance's own prior registration: its handler stays bound to the superseded drained registry and dispatch yields the shutting-down note until `/reload`
 
 - **Status:** open
-- **Kind:** defect — the supersession flow's `session_start` compose pass
-  treats the instance's OWN prior `pi.registerCommand` registrations as
-  foreign collisions. The spec's
-  [superseded-entry dispatch](../spec_topics/pi-integration-contract/registration-steps.md#superseded-entry-dispatch)
-  enumerates the supersession-drop causes as "a later-appearing Pi prompt
-  template, skill, or sibling-extension command" — NOT the instance's own
-  prior registration — so the self-collision drop is a defect in the
-  supersession flow: a pre-existing code path, newly load-bearing now that a
-  repeat `session_start` is a designed supersession pass per
-  [registration-steps.md#repeat-start-supersession](../spec_topics/pi-integration-contract/registration-steps.md#repeat-start-supersession)
-  (the bug-0021 fix).
-- **Affected** (citations verified against the 0.30.0 tree):
+- **Kind:** defect **plus spec gap**.
+  - *Defect* — the supersession flow's `session_start` compose pass treats the
+    instance's OWN prior `pi.registerCommand` registrations as foreign
+    collisions. A pre-existing code path, newly load-bearing now that a repeat
+    `session_start` is a designed supersession pass per
+    [registration-steps.md#repeat-start-supersession](../spec_topics/pi-integration-contract/registration-steps.md#repeat-start-supersession)
+    (the bug-0021 fix).
+  - *Spec gap* — the intended-behaviour argument rests on enumerations:
+    [DISC-4 arm 2](../spec_topics/discovery/discovery-sources.md#disc-4)
+    (`discovery-sources.md:79`) says "another extension's command" and
+    [superseded-entry dispatch](../spec_topics/pi-integration-contract/registration-steps.md#superseded-entry-dispatch)
+    says "sibling-extension command". Step 3's own normative text
+    (`registration-steps.md:10`) keys the drop on `source` membership in
+    `{"prompt","extension","skill"}`, and theta's own entries carry
+    `source: "extension"`, so a literal reading mandates the self-drop. No
+    spec text pins the own-name exclusion on either the hot-reload path or the
+    supersession path: a `docs/spec_topics/**` and `docs/reference/**` search
+    for own-name / self-collision language returns nothing, and the existing
+    hot-reload carve-out is justified only by a code comment
+    (`production-composition.ts:364–370`, `:1978–1980`).
+- **Affected** (citations at HEAD `4d645f4f`, 0.32.0 —
+  `production-composition.ts` and `discovery-walk.ts` are byte-identical to
+  the bug-0021 fix commit `7fa76517`):
   - `src/extension/production-composition.ts:1107–1116` — the `session_start`
     compose path's `runComposePass` call passes
     `excludeOwnedNames = undefined` (:1114). The own-name exclusion exists
     only on the hot-reload rediscover path (:1146–1155, exclusion
-    `new Set(registry.snapshot().keys())` at :1153).
-  - `readPiOwnedCommands` (`production-composition.ts:1972–1990`, exclusion
+    `new Set(registry.snapshot().keys())` at :1153). A third call site,
+    `discoverAndComposeFixtures` (:333–353), also omits the argument; it is
+    single-pass by construction and reached only from tests
+    (`extensions/index.ts` re-exports only `src/extension/factory.ts`'s
+    default export, which routes through `composeInstance` →
+    `composeExtensionInstance`).
+  - `readPiOwnedCommands` (`production-composition.ts:1972–1993`, exclusion
     filter :1981) — with `excludeOwnedNames` absent, every
     `source: "extension"` entry, including the instance's own, lands in the
-    collision source set.
+    collision source set. The exclusion test at :1981 runs BEFORE the source
+    filter at :1984–1988, so the existing exclusion is name-keyed and
+    source-blind.
   - `resolveSlashNames` (`src/discovery/discovery-walk.ts:903`;
     theta-vs-Pi-owned drop arm :922–931) — drops the re-discovered theta and
-    emits a `theta/load/cross-format-collision` diagnostic whose message
-    claims "Pi-owned command '<name>' survives".
+    emits an error-severity `theta/load/cross-format-collision` diagnostic
+    (:923–929) whose message claims "Pi-owned command '<name>' survives"
+    (:928).
+  - Pi reports theta's own registered commands as `source: "extension"`,
+    indistinguishable from a sibling extension's:
+    `dist/core/agent-session.js:1826–1833` maps
+    `runner.getRegisteredCommands()` to
+    `{ name: invocationName, source: "extension", … }`, and
+    `dist/core/extensions/runner.js:371–398` sets `invocationName` to the bare
+    name when the name occurs once across all extensions (no `:2` suffix).
   - Pi exposes no `pi.unregisterCommand`
-    ([registration-steps.md, *Structural changes*](../spec_topics/pi-integration-contract/registration-steps.md#structural-changes-no-unregister)),
-    so the name's registered handler survives, bound to the superseded
-    generation's drained registry.
-- **Observed at:** `0.30.0` (fix commit for bug 0021). Offline,
-  deterministic — locked as pre-existing behaviour by test 4 of
-  `tests/double-session-start-supersession.test.ts` (the `registeredNames`
-  length-1 witness and its inline comment).
+    ([registration-steps.md, *Structural changes*](../spec_topics/pi-integration-contract/registration-steps.md#structural-changes-no-unregister)) —
+    confirmed absent from the SDK at the pin — so the name's registered
+    handler survives, bound to the superseded generation's drained registry.
+- **Observed at:** `0.30.0` (fix commit for bug 0021); reproduces unchanged at
+  `0.32.0` (`4d645f4f`). Offline, deterministic — locked as pre-existing
+  behaviour by test 4 of `tests/double-session-start-supersession.test.ts`
+  (`:687`, the `registeredNames` length-1 witness at :718–720 and its inline
+  comment at :709–716). Reachability is class (b), inherited from bug 0021 for
+  both triggers: **not** reachable through the shipped CLI hosts at the host
+  pin (`~0.80.10`), reachable in-product through the public host SDK —
+  `AgentSession.bindExtensions()` carries no once-guard and re-emits the
+  stored `_sessionStartEvent` to the same runner and the same factory closure
+  (`dist/core/agent-session.js:1744–1765`, emit at :1764).
 
 ## Summary
 
@@ -49,30 +81,49 @@ stays bound to the superseded generation's registry — which the bug-0021 fix
 drains at supersession (and the step-4 teardown drains on the rebind path) —
 and every post-re-bind dispatch of the surviving name returns the drain-state
 arm-(b) note `theta /<name>: extension shutting down` on a live session,
-until the operator runs `/reload` (fresh extension instance).
+until the operator runs `/reload` (fresh extension instance). Each re-bind
+also emits an error-severity `theta/load/cross-format-collision` note on the
+`theta-system-note` channel that misdescribes the cause.
 
-This is fail-safe and spec-coherent with the step-5 pin (which contemplates
-surviving stale-bound names failing safe on arm (b)), and materially better
-than the pre-fix behaviour (silent dispatch against a stale stranded
-registry). The defect is that the supersession pass does not re-own surviving
-names, and the note misnames the state: "shutting down" on a session that is
-live, where the accurate story is supersession.
+This is fail-safe and materially better than the pre-fix behaviour (silent
+dispatch against a stale stranded registry). For the shutdown-less variant
+the arm-(b) note is what
+[#repeat-start-supersession](../spec_topics/pi-integration-contract/registration-steps.md#repeat-start-supersession)
+prescribes for a handler still bound to the superseded registry. The defect
+is that the supersession pass does not re-own surviving names at all, so a
+name whose `.theta` is still on disk never reaches the new generation's
+registry; on the start-after-shutdown rebind the surviving name additionally
+answers "shutting down" on a session that is live, a state no spec text
+contemplates.
 
 ## Reproduction
 
-Offline, deterministic — the start-after-shutdown control mechanism of
-`tests/double-session-start-supersession.test.ts` (test 4) with `greet.theta`
+Offline, deterministic — no live provider needed. Both triggers reproduce
+against the shipped composition root (`createThetaExtension` +
+`composeExtensionInstance`) with a fake `pi`/`ctx`, `FakeClock` and
+`FakeFileWatcher`, over a temp workspace holding `greet.theta`.
+
+**Trigger A — start-after-shutdown rebind.** The mechanism of test 4 of
+`tests/double-session-start-supersession.test.ts` (`:687`) with `greet.theta`
 KEPT on disk: `session_start` (registers `/greet`), completed
-`session_shutdown`, `session_start` again. The rebind pass re-discovers
-`greet.theta` but its collision read has no own-name exclusion, so generation
-1's own `/greet` (`source: "extension"`) drops the re-discovered theta and no
-second `registerCommand` call is issued — test 4 locks exactly this with its
-`registeredNames` length-1 assertion and marks it in the inline comment as
-pre-existing behaviour, not part of the bug-0021 fix. Dispatching `/greet`
-after the rebind then routes through generation 1's drained registry to the
-arm-(b) shutting-down note. The shutdown-less variant is identical with the
+`session_shutdown`, `session_start` again. Observables:
+
+- `registeredNames === ["greet"]` — no second `registerCommand` call. Test 4
+  locks exactly this at :718–720 and marks it in the inline comment (:709–716)
+  as pre-existing behaviour, not part of the bug-0021 fix.
+- An error-severity note on `theta-system-note`:
+  `theta/load/cross-format-collision: slash name 'greet' collides at the same
+  priority: '<…>/greet.theta' (Pi-owned command 'greet' survives)`.
+- Dispatching `/greet` after the rebind returns
+  `theta /greet: extension shutting down`.
+
+**Trigger B — shutdown-less repeat start.** Identical, with the
 `session_shutdown` omitted (the bug-0021 supersession drains the outgoing
-registry instead).
+registry instead). Same three observables, plus the pinned repeat-start note
+`theta: repeat session_start without session_shutdown; superseding prior
+hot-reload generation`.
+
+**Control — single start.** `/greet` registers; no collision note.
 
 ## Expected behaviour
 
@@ -80,12 +131,25 @@ Per
 [registration-steps.md#repeat-start-supersession](../spec_topics/pi-integration-contract/registration-steps.md#repeat-start-supersession)
 a repeat `session_start` is a supersession pass — step 3's supersession-pass
 language treats it as a contemplated re-registration input — so a surviving
-name should be re-owned: its dispatch re-bound to the new generation's
-registry, where the re-discovered theta lives. At minimum, a live-session
-dispatch of a surviving name should return the superseded note pinned by
+name is re-owned: its dispatch re-bound to the new generation's registry,
+where the re-discovered theta lives, and no collision diagnostic emitted for
+it.
+
+A name that does NOT survive (its `.theta` deleted before the re-bind) stays
+bound to the superseded drained registry and keeps answering
+`theta /<name>: extension shutting down`. That is the outcome
+`#repeat-start-supersession` prescribes: the supersession pass drains the
+outgoing registry so any name whose handler is still bound to it fails safe
+on arm (b) with that exact note.
 [#superseded-entry-dispatch](../spec_topics/pi-integration-contract/registration-steps.md#superseded-entry-dispatch)
-(`theta /<name>: superseded; /reload to refresh`) — which names the actual
-state and the recovery — not the shutting-down note.
+does not apply here — it governs an entry-table MISS on a live, undrained
+registry (arm (a)), a state the drained-registry path never reaches, so the
+`theta /<name>: superseded; /reload to refresh` note is not the spec-derived
+expectation for either trigger. The start-after-shutdown rebind's wording is
+unprescribed rather than wrong: no spec text contemplates a live, freshly
+rebound session answering "extension shutting down". Changing it is a
+spec-amendment proposal against `#repeat-start-supersession`, out of scope
+here; see `## Fix` for why it is not folded in.
 
 ## Actual behaviour / root cause
 
@@ -95,49 +159,150 @@ state and the recovery — not the shutting-down note.
 uses it (:1153), so a reload pass never self-collides. The `session_start`
 pass predates supersession as a designed flow: at its design point an
 extension instance received exactly one `session_start`, with no own
-registrations to exclude. Now that a repeat delivery is a designed
-supersession pass, the same read runs with the instance's own registrations
-present and classifies each surviving name as a foreign collision
-(`resolveSlashNames`, `discovery-walk.ts:922–931`) — dropping it from the new
-registry and mis-describing the drop in the collision diagnostic ("Pi-owned
-command '<name>' survives").
+registrations to exclude — the code comment at :369–370 states that
+assumption directly. Now that a repeat delivery is a designed supersession
+pass, the same read runs with the instance's own registrations present and
+classifies each surviving name as a foreign collision (`resolveSlashNames`,
+`discovery-walk.ts:922–931`) — dropping it from the new registry and
+mis-describing the drop in the collision diagnostic ("Pi-owned command
+'<name>' survives").
 
-## Fix options and recommendation
+Re-registering a surviving name is safe at the pin
+(`@earendil-works/pi-coding-agent` `~0.80.10`): `dist/core/extensions/loader.js:198–205`
+does `extension.commands.set(name, {…})` — last-write-wins on the one
+instance's `Map` — and `runner.js:371–398` then counts a single occurrence, so
+no `:2` invocation-name suffix is minted. The handler rebinds in place.
 
-1. **Thread the outgoing generation's own names into the supersession pass's
-   collision read (recommended).** Mirror the hot-reload path's exclusion:
-   pass the prior generation's registered slash names as `excludeOwnedNames`
-   on a re-bind compose (the factory holds the outgoing `liveRegistry` at
-   compose start; `runComposePass` already accepts the set). The surviving
-   name then resolves in discovery and registers with a drain-gated handler
-   over the NEW registry. Requires confirming the host's `registerCommand`
-   overwrite semantics for an existing extension-owned name at the pin — the
-   hot-reload path avoids re-registration because its registry object
-   survives the swap; here the binding must move to the new generation's
-   registry.
-2. **Post-drop re-registration.** Keep the collision read as-is; after the
-   supersession pass, re-register each self-collision-dropped name against
-   the new registry. Same overwrite question, plus the pass must distinguish
-   self-collisions from genuine foreign collisions. More moving parts;
-   fallback only.
+## Why it matters
 
-Option 1 reuses the exclusion mechanism `readPiOwnedCommands` already
-implements and makes the supersession pass consistent with the hot-reload
-pass's own-name posture.
+Every slash name the operator was using goes dead on a live session after any
+re-bind, and stays dead until `/reload`. The failure is silent in the sense
+that matters: the session answers `theta /<name>: extension shutting down`
+while it is running normally, and the one operator-visible diagnostic
+(`theta/load/cross-format-collision`, error severity) names a cause that does
+not exist — it reports a foreign Pi-owned command winning a collision, when
+the winner is the extension's own prior registration of the same theta. An
+operator reading that note looks for a colliding prompt template or sibling
+extension and finds none.
+
+The blast radius is every registered theta, not one: the drop is per name, and
+each surviving name takes it. Bug 0029's leaked superseded-generation reload
+pass trips this same mechanism from the other direction — it emits
+`theta/load/cross-format-collision` against generation 2's live command (see
+[bug 0029](./0029-throwing-supersession-detach-swallowed-watcher-rearmed.md)).
+
+## Fix
+
+**Step 1 — spec amendment, landing first.** Amend
+`docs/spec_topics/pi-integration-contract/registration-steps.md` step 3
+(`:10`) and/or
+[DISC-4 arm 2](../spec_topics/discovery/discovery-sources.md#disc-4)
+(`docs/spec_topics/discovery/discovery-sources.md:79`) to pin normatively that
+the collision source set excludes entries the extension instance itself
+registered, on **both** the hot-reload pass and the supersession pass. Without
+this the code change ships behaviour no spec text authorises, and the spec's
+literal source-keyed rule keeps mandating the self-drop. The amendment also
+retroactively anchors the pre-existing hot-reload carve-out, which today rests
+only on the code comment at `production-composition.ts:364–370`.
+
+**Step 2 — thread the own-name set into the supersession pass's collision
+read.** Pass the instance's own registered slash names as `excludeOwnedNames`
+on every compose, not only the hot-reload rediscover pass. The surviving name
+then resolves in discovery and registers with a drain-gated handler over the
+NEW registry.
+
+The own-name set is a **factory-scoped accumulation of every name ever passed
+to `pi.registerCommand`** — the factory owns `registerFixtures`
+(`factory.ts:432–469`), so the accumulator is closure-scoped alongside the
+existing `composeStartsObserved` / `shutdownEventsObserved` counters
+(`factory.ts:316–317`); no globals or statics. It is not
+`liveRegistry.snapshot().keys()`: that misses a name registered in generation 1
+and later dropped from the registry by a hot-reload collision, which Pi still
+holds (Pi has no unregister) and which would therefore still self-collide.
+
+The exclusion is **source-aware**: skip an entry only when
+`command.source === "extension"` AND its name is in the own-set. The exclusion
+test currently runs before the source filter
+(`production-composition.ts:1981`, filter at :1984–1988), so it must move
+after the filter and gain the source condition. A newly-appeared prompt
+template or skill of the same name then still drops the theta, as
+`registration-steps.md:10` requires. A *sibling extension* registering the same
+name remains indistinguishable from self — `source` alone cannot separate them,
+and this is a known limitation of the fix, not a residual to close.
+
+Surviving names emit no collision diagnostic after the fix, so the diagnostic
+wording needs no change.
+
+The registry drain stays as it is. A *removed* name keeps the spec-pinned
+arm-(b) shutting-down note. Making it answer `superseded; /reload to refresh`
+instead would require the supersession step to clear the outgoing registry's
+entry table rather than drain it, so dispatch takes arm (a) and misses the
+lookup — but `#repeat-start-supersession` requires the drain, and clearing
+loses the drained fail-safe (a stale handler would then dispatch anything
+still in the table).
+
+**Fix surface.** Two signature boundaries move: `composeExtensionInstance`
+(`production-composition.ts:1012–1016`) takes only
+`(pi, ctx, overrides?: ComposeSeamOverrides)` and `ComposeSeamOverrides`
+(`:154–164`) has no such field; the dep type `ThetaExtensionDeps.composeInstance`
+(`factory.ts:241–244`) is `(pi, ctx) => Promise<…>`. Both widen, along with the
+call at `factory.ts:628` and the production default export's arrow at
+`factory.ts:900–901`. `runComposePass` already accepts the set but is
+module-private. `discoverAndComposeFixtures` (`production-composition.ts:333`)
+keeps its current signature — non-production, single-pass by construction.
+
+**Verification.** Unit/integration only; no live test is required, since both
+triggers and the dispatch note are deterministic observables of the offline
+composition root. `tests/double-session-start-supersession.test.ts:707–720`
+currently PINS the defect — the comment at :709–716 and
+`expect(registeredNames.filter(n => n === "greet")).toHaveLength(1)` at
+:718–720 — and must flip to `2` with a rewritten comment, or a correct fix
+reads as a red. Add: (i) both triggers asserting a second `registerCommand`
+and that a post-re-bind `/greet` dispatch produces no
+`theta /greet: extension shutting down` note; (ii) a negative control proving
+the pass still drops a theta colliding with a genuine `source: "prompt"` entry
+of the same name; (iii) a name registered in generation 1, dropped by a
+hot-reload collision, then re-owned across a re-bind.
+
+**Ordering.** Independent of every other open bug. It ships as its own commit,
+separate from [bug 0029](./0029-throwing-supersession-detach-swallowed-watcher-rearmed.md):
+the code sets are disjoint (0029 touches `hot-reload.ts` / `pi-file-watcher.ts`
+ordering and the swallowed detach evidence; 0024 touches the compose/collision
+path), each has its own witness test, and the two `factory.ts` edits land
+~50 lines apart, so the only coupling is a merge conflict in whichever lands
+second.
 
 ## Provenance
 
 - Origin: bug-0021 fix orchestration — stage-2 fixer analysis plus reviewer
   round 1, which accepted the fail-safe behaviour for 0.30.0 and required the
   residual filed.
-- Recorded at the fix: bug 0021 §"Fix (0.30.0)" Residuals item (i); test 4 of
-  `tests/double-session-start-supersession.test.ts` locks the drop as
-  pre-existing behaviour (the `registeredNames` length-1 witness).
+- Recorded at the fix: bug 0021 §"Fix (0.30.0)" Residuals item (i)
+  ([0021](./0021-double-session-start-leaks-armed-watcher.md)); test 4 of
+  `tests/double-session-start-supersession.test.ts` (`:687`) locks the drop as
+  pre-existing behaviour (the `registeredNames` length-1 witness, :718–720).
 - Implementation evidence: `src/extension/production-composition.ts`
-  (:1107–1116, :1146–1155, :1972–1990), `src/discovery/discovery-walk.ts`
-  (:903, :922–931), all at the 0.30.0 tree.
+  (:333–353, :364–370, :1107–1116, :1146–1155, :1972–1993),
+  `src/discovery/discovery-walk.ts` (:903, :922–931),
+  `src/extension/factory.ts` (:241–244, :316–317, :432–469, :628, :900–901) —
+  all at HEAD `4d645f4f`, 0.32.0.
+- Host evidence at the `~0.80.10` pin:
+  `dist/core/agent-session.js:1744–1765` (`bindExtensions` re-emit),
+  `:1826–1833` (`source: "extension"` for the extension's own commands),
+  `dist/core/extensions/runner.js:371–398` (bare `invocationName` at one
+  occurrence), `dist/core/extensions/loader.js:198–205`
+  (`registerCommand` last-write-wins; no `unregisterCommand` counterpart
+  anywhere in `dist/`).
+- Related: [bug 0029](./0029-throwing-supersession-detach-swallowed-watcher-rearmed.md)
+  — adjacent, not duplicate; same bug-0021 supersede-before-publish flow, a
+  different root cause and a disjoint line set, and its leaked
+  superseded-generation reload pass trips this bug's mechanism.
 - Spec:
   [registration-steps.md#repeat-start-supersession](../spec_topics/pi-integration-contract/registration-steps.md#repeat-start-supersession),
+  [step 3](../spec_topics/pi-integration-contract/registration-steps.md) (`:10`,
+  the source-keyed collision rule the amendment targets),
   [#superseded-entry-dispatch](../spec_topics/pi-integration-contract/registration-steps.md#superseded-entry-dispatch),
   [#structural-changes-no-unregister](../spec_topics/pi-integration-contract/registration-steps.md#structural-changes-no-unregister),
+  [DISC-4](../spec_topics/discovery/discovery-sources.md#disc-4)
+  (`discovery-sources.md:79`, arm 2),
   the [`ThetaRegistry` drain-state contract](../spec_topics/pi-integration-contract/drain-state-contract.md#theta-registry-drain-state-contract).

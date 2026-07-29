@@ -19,8 +19,8 @@
   nowhere (a typo), the type grammar defines a `NamedType` as "any schema or
   enum identifier **in scope**" (type-system.md) and defines no behaviour
   for an out-of-scope name at the `@<T>` position; the implementation
-  accepts it parse-clean (zero diagnostics, byte-identical load outcome to
-  the correct spelling), marks the query typed, and validates the response
+  accepts it parse-clean (zero diagnostics, diagnostic-identical to the
+  correct spelling), marks the query typed, and validates the response
   against `{}` — so the QRY-22 obligation ("The runtime MUST NOT bind, as a
   typed query's value, a response that has not been validated against its
   declared schema") is met only vacuously while delivering exactly what it
@@ -34,24 +34,27 @@
   rationale ("accepted silently it would mark the query typed while giving
   the runtime nothing to validate the response against"), which applies
   verbatim to a typo'd interior.
-- **Affected** (at HEAD `b542dafe`, 0.32.0):
-  - `src/parser/params.ts:280–283` — `lowerTypeExpr`'s unresolved arm:
-    an identifier not in `bodyTypeMap` pushes onto `lowerCtx.unresolved`
-    and returns `{}`. The one consumer that reads the list back is
-    `parseParams` (`params.ts:128–137`), which emits
+- **Affected** (citations verified at HEAD `4d645f4f`, 0.32.0):
+  - `src/parser/params.ts:280–283` — `lowerTypeExpr`'s (`:236–291`)
+    unresolved arm: an identifier not in `bodyTypeMap` pushes onto
+    `lowerCtx.unresolved` and returns `{}`. The one consumer that reads the
+    list back is `parseParams` (`params.ts:128–138`), which emits
     `theta/parse/unresolved-named-type` (E) per name — the contrast arm.
-  - `src/parser/body-type-lowering.ts:130` — `lowerTypeSource` constructs
-    `unresolved: []` and never reads it back: every unresolved name
-    collected below this call is discarded. All non-`params:` lowering
+  - `src/parser/body-type-lowering.ts:130` — `lowerTypeSource` (`:110–131`)
+    constructs `unresolved: []` and never reads it back: every unresolved
+    name collected below this call is discarded. All non-`params:` lowering
     routes through here (`lowerObjectFields` :60, `lowerInlineObject` :84,
     `buildBodyTypeSchemas` :141).
   - `src/runtime/query-schema-lowering.ts:48` (`lowerQueryResponseSchema`)
-    and `:91–104` (`buildBodyTypeMap`) — the typed-query / `invoke<T>`
+    and `:91–102` (`buildBodyTypeMap`) — the typed-query / `invoke<T>`
     lowering. `buildBodyTypeMap` is single-pass in declaration order
     (a schema's fields lower against a map containing only earlier decls,
     so forward and self references lower `{}`) and skips field-less decls;
-    the module header (`:20–24`) states the permissive posture as
+    the module header (`:19–21`) states the permissive posture as
     implementation commentary with no spec counterpart.
+  - `src/runtime/query-schema-lowering.ts:207–212` — `pruneDocumentDefs`'s
+    DEFECT GUARD: a reachable `$ref` name with no hoisted body `throw`s.
+    The self-reference arm of the fix runs into it (see §Fix).
   - `src/extension/production-theta-producer.ts:2300–2303` — the typed-query
     execution path lowers `expr.schema` against `schemaDeclsOf(...)`
     (`:4920–4922`, `kind === "schema"` only — enum decls are dropped, so a
@@ -59,13 +62,20 @@
     `:3260` — `#validateInvokeReturn` routes `invoke<T>` (and the
     `subagent fn` return boundary, FN-6) through the same lowering, so the
     same `{}` validates the child's `Ok` payload.
-  - `src/parser/theta-document.ts:1080–1118` (`collectBodyTypes`) — the
+  - `src/parser/theta-document.ts:1080–1119` (`collectBodyTypes`) — the
     `params:` `$defs` fragments come from the same single-pass
     `buildBodyTypeSchemas`, so a schema body's forward/self reference is a
     silent `{}` inside an otherwise-diagnosed `params:` document; alias-form
-    and imported names are deliberately mapped to `{}` (comment at
-    `:1102–1106`) — resolved, so no diagnostic, and equally silent.
-- **Observed at:** `0.32.0` (`b542dafe`). Offline, deterministic; no live
+    and imported names are deliberately mapped to `{}` at `:1108–1117`
+    (comment at `:1103–1106`) — resolved, so no diagnostic, and equally
+    silent.
+  - `tests/enum-schema-tag-privacy.test.ts:744–757`,
+    `tests/query-schema-transitive-defs.test.ts:332–353` and `:355–367` —
+    three green tests that encode the permissive `{}` contract as recorded
+    behaviour; `:745`/`:749` asserts it directly. The fix keeps the seam's
+    `{}` return, so all three assertions survive; their prose and two
+    fixture comments do not (see §Fix).
+- **Observed at:** `0.32.0` (`4d645f4f`). Offline, deterministic; no live
   model. Scratch vitest driving `parseThetaDocument` (the real load path)
   plus the real `runTypedQueryLoop` / `buildTypedQueryValidation` /
   `AjvSchemaValidator` composition (the harness of
@@ -119,10 +129,11 @@ defect voids.
 
 ## Reproduction
 
-All offline, at `b542dafe`. Scratch vitest (written, run, deleted): the
-real document parse (`parseThetaDocument` with the production-shaped deps)
-plus the real typed-query loop (`runTypedQueryLoop` +
-`buildTypedQueryValidation` + `AjvSchemaValidator`, composed exactly as
+All offline, at `4d645f4f` (code byte-identical to `b542dafe`; the one
+commit between them touches `docs/bugs/**` alone). Scratch vitest (written,
+run, deleted): the real document parse (`parseThetaDocument` with the
+production-shaped deps) plus the real typed-query loop (`runTypedQueryLoop`
++ `buildTypedQueryValidation` + `AjvSchemaValidator`, composed exactly as
 `#resolvePromptQuery` wires them).
 
 Fixture (parse-clean; `Triage` declared, annotation typo'd):
@@ -143,7 +154,7 @@ Probe outputs, verbatim:
 
 ```
 PROBE1 typo diagnostics: []
-PROBE1 control diagnostics: []            // @<Triage> — byte-identical load outcome
+PROBE1 control diagnostics: []            // @<Triage> — same empty diagnostic list
 
 PROBE2 lowered: {}
 PROBE2 outcome.kind: value
@@ -160,7 +171,10 @@ Probe 2 is the defect end-to-end: the typo'd annotation lowers `{}` and the
 real typed-query loop binds an arbitrary payload (here carrying the bug-0020
 forged tag key) as the typed value — `outcome.kind: "value"`. Probe 3 is
 the control: the correctly spelled annotation rejects the same payload with
-`Err(QueryError { kind: "validation", cause: "schema_validation" })`.
+`Err(QueryError { kind: "validation", cause: "schema_validation" })`. The
+two loads are diagnostic-identical (`[]` both); the load *outcomes* differ —
+the lowered schema and `query.schema` are not the same — and nothing
+surfaces that difference to the author.
 
 Forward/self references (schemas.md §Recursion's own shape, parse-clean —
 `PROBE4 diagnostics: []`):
@@ -175,7 +189,9 @@ Person lowered (Animal declared first):
 
 Declared enum at the annotation root (parse-clean — `PROBE5 diagnostics:
 []`): `@<Severity>` over `enum Severity { Low, High }` lowers `{}`; the
-object-schema control `@<Cat>` lowers closed. Inline-object annotation:
+object-schema control `@<Cat>` lowers closed. The same enum reached through
+the `params:` path lowers `{"type":"string","enum":["Low","High"]}`, which
+localises the asymmetry to `schemaDeclsOf`. Inline-object annotation:
 `lowerQueryResponseSchema("{ x: NotDeclaredAnywhere, y: integer }", [])` →
 `{"type":"object","properties":{"x":{},"y":{"type":"integer"}},...}`.
 
@@ -201,31 +217,33 @@ type 'Tirage'"]`.
   fabricated permissive contract delivers the unvalidated bind QRY-22
   exists to close.
 - [schema-subset.md §Lowering Algorithm](../spec_topics/schema-subset.md#lowering-algorithm)
-  step 3: the closed per-form emission table — named/inline schema
-  reference → `{ "$ref": "#/$defs/<Name>" }`; enum → `{ "type": "string",
-  "enum": [...] }`. No `{}` emission exists for any form.
-- [schemas.md §Recursion](../spec_topics/schemas.md#recursion): "Any
-  reference to a named schema lowers to `$ref` against the file's `$defs`.
-  Self- and mutual recursion are supported transparently" — the normative
-  example's `pets: array<Animal>` is a forward reference.
+  step 3 (`:74–85`): the closed per-form emission table — named/inline
+  schema reference → `{ "$ref": "#/$defs/<Name>" }` (`:76`); enum →
+  `{ "type": "string", "enum": [...] }` (`:80`). No `{}` emission exists
+  for any form.
+- [schemas.md §Recursion](../spec_topics/schemas.md#recursion) (`:119–141`):
+  "Any reference to a named schema lowers to `$ref` against the file's
+  `$defs`. Self- and mutual recursion are supported transparently" — the
+  normative example's `pets: array<Animal>` (`:132`, with `Animal` declared
+  at `:135`) is a forward reference.
 - [type-system.md](../spec_topics/type-system.md): a named type is "any
-  schema or enum identifier **in scope**"; "The same type grammar applies
-  in every type-annotation position: schema fields, frontmatter `params:`,
-  `let x: T`, function parameters, and `@<T>`…`` explicit query schemas."
-  §Unresolvable operands pins the compensation contract for every skipped
-  static check: "the parse-time check is skipped and the runtime AJV check
-  is the safety net."
+  schema or enum identifier in scope" (`:6`); "The same type grammar
+  applies in every type-annotation position: schema fields, frontmatter
+  `params:`, `let x: T`, function parameters, and `@<T>`…`` explicit query
+  schemas" (`:15`). §Unresolvable operands (`:48`) pins the compensation
+  contract for every skipped static check: "the parse-time check is skipped
+  and the runtime AJV check is the safety net."
 - [code-registry-parse.md](../spec_topics/diagnostics/code-registry-parse.md):
-  `theta/parse/unresolved-named-type` (E) — "Resolution is whole-file, so a
-  frontmatter-to-body forward reference is not itself a failure" (the
-  posture that distinguishes forward references from typos);
-  `theta/parse/empty-query-annotation` (E) — the bug-0014 row whose trigger
-  rationale ("accepted silently it would mark the query typed while giving
-  the runtime nothing to validate the response against") describes the
-  typo'd annotation equally. No spec sentence promises a diagnostic for an
-  undeclared annotation name — the registries were searched; that absence
-  is why class (2) is "together fail to deliver" rather than a missing
-  promised feature.
+  `theta/parse/unresolved-named-type` (E, `:88`) — "Resolution is
+  whole-file, so a frontmatter-to-body forward reference is not itself a
+  failure" (the posture that distinguishes forward references from typos);
+  `theta/parse/empty-query-annotation` (E, `:73`) — the bug-0014 row whose
+  trigger rationale ("accepted silently it would mark the query typed while
+  giving the runtime nothing to validate the response against") describes
+  the typo'd annotation equally. No spec sentence promises a diagnostic for
+  an undeclared annotation name — the registries were searched; that
+  absence is why class (2) is "together fail to deliver" rather than a
+  missing promised feature.
 
 Expected concretely: forward/self references lower to `$ref` regardless of
 declaration order; a declared-enum annotation lowers to its wire-value
@@ -234,24 +252,26 @@ diagnostic, not a silent accept-anything validator.
 
 ## Actual behaviour / root cause
 
-`lowerTypeExpr` (`params.ts:265–289`) has one unresolved arm: push the name
-onto `ctx.unresolved`, return `{}`. Whether that becomes a diagnostic is
-decided entirely by which caller built the context. `parseParams` reads the
-list and errors; `lowerTypeSource` (`body-type-lowering.ts:130`) builds a
-fresh list and discards it, and every other lowering site sits above
-`lowerTypeSource`. Three independent resolution gaps then feed the arm:
+`lowerTypeExpr` (`params.ts:236–291`) has one unresolved arm (`:280–283`):
+push the name onto `ctx.unresolved`, return `{}`. Whether that becomes a
+diagnostic is decided entirely by which caller built the context.
+`parseParams` reads the list and errors (`params.ts:128–138`);
+`lowerTypeSource` (`body-type-lowering.ts:130`) builds a fresh list and
+discards it, and every other lowering site sits above `lowerTypeSource`.
+Three independent resolution gaps then feed the arm:
 
 1. `buildBodyTypeMap` / `buildBodyTypeSchemas` lower schema bodies
    single-pass in declaration order, so a field's forward or self reference
-   looks up a map entry that does not exist yet (`query-schema-lowering.ts:
-   91–104`, `body-type-lowering.ts:141–156`).
-2. `schemaDeclsOf` (`production-theta-producer.ts:4920`) filters
+   looks up a map entry that does not exist yet
+   (`query-schema-lowering.ts:91–102`, `body-type-lowering.ts:141–156`).
+2. `schemaDeclsOf` (`production-theta-producer.ts:4920–4922`) filters
    `kind === "schema"`, so enum decls never reach the typed-query /
    `invoke<T>` lowering at all.
 3. A name declared nowhere resolves against nothing by definition; no
    parse-, load-, or runtime-phase check exists at the annotation position
-   (`parseQuery` checks only emptiness; `resolveQuerySchemas` /
-   `checkExplicitSchemaMismatch` skip unresolvable sides by design).
+   (`parseQuery` checks only emptiness, `theta-document.ts:3745–3767`;
+   `resolveQuerySchemas` / `checkExplicitSchemaMismatch` skip unresolvable
+   sides by design).
 
 The b542dafe fix (bug 0020) closed the classifier side of the forgery
 chain and left this admitting surface explicitly as residual (iii).
@@ -274,78 +294,188 @@ chain and left this admitting surface explicitly as residual (iii).
   permissive-`{}` position to route forged payloads through the QRY-22
   gate. Closing it shrinks the reachable surface of every future
   payload-shape defect.
-- The "AJV is the safety net" posture is cited across query-forms.md,
-  type-system.md, invocation.md, and tool-calls.md as the justification
-  for skipping static checks; each citation silently assumes the net is
-  the declared schema, not `{}`.
+- The "AJV is the safety net" posture is cited across query-forms.md
+  (`:66`), type-system.md (`:48`), invocation.md (`:30`), and tool-calls.md
+  (`:14`) as the justification for skipping static checks; each citation
+  silently assumes the net is the declared schema, not `{}`.
 
-## Fix options and recommendation
+## Fix
 
-1. **Conformant lowering + error diagnostic for whole-file-unresolvable
-   names (recommended).** Three coordinated parts:
-   - *Whole-file two-pass body-type lowering*: seed the name set with every
-     top-level `schema`/`enum` declaration before lowering any body, and
-     emit `{ "$ref": "#/$defs/<Name>" }` for member names (registering the
-     fragment when it lowers), so forward and self references resolve by
-     construction — the exact distinction-from-typos rule
-     `theta/parse/unresolved-named-type` already documents ("Resolution is
-     whole-file"). Recursive `$ref`s are within the pinned subset
-     ("`$defs` + `$ref`, including recursive references");
-     `pruneDocumentDefs` already walks nested defs with a cycle guard, and
-     the runtime depth cap bounds recursive data.
-   - *Enum inclusion*: pass enum decls into `lowerQueryResponseSchema` (the
-     `params:` path already lowers them via `buildBodyTypeSchemas`; the
-     query path drops them at `schemaDeclsOf`).
-   - *Error-severity diagnostic* at the annotation site for a name that
-     resolves to no top-level declaration and no imported symbol — either
-     widening the `theta/parse/unresolved-named-type` row beyond `params:`
-     or a sibling code (e.g. `theta/parse/unresolved-query-annotation`).
-     The parse table is closed (DIAG-2), so the row amendment and the
-     implementation must move together — a GOV-15 diagnostic-registry
-     carve-out, admissible in a 1.x minor, exactly as bug 0014's
-     `empty-query-annotation` row was added. Error severity follows the
-     0014 precedent (load refuses the theta), matching the `params:`
-     posture for the identical mistake.
-   Import nuance to carry with the fix: imported schema names are in scope
-   (`ImportedSymbolKind` includes `"schema"`) but `MaterializedImport`
-   carries no field bodies, so an imported name must count as *resolved*
-   for the diagnostic while its lowering stays permissive until the import
-   machinery carries lowered fragments — otherwise the new error would
-   reject legal thetas. Hot-reload interaction: annotation names never
-   resolve across `.theta` files (the lowering consults only the theta's
-   own body and its `.thetalib` imports, materialised in the same parse
-   pass), so the diagnostic recomputes deterministically per file load and
-   no discovery-order or reload-order hazard arises.
-2. **Warn-severity load diagnostic on every permissive lowering** (interim,
-   weaker): read the discarded list at `lowerTypeSource`'s call sites and
-   emit a W naming the position and the name ("response schema for
-   `@<Tirage>` lowered without validation: unresolved name 'Tirage'").
-   Registry precedents for warn-severity degraded-validation signals
-   exist (`theta/parse/empty-template`,
-   `theta/load/binder-model-strict-capability-unknown`). The theta still
-   registers, so the QRY-22 gutting and the §Recursion non-conformance
-   remain; acceptable only as a stopgap that makes the surface visible
-   (and it depends on the bug-0013 fix keeping load warnings deliverable).
-3. **Runtime rejection** (bind `Err` when the lowered root is `{}` due to
-   an unresolved name): rejected — it moves an authoring error to a
-   runtime failure far from the site, penalises every invocation instead
-   of the one load, and bug 0014 already chose parse rejection for the
-   adjacent degraded arm.
+Restore the conformant lowering and add the parse-time rejection in **one
+change, one commit**: the registry amendment, the two-pass lowering, the
+enum arm and the diagnostic land together. There is no fix-ordering
+dependency on another bug; the only coordination is the shared registry row
+with [0025](./0025-ctor-unresolved-schema-name-passthrough.md) (below).
 
-Adjacent, out of scope, recorded here for the next allocator: the
-alias-form declaration `schema X = A | B` does not parse at the
-whole-document level at HEAD (`theta/parse/unsupported-feature`, stray
-`=` / `|`; `skipDeclarationShape` in `theta-document.ts:2269` has no
-caller) although schemas.md and the registry (`theta/parse/type-alias-cycle`,
-`by`-form rows) specify it — which is why the alias-annotation case cannot
-currently arise parse-clean and is excluded from this report's affected
-enumeration.
+**Whole-file two-pass body-type lowering.** `buildBodyTypeSchemas`
+(`body-type-lowering.ts:141–156`) seeds the name set with every top-level
+`schema`/`enum` declaration before lowering any body, and emits
+`{ "$ref": "#/$defs/<Name>" }` for member names, registering each fragment
+as it lowers. Forward and self references then resolve by construction —
+the exact distinction-from-typos rule `theta/parse/unresolved-named-type`
+already documents ("Resolution is whole-file"). Recursive `$ref`s are
+within the pinned subset (`schema-subset.md:10` — "`$defs` + `$ref`,
+including recursive references"); `pruneDocumentDefs` walks nested defs
+with a cycle guard, and the runtime depth cap bounds recursive data.
+
+The self-reference arm collides with a `throw`-on-missing-def guard, and
+the construction must satisfy it. While `Node`'s own body lowers,
+`bodyTypeMap.get("Node")` is `undefined`, so `lowerTypeExpr:285`
+(`lowerCtx.defs[s] = resolved`) has nothing to register; if a `$ref` is
+minted without a registered body, `pruneDocumentDefs`'s DEFECT GUARD
+(`query-schema-lowering.ts:207–212`) throws — message: "schema lowering
+for annotation … references $defs entry '<name>' but no fragment for it
+was collected" — converting a silent-permissive lowering into a
+lowering-time `Error` on the `invoke`/query dispatch path. The cycle
+guard covers the hoist walk, not construction-time self-registration. An
+AJV **compile** assertion over the self-recursive document is the
+regression pin for this.
+
+**Enum inclusion.** `schemaDeclsOf`
+(`production-theta-producer.ts:4920–4922`) gains an enum sibling and both
+call sites (`:2302`, `:3260`) pass it. `buildBodyTypeSchemas` already
+lowers enums first (`body-type-lowering.ts:145–148`), which is why the
+`params:` path resolves them today; the two lowering entry points converge.
+`@<Severity>` then lowers to `{"type":"string","enum":["Low","High"]}`.
+
+**A bare enum at the annotation root is legal, and the conveyance text
+becomes shape-agnostic.** `type-system.md:15` applies one type grammar to
+the `@<T>` position and `schema-subset.md:80` pins the enum emission, so
+`@<Severity>` lowers to its non-object root rather than being refused.
+Audit of the conveyance surfaces at HEAD, which the original report did not
+price:
+
+- The QRY-15 template (`query-tool-loop.md:26–29`) and both respond-repair
+  templates (`query-failure-and-repair.md:49–52`, `:56–59`) say "conforming
+  to this schema" — no object-root wording, no change needed.
+- `#registerRespondTool` / `respondToolEntry` wrap the lowered schema
+  verbatim as the tool's `parameters`
+  (`production-theta-producer.ts:2615`, `:5079`) with no root-shape
+  assertion in the tree.
+- The one object-root sentence is `renderTypedAwareQueryText`
+  (`:4912–4916`, "Respond with ONLY a single minified JSON object matching
+  this JSON schema"). It becomes shape-agnostic. It is reachable only on
+  the degraded arm: `respond` is built exactly when `lowered !== undefined`
+  (`:2312–2313`) and the fused text is selected only when
+  `respond === undefined` (`:2328`), so today it interpolates the
+  annotation source text, never a lowered schema.
+- `@<string>` already lowers to the non-object root `{"type":"string"}`
+  (`tests/empty-query-annotation.test.ts:908–910`), but no test drives a
+  non-object root through the respond-tool registration: both `@<string>`
+  fixtures blank the parsed `QueryExpr`'s schema to `""` before driving
+  (`tests/off-session-two-phase.test.ts:292` with `:508`,
+  `tests/typed-two-phase-live.test.ts:334`). The registration assertion
+  that would score it — "the presented respond tool's parameters carry the
+  lowered response schema" (`tests/off-session-two-phase.test.ts:831–833`)
+  — runs only over an object-root fixture. The enum root is the first
+  non-object root to reach that registration under test, so the fix adds
+  that coverage.
+
+**Error-severity diagnostic at every position `lowerTypeSource` serves.**
+Thread the resolution set — whole-file `schema`/`enum` declarations plus
+imported `.thetalib` symbols — through `lowerTypeSource`
+(`body-type-lowering.ts:110–131`) and emit at each call site: annotation
+root, schema-body fields, inline-object annotation fields, and the
+`params:` RHS `$defs` fragments. Emit from the resolution set, not from the
+lowering result: `collectBodyTypes` (`theta-document.ts:1108–1117`) maps
+alias-form and imported names to `{}` deliberately, *as resolved*, so a
+result-shape test would reject legal thetas. The annotation-site check
+lands in `parseQuery` (near the bug-0014 gate, `theta-document.ts:3758`) or
+in `resolveQuerySchemas`. Error severity follows the bug-0014 precedent —
+load refuses the theta — and matches the `params:` posture for the
+identical mistake.
+
+**`lowerQueryResponseSchema` stays a total function returning `{}`.** The
+seam's contract does not change: an unresolvable named annotation still
+lowers to `{}`, and `undefined` remains reserved for the empty annotation
+alone. Do not "improve" this. `#validateInvokeReturn`'s early-return arm
+(`production-theta-producer.ts:3261`) returns `result` **unvalidated** on
+`undefined`, which is strictly worse than `{}` for `invoke<T>`; and
+`tests/empty-query-annotation.test.ts:896–911` pins `""` as the sole
+unlowerable input ("the seam stays as defence in depth behind the parse
+gate"). With the parse gate in place the lowering is unreachable for this
+input from source, so the gate is the sole enforcement point.
+
+**Registry.** Widen `theta/parse/unresolved-named-type`
+(`docs/spec_topics/diagnostics/code-registry-parse.md:88`) from the
+`params:` right-hand side to every `NamedType`-resolution position —
+`params:` RHS, `@<T>` annotation, constructor name, schema-body fields. One
+row, one message (`unresolved named type '<name>'`), one DIAG-2 amendment
+(`diagnostic-shape.md:72`), landing in the same commit as the code. The
+existing row description already states the exact predicate ("names no
+in-scope `schema`/`enum` declaration or imported `.thetalib` symbol.
+Resolution is whole-file"). Do not mint a per-site code and do not widen
+`theta/parse/unknown-identifier`. GOV-15's diagnostic-registry carve-out
+(`docs/spec_topics/governance/source-language-stability.md:25`) admits the
+newly-rejected inputs within a 1.x minor, exactly as bug 0014's
+`empty-query-annotation` row was added.
+
+[0025](./0025-ctor-unresolved-schema-name-passthrough.md) widens the same
+row for the constructor-name position. The two bugs share one registry
+amendment: whichever lands first writes the widened row, and the second
+cites it rather than re-editing it. Both need the same imported-symbol
+nuance, handled once by the row's whole-file predicate. The code sets are
+disjoint (`checkObjectExpr` versus the lowering path), so the fixes are
+independently landable.
+
+**Import nuance.** Imported schema names are in scope (`ImportedSymbolKind`
+includes `"schema"`, `src/runtime/lexical-environment.ts:109`) but
+`MaterializedImport` (`:117–125`) carries no field bodies, so an imported
+name counts as *resolved* for the diagnostic while its lowering stays
+permissive until the import machinery carries lowered fragments —
+otherwise the new error rejects legal thetas.
+
+**Hot-reload interaction: none.** Annotation names never resolve across
+`.theta` files (the lowering consults only the theta's own body and its
+`.thetalib` imports, materialised in the same parse pass), so the
+diagnostic recomputes deterministically per file load and no
+discovery-order or reload-order hazard arises.
+
+**Existing tests that encode the permissive contract.** Three green tests
+record it as current behaviour; all three keep their assertions, because
+the seam still returns `{}`:
+
+- `tests/enum-schema-tag-privacy.test.ts:744–757` (cell f1) calls
+  `lowerQueryResponseSchema("NotDeclaredAnywhere", [])` (`:745`), asserts
+  `.toEqual({})` (`:749`), and asserts that real AJV admits the forged
+  payload. Both assertions survive — the call bypasses the parse gate. Its
+  prose ("parse-clean, no diagnostic") goes stale and must be rewritten to
+  say the seam is now unreachable from source.
+- `tests/query-schema-transitive-defs.test.ts:332–353` (self-reference
+  control) and `:355–367` (mutual control) were authored anticipating this
+  fix: `:341–342` records that the assertions were chosen to "still hold if
+  a later fix lowers the self-reference to a real recursive `$ref`". They
+  do. Their comments at `:337–338` record that an invalid nested child
+  validates OK today; after the fix
+  `{name:"root",children:[{nope:1}]}` must reject, so add that
+  depth-enforcement assertion. The fixture comments at `:131–135` and
+  `:150–151`, and the module header at `query-schema-lowering.ts:19–21`,
+  describe the single-pass permissive behaviour and go stale.
+- Baseline verified at HEAD: 53 tests across
+  `enum-schema-tag-privacy.test.ts`, `query-schema-transitive-defs.test.ts`
+  and `empty-query-annotation.test.ts` pass.
+
+**Test witness — unit, offline, no live provider.** The whole bug is
+witnessable at the `parseThetaDocument` / `lowerQueryResponseSchema` /
+`runTypedQueryLoop` boundary; the PROBE2/PROBE3 pair in §Reproduction is
+the red/green contrast (`outcome.kind === "value"` on a garbage payload is
+the red). Required beyond the probes: the AJV compile assertion on the
+self-recursive `$ref` document (guards the `pruneDocumentDefs` throw), the
+nested-child depth-enforcement assertion above, and one drive of a
+non-object (enum) root through the respond-tool registration.
+
+The body-level alias declaration `schema X = A | B` does not parse at the
+whole-document level at HEAD (`theta/parse/unsupported-feature`, stray `=`
+/ `|`; `skipDeclarationShape` in `theta-document.ts:2269` has no caller) —
+[0033](./0033-body-level-schema-alias-unsupported.md). That is why the
+alias-annotation case cannot currently arise parse-clean and is absent from
+this report's affected enumeration; it is not fixed here.
 
 ## Provenance
 
 - Origin: bug 0020 §Fix (0.32.0) residual (iii)
-  (`docs/bugs/0020-enum-schema-tags-presence-only-forgeable.md`): "The
-  permissive-`{}` lowering positions remain diagnostic-free
+  (`docs/bugs/0020-enum-schema-tags-presence-only-forgeable.md:154–157`):
+  "The permissive-`{}` lowering positions remain diagnostic-free
   (`body-type-lowering.ts:130` discards the unresolved list), so the
   admitting surface stays invisible to the author — the ingress this
   report used, unchanged by this fix." The same surface is named in 0020's
@@ -354,24 +484,38 @@ enumeration.
   was first recorded in 0020's Why-it-matters list; bug 0017's trace
   established the bind path it feeds.
 - Spec: `docs/spec_topics/query/query-failure-and-repair.md` (QRY-22,
-  `:78`); `docs/spec_topics/query/query-forms.md` (QRY-2/QRY-3/QRY-4, the
-  safety-net sentence); `docs/spec_topics/type-system.md` (named types "in
-  scope"; the uniform type-grammar sentence; §Unresolvable operands);
-  `docs/spec_topics/schema-subset.md` (§Lowering Algorithm step 3, `$defs`
-  reuse bullet); `docs/spec_topics/schemas.md` (§Recursion);
+  `:78`; the respond-repair templates, `:49–52`/`:56–59`);
+  `docs/spec_topics/query/query-tool-loop.md` (QRY-15, `:24–29`);
+  `docs/spec_topics/query/query-forms.md` (QRY-2/QRY-3/QRY-4, the
+  safety-net sentence at `:66`); `docs/spec_topics/type-system.md` (named
+  types "in scope" `:6`; the uniform type-grammar sentence `:15`;
+  §Unresolvable operands `:48`); `docs/spec_topics/schema-subset.md`
+  (§Lowering Algorithm step 3, `:74–85`); `docs/spec_topics/schemas.md`
+  (§Recursion, `:119–141`);
   `docs/spec_topics/frontmatter/frontmatter-fields-a.md` (`:58`, whole-file
   resolution); `docs/spec_topics/diagnostics/code-registry-parse.md`
-  (`unresolved-named-type`, `empty-query-annotation`, the W-severity
-  precedents); `docs/spec_topics/diagnostics/diagnostic-shape.md` (DIAG-2);
-  `docs/spec_topics/invocation.md` (§Typed return safety-net sentence).
-- Implementation evidence at `b542dafe`: `src/parser/params.ts`
-  (`:128–137`, `:204`, `:265–289`); `src/parser/body-type-lowering.ts`
-  (`:60`, `:84`, `:110`, `:130`, `:141–156`);
-  `src/runtime/query-schema-lowering.ts` (`:20–24`, `:48–86`, `:91–104`);
-  `src/extension/production-theta-producer.ts` (`:2300–2303`, `:3260`,
-  `:4920–4922`, `:4931–4936`); `src/parser/theta-document.ts`
-  (`:1080–1118`, `:2039–2052`, `:2269`, `:3745–3768`);
+  (`:88` `unresolved-named-type`, `:73` `empty-query-annotation`);
+  `docs/spec_topics/diagnostics/diagnostic-shape.md` (DIAG-2, `:72`);
+  `docs/spec_topics/governance/source-language-stability.md` (`:25`, the
+  diagnostic-registry carve-out); `docs/spec_topics/invocation.md`
+  (§Typed return safety-net sentence, `:30`);
+  `docs/spec_topics/tool-calls.md` (`:14`).
+- Implementation evidence at `4d645f4f`: `src/parser/params.ts`
+  (`:128–138`, `:204`, `:236–291`, `:280–283`);
+  `src/parser/body-type-lowering.ts` (`:60`, `:84`, `:110–131`, `:130`,
+  `:141–156`); `src/runtime/query-schema-lowering.ts` (`:19–21`, `:48–83`,
+  `:91–102`, `:153`, `:207–212`);
+  `src/extension/production-theta-producer.ts` (`:2300–2303`, `:2312–2313`,
+  `:2328`, `:2615`, `:3260–3261`, `:4903–4917`, `:4920–4922`, `:4932–4936`,
+  `:5075–5081`); `src/parser/theta-document.ts` (`:1080–1119`,
+  `:2039–2052`, `:2269`, `:3745–3767`);
   `src/runtime/lexical-environment.ts` (`:109`, `:117–125`).
+- Test evidence at `4d645f4f`: `tests/enum-schema-tag-privacy.test.ts`
+  (`:744–757`); `tests/query-schema-transitive-defs.test.ts` (`:131–135`,
+  `:150–151`, `:332–353`, `:355–367`);
+  `tests/empty-query-annotation.test.ts` (`:896–911`);
+  `tests/off-session-two-phase.test.ts` (`:292`, `:508`, `:831–833`);
+  `tests/typed-two-phase-live.test.ts` (`:334`).
 - Reproduction: scratch vitest at HEAD (9 probes — parse-clean typo vs
   control, real-loop unvalidated bind vs closed-schema rejection,
   forward/self/reorder lowering triple, declared-enum annotation,

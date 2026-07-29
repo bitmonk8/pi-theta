@@ -310,7 +310,7 @@ hardening `tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3.
 **Residuals / filed separately.** The two diagnostic-surface defects this
 report recorded under §"Fix options and recommendation" item 3 are
 deliberately not folded in and are filed as
-[bug 0023](./0023-production-bootstrap-diagnostics-dropped-and-mislabelled.md):
+[bug 0023](./0023-production-composition-omits-bootstrap-seams.md):
 the production default export supplies no `emitDiagnostic`, so every
 factory/`session_start` bootstrap diagnostic is constructed and dropped in
 production regardless of staleness (extension-bootstrap-and-per-theta.md

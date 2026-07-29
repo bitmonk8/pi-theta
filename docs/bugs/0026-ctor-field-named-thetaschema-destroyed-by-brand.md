@@ -1,25 +1,27 @@
-# Bug 0026 — A schema ctor whose declared field is literally named `__thetaSchema` has that field silently destroyed: `brandSchemaValue` redefines the just-assigned enumerable field into the non-enumerable brand, replacing its value with the schema name
+# Bug 0026 — A schema ctor whose declared field is literally named `__thetaSchema` has that field silently destroyed: `brandSchemaValue` redefines the constructor-assigned enumerable field into the non-enumerable brand, replacing its value with the schema name
 
 - **Status:** open
 - **Kind:** defect — constructor-side, orthogonal to the classification
-  privacy bug 0020 fixed (0.32.0). Both ctor hosts evaluate a schema
-  constructor by assigning every field as an ordinary enumerable property and
-  *then* branding the object; `brandSchemaValue` installs the brand with an
-  unconditional `Object.defineProperty`, which — when a *declared* field is
-  literally named `__thetaSchema` — replaces the just-assigned property's
-  value AND descriptor. `F { __thetaSchema: "user-data", x: 1 }` binds as
-  `{"x":1}` with schema tag `F`: the brand ends up healthy (correct name,
-  correct non-enumerable posture — post-0020 it classifies as genuine), the
-  author's field value is unreachable, and no diagnostic fires at parse or
-  runtime. This violates expressions.md §Object construction ("Every
-  declared field of the schema must be present" — enforced at parse against
-  the source, then un-delivered by the runtime value), the
-  runtime-value-model.md object-schema row ("JS plain object keyed by
-  **theta-side names**"), and `brandSchemaValue`'s own contract
-  (`src/runtime/value.ts:183`: branding leaves the value "indistinguishable
-  from a plain object on every theta-visible surface" — here it is
-  destructive, not invisible).
-- **Affected** (citations verified at HEAD `b542dafe`, 0.32.0):
+  privacy bug [0020](./0020-enum-schema-tags-presence-only-forgeable.md) fixed
+  (0.32.0). Both ctor hosts evaluate a schema constructor by assigning every
+  field as an ordinary enumerable property and *then* branding the object;
+  `brandSchemaValue` installs the brand with an unconditional
+  `Object.defineProperty`, which — when a *declared* field is literally named
+  `__thetaSchema` — replaces the assigned property's value AND descriptor.
+  `F { __thetaSchema: "user-data", x: 1 }` binds as `{"x":1}` with schema tag
+  `F`: the brand ends up healthy (correct name, correct non-enumerable
+  posture — post-0020 it classifies as genuine), the author's field value is
+  unreachable, and no diagnostic fires at parse or runtime. This violates
+  expressions.md §Object construction ("Every declared field of the schema
+  must be present" — enforced at parse against the source, then un-delivered
+  by the runtime value), the runtime-value-model.md object-schema row ("JS
+  plain object keyed by **theta-side names**"), and `brandSchemaValue`'s own
+  contract (`src/runtime/value.ts:183`: branding leaves the value
+  "indistinguishable from a plain object on every theta-visible surface" —
+  here it is destructive, not invisible).
+- **Affected** (citations verified at HEAD `4d645f4f`; `src/` is byte-identical
+  to the observation commit `b542dafe` — `git diff b542dafe HEAD -- src/` is
+  empty):
   - `brandSchemaValue` (`src/runtime/value.ts:186`;
     `Object.defineProperty(value, SCHEMA_TAG, …)` at `:190–195`) — redefines
     an existing enumerable own `__thetaSchema` property (still configurable
@@ -31,23 +33,29 @@
     `src/extension/production-theta-producer.ts:5643–5649` (pure host —
     assignment `:5645`, branding `:5648`). These are the only two
     `brandSchemaValue` call sites in `src/`.
-  - No parse guard admits-side: neither the schema declaration
+  - No parse guard on the admitting side: neither the schema declaration
     `schema F { __thetaSchema: string, … }` nor the ctor field raises any
     diagnostic (verified: zero diagnostics of any severity). The
     object-construction checks validate declared-field *presence* only
-    (`src/parser/theta-document.ts:4709`, `:5035`).
+    (`src/parser/theta-document.ts:4711` — the `StructuralRefs.schemas` map;
+    `:5038` — `checkObjectExpr`).
   - Downstream of the destruction: the QRY-18 outbound render walks
     enumerable keys only (`production-theta-producer.ts:5560`,
     `Object.entries`) so the field is absent from interpolated JSON;
     `theta/parse/missing-object-field` is parse-phase-only, so nothing
     observes the runtime loss; the QRY-22 lowering marks the field required
     and the schema closed (`src/parser/body-type-lowering.ts:69`, `:74–75`);
-    in-language reads of the destroyed key return the brand string via the
-    `hasOwnProperty` reads of residual (ii)
-    (`src/runtime/runtime-panics.ts:157` indexed access,
-    `src/runtime/stdlib-object.ts:104` `has(k)`).
+    in-language reads of the destroyed key return the brand string through
+    the unfiltered own-property reads reported as bug
+    [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md)
+    (`src/runtime/runtime-panics.ts:157` indexed access, `:176` member
+    access, `src/runtime/stdlib-object.ts:104` `has(k)`).
 - **Observed at:** `0.32.0` (`b542dafe`). Offline and deterministic; no live
   model required.
+- **Fix ordering:** this bug lands before bug
+  [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md). The Symbol migration in §Fix
+  also closes 0027's brand-key half; 0027 is re-scoped against the post-0026
+  baseline and ships as a separate commit.
 
 ## Summary
 
@@ -57,8 +65,8 @@ configurable data properties — and, when the ctor names a resolvable schema,
 `brandSchemaValue(obj, expr.typeName)` then installs the interpreter-private
 declaring-schema brand. The brand lives in the same string-key namespace as
 user field names (`SCHEMA_TAG = "__thetaSchema"`, `value.ts:177`). When a
-declared field is literally named `__thetaSchema`, the just-assigned property
-is configurable, so `Object.defineProperty` succeeds and replaces both halves
+declared field is literally named `__thetaSchema`, the assigned property is
+configurable, so `Object.defineProperty` succeeds and replaces both halves
 of it: the value (`"user-data"` → `"F"`) and the descriptor (enumerable →
 non-enumerable, frozen). The author's field is gone from every enumerable
 surface — `JSON.stringify`, `keys()`, the `valuesEqual` walk, the QRY-18
@@ -71,23 +79,25 @@ that schema through the destruction. There is no way to construct a value of
 such a schema in-language that carries the field. Inbound wire values of the
 same schema DO carry it — the QRY-22 gate requires it (`required` +
 `additionalProperties: false`) and `rebuildInbound`
-(`src/runtime/wire-translation.ts`) rebuilds plain enumerable objects, which
-post-0020 are correctly inert — so structurally identical author intent
-yields provenance-dependent values that never compare equal.
+(`src/runtime/wire-translation.ts:129`, plain-object rebuild at `:158–173`)
+rebuilds plain enumerable objects, which post-0020 are correctly inert — so
+structurally identical author intent yields provenance-dependent values that
+never compare equal.
 
-The sibling tag names do NOT share the defect: a declared ctor field named
-`__thetaEnum` or `__thetaResult` survives as ordinary enumerable data
+The sibling tag names do NOT share the defect today: a declared ctor field
+named `__thetaEnum` or `__thetaResult` survives as ordinary enumerable data
 (`makeEnumValue` targets a boxed `String`, `brandResult` targets the `Result`
 shape — neither runs against a ctor object), and post-0020 the enumerable
 copy no longer forges classification (verified below). The collision is
 specific to `__thetaSchema`, the one brand installed onto the ctor's own
 object.
 
-In-language, the destroyed field leaves three mutually inconsistent surfaces
-(the read mechanism is residual (ii)'s `hasOwnProperty` reads, recorded in
-bug 0020 §Fix): `f.has("__thetaSchema")` answers `true`, `f.keys()` omits the
-key, and `f["__thetaSchema"]` returns `"F"` — the schema name, not the
-assigned `"user-data"`, and not the documented `MissingObjectKeyPanic`.
+In-language, the destroyed field leaves four read surfaces that disagree
+(the read mechanism is bug [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md)'s
+unfiltered own-property reads): `f.has("__thetaSchema")` answers `true`,
+`f.keys()` omits the key, and both `f["__thetaSchema"]` and `f.__thetaSchema`
+return `"F"` — the schema name, not the assigned `"user-data"`, and not the
+documented `MissingObjectKeyPanic`.
 
 ## Reproduction
 
@@ -113,21 +123,27 @@ schemaTagOf(value):     "F"
 descriptor:             {"value":"F","writable":false,"enumerable":false,"configurable":false}
 ```
 
-Unit mechanics (`brandSchemaValue` over a just-assigned field):
+Unit mechanics (`brandSchemaValue` over a freshly-assigned field):
 
 ```
 before: {"value":"user-data","writable":true,"enumerable":true,"configurable":true}
 after:  {"value":"F","writable":false,"enumerable":false,"configurable":false}
 ```
 
-In-language read-back of the destroyed field (three surfaces, one value):
+In-language read-back of the destroyed field (four surfaces, one value):
 
 ```theta
 let f = F { __thetaSchema: "user-data", x: 1 }
-f["__thetaSchema"]   // "F"     — the schema name, not "user-data", no panic
+f["__thetaSchema"]     // "F"     — the schema name, not "user-data", no panic
+f.__thetaSchema        // "F"
 f.has("__thetaSchema") // true
-f.keys()             // ["x"]
+f.keys()               // ["x"]
 ```
+
+The member-access surface is bug [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md)
+probe S4, run against a value whose `__thetaSchema` descriptor is the one
+captured above; `evaluateMemberAccess` (`runtime-panics.ts:172`) reads the
+property at `:176` with no enumerability filter.
 
 Sibling-tag control (probe (b) — preserved-but-inert, the collision is
 `__thetaSchema`-specific):
@@ -166,45 +182,41 @@ binds with the field as ordinary enumerable data, and
 is `false` in both argument orders — a ctor-built value never equals its
 wire-provenance twin.
 
-Fix-option ordering probe (see option 3): pre-installing the non-writable
-brand and then assigning the field throws
-`TypeError: Cannot assign to read only property '__thetaSchema' of object
-'#<Object>'` (strict mode).
-
 ## Expected behaviour (what the spec and module contracts say)
 
-- expressions.md §Object construction: "Every declared field of the schema
-  must be present (omissions are `theta/parse/missing-object-field`)". The
-  parse gate enforces presence in *source*; the constructed runtime value is
-  what that presence is for. A ctor that parses clean with all fields written
-  should produce a value carrying all of them.
-- runtime-value-model.md, value-representation table, object-schema row: a
-  schema value is a "JS plain object keyed by **theta-side names**". Here one
-  declared theta-side name is not an (enumerable) key of the runtime value.
+- expressions.md §Object construction (`docs/spec_topics/expressions.md:209`):
+  "Every declared field of the schema must be present (omissions are
+  `theta/parse/missing-object-field`)". The parse gate enforces presence in
+  *source*; the constructed runtime value is what that presence is for. A ctor
+  that parses clean with all fields written should produce a value carrying
+  all of them.
+- runtime-value-model.md, value-representation table, object-schema row
+  (`:12`): a schema value is a "JS plain object keyed by **theta-side
+  names**". Here one declared theta-side name is not an (enumerable) key of
+  the runtime value.
 - `brandSchemaValue`'s contract (`value.ts:179–185`): the tag is installed
   non-enumerable "so the branded value is indistinguishable from a plain
   object on every theta-visible surface". Branding is specified as additive
   and invisible; for this ctor it is destructive — the branded value is
   missing a field its unbranded twin would have.
-- runtime-value-model.md, reference-encoding paragraph: the concrete shapes
-  are "implementation details — neither is reachable from theta code". The
-  0.32.0 fix made that hold for *classification* (an enumerable same-named
-  key is ordinary data); the ctor collision is the remaining reachable edge
-  of the string encoding — naming the internal string in a schema makes the
-  interpreter's bookkeeping observable (the field vanishes and reads back as
-  the schema name).
+- runtime-value-model.md, reference-encoding paragraph (`:16`, non-normative):
+  the concrete shapes are "implementation details — neither is reachable from
+  theta code". The 0.32.0 fix made that hold for *classification* (an
+  enumerable same-named key is ordinary data); the ctor collision is the
+  remaining reachable edge of the string encoding — naming the internal string
+  in a schema makes the interpreter's bookkeeping observable (the field
+  vanishes and reads back as the schema name).
 
-Expected concretely: `F { __thetaSchema: "user-data", x: 1 }` either
-constructs `{"__thetaSchema":"user-data","x":1}` (field preserved, brand
-intact) or is rejected loudly — never a silent
-`{"x":1}`-with-the-value-gone.
+Expected concretely: `F { __thetaSchema: "user-data", x: 1 }` constructs
+`{"__thetaSchema":"user-data","x":1}` — field preserved, brand intact — never
+a silent `{"x":1}` with the value gone.
 
 ## Actual behaviour / root cause
 
 Assign-then-brand ordering plus an unconditional `defineProperty` plus a
 shared namespace. The field loop writes `__thetaSchema` as an ordinary
 enumerable property; `brandSchemaValue` then redefines that same key —
-legal, because the just-assigned property is configurable — into the frozen
+legal, because the assigned property is configurable — into the frozen
 non-enumerable brand whose value is the schema name. No guard exists at any
 layer: the parser admits the field name in declarations and ctors (bug 0020
 established the admission for the sibling tag; verified here for
@@ -227,8 +239,9 @@ diagnostic-free, and self-contradictory across surfaces:
   the parse-time presence guarantee (`missing-object-field`) has no runtime
   counterpart to catch the loss.
 - The in-language read surfaces disagree with each other: `has` says present,
-  `keys()` says absent, indexed access returns a *different string than was
-  assigned* (the schema name) — corrupted data rather than missing data.
+  `keys()` says absent, indexed and member access return a *different string
+  than was assigned* (the schema name) — corrupted data rather than missing
+  data.
 - The wire contract inverts: QRY-22 requires of the model a field the QRY-18
   render can never show it and the theta can never construct; wire-provenance
   and ctor-provenance values of the same schema are structurally unequal.
@@ -236,100 +249,134 @@ diagnostic-free, and self-contradictory across surfaces:
   theta code and `brandSchemaValue` promises invisibility; this wrinkle is
   the one construction-side spot where both statements are still false.
 
-## Fix options and recommendation
+## Fix
 
-1. **Module-private `Symbol` brands (the parent report's Option 2;
-   recommended).** Move the brand out of the string-key namespace:
-   `SCHEMA_TAG` (and, for one posture, all three tags) becomes a module
-   `Symbol`, installed non-enumerable as today. A declared `__thetaSchema`
-   field then coexists with the brand as ordinary enumerable data — post-0020
-   an enumerable string-keyed copy is already inert for classification — and
-   this wrinkle disappears wholesale rather than per-name. It also closes
-   residual (ii)'s read-side visibility in the same stroke: the
-   `hasOwnProperty` reads at `stdlib-object.ts:104` and
-   `runtime-panics.ts:157` no longer see any brand under a string key, so
-   `obj.has("__thetaSchema")` on a branded value answers `false` and indexed
-   access raises the documented `MissingObjectKeyPanic`. Costs: diverges from
-   the string-tag + descriptor-privacy pattern bugs 0017/0020 established
-   (`privateBrandOf` reworked for `Symbol` keys — cleanest as one migration
-   of all three tags, a wider diff than this bug alone needs); the
-   non-normative reference-encoding paragraph naming the string properties
-   needs the matching edit (permitted — "may change without a spec
-   revision"); the bug-0020 clone/wire audit note carries over unchanged
-   (Symbols also do not survive JSON round-trips, so boundaries re-enter
-   through the constructors, as `brandResult`'s comment already requires).
-2. **Reject the reserved theta-side field name at parse time.** A new
-   `theta/parse/*` diagnostic at the schema-declaration site for a field
-   whose theta-side name is `__thetaSchema` (arguably all three `__theta*`
-   tag names, for uniformity — the siblings are preserved-but-inert today).
-   The declaration is the single choke point: a ctor field must be declared
-   (`theta/parse/extra-object-field` otherwise), so rejecting the declaration
-   covers every ctor; bare object literals are already rejected wholesale
-   (`theta/parse/bare-object-literal`). Costs: the registry is closed —
-   adding the code is a DIAG-2 registry amendment
-   (`docs/spec_topics/diagnostics/code-registry-parse.md` +
-   `diagnostic-shape.md` DIAG-2; admissible in a 1.x minor under the GOV-15
-   diagnostic-registry carve-out) — and it promotes an implementation-detail
-   string into a permanent language-surface reserved name, in tension with
-   the reference-encoding paragraph's "may change without a spec revision"
-   mobility (the rejection outlives any later encoding change or becomes
-   compat baggage). Smaller than option 1; leaves residual (ii) untouched.
-3. **Brand-before-assign ordering.** Rejected — analysed in both variants:
-   (a) with the brand kept non-writable (as today), the subsequent field
-   assignment throws `TypeError: Cannot assign to read only property
-   '__thetaSchema'` (probed; module code runs in strict mode) — the executor
-   reclassifies a non-panic throw as `theta/runtime/internal-error`
-   (`runtime-panics.ts`), so a parse-clean program trades silent destruction
-   for a runtime crash; (b) making the brand writable so the assignment
-   succeeds inverts the corruption: assignment to an existing own data
-   property updates the value while inheriting the non-enumerable descriptor,
-   so the brand's value becomes the user's field value (`schemaTagOf` →
-   `"user-data"`) and the field's data selects, by name, which declared
-   schema's theta→wire renames the QRY-18 render applies — re-opening the
-   value-controlled-brand class bug 0020 closed, now through the brand slot
-   itself.
+Move all three interpreter-private brands out of the string-key namespace.
+`ENUM_TAG` (`src/runtime/value.ts:48`), `RESULT_TAG` (`:73`) and `SCHEMA_TAG`
+(`:177`) become module `Symbol`s in one migration. A declared `__thetaSchema`
+field then coexists with the brand as ordinary enumerable data, and the
+collision class disappears wholesale rather than per-name.
 
-A fourth variant — skip branding when the ctor object already carries an own
-`__thetaSchema` key — preserves the field but silently drops wire-name
-translation for that value (QRY-18 renders theta-side names), trading one
-silent wrong for another; not recommended.
+**Scope is one module.** The three constants and the three tag strings occur
+nowhere in `src/` outside `src/runtime/value.ts`
+(`rg --glob '!src/runtime/value.ts' "__thetaSchema|__thetaEnum|__thetaResult" src/`
+is empty), and no test references the constants. The migration is:
+
+- The three constant declarations (`:48`, `:73`, `:177`) become `Symbol`s.
+- `privateBrandOf` (`:143`) takes a `symbol` key. Its "one privacy posture
+  for all three tags" docstring (`:130–142`) stays true — all three migrate
+  together, so the helper keeps describing a single posture.
+- The three constructors keep their non-enumerable, non-writable,
+  non-configurable install: `makeEnumValue` (`:121–126`), `brandSchemaValue`
+  (`:190–195`), `brandResult` (`:257–262`). `privateBrandOf` keeps the
+  non-enumerable predicate. A symbol key is unreachable from `JSON.parse`
+  and from theta-side construction, so the enumerable-key forgery class bug
+  [0020](./0020-enum-schema-tags-presence-only-forgeable.md) closed cannot
+  re-open through the new encoding.
+- The three readers route through the helper unchanged: `enumTagOf`
+  (`:161–164`), `schemaTagOf` (`:207–210`), `isResultValue` (`:239–241`).
+- Every docstring describing the encoding as a string property re-anchors on
+  symbols: the module header (`:10–18`), `makeEnumValue` (`:112–117`),
+  `privateBrandOf` (`:130–142`), `enumTagOf` (`:151–160`), `SCHEMA_TAG`
+  (`:166–176`), `brandSchemaValue` (`:179–185`), `schemaTagOf` (`:199–206`),
+  `isResultValue` (`:222–238`), `brandResult` (`:243–251`).
+
+**Neither ctor host changes.** `statement-executor.ts:671` and
+`production-theta-producer.ts:5648` call `brandSchemaValue` exactly as today;
+the collision disappears because the brand leaves the string-key namespace,
+not because the hosts learn about it.
+
+**Spec.** `docs/spec_topics/runtime-value-model.md:16` — the non-normative
+reference-encoding paragraph names `__thetaEnum` and `__thetaResult` as
+string properties and is edited to the symbol encoding. The paragraph's own
+"either may change without a spec revision" licenses the edit; the affected
+inputs were never conformant. `__thetaSchema` is not named in that paragraph,
+so that tag needs no removal there.
+
+**Boundary audit, not code.** Symbols do not survive JSON round-trips — the
+same constraint the string tags already have, and `brandResult`'s comment
+(`:246–248`) already requires re-entry through the constructors at any
+boundary that round-trips a `Result`. `rebuildInbound`
+(`wire-translation.ts:129`) is unaffected: it builds plain objects and
+re-tags enums through `makeEnumValue` (`:167`), never by key.
+
+**Cross-bug consequences.**
+
+- The migration also closes the brand-key half of bug
+  [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md): with no brand under a string
+  key, `obj.has("__thetaSchema")` on a branded value answers `false`, indexed
+  access raises the documented `MissingObjectKeyPanic`, and member access
+  stops reading the brand.
+- **This bug lands first.** Bug 0027 is then re-scoped against the new
+  baseline and ships as a **separate commit** — key re-encoding and receiver
+  dispatch are independent risk surfaces and do not bundle.
+- Bug [0020](./0020-enum-schema-tags-presence-only-forgeable.md)'s
+  §`Fix (0.32.0)` record needs a pointer stating that its string-tag +
+  non-enumerable-descriptor mechanism is superseded by this migration, and
+  that its residual (i) is discharged here.
+- `tests/enum-schema-tag-privacy.test.ts:96–98` carries an "OUT OF SCOPE (fix
+  option 1)" header declaring the ctor collision deliberately unpinned. The
+  fix discharges that header.
+
+**Offline lock.** A plain offline vitest is sufficient; no live or
+integration test is required. Minimum coverage:
+
+1. Unit — `brandSchemaValue` over an object already carrying an own
+   enumerable `__thetaSchema`: the field's value and enumerability survive,
+   `schemaTagOf` still returns the schema name.
+2. End-to-end through the production executor —
+   `F { __thetaSchema: "user-data", x: 1 }` stringifies to
+   `{"__thetaSchema":"user-data","x":1}` with `schemaTagOf` → `"F"`.
+3. Provenance-twin equality —
+   `valuesEqual(ctorValue, JSON.parse('{"__thetaSchema":"user-data","x":1}'))`
+   is `true` in both argument orders (currently `false` both ways).
+4. Sibling-tag controls retained, to catch a partial migration.
+5. The QRY-18 render witness (`payload: {"__thetaSchema":"user-data","x":1}`)
+   through the `LiveSessionDouble` already present in
+   `tests/enum-schema-tag-privacy.test.ts` group (d) — still offline, no
+   provider.
 
 ## Provenance
 
 - Origin: bug 0020 §Fix (0.32.0), Residuals item (i)
-  (`docs/bugs/0020-enum-schema-tags-presence-only-forgeable.md`): "The
-  ctor-collision wrinkle (the report's adjacent item (i)) survives Option 1 —
-  constructor-side, orthogonal to classification privacy: a schema ctor whose
-  *declared* field is literally named `__thetaSchema` has that field's value
-  destroyed when `brandSchemaValue` redefines the just-assigned enumerable
-  property into the brand". First identified as probe 9 of the 0020 triage
-  scratch suite; recorded in the parent report's Fix option 2 as the adjacent
-  wrinkle `Symbol` brands would fix wholesale, and deliberately not pinned by
-  the 0020 offline lock (`tests/enum-schema-tag-privacy.test.ts` header:
+  ([`./0020-enum-schema-tags-presence-only-forgeable.md`](./0020-enum-schema-tags-presence-only-forgeable.md)):
+  "The ctor-collision wrinkle (the report's adjacent item (i)) survives
+  Option 1 — constructor-side, orthogonal to classification privacy: a schema
+  ctor whose *declared* field is literally named `__thetaSchema` has that
+  field's value destroyed when `brandSchemaValue` redefines the just-assigned
+  enumerable property into the brand". First identified as probe 9 of the 0020
+  triage scratch suite; recorded in the parent report as the adjacent wrinkle
+  `Symbol` brands would fix wholesale, and deliberately not pinned by the 0020
+  offline lock (`tests/enum-schema-tag-privacy.test.ts` header at `:96–98`:
   "OUT OF SCOPE (fix option 1): the ctor-collision wrinkle … constructor-side
   and deliberately NOT pinned here").
-- Spec: `docs/spec_topics/expressions.md` §Object construction;
-  `docs/spec_topics/runtime-value-model.md` (value-representation table,
-  object-schema row; reference-encoding paragraph);
-  `docs/spec_topics/diagnostics/code-registry-parse.md` +
-  `docs/spec_topics/diagnostics/diagnostic-shape.md` DIAG-2 (fix option 2's
-  amendment path).
-- Implementation evidence at `b542dafe`: `src/runtime/value.ts:177`
-  (`SCHEMA_TAG`), `:179–185` (the invisibility contract), `:186–197`
-  (`brandSchemaValue`, `defineProperty` at `:190–195`), `:143–149`
-  (`privateBrandOf`), `:207–210` (`schemaTagOf`);
-  `src/runtime/statement-executor.ts:657–673` (effectful ctor host);
+- Related: bug [0027](./0027-typeof-receiver-dispatch-exposes-enum-result-encoding.md) — the read-side
+  half of the same shared-namespace cause (bug 0020 residual (ii)). This
+  report's fix lands first and closes 0027's brand-key half; 0027's remaining
+  receiver-dispatch defect is re-scoped afterwards.
+- Spec: `docs/spec_topics/expressions.md:209` §Object construction;
+  `docs/spec_topics/runtime-value-model.md:12` (value-representation table,
+  object-schema row) and `:16` (non-normative reference-encoding paragraph).
+- Implementation evidence, verified at HEAD `4d645f4f` (`src/` byte-identical
+  to `b542dafe`): `src/runtime/value.ts:48`/`:73`/`:177` (the three tag
+  constants), `:121–126` (`makeEnumValue` install), `:143–149`
+  (`privateBrandOf`), `:179–185` (the invisibility contract), `:186–197`
+  (`brandSchemaValue`, `defineProperty` at `:190–195`), `:207–210`
+  (`schemaTagOf`), `:239–241` (`isResultValue`), `:257–262` (`brandResult`
+  install); `src/runtime/statement-executor.ts:657–673` (effectful ctor host);
   `src/extension/production-theta-producer.ts:5643–5649` (pure ctor host),
   `:5548`/`:5560` (QRY-18 brand recovery + enumerable walk);
-  `src/parser/theta-document.ts:4709`/`:5035` (parse-only presence checks);
+  `src/parser/theta-document.ts:4711`/`:5038` (parse-only presence checks);
   `src/parser/body-type-lowering.ts:69`/`:74–75` (required + closed
-  lowering); `src/runtime/wire-translation.ts` (`rebuildInbound` — inbound
-  values stay plain); `src/runtime/runtime-panics.ts:157` and
-  `src/runtime/stdlib-object.ts:104` (the residual-(ii) read surfaces the
+  lowering); `src/runtime/wire-translation.ts:129`/`:158–173`
+  (`rebuildInbound` — inbound values stay plain); `src/runtime/runtime-panics.ts:157`
+  and `:176`, and `src/runtime/stdlib-object.ts:104` (the read surfaces the
   destroyed field is observed through).
-- Reproduction: scratch vitest at HEAD (8 probe groups / 11 tests — unit
-  destruction mechanics, verbatim end-to-end with zero-diagnostic parse
+- Reproduction: scratch vitest at HEAD (8 probe groups / 11 tests), including
+  unit destruction mechanics, verbatim end-to-end with zero-diagnostic parse
   admission, in-language read-back, sibling-tag controls, QRY-18 render drop
-  through both ctor hosts, provenance-twin inequality, QRY-22
-  required-field lowering, brand-before-assign `TypeError`), run green on the
-  signatures quoted above, then deleted per scratch policy.
+  through both ctor hosts, provenance-twin inequality, and QRY-22
+  required-field lowering — run green on the signatures quoted above, then
+  deleted per scratch policy.
+</content>
+</invoke>
