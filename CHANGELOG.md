@@ -6,6 +6,74 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-07-29
+
+### Fixed
+
+- **The enum and schema brands (`__thetaEnum` / `__thetaSchema`) classified
+  by presence-only `hasOwnProperty`: any enumerable same-named own key —
+  producible by `JSON.parse` of wire data and by ordinary theta object
+  construction, parse-clean — forged the brand, corrupting `==` in both
+  directions (structurally different tag-carrying objects compared equal
+  through the enum arm's `String(value)`; a tag-carrying object never
+  received the documented object comparison) and destroying the QRY-18
+  interpolation render (`interpolationTypeOf` routed the forged object to
+  the enum arm — `"[object Object]"` in place of the compact JSON, whole
+  subtrees collapsing inside `translateInterpolationOutbound`); a forged
+  `__thetaSchema` name let wire data select, by name, which declared
+  schema's theta→wire renames were applied to its sibling fields (bug
+  0020).** Honest reachability, as filed: the corruption is deterministic
+  and offline-reproducible — including fully in-language, no wire — but the
+  trigger key names are interpreter internals, so accidental collision is
+  improbable, unlike bug 0017's ubiquitous `ok` field; wire-side, a forged
+  payload passes the QRY-22 gate only through permissive `{}` lowering
+  positions or a typed-invoke schema that declares the tag-named field.
+  Root cause: the constructors install the tags non-enumerable, but
+  `enumTagOf` / `schemaTagOf` tested bare key presence, discarding the
+  descriptor distinction between a constructor-installed brand and arriving
+  data exactly where it mattered — `isResultValue` (bug 0017, 0.27.0)
+  already demonstrated the correct check three declarations away. Fix (bug
+  doc Option 1): one module-private `privateBrandOf(value, tag)` in
+  `src/runtime/value.ts` — the own-property descriptor must exist AND be
+  non-enumerable (non-null-object and array guards unified) — with
+  `enumTagOf`, `schemaTagOf`, and `isResultValue` all routed through it:
+  one privacy posture, three tags; the enum/schema classifiers narrow the
+  brand to `typeof "string"`, replacing the blind casts. Constructors are
+  untouched (every construction site already installs non-enumerable
+  through them), JSON/wire output is byte-unchanged, and every consumer
+  (`valuesEqual`, `isEnumValue`, `interpolationTypeOf`, both
+  `translateInterpolationOutbound` sites, the query render) inherits the
+  fix. Review found an adjacent membership hole in the same forged-key
+  class, closed here too: `valuesEqual`'s object arm tested membership with
+  `hasOwnProperty`, which matches non-enumerable brands — a forged
+  enumerable `__thetaSchema` key satisfied membership against a genuinely
+  branded object (an asymmetric false-equal); membership is now
+  enumerable-only (`propertyIsEnumerable`), mirroring the `Object.keys`
+  walk. The non-normative reference-encoding paragraph of
+  `runtime-value-model.md` now states the enum tag is recognised by the
+  non-enumerable descriptor, never by key presence. Verification: full
+  default suite 221 files / 2580 tests green; typecheck and lint clean.
+  Offline lock: `tests/enum-schema-tag-privacy.test.ts` (20 tests —
+  classifier units, genuine-construction controls, `valuesEqual` both
+  directions, the QRY-18 render through the real private routing, the
+  report's in-language `a == b` end-to-end, and the QRY-22
+  permissive-`{}` admission with closed-schema rejection control as
+  ingress documentation); 10 red at 655e4d39 with the report's signatures
+  (forged classification `true` / `"Person"`; `valuesEqual` `true` on
+  structurally different pairs; renders collapsing to `[object Object]`;
+  in-language `a == b` `true`), green post-fix, red direction re-proven by
+  base revert plus byte-identical restore. Live:
+  `tests/live/live-production-acceptance.test.ts` 7/7 with two new
+  witnesses — a QRY-18 enum-interpolation control (a genuine enum
+  interpolated into a real typed query renders its bare wire string in the
+  outbound text; red-proven by classifier mutation) and a
+  forged-`__thetaEnum` wire-ingress witness (a spawned subagent child's
+  PIC-59 envelope carries the forged tag through `invoke<Forged>` typed
+  return-validation and the parent binds it as a plain object,
+  interpolating byte-exact compact JSON; red-proven at the base revert,
+  where the rendered segment collapses to `[object Object]`) — plus
+  `tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3.
+
 ## [0.31.0] - 2026-07-29
 
 ### Fixed

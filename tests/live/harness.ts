@@ -280,6 +280,18 @@ export interface DrivenTurn {
   /** Streamed assistant text of the user session (stochastic). */
   readonly text: string;
   /**
+   * Exact user-turn text(s) appended to the user session during THIS drive,
+   * read off the settled in-memory `SessionManager` after `prompt()` resolves
+   * (deterministic; no dependence on event timing). A prompt-mode `@`-query's
+   * QRY-18 rendered template lands here — the free-phase turn of a TYPED query
+   * included (`LivePromptQueryModel` issues it via `pi.sendUserMessage`; only
+   * the forced respond turn is off-session) — so this is the outbound-render
+   * observable: the exact text the theta CODE computed and sent, independent
+   * of the model's reply. Mirrors the hardening probe harness's `userTexts`
+   * channel.
+   */
+  readonly userTexts: readonly string[];
+  /**
    * `theta-system-note` channel entries appended during THIS drive, read off
    * the settled in-memory `SessionManager` after `prompt()` resolves
    * (deterministic; no dependence on event timing). EVERY fail-closed ending
@@ -307,9 +319,39 @@ export async function driveSlashCaptureTurn(
   const entriesBefore = handle.sessionManager.getEntries().length;
   const driven = await driveSlash(handle.session, slashInvocation);
   // Slice off only the entries THIS drive appended, then extract the
-  // `theta-system-note` channel contents (string or text-part-array content).
+  // `theta-system-note` channel contents (string or text-part-array content)
+  // and the user-turn texts (the deterministic outbound-render channel).
   const appended = handle.sessionManager.getEntries().slice(entriesBefore);
-  return { text: driven.text, systemNotes: collectSystemNotes(appended) };
+  return {
+    text: driven.text,
+    userTexts: collectUserTexts(appended),
+    systemNotes: collectSystemNotes(appended),
+  };
+}
+
+/**
+ * Extract the user-turn text(s) from a slice of in-memory SessionManager
+ * entries — the settled-transcript source of truth for what the theta code
+ * sent to the model. A user turn is a `type:"message"` entry whose
+ * `message.role === "user"`; its `content` is a string or a text-part array.
+ * Mirrors the hardening probe harness's `collectUserTexts` (deterministic read
+ * off the settled transcript after `await session.prompt(...)` resolves).
+ */
+function collectUserTexts(entries: readonly unknown[]): readonly string[] {
+  const texts: string[] = [];
+  for (const entry of entries) {
+    const e = entry as { type?: string; message?: { role?: string; content?: unknown } };
+    if (e.type !== "message" || e.message?.role !== "user") continue;
+    const content = e.message.content;
+    if (typeof content === "string") texts.push(content);
+    else if (Array.isArray(content)) {
+      for (const part of content) {
+        const t = (part as { text?: string }).text;
+        if (typeof t === "string") texts.push(t);
+      }
+    }
+  }
+  return texts;
 }
 
 /**

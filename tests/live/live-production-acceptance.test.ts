@@ -111,6 +111,82 @@ function jsonAfterSentinel(transcript: string): unknown {
   );
 }
 
+/**
+ * A typed-query theta that interpolates a GENUINE enum value into its query
+ * text (bug 0020 control). `Severity.High` is built by the real `Enum.Variant`
+ * access path (`makeEnumValue` — the non-enumerable `__thetaEnum` brand), and
+ * the QRY-18 enum rule renders the interpolation as the BARE wire string
+ * (`high`) — never `[object Object]` (the enum arm's `String(value)` over a
+ * mis-routed plain object) and never the JSON-quoted boxed form (`"high"`,
+ * the object arm's `JSON.stringify` over an unclassified boxed String). The
+ * angle markers anchor the assertion inside the rendered outbound text.
+ */
+function enumInterpolationTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Severity { High = "high", Low = "low" }',
+    "let sev = Severity.High",
+    "let echo: { level: string } = @`The severity token between angle markers is <<${sev}>>. " +
+      "Return an object whose level field is exactly that token.`?",
+    "echo",
+  ].join("\n");
+}
+
+/**
+ * The forged-ingress pair (bug 0020, wire seam): a `mode: subagent` CHILD
+ * whose tail is a ctor-minted object carrying `__thetaEnum` as an ordinary
+ * (enumerable) declared field, and a prompt-mode PARENT whose TYPED
+ * `invoke<Forged>("./forgedchild.theta")` binds the child's PIC-59 JSON
+ * envelope through the real return-validation gate — the closed declared
+ * schema `Forged` legitimately DECLARES `__thetaEnum: string` as an ordinary
+ * field (the parser admits the name; the offline e2e group (e) pins the same
+ * in-language), so AJV admits the payload and the parent binds a plain object
+ * carrying the enumerable forged tag. The payload is CODE-COMPUTED end to end
+ * — the child body drives no model turn and the envelope is
+ * `JSON.stringify`/`JSON.parse` of the tail — deterministic bytes (the
+ * child-side genuine non-enumerable `__thetaSchema` brand never serialises).
+ * The parent's untyped query interpolates it between `FORGED=`/`|END`
+ * markers: post-0020 the QRY-18 OBJECT rule renders the compact JSON;
+ * pre-0020 the forged tag routed it to the enum arm and the rendered text
+ * collapsed to `[object Object]`.
+ *
+ * Two alternative compositions cannot witness this seam:
+ *   • permissive-annotation typed QUERY — the lowered `{}` respond schema
+ *     advertises no required fields, so the model frequently (and
+ *     schema-compliantly) calls respond with empty arguments; the payload
+ *     shape is stochastic. Both of that composition's seams are witnessed
+ *     deterministically offline (tests/enum-schema-tag-privacy.test.ts:
+ *     group (f) pins the permissive QRY-22 admission, groups (a)/(c)/(d)/(e)
+ *     the classifier/render behaviour).
+ *   • UNTYPED invoke — `invoke(...)` without a type argument returns
+ *     `Result<null, …>` BY DESIGN (invocation.md §Typed return: "the runtime
+ *     discards the child's return value entirely"; the INVCEIL-3 finding),
+ *     so no payload can cross that form.
+ */
+function forgedIngressParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema Forged { __thetaEnum: string, x: integer }",
+    'let v = invoke<Forged>("./forgedchild.theta")?',
+    "@`FORGED=${v}|END reply with exactly: OK`",
+  ].join("\n");
+}
+
+/** The subagent child minting the forged payload in code (no model turn). */
+function forgedIngressChildTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "---",
+    "schema Forged { __thetaEnum: string, x: integer }",
+    'Forged { __thetaEnum: "Severity", x: 1 }',
+  ].join("\n");
+}
+
 /** A subagent-mode `.theta` whose one untyped query drives a private spawned session to completion. */
 function subagentTheta(): string {
   return [
@@ -329,6 +405,152 @@ describe("H8a-T — subagent-mode drive against a live model (Convention: live-h
         failureNotes,
         "the subagent drive did not reach a success terminal — it surfaced " +
           "fail-closed system note(s): " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Tests bullet 6 — QRY-18 enum interpolation outbound render, live (bug 0020
+// control). A GENUINE enum value (`Severity.High`, built by the real
+// `Enum.Variant` access path) interpolated into a typed `@`-query's text
+// renders as the BARE wire string in the REAL outbound user turn — proving
+// the bug-0020 descriptor-privacy tightening (`enumTagOf` classifies only the
+// non-enumerable constructor-installed brand) did not break genuine enum
+// classification on the live drive. Deterministic channels only: the
+// free-phase turn of a typed query is issued ON-session via
+// `pi.sendUserMessage` (only the forced respond turn is off-session — bug
+// 0010), so `turn.userTexts` carries the exact QRY-18-rendered text the theta
+// CODE computed, independent of the model's reply; `turn.systemNotes` carries
+// every fail-closed ending (SLSH-3).
+// ===========================================================================
+
+describe("H8a-T — QRY-18 enum interpolation outbound render, live (bug 0020 control)", () => {
+  it("renders a genuine enum interpolation as the bare wire string in the real outbound typed-query text", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "enumlive", text: enumInterpolationTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition (the intended-reason red): the command must exist before a
+      // live turn is driven, so a fixture/parse failure reds with zero tokens.
+      expect(
+        handle.command("enumlive"),
+        "no enum-interpolation command to invoke — the .theta failed discovery/parse. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/enumlive");
+      const outbound = turn.userTexts.join("\n");
+      // QRY-18 enum rule: the genuine enum interpolation renders the BARE wire
+      // string — marker-anchored so the assertion reads exactly the rendered
+      // interpolation site.
+      expect(
+        outbound,
+        "the outbound typed-query text must carry the bare wire string at the " +
+          "interpolation site. Outbound user texts: " + JSON.stringify(turn.userTexts),
+      ).toContain("<<high>>");
+      // Neither failure shape of a broken classifier: the JSON-quoted boxed
+      // form (object-arm JSON.stringify over an unclassified boxed String) …
+      expect(outbound).not.toContain('<<"high">>');
+      // … nor the enum-arm String(value) collapse of a mis-routed plain object.
+      expect(outbound).not.toContain("[object Object]");
+      // No fail-closed ending: the typed bind resolved Ok (past AJV and `?`).
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/enumlive (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the enum-interpolation drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Tests bullet 7 — forged `__thetaEnum` wire ingress binds as a PLAIN object,
+// live (bug 0020). A REAL spawned subagent child (the PIC-59 envelope —
+// "driving it needs a child spawn", never driven before this witness) returns
+// a code-computed object carrying `__thetaEnum` as an ordinary enumerable
+// field; the parent's `invoke<Forged>` binds it from the wire through the
+// real typed return-validation gate (the closed schema DECLARES the field, so
+// AJV admits it). Post-0020 the classifiers ignore the forged key (the brand
+// is the non-enumerable descriptor, not the key name), so the bound value
+// takes the QRY-18 OBJECT rule and interpolates as compact JSON — pre-fix the
+// forged tag routed it to the enum arm and the rendered outbound text
+// collapsed to `[object Object]`. Every asserted byte is code-computed (child
+// tail → envelope → parse → validate → render); the model never composes the
+// payload. Deterministic channels only: `turn.userTexts` (marker-anchored
+// rendered segment) + `turn.systemNotes`.
+// ===========================================================================
+
+describe("H8a-T — forged __thetaEnum wire ingress binds as a plain object, live (bug 0020)", () => {
+  // `retry: 1`: the payload path is fully code-computed, so the only re-rolled
+  // reds are environmental — transport blips on the parent's single untyped
+  // turn, and one observed transient zero-registration boot (`Registered: []`;
+  // the precondition reds with zero tokens — with the production
+  // `emitDiagnostic` seam unwired, open bug 0023, any bootstrap failure is
+  // silent, so no diagnostic names the cause). A classifier regression reds
+  // every attempt: the rendered segment is `[object Object]`, deterministically.
+  it("a typed invoke binds a spawned child's forged-tag envelope as a plain object and interpolates it as compact JSON", { retry: 1 }, async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "forgedwire", text: forgedIngressParentTheta() },
+      { source: "project", stem: "forgedchild", text: forgedIngressChildTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition (the intended-reason red): both thetas parse and the
+      // parent registers before any child spawn or live turn — a red here
+      // spends no tokens.
+      expect(
+        handle.command("forgedwire"),
+        "no forged-ingress parent command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/forgedwire");
+      const outbound = turn.userTexts.join("\n");
+      // Marker-anchored extraction of the rendered `${v}` segment — the exact
+      // text theta code computed from the envelope-bound payload (fails loudly
+      // when the query never rendered, e.g. the invoke Err'd).
+      const anchored = /FORGED=([\s\S]*?)\|END/.exec(outbound);
+      expect(
+        anchored,
+        "the parent query's rendered text (FORGED=…|END) is absent — the " +
+          "invoke did not resolve Ok. Outbound user texts: " +
+          JSON.stringify(turn.userTexts) + "; system notes: " +
+          JSON.stringify(turn.systemNotes),
+      ).not.toBeNull();
+      const rendered = anchored![1]!;
+      // The QRY-18 OBJECT rule fired on the wire-forged payload: the exact
+      // compact JSON, the forged tag riding along as ordinary data — never the
+      // pre-0020 enum-arm `[object Object]` collapse. Byte-exact: the child
+      // tail's field order survives stringify → envelope → parse → re-stringify,
+      // and the genuine child-side `__thetaSchema` brand (non-enumerable) never
+      // serialises.
+      expect(
+        rendered,
+        "the envelope-bound payload must interpolate as its exact compact JSON; " +
+          "rendered segment: " + JSON.stringify(rendered),
+      ).toBe('{"__thetaEnum":"Severity","x":1}');
+      // No fail-closed ending of the drive (invoke infra errors, child refusals,
+      // and Err tails all land here — absence is the success observable).
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/forgedwire (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the forged-ingress drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
       ).toEqual([]);
     } finally {
       await handle.dispose();

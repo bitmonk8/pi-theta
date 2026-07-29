@@ -127,12 +127,40 @@ export function makeEnumValue(declaringEnum: string, wire: string): EnumValue {
   return boxed as unknown as EnumValue;
 }
 
-/** The declaring-enum tag of `value` if it is an enum value, else `undefined`. */
-function enumTagOf(value: ThetaValue): string | undefined {
-  if (typeof value === "object" && value !== null && Object.prototype.hasOwnProperty.call(value, ENUM_TAG)) {
-    return (value as unknown as Record<string, string>)[ENUM_TAG];
+/**
+ * The value of the interpreter-private brand `tag` on `value`, or `undefined`
+ * when `value` carries no genuine brand. One privacy posture for all three
+ * tags (`ENUM_TAG` / `SCHEMA_TAG` / `RESULT_TAG`): a brand is genuine only
+ * when the own-property descriptor exists AND is non-enumerable — exactly as
+ * the constructors (`makeEnumValue` / `brandSchemaValue` / `brandResult`)
+ * install it. Key presence is never consulted: JSON parsing and theta-side
+ * object construction produce only enumerable keys, so an enumerable
+ * same-named key is ordinary user/model data, not a brand — accepting one
+ * would let a wire payload or a parse-clean theta ctor forge an enum, a
+ * schema brand, or a `Result` (bugs 0017, 0020). Arrays never carry a brand;
+ * the boxed-`String` enum carrier is an object and passes the guard.
+ */
+function privateBrandOf(value: ThetaValue, tag: string): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
   }
-  return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, tag);
+  return descriptor !== undefined && !descriptor.enumerable ? descriptor.value : undefined;
+}
+
+/**
+ * The declaring-enum tag of `value` if it is an enum value, else `undefined`.
+ * The brand is the **non-enumerable** descriptor {@link makeEnumValue}
+ * installs, never the key name: JSON parsing and theta-side object
+ * construction produce only enumerable keys, so an object carrying an
+ * enumerable `__thetaEnum` key is ordinary user/model data — it takes the
+ * object arm of `==` and the object rule of the QRY-18 render like any other
+ * plain object (runtime-value-model.md, enum row: the tag is
+ * interpreter-private; bug 0020).
+ */
+function enumTagOf(value: ThetaValue): string | undefined {
+  const brand = privateBrandOf(value, ENUM_TAG);
+  return typeof brand === "string" ? brand : undefined;
 }
 
 /**
@@ -168,17 +196,17 @@ export function brandSchemaValue(
   return value;
 }
 
-/** The declaring-`schema` tag of `value` if it carries one, else `undefined`. */
+/**
+ * The declaring-`schema` tag of `value` if it carries one, else `undefined`.
+ * Only the **non-enumerable** descriptor {@link brandSchemaValue} installs
+ * classifies — an enumerable same-named key is ordinary user/model data, so a
+ * wire payload or theta ctor field naming `__thetaSchema` cannot select, by
+ * name, which declared schema's theta→wire renames the QRY-18 outbound render
+ * applies to its carrying object (bug 0020).
+ */
 export function schemaTagOf(value: ThetaValue): string | undefined {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.prototype.hasOwnProperty.call(value, SCHEMA_TAG)
-  ) {
-    return (value as unknown as Record<string, string>)[SCHEMA_TAG];
-  }
-  return undefined;
+  const brand = privateBrandOf(value, SCHEMA_TAG);
+  return typeof brand === "string" ? brand : undefined;
 }
 
 /**
@@ -204,14 +232,12 @@ export function isEnumValue(value: ThetaValue): value is EnumValue {
  * query-schema-lowering.ts) and unvalidated ingress (code-tool return
  * payloads, untyped invoke-envelope values). The `{ ok: boolean }` shape is
  * likewise not consulted: an `ok` field is ordinary user/model data (bug
- * 0017).
+ * 0017). The descriptor check is the shared {@link privateBrandOf} posture —
+ * what classifies here is the existence of a **defined** brand value (the
+ * constructors install `true`).
  */
 export function isResultValue(value: ThetaValue): value is ResultValue {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const brand = Object.getOwnPropertyDescriptor(value, RESULT_TAG);
-  return brand !== undefined && !brand.enumerable;
+  return privateBrandOf(value, RESULT_TAG) !== undefined;
 }
 
 /**
@@ -300,7 +326,10 @@ export function valuesEqual(a: ThetaValue, b: ThetaValue): boolean {
   }
 
   // Objects compare theta-side key set and per-key value (declaration order
-  // irrelevant).
+  // irrelevant). Theta-side keys are ENUMERABLE own keys on BOTH sides — the
+  // membership test mirrors the `Object.keys` walk — so an interpreter-private
+  // brand can neither satisfy membership for a forged enumerable same-named
+  // key nor defeat it (bug 0020).
   if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
     const keysA = Object.keys(a);
     const keysB = Object.keys(b);
@@ -310,7 +339,7 @@ export function valuesEqual(a: ThetaValue, b: ThetaValue): boolean {
     const objA = a as { readonly [key: string]: ThetaValue };
     const objB = b as { readonly [key: string]: ThetaValue };
     for (const key of keysA) {
-      if (!Object.prototype.hasOwnProperty.call(objB, key)) {
+      if (!Object.prototype.propertyIsEnumerable.call(objB, key)) {
         return false;
       }
       if (!valuesEqual(objA[key] as ThetaValue, objB[key] as ThetaValue)) {

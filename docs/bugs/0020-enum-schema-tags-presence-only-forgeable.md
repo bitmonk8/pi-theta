@@ -1,6 +1,12 @@
 # Bug 0020 — The enum and schema brands (`__thetaEnum` / `__thetaSchema`) classify by presence-only `hasOwnProperty`: an enumerable same-named key forges them, corrupting `==` and the QRY-18 interpolation render
 
-- **Status:** open
+- **Status:** fixed (0.32.0). Bug doc Option 1 — a shared module-private
+  `privateBrandOf` helper (own-property descriptor exists AND is
+  non-enumerable) routes `enumTagOf`, `schemaTagOf`, and `isResultValue`:
+  one privacy posture, three tags; constructors and JSON/wire output
+  unchanged. Review extended the posture to `valuesEqual`'s object-arm
+  membership (`propertyIsEnumerable`), closing a forged-key-vs-genuine-brand
+  asymmetric false-equal in the same class.
 - **Kind:** defect — the implementation diverges from the documented value
   model. `docs/spec_topics/runtime-value-model.md` (value-representation
   table, enum row) pins the enum tag as "an **interpreter-private** tag
@@ -41,6 +47,115 @@
 - **Observed at:** `0.28.0` (`28ce714d`). Offline and deterministic; no live
   model required.
 
+## Fix (0.32.0)
+
+Bug doc Option 1 — one descriptor-privacy posture for all three interpreter
+tags, implemented as a shared module-private helper in
+`src/runtime/value.ts`, plus an object-arm membership hole review found in
+the same forged-key class (line anchors at the fix commit).
+
+**Shared brand classifier (`value.ts:143`).** `privateBrandOf(value, tag)`
+returns the brand descriptor's value only when `value` is a non-null,
+non-array object AND `Object.getOwnPropertyDescriptor(value, tag)` exists
+AND is non-enumerable — the `isResultValue` check (bug 0017, `fa58456b`)
+generalised to one helper. `enumTagOf` (:161) and `schemaTagOf` (:207)
+route through it and narrow the brand with `typeof === "string"` (the
+blind `Record<string, string>` casts are gone; the `Array.isArray` guard
+the two classifiers disagreed on is unified in the helper — the report's
+adjacent item (ii)). `isResultValue` (:239) routes through the same helper
+(what classifies is a defined brand value; the constructors install
+`true`). Constructors untouched: `makeEnumValue` / `brandSchemaValue`
+already install non-enumerable / non-writable / non-configurable, and
+every construction site routes through them (`lexical-environment.ts:533`,
+`wire-translation.ts:167`, `statement-executor.ts:671`,
+`production-theta-producer.ts:5648`) — genuine values keep classifying,
+and every consumer (`valuesEqual`, `isEnumValue`, `interpolationTypeOf`,
+both `translateInterpolationOutbound` sites, the query render) inherits
+the rejection of enumerable same-named keys, which is all `JSON.parse` and
+theta-side construction can mint. JSON/wire output is byte-unchanged (the
+tags never serialised).
+
+**`valuesEqual` object-arm membership (`value.ts:342`).** Review round 1:
+the object arm walked `Object.keys(a)` (enumerable own) but tested
+membership on `b` with `hasOwnProperty`, which matches non-enumerable
+brands — a forged enumerable `__thetaSchema` key satisfied membership
+against a genuinely branded object by name and, through the unfiltered
+property read, by value:
+`valuesEqual(JSON.parse('{"__thetaSchema":"Person","name":"x"}'),
+brandSchemaValue({name:"x", other:1}, "Person"))` compared `true` in that
+argument order and `false` reversed — an asymmetric false-equal in the
+same forged-key class, surviving the classifier fix (pre-existing at the
+fix base). Membership is now enumerable-only (`propertyIsEnumerable`),
+mirroring the key walk: theta-side keys are enumerable own keys on both
+sides, so a brand can neither satisfy membership nor defeat it.
+
+**Spec (`runtime-value-model.md`).** One sentence added to the
+non-normative reference-encoding paragraph: the enum tag is recognised the
+same way as the `Result` brand — by the non-enumerable descriptor, never
+by key presence — so an object naming `__thetaEnum` as an ordinary
+(enumerable) key is an ordinary object value. `type-system.md` needed no
+edit (its "interpreter-private / not reachable from theta code" claims
+hold post-fix). `coverage-matrix.md` unaffected (no new REQ-ID; the RVM
+code-keyed obligation rows already cover `value.ts`).
+
+**Citation refresh.** The bug-0019 fix (`655e4d39`) moved
+`statement-executor.ts`: the object/field assignment cited at `:659` is
+`:664` and the effectful ctor branding cited at `:666` is `:671` at the
+fix base — both refreshed in place above — and the invoke-envelope bullet
+is corrected (the untyped form discards the child's value; the payload
+path is typed `invoke<T>`).
+
+**Verification.** Full default suite 221 files / 2580 tests green;
+typecheck and lint clean. Offline lock:
+`tests/enum-schema-tag-privacy.test.ts` (20 tests) — (a) classifier units,
+(b) genuine-construction controls across the construction sites (ctor
+branding, `Enum.Variant` access, inbound re-tag), (c) `valuesEqual`
+including the membership pair, (d) the QRY-18 render driven through the
+real private routing (`renderQueryText` → `interpolationTypeOf` →
+`translateInterpolationOutbound`, observed at the `sendUserMessage` seam),
+(e) the report's in-language `a == b` end-to-end through the production
+executor, (f) the QRY-22 permissive-`{}` admission + closed-schema
+rejection as ingress documentation. 10 red at `655e4d39` with the report's
+signatures (forged classification `true` / `"Person"`; `valuesEqual`
+`true` on structurally different pairs; renders collapsing to
+`[object Object]`; in-language `a == b` `true`), green post-fix; red
+direction re-proven by base revert of `value.ts` plus byte-identical
+restore (SHA-256-verified). Live:
+`tests/live/live-production-acceptance.test.ts` 7/7 — the five
+pre-existing bullets plus two new witnesses: (i) a QRY-18
+enum-interpolation control — a genuine enum interpolated into a real typed
+query renders its bare wire string (`<<high>>`) in the outbound text
+(red-proven by classifier mutation: the boxed-String value renders as its
+index-keyed object form); (ii) a forged-`__thetaEnum` wire-ingress witness
+— a spawned subagent child's PIC-59 envelope carries the forged tag
+through `invoke<Forged>` typed return-validation (the tag key as a
+declared field of a closed schema) and the parent binds it as a plain
+object, interpolating byte-exact `{"__thetaEnum":"Severity","x":1}`
+(red-proven at the base revert: the rendered segment collapses to
+`[object Object]` — the live corruption signature).
+`tests/live/harness.ts` gains the `userTexts` outbound-text channel
+(settled-transcript read, additive). Live regression:
+`tests/live/hardening/recent-rfc-live-drives.test.ts` 3/3 (drives `match`
+over live `Result`s through the re-routed `isResultValue`).
+
+**Residuals.** (i) The ctor-collision wrinkle (the report's adjacent item
+(i)) survives Option 1 — constructor-side, orthogonal to classification
+privacy: a schema ctor whose *declared* field is literally named
+`__thetaSchema` has that field's value destroyed when `brandSchemaValue`
+redefines the just-assigned enumerable property into the brand
+(`F { __thetaSchema: "user-data", x: 1 }` binds as `{"x":1}` with schema
+tag `F`). (ii) Read-side brand visibility (found in review, established by
+code reading): `stdlib-object.ts:104` — in-language
+`obj.has("__thetaSchema")` answers `true` on a branded value
+(`hasOwnProperty`), and `runtime-panics.ts:157` — indexed access
+`obj["__thetaSchema"]` returns the brand string instead of
+`MissingObjectKeyPanic`; tension with `brandSchemaValue`'s
+"indistinguishable from a plain object on every theta-visible surface".
+(iii) The permissive-`{}` lowering positions remain diagnostic-free
+(`body-type-lowering.ts:130` discards the unresolved list), so the
+admitting surface stays invisible to the author — the ingress this report
+used, unchanged by this fix.
+
 ## Summary
 
 `makeEnumValue` (`value.ts:119`) and `brandSchemaValue` (`value.ts:158`)
@@ -52,7 +167,7 @@ not: `enumTagOf` and `schemaTagOf` test
 `Object.prototype.hasOwnProperty.call(value, TAG)` and read the property,
 accepting an **enumerable** same-named key as a brand. `JSON.parse` produces
 only enumerable own properties, and the statement executor's object/field
-assignment (`statement-executor.ts:659`) likewise produces enumerable
+assignment (`statement-executor.ts:664`) likewise produces enumerable
 keys — so both wire data and theta source can mint objects the runtime then
 treats as enum values or schema-branded values.
 
@@ -149,10 +264,15 @@ Not driven end-to-end here, stated honestly:
   bound payload of a typed query is the parsed/validated JSON value
   (bug 0017's trace established the bind path), so the composition adds no
   new mechanism.
-- The untyped-invoke ingress (`makeOk(result.value as ThetaValue)`,
+- The invoke-envelope ingress (`makeOk(result.value as ThetaValue)`,
   `production-theta-producer.ts:1868`, over the `JSON.parse`d PIC-59 child
-  envelope — no return annotation ⇒ no validation) is established by code
-  reading; driving it needs a child spawn.
+  envelope) is established by code reading; driving it needs a child spawn.
+  Correction at the fix base (`655e4d39`): the untyped `invoke(...)` form
+  returns `Result<null, …>` — the runtime discards the child's value above
+  that seam (invocation.md §Typed return) — so a payload reaches the
+  classifiers there only through typed `invoke<T>`, whose closed lowering
+  admits a tag-named key as a *declared* field (the parser already admits
+  the field name in-language, reproduction above).
 - Ingress paths that do **not** reach the classifiers with forgeable data:
   code-tool results (`lowerResolvedToolEnvelope` lowers to `Ok(<joined
   text>)` — strings only); untyped queries (bind text); closed declared
@@ -242,7 +362,7 @@ against the declared-schema environment and applies its renames.
    non-writable / non-configurable, and every `src/` construction site
    routes through them (`lexical-environment.ts:533` for `Enum.Variant`
    access, `wire-translation.ts:167` for the inbound re-tag,
-   `statement-executor.ts:666` and `production-theta-producer.ts:5648` —
+   `statement-executor.ts:671` and `production-theta-producer.ts:5648` —
    the effectful and pure-expression hosts — for ctor branding).
    `valuesEqual`,
    `isEnumValue`, `interpolationTypeOf`, and both
