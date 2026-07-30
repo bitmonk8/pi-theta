@@ -578,8 +578,13 @@ describe("bug 0011 — the binder complete() call is the spec-pinned forced-tool
       ),
       "one line must carry the no-invent-defaults instruction (item 8)",
     ).toBe(true);
-    // The OLD prose prompt's inline JSON-only instruction must be gone.
-    expect(prompt).not.toContain("Respond with ONLY a single minified JSON object");
+    // The binder system prompt must never carry `renderTypedAwareQueryText`'s
+    // fused typed-query conveyance sentence (that text lives only on the
+    // degraded arm of the query driver, never the binder). Retargeted to bug
+    // 0028's shape-agnostic wording ("JSON value", not "JSON object") so the
+    // assertion still discriminates instead of passing because the OLD
+    // substring no longer appears anywhere, for an unrelated reason.
+    expect(prompt).not.toContain("Respond with ONLY a single minified JSON value");
   });
 
   // ---------------------------------------------------------------------------

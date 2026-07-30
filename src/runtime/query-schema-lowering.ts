@@ -16,18 +16,53 @@
 // validated; a nested cross-schema `NamedType` inside another schema's body
 // lowers to a `$ref` whose fragment is hoisted into the document's top-level
 // `$defs` (bug 0004 — `pruneDocumentDefs` is a hoist-and-close step, so
-// transitively-reachable defs are enforced, not dropped); a name not yet in the
-// single-pass body-type map (a forward or self reference) or unresolved lowers
-// permissively (`{}`).
+// transitively-reachable defs are enforced, not dropped). Every top-level
+// `schema` / `enum` name — including a forward, self, or mutual reference —
+// resolves to a `$ref` under the two-pass whole-file `buildBodyTypeSchemas`
+// performs (bug 0028 §Fix; body-type-lowering.ts), so declaration order never
+// costs a `$ref`.
+//
+// A permissive `{}` fragment — one AJV accepts every payload against, so the
+// QRY-22 gate constrains nothing at that position — has exactly three origins
+// below this seam, the three `{}` returns of `lowerTypeExpr` (params.ts). Arms
+// 1 and 2 always build a typed object or enum fragment, so the residual reduces
+// to those three, and each is reachable from a LOADABLE theta:
+//
+//   - THE UNRESOLVED-NAME ARM, for a name in scope that carries no lowerable
+//     body here: a symbol a body `import` pulls in (both call sites hand this
+//     seam the importing file's OWN `schema` / `enum` decls, and the imported
+//     symbol's fields live in the other file), or a `schema` decl the parser
+//     retained no field list for (it retains one only for a plain
+//     `ident: Type` object body). Both names are in scope, so
+//     `theta/parse/unresolved-named-type` admits them by design. A name
+//     resolving to NO declaration lands on the same arm but is refused from
+//     source (theta-document.ts), making the `{}` for THAT input defence in
+//     depth behind the parse gate rather than reachable behaviour.
+//   - THE NON-`array` GENERIC ARM: a `Result<T, E>` value type `parseLet`
+//     propagates verbatim off a `let r: Result<…> = @`…`` binding (`Result` is
+//     "never lowered to a JSON Schema fragment" — grammar.md
+//     §"Generic-application constructors" — so there is no shape here to
+//     validate against and the parse gate deliberately does not refuse it); any
+//     other constructor application (`Foo<string>`), whose constructor name is
+//     resolved nowhere; and an `array<…>` whose argument text carries a
+//     top-level comma (`array<{a: string, b: integer}>`), which the angle-depth
+//     argument split reports as two arguments, so the single-argument `array`
+//     arm does not match and the generic arm takes it.
+//   - THE TRAILING CATCH-ALL, one level under the root: arm 2 below is the only
+//     dispatch to `lowerInlineObject`, so an inline object type in any other
+//     position lowers `{}` (`array<{a: string}>` → `items: {}`), and a literal
+//     atom is recognised only by `lowerTypeSource`'s own top-level check, so a
+//     literal arm of a union that is not all-literal lowers `{}`
+//     (`"a" | Triage` → `anyOf: [{}, {"$ref": …}]`).
 //
 // Spec: schema-subset.md (SUBS-1 lowering), query/query-failure-and-repair.md
 // (QRY-22).
 
 import type { LoweredSchema } from "../seams/schema-validator";
-import type { SchemaDecl } from "../parser/theta-document";
+import type { EnumDecl, SchemaDecl } from "../parser/theta-document";
 import {
+  buildBodyTypeSchemas,
   lowerInlineObject,
-  lowerObjectFields,
   lowerTypeSource,
 } from "../parser/body-type-lowering";
 import {
@@ -42,14 +77,18 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Lower a typed query's declared response-schema annotation to its
  * AJV-validatable JSON Schema (QRY-22 / SUBS-1), or `undefined` when the
  * annotation carries no lowerable shape. `annotation` is the verbatim
- * `@<Schema>` text; `schemas` are the theta body's `schema` declarations, used to
- * resolve a named reference whole-file to its retained object-body fields.
+ * `@<Schema>` text; `schemas` and `enums` are the theta body's `schema` /
+ * `enum` declarations, used to resolve a named reference whole-file to its
+ * retained object body or its wire-value enum (bug 0028 §Fix: `enums`
+ * defaults to `[]` so the two shipped seam-contract pins that call this with
+ * two arguments keep compiling).
  */
 export function lowerQueryResponseSchema(
   annotation: string,
   schemas: readonly SchemaDecl[],
+  enums: readonly EnumDecl[] = [],
 ): LoweredSchema | undefined {
-  const bodyTypeMap = buildBodyTypeMap(schemas);
+  const bodyTypeMap = buildBodyTypeSchemas(schemas, enums);
   const s = annotation.trim();
   if (s.length === 0) {
     return undefined;
@@ -80,25 +119,6 @@ export function lowerQueryResponseSchema(
     result["$defs"] = defs;
   }
   return pruneDocumentDefs(result, s) as LoweredSchema;
-}
-
-/**
- * Lower every named `schema` decl's retained object body to its JSON-Schema
- * object fragment, keyed by name so a query annotation resolves a `NamedType`
- * whole-file (declaration order does not matter). A decl carrying no object body
- * (an `= …` alias or `by … = …` discriminated union) contributes no entry.
- */
-function buildBodyTypeMap(
-  schemas: readonly SchemaDecl[],
-): Map<string, Record<string, unknown>> {
-  const map = new Map<string, Record<string, unknown>>();
-  for (const decl of schemas) {
-    if (decl.fields === undefined) {
-      continue;
-    }
-    map.set(decl.name, lowerObjectFields(decl.fields, map));
-  }
-  return map;
 }
 
 /**
@@ -142,12 +162,25 @@ function buildBodyTypeMap(
  * the response-schema root; unreachable ones — including hoisted-but-unused —
  * are pruned. A document with no `$defs` passes through with nothing to hoist.
  *
- * DEFECT GUARD — a reachable `$ref` name with no hoisted body cannot arise from
- * source (the registration invariant above); if one ever does, throw a plain
- * `Error` naming the annotation and the missing def AT LOWERING TIME, so the
- * boundary wrap (`invoke-cancellation.ts` puts a thrown message on
- * `InvokeInfraError.message`; the runtime-defect surface reclassifies a typed
- * query's throw) carries a precise message instead of AJV's raw
+ * DEFECT GUARD — a reachable `$ref` name with no hoisted body cannot arise
+ * from source: the named-annotation arm (arm 1) passes the map fragment
+ * itself (`bodyTypeMap.get(s)`) as the document root, and
+ * `buildBodyTypeSchemas`'s pass 3 (body-type-lowering.ts, bug 0028 §Fix)
+ * already attached that fragment's FLAT TRANSITIVE `$defs` closure — a
+ * hoisted body for every name reachable from it, SELF INCLUDED when a self
+ * or mutual reference leads back to it — so the HOIST walk below has a body
+ * for everything the root (or any `$defs` entry) can reference. That walk's
+ * name-keyed cycle guard (`hoisted[name] !== undefined`) is what lets a
+ * RECURSIVE document — a `$ref` chain that, followed far enough, names a
+ * `$defs` entry already being hoisted — terminate instead of re-queuing the
+ * same name forever; arms 2/3 (the inline-object and primitive/union arms)
+ * reach the same guaranteed-complete closure one level down, through each
+ * directly-referenced name's own map fragment. If a reachable ref ever has
+ * no hoisted body regardless, throw a plain `Error` naming the annotation
+ * and the missing def AT LOWERING TIME, so the boundary wrap
+ * (`invoke-cancellation.ts` puts a thrown message on
+ * `InvokeInfraError.message`; the runtime-defect surface reclassifies a
+ * typed query's throw) carries a precise message instead of AJV's raw
  * `MissingRefError` resolver leak at validation time.
  */
 function pruneDocumentDefs(

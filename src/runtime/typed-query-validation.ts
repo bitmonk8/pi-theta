@@ -29,6 +29,7 @@ import {
   renderFollowUpTurn,
   type FollowUpMethodology,
 } from "./query-followup-render";
+import { respondToolWireSchema } from "./respond-tool-wire";
 import {
   runRespondRepairLoop,
   type FollowUpResult,
@@ -178,11 +179,21 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
   readonly #slug: string;
   /** The registered respond-tool name the QRY-12 templates reference (F6). */
   readonly #toolName: string;
+  /**
+   * The schema the respond tool actually accepts (bug 0028 §Fix) — the lowered
+   * schema for an object root, its single-property envelope otherwise. The
+   * QRY-12 `<schema-json>` carries THIS, because a follow-up that restates a
+   * shape the tool rejects asks the model to repeat the failure. Validation
+   * still runs against the bare lowered schema: the envelope is a wire
+   * artifact, unwrapped before any payload reaches here.
+   */
+  readonly #wire: LoweredSchema;
 
   constructor(input: TypedQueryValidationInput) {
     this.#input = input;
     this.#slug = respondSchemaSlug(input.lowered);
     this.#toolName = input.respondToolName ?? "__theta_respond_" + this.#slug;
+    this.#wire = respondToolWireSchema(input.lowered);
   }
 
   resolveDeclaredSchema(): unknown {
@@ -195,10 +206,11 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
 
   convey(): void {
     // Bug 0010: on the two-phase paths — live AND off-session (increment D) —
-    // conveyance rides the synthesised respond tool's `parameters` (the
-    // lowered schema, PIC-44) and the QRY-15 trailing message of the
-    // off-session forced respond dispatch — the query text itself is the BARE
-    // render (QRY-14 step 1). The pre-built-query-text conveyance (the fused
+    // conveyance rides the synthesised respond tool's `parameters` (its WIRE
+    // schema — query/query-tool-loop.md §Respond-tool wire schema: the lowered
+    // schema for an object root, its single-property envelope otherwise) and the
+    // QRY-15 trailing message of the off-session forced respond dispatch — the
+    // query text itself is the BARE render (QRY-14 step 1). The pre-built-query-text conveyance (the fused
     // typed-aware text) remains only for the degraded unlowerable-schema arm;
     // in every case the model has seen the shape by the time validation runs,
     // so no further conveyance is required here.
@@ -228,7 +240,7 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
       nextFollowUp: async (): Promise<FollowUpResult> => {
         const prompt = renderFollowUpTurn({
           methodology: DEFAULT_METHODOLOGY,
-          loweredSchema: this.#input.lowered,
+          loweredSchema: this.#wire,
           slug: this.#slug,
           // QRY-12 byte-equality with the REGISTERED name (bug 0010 fix
           // review, F6): a PIC-44 collision-disambiguated registration is

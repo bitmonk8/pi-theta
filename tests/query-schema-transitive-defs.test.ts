@@ -29,8 +29,10 @@
 //   - 3-level chain `array<Item2>`          RED  — MissingRefError #/$defs/Loc2
 //   - bare `Item2` (arm 1, 2-level nesting) RED  — MissingRefError #/$defs/Pos
 //     (the bug doc's "arm 1 works" holds only for ONE level of nesting)
-//   - recursive `array<Node>`               GREEN (control — see caveat in cell)
-//   - mutual `array<A>` (A declared first)  GREEN (control — see caveat in cell)
+//   - recursive `array<Node>`               GREEN (control) at 0.14.0; its
+//     depth-enforcement assertion is RED until bug 0028 lands (see the cell)
+//   - mutual `array<A>` (A declared first)  GREEN (control) at 0.14.0; its
+//     depth-enforcement assertion is RED until bug 0028 lands (see the cell)
 //   - mutual `array<B>`                     RED  — MissingRefError #/$defs/A
 //   - dedup `array<Pair>`                   RED  — MissingRefError #/$defs/Item
 //   - unused-schema pruning `array<Item>`   RED  (compile leg; `Unused` is
@@ -128,11 +130,16 @@ function expectNoNestedDefsResidue(lowered: LoweredSchema): void {
 
 // --- Fixtures ----------------------------------------------------------------
 //
-// Declaration order is leaf-first (as in the bug doc's repro). This matters:
-// `buildBodyTypeMap` lowers decls in source order, and a NamedType naming a
-// not-yet-lowered decl lowers permissively to `{}` (params.ts `lowerTypeExpr`
-// pushes it to `ctx.unresolved`), which would sidestep the `$defs` nesting this
-// bug is about. Leaf-first order makes every nested reference a real `$ref`.
+// Declaration order is leaf-first (as in the bug doc's repro). It mattered when
+// this suite was written: the body-type map was built SINGLE-PASS in source
+// order, so a NamedType naming a not-yet-lowered decl lowered permissively to
+// `{}` and sidestepped the `$defs` nesting this bug is about — leaf-first order
+// made every nested reference a real `$ref`. Bug 0028 replaced that with
+// whole-file two-pass lowering (docs/bugs/0028-unresolved-annotation-silent-
+// permissive-lowering.md §Fix), so declaration order is now irrelevant: every
+// reference to a top-level `schema`/`enum` mints a `$ref` whatever the order,
+// including a forward or self reference. The leaf-first order is retained here
+// as the bug-0004 repro's shape, not as a precondition.
 
 const CORE = [
   "schema Loc { path: string, anchor: string }",
@@ -147,8 +154,10 @@ const CHAIN = [
 
 const RECURSIVE = "schema Node { name: string, children: array<Node> }";
 
-// Mutual recursion: `A` is declared first, so `A.b` lowers permissively (`B`
-// not yet in the body-type map) while `B.a` is a real `$ref` to `A`.
+// Mutual recursion. `A` is declared first; before bug 0028 that made `A.b` lower
+// permissively (`B` not yet in the single-pass body-type map) while `B.a` was a
+// real `$ref` to `A`. Under two-pass lowering BOTH directions are `$ref`s and
+// both fragments are hoisted, so the pair is symmetric.
 const MUTUAL = ["schema A { b: array<B> }", "schema B { a: array<A> }"].join("\n");
 
 const PAIR = [CORE, "schema Pair { first: Item, second: Item }"].join("\n");
@@ -329,17 +338,17 @@ describe("bug-0004 (iv) — controls green before and after the fix", () => {
     expect(validator.validate({}).ok).toBe(false);
   });
 
-  it("recursive `Node` under `array<Node>` compiles and validates (GREEN today — recorded as a control)", () => {
-    // Recorded current behaviour (0.14.0): this cell is GREEN, but only because
-    // `Node.children` lowers PERMISSIVELY (`items: {}`) — the self-reference is
-    // not yet in the body-type map while `Node`'s own body is being lowered
-    // (buildBodyTypeMap is single-pass in declaration order). No `$ref` is
-    // minted, so no nesting defect arises. Consequence: an invalid CHILD (e.g.
-    // `{ nope: 1 }`) validates OK today — depth is not enforced. That is the
-    // body-type-map order/self-reference limitation, NOT bug 0004, so this cell
-    // deliberately asserts only compile + valid-accept + top-LEVEL rejection,
-    // which hold both before and after the 0004 fix (and still hold if a later
-    // fix lowers the self-reference to a real recursive $ref).
+  it("recursive `Node` under `array<Node>` compiles and validates, enforcing depth", () => {
+    // This cell was GREEN at 0.14.0 for a reason bug 0028 removed: `Node.children`
+    // lowered PERMISSIVELY (`items: {}`) because the self-reference was not yet in
+    // the body-type map while `Node`'s own body lowered (`buildBodyTypeMap` was
+    // single-pass in declaration order), so no `$ref` was minted and no nesting
+    // defect could arise. The consequence was that an invalid CHILD validated OK —
+    // depth was not enforced at all. The original assertions were chosen to hold
+    // "even if a later fix lowers the self-reference to a real recursive $ref";
+    // that fix is bug 0028 (docs/bugs/0028-unresolved-annotation-silent-permissive-
+    // lowering.md §Fix, whole-file two-pass lowering), so they still hold and the
+    // depth-enforcement assertion the bug doc names is added below.
     const lowered = lower("array<Node>", RECURSIVE);
     expect(Object.keys(defsOf(lowered))).toContain("Node");
     const validator = compile(lowered);
@@ -350,20 +359,34 @@ describe("bug-0004 (iv) — controls green before and after the fix", () => {
       validator.validate([{ children: [] }]).ok,
       "a Node missing `name` at the top level rejects",
     ).toBe(false);
+    // Bug 0028: the recursive `$ref` applies the SAME closed `Node` body at every
+    // depth, so a non-conforming CHILD rejects. Before that fix `children.items`
+    // was `{}` and this payload validated OK.
+    expect(
+      validator.validate([{ name: "root", children: [{ nope: 1 }] }]).ok,
+      "bug 0028 depth enforcement: a nested child that is not a `Node` rejects — the " +
+        "self-reference lowers to a recursive $ref, not to the accept-anything {}",
+    ).toBe(false);
   });
 
-  it("mutual pair under `array<A>` compiles and validates (GREEN today — recorded as a control)", () => {
-    // Recorded current behaviour (0.14.0): GREEN, but only because `A` is
-    // declared FIRST, so `A.b` lowered permissively (`items: {}` — `B` was not
-    // yet in the body-type map) and `A`'s fragment carries no refs at all. The
-    // interesting direction is `array<B>` (below), which IS red today. Same
-    // caveat as the recursive control: depth under `b` is not enforced today;
-    // assert only what holds before and after the 0004 fix.
+  it("mutual pair under `array<A>` compiles and validates, enforcing depth", () => {
+    // This cell was GREEN at 0.14.0 only because `A` was declared FIRST, so `A.b`
+    // lowered permissively (`items: {}` — `B` was not yet in the single-pass
+    // body-type map) and `A`'s fragment carried no refs at all; `array<B>` (below)
+    // was the red direction. Bug 0028's two-pass lowering makes the pair symmetric
+    // — both directions are `$ref`s and both fragments are hoisted — so the
+    // original assertions stand and depth under `b` is now enforced.
     const lowered = lower("array<A>", MUTUAL);
     expect(Object.keys(defsOf(lowered))).toContain("A");
     const validator = compile(lowered);
     expect(validator.validate([{ b: [] }]).ok).toBe(true);
     expect(validator.validate([{}]).ok, "an A missing `b` rejects").toBe(false);
+    // Bug 0028: `A.b` items resolve to the closed `B` body, so an element that is
+    // not a `B` rejects. Before that fix `A.b.items` was `{}` and it validated OK.
+    expect(
+      validator.validate([{ b: [{ nope: 1 }] }]).ok,
+      "bug 0028 depth enforcement: a nested `A.b` element that is not a `B` rejects",
+    ).toBe(false);
   });
 
   it("an UNDECLARED name under a generic stays permissive and compilable (cell-v note: the precise-error path is unreachable from source)", () => {

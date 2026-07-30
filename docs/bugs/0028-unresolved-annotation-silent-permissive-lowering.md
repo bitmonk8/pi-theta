@@ -1,6 +1,6 @@
 # Bug 0028 — A typed-query annotation naming no lowerable declaration — a typo'd/undeclared name, a declared `enum`, or a schema-body forward/self reference — lowers permissively to `{}` with no diagnostic: the QRY-22 gate validates nothing and any payload binds as the typed value
 
-- **Status:** open
+- **Status:** fixed (0.38.0)
 - **Kind:** defect, two classes on one mechanism (the two-defect report per
   the bug-0002 / bug-0023 precedent). (1) *Implementation disagrees with the
   specification*: schema-subset.md §Lowering Algorithm step 3 pins one
@@ -80,6 +80,310 @@
   plus the real `runTypedQueryLoop` / `buildTypedQueryValidation` /
   `AjvSchemaValidator` composition (the harness of
   `tests/production-typed-query-validation.test.ts`), then deleted.
+
+## Fix (0.38.0)
+
+All of §Fix in one commit (D5): the two-pass lowering, the `params:` hoist, the
+enum arm, the respond-tool wire envelope, the boundary coercion and the
+diagnostic. Line anchors at the fix commit.
+
+**Whole-file two-pass body-type lowering (`src/parser/body-type-lowering.ts:195–257`).**
+`buildBodyTypeSchemas` runs three passes over the body's top-level declarations
+where it ran one lowering in declaration order. PASS 1 (`:199`) seeds `bodies`
+with a placeholder for every top-level `schema`/`enum` name before any object
+body lowers, so `lowerTypeExpr`'s identifier arm resolves every member name and
+mints `{ "$ref": "#/$defs/<Name>" }` whatever the declaration order — the
+"resolution is whole-file" rule the registry row already states. PASS 2
+(`:211`) lowers each body against the fully seeded map, in source order,
+mutating the pass-1 placeholder identity in place, so a `$ref` minted while a
+body is still lowering points at the object that body becomes. PASS 3 (`:239`)
+attaches a flat transitive `$defs` closure (`transitiveDefNames`, `:266`) to
+each returned body. Forward, mutual and self references resolve by
+construction, and `pruneDocumentDefs`'s DEFECT GUARD
+(`src/runtime/query-schema-lowering.ts:230–245`) is satisfied because every
+minted `$ref` name carries a registered fragment before the hoist walk runs —
+the collision §Fix predicted. Pass 3 is load-bearing for exactly that reason:
+with its closure removed the guard throws `references $defs entry '<name>' but
+no fragment for it was collected` on the forward, backward and mutual shapes.
+
+**The `params:` document gets the same hoist (`src/parser/params.ts:193`,
+`hoistNestedDefs` `:226`).** `parseParams` had no hoist step, so once the
+two-pass lowering started minting `$ref`s for the `params:` `$defs` fragments,
+a name reachable only *through* another name's nested `$defs` dangled from the
+params document root: AJV failed to compile the params document and the raw
+`MissingRefError` escaped `dispatch.envelopeValidator()` on the binder path,
+after the binder LLM call had already spent tokens. `hoistNestedDefs` is
+`pruneDocumentDefs`'s HOIST+STRIP sibling — same queue walk, same first-wins
+name dedup, same shallow-clone strip — minus the reachability prune, which is
+sound because a params `defs` entry is registered only when a `$ref` is minted.
+This also heals the pre-existing backward-chain break: `params: p: Item` where
+`Item.loc: Loc` now compiles and rejects `{p:{loc:{nope:1}}}` against `Loc`'s
+closed body.
+
+**Enum inclusion (`src/extension/production-theta-producer.ts:4988`).**
+`schemaDeclsOf` (`:4977`) gains the sibling `enumDeclsOf`, and both
+`lowerQueryResponseSchema` call sites pass it — the typed-query execution path
+(`:2310–2311`) and `#validateInvokeReturn` (`:3304–3305`), so `invoke<T>` and
+the FN-6 `subagent fn` return boundary converge with the query path.
+`@<Severity>` over `enum Severity { Low, High }` lowers to
+`{"type":"string","enum":["Low","High"]}` per schema-subset.md §Lowering
+Algorithm step 3, where it lowered `{}` before.
+
+**The respond tool is registered with a WIRE ENVELOPE
+(`src/runtime/respond-tool-wire.ts`, new).** The §Fix audit that priced the
+conveyance as "wording only" was falsified by live evidence during
+verification: a tool call's `arguments` are a JSON object at the wire, and the
+host validates them against the registered `parameters` before `execute` runs,
+so the enum's non-object root rejected every call the model could emit —
+`- root: must be string`, `Received arguments: {}` — and the drive repair-spun
+past 85 s into `theta/runtime/reload-teardown-timeout` with the invocation
+still in flight. The pre-existing `@<string>` path did the same. One recipe now
+derives the registered document from the lowered one:
+
+- `respondToolWireSchema` (`respond-tool-wire.ts:91`) returns an
+  object-admitting root — and the `{}` total-function residual —
+  byte-identically, and carries every other root (`type` excluding `object`, an
+  `enum`/`const` literal set, an `anyOf`/`oneOf` union, a root `$ref`) one level
+  down under `{"type":"object","properties":{"value":<lowered>},"required":["value"]}`.
+  The object-root path — its argument shape, its content-addressed slug, and
+  `tests/off-session-two-phase.test.ts`'s registration pin — is untouched: the
+  envelope makes an unsatisfiable root satisfiable, it does not rename every
+  existing typed query's arguments.
+- The lowered document's root `$defs` table moves to the ENVELOPE root, because
+  a `#/$defs/<Name>` pointer resolves against the document root alone; left
+  under `properties.value` a lowered `array<Item>` root's own pointers dangle.
+- The one recipe feeds the on-session registration (`:2644`, `:2648`), the
+  off-session `respondToolEntry` (`:5148`), and the QRY-15/QRY-12 template
+  input (`:2556`), so the instruction text cannot describe a shape the tool
+  rejects. The template BYTES are unchanged — `<schema-json>` carries the
+  schema the tool accepts.
+- Unwrapping happens at the three arrival sites through one boundary function,
+  `respondPayloadFromWire` (`respond-tool-wire.ts:159`): the live `execute`
+  (`:2678`), the off-session free-phase servicing (`:4757`), and the forced
+  dispatch's extraction (`:5275`). Downstream — the CIO-3 depth walk, the
+  QRY-14 `execute` AJV verdict, the QRY-22 loop validation — sees the bare
+  payload against the bare lowered schema. A call carrying no `value` member is
+  taken verbatim, so it fails validation and enters respond-repair as the
+  non-conforming response it is rather than being rewritten to an absent value.
+- `renderTypedAwareQueryText`'s fused degraded-arm text becomes shape-agnostic
+  ("JSON value"), and the three test files asserting that string move with it.
+
+**Nested `$ref`s are coerced at the boundary (`coerceRespondWireArguments`,
+`respond-tool-wire.ts:144`, wired as `prepareArguments` at `:2650`).** The
+second live finding: models deliver a nested object or array parameter as a
+single JSON-encoded string (`"pet": "{\"species\":\"dog\"}"`), which the host's
+own coercion does not parse — the respond tool demanded the object its schema
+declares, the call came back as `- pet: must be object`, and the drive spun for
+four repair rounds and did not terminate. JSON-string-valued object/array
+positions are parsed back before validation: schema-directed (a declared
+`string` field whose value looks like JSON keeps its string value),
+encoding-only (a parse yielding the wrong JSON type, or a non-JSON string,
+passes through so validation still reports the real mismatch), and
+`$ref`-following with a chase bound so a recursive fragment graph terminates.
+On the on-session path this rides `ToolDefinition.prepareArguments`, pi's own
+sanctioned pre-validation shim and the only hook that runs before the host
+validates; the two off-session sites apply the same function directly. The
+defect is pre-existing — a *backward* reference already minted a `$ref` at HEAD
+and hung identically, live-confirmed during verification — but the two-pass
+lowering widens it from backward-references-only to every declaration order
+plus self and mutual recursion, so it is fixed here.
+
+**Error-severity diagnostic at every position `lowerTypeSource` serves (D3).**
+`collectUnresolvedNamedTypes` (`body-type-lowering.ts:303`) walks a type source
+against a threaded RESOLUTION SET rather than inspecting the lowering result —
+`collectBodyTypes` maps alias-form and imported names to `{}` deliberately, *as
+resolved*, so a result-shape test would refuse legal thetas. `checkStructural`
+builds the set once (`schemas ∪ enums ∪ imports`, `theta-document.ts:4886–4890`)
+and carries it on `StructuralRefs.typeNames`; two new emission sites join the
+four-position closed list through the shared builder
+`unresolvedNamedTypeDiagnostic` (`:4311`, severity `error`, message
+`unresolved named type '<name>'`): the `schema`-body field type (`:5148–5149`,
+`walkStatement`) and the `@<T>` annotation root (`:5401–5402`, `walkExpr`,
+which also covers the inline-object annotation's fields and the direct-`let`
+form whose ascription `parseLet` propagates into `QueryExpr.schema`). The
+`params:` RHS keeps emitting from `parseParams` (`params.ts:131–139`) —
+`params.ts` is upstream of `theta-document.ts`, so routing it through the
+shared builder would close an import cycle; message parity is held by DIAG-4.
+Emission is confined to those four positions: `let x: Nope = 1`,
+`fn f(a: Nope)`, a union arm and `invoke<Nope>` all stay silent.
+
+**A `Result<T, E>` annotation is peeled to `T`, brace-aware
+(`queryResponseAnnotation`, `theta-document.ts:4361`; `RESULT_APPLICATION`
+`:4326`).** `QueryExpr.schema` is not always what the author wrote at `@<T>`:
+`parseLet` propagates a `let` annotation verbatim onto a bare-query
+initialiser, and a query's declared value type is `Result<T, QueryError>`
+(QRY-1). Descending that text named the builtin `QueryError` as unresolved and
+refused `let r: Result<string, QueryError> = @`…`` — a load refusal naming a
+builtin at a grammar-admitted position outside the row's closed list. The peel
+returns `T` and checks only that side, so a typo in
+`let r: Result<Tirage, QueryError> = @`…`` is still refused with exactly one
+diagnostic. Its argument split tracks BRACE depth as well as angle depth
+(`splitTopLevel(…, ",", "angle-and-brace")`, `params.ts:361–374`): `ObjectType`
+is a `Type` in every position, so an ok side such as `{a: string, b: integer}`
+carries a top-level-looking comma that is not an argument boundary. Angle-only
+splitting made the peel see three arguments where the grammar sees two, took
+the non-arity-2 path, and left the whole `Result<…>` to be descended — an
+arbitrary field-count cliff inside one legal form. A non-arity-2 application
+yields `undefined` (no response part to check): that is
+`theta/parse/generic-arity-mismatch`'s to report, and which argument would have
+been `T` is not determinable.
+
+**Unchanged by decision (D1).** `lowerQueryResponseSchema` stays a total
+function returning `{}` for an unresolvable named annotation, with `undefined`
+reserved for the empty annotation alone. `#validateInvokeReturn`'s
+early-return arm returns `result` *unvalidated* on `undefined`, which is
+strictly worse than `{}` for `invoke<T>`, and
+`tests/empty-query-annotation.test.ts` pins `""` as the sole unlowerable input.
+With the parse gate in place the seam is unreachable for this input from
+source, so the gate is the sole enforcement point and the seam stays as defence
+in depth. No file under `docs/spec_topics/diagnostics/` is touched: bug
+[0025](./0025-ctor-unresolved-schema-name-passthrough.md) wrote the widened
+`theta/parse/unresolved-named-type` row (`code-registry-parse.md:88`) naming
+all four positions, and this fix implements the two the row over-stated,
+discharging 0025 §Residuals (i). No new diagnostic code, so
+`tests/fixtures/h7a/permitted-codes.json` is unchanged at 10 entries.
+
+**Spec.** `query/query-tool-loop.md` gains normative §**Respond-tool wire
+schema** (`#respond-tool-wire-schema`) — the object-root pass-through, the
+envelope for every other root, the `$defs`-to-envelope-root rule and its
+compile rationale, the wire's object-rooted-`arguments` reason (the same
+constraint the binder attachment wrapper exists for), and what stays keyed to
+the LOWERED schema (`<slug>`, PIC-44 canonical bytes, the CIO-3 depth walk,
+QRY-22 validation) with the payload recovered before both. QRY-14 step 2 in the
+same file: `<schema-json>` carries the wire schema and `execute` recovers the
+payload, then validates it against the lowered schema.
+`query/query-failure-and-repair.md`: the QRY-12 `<schema-json>` definition is
+redefined over the wire schema, `<slug>` is pinned to the lowered schema and
+never the envelope, and QRY-22's conveyance parenthetical and validate clause
+admit the envelope's `value` property. `implementation-notes.md`: `parameters`
+is the wire schema (`Type.Unsafe<unknown>(wireJsonSchema)`) and `execute`
+recovers the payload before the AJV check. No new REQ-ID.
+
+**Verification.** Default suite 229 files / 2744 tests green; typecheck clean;
+lint clean. Doc gates re-run after the spec edits: 92 passed across the
+committed-fixture parse gate, live-corpus release gate, closing gate,
+warn-only canary and code-registry checks — no un-anchored MUST introduced.
+
+Offline locks. `tests/unresolved-annotation-lowering.test.ts` (new, 40 cells
+over `parseThetaDocument`, `lowerQueryResponseSchema`, the real
+`runTypedQueryLoop`/`AjvSchemaValidator` composition, the real binder dispatch
+and `discoverAndComposeFixtures`): the §Reproduction PROBE2/PROBE3 contrast,
+the typo / direct-`let` / inline-object / schema-body emissions, the
+forward/self/mutual lowering triple, the AJV **compile** assertion on the
+self-recursive `$ref` document, the nested-child depth-enforcement assertions,
+the four `params:` hoist shapes plus a real binder-envelope compile, the
+enum-root registration, the `Result`-peel cells including the multi-field
+brace arm, the DIAG-2 row contract sourced from the parsed registry, and the
+totality pins. `tests/respond-tool-wire.test.ts` (new, 24 cells): the wire
+recipe over every root class, the `$defs` lift, `prepareArguments` coercion
+(schema-directed, encoding-only, `$ref`-following, chase-bounded), and an
+on-session drive through the shipped producer whose `PROD-EXECUTE-ENVELOPE`
+cell calls the registered `definition.execute` with an enveloped payload and
+asserts the bare `"low"` binds. `tests/query-schema-transitive-defs.test.ts`'s
+self- and mutual-reference controls are STRENGTHENED with the depth
+enforcement the bug doc requires; `tests/enum-schema-tag-privacy.test.ts` cell
+f1 keeps both `.toEqual({})` and the AJV-admit assertion with its prose
+retargeted to "unreachable from source".
+
+Red direction proven by seven targeted neutralisations, applied and restored
+one at a time with the tree re-verified byte-identical after each: the `@<T>`
+emission (5 red, `actual diagnostics=[]` — the bug doc's `PROBE1 typo
+diagnostics: []`), the schema-body emission (1 red), `enumDeclsOf` (1 red,
+`expected {} to deeply equal { type: 'string', …}` — PROBE5), pass-1 seeding
+(10 red across forward, self and mutual with separate signatures), pass 3 (16
+red, through the DEFECT GUARD the bug doc predicts), the `params:` hoist (5
+red, including `can't resolve reference #/$defs/Animal from id #` on the real
+binder envelope), and the `Result` peel and its brace-aware split (10 + 1 red,
+the builtin `QueryError` falsely named). The envelope's own red direction:
+with the `execute` unwrap reverted, `PROD-EXECUTE-ENVELOPE` reds with
+`must be string; must be equal to one of the allowed values`.
+
+Live lock — `tests/live/typed-query-wire-shapes.test.ts` (new, H8a): the two
+shapes whose conveyance cannot be scored offline, each driven end to end
+against a real model and raced against a wall bound that fails loudly naming
+the shape (the pre-fix behaviour of both is non-termination, and a test that
+hangs to the runner's ceiling reports nothing). `@<Severity>` over a declared
+enum — the non-object root — and `@<Owner>` over a FORWARD-declared nested
+`schema` — the coerced `$ref`. Scored on deterministic channels: the follow-up
+query's rendered text computed by theta code from the BOUND value, an empty
+`theta-system-note` fail-closed set, and a `console.error` capture free of
+`reload-teardown-timeout`. 2/2 green in 31 s. Live regression: H8a
+`live-production-acceptance` 7/7, `double-session-start-live` 1/1, H9a
+`noninteractive-acceptance` 10/10 and `ctor-unresolved-load-refusal` 1/1 — no
+new stderr line, so bug 0030's empty-capture gate holds.
+
+**Residuals.** (i) The `params:` right-hand side is now the weakest of the four
+registered positions for an inline-object interior: `p: {a: Tirage, b: integer}`
+raises nothing and lowers `properties.p = {}` whether or not the names inside
+resolve, where the identical text at `@<T>` and in a `schema` body names
+`Tirage`. The cause sits upstream of `parseParams` — YAML parses the value as a
+flow mapping, so `extractParsedParams` (`src/parser/frontmatter.ts:645`,
+`isScalar(item.value) ? … : ""`) hands `parseParams` the EMPTY `typeSource` and
+the brace text never reaches `lowerTypeExpr` at all, which also blanks the
+field's recorded `type` to `""` on the binder-bypass and `system:`
+interpolation surfaces. A quoted RHS does reach `lowerTypeExpr` and lands on
+its trailing catch-all (`params.ts:339–341`), silent for the same net effect;
+the comment at `theta-document.ts:4290–4296` describes only that second path.
+Pre-existing (`frontmatter.ts` is untouched by this fix) and symmetric for
+brace-under-generic shapes, but this fix makes the position's under-emission
+visible by fixing its three siblings. Filed as
+[0035](./0035-params-rhs-inline-object-under-emission.md). (ii) A
+`Result`-rooted direct-`let` still validates against `{}` at runtime:
+`let r: Result<string, QueryError> = @`x`` loads clean, is a typed query, and
+`lowerQueryResponseSchema("Result<string,QueryError>")` returns `{}` — through
+the real `AjvSchemaValidator` it admits `42`, `"str"`, `null`, `["a"]` and any
+object. The peel keeps the load legal by design (D1 keeps the seam total), so
+the safety net for this one annotation form is still accept-anything; no
+lowered form exists for a `Result` root, and pinning it would need a decision
+about whether `Result<T, E>` at a query annotation means "validate `T`". (iii)
+A typed `let` whose annotation is `array<T>` and whose initialiser is a bare
+query fires a self-identical `theta/parse/let-rhs-type-mismatch`:
+`let r: array<string> = @`x`` reports `let binding 'r' initialiser type
+mismatch: expected array<string>, got array<string>`.
+`src/parser/static-type-inference.ts:255` types a query as
+`{kind:"named", name: node.schema}` — the propagated annotation text verbatim —
+while `annotationToCompatType` (`src/parser/type-layer-checks.ts:262–266`)
+parses the same text into `{kind:"array"}`; the pair is incompatible and
+`displayType` renders both operands from one source string. The element type is
+irrelevant (brace-carrying or not); a bare inline-object annotation and every
+`Result<…>` annotation are silent. Pre-existing — none of the three files
+computing it are touched here. (iv) A `params:` RHS carrying a non-empty inline
+object nested inside a generic's angle brackets — `p: array<{a: string}>`,
+`p: Foo<{a: string}>`, `p: Result<{a: string}, QueryError>` — is not valid YAML
+(`BLOCK_AS_IMPLICIT_KEY: Nested mappings are not allowed in compact mappings`),
+so FM-5 (`frontmatter.ts:718–722`) discards the partially-recovered document
+and the sole diagnostic is `theta/load/missing-mode` —
+`frontmatter is missing required field 'mode:'` — with `mode: prompt` literally
+present. Field count and the `array` constructor are both irrelevant;
+`p: array<{}>` and a top-level `p: {a: string}` parse fine. Pre-existing and
+fail-closed, but the diagnostic misnames the cause. (v) Two paraphrases outside
+the amended site list are now loose.
+`pi-integration-contract/conversation-drive.md:17` says the forced respond
+turn inlines "the lowered response schema", that `execute` "AJV-validates its
+input against the lowered schema", and that the tool uses "the same
+`Type.Unsafe<unknown>(loweredJsonSchema)` `parameters` wrap"; for a non-object
+root the runtime inlines and registers the WIRE schema
+(`production-theta-producer.ts:2646`, `:2648`) and `execute` recovers `.value`
+before validating (`:2678`). That bullet delegates to QRY-14, which
+§Respond-tool wire schema now states precisely.
+`pi-integration-contract/extension-bootstrap-and-per-theta.md:77` says theta's
+repair operates at the response-validation boundary "rather than at this
+per-call argument boundary"; the respond tool now carries a `prepareArguments`
+coercion at that exact boundary (`:2650`). (vi) Inherited from 0025
+§Residuals (iv)/(v) and now reachable from the two positions this fix adds. A
+block-nested `schema`/`enum` declaration is still accepted with no diagnostic
+although resolution is top-level-only, so `if true { schema S { x: number } }`
+plus `@<S>` reports `unresolved named type 'S'` with the declaration in view —
+and so does `schema T { s: S }` — while the nested declaration itself stays
+silent for both `schema` and `enum`. Import/local name-collision precedence
+remains undefined and uncovered by any diagnostic; at the new positions it does
+not change the diagnostic (`checkStructural` flattens `schemas ∪ enums ∪
+imports` into one `typeNames` set, so either side resolving suffices) but the
+lowering silently takes the LOCAL declaration, since both
+`lowerQueryResponseSchema` call sites pass only the importing file's own decls.
+(vii) 0025's §Fix cites the shared message literal as `src/parser/params.ts:133`;
+this fix's `params.ts` edits move it to `:137`. Citation drift in a shipped bug
+document, left for whoever next edits that page.
 
 ## Summary
 
@@ -338,38 +642,85 @@ lowers enums first (`body-type-lowering.ts:145–148`), which is why the
 `params:` path resolves them today; the two lowering entry points converge.
 `@<Severity>` then lowers to `{"type":"string","enum":["Low","High"]}`.
 
-**A bare enum at the annotation root is legal, and the conveyance text
-becomes shape-agnostic.** `type-system.md:15` applies one type grammar to
-the `@<T>` position and `schema-subset.md:80` pins the enum emission, so
-`@<Severity>` lowers to its non-object root rather than being refused.
-Audit of the conveyance surfaces at HEAD, which the original report did not
-price:
+**A bare enum at the annotation root is legal, and the respond tool is
+registered with a wire envelope.** `type-system.md:15` applies one type
+grammar to the `@<T>` position and `schema-subset.md:80` pins the enum
+emission, so `@<Severity>` lowers to its non-object root rather than being
+refused. A tool call's `arguments` are a JSON **object** at the wire, and
+the host validates them against the registered `parameters` document before
+the theta side sees them (pi-agent-core's agent loop: `prepareArguments`,
+then pi-ai's `validateToolArguments`, then `execute`), so a non-object root
+registered verbatim rejects every possible call — `- root: must be string`,
+`Received arguments: {}` — and the model repair-spins until the invocation
+is torn down (`theta/runtime/reload-teardown-timeout`, invocation still in
+flight). The pre-existing `@<string>` path has the same defect.
 
-- The QRY-15 template (`query-tool-loop.md:26–29`) and both respond-repair
-  templates (`query-failure-and-repair.md:49–52`, `:56–59`) say "conforming
-  to this schema" — no object-root wording, no change needed.
-- `#registerRespondTool` / `respondToolEntry` wrap the lowered schema
-  verbatim as the tool's `parameters`
-  (`production-theta-producer.ts:2615`, `:5079`) with no root-shape
-  assertion in the tree.
-- The one object-root sentence is `renderTypedAwareQueryText`
-  (`:4912–4916`, "Respond with ONLY a single minified JSON object matching
-  this JSON schema"). It becomes shape-agnostic. It is reachable only on
-  the degraded arm: `respond` is built exactly when `lowered !== undefined`
-  (`:2312–2313`) and the fused text is selected only when
-  `respond === undefined` (`:2328`), so today it interpolates the
-  annotation source text, never a lowered schema.
+The respond tool is therefore registered with a single-property envelope,
+`{"type":"object","properties":{"value":<lowered>},"required":["value"]}`,
+validated as the envelope and unwrapped to `.value` as the candidate
+payload. Every root shape becomes conveyable and the `@<string>` hang
+retires in the same change. Shape:
+
+- The envelope applies **only where the lowered root is not already an
+  object**: an object root (and the total-function `{}` residual) is
+  registered byte-identically, so the shipped object-root path — its
+  argument shape, its content-addressed slug, and
+  `tests/off-session-two-phase.test.ts:831–833`'s registration pin — is
+  untouched. The envelope exists to make an unsatisfiable root
+  satisfiable, not to rename every existing typed query's arguments.
+- `$defs` is lifted to the **envelope** root: `#/$defs/<Name>` pointers
+  resolve against the document root and nowhere else, so a lowered
+  `array<Item>` root's refs would dangle under `properties.value.$defs`.
+- One recipe (`respondToolWireSchema`, `src/runtime/respond-tool-wire.ts`)
+  feeds `#registerRespondTool` / `respondToolEntry`
+  (`production-theta-producer.ts:2615`, `:5079`), the QRY-15 initial
+  template (`:2543`) and the QRY-12 follow-up templates
+  (`typed-query-validation.ts`), so the instruction text cannot describe a
+  shape the tool rejects. The QRY-12/QRY-15 template BYTES are unchanged —
+  `<schema-json>` carries the schema the tool accepts.
+- The unwrap happens at the three arrival sites, all through one boundary
+  function (`respondPayloadFromWire`): the live `execute`
+  (`#executeRespondTool`), the off-session free-phase servicing
+  (`#serviceHeldCall`), and the forced dispatch's extraction
+  (`dispatchForcedRespondTurn`). Downstream — the CIO-3 depth walk, the
+  QRY-14 `execute` AJV verdict, the QRY-22 loop validation — sees the bare
+  payload against the bare lowered schema, exactly as before.
+- `renderTypedAwareQueryText` (`:4912–4916`, "Respond with ONLY a single
+  minified JSON object matching this JSON schema") becomes shape-agnostic
+  ("JSON value"). It is reachable only on the degraded arm: `respond` is
+  built exactly when `lowered !== undefined` (`:2312–2313`) and the fused
+  text is selected only when `respond === undefined` (`:2328`).
 - `@<string>` already lowers to the non-object root `{"type":"string"}`
-  (`tests/empty-query-annotation.test.ts:908–910`), but no test drives a
-  non-object root through the respond-tool registration: both `@<string>`
-  fixtures blank the parsed `QueryExpr`'s schema to `""` before driving
-  (`tests/off-session-two-phase.test.ts:292` with `:508`,
-  `tests/typed-two-phase-live.test.ts:334`). The registration assertion
-  that would score it — "the presented respond tool's parameters carry the
-  lowered response schema" (`tests/off-session-two-phase.test.ts:831–833`)
-  — runs only over an object-root fixture. The enum root is the first
-  non-object root to reach that registration under test, so the fix adds
-  that coverage.
+  (`tests/empty-query-annotation.test.ts:908–910`), and no shipped test
+  drove a non-object root through the respond-tool registration: both
+  `@<string>` fixtures blank the parsed `QueryExpr`'s schema to `""` before
+  driving (`tests/off-session-two-phase.test.ts:292` with `:508`,
+  `tests/typed-two-phase-live.test.ts:334`), and the registration pin at
+  `tests/off-session-two-phase.test.ts:831–833` runs over an object-root
+  fixture. The enum root is the first non-object root to reach that
+  registration under test, so the fix adds that coverage — offline over the
+  registered bytes and the `execute` boundary, and LIVE end to end.
+
+**Nested named-schema `$ref`s are coerced at the boundary.** Models deliver
+a nested object or array parameter as a single JSON-encoded string
+(`"pet": "{\"species\":\"dog\"}"`), which the host's own coercion does not
+parse: the respond tool demands the object its schema declares, the call is
+fed back as `- pet: must be object`, and the drive spins. JSON-string-valued
+object/array positions are therefore parsed back at the boundary before
+validation — schema-directed (a declared `string` field whose value looks
+like JSON keeps its string value), encoding-only (a parse that yields the
+wrong JSON type, or a non-JSON string, passes through so validation still
+reports the real mismatch), and `$ref`-following with a chase bound so a
+recursive fragment graph terminates. On the live on-session path this rides
+`ToolDefinition.prepareArguments`, pi's own sanctioned pre-validation shim
+(its `edit` tool uses it for the identical model behaviour) and the only
+hook that runs before the host validates; the two off-session sites apply
+the same function directly. This defect is pre-existing — a *backward*
+reference already minted a `$ref` at HEAD and hung identically, and bug 0004
+recorded the annotation arm as "verified at the lowering level; not
+exercised live" — but the two-pass lowering widens it from
+backward-references-only to every declaration order plus self and mutual
+recursion, so it is fixed here rather than deferred.
 
 **Error-severity diagnostic at every position `lowerTypeSource` serves.**
 Thread the resolution set — whole-file `schema`/`enum` declarations plus
@@ -455,14 +806,30 @@ the seam still returns `{}`:
   `enum-schema-tag-privacy.test.ts`, `query-schema-transitive-defs.test.ts`
   and `empty-query-annotation.test.ts` pass.
 
-**Test witness — unit, offline, no live provider.** The whole bug is
-witnessable at the `parseThetaDocument` / `lowerQueryResponseSchema` /
-`runTypedQueryLoop` boundary; the PROBE2/PROBE3 pair in §Reproduction is
-the red/green contrast (`outcome.kind === "value"` on a garbage payload is
-the red). Required beyond the probes: the AJV compile assertion on the
-self-recursive `$ref` document (guards the `pruneDocumentDefs` throw), the
-nested-child depth-enforcement assertion above, and one drive of a
-non-object (enum) root through the respond-tool registration.
+**Test witness — offline for the lowering and the wire contract, LIVE for
+the conveyance.** The lowering half is witnessable at the
+`parseThetaDocument` / `lowerQueryResponseSchema` / `runTypedQueryLoop`
+boundary; the PROBE2/PROBE3 pair in §Reproduction is the red/green contrast
+(`outcome.kind === "value"` on a garbage payload is the red). Required
+beyond the probes: the AJV compile assertion on the self-recursive `$ref`
+document (guards the `pruneDocumentDefs` throw), the nested-child
+depth-enforcement assertion above, the registered-bytes and
+`prepareArguments`/`execute` coverage of the envelope and the coercion, and
+one drive of a non-object (enum) root through the respond-tool
+registration.
+
+The conveyance half cannot be scored offline: the lowered bytes are correct
+in both the broken and the fixed state, and what differs is whether a REAL
+model can produce a call the host accepts. Both wire shapes therefore carry
+a live twin (`tests/live/typed-query-wire-shapes.test.ts`) — `@<Severity>`
+over a declared enum, and `@<Owner>` over a FORWARD-declared nested
+`schema` — each driven end to end and scored on deterministic channels: the
+follow-up query's rendered text (computed by theta code from the BOUND
+value), an empty `theta-system-note` fail-closed set, and a `console.error`
+capture free of `reload-teardown-timeout`. Each drive is raced against a
+wall bound that fails loudly naming the shape, because the pre-fix
+behaviour of both is non-termination and a test that hangs to the runner's
+ceiling reports nothing.
 
 The body-level alias declaration `schema X = A | B` does not parse at the
 whole-document level at HEAD (`theta/parse/unsupported-feature`, stray `=`

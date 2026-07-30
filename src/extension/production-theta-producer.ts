@@ -204,6 +204,7 @@ import { evaluateObjectMember } from "../runtime/stdlib-object";
 import type {
   Block,
   CallExpr,
+  EnumDecl,
   Expr,
   FnDecl,
   InvokeExpr,
@@ -228,6 +229,11 @@ import {
   type FollowUpRespondOutcome,
 } from "../runtime/typed-query-validation";
 import { renderInitialRespondTurn } from "../runtime/query-followup-render";
+import {
+  coerceRespondWireArguments,
+  respondPayloadFromWire,
+  respondToolWireSchema,
+} from "../runtime/respond-tool-wire";
 import { evaluateIndexAccess, evaluateMemberAccess, HostFatal } from "../runtime/runtime-panics";
 import { routeThetaCallableSetupThrow } from "../runtime/tool-call-off-surface";
 import {
@@ -2299,7 +2305,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // QRY-15 template, so all three consume byte-identical canonical bytes.
     const lowered =
       expr.schema !== null
-        ? lowerQueryResponseSchema(expr.schema, schemaDeclsOf(deps.theta.body))
+        ? lowerQueryResponseSchema(
+            expr.schema,
+            schemaDeclsOf(deps.theta.body),
+            enumDeclsOf(deps.theta.body),
+          )
         : undefined;
     // Bug 0010 (QRY-14 step 2): the typed query's respond-turn machinery —
     // the PIC-44-registered one-shot respond tool, the theta-resolved respond
@@ -2535,7 +2545,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // PIC-44 slug collision `toolName` is the disambiguated minted name and
       // the instruction must reference it byte-equal to the forced choice —
       // never the bare recipe-derived `__theta_respond_<slug>`.
-      template: renderInitialRespondTurn({ loweredSchema: lowered, slug, toolName }),
+      //
+      // The conveyed schema is the tool's WIRE schema (bug 0028 §Fix), not the
+      // bare lowered one: for a non-object root the tool accepts the
+      // single-property envelope, and an instruction describing a shape the
+      // tool rejects would send the model into a repair spin it cannot escape.
+      // One recipe (`respondToolWireSchema`) feeds the registration, the
+      // presented entry and this template, so they cannot disagree.
+      template: renderInitialRespondTurn({
+        loweredSchema: respondToolWireSchema(lowered),
+        slug,
+        toolName,
+      }),
       model: respondModel,
       // Auth threading copied from `#completeBinderReply` (bug 0010): the
       // out-of-band `complete()` free function does not inherit the session's
@@ -2603,17 +2624,31 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   /**
    * Bug 0010 (QRY-14 step 2): the pi `ToolDefinition` for one synthesised
    * respond tool. `label` is the fixed `deriveToolLabel` literal, `parameters`
-   * wrap the lowered response schema, and `execute` dispatches through the
+   * wrap the response schema's WIRE form, and `execute` dispatches through the
    * producer's capture slot — the registration is PERMANENT (pi exposes no
    * unregister), so the slot indirection is what scopes it to a live typed turn.
+   *
+   * Bug 0028 §Fix, the two wire-contract obligations of a HOST-validated tool
+   * (pi-agent-core validates `arguments` against `parameters` before `execute`
+   * runs, so anything the schema rejects is fed back as a tool error and
+   * repair-spun):
+   *  - `parameters` is `respondToolWireSchema(lowered)` — a non-object lowered
+   *    root (a declared `enum`, `@<string>`) is enveloped, because no argument
+   *    object can ever satisfy such a root;
+   *  - `prepareArguments` is pi's own sanctioned pre-validation shim (its
+   *    `edit` tool uses it for the identical model behaviour): a nested
+   *    object/array parameter delivered as a JSON-encoded string is parsed back
+   *    before the host validates, instead of failing `must be object` forever.
    */
   #buildRespondToolDefinition(name: string, lowered: LoweredSchema): ToolDefinition {
+    const wire = respondToolWireSchema(lowered);
     return {
       name,
       label: deriveToolLabel({ kind: "typed-query-respond" }),
       description: RESPOND_TOOL_DESCRIPTION,
-      parameters: Type.Unsafe<unknown>(lowered),
-      execute: async (_toolCallId, params) => this.#executeRespondTool(name, params),
+      parameters: Type.Unsafe<unknown>(wire),
+      prepareArguments: (args: unknown) => coerceRespondWireArguments(wire, args),
+      execute: async (_toolCallId, params) => this.#executeRespondTool(name, lowered, params),
     };
   }
 
@@ -2628,26 +2663,33 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    */
   async #executeRespondTool(
     toolName: string,
+    lowered: LoweredSchema,
     params: unknown,
   ): Promise<RespondToolExecuteResult> {
     const capture = this.#activeRespondCapture;
     if (capture === null || capture.toolName !== toolName) {
       return respondToolExecuteResult("no typed query is active for this respond tool", true);
     }
+    // Bug 0028 §Fix: the arguments are the tool's WIRE form — the envelope for a
+    // non-object lowered root — so the candidate payload is recovered before
+    // anything downstream sees it. The depth walk then measures the PAYLOAD, as
+    // it did before the envelope existed, rather than charging CIO-3 for a wire
+    // artifact.
+    const payload = respondPayloadFromWire(lowered, params);
     // CIO-3 (ceilings-3-and-4.md, model-driven row): depth-walk the
     // model-produced payload BEFORE AJV; a depth-6+ document is fed back as a
     // tool-error result with the canonical depth message and never validated.
-    const argDepthBreach = enforceModelToolArgDepth(params);
+    const argDepthBreach = enforceModelToolArgDepth(payload);
     if (argDepthBreach !== undefined) {
       return respondToolExecuteResult(argDepthBreach.message, true);
     }
-    const verdict = capture.validate(params);
+    const verdict = capture.validate(payload);
     if (!verdict.ok) {
       return respondToolExecuteResult(verdict.message, true);
     }
     if (!capture.captured) {
       capture.captured = true;
-      capture.payload = params;
+      capture.payload = payload;
       return respondToolExecuteResult(RESPOND_CAPTURED_TEXT, false);
     }
     return respondToolExecuteResult(RESPOND_REPEAT_TEXT, false);
@@ -3257,7 +3299,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     if (depthBreach !== undefined) {
       return depthBreach.result;
     }
-    const lowered = lowerQueryResponseSchema(returnSchema, schemaDeclsOf(theta.body));
+    const lowered = lowerQueryResponseSchema(
+      returnSchema,
+      schemaDeclsOf(theta.body),
+      enumDeclsOf(theta.body),
+    );
     if (lowered === undefined) {
       return result;
     }
@@ -4705,16 +4751,20 @@ class OffSessionQueryModel implements QueryModelDriver {
   async #serviceHeldCall(call: ToolCall): Promise<ToolResultMessage> {
     const respond = this.#respond;
     if (respond !== undefined && call.name === respond.toolName) {
-      const argDepthBreach = enforceModelToolArgDepth(call.arguments);
+      // Bug 0028 §Fix: this driver services the call itself — no host validation
+      // and no `prepareArguments` hook on the off-session channel — so the
+      // wire→payload mapping is applied here, mirroring the live `execute`.
+      const payload = respondPayloadFromWire(respond.lowered, call.arguments);
+      const argDepthBreach = enforceModelToolArgDepth(payload);
       if (argDepthBreach !== undefined) {
         return subagentToolResult(call, argDepthBreach.message, true);
       }
-      const verdict = respond.validate(call.arguments);
+      const verdict = respond.validate(payload);
       if (!verdict.ok) {
         return subagentToolResult(call, verdict.message, true);
       }
       if (!this.#earlyRespond.captured) {
-        this.#earlyRespond = { captured: true, payload: call.arguments };
+        this.#earlyRespond = { captured: true, payload };
         return subagentToolResult(call, RESPOND_CAPTURED_TEXT, false);
       }
       return subagentToolResult(call, RESPOND_REPEAT_TEXT, false);
@@ -4899,6 +4949,13 @@ export async function lowerModelDrivenThetaCall(
  * template and convey the shape via the respond tool + QRY-15 template
  * instead. The degraded conveyance falls back to the annotation text because
  * the schema did not lower.
+ *
+ * WHY "JSON value" and not "JSON object" (bug 0028 §Fix): a declared `enum`
+ * annotation lowers to a non-object root (schema-subset.md:80 —
+ * `{ "type": "string", "enum": […] }`), and type-system.md:15 applies the
+ * same type grammar to every `@<T>` position, so a bare enum at the
+ * annotation root is legal. The instruction wording is shape-agnostic so it
+ * stays true of a lowered enum or primitive root, not only an object root.
  */
 function renderTypedAwareQueryText(
   expr: QueryExpr,
@@ -4911,7 +4968,7 @@ function renderTypedAwareQueryText(
   }
   const shape = lowered !== undefined ? JSON.stringify(lowered) : expr.schema;
   return (
-    `${base}\n\nRespond with ONLY a single minified JSON object matching this JSON ` +
+    `${base}\n\nRespond with ONLY a single minified JSON value matching this JSON ` +
     `schema, and nothing else — no prose, no markdown, no code fences: ${shape}`
   );
 }
@@ -4919,6 +4976,17 @@ function renderTypedAwareQueryText(
 /** The theta body's `schema` declarations, for whole-file named-type resolution. */
 function schemaDeclsOf(body: ThetaBody): SchemaDecl[] {
   return body.statements.filter((stmt): stmt is SchemaDecl => stmt.kind === "schema");
+}
+
+/**
+ * The theta body's `enum` declarations, for whole-file named-type resolution
+ * (bug 0028 §Fix: `schemaDeclsOf`'s enum sibling). Both `lowerQueryResponseSchema`
+ * call sites pass this alongside `schemaDeclsOf` so a declared `enum`
+ * annotation (`@<Severity>`) resolves at the typed-query / `invoke<T>`
+ * lowering exactly as it already does on the `params:` path.
+ */
+function enumDeclsOf(body: ThetaBody): EnumDecl[] {
+  return body.statements.filter((stmt): stmt is EnumDecl => stmt.kind === "enum");
 }
 
 /** An identifier-shaped `@<Schema>` annotation names a `schema` decl. */
@@ -5065,10 +5133,11 @@ function classifyOffSessionReply(
 
 /**
  * The synthesised respond tool as a pi-ai `Tool` entry: the PIC-44 registered
- * name, the fixed description literal, and the lowered response schema as
- * `parameters` (the same `Type.Unsafe` wrap the binder call shape uses). ONE
- * builder feeds the forced respond dispatch's `context.tools` AND the
- * off-session free phase's presentation (bug 0010 increment D), so the tool
+ * name, the fixed description literal, and the response schema's WIRE form as
+ * `parameters` (the same `Type.Unsafe` wrap the binder call shape uses; bug
+ * 0028 §Fix envelopes a non-object lowered root, which no argument object can
+ * satisfy). ONE builder feeds the forced respond dispatch's `context.tools` AND
+ * the off-session free phase's presentation (bug 0010 increment D), so the tool
  * the model sees mid-loop and the tool the provider is forced to are
  * byte-identical by construction.
  */
@@ -5076,7 +5145,7 @@ function respondToolEntry(respond: RespondTurnContext): Tool {
   return {
     name: respond.toolName,
     description: RESPOND_TOOL_DESCRIPTION,
-    parameters: Type.Unsafe<unknown>(respond.lowered),
+    parameters: Type.Unsafe<unknown>(respondToolWireSchema(respond.lowered)),
   };
 }
 
@@ -5198,7 +5267,12 @@ async function dispatchForcedRespondTurn(
   );
   const match = calls.find((call) => call.name === respond.toolName);
   if (match !== undefined) {
-    return { kind: "respond", payload: match.arguments };
+    // Bug 0028 §Fix: the forced dispatch reads the provider's arguments
+    // directly (no host validation runs on this channel), so the wire→payload
+    // mapping the on-session `execute` gets from `prepareArguments` + the
+    // envelope unwrap is applied here explicitly — same function, same result
+    // for the same wire bytes.
+    return { kind: "respond", payload: respondPayloadFromWire(respond.lowered, match.arguments) };
   }
   // Aborted precedence (bug 0010 fix round 1): pi-ai's `complete()` RESOLVES
   // an abort — the adapter surfaces `stopReason: "aborted"` rather than

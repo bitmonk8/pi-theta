@@ -74,7 +74,8 @@ import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
 import { checkTypeLayer } from "./type-layer-checks";
 import { resolveQuerySchemas } from "./query-schema-resolve";
-import { buildBodyTypeSchemas } from "./body-type-lowering";
+import { buildBodyTypeSchemas, collectUnresolvedNamedTypes } from "./body-type-lowering";
+import { splitTopLevel } from "./params";
 // QRY-19 lives in the runtime discard module (it owns the discarded-query
 // discipline shared with the QRY-20 runtime obligation); the parser reuses its
 // pure parse-time check rather than re-deriving the diagnostic. Parser→runtime
@@ -4271,8 +4272,41 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
  * and the object-constructor name — not every `NamedType`-resolution position:
  * a `let` annotation, an `fn` parameter type, a generic argument, a union arm
  * and `invoke<Type>` (grammar.md §Type grammar) are outside it, so
- * `let x: Nope = 1` resolves nothing and fires nothing. `checkObjectExpr`
- * below emits the constructor-name one.
+ * `let x: Nope = 1` resolves nothing and fires nothing.
+ *
+ * THREE of the four positions emit through this builder: `checkObjectExpr`
+ * below (the object-constructor name), and the `"schema"` case of
+ * `walkStatement` plus the `"query"` case of `walkExpr` (both below — a
+ * `schema` body field type and the `@<T>` annotation), which resolve names
+ * through `collectUnresolvedNamedTypes` (body-type-lowering.ts). The `params:`
+ * RHS emits the row's message from its own site (`parseParams`, params.ts):
+ * params.ts is UPSTREAM of this module in the import graph (this module imports
+ * `splitTopLevel` from it), so that site cannot reach this builder without a
+ * cycle, and the two message literals are held identical to the registry row by
+ * DIAG-4 rather than by sharing code.
+ *
+ * That fourth position also UNDER-EMITS against the other three, and the
+ * asymmetry is in the resolution rather than the message.
+ * `collectUnresolvedNamedTypes` dispatches an inline object type (`{ … }`) to
+ * `lowerInlineObject` and descends its field types; `parseParams` resolves
+ * through `lowerTypeExpr` alone, which has no inline-object arm, so a
+ * brace-shaped RHS lands on that function's trailing catch-all. Hence
+ * `p: {a: Tirage, b: integer}` raises nothing under `params:` and lowers
+ * `properties.p = {}` whether or not the names inside resolve, where the
+ * identical text at the `@<T>` and schema-body positions names `Tirage`.
+ *
+ * `splitTopLevel`'s `"angle"` default keeps that permissive outcome HONEST for
+ * a brace-under-generic shape instead of papering over it. With brace depth
+ * also tracked, `array<{a: string, b: integer}>` would present as one argument
+ * and lower to `{"type":"array","items":{}}` — a fragment asserting arrayness
+ * while dropping the element shape the author wrote, so a payload of arbitrary
+ * elements would validate as though checked against it. Under angle depth alone
+ * the same text splits into two arguments, the `array` arm does not match, and
+ * the form lowers to `{}`, which asserts nothing — matching the fact that
+ * nothing about the shape was derived. `queryResponseAnnotation` below is the
+ * one caller needing `"angle-and-brace"`: it lowers nothing itself and must
+ * agree with the parser computing `theta/parse/generic-arity-mismatch` about
+ * the ARGUMENT COUNT.
  */
 function unresolvedNamedTypeDiagnostic(
   name: string,
@@ -4286,6 +4320,51 @@ function unresolvedNamedTypeDiagnostic(
     range,
     message: `unresolved named type '${name}'`,
   };
+}
+
+/** A `Result<Ok, Err>` application, captured as its two type arguments. */
+const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
+
+/**
+ * The part of a `QueryExpr.schema` that is the RESPONSE schema — the whole
+ * annotation, except that a `Result<T, E>` application yields `T`.
+ *
+ * WHY: `QueryExpr.schema` is not always something the author wrote at the
+ * `@<T>` position. `parseLet` propagates a `let` annotation verbatim onto a
+ * bare-query initialiser, and a query's declared value type is
+ * `Result<T, QueryError>` (QRY-1) — so `let r: Result<string, QueryError> =
+ * @`…`` arrives here as the full `Result<…>` text. Its `E` side is a builtin
+ * observed only by theta code and never lowered to a JSON Schema fragment
+ * (grammar.md §"Generic-application constructors"), so it resolves to no
+ * declaration by design and must not be reported: the `let` annotation is
+ * outside the registry row's closed four-position list, `Result` is admitted
+ * there by the grammar, and the author wrote no `@<T>` at all. The `T` side —
+ * the shape the response is validated against — is still checked, so a typo in
+ * `let r: Result<Tirage, QueryError> = @`…`` is still refused.
+ *
+ * `undefined` means "this annotation has no response part to check": a `Result`
+ * application whose argument count is not 2 is
+ * `theta/parse/generic-arity-mismatch`'s to report, and which argument would
+ * have been `T` is not determinable. Descending the malformed text instead
+ * would name `QueryError` — the builtin this peel exists to protect — plus
+ * every stray argument, as unresolved beside the real arity error.
+ *
+ * The argument split tracks BRACE depth as well as angle depth
+ * (`"angle-and-brace"`): `ObjectType` is a `Type` in every position
+ * (grammar.md §"Inline object types"), so an ok side such as
+ * `{a: string, b: integer}` carries a top-level-looking comma that is not an
+ * argument boundary. Splitting on angle depth alone made the peel disagree
+ * with the parser that computes the arity diagnostic — it saw three arguments
+ * where the grammar sees two, took this function's non-arity-2 path, and left
+ * the whole `Result<…>` text to be descended.
+ */
+function queryResponseAnnotation(schema: string): string | undefined {
+  const application = RESULT_APPLICATION.exec(schema.trim());
+  if (application === null) {
+    return schema;
+  }
+  const args = splitTopLevel(application[1] ?? "", ",", "angle-and-brace");
+  return args.length === 2 ? args[0] : undefined;
 }
 
 /**
@@ -4746,6 +4825,17 @@ interface StructuralRefs {
    * declaration.
    */
   readonly bodyTypes: FrontmatterBodyTypes;
+  /**
+   * `bodyTypes`'s three name sets (`schemas` keys ∪ `enums` ∪ `imports`)
+   * flattened into one `ReadonlySet` (bug 0028 §Fix), computed ONCE in
+   * `checkStructural` so it is not rebuilt per node. Feeds
+   * `collectUnresolvedNamedTypes` at the two positions this walk owns: the
+   * `@<T>` query annotation and a `schema` body field type. An imported
+   * symbol counts as resolved here even though its lowering stays permissive
+   * (`MaterializedImport` carries no field bodies) — the name is in scope,
+   * which is the only question this set answers.
+   */
+  readonly typeNames: ReadonlySet<string>;
 }
 
 /** The lexical context a structural check consults as the walk descends. */
@@ -4793,7 +4883,15 @@ function checkStructural(
       schemas.set(s.name, s.fields.map((f) => f.name));
     }
   }
-  const refs: StructuralRefs = { fnNames, enums, schemas, bodyTypes };
+  // The whole-file `NamedType` resolution set (bug 0028 §Fix), flattened ONCE
+  // here rather than per-node: every body `schema` name (object or alias/union
+  // form), every body `enum` name, and every symbol a body `import` pulls in.
+  const typeNames = new Set<string>([
+    ...bodyTypes.schemas.keys(),
+    ...bodyTypes.enums,
+    ...bodyTypes.imports,
+  ]);
+  const refs: StructuralRefs = { fnNames, enums, schemas, bodyTypes, typeNames };
   walkStatements(
     body.statements,
     { inLoop: false, topLevel: true, voidReturn: false },
@@ -5041,6 +5139,15 @@ function walkStatement(
               range: s.range,
             }),
           );
+          // Registry row position 3 — a schema body field type (bug 0028
+          // §Fix). `SchemaFieldSource` carries no range of its own, so the
+          // diagnostic is ranged at the DECLARATION; this fires whether or
+          // not `s.name` is ever referenced by a query annotation, matching
+          // the registry row's "resolves to no declaration usable at the
+          // position it is written".
+          for (const name of collectUnresolvedNamedTypes(f.typeSource, refs.typeNames)) {
+            out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+          }
         }
       }
       return;
@@ -5276,6 +5383,26 @@ function walkExpr(
       // above; re-lex and inspect them here so the forms expressions.md §"Not
       // supported" forbids inside `${…}` are rejected at load time.
       checkQueryTemplateInterpolations(e, file, out);
+      // Registry row position 2 — the `@<T>` query annotation (bug 0028
+      // §Fix). This one site also covers the DIRECT-LET (`let r: T = @`…``)
+      // and the QRY-2 INFERRED forms: `parseLet`'s direct propagation and
+      // `resolveQuerySchemas` both write the resolved annotation into
+      // `QueryExpr.schema` BEFORE this structural walk runs, so every route
+      // to a schema-bearing query converges on this one check. The empty
+      // annotation (`e.schema === ""`) is skipped — bug 0014's
+      // `theta/parse/empty-query-annotation` already owns that interior, and
+      // a second diagnostic here would double up. Because a propagated `let`
+      // annotation may be the query's `Result<T, QueryError>` value type
+      // rather than a response schema, only the response part is checked
+      // (`queryResponseAnnotation`).
+      if (e.schema !== null && e.schema.trim().length > 0) {
+        const responseAnnotation = queryResponseAnnotation(e.schema);
+        if (responseAnnotation !== undefined) {
+          for (const name of collectUnresolvedNamedTypes(responseAnnotation, refs.typeNames)) {
+            out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
+          }
+        }
+      }
       return;
     default:
       // number / string / bool / null — no nested expressions.

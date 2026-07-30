@@ -15,11 +15,14 @@
 //     and the trailing U+000A after the `<schema-json>` interpolation are part of
 //     the emitted bytes; each rendered template ends with `<schema-json>`
 //     followed by U+000A.
-//   - QRY-12 `<schema-json>`: `JSON.stringify(schema, null, 2)` over the
-//     **lowered** response schema (the JSON Schema handed to AJV per
-//     schema-subset.md), not the source-Theta-type form. `<slug>` is the schema
-//     slug of that same lowered response schema, tying the follow-up's tool
-//     reference byte-equal to the synthesised `__theta_respond_<slug>` tool name.
+//   - QRY-12 `<schema-json>`: `JSON.stringify(schema, null, 2)` over the respond
+//     tool's WIRE schema (query/query-tool-loop.md §Respond-tool wire schema) —
+//     the lowered response schema itself for an object-rooted lowering, its
+//     single-property envelope otherwise — not the source-Theta-type form. A
+//     follow-up restating a shape the tool rejects would ask the model to repeat
+//     the failure. `<slug>` stays the schema slug of the LOWERED response schema,
+//     tying the follow-up's tool reference byte-equal to the synthesised
+//     `__theta_respond_<slug>` tool name.
 //   - QRY-12 `<ajv-summary>` (validator_error only): the in-order
 //     `<path> <message>` concatenation of the failed validation's
 //     `ValidationIssue` entries, joined by `; ` in the canonical
@@ -59,11 +62,14 @@ export type FollowUpMethodology = "validator_error" | "schema_repeat";
 /**
  * The inputs to rendering one respond-repair follow-up user turn (QRY-12).
  *
- * `loweredSchema` is the JSON Schema value actually handed to AJV — the lowered
- * response schema, not the source-Theta-type form — serialised into
- * `<schema-json>` as `JSON.stringify(loweredSchema, null, 2)`. `slug` is the
- * schema slug of that same lowered response schema, naming the
- * `__theta_respond_<slug>` tool. `issues` is the **most recent** failed attempt's
+ * `loweredSchema` is the schema conveyed as `<schema-json>`, serialised as
+ * `JSON.stringify(loweredSchema, null, 2)`: the respond tool's WIRE schema
+ * (query/query-tool-loop.md §Respond-tool wire schema), which is the lowered
+ * response schema itself for an object-rooted lowering and its single-property
+ * envelope for a root no argument object can satisfy. Never the
+ * source-Theta-type form. `slug` is the schema slug of the LOWERED response
+ * schema — never of the envelope — naming the `__theta_respond_<slug>` tool.
+ * `issues` is the **most recent** failed attempt's
  * `ValidationIssue` entries, rendered into `<ajv-summary>` for `validator_error`
  * (ignored by `schema_repeat`); the renderer emits them in the canonical ERR-14
  * order and never accumulates across attempts.
@@ -131,9 +137,13 @@ export function renderFollowUpTurn(input: FollowUpTurnInput): string {
 
 /** The inputs to rendering the QRY-15 initial forced-respond-turn template. */
 export interface InitialRespondTurnInput {
-  /** The lowered response schema (the JSON Schema handed to AJV). */
+  /**
+   * The respond tool's wire schema (query/query-tool-loop.md §Respond-tool wire
+   * schema): the lowered response schema for an object-rooted lowering, its
+   * single-property envelope otherwise.
+   */
   readonly loweredSchema: unknown;
-  /** The lowered schema's slug, naming `__theta_respond_<slug>`. */
+  /** The LOWERED schema's slug, naming `__theta_respond_<slug>`. */
   readonly slug: string;
   /**
    * The REGISTERED respond-tool name (bug 0010 fix review, F6): overrides the
@@ -165,14 +175,14 @@ export function renderInitialRespondTurn(input: InitialRespondTurnInput): string
  * The shared instruction-plus-schema builder (QRY-12 / QRY-15): the
  * instruction sentence with its literal-U+0060-backtick-wrapped
  * `` `__theta_respond_<slug>` `` reference, a single trailing U+000A, then
- * `<schema-json>` (`JSON.stringify(schema, null, 2)` over the LOWERED response
- * schema) and the mandated trailing U+000A. One builder feeds both the QRY-12
- * follow-up templates and the QRY-15 initial template so the emitted bytes
- * cannot drift apart (bug 0010).
+ * `<schema-json>` (`JSON.stringify(schema, null, 2)` over the respond tool's
+ * WIRE schema) and the mandated trailing U+000A. One builder feeds both the
+ * QRY-12 follow-up templates and the QRY-15 initial template so the emitted
+ * bytes cannot drift apart (bug 0010).
  */
 function renderInstructionAndSchema(loweredSchema: unknown, toolName: string): string {
-  // `<schema-json>` — JSON.stringify(schema, null, 2) over the lowered response
-  // schema (the form handed to AJV), not the source-Theta-type form (QRY-12).
+  // `<schema-json>` — JSON.stringify(schema, null, 2) over the schema the respond
+  // tool ACCEPTS (its wire form), not the source-Theta-type form (QRY-12).
   const schemaJson = JSON.stringify(loweredSchema, null, 2);
   // The tool reference names the REGISTERED respond tool — `__theta_respond_
   // <slug>` in the common case, the PIC-44 collision-disambiguated name when

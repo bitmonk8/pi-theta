@@ -736,18 +736,39 @@ describe("bug 0020 (e) — `==` over in-language tag-carrying objects (productio
 
 // ===========================================================================
 // (f) INGRESS DOCUMENTATION (green now, green after) — the wire-reachability
-// claim: a permissive-`{}` lowering position (forward/self/unresolved
-// annotation name — parse-clean, no diagnostic) ADMITS the forged payload
-// through the QRY-22 AJV gate; a closed declared schema rejects it. The fix
-// changes classification, not this gate.
+// claim: a permissive-`{}` lowering position (an annotation name that resolves
+// to no declaration) ADMITS the forged payload through the QRY-22 AJV gate; a
+// closed declared schema rejects it. The bug-0020 fix changes classification,
+// not this gate.
+//
+// REACHABILITY (bug 0028, docs/bugs/0028-unresolved-annotation-silent-
+// permissive-lowering.md): this position is no longer parse-clean. The
+// annotation root, a `schema` body field type, and an inline-object annotation
+// field each emit `theta/parse/unresolved-named-type` (E) for a name resolving
+// to no top-level `schema`/`enum` declaration and no imported `.thetalib`
+// symbol, so such a theta REFUSES AT LOAD and the permissive lowering is
+// unreachable FROM SOURCE — the parse gate is the sole enforcement point. Bug
+// 0028 also removed the forward/self arm from this position's description
+// entirely: those now lower to a real recursive `$ref`, not to `{}`. What
+// survives is the seam's total-function contract (bug 0028 §Fix,
+// "lowerQueryResponseSchema stays a total function returning `{}`"), so both
+// assertions below stand unchanged — reached only by calling the seam
+// DIRECTLY, as (f1) does, never by loading a theta.
 // ===========================================================================
 
 describe("bug 0020 (f) — CONTROL/INGRESS: the QRY-22 gate's permissive `{}` lowering admits the forged payload", () => {
   it("CONTROL/INGRESS (f1): an unresolved annotation lowers permissively to {} and real AJV ADMITS the forged payload", () => {
+    // The seam is called DIRECTLY here: bug 0028's parse gate refuses this name
+    // at every source position that would reach the lowering, so the `{}` arm is
+    // no longer constructible from a loadable theta. It survives as the seam's
+    // total-function contract, deliberately unchanged (bug 0028 §Fix —
+    // `#validateInvokeReturn`'s `undefined` arm returns its result UNVALIDATED,
+    // which is strictly worse than `{}` for `invoke<T>`), which is why this
+    // assertion is untouched by that fix.
     const lowered = lowerQueryResponseSchema("NotDeclaredAnywhere", []);
     expect(
       lowered,
-      "an unresolved / forward / self annotation name lowers permissively to {} with NO parse diagnostic (body-type-lowering.ts discards the unresolved list)",
+      "an annotation name resolving to no declaration lowers permissively to {} — the seam's total-function contract, now reachable only by a direct call (bug 0028's parse gate refuses it from source)",
     ).toEqual({});
     const verdict = ajv()
       .compile(lowered!)

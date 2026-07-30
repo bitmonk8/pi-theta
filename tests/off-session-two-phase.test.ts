@@ -1960,9 +1960,11 @@ describe("bug 0010 (residual pin, re-pinned by bug 0014) — off-session degrade
     expect(
       messageText(messages[0]),
       "the fused message is the pre-0010 typed-aware text — the JSON-only " +
-        "instruction with the (unlowerable, hence empty) shape inlined",
+        "instruction with the (unlowerable, hence empty) shape inlined. Bug 0028 " +
+        "§Fix made the wording shape-agnostic (a lowered enum/primitive root is not " +
+        "an object), so this degraded-arm text says 'JSON value', not 'JSON object'",
     ).toBe(
-      "Ping\n\nRespond with ONLY a single minified JSON object matching this JSON " +
+      "Ping\n\nRespond with ONLY a single minified JSON value matching this JSON " +
         "schema, and nothing else — no prose, no markdown, no code fences: ",
     );
     expect(

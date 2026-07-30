@@ -159,10 +159,11 @@ function binderToolParametersSchema(
     required: [BINDER_ENVELOPE_ARGUMENT_KEY],
     additionalProperties: false,
   };
-  // Defensive residual (see the cycle-guard WHY on `inlineDefsRefs`): when a
+  // Residual closure (see the cycle-guard WHY on `inlineDefsRefs`): when a
   // resolvable ref survived the walk un-inlined (only the cycle guard can
-  // cause that), keep the still-referenced `$defs` closure at the wrapper root
-  // so the attachment stays self-consistent rather than dangling.
+  // cause that — a recursive named schema), keep the still-referenced `$defs`
+  // closure at the wrapper root so the attachment stays self-consistent
+  // rather than dangling.
   if (survivingRefs.size > 0 && defsTable !== undefined) {
     wrapper["$defs"] = residualDefsClosure(defsTable, survivingRefs);
   }
@@ -182,16 +183,16 @@ function binderToolParametersSchema(
  * sibling keys, so a node carrying `$ref` plus siblings cannot arise from a
  * lowered theta schema and is left untouched (copied verbatim), as is any ref
  * not shaped `#/$defs/<name>`. An unresolvable `#/$defs/...` ref — one naming
- * no entry in the root table (today, only the upstream nested-`$defs`
- * lowering gap for two-level NamedType chains: `lowerObjectFields`,
- * body-type-lowering.ts, nests the inner fragment in a `$defs` ON the
- * referring fragment instead of contributing it to the document-root closure,
- * so a schema-referencing-schema/enum whose inner name is not directly
- * params-referenced dangles from every document root) — is left verbatim in
- * the attachment; the case is pre-broken upstream regardless of attachment
- * shape (the envelope document's AJV compile throws on the same dangling ref
- * at the routing step), so leaving it untouched adds no new failure mode and
- * keeps the inliner total.
+ * no entry in the root table — is left verbatim in the attachment, which keeps
+ * the inliner TOTAL for an input it cannot resolve. No author input reaches
+ * that branch: the `params:` document's root `$defs` holds the transitive
+ * closure of every ref the lowering mints (`hoistNestedDefs`, params.ts, lifts
+ * each fragment-local closure to that document's own root, so a name reached
+ * only THROUGH another name is still root-resolvable), and
+ * `buildBinderEnvelopeSchema` hoists that same table verbatim to the envelope
+ * document root — the table this walk resolves against. A ref the walk cannot
+ * resolve would equally fail the envelope document's own AJV compile at the
+ * routing step, so leaving it verbatim adds no failure mode of its own.
  *
  * Nested `$defs` keys encountered during the walk are dropped from the copy:
  * `#/$defs/...` pointers resolve only against the DOCUMENT root, so a non-root
@@ -202,18 +203,17 @@ function binderToolParametersSchema(
  * current expansion path): the theta surface pins recursive named schemas as
  * representable (schemas.md §Recursion — self- and mutual recursion "supported
  * transparently"; schema-subset.md §Reuse — "including recursive references";
- * the depth ceiling bounds runtime DATA, not the schema graph), but the
- * shipped lowering cannot yet emit a cyclic `$defs` graph:
- * `buildBodyTypeSchemas` (body-type-lowering.ts) lowers enums first, then
- * schemas in declaration order against the map-so-far, and a name not yet in
- * the map lowers permissively to `{}` — never to a ref — so every fragment
- * references only fragments lowered strictly before it and the closure is
- * acyclic by construction at this pin. The guard is therefore DEFENSIVE
- * (unreachable from author input today) but not dead forever: it keeps this
- * dispatch-time transform throw-free if the lowering catches up with the
- * spec-pinned recursion. On a cycle the branch stops inlining — the `$ref`
- * node survives as-is and is recorded in `survivingRefs` so the caller retains
- * its `$defs` closure at the wrapper root. No author input throws at dispatch
+ * the depth ceiling bounds runtime DATA, not the schema graph), and bug
+ * 0028's two-pass `buildBodyTypeSchemas` (body-type-lowering.ts) makes a
+ * recursive `$ref` graph REACHABLE from author input: a `params:` field
+ * naming a self- or mutually-recursive `schema` lowers to a ref whose target
+ * fragment refs back into the same closure, so walking into that name a
+ * second time hits this guard — it is LIVE, not defensive. Its documented
+ * disposition is the shipped path for a recursive named schema reached
+ * through the `params:` binder envelope: on a cycle the branch stops inlining
+ * — the `$ref` node survives as-is and is recorded in `survivingRefs` so the
+ * caller retains its `$defs` closure at the wrapper root — rather than
+ * recursing the structural walk forever. No author input throws at dispatch
  * time.
  */
 function inlineDefsRefs(
@@ -241,7 +241,7 @@ function inlineDefsRefs(
       return inlineDefsRefs(fragment, defs, new Set(expansionPath).add(name), survivingRefs);
     }
     if (fragment !== undefined) {
-      // Cycle guard hit (defensively unreachable — see the WHY above): stop
+      // Cycle guard hit (a recursive named schema — see the WHY above): stop
       // inlining this branch, keep the ref, and have the caller retain its
       // closure so the attachment stays self-consistent.
       survivingRefs.add(name);
@@ -265,7 +265,7 @@ function inlineDefsRefs(
  * The transitive `$defs` closure of `roots` over `defs`, retaining each
  * reachable fragment as a fresh `structuredClone` copy (uniform fresh-copy
  * discipline with the inlining walk — the attachment never aliases the input
- * document). Feeds the defensive residual-`$defs` branch of
+ * document). Feeds the residual-`$defs` branch of
  * {@link binderToolParametersSchema} only (a surviving cycle-guarded ref);
  * retaining the full closure keeps every surviving ref — including refs inside
  * retained fragments — resolvable from the wrapper root.

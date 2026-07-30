@@ -60,12 +60,13 @@ export function lowerEnumToSchema(
 export function lowerObjectFields(
   fields: readonly LowerableField[],
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
+  unresolved?: string[],
 ): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   const defs: Record<string, Record<string, unknown>> = {};
   for (const field of fields) {
-    properties[field.name] = lowerTypeSource(field.typeSource, bodyTypeMap, defs);
+    properties[field.name] = lowerTypeSource(field.typeSource, bodyTypeMap, defs, unresolved);
     required.push(field.name);
   }
   const schema: Record<string, unknown> = {
@@ -84,6 +85,7 @@ export function lowerObjectFields(
 export function lowerInlineObject(
   body: string,
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
+  unresolved?: string[],
 ): Record<string, unknown> {
   const fields: LowerableField[] = [];
   for (const entry of splitTopLevel(body, ",")) {
@@ -98,7 +100,7 @@ export function lowerInlineObject(
     }
     fields.push({ name, typeSource });
   }
-  return lowerObjectFields(fields, bodyTypeMap);
+  return lowerObjectFields(fields, bodyTypeMap, unresolved);
 }
 
 /**
@@ -106,11 +108,21 @@ export function lowerInlineObject(
  * union (`"a" | "b"`) lowers to an `enum`, a single literal to a `const`, and
  * every other form (primitive, `array<T>`, named type, non-literal union)
  * delegates to the `params:` `lowerTypeExpr` machinery.
+ *
+ * `unresolved`, when supplied, is a SINK (bug 0028 §Fix): every `NamedType`
+ * name `lowerTypeExpr` cannot resolve against `bodyTypeMap` is appended to it.
+ * The caller owns the array's lifetime — this function never reads it back —
+ * so `lowerObjectFields` / `lowerInlineObject` thread the SAME array across
+ * every field of one body and `collectUnresolvedNamedTypes` reads it after
+ * the call returns. Omitted, the names are collected into a throwaway array
+ * and discarded, which is the behaviour every OTHER caller relies on (the
+ * lowering itself stays permissive regardless of `unresolved`).
  */
 export function lowerTypeSource(
   source: string,
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
   defs: Record<string, Record<string, unknown>>,
+  unresolved?: string[],
 ): Record<string, unknown> {
   const s = source.trim();
 
@@ -127,32 +139,182 @@ export function lowerTypeSource(
     }
   }
 
-  const ctx: LowerCtx = { bodyTypeMap, defs, unresolved: [] };
+  const ctx: LowerCtx = { bodyTypeMap, defs, unresolved: unresolved ?? [] };
   return lowerTypeExpr(s, ctx);
 }
 
 /**
  * Build the whole-file name → lowered-fragment map for a theta body's `schema`
- * and `enum` declarations. Enums are lowered first so a schema field that
- * references an enum resolves to the enum's lowered fragment; a schema decl
- * carrying no object body (an `= …` alias or `by … = …` discriminated union)
- * contributes no entry (its callers supply a permissive fallback).
+ * and `enum` declarations, in TWO passes over a shared, mutable `bodies` map
+ * (bug 0028 §Fix) plus a third pass that attaches each name's flat transitive
+ * `$defs` closure:
+ *
+ * PASS 1 seeds `bodies` with every top-level name BEFORE any object body
+ * lowers: an enum's fragment lowers fully (lowering order never affects an
+ * enum); a schema WITH an object body gets a MUTABLE PLACEHOLDER object, set
+ * UNCONDITIONALLY so a schema still wins a name collision against an enum —
+ * this loop runs second, exactly as today. A schema decl carrying no object
+ * body (an `= …` alias or `by … = …` discriminated union) seeds nothing —
+ * its callers supply a permissive fallback, as today.
+ *
+ * PASS 2 lowers each schema's fields against the FULLY SEEDED map, in source
+ * order, then REPLACES the placeholder's own keys with the computed ones —
+ * clear-then-`Object.assign`, not a fresh `bodies.set` — so the placeholder's
+ * OBJECT IDENTITY survives. That identity is what makes a forward, self, or
+ * mutual reference resolve: `lowerTypeExpr`'s identifier atom (params.ts)
+ * looks the name up in `bodies` while every body is lowering, not only the
+ * ones lowered so far, so it finds the (possibly still-empty, but PRESENT)
+ * placeholder and mints a `$ref` instead of taking the unresolved arm
+ * (schemas.md §Recursion; schema-subset.md §Lowering Algorithm step 3).
+ * `directRefs` records the names each body's fields name DIRECTLY, for pass 3
+ * to turn into a transitive closure.
+ *
+ * PASS 3 attaches a FLAT TRANSITIVE `$defs` closure to each body and returns
+ * the result. THIS IS LOAD-BEARING: leaving `lowerObjectFields`'s own nested
+ * `$defs` in place (pass 2 discards it via `delete computed["$defs"]`) would
+ * make the in-memory fragment graph CYCLIC for a self or mutual reference —
+ * `A.$defs.B.$defs.A === A` by object identity, because that nested `$defs`
+ * holds the SAME placeholder objects pass 2 mutates — and these fragments
+ * escape to `JSON.stringify` (the QRY-15 conveyance in
+ * `renderTypedAwareQueryText`) and to AJV, neither safe to hand a cyclic
+ * object graph. Because pass 2 strips every `bodies` value down to its own
+ * fields (no `$defs`), the closure pass 3 attaches carries VALUES with no
+ * `$defs` of their own, so every fragment this function returns is ACYCLIC
+ * while staying transitively complete — the invariant `pruneDocumentDefs`
+ * (query-schema-lowering.ts) and `binder-inference.ts`'s `inlineDefsRefs`
+ * both rely on.
+ *
+ * For an ACYCLIC document this produces the same final `pruneDocumentDefs`
+ * output as the single-pass lowering did: today's per-fragment nested `$defs`
+ * chain is hoisted to the same flat name set by that function's own HOIST
+ * walk, then pruned by the same reachability walk — this function only
+ * changes WHICH references resolve (forward and self references now do),
+ * not the shape `pruneDocumentDefs` is handed for a reference graph the old
+ * code already resolved.
  */
 export function buildBodyTypeSchemas(
   schemas: readonly LowerableSchema[],
   enums: readonly LowerableEnum[],
 ): Map<string, Record<string, unknown>> {
-  const map = new Map<string, Record<string, unknown>>();
+  // PASS 1 — seed the name set before any body lowers.
+  const bodies = new Map<string, Record<string, unknown>>();
   for (const decl of enums) {
-    map.set(decl.name, lowerEnumToSchema(decl.variants, decl.variantValues));
+    bodies.set(decl.name, lowerEnumToSchema(decl.variants, decl.variantValues));
   }
   for (const decl of schemas) {
     if (decl.fields === undefined) {
       continue;
     }
-    map.set(decl.name, lowerObjectFields(decl.fields, map));
+    bodies.set(decl.name, {});
   }
-  return map;
+
+  // PASS 2 — lower each object body against the fully seeded map.
+  const directRefs = new Map<string, readonly string[]>();
+  for (const decl of schemas) {
+    if (decl.fields === undefined) {
+      continue;
+    }
+    const computed = lowerObjectFields(decl.fields, bodies);
+    const direct = Object.keys((computed["$defs"] ?? {}) as object);
+    // `computed` is fresh — `lowerObjectFields` just built it — so mutating it
+    // here touches nothing else.
+    delete computed["$defs"];
+    const placeholder = bodies.get(decl.name);
+    if (placeholder === undefined) {
+      // Unreachable: pass 1 seeds a placeholder for every schema decl with
+      // `fields`, and this loop iterates that same list.
+      continue;
+    }
+    // Clear-then-assign is REPLACE semantics (matching today's `map.set`) that
+    // PRESERVES the placeholder's object identity — the identity a forward,
+    // self, or mutual reference already captured as its `$ref` target while
+    // this (or another) body's fields were lowering.
+    for (const key of Object.keys(placeholder)) {
+      delete placeholder[key];
+    }
+    Object.assign(placeholder, computed);
+    directRefs.set(decl.name, direct);
+  }
+
+  // PASS 3 — flatten each body's transitive $defs closure and return.
+  const result = new Map<string, Record<string, unknown>>();
+  for (const [name, body] of bodies) {
+    const reached = transitiveDefNames(name, directRefs);
+    if (reached.size === 0) {
+      result.set(name, body);
+      continue;
+    }
+    const closure: Record<string, Record<string, unknown>> = {};
+    for (const reachedName of reached) {
+      const reachedBody = bodies.get(reachedName);
+      if (reachedBody !== undefined) {
+        closure[reachedName] = reachedBody;
+      }
+    }
+    result.set(name, { ...body, $defs: closure });
+  }
+  return result;
+}
+
+/**
+ * The set of names transitively reachable from `name` by following
+ * `directRefs`, breadth-first with a visited-set cycle/termination guard —
+ * INCLUDING `name` itself when a path leads back to it (a self or mutual
+ * reference). Starts the walk at `name`'s OWN direct references, so `name`
+ * is a member of the result only via such a path, never trivially.
+ */
+function transitiveDefNames(
+  name: string,
+  directRefs: ReadonlyMap<string, readonly string[]>,
+): ReadonlySet<string> {
+  const visited = new Set<string>();
+  const queue: string[] = [...(directRefs.get(name) ?? [])];
+  while (queue.length > 0) {
+    const next = queue.shift() as string;
+    if (visited.has(next)) {
+      continue;
+    }
+    visited.add(next);
+    for (const ref of directRefs.get(next) ?? []) {
+      queue.push(ref);
+    }
+  }
+  return visited;
+}
+
+/**
+ * The `NamedType` names in `source` that resolve to no member of `declared` —
+ * a schema-body field type or a `@<T>` query annotation (including its
+ * inline-object-annotation field form) naming no in-scope declaration —
+ * deduped to first-occurrence order (one diagnostic per distinct name per
+ * position; bug 0028 §Fix). `declared` is the RESOLUTION SET, not a lowering
+ * result: `collectBodyTypes` (theta-document.ts) deliberately maps alias-form
+ * schema names and imported `.thetalib` symbols to `{}` AS RESOLVED, so
+ * checking the lowering RESULT for a `{}` fragment would reject those legal
+ * thetas too — this function is handed the NAME set and threads an
+ * `unresolved` sink through the same resolution `lowerTypeExpr` already
+ * performs, rather than re-deriving a second name-walk.
+ *
+ * `source` dispatches the inline-object annotation form itself (`{ … }`,
+ * which `lowerTypeSource` does not handle — `lowerQueryResponseSchema`
+ * dispatches it to `lowerInlineObject` directly) before falling through to
+ * `lowerTypeSource` for every other annotation / field-type shape.
+ */
+export function collectUnresolvedNamedTypes(
+  source: string,
+  declared: ReadonlySet<string>,
+): string[] {
+  const bodyTypeMap = new Map<string, Record<string, unknown>>(
+    [...declared].map((name) => [name, {}] as const),
+  );
+  const unresolved: string[] = [];
+  const s = source.trim();
+  if (s.startsWith("{") && s.endsWith("}")) {
+    lowerInlineObject(s.slice(1, -1), bodyTypeMap, unresolved);
+  } else {
+    lowerTypeSource(s, bodyTypeMap, {}, unresolved);
+  }
+  return [...new Set(unresolved)];
 }
 
 /**

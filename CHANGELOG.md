@@ -6,6 +6,110 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-07-30
+
+### Fixed
+
+- **A typed-query annotation naming no lowerable declaration lowered to the
+  accept-anything `{}` with no diagnostic, so the QRY-22 gate validated nothing
+  and any payload bound as the typed value.** `lowerTypeExpr` had one
+  unresolved arm — push the name onto a list, return `{}` — and whether that
+  became a diagnostic was decided entirely by which caller built the context.
+  `parseParams` read the list back and errored; `lowerTypeSource` built a fresh
+  list and discarded it, and every non-`params:` lowering site sat above
+  `lowerTypeSource`. Three resolution gaps fed the arm. `buildBodyTypeMap` and
+  `buildBodyTypeSchemas` lowered schema bodies single-pass in declaration
+  order, so `Tree.children: array<Tree>` lowered `items: {}` always and
+  `Person.pets: array<Animal>` lowered `items: {}` exactly when `Animal` was
+  declared after `Person` — the declaration order of `schemas.md` §Recursion's
+  own normative example, whose specified emission is `$ref`. `schemaDeclsOf`
+  filtered `kind === "schema"`, so a declared `enum` at the annotation root
+  never resolved and lowered `{}` where `schema-subset.md` §Lowering Algorithm
+  step 3 pins `{"type":"string","enum":[…]}`. And a name declared nowhere — one
+  typo'd letter in `@<Tirage>` — parsed diagnostic-identically to the correct
+  spelling, marked the query typed, and validated the response against `{}`,
+  while the sibling `params: { a: Tirage }` position failed the load with
+  `theta/parse/unresolved-named-type`. `invoke<T>` and the FN-6 `subagent fn`
+  return boundary shared every position through the same lowering call.
+  Fix, in one commit. `buildBodyTypeSchemas` now runs three passes: pass 1
+  seeds a placeholder for every top-level `schema`/`enum` name before any body
+  lowers, pass 2 lowers each body against the fully seeded map while mutating
+  the pass-1 placeholder identity in place, and pass 3 attaches a flat
+  transitive `$defs` closure. Forward, mutual and self references resolve by
+  construction, and `pruneDocumentDefs`'s missing-fragment guard is satisfied
+  because every minted `$ref` carries a registered body before the hoist walk.
+  `parseParams` gains the matching `hoistNestedDefs` step, without which a name
+  reachable only through another name's nested `$defs` dangled from the params
+  document root and the raw AJV `MissingRefError` escaped the binder dispatch
+  after the binder call had spent tokens; this also heals the pre-existing
+  backward-chain break, so `params: p: Item` with `Item.loc: Loc` now compiles
+  and rejects a bad nested payload. `schemaDeclsOf` gains the sibling
+  `enumDeclsOf`, passed at both `lowerQueryResponseSchema` call sites.
+  An error-severity `theta/parse/unresolved-named-type` now fires at every
+  position `lowerTypeSource` serves — the `@<T>` annotation root (which covers
+  the inline-object annotation's fields and the direct-`let` form whose
+  ascription propagates into `QueryExpr.schema`) and the `schema` body field
+  type — emitted from a threaded resolution set rather than from the lowering
+  result, because `collectBodyTypes` maps alias-form and imported names to `{}`
+  deliberately, *as resolved*. No registry edit: bug 0025 wrote the widened
+  four-position row, and this change implements the two positions it
+  over-stated. `lowerQueryResponseSchema` stays a total function returning `{}`
+  — with the parse gate in place the seam is unreachable for this input from
+  source, so it remains defence in depth. A `Result<T, E>` annotation is peeled
+  to `T` with a brace-aware argument split, so
+  `let r: Result<string, QueryError> = @`…`` and
+  `let r: Result<{a: string, b: integer}, QueryError> = @`…`` keep loading while
+  a typo on the `T` side is still refused.
+- **The respond tool is registered with a wire envelope, and nested `$ref`
+  parameters are coerced at the argument boundary.** Live verification of the
+  above found two shapes that could not be conveyed to a real model at all. A
+  tool call's `arguments` are a JSON object at the wire and the host validates
+  them against the registered `parameters` before `execute` runs, so the enum's
+  non-object root rejected every call the model could emit (`root: must be
+  string`, `Received arguments: {}`) and the drive repair-spun into
+  `theta/runtime/reload-teardown-timeout` with the invocation still in flight;
+  the pre-existing `@<string>` path did the same. And models deliver a nested
+  object parameter as a single JSON-encoded string, which the host's own
+  coercion does not parse, so every schema with a nested named-schema reference
+  came back as `pet: must be object` and spun — including the *backward*
+  reference that already minted a `$ref` before this change.
+  `src/runtime/respond-tool-wire.ts` (new) is one recipe feeding the on-session
+  registration, the off-session entry and the QRY-15/QRY-12 template input. An
+  object-admitting root — and the `{}` total-function residual — is its own wire
+  schema byte for byte; every other root (a `type` excluding `object`, an
+  `enum`/`const` literal set, an `anyOf`/`oneOf` union, a root `$ref`) is
+  carried under `{"type":"object","properties":{"value":<lowered>},"required":["value"]}`
+  with the root `$defs` table lifted to the envelope root, because a
+  `#/$defs/<Name>` pointer resolves against the document root alone. The
+  payload is recovered through one boundary function at the three arrival sites
+  (the live `execute`, the off-session free-phase servicing, the forced
+  dispatch's extraction), so the CIO-3 depth walk, the QRY-14 `execute` verdict
+  and the QRY-22 loop validation all still run over the bare payload against
+  the bare lowered schema; `<slug>` and the PIC-44 canonical bytes stay keyed
+  to the lowered schema. A call carrying no `value` member is taken verbatim so
+  it fails validation and enters respond-repair rather than being rewritten to
+  an absent value. `coerceRespondWireArguments`, wired through
+  `ToolDefinition.prepareArguments` (pi's own pre-validation shim, and the only
+  hook that runs before the host validates), parses JSON-string-valued
+  object/array positions back before validation: schema-directed, so a declared
+  `string` field keeps a JSON-looking value; encoding-only, so a parse yielding
+  the wrong type still reports the real mismatch; and `$ref`-following with a
+  chase bound. `query/query-tool-loop.md` gains normative §Respond-tool wire
+  schema; QRY-12, QRY-14, QRY-22 and `implementation-notes.md` are amended to
+  denote the wire schema where they described the lowered one. No new REQ-ID,
+  no new diagnostic code, and an object-rooted typed query registers and
+  conveys the same bytes it did before.
+  Locked by `tests/unresolved-annotation-lowering.test.ts` (40 cells),
+  `tests/respond-tool-wire.test.ts` (24 cells), strengthened depth-enforcement
+  assertions in `tests/query-schema-transitive-defs.test.ts`, and the live twin
+  `tests/live/typed-query-wire-shapes.test.ts` — a declared `enum` root and a
+  forward-declared nested `$ref`, each driven end to end against a real model
+  and raced against a wall bound, because the pre-fix behaviour of both is
+  non-termination. Bug
+  [0028](docs/bugs/0028-unresolved-annotation-silent-permissive-lowering.md);
+  the `params:` right-hand side's remaining inline-object gap is filed as
+  [0035](docs/bugs/0035-params-rhs-inline-object-under-emission.md).
+
 ## [0.37.0] - 2026-07-30
 
 ### Fixed

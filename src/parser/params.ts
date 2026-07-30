@@ -98,7 +98,8 @@ export interface ParamsParseResult {
  *   - `theta/parse/unresolved-named-type` — a RHS `NamedType` resolving to no
  *     `bodyTypes` entry (whole-file resolution, so forward references resolve);
  *   - `loweredSchema` — the per-theta object schema (non-defaulted fields
- *     `required`, named types lowered to in-document `$ref`s against `$defs`),
+ *     `required`, named types lowered to in-document `$ref`s against a `$defs`
+ *     table holding the transitive closure — see `hoistNestedDefs`),
  *     validated through the `V8c` AJV `SchemaValidator` at invocation time.
  *
  * V6b-T stubs this as an inert pass (no diagnostics, no lowered schema); the
@@ -189,10 +190,60 @@ export function parseParams(
     required,
     additionalProperties: false,
   };
-  if (Object.keys(defs).length > 0) {
-    loweredSchema["$defs"] = defs;
+  const hoistedDefs = hoistNestedDefs(defs);
+  if (Object.keys(hoistedDefs).length > 0) {
+    loweredSchema["$defs"] = hoistedDefs;
   }
   return { diagnostics, loweredSchema: loweredSchema as LoweredSchema };
+}
+
+/**
+ * Lift every nested `$defs` entry a registered fragment carries up to the
+ * `params:` document's OWN top level, stripping the nested copy on the way.
+ *
+ * WHY: `lowerTypeExpr` mints ROOT-ABSOLUTE `{ "$ref": "#/$defs/<name>" }`
+ * pointers, which JSON Schema resolves against the document root and nowhere
+ * else, but it registers only the names a `params:` field references DIRECTLY.
+ * A name reached only THROUGH another name — `params: { p: Person }` where
+ * `Person.pets: array<Animal>` — arrives inside `Person`'s own fragment-local
+ * `$defs`, at `#/$defs/Person/$defs/Animal`, which no pointer can name: AJV
+ * refuses the whole document with `can't resolve reference #/$defs/Animal`
+ * when the binder compiles the envelope it is hoisted into
+ * (binder-envelope.ts lifts this `$defs` verbatim to the envelope root). The
+ * annotation path performs the same lift (`pruneDocumentDefs`,
+ * query-schema-lowering.ts); this is the `params:` sibling of it, minus the
+ * reachability prune (a `params:` fragment is registered only when a ref to
+ * it is minted, so every hoisted name is reachable by construction).
+ *
+ * The queue walk is keyed by def NAME with first-wins dedup, and that name set
+ * doubles as the cycle/termination guard: a self- or mutually-recursive schema
+ * closure names itself, so re-queuing the same name must terminate rather than
+ * recurse forever. Fragments are never mutated — a hoisted-from body sheds its
+ * `$defs` through a shallow clone, because the same fragment object is aliased
+ * at several positions in one document (the body-type map's own entry and
+ * every closure carrying it).
+ */
+function hoistNestedDefs(
+  defs: Readonly<Record<string, Record<string, unknown>>>,
+): Record<string, Record<string, unknown>> {
+  const hoisted: Record<string, Record<string, unknown>> = {};
+  const queue: [string, Record<string, unknown>][] = Object.entries(defs);
+  while (queue.length > 0) {
+    const [name, body] = queue.shift() as [string, Record<string, unknown>];
+    if (hoisted[name] !== undefined) {
+      continue;
+    }
+    const nested = body["$defs"];
+    if (nested === undefined || nested === null || typeof nested !== "object") {
+      hoisted[name] = body;
+      continue;
+    }
+    queue.push(...Object.entries(nested as Record<string, Record<string, unknown>>));
+    const stripped: Record<string, unknown> = { ...body };
+    delete stripped["$defs"];
+    hoisted[name] = stripped;
+  }
+  return hoisted;
 }
 
 /** The lowering context threaded through a single field's type expression. */
@@ -291,12 +342,36 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
 }
 
 /**
- * Split a type expression on a top-level `separator`, respecting `<...>` angle
- * nesting and `"`/`'` string literals so nested generics and literal arms are
- * not split mid-token. Empty segments are dropped.
+ * Which bracket pairs `splitTopLevel` counts as nesting.
+ *
+ *   - `"angle"` — `<…>` alone. Every union-arm and `params:`-lowering caller
+ *     uses this: those callers split on `|` or on the `,` of an inline-object
+ *     field list, where an unbalanced brace cannot arise from a well-formed
+ *     enclosing form, and widening them would change which fragments they lower
+ *     (`array<{a: string, b: integer}>` and `{a: 1 | 2}` both split differently
+ *     under brace tracking).
+ *   - `"angle-and-brace"` — `<…>` and `{…}`. This is what the `Type` grammar
+ *     requires of a `GenericType` ARGUMENT list: grammar.md §"Type grammar"
+ *     makes `ObjectType` a `Type` and §"Inline object types" admits it "in any
+ *     `Type` position", so `Result<{a: string, b: integer}, QueryError>` has
+ *     exactly two arguments and its first one carries a comma. Splitting that
+ *     on angle depth alone yields three parts and disagrees with the parser
+ *     that computes `theta/parse/generic-arity-mismatch`.
  */
-export function splitTopLevel(source: string, separator: string): string[] {
+export type TypeSplitNesting = "angle" | "angle-and-brace";
+
+/**
+ * Split a type expression on a top-level `separator`, respecting `nesting`
+ * bracket depth and `"`/`'` string literals so nested generics, inline object
+ * types and literal arms are not split mid-token. Empty segments are dropped.
+ */
+export function splitTopLevel(
+  source: string,
+  separator: string,
+  nesting: TypeSplitNesting = "angle",
+): string[] {
   const parts: string[] = [];
+  const tracksBraces = nesting === "angle-and-brace";
   let depth = 0;
   let quote: string | undefined;
   let current = "";
@@ -317,12 +392,12 @@ export function splitTopLevel(source: string, separator: string): string[] {
       current += c;
       continue;
     }
-    if (c === "<") {
+    if (c === "<" || (tracksBraces && c === "{")) {
       depth += 1;
       current += c;
       continue;
     }
-    if (c === ">") {
+    if (c === ">" || (tracksBraces && c === "}")) {
       depth -= 1;
       current += c;
       continue;
