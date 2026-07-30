@@ -35,7 +35,7 @@
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { renderInteger } from "../diagnostics/placeholder";
-import { isEnumValue, schemaTagOf, type ResultValue, type ThetaValue } from "./value";
+import { isEnumValue, isObjectValue, isResultValue, schemaTagOf, type ResultValue, type ThetaValue } from "./value";
 
 /** The registry codes carried by the five panic sources this module owns. */
 export const INDEX_OUT_OF_BOUNDS_CODE = "theta/runtime/index-out-of-bounds";
@@ -46,6 +46,14 @@ export const INVOKE_DEPTH_EXCEEDED_CODE = "theta/runtime/invoke-depth-exceeded";
 
 /** The runtime-defect-surface code for an unexpected interpreter / adapter throw. */
 export const INTERNAL_ERROR_CODE = "theta/runtime/internal-error";
+
+/**
+ * The runtime-defect-surface code for a deliberate receiver-kind gate (bug
+ * 0027 §Fix) — a REGISTERED rejection, not an unanticipated throw, so it is a
+ * second, distinct code from {@link INTERNAL_ERROR_CODE} even though both
+ * route through {@link surfaceUnexpectedThrow} onto the same channels.
+ */
+export const NON_OBJECT_RECEIVER_CODE = "theta/runtime/non-object-receiver";
 
 /** The `invoke`-chain depth cap (INV-4 / invocation.md §"Invocation depth bound"). */
 export const INVOKE_DEPTH_CAP = 32;
@@ -106,10 +114,104 @@ export class InvokeDepthExceededPanic extends ThetaPanic {
 }
 
 /**
+ * The closed `<receiver kind>` set the `theta/runtime/non-object-receiver`
+ * registry row registers (code-registry-runtime.md, and the §7 closed-enum
+ * placeholder entry that sources its values from that row). A receiver whose
+ * kind is outside this set is outside the row's registered *trigger* too, so
+ * it must not carry the code — see {@link nonObjectReceiverRejection}.
+ */
+type GatedReceiverKind =
+  | "an enum value"
+  | "a Result value"
+  | "a string"
+  | "a number"
+  | "a boolean";
+
+/**
+ * A gated receiver rejection (bug 0027 §Fix, code-registry-runtime.md
+ * `theta/runtime/non-object-receiver`): raised by the widened
+ * `evaluateIndexAccess` guard below, `evaluateMemberAccess`'s enum/`Result`
+ * guard, and both stdlib-method hosts' object-arm gate (`applyStdlibMethod`
+ * in statement-executor.ts, `evaluateStdlibMethod` in
+ * production-theta-producer.ts) ahead of their `evaluateObjectMember` call —
+ * all four through {@link nonObjectReceiverRejection}, which is what keeps
+ * this code off receiver kinds the registry row does not register.
+ * Deliberately NOT a `ThetaPanic` subclass: the six-source panic list
+ * (error-model.md §"Runtime panics") is closed and stays closed — this is
+ * instead the second registered runtime-defect-surface code alongside
+ * `theta/runtime/internal-error`, reached through the same
+ * `surfaceUnexpectedThrow` routing rather than a new arm on `InvokeInfraError`.
+ */
+export class NonObjectReceiverError extends Error {
+  readonly code = NON_OBJECT_RECEIVER_CODE;
+  constructor(read: string, receiverKind: GatedReceiverKind) {
+    super(`non-object receiver: cannot read ${read} on ${receiverKind}`);
+    this.name = "NonObjectReceiverError";
+  }
+}
+
+/**
+ * The `<receiver kind>` clause of a {@link NonObjectReceiverError} message
+ * (code-registry-runtime.md's registered template), or `undefined` when
+ * `value`'s kind is outside that registered closed set.
+ */
+function gatedReceiverKind(value: ThetaValue): GatedReceiverKind | undefined {
+  if (isEnumValue(value)) {
+    return "an enum value";
+  }
+  if (isResultValue(value)) {
+    return "a Result value";
+  }
+  switch (typeof value) {
+    case "string":
+      return "a string";
+    case "number":
+      return "a number";
+    case "boolean":
+      return "a boolean";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The single construction point for a gated-read rejection of `read` on
+ * `receiver`; all four gated sites route through it.
+ *
+ * A receiver {@link gatedReceiverKind} cannot classify keeps its PRE-0027
+ * disposition — a raw `Error` the runtime-defect surface classifies
+ * `theta/runtime/internal-error`, whose trigger is open-ended and covers it —
+ * because the registry row registers such a receiver neither as a trigger nor
+ * as a `<receiver kind>`, so emitting the registered code on it would be a
+ * DIAG-4 registry/behaviour mismatch. That arm is reachable, not defensive:
+ * bug 0032 (docs/bugs/0032-absent-member-binds-undefined.md) binds raw JS
+ * `undefined` for an absent member, so `x.absent[0]` reaches the widened
+ * `evaluateIndexAccess` guard with `undefined` as its receiver. The
+ * `indexed access` wording is that guard's own pre-0027 message, preserved
+ * byte-for-byte: the guard is the only one of the four sites that can reach
+ * this arm, because the other three admit only a `typeof "object"` value
+ * {@link isObjectValue} rejects — an enum value or a `Result` value, both in
+ * the closed set.
+ */
+export function nonObjectReceiverRejection(read: string, receiver: ThetaValue): Error {
+  const kind = gatedReceiverKind(receiver);
+  return kind === undefined
+    ? new Error(`indexed access requires an array<T> or object receiver; got ${typeof receiver}`)
+    : new NonObjectReceiverError(read, kind);
+}
+
+/**
  * Runtime `[i]` indexed access (errors-and-results/error-model.md §"Runtime
  * panics"). `target[index]`:
  *   - `null` target               → `NullIndexAccessPanic` (`[<i>]`);
  *   - array, `i < 0 || i >= len`  → `IndexOutOfBoundsPanic` (`<i> not in 0..<length>`);
+ *   - a primitive, an enum value, or a `Result` value → `NonObjectReceiverError`
+ *     (`theta/runtime/non-object-receiver`, bug 0027 §Fix — a registered
+ *     runtime-defect-surface rejection, not a panic);
+ *   - a receiver outside that registered closed kind set (raw JS `undefined`,
+ *     via bug 0032's absent-member bind) → a raw `Error` →
+ *     `theta/runtime/internal-error`, its pre-0027 disposition
+ *     ({@link nonObjectReceiverRejection});
  *   - object, missing theta-side key → `MissingObjectKeyPanic` (`<key>`);
  *   - otherwise                    → the indexed element / member value.
  *
@@ -138,17 +240,27 @@ export function evaluateIndexAccess(
     }
     return target[i] as ThetaValue;
   }
-  // A primitive receiver (`string` / `number` / `integer` / `boolean`) is not
-  // indexable: the type layer rejects `s[0]` at parse time
-  // (`theta/parse/non-indexable-receiver`). Reaching here means the static check
-  // was bypassed; surface it as a runtime defect rather than silently returning
-  // a character (the pre-V20c behaviour, which returned `"h"` for `"hi"[0]`).
-  // A non-panic throw is reclassified to `theta/runtime/internal-error` by the
-  // runtime-defect surface.
-  if (typeof target !== "object") {
-    throw new Error(
-      `indexed access requires an array<T> or object receiver; got ${typeof target}`,
-    );
+  // A primitive receiver (`string` / `number` / `boolean`) is not indexable:
+  // the type layer rejects a *statically-resolvable* one at parse time
+  // (`theta/parse/non-indexable-receiver`). An enum value or a `Result` value
+  // is not indexable either — both satisfy JS `typeof "object"` but neither is
+  // an object value in the language's sense ({@link isObjectValue}, bug 0027
+  // §Fix) — and has no static model at all (`Result` has no `CompatType` form;
+  // an enum name resolves `"unknown"` in the A2 `TypeEnv`), so a laundered
+  // instance of either is parse-clean regardless of annotation. On those three
+  // receiver kinds, surface the registered
+  // `theta/runtime/non-object-receiver` runtime-defect-surface code rather
+  // than silently answering the receiver's reference encoding (the pre-0027
+  // behaviour for enum/`Result` — `s["0"]` answering one character of the wire
+  // string) or a raw unregistered `Error` (the pre-0027 behaviour for a
+  // laundered primitive). A fourth input class also reaches this guard and is
+  // NOT the code's: raw JS `undefined`, which bug 0032's absent-member bind
+  // puts into a binding (`x.absent[0]`). It is outside the row's registered
+  // trigger and `<receiver kind>` set, so `nonObjectReceiverRejection` keeps it
+  // on its pre-0027 raw-`Error` → `theta/runtime/internal-error` path.
+  if (typeof target !== "object" || !isObjectValue(target)) {
+    const rendered = typeof index === "number" ? renderInteger(index) : index;
+    throw nonObjectReceiverRejection(`[${rendered}]`, target);
   }
   // Object indexing: a key that is not a present theta-side name on the object
   // is the missing-object-key panic (`theta/runtime/missing-object-key`).
@@ -162,16 +274,30 @@ export function evaluateIndexAccess(
 
 /**
  * Runtime `.field` member access (errors-and-results/error-model.md §"Runtime
- * panics"). `target.field` on a `null` target raises `NullMemberAccessPanic`
- * (`.<field>`); otherwise it returns the member value.
+ * panics"). `target.field`:
+ *   - `null` target → `NullMemberAccessPanic` (`.<field>`);
+ *   - an enum value or a `Result` value → `NonObjectReceiverError`
+ *     (`theta/runtime/non-object-receiver`, bug 0027 §Fix): both satisfy JS
+ *     `typeof "object"` but neither is an object value in the language's
+ *     sense ({@link isObjectValue}), so the gate fires ahead of the generic
+ *     read below rather than answering the boxed-`String` enum carrier's own
+ *     `.length` or the `Result` literal's own `.ok` / `.value` / `.error`. A
+ *     primitive and an array are NOT gated here — `"hi".length` and
+ *     `[1,2].length` read the receiver's own declared member
+ *     (expressions.md's `string` / `array` `length` declarations) and must
+ *     keep working;
+ *   - otherwise → the member value.
  *
  * The registered `null member access: .<field>` template is sourced from
  * diagnostics/code-registry-runtime.md (`<field>` is a category-5 source-
- * derived identifier rendered bare).
+ * derived identifier rendered bare); so is the non-object-receiver template.
  */
 export function evaluateMemberAccess(target: ThetaValue, field: string): ThetaValue {
   if (target === null) {
     throw new NullMemberAccessPanic(`null member access: .${field}`);
+  }
+  if (typeof target === "object" && !isObjectValue(target)) {
+    throw nonObjectReceiverRejection(`.${field}`, target);
   }
   return (target as { readonly [k: string]: ThetaValue })[field] as ThetaValue;
 }
@@ -316,13 +442,19 @@ export class HostFatal {
  *   - a `ThetaPanic` → `undefined` (already a panic; not a runtime defect, not
  *     reclassified — the caller rethrows it so it bypasses `?`/`match`);
  *   - a `HostFatal` → `undefined` (NOCEIL-3 carve-out: no diagnostic at all);
+ *   - a `NonObjectReceiverError` → its own registered
+ *     `theta/runtime/non-object-receiver` `Diagnostic` (bug 0027 §Fix): a
+ *     DELIBERATE receiver-kind gate, not an unanticipated throw, so its
+ *     `message` is the bare registered template — no `internal error: `
+ *     prefix, which marks the OTHER arm below;
  *   - any other thrown value → a `theta/runtime/internal-error` `Diagnostic`
  *     whose `message` is the underlying `error.message` and whose `hint` is the
  *     underlying `error.stack` (or `"<no stack available>"` when falsy).
  *
  * The `internal error: <error.message>` template is sourced from
  * diagnostics/code-registry-runtime.md; `hint` carries the underlying
- * `error.stack` (or `"<no stack available>"` when falsy) for operator triage.
+ * `error.stack` (or `"<no stack available>"` when falsy) for operator triage
+ * on both this arm and the `NonObjectReceiverError` arm above.
  */
 export function surfaceUnexpectedThrow(
   thrown: unknown,
@@ -338,6 +470,23 @@ export function surfaceUnexpectedThrow(
   // diagnostic at all for it.
   if (thrown instanceof HostFatal) {
     return undefined;
+  }
+  // A deliberate receiver-kind gate (bug 0027 §Fix), not an unanticipated
+  // throw: reuses this surface's routing (same channels, same
+  // `cause: "internal_error"` on `InvokeInfraError`) but carries its OWN
+  // registered code and the bare registered message.
+  if (thrown instanceof NonObjectReceiverError) {
+    return {
+      severity: "error",
+      code: thrown.code,
+      file: site.file,
+      range: site.range,
+      message: thrown.message,
+      hint:
+        typeof thrown.stack === "string" && thrown.stack.length > 0
+          ? thrown.stack
+          : "<no stack available>",
+    };
   }
   const errorLike = thrown as { readonly message?: unknown; readonly stack?: unknown };
   const message =

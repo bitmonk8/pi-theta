@@ -1,13 +1,16 @@
 # Bug 0027 — Runtime receiver dispatch classifies by JS `typeof`, so enum and `Result` values take the object read surfaces: `s.keys()` yields `["0","1","2","3"]`, `r.ok` reads the discriminator outside `match` / `?`, and any other member aborts the theta with `theta/runtime/internal-error`
 
-- **Status:** open
+- **Status:** fixed (0.39.0). §Fix as settled — runtime receiver gate at the
+  four read entry points, new registered runtime-defect-surface code
+  `theta/runtime/non-object-receiver`, no static modelling. See
+  §Fix (0.39.0) below.
 - **Blocked on:** bug
-  [0026](./0026-ctor-field-named-thetaschema-destroyed-by-brand.md). 0026's
-  Symbol migration of `ENUM_TAG` / `SCHEMA_TAG` / `RESULT_TAG` lands first and
-  closes every brand-key read on every receiver — `has("__thetaSchema")`,
+  [0026](./0026-ctor-field-named-thetaschema-destroyed-by-brand.md) —
+  discharged: its Symbol migration landed in 0.33.0 and closed every
+  brand-key read on every receiver — `has("__thetaSchema")`,
   `o["__thetaEnum"]`, `r.__thetaResult`. This report covers what survives that
   migration: the receiver's own non-brand properties, which no brand re-keying
-  reaches. The two ship as separate commits (key re-encoding and receiver
+  reaches. The two shipped as separate commits (key re-encoding and receiver
   dispatch are independent risk surfaces).
 - **Kind:** defect — two elements against one root cause, the `typeof`-based
   runtime receiver dispatch.
@@ -93,6 +96,118 @@
   live model required. Every probe drives the production executor
   (`parseThetaDocument` → `createProductionProducerDeps` →
   `bindPromptConversation` → `executeBody`) with parse-clean sources.
+
+## Fix (0.39.0)
+
+The settled §Fix, implemented as written. Line anchors are at the fix commit.
+
+**One shared classifier (`src/runtime/value.ts:220`).** `isObjectValue`
+lives beside `privateBrandOf` and answers whether a `typeof "object"` value
+is an *object value* in the language's sense — `false` for `isEnumValue`
+(`:281`) and `isResultValue` (`:304`), `true` otherwise. All four read entry
+points route through it:
+
+- `applyStdlibMethod` (`src/runtime/statement-executor.ts:934–935`) and its
+  pure-host twin `evaluateStdlibMethod`
+  (`src/extension/production-theta-producer.ts:5917–5918`) — byte-identical
+  gated arms ahead of the `evaluateObjectMember` call, so the effectful
+  executor and the pure producer move in lockstep;
+- `evaluateIndexAccess` (`src/runtime/runtime-panics.ts:261–263`) — the
+  existing non-object guard widened (`typeof target !== "object" ||
+  !isObjectValue(target)`), not a second guard; its whole input class —
+  primitives included — now carries the registered code;
+- `evaluateMemberAccess` (`runtime-panics.ts:299`) — enum and `Result`
+  receivers gated after the `null` guard; primitive member reads
+  (`"hi".length`, array `length`) are untouched.
+
+**The registered code (`theta/runtime/non-object-receiver`).**
+`NonObjectReceiverError` (`runtime-panics.ts:145`) is a plain `Error`
+carrying the code — not a `ThetaPanic`; the six-source panic list is
+untouched. `surfaceUnexpectedThrow` gained an arm ahead of the generic
+fallback: the diagnostic carries the registered message bare (no
+`internal error: ` prefix) and the throw's stack in `hint`. Routing reuses
+the internal-error channels — slash-command system note,
+`Err(InvokeInfraError { cause: "internal_error" })` to an `invoke` parent;
+no new arm. The message template is
+`non-object receiver: cannot read <read> on <receiver kind>`: `<read>`
+renders `.<member>()` for a stdlib method call, `[<key>]` (bare, never
+quoted) for indexed access, `.<field>` for member access; `<receiver kind>`
+is the closed five-value set `an enum value` / `a Result value` / `a string`
+/ `a number` / `a boolean` (`GatedReceiverKind`, `runtime-panics.ts:123`).
+A receiver outside the set — raw JS `undefined` from bug
+[0032](./0032-absent-member-binds-undefined.md)'s absent-member bind can
+reach the index guard — keeps the pre-fix raw-`Error` →
+`theta/runtime/internal-error` disposition (`nonObjectReceiverRejection`,
+`:196`), so the registered trigger stays exactly the five kinds.
+
+**Spec amendments (same change).**
+`docs/spec_topics/diagnostics/code-registry-runtime.md` — one new DIAG-2 row
+plus a sentence in the intro paragraph introducing the second
+runtime-defect-surface code (a deliberate gate, not an unexpected throw;
+same routing; not a panic source). `error-model.md` §Runtime panics — the
+runtime-defect-surface sentence gained the clause admitting registered
+non-panic runtime rejections (this gate; for indexed access alone, also a
+primitive receiver the static check did not reject) onto the same surface.
+`placeholder-rendering-a.md` — Closure carve-out (f) admits `<read>`
+(bespoke, rendering owned by the registry row);
+`placeholder-rendering-b.md` §7 — `<receiver kind>` registered as a
+closed-enum placeholder with the row's Trigger prose as source of truth.
+The closed panic list and the six-template table are byte-untouched.
+
+**Docstring corrections.** `src/runtime/stdlib-object.ts` header states the
+receiver precondition (the object stdlib surface presupposes an object-value
+receiver; enum/`Result` receivers are gated ahead of it) and the real
+default-arm boundary: parse-time `theta/parse/unknown-method` covers
+statically-resolvable receivers only, so a laundered genuine-object receiver
+still reaches the raw-`Error` default arm and rides internal-error —
+pre-existing, outside this bug's receiver-kind scope. `brandSchemaValue`'s
+docstring needed no change (its claim is about schema-branded objects, which
+the gate classifies as object values).
+
+**No static modelling.** `collectTypeEnv`, `NamedDecl`, `classifyOperand`,
+`classifyIndexReceiver` untouched, per D5: the runtime gate is total over
+the input class — the unannotated (E7), annotated (E8/R9) and laundered
+receivers take the same gate.
+
+**GOV-15 standing.** The affected inputs were never conformant: every probe
+that changes value read a shape `runtime-value-model.md:16` disclaims under
+its own "may change without a spec revision" licence, so the equivalence
+promise is not engaged by the return-value changes. The diagnostic-registry
+carve-out (`source-language-stability.md:23–25`) is the mechanism for the
+new code only.
+
+**Offline lock.** `tests/non-object-receiver-gate.test.ts` (37 tests,
+offline, through the production executor): the enum and `Result` read
+surfaces on all four entry points, the unknown-member aborts replacing
+internal-error (E9/E10/R10), the laundered/annotated variants (E7/E8/R9),
+both hosts (the pure host via the QRY-18 interpolation render), byte-exact
+template pins for all five receiver kinds (h1–h6), gate-before-key-check
+ordering (`r["definitely_absent"]` → the gate, not missing-object-key), and
+the controls: O1 parse rejection, O2/O3 object and string receivers, string
+and array `length`, `match` and `?` over `Result` (which read the
+representation internally, not through the gated entry points), the
+out-of-model `undefined` receiver keeping internal-error, and the
+MissingObjectKeyPanic arm for genuine object receivers. Verified in both
+directions: neutralising `isObjectValue` re-opens every leak with the
+§Reproduction values; per-site neutralisations partition the 27 witness
+tests across the four entry points. Live: H8a production acceptance 7/7 and
+H9a real-binary acceptance 11/11 green with the gate in place;
+`theta/runtime/non-object-receiver` is not emitted by any acceptance
+fixture, so the H7a permitted-code list is unchanged.
+
+**Residuals.** (i) Member access on an *absent* name of a genuine object
+value still binds raw JS `undefined` — bug
+[0032](./0032-absent-member-binds-undefined.md), unchanged here; the
+widened index guard deliberately routes that value to internal-error rather
+than claiming it for the new code. (ii) An unknown stdlib member on a
+laundered genuine-object receiver still rides internal-error (the
+default-arm boundary above) — pre-existing, receiver-kind-shaped fixes do
+not reach it. (iii) Found in review: the `missing object key: <key>`
+implementation renders `<key>` bare always, diverging from
+`placeholder-rendering-b.md` §5's quoting vector for non-identifier-shaped
+keys (`obj["my-key"]` → `missing object key: "my-key"`); pre-existing and
+unfiled at fix time — the new row deliberately pins its own bare-always
+rule instead of citing §5.
 
 ## Summary
 

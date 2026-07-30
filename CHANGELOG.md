@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-07-30
+
+### Fixed
+
+- **Runtime receiver dispatch classified by JS `typeof`, so enum and `Result`
+  values took the object read surfaces and exposed their reference encoding
+  to ordinary theta code** (bug 0027). `s.keys()` on an enum value answered
+  the boxed-`String` carrier's index properties (`["0","1","2","3"]`),
+  `s["0"]` read one character of the wire string, `s.length` read the
+  wrapper's own `length`, and `r.ok` / `r.keys()` read the `Result`
+  discriminator and payload outside the closed `Ok`/`Err`/`match`/`?`
+  observation surface — while any *other* member (`s.toUpperCase()`,
+  `r.bogus()`) aborted the theta as `theta/runtime/internal-error` where
+  expressions.md pins a diagnosis "rather than a runtime failure". One shared
+  classifier (`isObjectValue`, false for enum and `Result` values) now gates
+  all four read entry points — both stdlib-method hosts in lockstep, the
+  widened indexed-access guard (whose whole input class, primitives included,
+  now carries a registered code), and member access — rejecting the read
+  with the new registered runtime-defect-surface code
+  `theta/runtime/non-object-receiver` (`non-object receiver: cannot read
+  <read> on <receiver kind>`), routed like `internal-error` and deliberately
+  not a panic: the closed six-source panic list is untouched, `match` and
+  `?` are unaffected, and an out-of-model receiver (bug 0032's `undefined`
+  bind) keeps its internal-error disposition. Spec: new DIAG-2 registry row,
+  the error-model runtime-defect surface admits registered non-panic
+  rejections, and the two new placeholders join the placeholder-closure
+  carve-outs (`<read>` bespoke, `<receiver kind>` closed-enum). Locked by
+  `tests/non-object-receiver-gate.test.ts` (37 offline tests through the
+  production executor, byte-exact template pins, both directions verified).
+
 ## [0.38.0] - 2026-07-30
 
 ### Fixed

@@ -15,6 +15,26 @@
 //   - `has(k)` returns whether a theta-side name is present — `false` for an
 //     unknown key, with no panic (the explicit safe-check).
 //
+// This surface PRESUPPOSES an object-value receiver. An enum value and a
+// `Result` value both satisfy JS `typeof "object"`, but neither is an object
+// value in the language's sense (runtime-value-model.md's enum / `Result`
+// rows) — both entry points that reach this module (`applyStdlibMethod` in
+// statement-executor.ts, `evaluateStdlibMethod` in
+// production-theta-producer.ts) gate such a receiver ahead of
+// `evaluateObjectMember`, rejecting it with the registered
+// `theta/runtime/non-object-receiver` code (bug 0027 §Fix) before it ever
+// reaches this module. `evaluateObjectMember`'s `default` arm below is
+// therefore unreachable for an enum or `Result` receiver. It remains reachable
+// for a genuine object receiver: the parse-time `theta/parse/unknown-method`
+// rejection (expressions.md) covers a STATICALLY-RESOLVABLE receiver only, so
+// an unknown member on a laundered object receiver — `fn f(x) { return
+// x.bogus() }` applied to a schema value, which is parse-clean because the A2
+// layer defers on an unannotated parameter — reaches the arm at runtime and its
+// raw throw is reclassified as `theta/runtime/internal-error`, whose trigger is
+// open-ended. That disposition is pre-existing and outside bug 0027's scope:
+// the gate above is receiver-kind-shaped and does not claim the unknown-member
+// case on an object receiver.
+//
 // The V3h implementation fills in the runtime member dispatch: `keys()` /
 // `values()` follow the object value's own key order (established at
 // construction time — schema declaration order for named schemas, insertion

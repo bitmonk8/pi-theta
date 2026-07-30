@@ -62,6 +62,7 @@ import {
   evaluateIndexAccess,
   evaluateMemberAccess,
   evaluateQuestion,
+  nonObjectReceiverRejection,
   QuestionOperandDefectError,
 } from "./runtime-panics";
 import { evaluateStringMember } from "./stdlib-string";
@@ -75,6 +76,7 @@ import {
 } from "./terminal-outcomes";
 import {
   brandSchemaValue,
+  isObjectValue,
   isResultValue,
   makeErr,
   makeOk,
@@ -912,7 +914,14 @@ function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValue): The
  * Dispatch a stdlib method on resolved operands by the receiver's runtime type —
  * mirrors the pure host's `evaluateStdlibMethod`, reusing the same exported
  * member surfaces (`stdlib-string` / `stdlib-array` / `stdlib-object`); a
- * non-string/array/object receiver yields the inert `null`.
+ * non-string/array/object receiver yields the inert `null`. An enum value or a
+ * `Result` value satisfies the object arm's `typeof` test but is gated ahead of
+ * `evaluateObjectMember` (bug 0027 §Fix): neither is an object value in the
+ * language's sense, so the call rejects with `theta/runtime/non-object-receiver`
+ * rather than answering the carrier's own enumerable properties. This
+ * effectful executor and the pure host's `evaluateStdlibMethod`
+ * (production-theta-producer.ts) move in lockstep — a gate on one alone leaves
+ * the other leaking.
  */
 function applyStdlibMethod(receiver: ThetaValue, method: string, args: readonly ThetaValue[]): ThetaValue {
   if (typeof receiver === "string") {
@@ -922,6 +931,9 @@ function applyStdlibMethod(receiver: ThetaValue, method: string, args: readonly 
     return evaluateArrayMember(receiver, method, args);
   }
   if (typeof receiver === "object" && receiver !== null) {
+    if (!isObjectValue(receiver)) {
+      throw nonObjectReceiverRejection(`.${method}()`, receiver);
+    }
     return evaluateObjectMember(receiver as { readonly [k: string]: ThetaValue }, method, args);
   }
   return null;

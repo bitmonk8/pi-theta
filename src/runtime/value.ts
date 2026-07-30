@@ -192,6 +192,36 @@ function privateBrandOf(value: ThetaValue, tag: symbol): unknown {
 }
 
 /**
+ * Whether `value` is an *object value* in the language's sense of
+ * runtime-value-model.md's object row — the receiver kind the `object` stdlib
+ * surface (`keys()` / `values()` / `has(k)`) and indexed / member access are
+ * defined over (bug 0027 §Fix). `false` for an enum value and a `Result`
+ * value: both satisfy JS `typeof "object"` (an enum value is a boxed
+ * `String`; a `Result` is an `{ ok, … }` literal) but runtime-value-model.md's
+ * enum and `Result` rows admit no field / index / membership surface on
+ * either, so neither is an object value in the language's sense. `true` for
+ * every other value, including an array, a plain object-schema value, and a
+ * non-`typeof "object"` primitive ({@link isEnumValue} and
+ * {@link isResultValue} both answer `false` on a primitive too, since
+ * {@link privateBrandOf} itself excludes it before either can classify).
+ * This classifier answers exactly one question — object-value-or-not among
+ * `typeof "object"` inputs — and leaves every other exclusion (`null`, an
+ * array, a primitive) to its caller, each of which already applies the
+ * exclusion it needs before consulting this function.
+ *
+ * The single classification point the four runtime read entry points route
+ * through ahead of the object path, so a classification change has one
+ * definition site rather than four: `applyStdlibMethod`
+ * (statement-executor.ts) and `evaluateStdlibMethod`
+ * (production-theta-producer.ts) ahead of their `evaluateObjectMember` call;
+ * the widened non-object guard in `evaluateIndexAccess` and the enum/`Result`
+ * guard in `evaluateMemberAccess` (both runtime-panics.ts).
+ */
+export function isObjectValue(value: ThetaValue): boolean {
+  return !isEnumValue(value) && !isResultValue(value);
+}
+
+/**
  * The declaring-enum tag of `value` if it is an enum value, else `undefined`.
  * The brand is the **non-enumerable** descriptor {@link makeEnumValue}
  * installs on the module-private `ENUM_TAG` symbol, never a same-described

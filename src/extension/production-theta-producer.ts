@@ -190,6 +190,7 @@ import type { CheckpointSite } from "../seams/checkpoint";
 import {
   brandSchemaValue,
   isEnumValue,
+  isObjectValue,
   isResultValue,
   makeErr,
   makeOk,
@@ -234,7 +235,12 @@ import {
   respondPayloadFromWire,
   respondToolWireSchema,
 } from "../runtime/respond-tool-wire";
-import { evaluateIndexAccess, evaluateMemberAccess, HostFatal } from "../runtime/runtime-panics";
+import {
+  evaluateIndexAccess,
+  evaluateMemberAccess,
+  HostFatal,
+  nonObjectReceiverRejection,
+} from "../runtime/runtime-panics";
 import { routeThetaCallableSetupThrow } from "../runtime/tool-call-off-surface";
 import {
   createRegistrationCache,
@@ -5885,7 +5891,16 @@ function evaluatePureIf(
  * structural equality of `includes` / `indexOf` match the reference semantics.
  * A receiver with no stdlib member surface (number / boolean / null) has no
  * theta-1.0 method and yields the inert `null` safety net rather than throwing
- * out of the executor.
+ * out of the executor. An enum value or a `Result` value satisfies the object
+ * arm's `typeof` test but is gated ahead of `evaluateObjectMember` (bug 0027
+ * §Fix): neither is an object value in the language's sense, so the call
+ * rejects with `theta/runtime/non-object-receiver` rather than answering the
+ * carrier's own enumerable properties — including on the QRY-18 interpolation
+ * render path (`stringifyInterpolation`), so a receiver that would leak into a
+ * rendered query template is rejected before any text reaches the model. This
+ * pure host and the effectful executor's `applyStdlibMethod`
+ * (statement-executor.ts) move in lockstep — a gate on one alone leaves the
+ * other leaking.
  */
 function evaluateStdlibMethod(
   receiver: ThetaValue,
@@ -5899,6 +5914,9 @@ function evaluateStdlibMethod(
     return evaluateArrayMember(receiver, method, args);
   }
   if (typeof receiver === "object" && receiver !== null) {
+    if (!isObjectValue(receiver)) {
+      throw nonObjectReceiverRejection(`.${method}()`, receiver);
+    }
     return evaluateObjectMember(receiver as { readonly [k: string]: ThetaValue }, method, args);
   }
   return null;
