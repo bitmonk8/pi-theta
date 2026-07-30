@@ -8,5 +8,6 @@
   "theta/runtime/custom-type-unsafe",
   "theta/runtime/internal-error",
   "theta/runtime/registration-cache-collision",
-  "theta/runtime/validator-cache-collision"
+  "theta/runtime/validator-cache-collision",
+  "theta/host/session-start-supersession-detach-failed"
 ]

@@ -44,9 +44,11 @@ Located-site classification (closed): **Located** (single token span in one file
 Namespaces: `theta/parse/*` (lex / parse / type), `theta/load/*` (file-load,
 registration, discovery), `theta/runtime/*` (execution panics, runtime-defect
 surface, delivery/lifecycle failures), `theta/host/*` (host-observed anomalies,
-emitted via `console.error`). `theta/typecheck/*` is a build-time `tsc` brand
-namespace, **not** runtime diagnostics — no registry row, out of scope. Severity
-`E/W` means the severity is resolved per diagnostic by that row's trigger.
+most emitted via `console.error`; `session-start-supersession-detach-failed`
+routes via the persistent channel). `theta/typecheck/*` is a build-time `tsc`
+brand namespace, **not** runtime diagnostics — no registry row, out of scope.
+Severity `E/W` means the severity is resolved per diagnostic by that row's
+trigger.
 
 ## `theta/parse/*`
 
@@ -260,8 +262,11 @@ panics are deliberately not in the panic catalogue.
 
 ## `theta/host/*`
 
-Emitted via `console.error` (typical observation site is the `session_shutdown`
-teardown handler, where the persistent channel may already be invalidated).
+Most rows are emitted via `console.error` (typical observation site is the
+`session_shutdown` teardown handler, where the persistent channel may already be
+invalidated). `session-start-supersession-detach-failed` is the exception: it
+fires on a live session, so it routes via the persistent channel's System notes
+fallback chain (`sendSystemNote` → `ctx.ui.notify` → `console.error`).
 
 | Code | Sev | Phase | Message |
 |---|---|---|---|
@@ -269,6 +274,7 @@ teardown handler, where the persistent channel may already be invalidated).
 | `theta/host/session-shutdown-pinned-constant-unreadable` | W | runtime | `session_shutdown pinned-constant read failed: <failure>`. |
 | `theta/host/session-swap-instance-survived` | E | runtime | `extension instance survived a session-only session_shutdown (reason: <reason>); Pi lifecycle contract violated — terminating`. |
 | `theta/host/session-shutdown-teardown-step-failed` | W | runtime | `session_shutdown teardown step <step> failed at <call>: <error>`. |
+| `theta/host/session-start-supersession-detach-failed` | W | runtime | `session_start supersession detach failed at <call>: <error>`. |
 
 ## `masked` field (hard-ceiling co-fire)
 

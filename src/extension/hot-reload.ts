@@ -98,8 +98,11 @@ export interface InstallHotReloadDeps {
 /** The teardown handle the `session_shutdown` handler holds. */
 export interface HotReloadHandle {
   /**
-   * Tear the watcher down, cancel any pending debounce timer, and mark the
-   * debouncer torn-down (PIC-57) so no new watcher-driven rebuild starts.
+   * Mark the debouncer torn-down (PIC-57) BEFORE tearing the watcher down —
+   * the containment-first order `quiesceOnStaleCtx` uses for the identical
+   * acts (bug 0029): a throwing unsub then strands only the OS-level watcher
+   * handles, because any event a still-attached watcher goes on delivering
+   * reaches a debouncer that is already torn down and starts no rebuild.
    */
   detach(): void;
   /**
@@ -296,14 +299,18 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
 
   return {
     detach(): void {
-      // Sub-step-4 teardown order: tear the watcher down, then cancel the
-      // pending debounce timer and mark the debouncer torn-down (PIC-57) so a
-      // window that closed during teardown does not run a rebuild against the
-      // about-to-be-invalidated runtime.
-      unsub();
-      debouncer.cancel();
+      // Containment-first (bug 0029): mark torn-down BEFORE the one fallible
+      // step, the order `quiesceOnStaleCtx` above already uses for the
+      // identical acts. A throwing `unsub()` then strands only the OS-level
+      // watcher handles — any event a still-attached watcher goes on
+      // delivering feeds a debouncer already torn down, so `runReload`'s
+      // `tornDown` guard and `ReloadDebouncer`'s own window guard both hold
+      // and no rebuild can start from it. One containment order for the
+      // module, not an outlier; `markTornDown()` already cancels the pending
+      // timer, so no separate `debouncer.cancel()` call is needed here.
       tornDown = true;
       debouncer.markTornDown();
+      unsub();
     },
     markTornDown(): void {
       // PIC-57 sub-step 4 (a): suppress new rebuilds without awaiting quiesce.

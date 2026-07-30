@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-07-31
+
+### Fixed
+
+- **A throwing supersession detach was swallowed with zero evidence, and
+  `detach()`'s fallible-first step order skipped every containment mark, so
+  a debounce window pending at supersession still drove one
+  superseded-generation reload pass that published and re-registered against
+  a drained registry** (bug 0029). `HotReloadHandle.detach()` ran its one
+  fallible step (`unsub()` — in production a chokidar `close()`) first, so a
+  synchronous throw skipped `debouncer.cancel()` and both torn-down marks —
+  the two guards the spec's no-rebuild-after-supersession MUST rests on —
+  and the factory's catch was `void e`: no diagnostic, no note, no stderr.
+  `detach()` is now containment-first (`tornDown = true;
+  debouncer.markTornDown(); unsub();` — the `quiesceOnStaleCtx` order, for
+  both callers), so a throwing unsub strands only OS-level watcher handles
+  and no superseded-generation reload can start; and the swallow now emits
+  exactly one `theta/host/session-start-supersession-detach-failed` (W)
+  through the bootstrap diagnostic sink — `session_start supersession detach
+  failed at <call>: <error>`, `details.call = "hotReloadHandle.detach"` —
+  defended by its own catch so a throwing sink cannot abort the superseding
+  pass. Spec: new DIAG-2 row in `code-registry-host.md` (live-session
+  routing exception noted), a normative catch-and-emit sentence in
+  `registration-steps.md#repeat-start-supersession`, `diagnostic-shape.md` /
+  `docs/reference/diagnostics.md` channel corrections, and the slug appended
+  to H9a's permitted-code list. In-flight-rebuild gap remains bug 0034.
+  Locked by `tests/supersession-detach-throw-containment.test.ts` (4 offline
+  tests, both directions verified; live double-session-start and H9a
+  acceptance green).
+
 ## [0.39.0] - 2026-07-30
 
 ### Fixed

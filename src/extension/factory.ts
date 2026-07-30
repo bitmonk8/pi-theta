@@ -178,6 +178,45 @@ function composeFailedDiagnostic(caught: unknown): Diagnostic {
 }
 
 /**
+ * The diagnostics-registry code the repeat-`session_start` supersession pass
+ * surfaces when its detach of the prior generation's hot-reload handle throws
+ * (bug 0029; diagnostics/code-registry-host.md
+ * `theta/host/session-start-supersession-detach-failed`). Kept distinct from
+ * `theta/host/session-shutdown-teardown-step-failed`: that code's
+ * `(details.step, details.call)` label set is closed to the `session_shutdown`
+ * handler (registration-steps.md#repeat-start-supersession is a different call
+ * site on a different pass), so reusing it would misdescribe the site.
+ */
+export const SUPERSESSION_DETACH_FAILED_CODE =
+  "theta/host/session-start-supersession-detach-failed";
+
+/**
+ * The closed one-member `details.call` label for
+ * `SUPERSESSION_DETACH_FAILED_CODE`: the supersession pass has exactly one
+ * fallible sub-step, so (unlike the teardown's per-step label set) no
+ * `details.step` discriminator carries information here.
+ */
+const SUPERSESSION_DETACH_CALL_LABEL = "hotReloadHandle.detach";
+
+/**
+ * Construct the `theta/host/session-start-supersession-detach-failed`
+ * diagnostic (bug 0029) for a throwing detach of the outgoing generation's
+ * hot-reload handle at supersession time. `details.error` carries the caught
+ * throw's underlying-error string
+ * (placeholder-rendering-b.md#underlying-error-coercion), the same coercion
+ * the sibling teardown row's `details.error` uses.
+ */
+function supersessionDetachFailedDiagnostic(caught: unknown): Diagnostic {
+  const error = renderUnderlyingError(caught);
+  return {
+    severity: "warning",
+    code: SUPERSESSION_DETACH_FAILED_CODE,
+    message: `session_start supersession detach failed at ${SUPERSESSION_DETACH_CALL_LABEL}: ${error}`,
+    details: { call: SUPERSESSION_DETACH_CALL_LABEL, error },
+  };
+}
+
+/**
  * One in-memory theta fixture: a slash name plus the body run when the command
  * is dispatched. This is the seam the `H4a` harness's in-memory fixture-supply
  * mechanism drives and that `M` / `M-T` bind against for single-source
@@ -717,10 +756,20 @@ export function createThetaExtension(
         // Same isolation posture as the teardown's Per-step isolation for the
         // identical `discoveryWatcher.close` step: a detach throw must not
         // abort the superseding pass's publication/registration and must not
-        // escape into the host `session_start` dispatch. Swallowed without a
-        // diagnostic — the outgoing registry is already drained, so the
-        // superseded generation fails safe at dispatch regardless.
-        void e;
+        // escape into the host `session_start` dispatch. The drained
+        // outgoing registry (above) already makes the superseded generation
+        // fail safe at dispatch regardless of this throw, and hot-reload.ts's
+        // containment-first `detach()` has already applied its torn-down
+        // marks before the one fallible step, so no superseded-generation
+        // reload can follow either (bug 0029) — this diagnostic is evidence
+        // of the failure, not a compensating control. Evidence: exactly one
+        // diagnostic per failing detach, defended by its own try/catch so a
+        // throwing `deps.emitDiagnostic` sink cannot escape this handler.
+        try {
+          deps.emitDiagnostic?.(supersessionDetachFailedDiagnostic(e));
+        } catch (emitError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+          void emitError;
+        }
       }
       // Publish the live resources for the lazy `session_shutdown` teardown read.
       liveRegistry = wiring.registry;
@@ -843,8 +892,9 @@ export function createThetaExtension(
             // deps model TWO watchers (`discoveryWatcher` + `settingsWatcher`)
             // plus a raw `clock.clearTimeout(debounceHandle)`; production runs
             // ONE union `FileWatcher` + a `ReloadDebouncer` behind
-            // `HotReloadHandle.detach()` (which does the unsub AND the
-            // `debouncer.cancel()` — hot-reload.ts). So sub-step 4's
+            // `HotReloadHandle.detach()` (which applies the torn-down mark —
+            // itself cancelling the pending debounce — and then the unsub —
+            // hot-reload.ts). So sub-step 4's
             // watcher-close + debounce-cancel are BOTH delegated to `detach()`
             // here; `settingsWatcher` is a no-op (the single union watcher
             // already covers the settings paths, detached by this adapter) and

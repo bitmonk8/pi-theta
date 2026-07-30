@@ -1,6 +1,9 @@
 # Bug 0029 — A throwing supersession detach is swallowed with zero evidence, and `detach()`'s fallible-first step order skips every containment mark: a debounce window pending at supersession still drives one superseded-generation reload pass that publishes and re-registers, and the leaked handle is unreachable
 
-- **Status:** open
+- **Status:** fixed (0.40.0). §Fix as settled — containment-first `detach()`
+  ordering for both callers, evidence at the swallow under the new
+  `theta/host/session-start-supersession-detach-failed` code, spec amendment.
+  See §Fix (0.40.0) below.
 - **Kind:** defect **plus spec gap** — two elements at one call site.
   - *Defect* — `HotReloadHandle.detach()` runs its one fallible step FIRST
     (`unsub()`), so a throw skips the three infallible containment steps
@@ -87,10 +90,108 @@
   observation), plus a direct read of the installed `chokidar@4.0.3`
   `close()` / `_emit` bodies; no live run.
 - **Blocks on:**
-  [bug 0023](./0023-production-composition-omits-bootstrap-seams.md). The fix
-  routes its new diagnostic through `deps.emitDiagnostic`, which the shipped
-  composition does not supply, so the emission is dead in production until
-  0023 wires the sink.
+  [bug 0023](./0023-production-composition-omits-bootstrap-seams.md) —
+  discharged: 0023's fix (0.34.0) wired `deps.emitDiagnostic` to the
+  bootstrap diagnostic sink in the shipped composition, so the emission this
+  fix adds delivers in production.
+
+## Fix (0.40.0)
+
+The settled §Fix, implemented as written. Line anchors are at the fix commit.
+
+**Containment-first `detach()`, both callers**
+(`src/extension/hot-reload.ts:301–314`). The body is now
+`tornDown = true; debouncer.markTornDown(); unsub();` — the containment
+marks before the one fallible step, the order `quiesceOnStaleCtx` already
+used for the identical acts, and `markTornDown()` subsumes the separate
+`debouncer.cancel()` call. A throwing unsub now strands only the OS-level
+watcher handles: any surviving event feeds a torn-down debouncer,
+`runReload`'s `tornDown` short-circuit and `#onWindowClosed`'s guard both
+hold, and no superseded-generation reload can start — the spec's no-rebuild
+outcome survives the throw structurally. Both callers inherit the order (one
+method body); no `supersede()` member was added; the teardown's separate
+quiesce adapter is now a redundancy rather than the sole backstop.
+
+**Evidence at the swallow** (`src/extension/factory.ts:755–774`). The
+`void e;` swallow is replaced by exactly one emission of the new code
+`theta/host/session-start-supersession-detach-failed` (W, runtime) through
+`deps.emitDiagnostic` — wired in production since bug 0023's fix to the
+bootstrap diagnostic sink, whose tier-2 full chain
+(`sendSystemNote` → `ctx.ui.notify` → `console.error`) applies at the
+live-session emission site. The diagnostic carries the registered template
+`session_start supersession detach failed at <call>: <error>` and
+`details: { call, error }` with the closed one-member call-label set
+`"hotReloadHandle.detach"` and the underlying-error coercion
+(`renderUnderlyingError`). The emission is defended by its own inner
+`try`/`catch` per Diagnostic-emission isolation, so a throwing sink cannot
+abort the superseding pass or escape into the host `session_start` dispatch;
+the outer catch stays broad with its `allow-broad-catch` marker, and the
+drained-registry dispatch mitigation recorded at the site still holds and is
+still documented there.
+
+**Spec amendment.** One new row in
+`docs/spec_topics/diagnostics/code-registry-host.md` (a DIAG-2 addition under
+the GOV-15 diagnostic-registry carve-out), mirroring the sibling
+`session-shutdown-teardown-step-failed` row's conventions — closed
+call-label set, underlying-error coercion, exactly-once — and stating the
+routing exception: this code's observation site is a live session, so it
+routes through the persistent-diagnostic channel's System-notes fallback
+chain rather than the teardown siblings' direct `console.error`. One
+normative sentence added to `registration-steps.md#repeat-start-supersession`
+prescribing catch-and-emit: a throwing detach MUST be caught, MUST leave the
+containment in place (torn-down marks before the one fallible watcher-close
+step), and MUST emit exactly one diagnostic under the new code. Consequent
+corrections in the same change: `diagnostic-shape.md`'s channel lead now says
+*most* `theta/host/*` rows are `console.error`-routed and its closed
+Location-less enumeration gains the new code;
+`docs/reference/diagnostics.md` mirrors the row and qualifies its two
+channel claims. The slug is appended to H9a's permitted-code list
+(`tests/fixtures/h7a/permitted-codes.json`, now 11 entries), coordinating
+with bug 0030 — whose stderr gate does not witness this bug (a silence
+defect) and stays green: the code is emitted only on a detach throw, never
+in an ordinary acceptance run.
+
+**Reproduction re-derived at the fix baseline.** Bug 0024's fix (0.36.0)
+invalidated the §Reproduction's recorded cross-format-collision evidence:
+the factory-scoped own-registration ledger (PIC-69) spans generations, so
+the leaked pass no longer emits `theta/load/cross-format-collision` against
+the live generation's command. The leaked pass's observables at the fix
+baseline — pinned red-first by the regression tests — are: the superseded
+generation's drained registry gains the newly-planted name, the leaked pass
+re-registers names (including the live generation's own) against the
+drained registry, and the structural-change watcher note fires from a dead
+generation. All of them vanish under the containment-first order.
+
+**Offline lock.** `tests/supersession-detach-throw-containment.test.ts`
+(4 tests, offline, real `createThetaExtension` + `composeExtensionInstance`
+over a temp workspace, FakeClock, throwing seam unsub modelled on
+`pi-file-watcher.ts`): (1) a throwing seam unsub at supersession with one
+debounce window pending across the boundary fires NO superseded-generation
+reload — no registry growth, no re-registration, no structural note;
+(2) exactly one diagnostic under the new code with the pinned severity,
+message, `details.call` and `details.error`, and the superseding pass
+unaffected; (3) non-throwing control — the identical pending window fires
+no reload pass and no diagnostic (discriminator liveness); (4) a THROWING
+`emitDiagnostic` sink does not abort the superseding pass (the defended
+emission). Verified in both directions: reverting the `detach()` order reds
+(1) with the leaked-pass signature; reverting the swallow reds (2) with an
+empty recorder; removing the inner defended catch reds (4). Live:
+`tests/live/double-session-start-live.test.ts` (the bug-0021/0024 live
+double-`bindExtensions` witness, real chokidar detach through the reordered
+body) green unchanged, and H9a real-binary acceptance 11/11 green with
+bug 0030's empty-capture stderr gate holding on all spawns.
+
+**Residuals.** (i) A superseded-generation rebuild already IN FLIGHT at
+supersession time still publishes and re-registers — the supersession pass
+never awaits `handle.whenIdle()`; filed as bug
+[0034](./0034-supersession-does-not-await-whenidle.md), unchanged here.
+(ii) The inert fs-handle leak on a throwing chokidar `close()` (the un-run
+`_closers`) is unchanged — no retry path exists and none was added; the
+leak is bounded, delivery-dead, and now evidenced by the diagnostic.
+(iii) The seam-level permanently-delivering shape (an embedder-supplied
+`FileWatcher` whose unsubscribe throws with handlers attached) is contained
+by the same reorder — events feed a torn-down debouncer — which is exactly
+what regression test (1) models.
 
 ## Summary
 
