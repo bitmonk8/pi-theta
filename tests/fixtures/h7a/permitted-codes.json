@@ -4,6 +4,7 @@
   "theta/load/binder-model-unresolved",
   "theta/load/typed-query-unsupported-provider",
   "theta/load/schema-slug-collision",
+  "theta/load/extension-compose-failed",
   "theta/runtime/custom-type-unsafe",
   "theta/runtime/internal-error",
   "theta/runtime/registration-cache-collision",

@@ -4,12 +4,15 @@
 // `pi -p` binary (`pi -p --theta <dir> "/<name>"`, process-and-exit) over a
 // FULLER feature-theta suite — one theta per functionality area (a)–(i) — and
 // asserts, per theta, its model-output-INVARIANT observable set (never exact
-// goldens, since a live LLM does not reproduce them): no-error exit, binder
-// output validates against the binder envelope schema where a binder pass fires,
-// typed-query responses validate against their declared schema (`QRY-22`),
-// observed subagent cancellation propagation with committed turns unmutated, and
-// emitted `theta-system-note` codes ⊆ the committed permitted-code list. It is
-// Phase 1 of the two-phase theta 1.0 release gate (real-host-smoke-gate.md).
+// goldens, since a live LLM does not reproduce them): no-error exit, an empty
+// per-spawn stderr capture (`assertStderrClean`), no binder-envelope leak to
+// `pi -p` stdout where a binder pass fires (the binder runs off-session —
+// BND-3, per the (d) block below), typed-query responses validate against their
+// declared schema (`QRY-22`), a subagent-mode theta reaching a success terminal
+// without a forced cancel (genuine mid-stream cancellation is locked separately
+// by `tests/production-subagent-query-model.test.ts`, per the (e) block below),
+// and emitted `theta-system-note` codes ⊆ the committed permitted-code list. It
+// is Phase 1 of the two-phase theta 1.0 release gate (real-host-smoke-gate.md).
 //
 // It is the H9a half of the opt-in live suite (`config/vitest/vitest.live.config.ts`
 // / `npm run test:live`, alongside the H8a programmatic suite), excluded from
@@ -17,14 +20,15 @@
 // closes no spec REQ-ID and adds no coverage-matrix row (the live-host
 // acceptance pair exception, as for H8a).
 //
-// INTENDED-REASON RED (current H9a-T state): the fuller feature-theta fixtures do
-// not exist yet, so `resolveFeatureThetaPath` returns `undefined` for every
-// area and each test reds on its own primary fixture-presence assertion —
-// deterministically, token-free, BEFORE any live host / credential / spawned
-// `pi` process is required. This is exactly the intended-reason red the leaf
-// names: the runner and feature thetas are absent, and the (b)/(d)/(e) axes are
-// not yet correct/integrated. The paired `H9a` authors the thetas, wires the
-// runner's per-area observability, and turns these green.
+// All nine committed feature-theta fixtures exist under
+// `tests/live/acceptance/fixtures/`; this suite is green 10/10 (the nine area
+// tests below plus the manifest self-check) and spends real tokens against a
+// live host on every run. A correct-reason red is tracked through
+// `docs/bugs/` per AGENTS.md §"Expect documented correct-reason reds", not
+// through an in-file banner. Bug 0030 adds a per-area stderr gate:
+// `assertStderrClean` (`./harness`) runs beside `assertCodesSubsetOfPermitted`
+// at every spawn site below, asserting the measured-baseline empty capture
+// (§Fix, `dd4f3d3b`, 2026-07-29) rather than scoring only note content.
 //
 // Convention: real-host-smoke-gate.md — Phase 1 (automated non-interactive
 // acceptance); conventions.md — phase categories (live-host acceptance pair
@@ -39,6 +43,7 @@ import { join } from "node:path";
 import {
   FEATURE_THETA_DIR,
   FEATURE_THETAS,
+  assertStderrClean,
   failLoudly,
   featureTheta,
   loadPermittedCodes,
@@ -54,12 +59,6 @@ import {
   type PiPrintResult,
 } from "./harness";
 
-/**
- * Resolve the committed feature-theta `.theta` for a spec, or FAIL LOUDLY naming
- * the absent fixture (never a silent skip). This is the suite's intended-reason
- * red: in the current `H9a-T` state the paired `H9a` has not authored the
- * feature thetas, so every area reds here BEFORE any live host is required.
- */
 /**
  * Extract the first balanced JSON object AFTER a fixture's committed sentinel,
  * failing loudly when the sentinel is absent. Bug 0010: the typed forced
@@ -79,13 +78,20 @@ function parseJsonAfterSentinel(stdout: string, sentinel: string, label: string)
   return parseEmittedJson(stdout.slice(at + sentinel.length));
 }
 
+/**
+ * Resolve the committed feature-theta `.theta` for a spec, or FAIL LOUDLY naming
+ * the missing fixture file (never a silent skip). All nine feature thetas are
+ * committed under `FEATURE_THETA_DIR`; a red here names a fixture regression
+ * (a file removed or renamed out from under its spec), not the suite's normal
+ * state.
+ */
 function requireAuthoredTheta(spec: FeatureThetaSpec): string {
   const path = resolveFeatureThetaPath(spec);
   if (path === undefined) {
     failLoudly(
       `feature theta ${spec.label} (${spec.area}) is not authored: expected ` +
-        `${spec.fixtureFile} under ${FEATURE_THETA_DIR}. The paired H9a authors ` +
-        `the fuller feature-theta suite; the runner and thetas are absent today.`,
+        `${spec.fixtureFile} under ${FEATURE_THETA_DIR}, alongside the other ` +
+        `eight committed feature-theta fixtures.`,
     );
   }
   return path;
@@ -123,7 +129,7 @@ function assertCodesSubsetOfPermitted(
 // ===========================================================================
 // (a) prompt-mode sentinel turn.
 // A single prompt-mode `.theta` whose one untyped query names a deterministic
-// sentinel. Invariant set: no-error exit + codes ⊆ permitted.
+// sentinel. Invariant set: no-error exit + clean stderr + codes ⊆ permitted.
 // ===========================================================================
 
 describe("H9a-T (a) prompt-mode sentinel turn (Convention: Phase 1 acceptance)", () => {
@@ -141,6 +147,7 @@ describe("H9a-T (a) prompt-mode sentinel turn (Convention: Phase 1 acceptance)",
     });
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
   });
 });
 
@@ -169,6 +176,7 @@ describe("H9a-T (b) typed query with a named schema (QRY-22; Convention: Phase 1
     });
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
 
     // QRY-22: the typed-query response validates against its declared schema.
     // Bug 0010: the forced respond turn runs off-session and never streams, so
@@ -211,6 +219,7 @@ describe("H9a-T (c) typed query with an inline object type (QRY-22; Convention: 
     });
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
 
     // Bug 0010: sentinel-anchored extraction — see the named-schema case above.
     const value = parseJsonAfterSentinel(result.stdout, "ACC TYPED INLINE RESULT", spec.label);
@@ -229,7 +238,8 @@ describe("H9a-T (c) typed query with an inline object type (QRY-22; Convention: 
 // DECISION (production conformance): the binder runs OFF-session and INVISIBLE
 // — its three-arm `ok | needs_info | ambiguous` envelope MUST NOT reach the user
 // session / `pi -p` stdout (BND-3). The invariant set is therefore: no-error
-// exit + codes ⊆ permitted, and the envelope does NOT leak to stdout. The
+// exit + clean stderr + codes ⊆ permitted, and the envelope does NOT leak to
+// stdout. The
 // `bind_echo` success note is the proof of binding, but it lands on the
 // `theta-system-note` channel — NOT `pi -p` text stdout (DOC-73 / FIND-S7-4) — so
 // it is asserted by the in-process `session-binder` probe, not this black-box
@@ -264,6 +274,7 @@ describe("H9a-T (d) params theta forcing an OFF-session binder pass (no envelope
     });
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
 
     // BND-3: the runtime-internal envelope must NEVER reach stdout. A parseable
     // top-level object that validates against the per-theta envelope schema on
@@ -298,8 +309,8 @@ describe("H9a-T (d) params theta forcing an OFF-session binder pass (no envelope
 // A `mode: subagent` theta spawns an isolated AgentSession, drives one real
 // subagent turn to completion, and reaches a success terminal outcome — the
 // path the H8a production driver previously made unreachable (it self-cancelled
-// every subagent query). Invariant set: no-error exit + codes ⊆ permitted, with
-// NO `cancelled` marker on this normal completion.
+// every subagent query). Invariant set: no-error exit + clean stderr + codes ⊆
+// permitted, with NO `cancelled` marker on this normal completion.
 //
 // WHY cancellation moved: the fixed production driver no longer self-cancels, so
 // this black-box `pi -p` run drives subagent SUCCESS. Genuine mid-stream
@@ -330,6 +341,7 @@ describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Pha
     // the success terminal instead of forcing a cancel.
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
     expect(
       /cancel|aborted/i.test(result.stdout + result.stderr),
       `${spec.label}: a normal subagent completion must NOT surface a ` +
@@ -349,7 +361,7 @@ describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Pha
 // ===========================================================================
 // (f) a code-tool loop.
 // A prompt-mode theta exposing a code-side tool the model calls in a free-phase
-// loop; invariant set: no-error exit + codes ⊆ permitted.
+// loop; invariant set: no-error exit + clean stderr + codes ⊆ permitted.
 // ===========================================================================
 
 describe("H9a-T (f) code-tool loop (Convention: Phase 1 acceptance)", () => {
@@ -367,13 +379,14 @@ describe("H9a-T (f) code-tool loop (Convention: Phase 1 acceptance)", () => {
     });
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
   });
 });
 
 // ===========================================================================
 // (g) imports / invoke across thetas.
 // A theta that imports a symbol from a sibling `.thetalib`/`.theta` and `invoke`s a
-// second theta; invariant set: no-error exit + codes ⊆ permitted.
+// second theta; invariant set: no-error exit + clean stderr + codes ⊆ permitted.
 // ===========================================================================
 
 describe("H9a-T (g) imports / invoke across thetas (Convention: Phase 1)", () => {
@@ -391,6 +404,7 @@ describe("H9a-T (g) imports / invoke across thetas (Convention: Phase 1)", () =>
     });
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
   });
 });
 
@@ -398,7 +412,8 @@ describe("H9a-T (g) imports / invoke across thetas (Convention: Phase 1)", () =>
 // (h) error/result `match` surfacing a QueryError.
 // A theta binding a query result and `match`ing its `Err(QueryError { ... })`
 // arm; the run surfaces the QueryError through the match rather than throwing.
-// Invariant set: no-error exit (the QueryError is handled) + codes ⊆ permitted.
+// Invariant set: no-error exit (the QueryError is handled) + clean stderr +
+// codes ⊆ permitted.
 // ===========================================================================
 
 describe("H9a-T (h) error/result match surfacing a QueryError (Convention: Phase 1)", () => {
@@ -418,6 +433,7 @@ describe("H9a-T (h) error/result match surfacing a QueryError (Convention: Phase
     // still exits cleanly rather than aborting.
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
+    assertStderrClean(result, spec);
   });
 });
 
@@ -445,6 +461,7 @@ describe("H9a-T (i) multi-source discovery, project + --theta CLI (Convention: P
     });
     assertNoErrorExit(viaProject, spec);
     assertCodesSubsetOfPermitted(viaProject, spec);
+    assertStderrClean(viaProject, spec);
 
     // Alternate source: the same theta discovered via an additional `--theta`
     // CLI source registers and runs identically (discovery is source-general).
@@ -457,6 +474,7 @@ describe("H9a-T (i) multi-source discovery, project + --theta CLI (Convention: P
     });
     assertNoErrorExit(viaCli, spec);
     assertCodesSubsetOfPermitted(viaCli, spec);
+    assertStderrClean(viaCli, spec);
   });
 });
 
@@ -464,8 +482,10 @@ describe("H9a-T (i) multi-source discovery, project + --theta CLI (Convention: P
 // Manifest self-check (harness contract, not a feature obligation).
 // Documents the committed feature-theta suite contract: exactly the nine
 // functionality areas (a)–(i) H9a-T enumerates, each with a distinct stem.
-// This green check is a runner-wiring self-test; the nine feature-area tests
-// above carry the intended-reason reds.
+// This is a runner-wiring self-check, distinct from the nine feature-area
+// tests above — each of those drives a real spawned `pi -p` turn against a
+// live host; this one asserts the manifest shape and the presence of the
+// committed permitted-code list, token-free.
 // ===========================================================================
 
 describe("H9a-T feature-theta manifest (harness self-check)", () => {

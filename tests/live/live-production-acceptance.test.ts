@@ -9,20 +9,29 @@
 // live composition the double-backed gates (`H4a`, `H7a`, `V18d`) never
 // exercise and the manual real-host smoke covers only by hand.
 //
-// INTENDED-REASON RED (current state): the shipped production composition root
-// (`src/extension/factory.ts` default export) supplies `fixtures: []` and runs
-// no discovery walk, so no `.theta`-derived slash command is ever registered by
-// the shipped extension. Each test below therefore reds on the MISSING COMMAND
-// (or the absent turn that follows), not on a credential, network, setup, or
-// harness throw — the discovery→registration precondition is asserted BEFORE any
-// live model turn is driven, so the red state spends no tokens. The paired `H8a`
-// implementation wires the production composition root and turns these green.
+// The shipped production composition root (`factory.ts`'s default export)
+// supplies `fixtures: []` and a `composeInstance` callback that invokes
+// `composeExtensionInstance` (`production-composition.ts`); that pass runs the
+// five-source discovery walk and installs a `rediscover` closure, so a
+// discovered `.theta` registers a live slash command. All seven tests below
+// are green; the suite needs a live host, and the five that drive a turn spend
+// real tokens (the two discovery→registration tests boot and register only,
+// spending none). A correct-reason red is tracked through `docs/bugs/` per
+// AGENTS.md §"Expect documented correct-reason reds", not through an in-file
+// banner.
+//
+// Bug 0030 wraps every test below in a file-scope `console.error` spy
+// (`beforeEach`/`afterEach`): the filtered capture (`thetaOwnedStderrLines`,
+// `./theta-stderr-prefixes`) must be empty, the coded form of the "0-byte
+// stderr capture" the bug-0018 fix record cites as this suite's live
+// verification.
 //
 // Convention: conventions.md (phase categories — end-to-end harness; the
 // live-host acceptance pair exception). Narrative spec references:
 // extension-bootstrap-and-per-theta.md, registration-steps.md, discovery.md.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MockInstance } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureText,
@@ -35,6 +44,7 @@ import {
   AjvSchemaValidator,
   type LoweredSchema,
 } from "../../src/seams/schema-validator";
+import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
 
 /** A minimal prompt-mode `.theta` whose single untyped query names a deterministic sentinel. */
 function promptTheta(sentinel: string): string {
@@ -209,13 +219,44 @@ const TYPED_REPLY_SCHEMA: LoweredSchema = {
   additionalProperties: false,
 };
 
+/**
+ * Bug 0030: a file-scope `console.error` spy gates every test below, the same
+ * install/inspect/restore shape as `double-session-start-live.test.ts`.
+ * `vi.spyOn` records calls AND writes through, so real diagnostics stay
+ * visible; restoring in a `finally` keeps a failed assertion from poisoning
+ * every later test in the file with a spy `mockRestore` never ran. Declared
+ * at file scope (outside every `describe` below) so the hooks wrap all seven
+ * tests without repeating the install/inspect/restore shape in each one.
+ */
+let consoleErrorSpy: MockInstance | undefined;
+
+beforeEach(() => {
+  consoleErrorSpy = vi.spyOn(console, "error");
+});
+
+afterEach(() => {
+  const spy = consoleErrorSpy;
+  try {
+    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
+    const offenders = thetaOwnedStderrLines(lines);
+    expect(
+      offenders,
+      "bug 0018's live verification observable for this suite is a 0-byte " +
+        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
+        JSON.stringify(offenders),
+    ).toEqual([]);
+  } finally {
+    spy?.mockRestore();
+    consoleErrorSpy = undefined;
+  }
+});
+
 // ===========================================================================
 // Tests bullet 1 — discovery → registration (Convention: live-host acceptance).
 // A `.theta` written under the project discovery source `<cwd>/.pi/theta/`
 // registers a live slash command named for its filename stem, exercising the
 // real V10a walk over the real V8b PiFileSystem and the V9b `session_start` →
-// `pi.registerCommand` step. Reds today: the shipped default export registers
-// no discovered command.
+// `pi.registerCommand` step end to end through the shipped default export.
 // ===========================================================================
 
 describe("H8a-T — discovery → registration (Convention: live-host acceptance)", () => {
@@ -232,8 +273,8 @@ describe("H8a-T — discovery → registration (Convention: live-host acceptance
       expect(
         handle.command("greetlive"),
         "no .theta-derived slash command registered — the shipped production " +
-          "composition root supplies no discovered fixtures (fixtures: []) and " +
-          "runs no discovery walk. Registered: " +
+          "composition root's discovery walk or its session_start registration " +
+          "regressed for the planted theta. Registered: " +
           JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
     } finally {
@@ -248,7 +289,7 @@ describe("H8a-T — discovery → registration (Convention: live-host acceptance
 // live-host acceptance). Invoking the registered command drives exactly one
 // real prompt-mode turn against a live provider/model and the assistant
 // response contains the fixture's deterministic sentinel — M's prompt-mode
-// drive against a real model. Reds today: no command exists to invoke.
+// drive against a real model.
 // ===========================================================================
 
 describe("H8a-T — prompt-mode turn against a live model (Convention: live-host acceptance)", () => {
@@ -260,11 +301,12 @@ describe("H8a-T — prompt-mode turn against a live model (Convention: live-host
     ]);
     const handle = await bootShippedExtension({ workspace, provider });
     try {
-      // Precondition (the intended-reason red): the command must exist before a
-      // live turn is driven, so the red spends no tokens.
+      // Precondition: the command must exist before a live turn is driven, so a
+      // discovery/registration failure reds with zero tokens.
       expect(
         handle.command("sentinel"),
-        "no command to invoke — shipped composition root registers no discovered theta. Registered: " +
+        "no command to invoke — discovery or registration regressed for the " +
+          "planted theta. Registered: " +
           JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
 
@@ -284,7 +326,7 @@ describe("H8a-T — prompt-mode turn against a live model (Convention: live-host
 // acceptance). A `.theta` discovered via a second real source — the `--theta
 // <dir>` CLI source (V10a/V10c over PiFileSystem) — also registers a live slash
 // command, proving discovery is source-general, not wired to a single
-// hardcoded path. Reds today: no discovered command from any source.
+// hardcoded path.
 // ===========================================================================
 
 describe("H8a-T — alternate discovery source (Convention: live-host acceptance)", () => {
@@ -298,7 +340,7 @@ describe("H8a-T — alternate discovery source (Convention: live-host acceptance
       expect(
         handle.command("clisource"),
         "no .theta-derived command from the --theta CLI source — the shipped " +
-          "composition root walks no discovery source. Registered: " +
+          "composition root's CLI-source discovery regressed. Registered: " +
           JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
     } finally {
@@ -313,8 +355,7 @@ describe("H8a-T — alternate discovery source (Convention: live-host acceptance
 // acceptance). A single small schema-typed `@`-query resolves through the real
 // binder-model resolver (V11a) and a live structured-output model and yields a
 // value that validates against its declared schema (V5d schema
-// lowering/validation — structural validity, not exact content). Reds today:
-// no command exists to invoke.
+// lowering/validation — structural validity, not exact content).
 // ===========================================================================
 
 describe("H8a-T — typed-query lowering, bounded (Convention: live-host acceptance)", () => {
@@ -325,12 +366,13 @@ describe("H8a-T — typed-query lowering, bounded (Convention: live-host accepta
     ]);
     const handle = await bootShippedExtension({ workspace, provider });
     try {
-      // Precondition (the intended-reason red): the typed-query command must
-      // exist before the live structured-output turn is driven.
+      // Precondition: the typed-query command must exist before the live
+      // structured-output turn is driven, so a discovery/registration failure
+      // reds with zero tokens.
       expect(
         handle.command("typed"),
-        "no typed-query command to invoke — shipped composition root registers " +
-          "no discovered theta. Registered: " + JSON.stringify(handle.registeredNames()),
+        "no typed-query command to invoke — discovery or registration regressed " +
+          "for the planted theta. Registered: " + JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
 
       // Post-H8a: drive the typed query against a live structured-output model;
@@ -379,8 +421,9 @@ describe("H8a-T — subagent-mode drive against a live model (Convention: live-h
     try {
       expect(
         handle.command("subrun"),
-        "no subagent-mode command to invoke — shipped composition root registers " +
-          "no discovered theta. Registered: " + JSON.stringify(handle.registeredNames()),
+        "no subagent-mode command to invoke — discovery or registration " +
+          "regressed for the planted theta. Registered: " +
+          JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
 
       // The subagent driver spawns a REAL child `pi` process (RFC-0006),
@@ -436,8 +479,8 @@ describe("H8a-T — QRY-18 enum interpolation outbound render, live (bug 0020 co
     ]);
     const handle = await bootShippedExtension({ workspace, provider });
     try {
-      // Precondition (the intended-reason red): the command must exist before a
-      // live turn is driven, so a fixture/parse failure reds with zero tokens.
+      // Precondition: the command must exist before a live turn is driven, so a
+      // fixture/parse failure reds with zero tokens.
       expect(
         handle.command("enumlive"),
         "no enum-interpolation command to invoke — the .theta failed discovery/parse. " +
@@ -508,9 +551,8 @@ describe("H8a-T — forged __thetaEnum wire ingress binds as a plain object, liv
     ]);
     const handle = await bootShippedExtension({ workspace, provider });
     try {
-      // Precondition (the intended-reason red): both thetas parse and the
-      // parent registers before any child spawn or live turn — a red here
-      // spends no tokens.
+      // Precondition: both thetas parse and the parent registers before any
+      // child spawn or live turn — a red here spends no tokens.
       expect(
         handle.command("forgedwire"),
         "no forged-ingress parent command to invoke — the .theta failed " +

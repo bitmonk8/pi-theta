@@ -9,20 +9,19 @@
 // test:live` suite a live, black-box `pi -p` driver; it is excluded from the
 // default `npm test` (see `config/vitest/vitest.live.config.ts`).
 //
-// INTENDED-REASON RED (current H9a-T state): the fuller feature-theta fixtures
-// this suite drives — one `.theta` per functionality area (a)–(i) — are NOT yet
-// authored (the paired `H9a` implementation authors them and wires the runner's
-// per-area observability). `resolveFeatureThetaPath` therefore returns
-// `undefined` for every area, and each test reds on its own primary
-// fixture-presence assertion BEFORE any live host, credential, or spawned `pi`
-// process is required — so the red is deterministic, token-free, and for the
-// intended reason (runner/theta absent), not a credential/network/setup throw.
+// All nine committed feature-theta fixtures live under `./fixtures`, and the
+// suite this harness drives is green 10/10 against a live host. A
+// correct-reason red is tracked through `docs/bugs/` per AGENTS.md
+// §"Expect documented correct-reason reds", not through an in-file banner.
+// Bug 0030 adds this harness's `ACCEPTANCE_STDERR_ALLOWLIST` /
+// `acceptanceStderrOffenders` / `assertStderrClean`, the per-area stderr gate
+// `noninteractive-acceptance.test.ts` calls at every spawn site.
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert } from "vitest";
+import { assert, expect } from "vitest";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -36,6 +35,11 @@ import {
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { SUBAGENT_EXTENSION_PIN_ENV } from "../../../src/runtime/subagent-launcher";
+import {
+  RELOAD_REBUILD_REJECTED_PREFIX,
+  STALE_QUIESCE_STDERR_PREFIX,
+  SYSTEM_NOTE_DELIVERY_FAILED_PREFIX,
+} from "../theta-stderr-prefixes";
 
 /** The real `pi` CLI entry the acceptance runner spawns (the shipped `pi -p` binary). */
 export const PI_CLI_ENTRY = fileURLToPath(
@@ -208,8 +212,7 @@ const PARAMS_BINDER_SCHEMA: LoweredSchema = {
 
 /**
  * The committed feature-theta suite — one theta per functionality area (a)–(i).
- * The `.theta` files themselves are authored by the paired `H9a`; in the current
- * `H9a-T` state they are absent, which is the suite's intended-reason red.
+ * The `.theta` files are committed under `./fixtures` alongside this module.
  */
 export const FEATURE_THETAS: readonly FeatureThetaSpec[] = [
   {
@@ -311,8 +314,9 @@ export function featureTheta(area: FeatureArea): FeatureThetaSpec {
 
 /**
  * Resolve the committed feature-theta `.theta` file for a spec, or `undefined`
- * when it has not been authored yet. In the current `H9a-T` state every fixture
- * is absent, so this returns `undefined` — the suite's intended-reason red.
+ * when the file is absent from disk. Every spec in `FEATURE_THETAS` has a
+ * committed fixture, so `undefined` here names a fixture regression, not the
+ * suite's normal state.
  */
 export function resolveFeatureThetaPath(spec: FeatureThetaSpec): string | undefined {
   const path = fileURLToPath(
@@ -334,16 +338,15 @@ export function loadPermittedCodes(): readonly string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Live-host precondition (asserted only AFTER the intended-reason red).
+// Live-host precondition (asserted only AFTER the feature-theta presence check).
 // ---------------------------------------------------------------------------
 
 /**
  * Require a configured, credentialed live provider/model. Fails loudly naming
  * the missing precondition (never a silent skip) via `resolveAcceptanceHost`.
- * Called only AFTER the feature-theta presence assertion, so in the current red
- * state the suite never reaches here — the intended-reason red (fixture absent)
- * fires first. Returns the resolved model id (the same host `spawnPiPrint`
- * drives against).
+ * Called only AFTER the feature-theta presence assertion, so a missing fixture
+ * file reds before this ever runs, token-free. Returns the resolved model id
+ * (the same host `spawnPiPrint` drives against).
  */
 export async function requireLiveHost(): Promise<{ readonly modelId: string }> {
   return { modelId: (await resolveAcceptanceHost()).model };
@@ -452,10 +455,94 @@ export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrin
   });
 }
 
-/** Extract the `theta/{load,parse,runtime}/*` codes a `pi -p` run surfaced on stdout. */
+/**
+ * Extract the `theta/{load,parse,runtime}/*` codes present in a captured
+ * `pi -p` stream. The H9a call sites pass a stdout+stderr concatenation, so a
+ * code surfacing on either stream is scored.
+ */
 export function parseSystemNoteCodes(output: string): readonly string[] {
   const codes = output.match(/theta\/(?:load|parse|runtime)\/[a-z0-9-]+/g) ?? [];
   return Array.from(new Set(codes));
+}
+
+/**
+ * The committed stderr allowlist for the empty-capture gate below. Ships
+ * EMPTY: the measured baseline (bug 0030 §Fix, `dd4f3d3b`, 2026-07-29) ran all
+ * nine H9a areas — ten spawns, area (i) twice — and captured 0 bytes of
+ * stderr on every one, so nothing is admissible yet. An entry is admissible
+ * ONLY when it appears in a baseline RE-RECORDED in the bug document;
+ * populating this reactively from a first red silently degrades the
+ * empty-capture gate into the three-prefix-rejection form the same §Fix rule
+ * rejected for this baseline, with no record that the gate's strictness
+ * changed.
+ */
+export const ACCEPTANCE_STDERR_ALLOWLIST: readonly string[] = [];
+
+/**
+ * The lines of a captured H9a `pi -p` stderr stream the empty-capture gate
+ * rejects: every non-blank line not covered by `ACCEPTANCE_STDERR_ALLOWLIST`,
+ * in capture order, without a trailing newline. Blank/whitespace-only lines
+ * — including the trailing newline every `console.error` write leaves behind
+ * — are dropped before the allowlist filter runs, so a silent stream never
+ * reports a phantom offender.
+ */
+export function acceptanceStderrOffenders(stderr: string): readonly string[] {
+  return stderr
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .filter((line) => !ACCEPTANCE_STDERR_ALLOWLIST.some((entry) => line.includes(entry)));
+}
+
+/** Name the theta-owned stderr line class an offending line belongs to, or `undefined` for unrecognised (host) content. */
+function knownStderrClassOf(line: string): string | undefined {
+  if (line.includes(STALE_QUIESCE_STDERR_PREFIX)) {
+    return "PIC-67 stale-quiesce line (STALE_QUIESCE_STDERR_PREFIX)";
+  }
+  if (line.includes(SYSTEM_NOTE_DELIVERY_FAILED_PREFIX)) {
+    return "PIC-54 delivery-failed terminal cascade (SYSTEM_NOTE_DELIVERY_FAILED_PREFIX)";
+  }
+  if (line.includes(RELOAD_REBUILD_REJECTED_PREFIX)) {
+    return "reload-debounce rejection sink (RELOAD_REBUILD_REJECTED_PREFIX)";
+  }
+  return undefined;
+}
+
+/**
+ * Assert one H9a spawn's captured stderr is clean under the measured-baseline
+ * empty-capture gate (bug 0030 §Fix). Reads `result.stderr` ONLY. Note CONTENT
+ * on stdout stays governed by `assertCodesSubsetOfPermitted` — content only,
+ * through its `theta/{load,parse,runtime}/<slug>` scan. The PRESENCE of a
+ * theta-owned line on stdout is scored by no gate: a quiesce line, a
+ * rebuild-rejected line, and a slug-less cascade carry no slug, so the scan
+ * extracts `[]` from each and passes.
+ *
+ * ORTHOGONAL to `assertCodesSubsetOfPermitted` — bug 0030 §Fix's orthogonality
+ * paragraph ("The new assertion is **orthogonal** to
+ * `assertCodesSubsetOfPermitted`"): this gate rejects the delivery MECHANISM —
+ * under the empty-capture form, any stderr line at all — regardless of which
+ * code (if any) it quotes, while the permitted-code list keeps governing note
+ * CONTENT on stdout. The two do not contradict on
+ * `theta/runtime/internal-error`: that code is sanctioned as note content on
+ * stdout, and the identical code arriving inside a
+ * `system-note delivery failed:` cascade on stderr is a defect this gate
+ * rejects in every area. The gate's form (empty-capture vs. three-prefix
+ * rejection) was fixed by the recorded measurement (§Fix "Measured baseline",
+ * `dd4f3d3b`, 2026-07-29 — 0 bytes of stderr on all ten H9a spawns), not by
+ * preference; weakening it needs a re-recorded baseline, not a preference
+ * change.
+ */
+export function assertStderrClean(result: PiPrintResult, spec: FeatureThetaSpec): void {
+  const offenders = acceptanceStderrOffenders(result.stderr);
+  const annotated = offenders.map((line) => {
+    const knownClass = knownStderrClassOf(line);
+    return knownClass === undefined ? line : `${line} [${knownClass}]`;
+  });
+  expect(
+    offenders,
+    `${spec.label} ${spec.area}: stderr carries ${offenders.length} line(s) the ` +
+      `empty-capture gate rejects (measured baseline dd4f3d3b, 2026-07-29: 0 ` +
+      `bytes of stderr on all ten H9a spawns): ${JSON.stringify(annotated)}`,
+  ).toEqual([]);
 }
 
 /**

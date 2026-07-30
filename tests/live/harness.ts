@@ -8,10 +8,9 @@
 // (see `config/vitest/vitest.live.config.ts`).
 //
 // The suite spends real tokens against a live model, so it is deliberately
-// token-bounded: the discovery→registration precondition reds BEFORE any model
-// turn is driven (the shipped production composition root supplies no discovered
-// fixtures, so no `.theta`-derived slash command registers), which is exactly the
-// intended-reason red for this leaf.
+// token-bounded: each test asserts its discovery→registration precondition
+// BEFORE driving a model turn, so a discovery or registration regression reds
+// with zero tokens rather than paying for a turn that cannot run.
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

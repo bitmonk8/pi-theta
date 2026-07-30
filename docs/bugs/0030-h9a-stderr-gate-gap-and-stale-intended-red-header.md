@@ -1,6 +1,14 @@
 # Bug 0030 — No assertion in either live suite tests stderr-line presence: the `theta hot-reload quiesced:` line and slug-less `system-note delivery failed:` cascades the 0018/0021/0022 fix records cite as live regression evidence pass all nine H9a areas green, and H8a captures no stderr at all; and three live test files still declare the fixtures-absent "INTENDED-REASON RED" that was resolved the day the fixtures landed
 
-- **Status:** open
+- **Status:** fixed (0.35.0). Both live halves now gate theta-owned stderr
+  lines. H9a asserts an EMPTY stderr capture at all ten spawn sites — the form
+  the recorded measurement selected (0 bytes on every spawn), with an
+  allowlist that ships empty. H8a spies `console.error` across its seven tests
+  and asserts zero theta-owned lines, putting a coded gate where bug 0018's
+  cited "0-byte stderr capture" observable lives. The three stale
+  `INTENDED-REASON RED` headers and their seven in-file echoes are replaced by
+  current-state text. Both gates are red-proven at the live axis against a
+  real emitted line, not only offline.
 - **Kind:** defect — test infrastructure, two defects across the two live
   suites (two-defect report per the bug-0002/0023 precedent), both against the
   suites' *documented* gating role rather than against runtime behaviour.
@@ -92,6 +100,118 @@
   every citation above holds unchanged at HEAD. The H9a suite's green state at
   current releases is documented in-repo (10/10 at the 0017 and 0022 fix
   verifications).
+
+## Fix (0.35.0)
+
+All three §Fix parts plus the permitted-code row, one commit; line anchors at
+the fix commit.
+
+**1. Per-area stderr gate across all nine H9a areas.** `assertStderrClean`
+(`tests/live/acceptance/harness.ts:534`) asserts one spawn's captured stderr
+carries no offending line, and is called beside `assertCodesSubsetOfPermitted`
+at all ten spawn sites in `tests/live/acceptance/noninteractive-acceptance.test.ts`
+(:150, :179, :222, :277, :344, :382, :407, :436, :464, :477 — area (i) spawns
+twice), so a regression manifesting under one spawn shape reds where it
+happens. No tenth area; the `(a)–(i)` manifest self-check and the
+`FEATURE_THETAS` contract are unchanged. `acceptanceStderrOffenders` (:489)
+reduces a capture to its non-blank lines minus `ACCEPTANCE_STDERR_ALLOWLIST`
+(:479, shipping **empty**); `knownStderrClassOf` (:497) labels an offender
+with its theta-owned class in the failure message, and an unrecognised line
+is reported verbatim rather than passed. The gate form is the measurement's,
+not a preference: the §Fix "Measured baseline" run recorded 0 bytes of stderr
+on all ten spawns at `dd4f3d3b`, which selects the empty-capture branch of
+§Fix's own rule. The assertion's doc comment states the orthogonality to
+`assertCodesSubsetOfPermitted` (mechanism vs. note content) and records that
+weakening the form requires a re-recorded baseline. Area (e)'s two extra
+checks are untouched.
+
+**2. `console.error` spy gate in H8a.** File-scope `beforeEach`/`afterEach` in
+`tests/live/live-production-acceptance.test.ts` (:233–252) install
+`vi.spyOn(console, "error")` and, in teardown, assert the spy's calls filtered
+through `thetaOwnedStderrLines` are empty before `mockRestore()` runs in a
+`finally` — so one failing test cannot leave every later test in the file
+unspied. The spy writes through (no `mockImplementation`), so real diagnostics
+stay visible. The gate covers all seven `it` blocks; an in-process spy sees
+only writes reaching this process's `console.error`, so host noise is filtered
+out by the three-prefix narrowing rather than allowlisted.
+
+**3. The three stale headers and their seven echoes.**
+`rg "INTENDED-REASON RED" tests/` now returns nothing. The headers of
+`tests/live/acceptance/harness.ts` (:12–18),
+`tests/live/acceptance/noninteractive-acceptance.test.ts` (:20–29) and
+`tests/live/live-production-acceptance.test.ts` (:12–27) state the current
+contract — fixtures committed, suites green, correct-reason reds tracked
+through `docs/bugs/` per AGENTS.md §"Expect documented correct-reason reds";
+the H8a header now describes the shipped `composeInstance` and its five-source
+discovery walk. All seven echoes are discharged (harness :212, :315, :337,
+:344; test :57–62 — the orphaned JSDoc block replaced by one attached to
+`requireAuthoredTheta` — :88, :468), the H9a invariant list at :10 drops
+"observed subagent cancellation propagation" and points at
+`tests/production-subagent-query-model.test.ts` as the (e) block already did,
+and `tests/live/harness.ts`'s header is corrected on the same footing.
+
+**Shared prefix module.** `tests/live/theta-stderr-prefixes.ts` (new) is the
+one canonical set of theta-owned stderr prefixes both halves read:
+`STALE_QUIESCE_STDERR_PREFIX` re-exported from `src/extension/stale-ctx.ts`
+(imported, never re-literalised), plus bare literals for
+`system-note delivery failed:` and `theta hot-reload rebuild rejected:`, whose
+emit sites export no constant. `thetaOwnedStderrLines` is the H8a filter; H9a
+imports the three prefixes to name an offender's class.
+
+**Permitted-code list.** `theta/load/extension-compose-failed` — minted by
+[bug 0023](./0023-production-composition-omits-bootstrap-seams.md), which did
+not write the row — is added to `tests/fixtures/h7a/permitted-codes.json`, now
+ten entries. `tests/integration-acceptance.test.ts`'s "every permitted code
+has a registry Message" check passes against it.
+
+**Verification.** Default suite 225 files / 2650 tests green, typecheck clean,
+lint clean (its glob is `src/**/*.ts`, so the test files are outside eslint's
+scope; `tsconfig.json` `include` covers `tests`, so both new files are
+typechecked). Offline lock:
+`tests/acceptance-stderr-gate.test.ts` — 32 tests in the **default** suite
+(confirmed collected, not merely on disk), covering both directions with zero
+tokens: the five §Reproduction rows fed to `acceptanceStderrOffenders`,
+`assertStderrClean` and `parseSystemNoteCodes`, proving rows 1, 2 and 5 red
+the new gate while passing the permitted-code predicate and row 4 reds both;
+the premises those rows rest on (`theta/runtime/internal-error` ∈ list,
+`theta/runtime/registry-swap-failed` ∉ list); 0-byte and whitespace-only
+captures passing; host noise redding H9a's gate but passing H8a's filter; the
+allowlist pinned empty; the three prefixes pinned byte-exact against their
+emit sites. Live post-gate green at this tree: H9a 10/10 and H8a 7/7 with both
+new gates active — the second of the two runs §Fix requires (the first was the
+baseline measurement above). Live red-direction proof (§"Verify both
+directions"), which the offline rows alone cannot give because they do not
+exercise the wiring: a single probe
+`console.error("system-note delivery failed: bug-0030 red-proof probe")`
+temporarily placed as the first statement of the unconditional `session_start`
+handler in `src/extension/factory.ts` — a path both halves reach — made H9a
+area (a) fail from `assertStderrClean` (`harness.ts:545` ← call site :150,
+with `assertNoErrorExit` and `assertCodesSubsetOfPermitted` passing ahead of
+it, so the probe changed neither exit code nor code content) quoting the
+injected line and its class annotation `[PIC-54 delivery-failed terminal
+cascade (SYSTEM_NOTE_DELIVERY_FAILED_PREFIX)]`, and made H8a's
+discovery→registration test fail from the spy's zero assertion (:247). The
+probe was removed by hand — `git diff -- src/ extensions/` zero lines — and
+both targeted runs re-ran green. One stochastic QRY-22 flake in area (b)
+(schema validation of a live model reply, an assertion this fix does not
+touch) appeared on one full H9a run, passed in isolation and passed on the
+10/10 re-run.
+
+**Residuals.** (i) `tests/live/double-session-start-live.test.ts:44` still
+carries its own quiesce-prefix literal instead of importing
+`tests/live/theta-stderr-prefixes.ts` — the exact drift hazard the new module
+exists to remove, pre-existing and outside §Fix's mandate; a candidate
+follow-up filing. (ii) The nine `requireLiveHost()` call sites in
+`noninteractive-acceptance.test.ts` are unawaited although the function is
+`async`; pre-existing, and a rejection still fails the run loudly through
+vitest's unhandled-rejection handling, so no precondition is silently skipped;
+a candidate follow-up filing. (iii) §Fix's "Not covered" holds unchanged:
+this gate witnesses a 0021-class regression and neither
+[bug 0029](./0029-throwing-supersession-detach-swallowed-watcher-rearmed.md)
+nor [bug 0023](./0023-production-composition-omits-bootstrap-seams.md), both
+silence defects a stderr gate cannot red on. (iv) Defect (2) is comment text
+and ships with no automated guard; a lint rule banning stale
+`INTENDED-REASON RED` banners remains a separate filing.
 
 ## Summary
 
@@ -345,6 +465,30 @@ baseline (`<sha>`, `<date>`)". Then:
   `theta hot-reload rebuild rejected:`, and let other content through.
   Immune to host noise; leaves any future theta stderr line class ungated,
   which the doc comment must say.
+
+**Measured baseline (`dd4f3d3b`, 2026-07-29).** The nine areas were run once
+against a live host with `spawnPiPrint` temporarily instrumented to dump every
+spawn's raw capture (instrumentation removed before any other edit; the tree
+was verified clean afterwards). Result: **10/10 green, and 0 bytes of stderr on
+all ten spawns.** Verbatim capture, one row per spawn in run order:
+
+| # | invocation | extra `--theta` sources | exit | stderr bytes | stderr |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `/acc-prompt-sentinel` | 0 | 0 | 0 | `""` |
+| 2 | `/acc-typed-named` | 0 | 0 | 0 | `""` |
+| 3 | `/acc-typed-inline` | 0 | 0 | 0 | `""` |
+| 4 | `/acc-params-binder summarise the three most recent commits` | 0 | 0 | 0 | `""` |
+| 5 | `/acc-subagent-success` | 0 | 0 | 0 | `""` |
+| 6 | `/acc-code-tool-loop` | 0 | 0 | 0 | `""` |
+| 7 | `/acc-imports-invoke` | 0 | 0 | 0 | `""` |
+| 8 | `/acc-match-queryerror` | 0 | 0 | 0 | `""` |
+| 9 | `/acc-multi-source` | 0 | 0 | 0 | `""` |
+| 10 | `/acc-multi-source` | 1 | 0 | 0 | `""` |
+
+The first branch of the rule therefore applies: the gate asserts an **empty
+capture**, with a committed allowlist that ships empty. Neither the spawned
+`pi -p` process nor its subagent child (spawn 5) writes host noise, so the
+strictest form carries no host-noise exposure at this baseline.
 
 An allowlist entry is admissible only if it appears in the recorded baseline.
 Populating an allowlist reactively from a first red is forbidden: it degrades

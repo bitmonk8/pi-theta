@@ -6,6 +6,70 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-07-30
+
+### Fixed
+
+- **Neither live suite tested whether a theta-owned stderr *line* was present,
+  although three shipped fixes cite exactly that as their regression witness.
+  H9a (`tests/live/acceptance/noninteractive-acceptance.test.ts`) is the only
+  always-run black-box capture of the real `pi -p` process tree's stderr, and
+  all three of its stderr-reading assertions score note *content*: the
+  nine-area `assertCodesSubsetOfPermitted` extracts
+  `theta/{load,parse,runtime}/<slug>` substrings and checks them against the
+  permitted list, and area (e)'s two extra checks match `/cancel|aborted/i`
+  and `theta/runtime/internal-error`. A `theta hot-reload quiesced:` line
+  (bug 0021's live observable) carries no slug and no cancel token, so it
+  passed all nine areas green; a `system-note delivery failed:` cascade was
+  caught only when the quoted note happened to embed a non-permitted slug, or
+  — in area (e) alone — `theta/runtime/internal-error`. H8a
+  (`tests/live/live-production-acceptance.test.ts`) read stderr nowhere and
+  had no capture mechanism at all, although bug 0018's fix record cites its
+  "0-byte stderr capture" as the live verification observable. Separately,
+  three live test file headers still opened with an `INTENDED-REASON RED
+  (current state)` banner: the two H9a ones declared the suite's nine feature
+  fixtures unauthored — resolved 1 h 48 min after the banner was written, when
+  the paired commit authored all nine — and the H8a one declared the shipped
+  composition root registers no `.theta`-derived slash command, false since
+  `composeInstance` was wired (bug 0030).** Per AGENTS.md §"Verify both
+  directions", a live assertion that cannot red is worthless; for stderr-line
+  presence neither suite had one. Fix, three parts. (1) `assertStderrClean`
+  (`tests/live/acceptance/harness.ts`) runs beside
+  `assertCodesSubsetOfPermitted` at all ten H9a spawn sites, so a regression
+  manifesting under one spawn shape reds where it happens; no tenth area is
+  added and the `(a)–(i)` manifest contract is unchanged. The gate's form was
+  fixed by measurement before it was written — one instrumented nine-area run
+  recorded 0 bytes of stderr on all ten spawns, selecting the strictest branch
+  of the bug document's own rule — so the gate asserts an EMPTY capture with a
+  committed allowlist that ships empty; populating that allowlist reactively
+  from a first red is forbidden, and weakening the form requires a re-recorded
+  baseline. It is orthogonal to the permitted-code list: it rejects the
+  delivery mechanism regardless of which code a line quotes, while the
+  permitted list keeps governing note content on stdout — so
+  `theta/runtime/internal-error` stays sanctioned as note content and is a
+  defect when it arrives inside a `system-note delivery failed:` cascade on
+  stderr. (2) H8a gains a file-scope `vi.spyOn(console, "error")` whose
+  teardown asserts zero theta-owned lines before restoring the spy in a
+  `finally`, putting a coded gate where bug 0018's cited observable lives; the
+  spy writes through, so real diagnostics stay visible. Both gates read one
+  shared prefix module, `tests/live/theta-stderr-prefixes.ts`, which imports
+  `STALE_QUIESCE_STDERR_PREFIX` from `src/extension/stale-ctx.ts` rather than
+  re-literalising it. (3) All three stale banners and their seven in-file
+  echoes are replaced by current-state text — fixtures committed, suites
+  green, correct-reason reds tracked through `docs/bugs/` — and the H9a
+  invariant list drops the cancellation-propagation claim its area (e) rewrite
+  had already relocated. `theta/load/extension-compose-failed`, minted by bug
+  0023, is written into `tests/fixtures/h7a/permitted-codes.json`. Locked by
+  32 offline tests in the default suite (`tests/acceptance-stderr-gate.test.ts`),
+  which feed both predicates the five synthetic stderr lines and prove the new
+  gate reds on the three the old ones missed; and red-proven at the live axis
+  in both directions — one temporary `console.error` probe in the
+  `session_start` handler made H9a area (a) fail from `assertStderrClean`
+  naming the line and its class, and H8a fail from the spy's zero assertion,
+  with both green again after the probe was removed. This gate witnesses a
+  0021-class regression; it does not witness bugs 0023 or 0029, which are
+  silence defects a stderr gate cannot red on.
+
 ## [0.34.0] - 2026-07-29
 
 ### Fixed
