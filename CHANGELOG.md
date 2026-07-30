@@ -6,6 +6,63 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-07-30
+
+### Fixed
+
+- **After any re-bind of one extension instance — a shutdown-less repeat
+  `session_start` (the bug-0021 supersession pass) or a start-after-shutdown
+  rebind — every slash name whose `.theta` was still on disk went dead until
+  `/reload`. The new pass's compose read `pi.getCommands()` for its
+  cross-format collision check with no own-name exclusion, and Pi reports an
+  extension's own registered commands with `source: "extension"`,
+  indistinguishable from a sibling extension's, so generation 1's own
+  `/greet` read as a foreign collision: the re-discovered `greet.theta` was
+  dropped, no second `pi.registerCommand` issued, an error-severity
+  `theta/load/cross-format-collision` note misdescribed the cause ("Pi-owned
+  command 'greet' survives"), and the live `/greet` stayed bound to the
+  superseded generation's registry — which the supersession drains — so every
+  dispatch on the running session answered `theta /greet: extension shutting
+  down`. The exclusion mechanism existed but was wired only to the hot-reload
+  path, where it rested on a code comment and no spec text; step 3's own
+  normative rule, keyed on `source` membership, literally mandated the
+  self-drop.** Fix, spec first.
+  `docs/spec_topics/pi-integration-contract/registration-steps.md` gains
+  **PIC-69**: on every pass that consults `pi.getCommands()` for the collision
+  check — first `session_start`, hot-reload, supersession, and
+  start-after-shutdown rebind alike — the instance MUST exclude every entry
+  that both carries `source: "extension"` and bears a name it itself passed to
+  `pi.registerCommand`; the excluded set is pinned as the instance's own
+  registration LEDGER rather than its current `ThetaRegistry` keys, and the
+  exclusion is pinned source-conditioned, never name-only. Its companion
+  clause `#surviving-name-re-ownership` pins that a surviving name
+  re-registers against the new generation's registry and emits no collision
+  diagnostic, while a name whose `.theta` is gone keeps the arm-(b)
+  shutting-down note. Sibling indistinguishability is recorded in the pin as a
+  known limitation. DISC-4 arm 2, `#superseded-entry-dispatch`, the
+  `pi.getCommands()` completeness presupposition and the discovery reference
+  carry the parallel qualification; `coverage-matrix.md` gains the PIC-69 row.
+  In code, `src/extension/factory.ts` keeps a factory-closure ledger of every
+  name passed to `pi.registerCommand` (stamped even when the call throws) and
+  threads it through `composeInstance` into
+  `src/extension/production-composition.ts`, which forwards it to the initial
+  compose pass — where `undefined` was hard-coded — and prefers it over the
+  registry-snapshot carve-out on hot-reload; `readPiOwnedCommands` now applies
+  the exclusion after the source filter and gated on `source === "extension"`,
+  closing the pre-existing hole where a name-keyed skip also hid a genuine
+  `"prompt"` / `"skill"` collision. The registry drain is untouched: a removed
+  name still fails safe with the spec-pinned note. Offline lock:
+  `tests/rebind-self-collision-reownership.test.ts` (new, six tests — both
+  triggers, the source-conditioning control, the ledger-vs-registry-keys
+  discriminator, the removed-name control and the foreign-`extension`-entry
+  control), plus `tests/double-session-start-supersession.test.ts`'s length-1
+  witness flipped to 2. Live lock:
+  `tests/live/double-session-start-live.test.ts` now witnesses re-ownership
+  across a real `bindExtensions()` re-bind — no collision note, no
+  shutting-down note at dispatch, the rendered outbound query text as the
+  non-vacuity guard — alongside bug 0021's watcher-leak assertion; H9a 10/10
+  green with no new stderr line and no new permitted code (bug 0024).
+
 ## [0.35.0] - 2026-07-30
 
 ### Fixed

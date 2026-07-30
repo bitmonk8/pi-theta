@@ -258,7 +258,10 @@ function makeBoot(workspace: string, options: { gateComposes?: boolean } = {}): 
 
   const deps: ThetaExtensionDeps = {
     fixtures: [],
-    composeInstance: async (pi, ctx) => {
+    // The double must mirror the production default export's wiring
+    // (src/extension/factory.ts) — forwarding the own-registration ledger as
+    // the 5th argument — or the pass under test runs without the ledger.
+    composeInstance: async (pi, ctx, ownRegisteredNames) => {
       // One NEW counting watcher per compose call, indexed by START order
       // (created synchronously at dep entry, before any await): generations
       // are distinguishable only by their per-compose resources, which is the
@@ -274,10 +277,13 @@ function makeBoot(workspace: string, options: { gateComposes?: boolean } = {}): 
           releases[index] = resolve;
         });
       }
-      const wiring = await composeExtensionInstance(pi, ctx, {
-        fileWatcher: watcher,
-        clock,
-      });
+      const wiring = await composeExtensionInstance(
+        pi,
+        ctx,
+        { fileWatcher: watcher, clock },
+        undefined,
+        ownRegisteredNames,
+      );
       wirings[index] = wiring;
       return wiring;
     },
@@ -707,17 +713,23 @@ describe("bug 0021 — double session_start supersession (registration-steps.md 
     // The rebind pass ran to its tail and armed a FRESH watcher exactly
     // once; generation 1's stays detached (no re-arm, no re-detach).
     // `/greet` remains pi-registered from generation 1 (Pi has no
-    // unregister). Pre-existing behaviour this ALSO locks (not part of the
-    // bug-0021 fix): the rebind compose reads `pi.getCommands()` with no
-    // own-name exclusion — unlike a hot-reload pass — so generation 1's own
-    // `/greet` (`source: "extension"`) drops the re-discovered greet.theta as
-    // a theta-vs-Pi-owned cross-format collision, and NO second
-    // registerCommand call is issued (the registeredNames SEQUENCE witnesses
-    // exactly one).
+    // unregister) and the rebind pass RE-OWNS it: per
+    // registration-steps.md#pic-69 the collision source set excludes every
+    // entry that carries `source: "extension"` and bears a name this instance
+    // itself passed to `pi.registerCommand`, so generation 1's own `/greet`
+    // is not a cross-format collision against the re-discovered greet.theta.
+    // Per registration-steps.md#surviving-name-re-ownership a name whose
+    // `.theta` still resolves in the rebind pass therefore registers AGAIN,
+    // rebinding the live `/greet` to the new generation's drain-gated handler
+    // — the registeredNames SEQUENCE witnesses exactly two (a Map alone
+    // could not). Bug 0024 owns this clause and its own witness suite
+    // (tests/rebind-self-collision-reownership.test.ts); the length-2
+    // expectation below was red at 1d516897 and is closed by the bug-0024
+    // fix landing alongside that suite.
     expect(b.harness.commands.has("greet")).toBe(true);
     expect(
       b.harness.registeredNames.filter((name) => name === "greet"),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(b.watchers).toHaveLength(2);
     expect(watcherAt(b, 1).attached).toBe(true);
     expect(watcherAt(b, 1).watchCalls).toBe(1);

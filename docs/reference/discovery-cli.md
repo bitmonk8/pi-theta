@@ -79,7 +79,8 @@ participate in collision detection. The validator runs before parse.
 - **Slash-name collision (DISC-4).** Two or more candidates at the same priority
   deriving the same slash name → `theta/load/cross-format-collision` (error), naming
   every colliding path. Theta-vs-theta: **every** colliding theta drops. Theta-vs-Pi-owned
-  (`.md` prompt, `.md` skill, another extension's command): only the theta(s) drop;
+  (`.md` prompt, `.md` skill, another extension's command — never the theta extension's
+  own prior registration of that name, which is excluded from the comparison): only the theta(s) drop;
   the Pi-owned entry stays registered (the theta extension cannot unregister
   Pi-owned templates). Detection runs on the final derived name (after `pi.theta`
   mapping); settings entries resolving to the same absolute path post-tilde-expansion

@@ -369,13 +369,28 @@ export async function discoverAndComposeFixtures(
  * `sink` (toast/stderr on the helper path; the `theta-system-note` channel on
  * the shipped `session_start` and watcher-time ERR-7 paths alike).
  *
- * `excludeOwnedNames` names the extension's own previously-registered thetas so
- * a hot-reload pass does NOT drop them as cross-format collisions against
- * themselves: Pi reports theta's own registered commands with `source:
- * "extension"` (indistinguishable from a sibling extension), so re-running the
- * collision check against the raw `pi.getCommands()` snapshot would self-drop
- * every theta on reload. At `session_start` (first load) the set is empty — theta
- * has not registered yet — so no exclusion is needed.
+ * `excludeOwnedNames` (registration-steps.md#pic-69) is this extension
+ * instance's own-registration LEDGER — every slash name it has EVER passed to
+ * `pi.registerCommand` — not the live `ThetaRegistry`'s keys: Pi exposes no
+ * `pi.unregisterCommand`, so a name a prior pass registered and a later
+ * collision then dropped from the registry is still reported back by
+ * `pi.getCommands()` and must still be excluded. Consulted on EVERY pass that
+ * reads `pi.getCommands()` for the cross-format collision check — the first
+ * `session_start`, every hot-reload, and every supersession/rebind pass alike
+ * — so a surviving slash name re-owns (registers again, rebinding the live
+ * `/<name>` to this pass's registry) instead of self-colliding against the
+ * instance's own prior registration: Pi reports every command an extension
+ * registered as `source: "extension"`, indistinguishable from a sibling
+ * extension's, so an unfiltered collision check against the raw
+ * `pi.getCommands()` snapshot would self-drop every survivor. The exclusion is
+ * source-conditioned (`readPiOwnedCommands` below applies it only to a
+ * `source: "extension"` entry), so a same-named `"prompt"` / `"skill"` entry
+ * still collides. Known limitation, not closed by this or any `source`-keyed
+ * scheme: a sibling extension's same-named entry also carries
+ * `source: "extension"` and is therefore also excluded, so that one
+ * cross-format collision goes undetected. At the very first `session_start`
+ * pass the set is empty — theta has not registered anything yet — so no
+ * exclusion applies.
  */
 async function runComposePass(
   pi: ExtensionAPI,
@@ -1029,6 +1044,20 @@ export async function composeExtensionInstance(
   ctx: ExtensionContext,
   overrides?: ComposeSeamOverrides,
   rendererGate?: RendererGate,
+  // Bug 0024 (registration-steps.md#pic-69): the LIVE own-registration ledger
+  // owned by the factory closure (`factory.ts`) — an alias, not a snapshot, so
+  // every pass this call arms (the initial pass below AND every later
+  // hot-reload rediscover pass) reads whatever names are registered as of
+  // THAT pass, including ones this same call's own initial pass or a prior
+  // generation registered. A caller that omits it (one constructing no
+  // factory, and so holding no ledger) supplies no own-name exclusion to the
+  // initial pass — `undefined` states exactly that, and PIC-69 keys the
+  // exclusion on ledger membership, so inventing a substitute set from
+  // `pi.getCommands()` would exclude a foreign extension's command this
+  // instance never registered and disable theta-vs-foreign collision
+  // detection. The hot-reload rediscover pass keeps the registry-snapshot
+  // carve-out below in that case.
+  ownRegisteredNames?: ReadonlySet<string>,
 ): Promise<ExtensionInstanceWiring> {
   // The transient toast + stderr emit. Retained ONLY as the `theta-system-note`
   // channel's own delivery-failure fallback: it MUST stay off-channel so a
@@ -1130,7 +1159,7 @@ export async function composeExtensionInstance(
     loadSink,
     activeInvocations,
     forwardingSignals,
-    undefined,
+    ownRegisteredNames,
     overrides?.subagentExecutableHost,
     rendererGate,
   );
@@ -1170,7 +1199,14 @@ export async function composeExtensionInstance(
               emitErr7,
               activeInvocations,
               forwardingSignals,
-              new Set(registry.snapshot().keys()),
+              // Bug 0024 (registration-steps.md#pic-69): prefer the factory's
+              // live ledger — it also excludes a name a PRIOR generation
+              // registered and this reload's own registry never held. Absent a
+              // ledger, the live registry's keys are the widest own-name
+              // evidence this call holds: every one of them reached
+              // `pi.registerCommand` through the initial pass or an earlier
+              // reload of this same call.
+              ownRegisteredNames ?? new Set(registry.snapshot().keys()),
               overrides?.subagentExecutableHost,
               rendererGate,
             )
@@ -1996,19 +2032,25 @@ function readPiOwnedCommands(
 ): readonly PiOwnedCommand[] {
   const owned: PiOwnedCommand[] = [];
   for (const command of pi.getCommands()) {
-    // Skip the extension's own previously-registered thetas on a hot-reload pass
-    // so they are not dropped as collisions against themselves (they carry
-    // `source: "extension"`, like a sibling extension's command).
-    if (excludeOwnedNames?.has(command.name) === true) {
+    if (
+      command.source !== "prompt" &&
+      command.source !== "skill" &&
+      command.source !== "extension"
+    ) {
       continue;
     }
-    if (
-      command.source === "prompt" ||
-      command.source === "skill" ||
-      command.source === "extension"
-    ) {
-      owned.push({ name: command.name, source: command.source });
+    // PIC-69: the exclusion MUST be source-conditioned, never name-only —
+    // gated here (after the source-membership test above) on
+    // `source === "extension"` so only an entry indistinguishable from this
+    // instance's own registration (Pi reports every extension's registered
+    // command this way) is ever excluded. A `"prompt"` / `"skill"` entry of a
+    // name this instance also registered still lands in the collision set, so
+    // the source gate is tested FIRST: a name-only membership test would
+    // silently swallow that genuine `prompt`/`skill` collision as well.
+    if (command.source === "extension" && excludeOwnedNames?.has(command.name) === true) {
+      continue;
     }
+    owned.push({ name: command.name, source: command.source });
   }
   return owned;
 }

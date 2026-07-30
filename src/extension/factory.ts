@@ -264,10 +264,20 @@ export interface ThetaExtensionDeps {
    * shipped production default export supplies this; the `H4a` in-memory
    * harness omits it (falling back to the static `registerFixtures(deps.fixtures)`
    * path).
+   *
+   * Bug 0024 (registration-steps.md#pic-69): the third parameter is this
+   * instance's own-registration ledger — every slash name ever passed to
+   * `pi.registerCommand` (`registerFixtures` below stamps it). The supplier
+   * forwards it into `composeExtensionInstance` so every pass that reads
+   * `pi.getCommands()` for the cross-format collision check, including the
+   * first `session_start` and every supersession/rebind pass, excludes this
+   * instance's own prior registrations from the collision source set instead
+   * of self-colliding against them.
    */
   readonly composeInstance?: (
     pi: ExtensionAPI,
     ctx: ExtensionContext,
+    ownRegisteredNames: ReadonlySet<string>,
   ) => Promise<ExtensionInstanceWiring>;
 
   /**
@@ -362,6 +372,16 @@ export function createThetaExtension(
     // by the shutdown handler, making a later start-after-shutdown
     // supersession a structural no-op.
     const supersededGenerations: SupersededGeneration[] = [];
+    // Bug 0024 (registration-steps.md#pic-69) — the own-registration ledger:
+    // every slash name this extension instance has EVER passed to
+    // `pi.registerCommand`, stamped by `registerFixtures` below. Factory-scoped
+    // (one per extension instance), like every other closure state above — no
+    // globals, no statics. It is deliberately NOT `liveRegistry`'s keys: Pi
+    // exposes no `pi.unregisterCommand`, so a name a prior pass registered and a
+    // later collision then dropped from the registry is still reported back by
+    // `pi.getCommands()` and must still be excluded on the next pass, which only
+    // this cumulative ledger (not a registry snapshot) remembers.
+    const ownRegisteredNames = new Set<string>();
     // Step 1 — `--theta` flag. Synchronous-void; per-call wrapped. A
     // `registerFlag` throw is FATAL to the whole extension: step 1's `--theta`
     // flag is what every subsequent discovery / `resources_discover` walk reads
@@ -469,6 +489,14 @@ export function createThetaExtension(
         return;
       }
       for (const fixture of fixtures) {
+        // Bug 0024 (registration-steps.md#pic-69): stamp the ledger BEFORE the
+        // call, not after, so a throwing `pi.registerCommand` is still
+        // recorded — whether Pi stored the entry despite the throw is unknown
+        // from here, and the two failure directions are asymmetric: excluding
+        // a name Pi does not hold is harmless (the next pass's discovery walk
+        // finds no colliding entry to exclude), while failing to
+        // exclude a name Pi DOES hold re-opens this bug's self-collision.
+        ownRegisteredNames.add(fixture.slashName);
         try {
           pi.registerCommand(fixture.slashName, {
             // frontmatter-fields-a.md: `description` populates the autocomplete
@@ -633,7 +661,11 @@ export function createThetaExtension(
         composeStartsObserved !== generationAtComposeStart;
       let wiring: ExtensionInstanceWiring | undefined;
       try {
-        wiring = await deps.composeInstance!(pi, ctx);
+        // Bug 0024 (registration-steps.md#pic-69): thread the live
+        // own-registration ledger so this pass's cross-format collision check
+        // excludes every name this instance itself registered — including a
+        // prior generation's, on a supersession or start-after-shutdown rebind.
+        wiring = await deps.composeInstance!(pi, ctx, ownRegisteredNames);
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
           return;
@@ -936,8 +968,12 @@ export default function thetaExtension(pi: ExtensionAPI): void {
     emitDiagnostic: sink.emit,
     rendererGate,
     latchSessionContext: sink.latchSessionContext,
-    composeInstance: (pi, ctx: ExtensionContext) =>
-      composeExtensionInstance(pi, ctx, undefined, rendererGate),
+    // Bug 0024 (registration-steps.md#pic-69): forward the factory's
+    // own-registration ledger into the composition root so every compose pass
+    // — first start, hot-reload, and every supersession/rebind pass alike —
+    // excludes this instance's own prior registrations from the collision read.
+    composeInstance: (pi, ctx: ExtensionContext, ownRegisteredNames: ReadonlySet<string>) =>
+      composeExtensionInstance(pi, ctx, undefined, rendererGate, ownRegisteredNames),
     isSubagentChild,
   })(pi);
 }
