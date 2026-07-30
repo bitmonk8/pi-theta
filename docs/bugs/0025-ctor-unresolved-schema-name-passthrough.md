@@ -99,7 +99,7 @@ All three reject arms emit through one builder,
 `unresolvedNamedTypeDiagnostic` (`:4277`) — severity `error`, range the
 constructor expression's, message `unresolved named type '<name>'`, byte-equal
 to the row's normative Message and to the pre-existing `params:` emission
-(`src/parser/params.ts:133`).
+(`src/parser/params.ts:137`).
 
 **Threading (§Fix "Threading").** `StructuralRefs` gains
 `readonly bodyTypes: FrontmatterBodyTypes` (`:4748`); `checkStructural`
@@ -168,12 +168,12 @@ Green (1/1) and red-proved once with the fix neutralised (`B25 OFFENDER
 LOADED`). H9a acceptance 10/10 green, `tests/acceptance-stderr-gate.test.ts`
 32/32 green — no new stderr line, no new code slug.
 
-**Residuals.** (i) The row documents four positions; two of them — the `@<T>`
-annotation and the `schema` body field type — are implemented by
-[0028](./0028-unresolved-annotation-silent-permissive-lowering.md), still open.
-That is the settled shared-amendment plan (0028 lands code only, no registry
-edit), not an accident, but until 0028 ships the row over-states emission at
-those two positions. (ii) A constructor name inside a query-template
+**Residuals.** (i) Discharged by
+[0028](./0028-unresolved-annotation-silent-permissive-lowering.md)'s fix
+(0.38.0): the row's remaining two positions — the `@<T>` annotation and the
+`schema` body field type — now emit as documented, so the four-position
+trigger is fully delivered (the settled shared-amendment plan: this fix wrote
+the registry row, 0028 landed code only). (ii) A constructor name inside a query-template
 interpolation (`` @`${ Mystery { a: 1 } }` ``) or inside a `params:` default
 value is not classified. This is a general hole, not one this fix opens: no
 structural check reaches interpolation contents at all — a *declared*
