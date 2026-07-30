@@ -1,6 +1,13 @@
 # Bug 0025 — A constructor naming an undeclared or non-constructible schema (`Mystery { r: Ok(1) }`, `Color { r: 1 }`) loads clean and evaluates as an unbranded plain object
 
-- **Status:** open
+- **Status:** fixed (0.37.0). §Fix as settled — `checkObjectExpr`'s silent
+  lookup-miss arm becomes a classification against the whole-file top-level
+  type-declaring universe: an imported `.thetalib` symbol defers, and an
+  `enum`, a `schema` with no object body, and a name resolving to no top-level
+  declaration each fire the widened `theta/parse/unresolved-named-type`. The
+  DIAG-2 amendment carrying that widening is written here and is shared with
+  [0028](./0028-unresolved-annotation-silent-permissive-lowering.md), which
+  needs no further registry edit. No runtime change.
 - **Kind:** defect — a static-gate gap in the single object-constructor checker
   (`checkObjectExpr`). The checker looks the constructor name up in the
   declared object-schema field-name map and takes a silent defer arm on a
@@ -57,7 +64,145 @@
 - **Fix ordering:** the fix widens the same registry row that
   [0028](./0028-unresolved-annotation-silent-permissive-lowering.md) widens
   (`theta/parse/unresolved-named-type`). The two changes coordinate on one
-  DIAG-2 amendment; whichever lands first writes the row.
+  DIAG-2 amendment; 0025 landed first and wrote the row.
+
+## Fix (0.37.0)
+
+Both §Fix halves — classification and DIAG-2 amendment — in one commit; line
+anchors at the fix commit.
+
+**The classification (§Fix "Classification", D2).**
+`checkObjectExpr` (`src/parser/theta-document.ts:5086`) reaches the
+classification only when `refs.schemas` misses, so a same-file object-form
+`schema` keeps the unchanged extra-field / missing-field path. The former
+silent-defer arm is now four arms over the destructured
+`refs.bodyTypes` triple (`:5109`), each emitting at most one diagnostic and
+returning:
+
+1. `imports.has(name)` (`:5110`) — **defer**. `collectBodyTypes`'s `imports`
+   is a name-only `Set<string>`: the importer's parse holds neither the
+   symbol's field bodies nor its kind, so it cannot decide even whether the
+   name is brace-constructible. The one genuinely undecidable class.
+2. `enums.has(name)` (`:5118`) — **reject**. An `enum` is not
+   brace-constructible; a discriminated union constructs via the variant
+   schema name (`expressions.md:218`). Keyed off `collectBodyTypes`'s `enums`
+   rather than `StructuralRefs.enums` to keep constructor-name resolution
+   decoupled from the `Enum.Variant` member-access map; both sets hold a
+   variant-less `enum` (see §Residuals (iii)).
+3. `bodySchemas.has(name)` (`:5125`) — **reject**. Present in the whole-file
+   schema set but absent from `refs.schemas` means `fields === undefined`: the
+   alias/union form, which has no object body to brace-construct.
+4. otherwise (`:5133`) — **reject**. No top-level `schema` of either form, no
+   top-level `enum`, no imported symbol.
+
+All three reject arms emit through one builder,
+`unresolvedNamedTypeDiagnostic` (`:4277`) — severity `error`, range the
+constructor expression's, message `unresolved named type '<name>'`, byte-equal
+to the row's normative Message and to the pre-existing `params:` emission
+(`src/parser/params.ts:133`).
+
+**Threading (§Fix "Threading").** `StructuralRefs` gains
+`readonly bodyTypes: FrontmatterBodyTypes` (`:4748`); `checkStructural`
+(`:4771`) takes it as a parameter (`:4773`) and forwards it into the refs
+literal; the single call site (`:755`) supplies the `collectBodyTypes(statements)`
+value already computed at `:725`. Not `collectIdentRoots`, which folds in
+`params:` field names, resolved `tools:` callable names and the stdlib
+builtins — `read { x: 1 }` would classify as resolvable.
+
+**Registry (DIAG-2, GOV-15).**
+`docs/spec_topics/diagnostics/code-registry-parse.md:88` — the
+`theta/parse/unresolved-named-type` Trigger widens from the `params:`
+right-hand side to a closed four-position list: `params:` RHS, `@<T>` query
+annotation, `schema` body field type, and object-constructor name. Resolution
+is whole-file over the body's **top-level** declarations. The constructor
+position carries the added brace-constructibility requirement, and the row
+states that an imported symbol always defers there. One row, one Message,
+severity `E` unchanged; the Spec-link cell gains
+`[Expressions — Object construction]` beside the frontmatter link.
+`docs/spec_topics/expressions.md:214` gains the matching normative paragraph,
+between the two bare-literal carve-outs and the discriminated-union sentence.
+This newly rejects inputs that loaded clean before (u1–u4 and the typo case);
+the [GOV-15 diagnostic-registry
+carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out)
+admits a trigger widening within a 1.x minor, and it is the mechanism relied
+on here.
+
+**Unchanged by decision.** No runtime change — `env.resolveSchema`
+(`src/runtime/lexical-environment.ts:517`) and both brand sites
+(`src/runtime/statement-executor.ts:657–673`,
+`src/extension/production-theta-producer.ts:5636–5651`) are untouched; the
+input never loads. `theta/parse/unknown-identifier` is not widened — `let a =
+Mystery` keeps its own row, pinned by
+`tests/e2e-s4-never-emitted-diagnostics.test.ts:53–54` and by this bug's own
+c6 / c6-inverse controls. No new diagnostic code, so
+`tests/fixtures/h7a/permitted-codes.json` is unchanged (its 10 entries are
+load/runtime codes; the widened parse code is unreachable from every H9a
+fixture). Constructor field-value typing stays with
+[0031](./0031-ctor-field-value-typing-unchecked.md):
+`StructuralRefs.schemas` still carries field names only.
+
+**Verification.** Default suite 227 files / 2680 tests green; typecheck clean;
+lint clean. Offline lock — `tests/ctor-unresolved-schema-name.test.ts` (new,
+24 cells over the `parseThetaDocument` boundary plus the shipped
+`discoverAndComposeFixtures`, messages sourced from the registry per DIAG-4):
+the DIAG-2 row contract (`:201`), the four reject fixtures u1 / u2 / u4
+(`:227`, `:235`, `:245`), the typo (`:252`), a nested inner constructor
+(`:261`), a block-nested declaration (`:276`), the enum u3 / u3b (`:297`,
+`:305`), the alias/union head (`:321`), the two imported-symbol defer cells
+(`:357`, `:362`), eleven controls holding c1–c6 plus the forward reference,
+the Pi-tool sole-argument and `params:`-default carve-outs (`:381`–`:473`), and
+the load consequence (`:513`) — the offending theta no longer registers.
+Both halves proven load-bearing in both directions: with only
+`src/parser/theta-document.ts` reverted to `4eb0721c`, ten cells red with
+`actual diagnostics=[]` and `registered=["ctorunres","goodctl"]`, matching
+§Reproduction exactly, while all fourteen defer/control cells stay green; with
+only the registry page reverted, exactly the row cell reds; both restored,
+24/24 green and the tree byte-identical. Live —
+`tests/live/acceptance/ctor-unresolved-load-refusal.test.ts` (new, H9a-style,
+its own temp discovery root and its own file, deliberately outside the shared
+nine-area manifest so bug 0030's empty-capture gate is untouched) drives a real
+`pi -p`: the offending theta is refused, a well-formed matched-pair control
+registers and drives, and a prober theta's `match invoke("./<offender>.theta")`
+turns the refusal into a positive `B25 OFFENDER REFUSED` sentinel on stdout.
+Green (1/1) and red-proved once with the fix neutralised (`B25 OFFENDER
+LOADED`). H9a acceptance 10/10 green, `tests/acceptance-stderr-gate.test.ts`
+32/32 green — no new stderr line, no new code slug.
+
+**Residuals.** (i) The row documents four positions; two of them — the `@<T>`
+annotation and the `schema` body field type — are implemented by
+[0028](./0028-unresolved-annotation-silent-permissive-lowering.md), still open.
+That is the settled shared-amendment plan (0028 lands code only, no registry
+edit), not an accident, but until 0028 ships the row over-states emission at
+those two positions. (ii) A constructor name inside a query-template
+interpolation (`` @`${ Mystery { a: 1 } }` ``) or inside a `params:` default
+value is not classified. This is a general hole, not one this fix opens: no
+structural check reaches interpolation contents at all — a *declared*
+constructor's extra-field check and `unknown-identifier` are equally silent
+there — so every sentence of `expressions.md` §Object construction shares the
+boundary. (iii) Two §Fix sentences are factually wrong at `4eb0721c`, neither
+changing what shipped. It asserts that `StructuralRefs.enums` "is populated
+only for a declaration with variants": `parseEnum` always supplies `variants`
+(`parseEnumVariants` returns `[]` for an empty body), so both sets hold a
+variant-less `enum` — the classification's choice of `collectBodyTypes`'s set
+is a decoupling decision, not a coverage necessity, and the outcome for `enum
+Color { }` + `Color { r: 1 }` is the same either way (both
+`theta/parse/empty-enum-body` and `theta/parse/unresolved-named-type` fire, at
+their two distinct sites). It also says alias/union names "are unreachable from
+a `.theta` body today": the alias *head* parses as a fields-less `schema`
+statement and only its `= Cat | Dog` tail degrades into 0033's stray-token
+diagnostics, so `schema Animal = Cat | Dog` + `Animal { x: 1 }` reaches arm 3
+today and is pinned by a test cell. (iv) A block-nested `schema` / `enum`
+declaration is accepted with no diagnostic although resolution and runtime
+registration are both top-level-only — so `if true { schema S { x: number }
+let s = S { x: 1 } }` now reports `unresolved named type 'S'` while its
+declaration sits in view. The rejection is the correct disposition (the runtime
+would brand nothing), but the silent acceptance of the nested declaration is an
+unfiled gap, sibling to `theta/parse/nested-fn` and to
+[0033](./0033-body-level-schema-alias-unsupported.md). (v) Import/local
+name-collision precedence is undefined and lands on opposite sides here: a
+local object-form `schema` shadowing an import runs the field-set checks, while
+a local `enum` shadowing an import defers. Neither behaviour changes with this
+fix, and no spec text or diagnostic covers duplicate declaration names.
 
 ## Summary
 

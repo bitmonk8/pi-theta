@@ -754,6 +754,7 @@ export function parseThetaDocument(
   // sources).
   const structuralDiags = checkStructural(
     { statements, tail: resolvedTail },
+    bodyTypes,
     file,
   );
 
@@ -4264,6 +4265,30 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
 }
 
 /**
+ * The registered `theta/parse/unresolved-named-type` rejection. Its trigger
+ * (code-registry-parse.md) is a closed four-position list — the `params:`
+ * right-hand side, the `@<T>` query annotation, a `schema` body field type,
+ * and the object-constructor name — not every `NamedType`-resolution position:
+ * a `let` annotation, an `fn` parameter type, a generic argument, a union arm
+ * and `invoke<Type>` (grammar.md §Type grammar) are outside it, so
+ * `let x: Nope = 1` resolves nothing and fires nothing. `checkObjectExpr`
+ * below emits the constructor-name one.
+ */
+function unresolvedNamedTypeDiagnostic(
+  name: string,
+  range: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/unresolved-named-type",
+    file,
+    range,
+    message: `unresolved named type '${name}'`,
+  };
+}
+
+/**
  * One arm-1 local binder tracked by the lexical call-site walk (bug 0016):
  * which construct bound the name, and the 1-indexed source line of that
  * construct where the AST carries one. `line` is absent only for `params:`
@@ -4709,6 +4734,18 @@ interface StructuralRefs {
    * `theta/parse/missing-object-field` for an omitted required field.
    */
   readonly schemas: ReadonlyMap<string, readonly string[]>;
+  /**
+   * The whole-file type-declaring name universe `collectBodyTypes` builds
+   * (`FrontmatterBodyTypes`, frontmatter.ts:219–234): every body `schema` name
+   * (object or alias/union form) with its object field sources or `undefined`,
+   * every body `enum` name, and every symbol a body `import` pulls in. Feeds
+   * `checkObjectExpr`'s constructor-name classification when a name misses
+   * `schemas` above (bug 0025 §Fix) — deliberately not `collectIdentRoots`,
+   * which also folds in `params:` field names, resolved `tools:` callable
+   * names, and the stdlib builtins, none of which name a brace-constructible
+   * declaration.
+   */
+  readonly bodyTypes: FrontmatterBodyTypes;
 }
 
 /** The lexical context a structural check consults as the walk descends. */
@@ -4731,7 +4768,11 @@ interface WalkCtx {
  * index assignment are emitted inline by the parser, where the source tokens
  * are still in hand.)
  */
-function checkStructural(body: Block, file: string): Diagnostic[] {
+function checkStructural(
+  body: Block,
+  bodyTypes: FrontmatterBodyTypes,
+  file: string,
+): Diagnostic[] {
   const out: Diagnostic[] = [];
   // Hoisted top-level `fn` names, so a bare reference to one in value position
   // is `theta/parse/function-as-value` (functions.md FN-1).
@@ -4752,7 +4793,7 @@ function checkStructural(body: Block, file: string): Diagnostic[] {
       schemas.set(s.name, s.fields.map((f) => f.name));
     }
   }
-  const refs: StructuralRefs = { fnNames, enums, schemas };
+  const refs: StructuralRefs = { fnNames, enums, schemas, bodyTypes };
   walkStatements(
     body.statements,
     { inLoop: false, topLevel: true, voidReturn: false },
@@ -5033,7 +5074,14 @@ function walkStatement(
  * `Schema { … }` against a declared object schema fires
  * `theta/parse/extra-object-field` for a field the schema does not declare and
  * `theta/parse/missing-object-field` for an omitted required field (every
- * declared field is required — schemas.md; no `field?:` shorthand).
+ * declared field is required — schemas.md; no `field?:` shorthand). A name
+ * `refs.schemas` misses is not necessarily undeclared: it is classified
+ * against the whole-file type-declaring universe (`refs.bodyTypes`) before the
+ * checker gives up on the shape — a symbol imported from a `.thetalib` defers
+ * whatever its kind, because the importer's parse holds neither its field
+ * bodies nor its kind; an `enum`, a `schema` declared without an object body,
+ * or a name resolving to no declaration at all is
+ * `theta/parse/unresolved-named-type` (bug 0025 §Fix).
  */
 function checkObjectExpr(
   e: ObjectExpr,
@@ -5053,9 +5101,41 @@ function checkObjectExpr(
   }
   const declared = refs.schemas.get(e.typeName);
   if (declared === undefined) {
-    // Not a statically-declared object schema (an alias / union / enum /
-    // imported / builtin name): the field-set check needs the declared shape, so
-    // defer — do not guess.
+    // Not a same-file object-form `schema`: classify the name against the
+    // whole-file type-declaring universe instead of guessing (bug 0025 §Fix,
+    // "Classification"). `refs.bodyTypes`, not `refs.enums` above — that map
+    // exists for `Enum.Variant` member-access resolution, a different concern
+    // this walk must not couple to constructor-name resolution.
+    const { imports, enums, schemas: bodySchemas } = refs.bodyTypes;
+    if (imports.has(e.typeName)) {
+      // `collectBodyTypes`'s `imports` set is name-only: the importer's parse
+      // holds neither the symbol's field bodies nor its kind, so whether the
+      // name is even brace-constructible is undecidable here. The sole
+      // genuinely undecidable class — defer, since the field-set checks below
+      // have no shape to run against.
+      return;
+    }
+    if (enums.has(e.typeName)) {
+      // A declared `enum` is not brace-constructible under any reading of
+      // expressions.md §"Object construction" — a discriminated union
+      // constructs via the variant schema name, never the enum name.
+      out.push(unresolvedNamedTypeDiagnostic(e.typeName, e.range, file));
+      return;
+    }
+    if (bodySchemas.has(e.typeName)) {
+      // Present in the whole-file schema set but missing from `refs.schemas`
+      // above means `fields === undefined`: the alias/union form. Its head
+      // (`schema Animal = Cat | Dog`) parses as a fields-less `schema`
+      // statement — only the `= Cat | Dog` tail degrades, into bug 0033's
+      // separate `theta/parse/unsupported-feature` stray-token diagnostics —
+      // so this arm fires on that source today. A declaration with no object
+      // body has nothing to brace-construct.
+      out.push(unresolvedNamedTypeDiagnostic(e.typeName, e.range, file));
+      return;
+    }
+    // No body `schema` of either form, no body `enum`, no imported symbol:
+    // resolves to no declaration at all.
+    out.push(unresolvedNamedTypeDiagnostic(e.typeName, e.range, file));
     return;
   }
   const declaredSet = new Set(declared);

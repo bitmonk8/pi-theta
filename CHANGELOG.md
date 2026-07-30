@@ -6,6 +6,65 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-07-30
+
+### Fixed
+
+- **A constructor naming a schema that does not exist — or naming an `enum` —
+  loaded with zero diagnostics and evaluated to an unbranded plain object, the
+  exact value the bare-object-literal ban exists to prevent.** `checkObjectExpr`
+  was the whole static story for `Schema { field: expr, … }` and checked only
+  field-set presence, both of which need the declared shape; a constructor name
+  missing from the same-file object-schema map therefore took a silent defer
+  arm. Three classes collapsed into one — a name resolving to no declaration, a
+  name resolving to a declaration that is not brace-constructible, and an
+  imported `.thetalib` symbol whose field bodies are genuinely unavailable — and
+  the first two inherited the third's silence. `Mystery { r: Ok(1) }` evaluated
+  through the same executor arm a declared constructor uses, failed
+  `resolveSchema`, and returned the field object with its name discarded and no
+  brand. Because the inferred type was the nominal placeholder `named
+  "Mystery"` and the compatibility engine maps an unresolvable name to
+  `"unknown"`, the value also passed every annotated sink: `let p: Point =
+  Mystery { … }` and `let n: number = Mystery { a: 1 }` both loaded clean. A
+  misspelling of a declared schema produced no signal at any phase, while the
+  same name one brace apart (`let a = Mystery`) was
+  `theta/parse/unknown-identifier`.
+  Fix, spec first.
+  `docs/spec_topics/diagnostics/code-registry-parse.md` widens
+  `theta/parse/unresolved-named-type` (DIAG-2) from the `params:` right-hand
+  side to a closed four-position list — `params:` RHS, `@<T>` query annotation,
+  `schema` body field type, object-constructor name — with resolution stated as
+  whole-file over the body's top-level declarations, and with the constructor
+  position carrying the added requirement that the resolved declaration be
+  brace-constructible. One row, one message (`unresolved named type '<name>'`),
+  severity `E`; the row is shared with bug 0028, which lands code only.
+  `docs/spec_topics/expressions.md` §Object construction gains the matching
+  normative paragraph. In `src/parser/theta-document.ts`, `checkStructural`
+  takes the whole-file type-declaring universe already built by
+  `collectBodyTypes` — not `collectIdentRoots`, which folds in `params:` field
+  names, `tools:` callable names and the stdlib builtins — and `checkObjectExpr`
+  classifies a name its object-schema map misses: an imported symbol defers
+  whatever its kind, because the importer's parse holds neither its field
+  bodies nor its kind; an `enum`, a `schema` declared without an object body,
+  and a name resolving to no top-level declaration each fire the widened code.
+  No runtime change — the input never loads, so both brand sites and
+  `resolveSchema` are untouched. `theta/parse/unknown-identifier` is not
+  widened. Constructor field-*value* typing remains bug 0031.
+  Previously clean-loading programs are newly rejected; the
+  [GOV-15 diagnostic-registry
+  carve-out](docs/spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out)
+  admits a trigger widening within a 1.x minor.
+  Locked by `tests/ctor-unresolved-schema-name.test.ts` (24 offline cells: the
+  DIAG-2 row contract, the reject fixtures including a nested constructor, a
+  block-nested declaration, a variant-less `enum` and an alias/union head, the
+  two imported-symbol defer cells, eleven controls holding the existing gates,
+  and the shipped composition root refusing to register the theta) and by
+  `tests/live/acceptance/ctor-unresolved-load-refusal.test.ts` (a real `pi -p`
+  run whose prober turns the refusal into a positive stdout sentinel while a
+  matched-pair control still registers and drives). No new diagnostic code, so
+  `tests/fixtures/h7a/permitted-codes.json` is unchanged.
+  ([bug 0025](docs/bugs/0025-ctor-unresolved-schema-name-passthrough.md))
+
 ## [0.36.0] - 2026-07-30
 
 ### Fixed
