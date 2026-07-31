@@ -67,8 +67,16 @@ import {
   checkEnumDeclaration,
   checkInlineEnumForm,
   checkVariantAccess,
+  checkByClause,
+  checkDiscriminatedUnion,
+  detectTypeAliasCycles,
   type EnumValueKind,
   type EnumVariantDecl,
+  type ByClauseDecl,
+  type DiscriminatedUnionDecl,
+  type DiscriminatorCandidateField,
+  type SchemaGraphNode,
+  type UnionVariantSchema,
 } from "./schema-declarations";
 import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
@@ -525,16 +533,56 @@ export interface SchemaFieldSource {
   readonly wireName?: string;
 }
 
-/** A `schema` declaration (`SchemaDecl`; schemas.md). */
+/**
+ * A `schema` declaration (`SchemaDecl`; schemas.md). Three-way shape (bug
+ * 0033 §Fix): the object form (`fields`), the alias/union form (`arms`, with
+ * an optional `by` discriminator field), and the head-only form (neither) —
+ * a body-less `schema X` head or an unparseable object body / alias
+ * right-hand side, which carries its own `theta/parse/empty-schema-body`
+ * diagnostic at parse time rather than resolving silently.
+ */
 export interface SchemaDecl extends NodeBase {
   readonly kind: "schema";
   readonly name: string;
   /**
    * The object-body field type sources, present iff the decl is the
-   * `schema X { field: Type, … }` object form. Absent for the `= …` alias and
-   * `by … = …` discriminated-union forms.
+   * `schema X { field: Type, … }` object form. Absent for the `= …` alias /
+   * `by … = …` union form and for the head-only form.
    */
   readonly fields?: readonly SchemaFieldSource[];
+  /**
+   * The alias/union right-hand side: one Type source per top-level `|`-
+   * separated arm (`schema X = A | B`; grammar.md §"schema X by <field>"
+   * `AliasRhs` / `UnionRhs`), present iff the decl is that form. Captured by
+   * `parseType` in its field-boundary mode (as the object form's field types
+   * are) plus its alias-arm mode — one capture over the whole right-hand side,
+   * split on the top-level `|`, the same split `lowerTypeSource`
+   * (body-type-lowering.ts) re-applies at lowering. Absent for the object form
+   * and for the head-only form.
+   *
+   * CAVEAT — what "top-level" means to the split. `splitTopLevel` (params.ts)
+   * runs in its default `"angle"` nesting, which tracks `<…>` and quotes but
+   * NOT braces, so a `|` written INSIDE an inline-object arm reads as an arm
+   * separator: `schema X = { a: string | null } | Cat` yields the three
+   * segments `{a:string`, `null}`, `Cat` rather than two arms. That input is
+   * legal (an `ObjectType` field may be optional), so for it `arms` is
+   * per-`|`-SEGMENT rather than per-`Type`. The two consumers agree by
+   * construction — lowering re-splits the rejoined arms the same way — which
+   * is why the family loads clean and lowers to a per-segment `anyOf`
+   * (group (j)'s j3 in tests/schema-alias-union-decl.test.ts pins the arm
+   * COUNT and the clean load, and deliberately puts no byte pin on the lowered
+   * inline-object arm).
+   */
+  readonly arms?: readonly string[];
+  /**
+   * The explicit `by <field>` discriminator identifier, present iff the
+   * author wrote a `by` clause — on the union form (`schema X by f = A | B`,
+   * legal) or on the object form (`schema X by f { ... }`,
+   * `theta/parse/by-on-object-schema`; grammar.md §"schema X by <field>").
+   * Retained on the object form specifically so `checkByClause` sees the
+   * clause rather than it being silently discarded.
+   */
+  readonly by?: string;
 }
 
 /** An `enum` declaration (`EnumDecl`; schemas.md). */
@@ -1102,9 +1150,15 @@ function collectBodyTypes(statements: readonly Stmt[]): FrontmatterBodyTypes {
   }
   // Lower each named type to the JSON-Schema fragment a `params:` `NamedType`
   // resolves to (BIND-1): schema object bodies and enum wire-value sets lower
-  // concretely; a schema without an object body (alias / discriminated union)
-  // and an imported symbol lower permissively to `{}` — the name still resolves,
-  // so `theta/parse/unresolved-named-type` does not fire, and the `params:`
+  // concretely, and alias/union right-hand sides lower through the same shared
+  // lowerer the object form's field types use (a union arm shape that lowerer
+  // does not support — e.g. a generic arm — keeps its existing permissive
+  // `{}`) (bug 0033 §Fix widened the alias/union case from the permissive
+  // fallback below to a real lowering, seeded in `buildBodyTypeSchemas`' own
+  // pass 1); a schema with NEITHER an object body nor alias arms (the
+  // head-only / malformed form) and an imported symbol lower permissively to
+  // `{}` — the name still resolves, so
+  // `theta/parse/unresolved-named-type` does not fire, and the `params:`
   // schema is present (not mis-classified as no-params).
   const lowered = buildBodyTypeSchemas(schemaDecls, enumDecls);
   for (const decl of schemaDecls) {
@@ -1354,6 +1408,95 @@ const STATEMENT_ONLY_KEYWORDS: ReadonlySet<string> = new Set([
   "break",
   "continue",
 ]);
+
+/**
+ * Keywords that end an alias/union right-hand side met at an ARM-TOKEN
+ * BOUNDARY — the position where `AliasRhs ::= Type ("|" Type)*`
+ * (grammar.md §"schema X by <field>") requires a `Type` to start, i.e. before
+ * the first arm or straight after a top-level `|`. Every member heads a form —
+ * a statement (`parseForm`'s keyword switch) or, for the last four, an
+ * expression statement — and none can begin a `Type` (grammar.md §"Type
+ * grammar"), so meeting one where an arm must start proves the right-hand
+ * side already ended and the lexer swallowed the boundary newline behind a
+ * trailing `=` / `>` continuation trigger (lexer.ts `trailingTriggers`;
+ * grammar.md §"Newline continuation").
+ *
+ * `match`, `invoke`, `Ok` and `Err` are the expression-statement heads among
+ * the reserved keywords (lexer.ts `reservedKeywords`). None is a type name:
+ * the type grammar spells the Result type `Result<T, E>`, and has no `match`
+ * or `invoke` form at all, so each is exactly as impossible at an arm start as
+ * `let` is. The three remaining non-type keywords a statement can open with —
+ * `true`, `false`, `null` — are DELIBERATELY absent: they are `LiteralType`
+ * atoms (grammar.md §"Type grammar"), so `schema X = true | null` is a
+ * right-hand side and stopping on them would truncate it.
+ *
+ * `enum` heads a statement too and is DELIBERATELY absent: `parseType`
+ * captures the rejected inline form `enum["a", "b"]` whole, and
+ * `checkSchemaDeclarationGraph`'s per-arm pass then fires
+ * `theta/parse/inline-enum` over that captured arm through
+ * `checkInlineEnumForm` — the same rejection the object form's field-type
+ * position raises. An arm-position stop would strand the source for the
+ * statement loop instead, which is neither the capture the check needs nor a
+ * shape the statement loop can read. Distinct from `STATEMENT_ONLY_KEYWORDS`
+ * above, which answers a different question (what proves the `isTernaryHead`
+ * scan crossed a statement boundary) and is tuned to it — it carries `else`,
+ * omits `for`, and carries the `enum` this set must not.
+ */
+const ALIAS_ARM_STOP_KEYWORDS: ReadonlySet<string> = new Set([
+  "let",
+  "fn",
+  "if",
+  "while",
+  "for",
+  "break",
+  "continue",
+  "return",
+  "schema",
+  "import",
+  "export",
+  "match",
+  "invoke",
+  "Ok",
+  "Err",
+]);
+
+/**
+ * Punctuation that ends an alias/union right-hand side met at an ARM-TOKEN
+ * BOUNDARY — where `AliasRhs ::= Type ("|" Type)*` requires an arm to START
+ * (before the first arm, or straight after a top-level `|`) or where one has
+ * been COMPLETED. No member can begin or continue a `Type`: the type
+ * grammar's forms are the named / primitive / literal atoms, the `<…>` generic
+ * application and the `{…}` inline object (grammar.md §"Type grammar"), so
+ * there is no parenthesised or bracket-headed `Type`, and neither `@` nor a
+ * template backtick occurs in it at all. Every member DOES head a punct-led
+ * expression statement (`EXPRESSION_LEAD_PUNCT`): a query, a template, a
+ * parenthesised expression, an array literal. Meeting one at a boundary
+ * therefore proves the right-hand side already ended and the lexer swallowed
+ * the boundary newline behind a trailing `=` / `>` continuation trigger
+ * (lexer.ts `trailingTriggers`) — the keyword case's argument, one token class
+ * along, and without it the whole following statement is absorbed into the arm
+ * source with no diagnostic at all.
+ *
+ * `{` is absent because an inline `ObjectType` IS a `Type` in any `Type`
+ * position, and `-` is absent because its stop is scoped to one boundary, not
+ * both: no `Type` begins with `-` either (`LiteralType ::= STRING | NUMBER |
+ * BOOLEAN | NULL`, grammar.md §"Type grammar" — the `"-" NUMBER` alternative
+ * belongs to the value sublanguage's `PrimitiveLit`), so an arm-start `-`
+ * opens no legal arm and is CAPTURED there, keeping the ill-formed `= -1`
+ * family on the same-line-residue disposition n29 pins rather than moving it
+ * to `empty-schema-body`. A `-` straight after a COMPLETED arm is a different position
+ * entirely — no `Type` continues with it, and it heads a unary-negation
+ * expression statement — so `parseType` stops on it through its own
+ * completed-arm-only test rather than through this set, whose members stop at
+ * BOTH boundaries. `!` is a member: it is the unary-not head of an expression
+ * statement (`EXPRESSION_LEAD_PUNCT`) and the type grammar has no `!`
+ * anywhere, so it can neither start nor continue a `Type` — the same argument
+ * as `(` and `[`, and unlike `-` it holds at an arm start too. The `[` of the rejected
+ * inline `enum["a", "b"]` form is at no boundary — it follows the bare `enum`
+ * keyword, which completes no arm — so that form is still captured whole for
+ * `checkInlineEnumForm`.
+ */
+const ALIAS_ARM_STOP_PUNCT: ReadonlySet<string> = new Set(["@", "`", "(", "[", "!"]);
 
 /** Whether a token can begin an expression (a ternary consequent). */
 function canStartExpression(t: Token): boolean {
@@ -2038,29 +2181,175 @@ class BodyParser {
     };
   }
 
+  /**
+   * Dispatch on the token after the name (bug 0033 §Fix): `{` is the object
+   * form (`finishObjectSchema`, byte-unchanged behaviour), `=` is the
+   * alias/union form (`finishAliasSchema`), `by` is the explicit-discriminator
+   * head (consume the field identifier, then require `{` or `=` — either
+   * finisher, so a `by` clause on an object body still reaches
+   * `checkByClause` rather than being discarded), and anything else is a
+   * body-less `schema X` head. Every recovery path — the malformed-`by` head,
+   * the shapeless alias RHS inside `finishAliasSchema`, and the head-only
+   * case here — converges on `emitEmptySchemaBody`: replacing the old `null`
+   * fallthrough removes the mechanism that made these forms silent, so the
+   * fix decides what they are (no separate report is filed for them). No
+   * token of a declaration shape survives into the statement loop: the
+   * malformed-`by` and shapeless-RHS paths recover via `skipDeclarationShape`
+   * (now live, with `skipBraces` consuming a brace-shaped residue), and the
+   * object form's own `skipBraceRemainder` already consumes a malformed body
+   * whole.
+   *
+   * The invariant is about the SHAPE, and one residual sits outside it: a
+   * same-line token that is part of no shape at all. `schema X = Cat Cat` is
+   * `AliasRhs` = one `Type` followed by text the grammar gives the declaration
+   * no way to hold, so the field-boundary stop ends the arm at the second
+   * `Cat` and it reaches the statement loop as its own expression statement.
+   * There it takes the language's ordinary disposition for that statement:
+   * silent when the name resolves (a bare declared-name expression statement
+   * is a no-op wherever it is written), `theta/parse/unknown-identifier` when
+   * it does not. Recorded, not repaired: a code raised for the residue here
+   * would have to be raised for the same statement everywhere else.
+   */
   private parseSchema(): Stmt {
     const kw = this.advance();
     const name = this.advance().text;
-    // Retain the object-body field sources (`schema X { field: Type, … }`) so a
-    // typed `@<Schema>` query can resolve the declared shape and lower it
-    // (QRY-22 / SUBS-1). The `= …` alias and `by … = …` forms carry no leading
-    // `{`, so they capture no field list and fall through to `skipDeclarationShape`.
-    const fields = this.parseSchemaObjectBody();
-    const range = spanRange(kw.range, this.prevRange());
-    if (fields === null) {
+    if (this.isPunct("{")) {
+      return this.finishObjectSchema(kw, name, undefined);
+    }
+    if (this.isPunct("=")) {
+      this.advance(); // `=`
+      return this.finishAliasSchema(kw, name, undefined);
+    }
+    if (this.isKeyword("by")) {
+      this.advance(); // `by`
+      const byField = this.parseByField();
+      if (byField !== undefined) {
+        if (this.isPunct("{")) {
+          return this.finishObjectSchema(kw, name, byField);
+        }
+        if (this.isPunct("=")) {
+          this.advance(); // `=`
+          return this.finishAliasSchema(kw, name, byField);
+        }
+      }
+      // No coherent shape follows `by` (a missing field identifier, or
+      // neither `{` nor `=` after it): recover to the same disposition as a
+      // shapeless head.
+      this.skipDeclarationShape();
+      const range = spanRange(kw.range, this.prevRange());
+      this.emitEmptySchemaBody(name, range);
       return { kind: "schema", name, range };
     }
-    return { kind: "schema", name, fields, range };
+    // Headless `schema X` — no shape at all (bug 0033 §Fix: "A body-less
+    // `schema X` head must gain a disposition"). Consume nothing further: the
+    // next token is a stmt-sep or the start of the next statement, so the
+    // ordinary statement loop continues unaffected.
+    const range = spanRange(kw.range, this.prevRange());
+    this.emitEmptySchemaBody(name, range);
+    return { kind: "schema", name, range };
   }
 
   /**
-   * Capture a `schema X { field: Type, … }` object body's field sources. Returns
-   * `null` (and consumes nothing) when the decl is not the leading-`{` object
-   * form (an `= …` alias or `by … = …` discriminated-union), leaving
-   * `skipDeclarationShape` to consume it. A field name is an `ident` / `keyword`
-   * token followed by `:` and a type expression; a body whose first non-sep
-   * token is not a plain `ident: Type` field is skipped as a balanced brace group
-   * and yields `null` (no field list retained).
+   * The `{ ... }` object-body form, retaining an explicit `by <field>` clause
+   * when present (`schema X by f { ... }` — illegal, but the clause must
+   * reach `checkByClause`, not be discarded: grammar.md §"schema X by
+   * <field>"). `parseSchemaObjectBody`'s own recovery (`skipBraceRemainder`)
+   * already consumes a malformed body in full; a `null` result here means the
+   * declaration yields no fields either way, so it takes the same
+   * `empty-schema-body` disposition as a truly empty `{ }` body.
+   */
+  private finishObjectSchema(kw: Token, name: string, by: string | undefined): Stmt {
+    const fields = this.parseSchemaObjectBody();
+    const range = spanRange(kw.range, this.prevRange());
+    if (fields === null) {
+      this.emitEmptySchemaBody(name, range);
+      return { kind: "schema", name, range };
+    }
+    return { kind: "schema", name, fields, ...(by !== undefined ? { by } : {}), range };
+  }
+
+  /**
+   * The `= AliasRhs` / `by f = UnionRhs` arm list (grammar.md §"schema X by
+   * <field>"): one `parseType` capture over the whole right-hand side, split
+   * into per-arm Type sources on the top-level `|` — the same split
+   * `lowerTypeSource` (body-type-lowering.ts) re-applies to the rejoined arms
+   * at lowering, so the two agree on arm granularity by construction.
+   *
+   * The capture runs in the object form's field-boundary mode PLUS the
+   * alias-arm mode, and needs both. `>` and `=` are trailing newline-
+   * continuation triggers (lexer.ts `trailingTriggers`), so the `stmt-sep`
+   * that would otherwise end the right-hand side is absent after
+   * `schema IntList = array<integer>` and after a bare `schema X =`, and the
+   * next statement's tokens sit directly ahead of the cursor:
+   *
+   *   - field-boundary mode ends the capture at the value-ish token that
+   *     follows a completed arm with no intervening `|`, which is what keeps
+   *     `array<integer>` from growing into `array<integer>leta` (or, with the
+   *     declaration last, from silently absorbing the body's tail expression);
+   *   - alias-arm mode ends it at an `ALIAS_ARM_STOP_KEYWORDS` head where an
+   *     arm must start, which field-boundary mode cannot see — its rule needs
+   *     a completed atom behind it, and after `schema X =` there is none, so
+   *     the `let` of the next line would join as the first arm's first token.
+   */
+  private finishAliasSchema(kw: Token, name: string, by: string | undefined): Stmt {
+    const rhsSource = this.parseType(true, false, true);
+    const arms = splitTopLevel(rhsSource, "|");
+    if (arms.length === 0) {
+      // A shapeless `schema X =` (nothing a `Type` can start with ahead of the
+      // cursor) yields no fields: no more specific registered code fits a
+      // bodyless alias right-hand side, so the empty-schema-body disposition
+      // applies here too. Recovery then consumes any residue of the abandoned
+      // shape — a no-op when the cursor already sits at the `stmt-sep` or at
+      // the following statement's head, which is the shape both stops above
+      // leave behind.
+      this.skipDeclarationShape();
+      const range = spanRange(kw.range, this.prevRange());
+      this.emitEmptySchemaBody(name, range);
+      return { kind: "schema", name, range };
+    }
+    const range = spanRange(kw.range, this.prevRange());
+    return { kind: "schema", name, arms, ...(by !== undefined ? { by } : {}), range };
+  }
+
+  /**
+   * The `by`-clause field identifier (an `ident` / `keyword` token,
+   * consistent with a schema field name). `undefined` (consuming nothing)
+   * when the token after `by` is not one — a malformed clause the caller
+   * recovers from.
+   */
+  private parseByField(): string | undefined {
+    const t = this.peek();
+    if (t.kind !== "ident" && t.kind !== "keyword") {
+      return undefined;
+    }
+    this.advance();
+    return t.text;
+  }
+
+  /**
+   * `theta/parse/empty-schema-body` for a declaration whose shape yields no
+   * fields — a body-less head, an unparseable object body, or a shapeless
+   * alias/`by` right-hand side (bug 0033 §Fix). Reuses `checkObjectSchema`'s
+   * own zero-fields branch (schema-declarations.ts, already imported here)
+   * rather than a second copy of the message, so the parser-time and
+   * checker-time emissions of this code can never drift apart.
+   */
+  private emitEmptySchemaBody(name: string, range: SourceRange): void {
+    this.diagnostics.push(
+      ...checkObjectSchema({ name, fields: [] }, { file: this.file, range }),
+    );
+  }
+
+  /**
+   * Capture a `schema X { field: Type, … }` object body's field sources.
+   * Returns `null` (and consumes nothing) when the next token is not `{` —
+   * unreachable from `parseSchema`'s dispatch, which calls this only after
+   * confirming `{`, so this guard is defensive only. A field name is an
+   * `ident` / `keyword` token followed by `:` and a type expression; a body
+   * whose first non-sep token is not a plain `ident: Type` field is skipped
+   * as a balanced brace group (`skipBraceRemainder`) and yields `null` (no
+   * field list retained) — the caller (`finishObjectSchema`) then raises
+   * `theta/parse/empty-schema-body` for the fields-less result.
    */
   private parseSchemaObjectBody(): SchemaFieldSource[] | null {
     if (!(this.peek().kind === "punct" && this.peek().text === "{")) {
@@ -2267,7 +2556,25 @@ class BodyParser {
     return { names, values, variantDecls };
   }
 
-  /** Skip a schema/enum shape (`{ ... }` block or `= …` / `by … = …` tail). */
+  /**
+   * Recovery for a malformed schema/enum shape (`{ ... }` block or
+   * `= …` / `by … = …` tail) that `parseSchema` has already given up on:
+   * consume up to the shape's opening `{` (past any `by field =` / `=` head),
+   * or to the closing `}` when one is found, so no token of the abandoned
+   * shape survives into the statement loop. Called from `parseSchema`'s
+   * recovery paths (bug 0033 §Fix): the malformed-`by` head and a shapeless
+   * alias right-hand side.
+   *
+   * The scan stops at a following statement's head as well as at the newline,
+   * because the newline is not always there to stop it: a malformed head ends
+   * on a trailing continuation trigger (`schema X by =`, `schema X =`) often
+   * enough that the lexer has swallowed the boundary, and recovery from a
+   * declaration must not consume the declaration AFTER it. Both statement-head
+   * sets stop it, for the one reason: `ALIAS_ARM_STOP_KEYWORDS` for the
+   * keyword-led forms, `ALIAS_ARM_STOP_PUNCT` for the punct-led ones (a query,
+   * a template, a parenthesised expression, an array literal, a unary-not),
+   * which `parseType` refuses to capture for the same reason.
+   */
   private skipDeclarationShape(): void {
     // Consume up to the shape's opening `{` (past any `by field =` / `=` head).
     while (!this.atEnd()) {
@@ -2279,10 +2586,17 @@ class BodyParser {
       if (t.kind === "stmt-sep") {
         return; // an `=`-form declaration closes at the newline
       }
+      if (t.kind === "keyword" && ALIAS_ARM_STOP_KEYWORDS.has(t.text)) {
+        return; // the swallowed newline's statement head stands in for it
+      }
+      if (t.kind === "punct" && ALIAS_ARM_STOP_PUNCT.has(t.text)) {
+        return; // ditto, for a statement whose head is punctuation
+      }
       this.advance();
     }
   }
 
+  /** Consume a balanced `{ ... }` group; `skipDeclarationShape`'s sole caller (bug 0033 §Fix). */
   private skipBraces(): void {
     // Precondition: current token is `{`.
     let depth = 0;
@@ -2392,39 +2706,88 @@ class BodyParser {
    * annotations and schema-field types are untouched), the scan also stops at a
    * depth-0 `with` ident — the contextual keyword opening a `WithClause`
    * (grammar.md §"Contextual keywords", §"`fn` declarations"; bug 0005 (a)).
+   * When `aliasArmBoundary` is set (the `schema X = …` / `schema X by f = …`
+   * right-hand side only), the scan additionally recognises the ARM-TOKEN
+   * BOUNDARIES of `AliasRhs ::= Type ("|" Type)*`: before the first arm and
+   * straight after a depth-0 `|`, an `ALIAS_ARM_STOP_KEYWORDS` head ENDS the
+   * capture (the declaration ended on the previous logical line and the lexer's
+   * trailing-`=` / `>` continuation swallowed the newline), and a `{` opens an
+   * inline `ObjectType` arm — consumed as a balanced group and then CONTINUED
+   * past, because `ObjectType` is a `Type` in any `Type` position (grammar.md
+   * §"Inline object types"), so `{ a: string } | Cat` is one two-arm right-hand
+   * side rather than an arm plus residue. At the same arm-start boundaries AND
+   * straight after a COMPLETED arm, an `ALIAS_ARM_STOP_PUNCT` head ends the
+   * capture too: every member of that set is a punct-led statement head that
+   * no `Type` can start or continue with, so meeting one proves the same
+   * swallowed boundary newline the keyword stop proves. `-` ends the capture at
+   * the COMPLETED-arm boundary alone; at an arm start it is captured — no
+   * `Type` begins with `-`, so the arm is ill-formed either way, and n29 pins
+   * the captured disposition.
    */
-  private parseType(stopAtFieldBoundary = false, stopAtWithClause = false): string {
+  private parseType(
+    stopAtFieldBoundary = false,
+    stopAtWithClause = false,
+    aliasArmBoundary = false,
+  ): string {
     const parts: string[] = [];
     let depth = 0;
+    // Whether the tokens consumed so far END a Type atom, so a following
+    // `ALIAS_ARM_STOP_PUNCT` head begins the next STATEMENT rather than
+    // continuing this arm. Only consulted in `aliasArmBoundary` mode.
+    let armComplete = false;
     // A leading `{` introduces an inline object type (`let x: { a: T, … }`):
     // consume the balanced brace group verbatim so the annotation carries the
     // whole object shape rather than terminating at the opening brace. Only a
     // *leading* brace is treated this way, so a `fn` return type followed by a
-    // `{ body }` block is unaffected.
-    if (this.peek().kind === "punct" && this.peek().text === "{") {
-      let braceDepth = 0;
-      while (!this.atEnd()) {
-        const t = this.peek();
-        if (t.kind === "stmt-sep") {
-          break;
-        }
-        if (t.kind === "punct" && t.text === "{") {
-          braceDepth += 1;
-        } else if (t.kind === "punct" && t.text === "}") {
-          braceDepth -= 1;
-        }
-        parts.push(t.text);
-        this.advance();
-        if (braceDepth === 0) {
-          break;
-        }
-      }
+    // `{ body }` block is unaffected. In `aliasArmBoundary` mode the loop below
+    // consumes the same group instead and keeps scanning for the `|` and the
+    // arms after it.
+    if (!aliasArmBoundary && this.peek().kind === "punct" && this.peek().text === "{") {
+      this.consumeInlineObjectType(parts);
       return parts.join("");
     }
     while (!this.atEnd()) {
       const t = this.peek();
       if (t.kind === "stmt-sep") {
         break;
+      }
+      const atArmStart = parts.length === 0 || parts[parts.length - 1] === "|";
+      if (
+        aliasArmBoundary &&
+        depth === 0 &&
+        (atArmStart || armComplete) &&
+        t.kind === "punct" &&
+        ALIAS_ARM_STOP_PUNCT.has(t.text)
+      ) {
+        break;
+      }
+      // `-` stops after a COMPLETED arm only, never at an arm start: at a start
+      // no legal `Type` begins with `-` (grammar.md `LiteralType` has no
+      // unary-minus alternative); it is captured there so the ill-formed `= -1`
+      // family keeps its pinned same-line-residue disposition (n29), while
+      // after a finished arm no `Type`
+      // continues with it and it heads the unary-negation expression statement
+      // on the line whose boundary newline the trailing `=` / `>` continuation
+      // swallowed.
+      if (
+        aliasArmBoundary &&
+        depth === 0 &&
+        armComplete &&
+        !atArmStart &&
+        t.kind === "punct" &&
+        t.text === "-"
+      ) {
+        break;
+      }
+      if (aliasArmBoundary && depth === 0 && atArmStart) {
+        if (t.kind === "keyword" && ALIAS_ARM_STOP_KEYWORDS.has(t.text)) {
+          break;
+        }
+        if (t.kind === "punct" && t.text === "{") {
+          this.consumeInlineObjectType(parts);
+          armComplete = true;
+          continue;
+        }
       }
       if (
         depth === 0 &&
@@ -2472,8 +2835,40 @@ class BodyParser {
       }
       parts.push(t.text);
       this.advance();
+      // The token consumed above completes an arm when it leaves the scan at
+      // depth 0 — a closed `<…>` / `[…]` group, or an atom. The bare `enum`
+      // keyword is the one exception: it completes nothing on its own, so its
+      // `[` is mid-arm rather than at a boundary and joins, which is what keeps
+      // the rejected inline `enum["a", "b"]` form captured whole for
+      // `checkInlineEnumForm`.
+      armComplete = depth === 0 && !(t.kind === "keyword" && t.text === "enum");
     }
     return parts.join("");
+  }
+
+  /**
+   * Append a balanced `{ … }` group's token texts to `parts`, stopping early at
+   * a `stmt-sep` so an unclosed brace cannot run the scan past its statement.
+   * Precondition: the current token is `{`.
+   */
+  private consumeInlineObjectType(parts: string[]): void {
+    let braceDepth = 0;
+    while (!this.atEnd()) {
+      const t = this.peek();
+      if (t.kind === "stmt-sep") {
+        return;
+      }
+      if (t.kind === "punct" && t.text === "{") {
+        braceDepth += 1;
+      } else if (t.kind === "punct" && t.text === "}") {
+        braceDepth -= 1;
+      }
+      parts.push(t.text);
+      this.advance();
+      if (braceDepth === 0) {
+        return;
+      }
+    }
   }
 
   // --- expression sublanguage --------------------------------------------
@@ -4267,18 +4662,21 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
 
 /**
  * The registered `theta/parse/unresolved-named-type` rejection. Its trigger
- * (code-registry-parse.md) is a closed four-position list — the `params:`
+ * (code-registry-parse.md) is a closed five-position list — the `params:`
  * right-hand side, the `@<T>` query annotation, a `schema` body field type,
- * and the object-constructor name — not every `NamedType`-resolution position:
- * a `let` annotation, an `fn` parameter type, a generic argument, a union arm
- * and `invoke<Type>` (grammar.md §Type grammar) are outside it, so
- * `let x: Nope = 1` resolves nothing and fires nothing.
+ * the right-hand side of a `schema X = ...` alias/union declaration (bug
+ * 0033 §Fix), and the object-constructor name — not every
+ * `NamedType`-resolution position: a `let` annotation, an `fn` parameter
+ * type, a generic argument, a union arm and `invoke<Type>` (grammar.md
+ * §Type grammar) are outside it, so `let x: Nope = 1` resolves nothing and
+ * fires nothing.
  *
- * THREE of the four positions emit through this builder: `checkObjectExpr`
- * below (the object-constructor name), and the `"schema"` case of
- * `walkStatement` plus the `"query"` case of `walkExpr` (both below — a
- * `schema` body field type and the `@<T>` annotation), which resolve names
- * through `collectUnresolvedNamedTypes` (body-type-lowering.ts). The `params:`
+ * FOUR of the five positions emit through this builder: `checkObjectExpr`
+ * below (the object-constructor name), the `"schema"` case of `walkStatement`
+ * plus the `"query"` case of `walkExpr` (both below — a `schema` body field
+ * type and the `@<T>` annotation), and `checkSchemaDeclarationGraph` (the
+ * alias/union right-hand side) — all four resolving names through
+ * `collectUnresolvedNamedTypes` (body-type-lowering.ts). The `params:`
  * RHS emits the row's message from its own site (`parseParams`, params.ts):
  * params.ts is UPSTREAM of this module in the import graph (this module imports
  * `splitTopLevel` from it), so that site cannot reach this builder without a
@@ -4346,7 +4744,7 @@ const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
  * observed only by theta code and never lowered to a JSON Schema fragment
  * (grammar.md §"Generic-application constructors"), so it resolves to no
  * declaration by design and must not be reported: the `let` annotation is
- * outside the registry row's closed four-position list, `Result` is admitted
+ * outside the registry row's closed five-position list, `Result` is admitted
  * there by the grammar, and the author wrote no `@<T>` at all. The `T` side —
  * the shape the response is validated against — is still checked, so a typo in
  * `let r: Result<Tirage, QueryError> = @`…`` is still refused.
@@ -4911,6 +5309,12 @@ function checkStructural(
   if (body.tail !== null) {
     walkExpr(body.tail, refs, file, out);
   }
+  // The alias/union declaration-graph checks (bug 0033 §Fix): scoped to
+  // TOP-LEVEL declarations only, mirroring `collectBodyTypes` (the lowering
+  // and `NamedType`-resolution set is top-level-only; a block-nested schema
+  // decl brands nothing at runtime either —
+  // src/runtime/lexical-environment.ts:291–296).
+  out.push(...checkSchemaDeclarationGraph(body.statements, typeNames, file));
   return out;
 }
 
@@ -4919,6 +5323,268 @@ function pushDiag(out: Diagnostic[], diag: Diagnostic | undefined): void {
   if (diag !== undefined) {
     out.push(diag);
   }
+}
+
+/**
+ * The whole-file schema-declaration graph checks beside `checkObjectSchema` /
+ * `checkEnumDeclaration` above (bug 0033 §Fix, "Checker wiring"): resolve each
+ * alias/union right-hand side's names, run `checkByClause` per `by`-carrying
+ * decl, run `checkDiscriminatedUnion` per union decl whose arms ALL resolve to
+ * declared object schemas, and run `detectTypeAliasCycles` ONCE over the
+ * whole top-level declaration graph.
+ */
+function checkSchemaDeclarationGraph(
+  statements: readonly Stmt[],
+  typeNames: ReadonlySet<string>,
+  file: string,
+): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  // The object-form field lists, by name — the resolved-declaration input
+  // `checkDiscriminatedUnion`'s variants are built from. Kept local (rather
+  // than reusing `StructuralRefs.schemas`, which carries field NAMES only, or
+  // `FrontmatterBodyTypes.schemas`, whose `wireName`-less field type loses the
+  // rename a discriminator's wire-name detection needs) so the full
+  // `SchemaFieldSource` — typeSource AND wireName — survives to
+  // `discriminatorCandidateFields`.
+  const objectFields = new Map<string, readonly SchemaFieldSource[]>();
+  const graphNodes: SchemaGraphNode[] = [];
+  // Per-declaration ranges, so each cycle's diagnostic lands on a declaration
+  // that is IN that cycle rather than on the graph-wide anchor below.
+  const nodeSites = new Map<string, SourceRange>();
+  let firstAliasStmt: SchemaDecl | undefined;
+  for (const s of statements) {
+    if (s.kind !== "schema") {
+      continue;
+    }
+    if (s.fields !== undefined) {
+      objectFields.set(s.name, s.fields);
+      graphNodes.push({
+        name: s.name,
+        kind: "object",
+        references: identifierShapedReferences(s.fields.map((f) => f.typeSource)),
+      });
+      nodeSites.set(s.name, s.range);
+    } else if (s.arms !== undefined) {
+      graphNodes.push({ name: s.name, kind: "alias", references: identifierShapedReferences(s.arms) });
+      nodeSites.set(s.name, s.range);
+      if (firstAliasStmt === undefined) {
+        firstAliasStmt = s;
+      }
+    }
+  }
+
+  for (const s of statements) {
+    if (s.kind !== "schema") {
+      continue;
+    }
+    const site = { file, range: s.range };
+    if (s.fields !== undefined) {
+      // The object form's by-on-object-schema illegality (grammar.md §"schema
+      // X by <field>"): `finishObjectSchema` retains the clause specifically
+      // so it reaches this check rather than being discarded.
+      if (s.by !== undefined) {
+        pushDiag(out, checkByClause({ name: s.name, form: "object", field: s.by }, site));
+      }
+      continue;
+    }
+    if (s.arms === undefined) {
+      continue;
+    }
+    // Per-arm type-source checks. `AliasRhs ::= Type ("|" Type)*` (grammar.md
+    // §"schema X by <field>") makes every arm a `Type` position, and a `Type`
+    // reached from a `schema` declaration is schema-feeding (schema-subset.md
+    // §Lowering Algorithm), so an arm answers to exactly what the object
+    // form's field-type position answers to: the inline-`enum[...]` rejection
+    // and the position-sensitive type-grammar checks (`void`, generic arity,
+    // `Result`). Same order as that pass (`walkStmt`'s `schema` arm), so a
+    // multi-code arm renders in the same sequence a field of the same source
+    // does. The unit is the ARM rather than the whole right-hand side because
+    // the arm is the `Type`; `checkInlineEnumForm` anchors its match at the
+    // start of what it is given, so a second-position `enum[...]` arm is
+    // rejected here where the joined source would hide it.
+    for (const arm of s.arms) {
+      pushDiag(out, checkInlineEnumForm(arm, site));
+      out.push(...parseTypeExpression(arm, "schema-feeding", site));
+    }
+    // A `by` clause needs a discriminated union under it, and
+    // `UnionRhs ::= Type ("|" Type)+` (grammar.md §"schema X by <field>")
+    // makes that at least two arms: `schema X by f = Cat` declares one
+    // variant, which has no discriminator to select on. That is the same
+    // illegality the object form carries — "object schemas have one variant by
+    // definition and the discriminator concept does not apply"
+    // (schemas.md §Discriminated unions) — so it takes the same code through
+    // the same construction point, `checkByClause`'s non-`"union"` arm, rather
+    // than a second site rendering the same registered Message.
+    const byForm = s.arms.length >= 2 ? "union" : "object";
+    // Alias RHS name resolution (bug 0033 §Fix): the alias right-hand side is
+    // a further `NamedType`-resolution position under
+    // `theta/parse/unresolved-named-type`'s registry row. Reuses the same
+    // whole-file resolution walk the object-form field-type position already
+    // drives (`collectUnresolvedNamedTypes`, body-type-lowering.ts) over the
+    // arms rejoined with the same separator `lowerTypeSource` re-splits on.
+    for (const name of collectUnresolvedNamedTypes(s.arms.join(" | "), typeNames)) {
+      out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+    }
+    if (s.by !== undefined) {
+      pushDiag(out, checkByClause({ name: s.name, form: byForm, field: s.by }, site));
+    }
+    const variants = buildUnionVariantSchemas(s.arms, objectFields);
+    if (variants !== undefined) {
+      out.push(
+        ...checkDiscriminatedUnion(
+          { name: s.name, ...(s.by !== undefined ? { by: s.by } : {}), variants },
+          site,
+        ),
+      );
+    }
+  }
+
+  if (firstAliasStmt !== undefined) {
+    // Detection runs once over the whole graph (dedup is keyed by cycle
+    // signature inside `detectTypeAliasCycles`, so a per-decl call would
+    // either miss cross-links or re-run the same DFS redundantly). Each cycle
+    // is anchored per-cycle through `nodeSites`: without it every cycle in the
+    // file reports at the first alias/union declaration, which is routinely a
+    // declaration that participates in no cycle at all. The whole-graph site
+    // stays as the fallback for a cycle node carrying no range.
+    out.push(
+      ...detectTypeAliasCycles(
+        graphNodes,
+        { file, range: firstAliasStmt.range },
+        nodeSites,
+      ),
+    );
+  }
+  return out;
+}
+
+/**
+ * The identifier-shaped Type sources among `typeSources`, deduped — the
+ * `SchemaGraphNode.references` input `detectTypeAliasCycles` needs ("the
+ * named schemas the node's right-hand side refers to"). Splitting each source
+ * on the top-level `|` first surfaces a union arm's named reference
+ * (schemas.md §Recursion — `spouse: Person | null` is self-recursion via
+ * union); a generic (`array<T>`), inline object, or literal arm is not itself
+ * identifier-shaped and contributes no reference here. A primitive name
+ * (`string`, …) matches the same bare-identifier shape as a `NamedType` and is
+ * not filtered out here — harmlessly: `detectTypeAliasCycles`' own DFS treats
+ * any reference absent from its node map as a dangling reference and no-ops on
+ * it ("not this checker's concern").
+ */
+function identifierShapedReferences(typeSources: readonly string[]): string[] {
+  const seen = new Set<string>();
+  for (const source of typeSources) {
+    for (const arm of splitTopLevel(source, "|")) {
+      const trimmed = arm.trim();
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
+        seen.add(trimmed);
+      }
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * `UnionVariantSchema` per arm of a `schema X = A | B` union, or `undefined`
+ * when the union does not qualify for discriminator checks (bug 0033 §Fix
+ * scopes `checkDiscriminatedUnion` to unions "whose arms ALL resolve to
+ * declared OBJECT schemas"): fewer than two arms (a single-arm alias is
+ * skipped outright — schemas.md §Discriminated unions describes the concept
+ * for 2+ variants), or any arm that is not a bare identifier or does not
+ * resolve to a declared object-form schema (a primitive/literal/mixed union,
+ * or a name resolving to no declaration or to an alias/head-only decl).
+ */
+function buildUnionVariantSchemas(
+  arms: readonly string[],
+  objectFields: ReadonlyMap<string, readonly SchemaFieldSource[]>,
+): UnionVariantSchema[] | undefined {
+  if (arms.length < 2) {
+    return undefined;
+  }
+  const variants: UnionVariantSchema[] = [];
+  for (const arm of arms) {
+    const trimmed = arm.trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
+      return undefined;
+    }
+    const fields = objectFields.get(trimmed);
+    if (fields === undefined) {
+      return undefined;
+    }
+    variants.push({ name: trimmed, fields: discriminatorCandidateFields(fields) });
+  }
+  return variants;
+}
+
+/**
+ * `DiscriminatorCandidateField` per field of a resolved object-schema variant
+ * (schemas.md §Discriminated unions), mirroring how
+ * tests/disc-unions-recursion.test.ts hand-builds the same shape: a field's
+ * typeSource classifies as a single literal (kind + decoded text), a nested
+ * inline-object type, or neither.
+ */
+function discriminatorCandidateFields(
+  fields: readonly SchemaFieldSource[],
+): DiscriminatorCandidateField[] {
+  return fields.map((f) => ({
+    name: f.name,
+    ...(f.wireName !== undefined ? { wireName: f.wireName } : {}),
+    ...classifyDiscriminatorFieldType(f.typeSource),
+  }));
+}
+
+/**
+ * Classify a field's captured type source for discriminator detection: a
+ * quoted string / integer / number / boolean / `null` SINGLE literal (the
+ * `const` shape a discriminator value must be), a leading-`{` inline-object
+ * type (a nested discriminator value, `theta/parse/nested-discriminator`), or
+ * neither (a non-literal type — never a discriminator candidate). Operates on
+ * the already-captured source text (`SchemaFieldSource.typeSource`), the only
+ * representation a field retains past parsing — mirrors `parseLiteralArm`
+ * (body-type-lowering.ts) at that same source-text level rather than
+ * re-deriving from a live token.
+ *
+ * A LITERAL UNION is not a literal. schemas.md §Discriminated unions,
+ * detection rule 2, requires the field to "be a single string literal type in
+ * every variant (one literal value per variant; NOT a literal-union)", so
+ * `kind: "a" | "b"` is no candidate at all. The top-level-`|` test runs before
+ * the literal tests because the quote tests are ENDPOINT tests: without it
+ * `"a" | "b"` starts and ends with `"` and would classify as one string
+ * literal whose text is the interior byte run `a" | "b`. It runs after the
+ * inline-object test so a nested type whose own interior carries a union
+ * (`{ type: "x" | "y" }`) still reports as nested. `splitTopLevel` tracks
+ * string literals, so a `|` INSIDE one (`kind: "a|b"`) does not split and the
+ * field stays a single literal.
+ */
+function classifyDiscriminatorFieldType(
+  typeSource: string,
+): Pick<DiscriminatorCandidateField, "literal" | "nested"> {
+  const s = typeSource.trim();
+  if (s.startsWith("{") && s.endsWith("}")) {
+    return { nested: true };
+  }
+  if (splitTopLevel(s, "|").length > 1) {
+    return {};
+  }
+  if (
+    s.length >= 2 &&
+    ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
+  ) {
+    return { literal: { kind: "string", text: s.slice(1, -1) } };
+  }
+  if (s === "true" || s === "false") {
+    return { literal: { kind: "boolean", text: s } };
+  }
+  if (s === "null") {
+    return { literal: { kind: "null", text: s } };
+  }
+  if (/^-?\d+\.\d+$/.test(s)) {
+    return { literal: { kind: "number", text: s } };
+  }
+  if (/^-?\d+$/.test(s)) {
+    return { literal: { kind: "integer", text: s } };
+  }
+  return {};
 }
 
 function walkStatements(
@@ -5240,12 +5906,11 @@ function checkObjectExpr(
     }
     if (bodySchemas.has(e.typeName)) {
       // Present in the whole-file schema set but missing from `refs.schemas`
-      // above means `fields === undefined`: the alias/union form. Its head
-      // (`schema Animal = Cat | Dog`) parses as a fields-less `schema`
-      // statement — only the `= Cat | Dog` tail degrades, into bug 0033's
-      // separate `theta/parse/unsupported-feature` stray-token diagnostics —
-      // so this arm fires on that source today. A declaration with no object
-      // body has nothing to brace-construct.
+      // above means `fields === undefined`: the alias/union form (`arms`
+      // carries its right-hand side instead — bug 0033 §Fix) or the
+      // head-only form. Either way the declaration has no object body and
+      // nothing to brace-construct, so a `schema Animal = Cat | Dog`
+      // constructor fires here even though `Animal` itself parses cleanly.
       out.push(unresolvedNamedTypeDiagnostic(e.typeName, e.range, file));
       return;
     }

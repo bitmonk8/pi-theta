@@ -6,6 +6,40 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-07-31
+
+### Fixed
+
+- **The `schema X = A | B` type-alias / union declaration did not parse: the
+  head registered as a field-less schema, the shape was re-lexed as
+  statements (`stray '='` / `stray '|'`), and the whole discriminated-union
+  checker seam had no caller** (bug 0033). A normative theta 1.0 declaration
+  form was absent (the parser implemented only the object form), the
+  rejection was misattributed (`unsupported-feature` on punctuation;
+  `immutable-rebinding` against an unrelated `let` for the `by` form), seven
+  registered codes were unreachable from source, and `schema X by f { … }`
+  loaded silently where rejection is prescribed. Now: `SchemaDecl` carries
+  the alias/union arms and the optional `by` field; `parseSchema` dispatches
+  four ways with bounded RHS capture (the swallowed continuation newline
+  after `>` / `=` can no longer absorb the next statement —
+  keyword/punct arm-boundary stops, inline-object arms consumed whole);
+  `checkByClause`, `checkDiscriminatedUnion` (theta-side `by` resolution,
+  literal-unions excluded as candidates) and `detectTypeAliasCycles`
+  (participant-anchored diagnostics) run end-to-end, and each arm gets the
+  same schema-feeding type-source checks as an object field; the RHS lowers
+  per SUBS-1 (`anyOf` in source arm order for object unions) so alias names
+  resolve concretely at `@<T>` and `params:`; `collectTypeEnv` registers
+  transparent alias entries (TYPE-11/TYPE-4 gain reachable subjects) and
+  omits cycle participants — a cycle-typed use previously crashed the
+  worker process or threw `RangeError` out of the parse. Headless and
+  mis-bodied heads draw `empty-schema-body`; `by` on an object body or a
+  <2-arm RHS draws `by-on-object-schema`. Three Trigger-only registry
+  widenings, no new code. Discharges 0025's and 0028's alias-form
+  coordination clauses. Locked by `tests/schema-alias-union-decl.test.ts`
+  (77 offline tests incl. real-AJV round-trips, cycle-crash regressions,
+  and pinned residuals; three neutralisation directions verified; H8a 7/7
+  twice and H9a acceptance 11/11 green).
+
 ## [0.44.0] - 2026-07-31
 
 ### Fixed

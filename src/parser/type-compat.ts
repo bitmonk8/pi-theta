@@ -70,10 +70,11 @@ export type CompatType =
  *     name identity, variant-to-union, and union widening/distribution.
  *     `fields` carries the declared field-name → `CompatType` mapping for the
  *     object form (`schema X { f: T, … }`), so a constructor-field check can
- *     resolve `X`'s declared type for a given field; it is absent for a
- *     declaration the parser retains no object field list for (the `= …`
- *     alias and `by … = …` discriminated-union forms), which
- *     `collectTypeEnv` never populates.
+ *     resolve `X`'s declared type for a given field; it is absent for the
+ *     head-only form (a body-less `schema X` head or an unparseable body),
+ *     the one shape `collectTypeEnv` still maps to a field-less
+ *     `object-schema` entry — the `= …` alias / `by … = …` forms resolve as
+ *     `alias` entries instead, or are omitted when cycle-participating.
  *   - `alias`         — `schema X = R`. Transparent (TYPE-11): replaced by `rhs`
  *     and the check re-evaluated, recursing through nested aliases. The alias
  *     is identified solely by the `=` form, not by what `rhs` resolves to.
@@ -137,8 +138,13 @@ export function checkCompatible(
  */
 function unfoldAlias(type: CompatType, env: TypeEnv): CompatType {
   let current = type;
-  // Bounded by the alias chain length; alias cycles are rejected upstream
-  // (`theta/parse/type-alias-cycle`) before any compatibility question arises.
+  // Bounded by the alias chain length, because the `TypeEnv` carries no cyclic
+  // alias: `collectTypeEnv` (type-layer-checks.ts) OMITS a cycle-participating
+  // declaration from the env, and an absent name is not an alias, so the walk
+  // ends there and the question answers `"unknown"`. The guarantee is the
+  // env's construction site, not the `theta/parse/type-alias-cycle`
+  // diagnostic — that rejection is reported alongside this pass, not before
+  // it, so it gates nothing here.
   while (current.kind === "named") {
     const decl = env[current.name];
     if (decl === undefined || decl.kind !== "alias") {

@@ -225,20 +225,80 @@ export function checkTypeLayer(body: ThetaBody, file: string): Diagnostic[] {
 }
 
 /**
- * Build the whole-file `TypeEnv` from top-level `schema` declarations: every
- * named schema resolves as a nominal `object-schema` (TYPE-10), carrying its
- * declared field types when the parser retained an object field list
- * (`SchemaDecl.fields`, present only for the `schema X { f: T, … }` object
- * form). The `= …` alias and `by … = …` forms carry no field list, so their
- * entry keeps `fields` absent — a conservative classification that never
- * manufactures a spurious `type`-phase reject, and the constructor-field check
- * (`walkExpr`'s `object` arm, via `TypeLayerWalk.declaredFieldsOf`) skips a
- * declaration with no field list.
+ * Build the whole-file `TypeEnv` from top-level `schema` declarations
+ * (bug 0033 §Fix widened this from a two-way to a three-way classification,
+ * mirroring `SchemaDecl`'s own AST shape):
+ *
+ *   - the object form (`SchemaDecl.fields` present) resolves as a nominal
+ *     `object-schema` (TYPE-10), carrying its declared field types;
+ *   - the alias/union form (`SchemaDecl.arms` present) resolves as a
+ *     transparent `alias` (TYPE-11), whose `rhs` is the arms rejoined with
+ *     `" | "` and converted through the same `annotationToCompatType` a
+ *     `let` annotation gets — a multi-arm union RHS becomes a `union`
+ *     `CompatType` whose arms are `named` references to the variants, which
+ *     is what makes TYPE-4 (variant-to-union: every `A` of `schema U = A | B`
+ *     satisfies `A ⊑ U`) fall out of the EXISTING TYPE-5 union-widening
+ *     decision procedure (`decide` in type-compat.ts) composed with this
+ *     unfolding, with no new decision-procedure branch;
+ *   - the head-only form (neither) keeps the old fallback — a nominal
+ *     `object-schema` with no field list, a conservative classification that
+ *     never manufactures a spurious `type`-phase reject.
+ *
+ * An alias that PARTICIPATES IN A CYCLE (`schema X = Y` / `schema Y = X`, the
+ * self-reference `schema X = X`, and the legal guarded recursion
+ * `schema X = integer | array<X>`) is OMITTED from the env entirely — no entry
+ * of any kind. The `⊑` engine's TYPE-11 unfolding (`unfoldAlias` and the four
+ * `decide` sites that call it, type-compat.ts) is a total function only over
+ * an ACYCLIC alias graph — a cyclic entry makes it loop or recurse forever —
+ * and that precondition is made true HERE, at the single construction point
+ * every consumer reads, rather than assumed at five consumption points.
+ * Termination: `aliasCycleParticipants` removes at least the endpoints of
+ * every cycle's back edge, so the alias subgraph the env still carries is
+ * acyclic and every walk over it is bounded by its longest chain.
+ *
+ * OMISSION, not a nominal fallback, is what keeps the guard conservative: an
+ * absent name answers `"unknown"` at every `decide` site (type-compat.ts's
+ * `env[name] === undefined` arms), and `classifyReceiver` / `classifyOperand`
+ * defer on it, so a cycle member takes the same silent-and-deferred
+ * disposition as any type past the parser's static view and the runtime AJV
+ * net remains the only judge. A nominal entry would instead relate by
+ * identity alone and REFUSE the load of programs the specification admits:
+ * `schema X = integer | array<X>` with `let v: X = 3` is legal under TYPE-11
+ * plus TYPE-5 union widening, and a nominal `X` makes that `let` a
+ * `theta/parse/let-rhs-type-mismatch`. The cycle's own rejection is
+ * unaffected either way — `theta/parse/type-alias-cycle` is emitted by the
+ * structural pass (`checkSchemaDeclarationGraph`, theta-document.ts) over the
+ * same declarations, whether or not the type layer looks at them, and that
+ * pass reports only the pure-alias cycles the language forbids, not the
+ * guarded recursion it allows.
+ *
+ * The constructor-field check (`walkExpr`'s `object` arm, via
+ * `TypeLayerWalk.declaredFieldsOf`) skips any declaration whose `TypeEnv`
+ * entry is not `object-schema` WITH a field list — an alias/union entry
+ * included, since a constructor naming one is rejected upstream
+ * (`checkObjectExpr`, bug 0025 §Fix) before this check would matter.
  */
 export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
   const env: Record<string, NamedDecl> = {};
+  const aliasRhs = new Map<string, CompatType>();
+  for (const stmt of statements) {
+    if (stmt.kind === "schema" && stmt.arms !== undefined) {
+      const rhs = annotationToCompatType(stmt.arms.join(" | "));
+      if (rhs !== undefined) {
+        aliasRhs.set(stmt.name, rhs);
+      }
+    }
+  }
+  const cyclic = aliasCycleParticipants(aliasRhs);
   for (const stmt of statements) {
     if (stmt.kind === "schema") {
+      if (stmt.arms !== undefined) {
+        const rhs = aliasRhs.get(stmt.name);
+        if (rhs !== undefined && !cyclic.has(stmt.name)) {
+          env[stmt.name] = { kind: "alias", rhs };
+        }
+        continue;
+      }
       const fields = collectSchemaFields(stmt.fields);
       env[stmt.name] = {
         kind: "object-schema",
@@ -247,6 +307,94 @@ export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
     }
   }
   return env;
+}
+
+/**
+ * Alias names whose REMOVAL breaks every cycle of the alias-to-alias reference
+ * graph — the acyclicity precondition `unfoldAlias` (type-compat.ts) is
+ * bounded by. The guarantee is exactly that: the set contains at least the two
+ * endpoints of every back edge the DFS below closes, and every cycle in a
+ * directed graph carries at least one back edge under any DFS, so no cycle
+ * survives the removal. It is NOT the set of every node on every elementary
+ * cycle: for `schema A = C | B` / `schema C = A` / `schema B = C` the walk
+ * from `A` closes the back edge `C → A` and marks `{A, C}`, leaving `B`
+ * unmarked even though `B → C → A → B` is an elementary cycle — that cycle is
+ * broken anyway, because `A` and `C` are gone from the env.
+ *
+ * Edges are the `named` references reachable in an alias's own converted
+ * right-hand side (`annotationToCompatType`: union arms, `array<T>` elements,
+ * inline-object field types), restricted to names that are themselves aliases:
+ * unfolding stops at every other declaration kind, so only alias-to-alias
+ * edges can diverge. A chain that merely REACHES a cycle (`schema A = B`,
+ * `schema B = C`, `schema C = B`) keeps its transparent entry and unfolds into
+ * an omitted member, where the walk stops.
+ */
+function aliasCycleParticipants(
+  aliasRhs: ReadonlyMap<string, CompatType>,
+): ReadonlySet<string> {
+  const cyclic = new Set<string>();
+  const settled = new Set<string>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const visit = (name: string): void => {
+    stack.push(name);
+    onStack.add(name);
+    for (const ref of aliasReferences(aliasRhs.get(name))) {
+      if (!aliasRhs.has(ref)) {
+        continue;
+      }
+      if (onStack.has(ref)) {
+        // Back-edge: every node from the target up to the current top of the
+        // stack lies on the cycle it closes.
+        for (const member of stack.slice(stack.indexOf(ref))) {
+          cyclic.add(member);
+        }
+      } else if (!settled.has(ref)) {
+        visit(ref);
+      }
+    }
+    onStack.delete(name);
+    stack.pop();
+    settled.add(name);
+  };
+  for (const name of aliasRhs.keys()) {
+    if (!settled.has(name)) {
+      visit(name);
+    }
+  }
+  return cyclic;
+}
+
+/** Every `named` reference inside a converted right-hand side, deduped. */
+function aliasReferences(rhs: CompatType | undefined): ReadonlySet<string> {
+  const names = new Set<string>();
+  const walk = (type: CompatType): void => {
+    switch (type.kind) {
+      case "named":
+        names.add(type.name);
+        return;
+      case "union":
+        for (const arm of type.arms) {
+          walk(arm);
+        }
+        return;
+      case "array":
+        walk(type.element);
+        return;
+      case "object":
+        for (const field of type.fields) {
+          walk(field.type);
+        }
+        return;
+      default:
+        // prim / literal — no reference to follow.
+        return;
+    }
+  };
+  if (rhs !== undefined) {
+    walk(rhs);
+  }
+  return names;
 }
 
 /**

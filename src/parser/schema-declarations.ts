@@ -326,7 +326,8 @@ export function checkVariantAccess(
 //   - `theta/parse/duplicate-discriminator-value`— two variants share a value.
 //   - `theta/parse/nested-discriminator`         — the discriminator field's
 //     value is a nested object, not a top-level literal.
-//   - `theta/parse/by-on-object-schema`          — a `by` clause on an object body.
+//   - `theta/parse/by-on-object-schema`          — a `by` clause on an object
+//     body, or on a right-hand side of fewer than two arms.
 //   - `theta/parse/type-alias-cycle`             — a pure-alias cycle (a cycle
 //     through at least one object-schema hop remains legal).
 //
@@ -397,6 +398,21 @@ function fieldInVariant(
   return variant.fields.find((f) => wireNameOf(f) === wireName);
 }
 
+/**
+ * The THETA-SIDE-named field on `variant`, or `undefined` when absent — the
+ * resolution an explicit `by <field>` clause uses. schemas.md §Wire-name
+ * renaming: "The explicit form `by <field>` accepts the theta-side name — the
+ * only name visible in code — and the lowering resolves it to each variant's
+ * wire name." Implicit detection keeps `fieldInVariant` above, because it runs
+ * over the LOWERED schema, where only wire names exist.
+ */
+function thetaNamedFieldInVariant(
+  variant: UnionVariantSchema,
+  name: string,
+): DiscriminatorCandidateField | undefined {
+  return variant.fields.find((f) => f.name === name);
+}
+
 /** Wire-named fields in first-seen order across the variants. */
 function orderedWireNames(variants: readonly UnionVariantSchema[]): string[] {
   const seen = new Set<string>();
@@ -421,7 +437,11 @@ function renderParseLiteralValue(text: string): string {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(text) ? text : JSON.stringify(text);
 }
 
-/** The per-variant evaluation of one candidate wire-name across the union. */
+/**
+ * The per-variant evaluation of one candidate field across the union. `name`
+ * is the spelling the diagnostics report: the wire name under implicit
+ * detection, the author's theta-side name under an explicit `by <field>`.
+ */
 interface FieldEvaluation {
   readonly name: string;
   readonly presentInAll: boolean;
@@ -439,7 +459,24 @@ function evaluateField(
   wire: string,
   variants: readonly UnionVariantSchema[],
 ): FieldEvaluation {
-  const occurrences = variants.map((v) => fieldInVariant(v, wire));
+  return evaluateOccurrences(wire, variants.map((v) => fieldInVariant(v, wire)));
+}
+
+/**
+ * Evaluate the shape of one field ALREADY RESOLVED per variant. The two
+ * resolutions differ (implicit detection reads the wire name off the lowered
+ * schema; an explicit `by <field>` reads the theta-side name off the source)
+ * but every constraint below applies to the resolved field's VALUE, which the
+ * rename does not touch — schemas.md §Discriminated unions: "wire-renamed
+ * discriminator fields (`kind as "Kind": "v1"`) keep the string-literal
+ * constraint on the *value*; the rename does not interact." `name` is the
+ * spelling the diagnostics report, so each caller passes the one its author
+ * wrote.
+ */
+function evaluateOccurrences(
+  name: string,
+  occurrences: readonly (DiscriminatorCandidateField | undefined)[],
+): FieldEvaluation {
   const presentInAll = occurrences.every((o) => o !== undefined);
   const anyNested = occurrences.some((o) => o?.nested === true);
   const allLiteral =
@@ -466,7 +503,7 @@ function evaluateField(
   const uniqueValues = firstDuplicateValue === undefined;
 
   return {
-    name: wire,
+    name,
     presentInAll,
     anyNested,
     allLiteral,
@@ -545,7 +582,22 @@ function checkExplicitDiscriminator(
   field: string,
   site: SchemaDeclSite,
 ): Diagnostic[] {
-  const evaluation = evaluateField(field, decl.variants);
+  // Resolved by THETA-SIDE name (schemas.md §Wire-name renaming), then
+  // evaluated: `schema Animal by kind = Cat | Dog` selects each variant's
+  // `kind` field even where it is written `kind as "Kind": "v1"`, and the
+  // constraints below then bind that field's VALUE.
+  //
+  // A `by` naming NO theta-side field of the variants resolves to nothing, so
+  // every constraint below is vacuous and this function returns clean. That
+  // disposition is UNDECIDED by the specification: schemas.md §Discriminated
+  // unions prescribes a code for a discriminator that is nested, non-string or
+  // non-unique, and `missing-discriminator` for an IMPLICIT detection that
+  // finds no candidate, but says nothing about an explicit `by` naming a field
+  // no variant declares. No code is invented for it here.
+  const evaluation = evaluateOccurrences(
+    field,
+    decl.variants.map((v) => thetaNamedFieldInVariant(v, field)),
+  );
 
   // A nested discriminator value (`kind: { type: "x" }`) is not a top-level
   // literal — checked first, since its value/type cannot otherwise be read.
@@ -611,9 +663,21 @@ function duplicateValueDiagnostic(
 }
 
 /**
- * A schema declaration carrying a `by <field>` clause. `form` distinguishes the
- * object body (`schema X by f { ... }`, illegal) from the union form
- * (`schema X by f = A | B`, legal).
+ * A schema declaration carrying a `by <field>` clause. `form` distinguishes
+ * what the clause sits on by SHAPE: `"union"` is a right-hand side of TWO OR
+ * MORE arms, per `UnionRhs ::= Type ("|" Type)+` (grammar.md §"schema X by
+ * <field>"), and is the one legal case here. `"object"` is every other
+ * declaration the clause can sit on: an object body (`schema X by f { ... }`)
+ * or a right-hand side of fewer than two arms (`schema X by f = Cat`). Both
+ * carry one variant, so both fail the same way.
+ *
+ * The cut is the arm count, NOT whether the arms form a discriminated union:
+ * a two-arm primitive union (`schema X by f = string | integer`) classifies
+ * as `"union"` and this check admits it. That matches the registry Trigger
+ * for `theta/parse/by-on-object-schema` ("A `by` clause on an object body …,
+ * or on a right-hand side of fewer than two arms …"); whether a two-or-more-
+ * arm union then needs a discriminator is `checkDiscriminatedUnion`'s
+ * question, over object-schema arms.
  */
 export interface ByClauseDecl {
   readonly name: string;
@@ -622,16 +686,18 @@ export interface ByClauseDecl {
 }
 
 /**
- * Check a `by <field>` clause, returning `theta/parse/by-on-object-schema` when
- * the clause sits on an object body (the `by` concept applies only to
- * discriminated unions). Returns `undefined` for the union form.
+ * Check a `by <field>` clause, returning `theta/parse/by-on-object-schema`
+ * when the clause sits on a one-variant declaration — an object body, or a
+ * right-hand side of fewer than two arms (see `ByClauseDecl.form`). Returns
+ * `undefined` for a right-hand side of two or more arms.
  */
 export function checkByClause(
   decl: ByClauseDecl,
   site: SchemaDeclSite,
 ): Diagnostic | undefined {
-  // The `by` clause is admitted only on the union form; an object body has one
-  // variant by definition and the discriminator concept does not apply
+  // The `by` clause is admitted on the two-or-more-arm form; an object body —
+  // and equally a one-arm right-hand side — has one variant by definition, so
+  // there is nothing for a discriminator to select between
   // (schemas.md §Discriminated unions, grammar.md §`schema X by <field>`).
   if (decl.form === "union") {
     return undefined;
@@ -663,10 +729,19 @@ export interface SchemaGraphNode {
  * `theta/parse/type-alias-cycle` per pure-alias cycle (a cycle whose every node
  * is an alias). A cycle that traverses at least one object-schema hop crosses a
  * `$ref` against `$defs` and is legal — it raises no diagnostic.
+ *
+ * `site` is the whole-graph fallback anchor. `nodeSites`, when supplied, gives
+ * a per-declaration range and each cycle's diagnostic is anchored at the first
+ * node of the path it renders — a declaration that is IN the cycle, rather
+ * than whichever declaration the caller happened to pass as the graph-wide
+ * site. Optional so a caller with no per-node ranges (the seam tests) keeps
+ * the whole-graph anchor unchanged; a name absent from the map falls back to
+ * `site.range` the same way.
  */
 export function detectTypeAliasCycles(
   nodes: readonly SchemaGraphNode[],
   site: SchemaDeclSite,
+  nodeSites?: ReadonlyMap<string, SourceRange>,
 ): Diagnostic[] {
   const nodeMap = new Map(nodes.map((n) => [n.name, n] as const));
   const diagnostics: Diagnostic[] = [];
@@ -699,11 +774,13 @@ export function detectTypeAliasCycles(
           if (!reportedCycles.has(signature)) {
             reportedCycles.add(signature);
             const path = [...cycleNodes, ref].join(" \u2192 ");
+            const head = cycleNodes[0];
             diagnostics.push({
               severity: "error",
               code: "theta/parse/type-alias-cycle",
               file: site.file,
-              range: site.range,
+              range:
+                (head !== undefined ? nodeSites?.get(head) : undefined) ?? site.range,
               message: `type-alias cycle: ${path}`,
             });
           }

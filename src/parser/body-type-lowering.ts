@@ -23,8 +23,18 @@ export interface LowerableField {
 /** A schema declaration reduced to what lowering needs. */
 export interface LowerableSchema {
   readonly name: string;
-  /** Object-body field sources; absent for `= …` alias / `by … = …` union forms. */
+  /** Object-body field sources; absent for the alias/union form and for the head-only form. */
   readonly fields?: readonly LowerableField[];
+  /**
+   * The alias/union right-hand side, one Type source per top-level `|`-
+   * separated arm (bug 0033 §Fix); absent for the object form and for the
+   * head-only form. Joined with `" | "` and handed whole to `lowerTypeSource`,
+   * which re-splits on the same separator — the SUBS-1 literal-union/enum
+   * handling, the union split, named→`$ref` registration, and `lowerUnion`
+   * combination are therefore shared with every other union-lowering call
+   * site rather than duplicated here.
+   */
+  readonly arms?: readonly string[];
 }
 
 /** An enum declaration reduced to what lowering needs. */
@@ -149,15 +159,20 @@ export function lowerTypeSource(
  * (bug 0028 §Fix) plus a third pass that attaches each name's flat transitive
  * `$defs` closure:
  *
- * PASS 1 seeds `bodies` with every top-level name BEFORE any object body
- * lowers: an enum's fragment lowers fully (lowering order never affects an
- * enum); a schema WITH an object body gets a MUTABLE PLACEHOLDER object, set
+ * PASS 1 seeds `bodies` with every top-level name BEFORE any body lowers: an
+ * enum's fragment lowers fully (lowering order never affects an enum); a
+ * schema WITH an object body OR alias/union arms (bug 0033 §Fix widened this
+ * arm from object-only) gets a MUTABLE PLACEHOLDER object, set
  * UNCONDITIONALLY so a schema still wins a name collision against an enum —
- * this loop runs second, exactly as today. A schema decl carrying no object
- * body (an `= …` alias or `by … = …` discriminated union) seeds nothing —
- * its callers supply a permissive fallback, as today.
+ * this loop runs second, exactly as today. A schema decl carrying NEITHER an
+ * object body NOR alias arms (the head-only / malformed form) seeds
+ * nothing — its callers supply a permissive fallback, as today.
  *
- * PASS 2 lowers each schema's fields against the FULLY SEEDED map, in source
+ * PASS 2 lowers each schema's fields (object form) or right-hand side
+ * (alias/union form, bug 0033 §Fix — one `lowerTypeSource` call over the arms
+ * rejoined with `" | "`, which already implements the SUBS-1
+ * literal-union/enum handling, the union split, named→`$ref` registration,
+ * and `lowerUnion` combination) against the FULLY SEEDED map, in source
  * order, then REPLACES the placeholder's own keys with the computed ones —
  * clear-then-`Object.assign`, not a fresh `bodies.set` — so the placeholder's
  * OBJECT IDENTITY survives. That identity is what makes a forward, self, or
@@ -202,27 +217,40 @@ export function buildBodyTypeSchemas(
     bodies.set(decl.name, lowerEnumToSchema(decl.variants, decl.variantValues));
   }
   for (const decl of schemas) {
-    if (decl.fields === undefined) {
+    if (decl.fields === undefined && decl.arms === undefined) {
       continue;
     }
     bodies.set(decl.name, {});
   }
 
-  // PASS 2 — lower each object body against the fully seeded map.
+  // PASS 2 — lower each body (object fields or alias/union right-hand side)
+  // against the fully seeded map.
   const directRefs = new Map<string, readonly string[]>();
   for (const decl of schemas) {
-    if (decl.fields === undefined) {
+    let computed: Record<string, unknown>;
+    let direct: string[];
+    if (decl.fields !== undefined) {
+      computed = lowerObjectFields(decl.fields, bodies);
+      direct = Object.keys((computed["$defs"] ?? {}) as object);
+      // `computed` is fresh — `lowerObjectFields` built it above — so mutating
+      // it here touches nothing else.
+      delete computed["$defs"];
+    } else if (decl.arms !== undefined) {
+      // A fresh local `defs` per decl, exactly as `lowerObjectFields` builds
+      // its own — `lowerTypeSource` never attaches a `$defs` key to the
+      // fragment it returns, so the directly-referenced names live only in
+      // this side-channel, never inside `computed` itself (nothing to
+      // `delete` here).
+      const localDefs: Record<string, Record<string, unknown>> = {};
+      computed = lowerTypeSource(decl.arms.join(" | "), bodies, localDefs);
+      direct = Object.keys(localDefs);
+    } else {
       continue;
     }
-    const computed = lowerObjectFields(decl.fields, bodies);
-    const direct = Object.keys((computed["$defs"] ?? {}) as object);
-    // `computed` is fresh — `lowerObjectFields` just built it — so mutating it
-    // here touches nothing else.
-    delete computed["$defs"];
     const placeholder = bodies.get(decl.name);
     if (placeholder === undefined) {
       // Unreachable: pass 1 seeds a placeholder for every schema decl with
-      // `fields`, and this loop iterates that same list.
+      // `fields` or `arms`, and this loop iterates that same list.
       continue;
     }
     // Clear-then-assign is REPLACE semantics (matching today's `map.set`) that
@@ -288,12 +316,15 @@ function transitiveDefNames(
  * inline-object-annotation field form) naming no in-scope declaration —
  * deduped to first-occurrence order (one diagnostic per distinct name per
  * position; bug 0028 §Fix). `declared` is the RESOLUTION SET, not a lowering
- * result: `collectBodyTypes` (theta-document.ts) deliberately maps alias-form
- * schema names and imported `.thetalib` symbols to `{}` AS RESOLVED, so
- * checking the lowering RESULT for a `{}` fragment would reject those legal
- * thetas too — this function is handed the NAME set and threads an
- * `unresolved` sink through the same resolution `lowerTypeExpr` already
- * performs, rather than re-deriving a second name-walk.
+ * result: `collectBodyTypes` (theta-document.ts) deliberately maps an
+ * imported `.thetalib` symbol to `{}` AS RESOLVED (bug 0033 §Fix narrowed
+ * this permissive arm to imports and head-only declarations — an alias-form
+ * schema name now lowers via `buildBodyTypeSchemas`, concretely for the arm
+ * shapes `lowerTypeSource` supports), so checking the lowering RESULT
+ * for a `{}` fragment would reject those legal thetas too — this function is
+ * handed the NAME set and threads an `unresolved` sink through the same
+ * resolution `lowerTypeExpr` already performs, rather than re-deriving a
+ * second name-walk.
  *
  * `source` dispatches the inline-object annotation form itself (`{ … }`,
  * which `lowerTypeSource` does not handle — `lowerQueryResponseSchema`

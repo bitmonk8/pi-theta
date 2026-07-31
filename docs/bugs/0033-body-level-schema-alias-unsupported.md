@@ -1,6 +1,9 @@
 # Bug 0033 — The `schema X = A | B` type-alias / union declaration does not parse: the head registers as a field-less schema, the shape is re-lexed as statements (`stray '='` / `stray '|'`), and the whole discriminated-union checker seam — plus `skipDeclarationShape` — has no caller
 
-- **Status:** open
+- **Status:** fixed (0.45.0). §Fix as settled — the two missing `SchemaShape`
+  alternatives parse, the three V5b checkers are wired end-to-end, the
+  alias/union RHS lowers concretely, and the mis-shaped heads gained their
+  dispositions. See §Fix (0.45.0) below.
 - **Kind:** defect — the implementation disagrees with the specification (the
   first bug category of [docs/bugs/README.md](./README.md)), in two elements.
   (1) *A specified declaration form is absent.* `schema X = ...` and
@@ -94,6 +97,116 @@
 - **Observed at:** `0.32.0` (`4d645f4f`). Offline, deterministic; no live
   model, no provider. Scratch vitest driving `parseThetaDocument` with the
   production-shaped deps over eighteen fixtures, then deleted.
+
+## Fix (0.45.0)
+
+The settled §Fix, implemented as written; five review rounds and four fixer
+rounds hardened the capture and the type layer. Line anchors are at the fix
+commit.
+
+**AST + parse.** `SchemaDecl` is three-way: `fields` (object form), `arms`
+(alias/union — one `Type` source per top-level `|` arm) plus optional `by`.
+`parseSchema` dispatches on the token after the name (`{` / `=` / `by` /
+headless); `skipDeclarationShape` and `skipBraces` are live as the recovery
+consumers the parser's comments always named. The alias-RHS capture is
+bounded so the swallowed continuation newline after a trailing `>` / `=`
+cannot absorb the next statement: field-boundary mode plus arm-boundary
+stops for statement-head keywords (incl. `match`/`invoke`/`Ok`/`Err`) and
+for depth-0 punct no `Type` can start or continue (`@`, backtick, `(`, `[`,
+`!`; `-` at completed-arm boundaries only), with inline-object arms consumed
+as balanced brace groups. No token of a declaration shape survives into the
+statement loop; the one recorded residual is same-line resolvable residue
+(`schema X = Cat Cat`), which reduces to the language's silent no-op
+expression-statement class and is pinned as observed.
+
+**Dispositions** (§Fix delegated; decided here, registry-honest): a headless
+`schema X`, a brace body that is not an `ident: Type` field list, a
+shapeless `=` RHS, and a malformed `by` head all draw the registered
+`theta/parse/empty-schema-body`; `schema X by f { … }` reaches
+`checkByClause` and draws `theta/parse/by-on-object-schema`, as does a `by`
+over a right-hand side of fewer than two arms (grammar.md `UnionRhs`
+requires ≥2).
+
+**Checker wiring.** `checkSchemaDeclarationGraph` (beside the existing
+structural checks) runs `checkByClause`, `checkDiscriminatedUnion` (unions
+whose arms all resolve to declared object schemas; explicit `by` resolves
+the THETA-SIDE field name per schemas.md:47, wire renames respected on the
+value constraint; a literal-union field type is no discriminator candidate),
+and `detectTypeAliasCycles` once over the whole-file graph (object decls
+thread their field-type references so object-hop cycles stay legal; each
+cycle's diagnostic anchors at a participating declaration via the seam's new
+optional `nodeSites`). Each alias arm also runs the same per-type-source
+pass the object-field position runs (`checkInlineEnumForm` +
+`parseTypeExpression("schema-feeding")`), so `enum[…]`, arity, `void`,
+`Result` and unresolved names report byte-identically across positions. All
+seven registry codes now fire end-to-end from source.
+
+**Lowering + type layer.** `buildBodyTypeSchemas` seeds alias/union decls in
+pass 1 and lowers the RHS through the shared `lowerTypeSource` in pass 2
+(SUBS-1: all-primitive `{"type":[…]}`, discriminated object unions
+`{"anyOf":[…]}` in source arm order, string-literal unions behaviourally
+AJV-pinned); alias names at `@<T>` and on the `params:` RHS resolve to
+`$ref`s. `collectTypeEnv` registers alias decls as transparent `alias`
+entries (TYPE-11; TYPE-4 falls out of unfold + union widening), and
+OMITS cycle participants (review round 4: a nominal entry manufactured
+spec-forbidden rejections of legal recursion like
+`schema X = integer | array<X>`; an omitted name answers "unknown" and
+defers to the AJV net; the DFS removes every cycle's back-edge endpoints, so
+the residual alias subgraph is acyclic and the engine terminates — the
+pre-guard tree crashed the worker process or threw `RangeError` out of the
+parse on cycle-typed uses).
+
+**Registry (three Trigger-only widenings, same commit; Messages untouched).**
+`empty-schema-body` covers the no-usable-content shapes;
+`unresolved-named-type` adds the alias-RHS position (fifth of the row's
+positions); `by-on-object-schema` states the arm-count cut. No new code; the
+seven checker rows were already registered; H9a's permitted-code list
+untouched. GOV-15: the newly-rejecting inputs were either outside the
+loads-cleanly set (the stray-token family) or ride the diagnostic-registry
+carve-out (`by`-on-object, the mis-shaped heads).
+
+**Reproduction re-derived at the fix baseline** (`b1caedf8`, 0.44.0): all
+rows byte-identical to the recorded 0.32.0 evidence except one drift —
+`schema X by f { a: string }` no longer loaded clean but failed with
+0025's `unresolved named type 'f'` against the residue's re-parse (the
+recorded zero-diagnostics claim was stale; the misattribution class was
+unchanged). Post-fix it draws `by-on-object-schema`.
+
+**0025/0028 coordination discharged.** The alias/union-named constructor now
+draws 0025's `unresolved-named-type` rejection as the sole diagnostic (the
+pre-authorized re-run updated `tests/ctor-unresolved-schema-name.test.ts`'s
+RED-alias cell); the alias annotation joined 0028's resolvable set instead
+of its permissive-`{}` set.
+
+**Offline lock.** `tests/schema-alias-union-decl.test.ts` (77 tests):
+parse/no-residue cells for every §Reproduction fixture incl. the
+`.thetalib` spelling, the seven codes end-to-end with registry-sourced
+messages, lowering byte-pins + real-AJV round-trips (incl. legal recursion
+`array<X>`), TYPE-11/TYPE-4 pins, disposition cells, interaction pins
+(constructor, `@<T>`, `params:`, `Ghost` alias RHS), stop-set cells with
+both arrangements of the continuation-swallow, cycle-crash regression cells
+(n12–n15), and pinned residuals (same-line residue, dangling `|`,
+spec-undecided `by` over a primitive union and unknown explicit `by`
+field). Verified in three neutralisation directions (dispatch → 73 reds
+with the stray-token signatures; checker wiring → 24 code-absence reds;
+cycle guard → worker death + `RangeError`), each restored byte-exact by
+blob hash. Full gate 236 files / 2970 tests; typecheck and lint clean.
+Live: H8a 7/7 twice, H9a acceptance 11/11, plus a scratch H9a alias-fixture
+probe green with the fix and red with it neutralised, then deleted.
+
+**Residuals.** (i) Same-line resolvable residue after a complete
+declaration loads silently (n11/n24's family, incl. `schema X = -<number>`
+yielding a junk `"-"` arm) — pinned as observed; a later loud disposition
+needs the GOV-15 carve-out. (ii) A union arm shape the shared lowerer does
+not support (e.g. a generic arm) keeps the pre-existing permissive `{}` —
+field-position parity, unchanged. (iii) `theta/parse/unknown-identifier`'s
+double-emission with `unresolved-named-type` for keyword-shaped names
+(`void`) exists at BOTH the alias and field positions — pre-existing,
+unfiled. (iv) The inline `{}` empty-object rule of grammar.md:109
+(`empty-schema-body`) is unimplemented at every `Type` position —
+pre-existing, unfiled. (v) The `by` field naming no variant's field, and
+`by` over a non-object ≥2-arm union, load silently — spec-undecided,
+pinned as observed.
 
 ## Summary
 

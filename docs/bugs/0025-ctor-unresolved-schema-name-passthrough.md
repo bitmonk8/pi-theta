@@ -467,7 +467,11 @@ widening a different row.
   (`theta-document.ts:2269`) has no caller —
   [0033](./0033-body-level-schema-alias-unsupported.md). Alias- and union-named
   constructors are therefore unprobed here; this report's evidence covers
-  undeclared and enum names only.
+  undeclared and enum names only. (Discharged by 0033's fix, 0.45.0: the
+  declarations parse, an alias/union-named constructor draws this report's
+  `unresolved-named-type` rejection as the sole diagnostic, and the re-run
+  this report's Fix-ordering clause required is pinned in
+  `tests/ctor-unresolved-schema-name.test.ts` and 0033's witness.)
 - Equality semantics of unbranded vs branded values (`Mystery { a: 1 } == Point
   { a: 1 }` is structural by the runtime value model; the brand is
   non-enumerable — bug 0020 territory, spec-conformant since 0.32.0).

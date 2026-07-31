@@ -319,32 +319,30 @@ describe("bug 0025 (2) reject — a constructor naming a declared enum or alias/
   });
 
   it("RED alias: a body-level alias/union head in constructor position fires naming 'Animal'", () => {
-    // The arm is LIVE, not latent: `parseSchema` (theta-document.ts:2040–2052)
-    // returns `{ kind: "schema", name }` with `fields` absent for the `= A | B`
-    // form, so the head lands in the whole-file schema set as a declaration
-    // with no object body to brace-construct. Only the `= Cat | Dog` tail
-    // degrades, into bug 0033's separate stray-token diagnostics.
-    const doc = parse("schema Animal = Cat | Dog\nlet a = Animal { x: 1 }\na\n");
+    // Bug 0033 landed: `schema Animal = Cat | Dog` now parses as a real
+    // three-way `SchemaDecl` (theta-document.ts `parseSchema`) instead of
+    // registering a fields-less head and leaving `= Cat | Dog` for the
+    // statement loop to mis-lex as `stray '='` / `stray '|'`
+    // (docs/bugs/0033-body-level-schema-alias-unsupported.md). `fields` is
+    // still absent for this form — an alias/union decl carries `arms`
+    // instead — so the head still lands in the whole-file schema set as a
+    // declaration with no object body to brace-construct, and this bug's
+    // classification is unchanged. Cat/Dog carry a valid discriminator so the
+    // union itself checks clean, isolating the constructor-name rejection as
+    // the theta's ONLY diagnostic — the residual this cell pinned at 0033
+    // filing time is gone, per that bug's own "Fix ordering": "If 0025 lands
+    // first, its classification must be re-run against alias/union
+    // declarations when 0033 lands."
+    const doc = parse(
+      'schema Cat { kind: "cat", name: string }\nschema Dog { kind: "dog", name: string }\n' +
+        "schema Animal = Cat | Dog\nlet a = Animal { x: 1 }\na\n",
+    );
     expectRejected(doc, "Animal", "alias/union head in constructor position");
-    // Bug 0033's residual is untouched by this rejection: both stray-token
-    // diagnostics for the `= Cat | Dog` tail survive, in source order.
-    const unsupported = registryMessage(REGISTRY, "theta/parse/unsupported-feature") as
-      | string
-      | undefined;
     expect(
-      unsupported,
-      "DIAG-4 anchor: code-registry-parse.md must carry the Message row for " +
-        "theta/parse/unsupported-feature",
-    ).toBeDefined();
-    expect(
-      doc.diagnostics
-        .filter((d) => d.code === "theta/parse/unsupported-feature")
-        .map((d) => d.message),
-      `bug 0033's stray-token diagnostics for the alias tail are unaffected; ${render(doc)}`,
-    ).toEqual([
-      unsupported!.replace("<construct>", "stray '=' in statement position"),
-      unsupported!.replace("<construct>", "stray '|' in statement position"),
-    ]);
+      doc.diagnostics.map((d) => d.code),
+      `0033 landed — the union declaration parses and checks clean, so the constructor ` +
+        `rejection is the sole diagnostic; ${render(doc)}`,
+    ).toEqual(["theta/parse/unresolved-named-type"]);
   });
 });
 

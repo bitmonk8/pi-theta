@@ -836,7 +836,11 @@ whole-document level at HEAD (`theta/parse/unsupported-feature`, stray `=`
 / `|`; `skipDeclarationShape` in `theta-document.ts:2269` has no caller) —
 [0033](./0033-body-level-schema-alias-unsupported.md). That is why the
 alias-annotation case cannot currently arise parse-clean and is absent from
-this report's affected enumeration; it is not fixed here.
+this report's affected enumeration; it is not fixed here. (0033's fix,
+0.45.0, made the declaration parse and the alias annotation resolve
+concretely — an alias name at `@<T>` and on the `params:` RHS lowers to a
+`$ref` rather than joining this report's permissive-`{}` set; pinned by
+0033's witness.)
 
 ## Provenance
 
