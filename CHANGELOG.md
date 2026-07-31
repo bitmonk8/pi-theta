@@ -6,6 +6,28 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-07-31
+
+### Fixed
+
+- **`MissingObjectKeyPanic` interpolated `<key>` bare-always, so `o["my-key"]`
+  rendered `missing object key: my-key` where placeholder-rendering §5's own
+  normative vector pins `missing object key: "my-key"`** (bug 0036). The one
+  emission site (`evaluateIndexAccess`, `runtime-panics.ts`) built the message
+  with raw template-literal interpolation, bypassing the conformant category-5
+  renderer that sat in-tree with zero production callers — the suite affirmed
+  the §5 rule at the unit level while the wire behaviour diverged from it.
+  The site now routes through
+  `renderSourceDerived({ kind: "key", text: key })`: a non-identifier-shaped
+  key renders double-quoted (preserving the stringly-`"25"`/numeric-`25`
+  distinction), an identifier-shaped key stays byte-unchanged bare, per the
+  §5 predicate and its reserved-keyword carve-out. No spec amendment, no
+  registry edit, no new code; H9a's permitted-code list unchanged. Discharges
+  bug 0027 §Fix (0.39.0) residual (iii). Locked by
+  `tests/missing-object-key-rendering.test.ts` (7 offline tests — executor
+  route and direct throw site, both directions verified; renderer-side §5
+  vector pins untouched; H8a live acceptance green).
+
 ## [0.40.0] - 2026-07-31
 
 ### Fixed

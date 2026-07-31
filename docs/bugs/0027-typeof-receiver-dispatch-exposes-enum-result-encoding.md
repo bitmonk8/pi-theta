@@ -207,8 +207,9 @@ implementation renders `<key>` bare always, diverging from
 `placeholder-rendering-b.md` §5's quoting vector for non-identifier-shaped
 keys (`obj["my-key"]` → `missing object key: "my-key"`); pre-existing and
 unfiled at fix time, since filed as
-[0036](./0036-missing-object-key-bare-key-rendering.md) — the new row
-deliberately pins its own bare-always rule instead of citing §5.
+[0036](./0036-missing-object-key-bare-key-rendering.md) and discharged by
+its fix (0.41.0) — the new row deliberately pins its own bare-always rule
+instead of citing §5.
 
 ## Summary
 

@@ -34,7 +34,7 @@
 // input). The paired V4b implementation leaf fills these in.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
-import { renderInteger } from "../diagnostics/placeholder";
+import { renderInteger, renderSourceDerived } from "../diagnostics/placeholder";
 import { isEnumValue, isObjectValue, isResultValue, schemaTagOf, type ResultValue, type ThetaValue } from "./value";
 
 /** The registry codes carried by the five panic sources this module owns. */
@@ -267,7 +267,7 @@ export function evaluateIndexAccess(
   const key = index as string;
   const obj = target as { readonly [k: string]: ThetaValue };
   if (!Object.prototype.hasOwnProperty.call(obj, key)) {
-    throw new MissingObjectKeyPanic(`missing object key: ${key}`);
+    throw new MissingObjectKeyPanic(`missing object key: ${renderSourceDerived({ kind: "key", text: key })}`);
   }
   return obj[key] as ThetaValue;
 }

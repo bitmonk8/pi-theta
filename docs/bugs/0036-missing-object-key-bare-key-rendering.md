@@ -1,6 +1,8 @@
 # Bug 0036 — `MissingObjectKeyPanic` interpolates `<key>` bare-always, so `o["my-key"]` renders `missing object key: my-key` where §5's own normative vector pins `missing object key: "my-key"`; the conformant category-5 renderer exists in-tree, is pinned green by unit tests, and has no production caller
 
-- **Status:** open
+- **Status:** fixed (0.41.0). §Fix as settled — the one emission site routed
+  through the existing category-5 renderer; no spec amendment, no registry
+  edit. See §Fix (0.41.0) below.
 - **Kind:** defect — the implementation diverges from a pinned normative
   rendering rule at its one emission site. Not a spec gap: the §5 `<key>`
   rule, its runtime identifier-shape predicate, and its two test vectors —
@@ -54,6 +56,60 @@
     rule on a different code.
 - **Observed at:** `0.40.0` (HEAD `1b20c75e`). Offline and deterministic; no
   live model.
+
+## Fix (0.41.0)
+
+The settled §Fix, implemented as written. Line anchors are at the fix commit.
+
+**One emission site routed through the existing renderer**
+(`src/runtime/runtime-panics.ts:270`). The `MissingObjectKeyPanic` message is
+now built with the category-5 renderer —
+`` `missing object key: ${renderSourceDerived({ kind: "key", text: key })}` ``
+— with `renderSourceDerived` imported beside the `renderInteger` import the
+module already carried. One line plus an import; both hosts
+(`statement-executor.ts:704`, `production-theta-producer.ts:5749`) share the
+site, so the wire behaviour has one definition point. A non-identifier-shaped
+key now renders quoted (`o["my-key"]` → `missing object key: "my-key"`,
+`o["25"]` → `missing object key: "25"` — the stringly-`"25"`/numeric-`25`
+distinction is live); identifier-shaped keys are byte-unchanged, including
+reserved-keyword collisions (`o["match"]` → bare, the `:129` carve-out).
+
+**No spec amendment, no registry edit.** §5 stands as written; the
+`theta/runtime/missing-object-key` row's code, severity, phase and Message
+cell are untouched; `tests/fixtures/h7a/permitted-codes.json` unchanged
+(no new code, H9a unaffected) — the GOV-15 standing recorded below.
+
+**Reproduction re-derived at the fix baseline** (`442db300`, 0.40.0): all
+five §Reproduction observables byte-identical to the recorded table before
+the fix; X1/X3 now emit `missing object key: "my-key"`, X2 and every
+identifier-shaped key unchanged.
+
+**Offline lock.** `tests/missing-object-key-rendering.test.ts` (7 tests,
+offline, deterministic): (a) executor-route pair through the production
+binding (`parseThetaDocument` → `createProductionProducerDeps` →
+`bindPromptConversation` → `executeBody`) — `o["my-key"]` pinned to the
+byte-exact quoted message, `o["kind"]` and `o["definitely_absent"]` pinned
+bare (over-correction controls); (b) the same pair directly at
+`evaluateIndexAccess`, so the throw site stays pinned even if the executor
+route later gains layers; (c) a DIAG-4 drift guard asserting the registry
+row's Message cell is still `missing object key: <key>`. Panic class,
+`isThetaPanic`, and code are asserted ahead of every message line, so the
+only red axis is the byte shape. The renderer-side vector pins
+(`tests/placeholder-rendering.test.ts:123–124`) stay as the unit-level lock,
+now connected to production. Verified in both directions: neutralising the
+rendering back to raw interpolation reds exactly a1/b1 with the
+quoted-vs-bare signature (`expected 'missing object key: my-key' to be
+'missing object key: "my-key"'`), byte-exact restore greens 7/7. Full
+default gate 232 files / 2792 tests green; typecheck and lint clean. Live:
+H8a `tests/live/live-production-acceptance.test.ts` 7/7 green.
+
+**Coordination with bug 0032.** Unchanged posture: `evaluateMemberAccess`
+is untouched and the rendering lives at the single interpolation point both
+spellings will share; 0032's presence gate rebases onto it, so `o.absent`
+and `o["absent"]` will render identically when it lands.
+
+**Residuals.** None. Bug 0027 §Fix (0.39.0) residual (iii) — this exact
+divergence, then unfiled — is discharged by this fix.
 
 ## Summary
 
