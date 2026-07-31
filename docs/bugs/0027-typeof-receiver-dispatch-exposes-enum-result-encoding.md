@@ -197,7 +197,9 @@ fixture, so the H7a permitted-code list is unchanged.
 
 **Residuals.** (i) Member access on an *absent* name of a genuine object
 value still binds raw JS `undefined` — bug
-[0032](./0032-absent-member-binds-undefined.md), unchanged here; the
+[0032](./0032-absent-member-binds-undefined.md), unchanged here and since
+discharged by its fix (0.42.0: the shared presence gate panics on the
+absent name, and control i7 is re-anchored to the unit seam); the
 widened index guard deliberately routes that value to internal-error rather
 than claiming it for the new code. (ii) An unknown stdlib member on a
 laundered genuine-object receiver still rides internal-error (the

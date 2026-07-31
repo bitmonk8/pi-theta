@@ -6,6 +6,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-07-31
+
+### Fixed
+
+- **Member access on an absent name bound raw JS `undefined`, an out-of-model
+  value: `o.absent == null` was `false`, `o["absent"]` panicked on the same
+  name, and expressions.md prescribed no absent-member disposition**
+  (bug 0032). `evaluateMemberAccess` guarded only `null` and read the
+  property unfiltered, so a typo'd or missing field yielded a value outside
+  `ThetaValue` that the in-language absence test reported as present
+  (`== null` → `false`), stringified as `"undefined"`, survived constructor
+  and array storage, and aborted the theta as `internal-error` one read
+  later — while the index spelling of the same name panicked and `has(k)`
+  answered correctly. The spec is amended first (expressions.md member
+  bullet, error-model.md panic bullet, the `missing-object-key` registry
+  row's Trigger — a DIAG-2 same-commit widening — and the reference
+  mirror): member OR indexed access on an absent theta-side name panics
+  with the existing `theta/runtime/missing-object-key`; the panic list
+  stays closed at six. One shared presence gate (`assertKeyPresent`) is now
+  the single construction site for the panic — both spellings render one
+  absent name byte-identically through bug 0036's category-5 interpolation
+  point — ordered after the `null` guard and bug 0027's receiver gate.
+  `Enum.Variant`, `length` on `string`/`array`, `has`/`keys`, and the
+  parse layer are untouched. Discharges bug 0027 §Fix (0.39.0) residual
+  (i); control i7 re-anchored to the unit seam (its in-language probe was
+  this bug's own bind). Locked by
+  `tests/absent-member-presence-gate.test.ts` (34 offline tests through the
+  production executor, every red naming its pre-fix leak; both directions
+  and the one-construction-site property verified; H8a live acceptance
+  green).
+
 ## [0.41.0] - 2026-07-31
 
 ### Fixed

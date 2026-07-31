@@ -183,10 +183,13 @@ function gatedReceiverKind(value: ThetaValue): GatedReceiverKind | undefined {
  * `theta/runtime/internal-error`, whose trigger is open-ended and covers it —
  * because the registry row registers such a receiver neither as a trigger nor
  * as a `<receiver kind>`, so emitting the registered code on it would be a
- * DIAG-4 registry/behaviour mismatch. That arm is reachable, not defensive:
- * bug 0032 (docs/bugs/0032-absent-member-binds-undefined.md) binds raw JS
- * `undefined` for an absent member, so `x.absent[0]` reaches the widened
- * `evaluateIndexAccess` guard with `undefined` as its receiver. The
+ * DIAG-4 registry/behaviour mismatch. This arm is now defensive, not
+ * reachable from theta source: bug 0032's fix
+ * (docs/bugs/0032-absent-member-binds-undefined.md) closed the feeder that
+ * used to land `undefined` here — an absent member no longer binds raw JS
+ * `undefined`, because the presence gate {@link evaluateMemberAccess} shares
+ * with the index path panics on the absent name first, so `x.absent[0]` can
+ * no longer reach this guard with `undefined` as its receiver. The
  * `indexed access` wording is that guard's own pre-0027 message, preserved
  * byte-for-byte: the guard is the only one of the four sites that can reach
  * this arm, because the other three admit only a `typeof "object"` value
@@ -201,6 +204,29 @@ export function nonObjectReceiverRejection(read: string, receiver: ThetaValue): 
 }
 
 /**
+ * The presence gate `evaluateIndexAccess`'s object arm and
+ * `evaluateMemberAccess` share (bug 0032 §Fix,
+ * docs/bugs/0032-absent-member-binds-undefined.md): `key` must be a theta-side
+ * name `target` carries as an own property, or the read raises
+ * `MissingObjectKeyPanic` with the registered `missing object key: <key>`
+ * template — the ONE construction site for that panic, so the member and
+ * index spellings of one absent name (expressions.md:9-10) raise
+ * byte-identically. Testing `hasOwnProperty` on `target` itself, not a
+ * narrowed object cast, is what admits `length` on a `string` or `array`
+ * receiver (both carry it as an own property) while still gating every other
+ * absent name on whatever receiver kind reaches this point — an object
+ * value, or a primitive the earlier guards did not classify as `null`, an
+ * enum value, or a `Result` value.
+ */
+function assertKeyPresent(target: ThetaValue, key: string): void {
+  if (!Object.prototype.hasOwnProperty.call(target, key)) {
+    throw new MissingObjectKeyPanic(
+      `missing object key: ${renderSourceDerived({ kind: "key", text: key })}`,
+    );
+  }
+}
+
+/**
  * Runtime `[i]` indexed access (errors-and-results/error-model.md §"Runtime
  * panics"). `target[index]`:
  *   - `null` target               → `NullIndexAccessPanic` (`[<i>]`);
@@ -208,11 +234,12 @@ export function nonObjectReceiverRejection(read: string, receiver: ThetaValue): 
  *   - a primitive, an enum value, or a `Result` value → `NonObjectReceiverError`
  *     (`theta/runtime/non-object-receiver`, bug 0027 §Fix — a registered
  *     runtime-defect-surface rejection, not a panic);
- *   - a receiver outside that registered closed kind set (raw JS `undefined`,
- *     via bug 0032's absent-member bind) → a raw `Error` →
- *     `theta/runtime/internal-error`, its pre-0027 disposition
- *     ({@link nonObjectReceiverRejection});
- *   - object, missing theta-side key → `MissingObjectKeyPanic` (`<key>`);
+ *   - a receiver outside that registered closed kind set (defensive only:
+ *     bug 0032's fix closed the sole theta-source feeder, an absent-member
+ *     `undefined` bind) → a raw `Error` → `theta/runtime/internal-error`,
+ *     its pre-0027 disposition ({@link nonObjectReceiverRejection});
+ *   - object, missing theta-side key → `MissingObjectKeyPanic` (`<key>`,
+ *     {@link assertKeyPresent});
  *   - otherwise                    → the indexed element / member value.
  *
  * The registered message templates are sourced from
@@ -253,22 +280,24 @@ export function evaluateIndexAccess(
   // than silently answering the receiver's reference encoding (the pre-0027
   // behaviour for enum/`Result` — `s["0"]` answering one character of the wire
   // string) or a raw unregistered `Error` (the pre-0027 behaviour for a
-  // laundered primitive). A fourth input class also reaches this guard and is
-  // NOT the code's: raw JS `undefined`, which bug 0032's absent-member bind
-  // puts into a binding (`x.absent[0]`). It is outside the row's registered
-  // trigger and `<receiver kind>` set, so `nonObjectReceiverRejection` keeps it
-  // on its pre-0027 raw-`Error` → `theta/runtime/internal-error` path.
+  // laundered primitive). A fourth input class used to reach this guard too:
+  // raw JS `undefined`, which an absent member bound into `x.absent[0]`
+  // before bug 0032's fix (docs/bugs/0032-absent-member-binds-undefined.md).
+  // That value was outside the row's registered trigger and `<receiver kind>`
+  // set, so `nonObjectReceiverRejection` routed it onto its pre-0027
+  // raw-`Error` → `theta/runtime/internal-error` path; the arm stays for the
+  // same reason, now defensively, since no theta expression binds `undefined`
+  // anymore.
   if (typeof target !== "object" || !isObjectValue(target)) {
     const rendered = typeof index === "number" ? renderInteger(index) : index;
     throw nonObjectReceiverRejection(`[${rendered}]`, target);
   }
   // Object indexing: a key that is not a present theta-side name on the object
-  // is the missing-object-key panic (`theta/runtime/missing-object-key`).
+  // is the missing-object-key panic (`theta/runtime/missing-object-key`) —
+  // the presence gate `evaluateMemberAccess` shares (bug 0032 §Fix).
   const key = index as string;
   const obj = target as { readonly [k: string]: ThetaValue };
-  if (!Object.prototype.hasOwnProperty.call(obj, key)) {
-    throw new MissingObjectKeyPanic(`missing object key: ${renderSourceDerived({ kind: "key", text: key })}`);
-  }
+  assertKeyPresent(obj, key);
   return obj[key] as ThetaValue;
 }
 
@@ -286,11 +315,18 @@ export function evaluateIndexAccess(
  *     `[1,2].length` read the receiver's own declared member
  *     (expressions.md's `string` / `array` `length` declarations) and must
  *     keep working;
+ *   - a name that is not a present theta-side name on `target` →
+ *     `MissingObjectKeyPanic` (`<field>`, bug 0032 §Fix,
+ *     {@link assertKeyPresent}): the SAME presence gate
+ *     `evaluateIndexAccess`'s object arm uses, so the member and index
+ *     spellings of one absent name (expressions.md:9-10) raise
+ *     byte-identically;
  *   - otherwise → the member value.
  *
  * The registered `null member access: .<field>` template is sourced from
  * diagnostics/code-registry-runtime.md (`<field>` is a category-5 source-
- * derived identifier rendered bare); so is the non-object-receiver template.
+ * derived identifier rendered bare); so are the non-object-receiver and
+ * missing-object-key templates.
  */
 export function evaluateMemberAccess(target: ThetaValue, field: string): ThetaValue {
   if (target === null) {
@@ -299,6 +335,7 @@ export function evaluateMemberAccess(target: ThetaValue, field: string): ThetaVa
   if (typeof target === "object" && !isObjectValue(target)) {
     throw nonObjectReceiverRejection(`.${field}`, target);
   }
+  assertKeyPresent(target, field);
   return (target as { readonly [k: string]: ThetaValue })[field] as ThetaValue;
 }
 

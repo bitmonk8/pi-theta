@@ -15,6 +15,7 @@ import {
 } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
+  evaluateIndexAccess,
   isThetaPanic,
   surfaceUnexpectedThrow,
   INTERNAL_ERROR_CODE,
@@ -303,7 +304,8 @@ function render(value: ThetaValue | undefined): string {
  *      through the `internal-error` surface, and NOT as a panic.
  *
  * `leak` is omitted only where the pre-fix disposition is already a throw
- * (the unknown-member rows) or an out-of-model `undefined` (bug 0032's bind).
+ * (the unknown-member rows) or was an out-of-model `undefined` (bug 0032's
+ * bind, since fixed).
  */
 function assertGated(
   probe: Probe,
@@ -622,10 +624,10 @@ describe("bug 0027 (d) — enum receiver: member access is rejected, not answere
   });
 
   it("RED (d2): `s.__anything` is rejected by the receiver gate", async () => {
-    // No `leak` value: an absent member binds raw JS `undefined` at HEAD, which
-    // is bug 0032's out-of-model bind, not a representation leak. The gate fires
-    // on the RECEIVER, ahead of the member read, so this row is settled here
-    // independently of whatever 0032 decides for object receivers.
+    // No `leak` value: an absent member used to bind raw JS `undefined` (bug
+    // 0032's out-of-model bind, not a representation leak). The gate fires on
+    // the RECEIVER, ahead of the member read, so this row is settled here
+    // regardless of what bug 0032's fix did for object receivers.
     assertGated(await probeSource(ENUM_FIXTURE + "s.__anything"), {
       read: ".__anything",
       receiverKind: ENUM_RECEIVER,
@@ -929,28 +931,41 @@ describe("bug 0027 (i) — controls: object, string and array receivers keep the
     );
   });
 
-  it("CONTROL (i7): an OUT-OF-MODEL receiver keeps its internal-error disposition — the gate claims only its registered kinds", async () => {
-    // Bug 0032 (docs/bugs/0032-absent-member-binds-undefined.md) binds raw JS
-    // `undefined` for an absent member, so `x.absent[0]` reaches the widened
-    // index guard with `undefined` as its receiver — parse-clean, laundered
-    // through an unannotated `fn`. `undefined` is in neither the row's
-    // registered trigger ("a `string`, `number`, or `boolean` receiver that
-    // bypassed the static check") nor its closed `<receiver kind>` set, so
-    // emitting the new code here would be a DIAG-4 registry/behaviour mismatch.
-    // This input keeps its PRE-0027 disposition instead: a raw `Error` on the
-    // open-ended `theta/runtime/internal-error` surface, until 0032 settles what
-    // an absent member binds. Green now, green after.
-    const probe = await probeSource(OBJECT_FIXTURE + "fn f(x) {\n  return x.absent[0]\n}\nf(o)");
-    if (probe.kind === "value") {
+  it("CONTROL (i7): an OUT-OF-MODEL receiver keeps its internal-error disposition — the gate claims only its registered kinds", () => {
+    // Bug 0032 (docs/bugs/0032-absent-member-binds-undefined.md) used to bind
+    // raw JS `undefined` for an absent member, so `x.absent[0]` reached the
+    // widened index guard with `undefined` as its receiver — parse-clean,
+    // laundered through an unannotated `fn`. Bug 0032's fix closed that
+    // feeder: `evaluateMemberAccess`'s presence gate now panics on the absent
+    // name before any index read ever sees the value, so
+    // `fn f(x) { return x.absent[0] }; f(o)` is unreachable from theta source
+    // post-fix (the member read panics first) — this control is re-anchored
+    // to call `evaluateIndexAccess` DIRECTLY with an out-of-model receiver, so
+    // the seam it pins (the raw-Error arm below) stays exercised at the unit
+    // level. `undefined` is in neither the row's registered trigger ("a
+    // `string`, `number`, or `boolean` receiver that bypassed the static
+    // check") nor its closed `<receiver kind>` set, so emitting the new code
+    // here would be a DIAG-4 registry/behaviour mismatch. This input keeps
+    // its PRE-0027 disposition instead: a raw `Error` on the open-ended
+    // `theta/runtime/internal-error` surface. Green now, green after.
+    let didThrow = false;
+    let raised: unknown;
+    try {
+      evaluateIndexAccess(undefined as unknown as ThetaValue, 0);
+    } catch (thrown) {
+      didThrow = true;
+      raised = thrown;
+    }
+    if (!didThrow) {
       throw new Error(
-        `CONTROL BROKEN — indexing an out-of-model receiver must be rejected; got value ${render(probe.execution.result.value)}`,
+        "CONTROL BROKEN — indexing an out-of-model receiver must be rejected, not answered",
       );
     }
     expect(
-      isThetaPanic(probe.thrown),
+      isThetaPanic(raised),
       "the out-of-model arm is not a panic either — the closed six-source list is unaffected in both directions",
     ).toBe(false);
-    const diag = surfaceUnexpectedThrow(probe.thrown, SITE) as Diagnostic;
+    const diag = surfaceUnexpectedThrow(raised, SITE) as Diagnostic;
     expect(
       diag.code,
       `an out-of-model receiver is outside the registered trigger of ${NON_OBJECT_RECEIVER_CODE}, so it must NOT carry that code. Message: ${diag.message}`,

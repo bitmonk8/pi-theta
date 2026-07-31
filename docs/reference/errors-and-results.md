@@ -85,7 +85,7 @@ panic-source list, each with its registered `theta/runtime/*` code:
 - Array index out of bounds — `theta/runtime/index-out-of-bounds`.
 - `.field` access on `null` — `theta/runtime/null-member-access`.
 - `[i]` access on `null` — `theta/runtime/null-index-access`.
-- Indexed access on a missing object key — `theta/runtime/missing-object-key`.
+- Member or indexed access on a missing object key — `theta/runtime/missing-object-key`.
 - `invoke` chain depth exceeded — `theta/runtime/invoke-depth-exceeded`.
 
 Division by zero, modulo by zero, integer overflow, and explicit author-driven

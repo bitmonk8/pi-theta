@@ -1,6 +1,8 @@
 # Bug 0032 — Member access on an absent name binds raw JS `undefined`, an out-of-model value: `o.absent == null` is `false`, `o["absent"]` panics on the same name, and expressions.md prescribes no absent-member disposition
 
-- **Status:** open
+- **Status:** fixed (0.42.0). §Fix as settled — spec amended first (four
+  edits), then one presence gate shared with the index path at the single
+  interpolation point bug 0036 landed. See §Fix (0.42.0) below.
 - **Kind:** spec-gap, with the runtime defect it produces.
   (1) **The spec defines no absent-member semantic.** expressions.md's
   supported-forms list gives member access one line — "Member access: `a.b`"
@@ -76,6 +78,77 @@
   model: every probe below drives the production executor
   (`parseThetaDocument` → `createProductionProducerDeps` →
   `bindPromptConversation` → `executeBody`) on parse-clean sources.
+
+## Fix (0.42.0)
+
+The settled §Fix, implemented as written. Line anchors are at the fix commit.
+
+**Spec amended first, four edits.** `docs/spec_topics/expressions.md:9` —
+the member-access bullet now states the absent-name disposition (panics
+`theta/runtime/missing-object-key`, pointer to the canonical closed list)
+with a review-added carve-out naming the two more-specific dispositions (a
+`null` receiver → `null-member-access`; an enum or `Result` receiver →
+`non-object-receiver`). `errors-and-results/error-model.md:71` — the panic
+bullet widens to "Member or indexed access on a missing object key"; the
+list stays six entries, the `:84` template row is untouched.
+`diagnostics/code-registry-runtime.md:17` — the row's *Trigger* cell widens
+to "`obj[k]` or `obj.field` where `k` / `field` is not a present theta-side
+name on the receiver" (review finding F1: "on the receiver", not "on
+`obj`", because a laundered primitive or array receiver reaching the gate
+panics too); Code, Severity, Phase and *Message* untouched — the DIAG-2
+same-commit spec edit. `docs/reference/errors-and-results.md:88` — mirror.
+
+**One presence gate, shared with the index path**
+(`src/runtime/runtime-panics.ts`). New `assertKeyPresent(target, key)` —
+the `hasOwnProperty` predicate plus the `MissingObjectKeyPanic` throw with
+bug 0036's category-5 rendering — is now the ONE construction site for the
+panic; `evaluateIndexAccess`'s object arm delegates to it, and
+`evaluateMemberAccess` calls it after the `null` guard and bug 0027's
+enum/`Result` receiver gate, before the read. The member and index
+spellings of one absent name raise byte-identically. `Enum.Variant`
+pre-resolution (both hosts), `length` on `string` / `array` receivers (own
+property, admitted), the two `?? null` coercions, `checkMemberAccess`'s
+object-receiver early return, and the stdlib dispatches are all untouched.
+No parse-time rejection was added; no new code; H9a's permitted-code list
+unchanged. The out-of-model `undefined` arm in `nonObjectReceiverRejection`
+stays, now defensive — its docstrings retensed, since no theta expression
+binds `undefined` any more.
+
+**Reproduction re-derived at the fix baseline** (`91bb308b`, 0.41.0): all
+29 §Reproduction probes byte-identical to the recorded 0.32.0 table — zero
+drift through the 0026/0027/0028/0024/0029 releases. Post-fix, M1–M9,
+N1–N4 and P1–P11 all raise the registered panic at the first absent read
+(P11 ahead of bug 0019's `?` guard; P1/P2 ahead of the runtime-defect
+surface), and C1–C5 are byte-unchanged.
+
+**Offline lock.** `tests/absent-member-presence-gate.test.ts` (34 tests,
+offline, production executor): a1–a9 = M-rows, b1–b4 = N-rows (position
+dependence — the panic fires at the read, so no binding position launders
+it), c1–c11 = P-rows (spread; c1/c2 assert the throw is NOT routed onto the
+runtime-defect surface, c11 asserts it is NOT `QuestionOperandDefectError`),
+d1 = member/index rendering parity (the 0036 coordination), e1–e9 controls
+(index panic byte-exact, `has`/`keys`/present field, parse-reject,
+`Enum.Variant`, `length` ×4 including laundered, `NullMemberAccessPanic`
+order, DIAG-4 registry drift guard with `tools/code-registry` as oracle).
+Every red names its pre-fix leak. Control i7 in
+`tests/non-object-receiver-gate.test.ts` — whose in-language probe
+`x.absent[0]` was this bug's own bind — is re-anchored to drive
+`evaluateIndexAccess` directly with an `undefined` receiver, assertions
+preserved byte-identically; the other 36 tests are byte-untouched. Verified
+in both directions: neutralising the member-path gate reds exactly the 25
+witness rows with the recorded leak signatures while the 37 stay green;
+neutralising the shared helper's throw reds BOTH spellings' witnesses (the
+member 25 + parity + index e1, and 0036's a1/b1) — the one-construction-site
+proof; byte-exact restores green everything. Full gate 233 files / 2826
+tests; typecheck and lint clean. Live: H8a
+`tests/live/live-production-acceptance.test.ts` 7/7 green (no-regression
+gate; the fix itself is offline per this §Fix).
+
+**Residuals.** None here. Bug 0027 §Fix residual (i) is discharged by this
+fix. The pre-existing `placeholder-rendering-b.md:20` vector label ("A
+member access" describing the bracket spelling `obj["kind"]`) predates this
+bug, asserts a correct byte string, and is left as found — flagged for
+separate curation.
 
 ## Summary
 
