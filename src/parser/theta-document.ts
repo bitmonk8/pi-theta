@@ -4285,15 +4285,24 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
  * cycle, and the two message literals are held identical to the registry row by
  * DIAG-4 rather than by sharing code.
  *
- * That fourth position also UNDER-EMITS against the other three, and the
- * asymmetry is in the resolution rather than the message.
+ * That fourth position under-emitted against the other three until bug 0035,
+ * and the asymmetry was in the resolution rather than the message.
  * `collectUnresolvedNamedTypes` dispatches an inline object type (`{ … }`) to
- * `lowerInlineObject` and descends its field types; `parseParams` resolves
+ * `lowerInlineObject` and descends its field types; `parseParams` resolved
  * through `lowerTypeExpr` alone, which has no inline-object arm, so a
- * brace-shaped RHS lands on that function's trailing catch-all. Hence
- * `p: {a: Tirage, b: integer}` raises nothing under `params:` and lowers
- * `properties.p = {}` whether or not the names inside resolve, where the
- * identical text at the `@<T>` and schema-body positions names `Tirage`.
+ * brace-shaped RHS fell to that function's trailing catch-all and
+ * `p: {a: Tirage, b: integer}` raised nothing under `params:`, lowering
+ * `properties.p = {}` whether or not the names inside resolved. `parseParams`
+ * now routes a brace-rooted RHS through `lowerParamsFieldType` (params.ts)
+ * first, walking the field list to `topLevelColon` and resolving each field's
+ * type through the same `lowerCtx`, so the position raises exactly as its three
+ * siblings do (the hoist under `__inline_<slug>` is the `params:` position's
+ * own, per schema-subset.md:73 — the annotation position uses
+ * `lowerInlineObject`'s fragment in place as its document root, and the
+ * schema-body position raises through the `collectUnresolvedNamedTypes` walk
+ * while its own lowering of the field stays permissive). Its interior `,`
+ * split nests brace depth where `lowerInlineObject`'s does not;
+ * `lowerParamsFieldType`'s own comment records why.
  *
  * `splitTopLevel`'s `"angle"` default keeps that permissive outcome HONEST for
  * a brace-under-generic shape instead of papering over it. With brace depth

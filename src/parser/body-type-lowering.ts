@@ -12,7 +12,7 @@
 // Keeping the lowering here (rather than duplicated per caller) means an enum or
 // named schema lowers identically wherever it is referenced.
 
-import { lowerTypeExpr, splitTopLevel, type LowerCtx } from "./params";
+import { lowerTypeExpr, splitTopLevel, topLevelColon, type LowerCtx } from "./params";
 
 /** A lowerable object-body field: a field name and its verbatim type source. */
 export interface LowerableField {
@@ -344,29 +344,4 @@ function parseLiteralArm(source: string): { readonly value: unknown } | undefine
     return { value: Number(s) };
   }
   return undefined;
-}
-
-/** Find the top-level `:` in a `field: Type` entry, respecting `<>`/`{}` nesting. */
-function topLevelColon(entry: string): number {
-  let depth = 0;
-  let quote: string | undefined;
-  for (let i = 0; i < entry.length; i += 1) {
-    const c = entry[i] ?? "";
-    if (quote !== undefined) {
-      if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-    } else if (c === "<" || c === "{" || c === "(") {
-      depth += 1;
-    } else if (c === ">" || c === "}" || c === ")") {
-      depth -= 1;
-    } else if (c === ":" && depth === 0) {
-      return i;
-    }
-  }
-  return -1;
 }

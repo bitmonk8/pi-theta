@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-07-31
+
+### Fixed
+
+- **An inline object type on the `params:` right-hand side was discarded
+  before it was lowered: `p: {a: Tirage, b: integer}` loaded clean, lowered
+  `properties.p = {}`, recorded the field's declared type as the empty
+  string, and raised none of the `theta/parse/unresolved-named-type` its
+  sibling positions raise for the identical text** (bug 0035). Two frames
+  dropped the same declaration: the frontmatter read substituted `""` for a
+  non-scalar RHS (an unquoted flow mapping never reached the lowering at
+  all), and the `params:` lowering had no inline-object arm (a quoted RHS
+  fell to the permissive catch-all). Both closed: `extractParsedParams`
+  recovers the author's own bytes by slicing the value node's range out of
+  the frontmatter YAML text, and the new `params:`-scoped
+  `lowerParamsFieldType` lowers a brace-rooted field — hoisting the
+  anonymous object under `__inline_<slug>` (canonical schema hash) and
+  emitting `{"$ref": "#/$defs/__inline_<slug>"}` per schema-subset.md
+  §Lowering steps 2–3, with unresolved names sunk through the threaded
+  resolution set so the typo raises byte-identically to the `@<T>` and
+  schema-body positions. The interior comma split nests brace depth (a
+  nested multi-field object is one field's type, not three), and the
+  §Schema-slug collision posture's byte-equality check is wired
+  (first-wins retention; differing bytes raise the registered
+  `theta/load/schema-slug-collision`). `lowerTypeExpr` is untouched — no
+  other position's lowered bytes move; `p: {}` and brace-under-generic
+  shapes keep their dispositions; no spec or registry edit. The binder
+  Parameters line now renders the declared inline type instead of `()`,
+  and the AJV argument envelope validates the declared shape instead of
+  accepting anything. Locked by
+  `tests/params-inline-object-lowering.test.ts` (37 offline tests with an
+  independent canonical-hash oracle and a real-AJV boundary group; three
+  neutralisation directions verified; H8a 7/7 and H9a acceptance 11/11
+  green).
+
 ## [0.43.0] - 2026-07-31
 
 ### Fixed

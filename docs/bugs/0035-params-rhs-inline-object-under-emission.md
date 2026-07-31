@@ -1,6 +1,10 @@
 # Bug 0035 — An inline object type on the `params:` right-hand side is discarded before it is lowered: `p: {a: Tirage, b: integer}` loads clean, lowers `properties.p = {}`, records the field's declared type as the empty string, and raises none of the `theta/parse/unresolved-named-type` its two sibling positions raise for the identical text
 
-- **Status:** open
+- **Status:** fixed (0.44.0). Both frames closed — the frontmatter read
+  recovers the author's bytes for a non-scalar RHS, and the `params:`
+  position lowers a brace-rooted field through its own inline-object arm
+  (hoist under `__inline_<slug>`, emission from the threaded resolution
+  set). See §Fix (0.44.0) below.
 - **Kind:** defect, two elements on one mechanism. (1) *Implementation
   disagrees with the specification.* schema-subset.md §Lowering Algorithm step
   2 (`:73`) hoists "anonymous inline object schemas (`{ field: T }` appearing
@@ -67,6 +71,86 @@
 - **Observed at:** `0.38.0`. Offline, deterministic, no live model: scratch
   vitest driving `parseThetaDocument` (the real load path) plus the pure
   `classifyBinderBypass` and `renderBinderParamLine`; written, run, deleted.
+
+## Fix (0.44.0)
+
+The constraint-pinned §Fix below ("Not yet decided" on route, settled on
+obligations) is discharged with both frames closed and no other position's
+lowered bytes moved. Line anchors are at the fix commit.
+
+**Frame 1 — the frontmatter read recovers the author's bytes.**
+`extractParsedParams` (`src/parser/frontmatter.ts`) threads the raw
+frontmatter YAML text; a non-scalar `params:` RHS (an unquoted flow mapping)
+recovers the author's own bytes by slicing the value node's range out of
+that text — no YAML round-trip. The recovered text flows into `typeSource`,
+the diagnostics pass, and `BypassParamsField.type` (the binder Parameters
+line renders the declared type instead of `()`).
+
+**Frame 2 — a `params:`-scoped inline-object arm.** New exported
+`lowerParamsFieldType` (`src/parser/params.ts`), called from `parseParams`'s
+per-field loop; `lowerTypeExpr` is byte-untouched, so the annotation and
+schema-body positions' lowered bytes cannot move. A brace-rooted field
+parses its field list with the shared `topLevelColon` (moved to `params.ts`,
+re-imported by `body-type-lowering.ts`) and an `"angle-and-brace"` interior
+comma split (review round 1: an angle-only split — `lowerInlineObject`'s —
+mints phantom fields and a wrong `required` for a nested multi-field object,
+turning accept-anything into reject-the-declared-shape silently); each
+field's type recurses (nested brace-rooted types hoist their own defs),
+unresolved names land in the threaded `lowerCtx.unresolved` exactly as the
+sibling positions' walker sinks them — never a lowered-shape `{}` test, per
+the `collectBodyTypes` nuance. A non-empty fragment hoists under
+`__inline_<slug>` (schema-subset.md §Lowering step 2, the canonical schema
+hash) and lowers to `{"$ref": "#/$defs/__inline_<slug>"}` (step 3); the
+zero-field body `{}` keeps its permissive `{}` disposition (the
+`empty-schema-body` question stays open, out of scope). The slug-match
+byte-equality the §Schema-slug collision posture mandates is wired (review
+round 1): canonical-form bytes are retained per minted def, a byte-equal
+match dedups silently, differing bytes keep the first fragment and raise the
+registered `theta/load/schema-slug-collision` at the triggering field — the
+file is not registered.
+
+**No spec or registry edit.** The `unresolved-named-type` row already names
+the position; the collision code was already registered; H9a's
+permitted-code list untouched. GOV-15's carve-out covers the newly-refused
+typo inputs.
+
+**Reproduction re-derived at the fix baseline** (`8ae94691`, 0.43.0): all
+eight fixtures byte-identical to the recorded 0.38.0 table — zero drift.
+Post-fix: A and F raise exactly one `unresolved named type 'Tirage'`
+byte-identical to D/G/H and the theta is refused; B/C hoist and emit the
+`$ref` with `$defs` carrying the inline fragment (and `Triage` beside it);
+the recorded type is the author's bytes; D/E/G/H byte-unchanged; `p: {}`
+and the brace-under-generic shapes keep their dispositions.
+
+**Offline lock.** `tests/params-inline-object-lowering.test.ts` (37 tests):
+an independent `node:crypto` oracle over hand-written canonical forms (the
+spec recipe, not `schemaSlug`) pins the minted slugs; groups (a) diagnostic
++ four-position byte-parity, (b) lowering incl. dedup, nested multi-field
+and quoted/unquoted convergence, (c/d) recovered bytes, (e) scope bounds
+(generic path untouched, `p: {}`, the 0028-residual YAML frame), (f) the
+real-AJV argument boundary (the accept-anything hole closed), (g) the
+collision check at the unit seam plus the registry template. Verified in
+three directions: neutralising frame 1 reds exactly the unquoted-route rows
+while the quoted route stays green; neutralising frame 2 reds both routes
+while the recovered-text rows stay green; neutralising the byte-equality
+branch reds exactly the collision-sink pin. Byte-exact restores per blob
+hash. Full gate 235 files / 2893 tests; typecheck and lint clean. Live: H8a
+7/7 and H9a acceptance 11/11 green (incl. `acc-params-binder.theta`'s real
+off-session binder pass).
+
+**Residuals.** (i) The sibling positions' `lowerInlineObject` keeps its
+angle-only interior split: on nested-comma texts
+(`{a: T, b: {x: integer, y: string}}`) the `@<T>` and schema-body positions
+still mint silently-wrong fragments (phantom fields, wrong `required`) —
+pre-existing, unchanged here, unfiled. (ii) The `__inline_` name prefix is
+not spec-reserved: an author-declared schema literally named
+`__inline_<16hex>` that matches a minted slug aliases silently in either
+field order (outside the collision row's anonymous-inline trigger) — a
+namespace clash pending a spec decision on reserving the prefix, unfiled.
+(iii) A block-mapping RHS (`p:` followed by an indented YAML mapping) now
+recovers its block-YAML bytes as the recorded type and still lowers
+permissively silent — the adjacent silent spelling, unchanged in
+disposition, unfiled.
 
 ## Summary
 

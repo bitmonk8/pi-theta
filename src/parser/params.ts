@@ -7,7 +7,7 @@
 // ordering rule, and the lowering of `params:` to a single AJV-validatable
 // JSON-Schema document.
 //
-// The four behaviour-bearing checks this seam owns:
+// The five behaviour-bearing checks this seam owns:
 //
 //   - `theta/parse/non-trailing-default` — a non-defaulted param placed after a
 //     defaulted param in declaration order; the diagnostic names the first
@@ -19,6 +19,10 @@
 //     resolves to no body `schema`/`enum` declaration or imported `.thetalib`
 //     symbol. Resolution is whole-file, so a frontmatter-to-body forward
 //     reference is not itself a failure.
+//   - `theta/load/schema-slug-collision` — an `__inline_<slug>` slug match
+//     whose retained canonical-form bytes differ (schema-subset.md
+//     §Schema-slug collision posture); raised at the field being lowered
+//     when the byte check failed.
 //   - the lowered schema — the per-theta `params:` object document, validated
 //     through AJV (the `V8c` `SchemaValidator` seam) at invocation time.
 //
@@ -31,7 +35,11 @@ import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type LoweredSchema } from "../seams/schema-validator";
 import { checkLiteralSublanguage } from "./literal-sublanguage";
 import {
+  canonicalForm,
   lowerUnion,
+  schemaSlug,
+  type LoweredJsonValue,
+  type LoweredObjectEntry,
   type LoweredPrimitiveType,
   type LoweredUnionArm,
 } from "./schema-lowering";
@@ -125,9 +133,29 @@ export function parseParams(
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   const defs: Record<string, Record<string, unknown>> = {};
+  // The `__inline_<slug>` dedup table is BLOCK-shared (it is `defs` itself), so
+  // its retained canonical bytes and its collision sink are block-shared too:
+  // schema-subset.md §Schema-slug collision posture mandates the byte-equality
+  // check on every slug match across the whole lowering pass, not per field.
+  const inlineCanonical = new Map<string, string>();
+  const slugCollisions: string[] = [];
+  const collisionSites: { readonly slug: string; readonly range: SourceRange }[] = [];
   for (const field of fields) {
-    const lowerCtx: LowerCtx = { bodyTypeMap, defs, unresolved: [] };
-    properties[field.name] = lowerTypeExpr(field.typeSource, lowerCtx);
+    const lowerCtx: LowerCtx = {
+      bodyTypeMap,
+      defs,
+      unresolved: [],
+      inlineCanonical,
+      slugCollisions,
+    };
+    properties[field.name] = lowerParamsFieldType(field.typeSource, lowerCtx);
+    // The sink is append-only and shared, so every slug appended during THIS
+    // field's lowering is attributable to THIS field's range — which is the
+    // range the collision diagnostic must carry, the site being lowered when the
+    // check failed.
+    for (const slug of slugCollisions.slice(collisionSites.length)) {
+      collisionSites.push({ slug, range: field.range });
+    }
     for (const name of lowerCtx.unresolved) {
       diagnostics.push({
         severity: "error",
@@ -140,6 +168,21 @@ export function parseParams(
     if (field.defaultSource === undefined) {
       required.push(field.name);
     }
+  }
+
+  // A slug match whose retained canonical bytes DIFFER is a schema-slug
+  // collision: `lowerParamsFieldType` has already refused to merge the two
+  // fragments, and this is the registered load-time report of that refusal. The
+  // error severity withholds the lowered schema below, which is the registry
+  // row's "The file is not registered" posture (code-registry-load.md).
+  for (const collision of collisionSites) {
+    diagnostics.push({
+      severity: "error",
+      code: "theta/load/schema-slug-collision",
+      file: site.file,
+      range: collision.range,
+      message: `schema-slug collision on slug ${collision.slug}: two distinct inline schemas hash alike`,
+    });
   }
 
   // No non-defaulted field may follow a defaulted field in declaration order;
@@ -253,6 +296,26 @@ export interface LowerCtx {
   readonly defs: Record<string, Record<string, unknown>>;
   /** `NamedType` names this field references that resolve to no declaration. */
   readonly unresolved: string[];
+  /**
+   * The canonical-form bytes of each `__inline_<slug>` fragment already minted
+   * into `defs`, keyed by the bare 16-hex slug. schema-subset.md §Schema-slug
+   * collision posture requires a slug-keyed dedup table to store the bytes
+   * ALONGSIDE the keyed artefact, so a slug match is settled by a byte
+   * comparison rather than a re-serialisation.
+   *
+   * OPTIONAL because only the `params:` field position mints `__inline_` entries
+   * (`lowerParamsFieldType`): the body-type and query-lowering call sites thread
+   * no map and perform no check, and adding the field must not force them to.
+   */
+  readonly inlineCanonical?: Map<string, string>;
+  /**
+   * Sink for the bare slugs whose byte-equality check FAILED, appended in
+   * lowering order. Like `unresolved`, the caller owns the array's lifetime and
+   * this module never reads it back: `parseParams` turns each entry into
+   * `theta/load/schema-slug-collision` at the field it was lowering. Absent, the
+   * check has nowhere to report and the retention is still first-wins.
+   */
+  readonly slugCollisions?: string[];
 }
 
 const PRIMITIVE_TYPES = new Set<LoweredPrimitiveType>([
@@ -283,6 +346,13 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Literal-type and inline-object lowering beyond this subset is owned by the
  * schema-subset lowering leaves, not this seam; an unrecognised form lowers
  * permissively (`{}`) while still resolving any `NamedType` it nests.
+ *
+ * A `params:` field's own right-hand side never reaches this function
+ * brace-rooted: `lowerParamsFieldType` (below) intercepts that shape first and
+ * hoists it, calling this function only for what is left over (bug 0035). A
+ * brace-rooted type nested inside a generic argument or a union arm still
+ * arrives here unintercepted, so this function's own handling of that shape —
+ * the trailing catch-all — is unchanged.
  */
 export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string, unknown> {
   const s = source.trim();
@@ -342,21 +412,204 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
 }
 
 /**
+ * Lower a single `params:` field's type expression, intercepting a
+ * brace-rooted inline object type (`{a: Triage, b: integer}`) before it can
+ * reach `lowerTypeExpr`'s catch-all: `parseParams`'s per-field loop calls this
+ * instead of `lowerTypeExpr` directly (bug 0035), so a name inside the object
+ * resolves through the same `lowerCtx` — landing in `lowerCtx.unresolved` for
+ * the caller's diagnostic loop, or in `lowerCtx.defs` as a hoisted `$ref`
+ * target — exactly as the `@<T>` annotation and `schema`-body positions
+ * already do (schema-subset.md:73/:76).
+ *
+ * THE INTERIOR SPLIT NESTS BRACE DEPTH. The interior of a brace-rooted `params:`
+ * field is an inline-object FIELD LIST whose per-field `Type` is recursive
+ * (grammar.md:109), so a nested `ObjectType` is ONE field's type and the comma
+ * inside it is not an outer separator — hence `"angle-and-brace"`. Splitting on
+ * angle depth alone reads `{a: Triage, b: {x: integer, y: string}}` as the three
+ * entries `a: Triage`, `b: {x: integer`, `y: string}`: the theta loads clean and
+ * mints a fragment carrying a permissive `b`, a PHANTOM top-level `y`, and a
+ * three-name `required`, so AJV then rejects the author's own payload and
+ * accepts the phantom shape instead. `topLevelColon` needs no change and is
+ * shared with `lowerInlineObject` as-is — it already tracks brace depth, so a
+ * nested object's own `:` never splits the enclosing entry.
+ *
+ * That is a DELIBERATE divergence from `lowerInlineObject`
+ * (body-type-lowering.ts), whose interior split is angle-only and which
+ * therefore drops those same two fragments at the three sibling positions. Their
+ * behaviour on nested-comma texts is theirs — pre-existing, recorded as a
+ * residual, not changed from here. What an author moving a type expression
+ * between positions relies on is the SINGLE-LEVEL raise-parity, and that is
+ * unchanged: all four positions name `Tirage` in `{a: Tirage, b: integer}`.
+ *
+ * A zero-field body — `{}`, or an interior of only whitespace — returns the
+ * permissive `{}` with no hoist and no diagnostic. grammar.md:109's
+ * empty-schema-body case stays open for the `params:` position (bug 0035
+ * §Expected leaves it out of scope); this arm must not pre-empt it.
+ *
+ * Each field's own type recurses through this same function, so a nested
+ * brace-rooted type hoists its own `__inline_<slug>` entry (the MIXED
+ * fixture); the recursion falls through to `lowerTypeExpr` the moment a
+ * field's type is not itself brace-rooted.
+ */
+export function lowerParamsFieldType(
+  source: string,
+  lowerCtx: LowerCtx,
+): Record<string, unknown> {
+  const s = source.trim();
+  if (!(s.startsWith("{") && s.endsWith("}"))) {
+    return lowerTypeExpr(s, lowerCtx);
+  }
+
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const entry of splitTopLevel(s.slice(1, -1), ",", "angle-and-brace")) {
+    const colon = topLevelColon(entry);
+    if (colon < 0) {
+      continue;
+    }
+    const fieldName = entry.slice(0, colon).trim();
+    const fieldType = entry.slice(colon + 1).trim();
+    if (fieldName.length === 0 || fieldType.length === 0) {
+      continue;
+    }
+    properties[fieldName] = lowerParamsFieldType(fieldType, lowerCtx);
+    required.push(fieldName);
+  }
+  if (required.length === 0) {
+    return {};
+  }
+
+  const fragment: Record<string, unknown> = {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  };
+  // Content-addressed, so two fields declaring inline types that LOWER ALIKE
+  // share one `$defs` entry. The slug is a 64-bit truncation of SHA-256, so a
+  // slug match is only evidence of fragment identity until the bytes are
+  // compared: schema-subset.md §Schema-slug collision posture mandates that
+  // comparison on every `__inline_<slug>` match and requires the bytes to be
+  // RETAINED beside the entry, so the check is a byte comparison rather than a
+  // re-serialisation. `canonicalForm` is called here rather than the bytes being
+  // reconstructed from `schemaSlug`'s internals, which keeps the hash recipe
+  // (§Canonical schema hash steps 2–4) owned by schema-lowering.ts.
+  const lowered = toLoweredJsonValue(fragment);
+  const canonical = canonicalForm(lowered);
+  const slug = schemaSlug(lowered);
+  const defName = `__inline_${slug}`;
+  if (lowerCtx.defs[defName] !== undefined) {
+    const retained = lowerCtx.inlineCanonical?.get(slug);
+    if (retained !== undefined && retained !== canonical) {
+      // Differing bytes: refuse to merge and report the slug. The caller raises
+      // the registered `theta/load/schema-slug-collision`, whose message literal
+      // is held identical to `dedupInlineSchemas`'s (schema-lowering.ts) by
+      // DIAG-4 rather than by shared code — that function applies the same
+      // posture to a post-hoc fragment LIST and has no production caller today,
+      // while this site needs the decision AT MINT TIME because the `$ref` it
+      // returns must name whichever fragment is retained.
+      lowerCtx.slugCollisions?.push(slug);
+    }
+    // FIRST WINS either way — the retention posture `dedupInlineSchemas` applies:
+    // byte-equal fragments are the silent dedup case (schema-subset.md step 2),
+    // and a colliding one must not displace the fragment an earlier field's
+    // `$ref` already names. An entry carrying no retained bytes has nothing to
+    // compare and is retained too — the reachable input class there is an
+    // author-declared schema whose name is literally `__inline_<16hex>` and
+    // matches a minted slug: a namespace clash outside the registry row's
+    // anonymous-inline trigger, retained silently pending a spec decision on
+    // reserving the prefix.
+    return { $ref: `#/$defs/${defName}` };
+  }
+  lowerCtx.defs[defName] = fragment;
+  lowerCtx.inlineCanonical?.set(slug, canonical);
+  return { $ref: `#/$defs/${defName}` };
+}
+
+/**
+ * Convert a lowered-schema JSON value (as `lowerParamsFieldType` builds it —
+ * nested objects, arrays, strings, booleans) to the `LoweredJsonValue` the
+ * canonical-hash recipe (`schemaSlug`) requires. Total over that domain: an
+ * integer-valued number renders `"integer"`, any other number `"number"` — no
+ * numeric consts arise from a `params:` inline object today, since a field
+ * type routes through `lowerTypeExpr`, never the literal-sublanguage lowering,
+ * but the slug recipe is number-kind-sensitive, so this conversion does not
+ * assume only the shapes reachable so far. Object entries are walked in
+ * insertion order; `canonicalForm` sorts them by Unicode code point before
+ * hashing.
+ */
+function toLoweredJsonValue(value: unknown): LoweredJsonValue {
+  if (typeof value === "string") {
+    return { kind: "string", value };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "boolean", value };
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? { kind: "integer", value }
+      : { kind: "number", value };
+  }
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array", items: value.map(toLoweredJsonValue) };
+  }
+  const entries: LoweredObjectEntry[] = Object.entries(
+    value as Record<string, unknown>,
+  ).map(([key, entryValue]) => ({ key, value: toLoweredJsonValue(entryValue) }));
+  return { kind: "object", entries };
+}
+
+/** Find the top-level `:` in a `field: Type` entry, respecting `<>`/`{}` nesting. */
+export function topLevelColon(entry: string): number {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < entry.length; i += 1) {
+    const c = entry[i] ?? "";
+    if (quote !== undefined) {
+      if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === "<" || c === "{" || c === "(") {
+      depth += 1;
+    } else if (c === ">" || c === "}" || c === ")") {
+      depth -= 1;
+    } else if (c === ":" && depth === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Which bracket pairs `splitTopLevel` counts as nesting.
  *
- *   - `"angle"` — `<…>` alone. Every union-arm and `params:`-lowering caller
- *     uses this: those callers split on `|` or on the `,` of an inline-object
- *     field list, where an unbalanced brace cannot arise from a well-formed
- *     enclosing form, and widening them would change which fragments they lower
- *     (`array<{a: string, b: integer}>` and `{a: 1 | 2}` both split differently
- *     under brace tracking).
+ *   - `"angle"` — `<…>` alone. The union-arm splits and `lowerTypeExpr`'s own
+ *     GENERIC ARGUMENT split use this, and widening either would change which
+ *     fragments they lower: `array<{a: string, b: integer}>` would present as one
+ *     argument and take the `array` arm, emitting a fragment that asserts
+ *     arrayness while dropping the element shape, and `{a: 1 | 2}` would stop
+ *     splitting into arms at all.
  *   - `"angle-and-brace"` — `<…>` and `{…}`. This is what the `Type` grammar
- *     requires of a `GenericType` ARGUMENT list: grammar.md §"Type grammar"
- *     makes `ObjectType` a `Type` and §"Inline object types" admits it "in any
- *     `Type` position", so `Result<{a: string, b: integer}, QueryError>` has
- *     exactly two arguments and its first one carries a comma. Splitting that
- *     on angle depth alone yields three parts and disagrees with the parser
- *     that computes `theta/parse/generic-arity-mismatch`.
+ *     requires wherever a comma separates items whose own `Type` may be an
+ *     `ObjectType`: grammar.md §"Type grammar" makes `ObjectType` a `Type` and
+ *     §"Inline object types" admits it "in any `Type` position", recursively.
+ *     Two lists need it. A `GenericType` ARGUMENT list —
+ *     `Result<{a: string, b: integer}, QueryError>` has exactly two arguments and
+ *     its first carries a comma, so an angle-only split yields three parts and
+ *     disagrees with the parser that computes
+ *     `theta/parse/generic-arity-mismatch`. And the inline-object FIELD LIST of a
+ *     brace-rooted `params:` field (`lowerParamsFieldType`), where a nested
+ *     `ObjectType` is a single field's type; that function's comment records what
+ *     an angle-only split mints there, and why `lowerInlineObject`
+ *     (body-type-lowering.ts) keeping the angle-only split is a residual rather
+ *     than a shared rule.
  */
 export type TypeSplitNesting = "angle" | "angle-and-brace";
 

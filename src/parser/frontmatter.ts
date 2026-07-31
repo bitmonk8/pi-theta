@@ -342,6 +342,25 @@ function rangeOf(
 }
 
 /**
+ * Recover a `params:` field's non-scalar right-hand side as the author's own
+ * bytes. An unquoted inline object type (`p: {a: Triage, b: integer}`) parses
+ * as a YAML flow mapping, not a scalar, so its declared type is read off the
+ * value node's own `[range[0], range[1])` offsets into `yamlSource` rather
+ * than re-serialised through YAML: the type side is theta's grammar, not
+ * YAML's, and a round-trip could reorder or requote what the author wrote
+ * (bug 0035). A node carrying no range recovers the empty string — there is
+ * no declared type to read.
+ */
+function paramValueSource(value: unknown, yamlSource: string): string {
+  const node = value as Node | null | undefined;
+  if (node === null || node === undefined || !node.range) {
+    return "";
+  }
+  const [start, end] = node.range;
+  return yamlSource.slice(start, end);
+}
+
+/**
  * Render a YAML scalar as the unquoted source text the `<value>` placeholder
  * substitutes (`placeholder-rendering-b.md` category 5): a YAML scalar with no
  * enclosing source quoting renders unquoted regardless of identifier shape.
@@ -623,6 +642,12 @@ function typeSourceIsNullable(typeSource: string): boolean {
  * per-field inputs are returned alongside so `parseFrontmatter` can run the
  * whole-file `params:` diagnostics pass and build the `system:` interpolation
  * param types.
+ *
+ * Each field's declared type is recovered as the author's own bytes: a scalar
+ * RHS reads its parsed value; a non-scalar RHS — an inline object type, a YAML
+ * flow mapping — reads the value node's own source range via
+ * `paramValueSource` (bug 0035), so that shape reaches `parseParams` instead of
+ * being discarded as an empty type.
  */
 function extractParsedParams(
   paramsNode: Node | null | undefined,
@@ -630,6 +655,7 @@ function extractParsedParams(
   lineCounter: LineCounter,
   lineOffset: number,
   bodyTypeDecls: readonly BodyTypeDeclaration[],
+  yamlSource: string,
 ): { params: ParsedParams | undefined; fieldInputs: readonly ParamFieldInput[] } {
   if (paramsNode === null || paramsNode === undefined || !isMap(paramsNode)) {
     return { params: undefined, fieldInputs: [] };
@@ -642,7 +668,9 @@ function extractParsedParams(
       continue;
     }
     const name = String(item.key.value);
-    const rawValue = isScalar(item.value) ? String(item.value.value) : "";
+    const rawValue = isScalar(item.value)
+      ? String(item.value.value)
+      : paramValueSource(item.value, yamlSource);
     const { typeSource, defaultSource } = splitParamValue(rawValue);
     const range =
       rangeOf((item.value ?? item.key) as Node, lineCounter, lineOffset) ??
@@ -1055,6 +1083,7 @@ export function parseFrontmatter(
     lineCounter,
     lineOffset,
     bodyTypeDecls,
+    block?.yaml ?? "",
   );
 
   // Whole-file `params:` named-type / ordering / default-literal diagnostics.

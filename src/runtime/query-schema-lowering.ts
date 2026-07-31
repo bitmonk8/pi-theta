@@ -50,10 +50,12 @@
 //     arm does not match and the generic arm takes it.
 //   - THE TRAILING CATCH-ALL, one level under the root: arm 2 below is the only
 //     dispatch to `lowerInlineObject`, so an inline object type in any other
-//     position lowers `{}` (`array<{a: string}>` → `items: {}`), and a literal
-//     atom is recognised only by `lowerTypeSource`'s own top-level check, so a
-//     literal arm of a union that is not all-literal lowers `{}`
-//     (`"a" | Triage` → `anyOf: [{}, {"$ref": …}]`).
+//     position lowers `{}` (`array<{a: string}>` → `items: {}`; the `params:`
+//     field root is the one exception, hoisting before `lowerTypeExpr` runs —
+//     bug 0035, `lowerParamsFieldType` in params.ts), and a literal atom is
+//     recognised only by `lowerTypeSource`'s own top-level check, so a literal
+//     arm of a union that is not all-literal lowers `{}` (`"a" | Triage` →
+//     `anyOf: [{}, {"$ref": …}]`).
 //
 // Spec: schema-subset.md (SUBS-1 lowering), query/query-failure-and-repair.md
 // (QRY-22).
