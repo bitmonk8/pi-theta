@@ -6,6 +6,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-07-31
+
+### Fixed
+
+- **Schema-constructor field values were never checked against the declared
+  field types: `Point { x: "hello" }` loaded clean and minted a
+  `Point`-branded value** (bug 0031). The type-phase `object` arm recursed
+  into field values and passed nothing down — no `checkCompatible` call, no
+  `array<T>` element sink (an unimplemented member of grammar.md's
+  exhaustive sink set) — while the identical value/type pairs one position
+  over at a typed `let` all reported. Branded-but-malformed values falsified
+  the compatibility engine's premise, and `Holder { r: Ok(1) }` smuggled a
+  `Result` into the state `theta/parse/result-in-schema-position` exists to
+  make unrepresentable. Declared field types are now carried into the
+  `TypeEnv` (null-prototyped, own-key-guarded — theta field names may
+  collide with `Object.prototype` members) and each constructor field in
+  the literal∩declaration intersection is checked with the same engine the
+  typed-`let` arm uses: incompatible → the new
+  `theta/parse/object-field-type-mismatch` (DIAG-2 row + reference mirror +
+  the type-system.md check-site enumeration entry, same commit); a
+  `number`→`integer` narrowing → the registered `integer-narrowing`; an
+  array literal under `array<T>` additionally rides the declared element
+  sink through the registered `array-element-type-mismatch`; a
+  `result-ctor` field value is rejected outright. Coverage matches the
+  `let` position's (statically-resolvable operands only; residues r1–r5
+  pinned silent). No runtime change — brand sites untouched. Locked by
+  `tests/ctor-field-type-check.test.ts` (30 offline tests: w1–w5 red-first,
+  intersection rule, c1–c7 controls, ten residue negatives,
+  production-executor brand observables, prototype-collision pins, DIAG-4
+  drift guard; both directions verified; H8a + H9a acceptance green).
+
 ## [0.42.0] - 2026-07-31
 
 ### Fixed

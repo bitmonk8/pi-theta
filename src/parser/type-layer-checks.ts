@@ -45,6 +45,8 @@ import type {
   Expr,
   FnDecl,
   IfStmt,
+  ObjectFieldNode,
+  SchemaFieldSource,
   ThetaBody,
   Stmt,
 } from "./theta-document";
@@ -52,6 +54,7 @@ import {
   checkCompatible,
   checkCommonType,
   checkLetRhsCompat,
+  checkObjectFieldCompat,
   displayType,
   type CompatType,
   type NamedDecl,
@@ -223,19 +226,60 @@ export function checkTypeLayer(body: ThetaBody, file: string): Diagnostic[] {
 
 /**
  * Build the whole-file `TypeEnv` from top-level `schema` declarations: every
- * named schema resolves as a nominal `object-schema` (TYPE-10). The `= …` alias
- * and `by … = …` forms carry no field list the parser retains as a resolvable
- * RHS, so they too default to the nominal shape — a conservative classification
- * that never manufactures a spurious `type`-phase reject.
+ * named schema resolves as a nominal `object-schema` (TYPE-10), carrying its
+ * declared field types when the parser retained an object field list
+ * (`SchemaDecl.fields`, present only for the `schema X { f: T, … }` object
+ * form). The `= …` alias and `by … = …` forms carry no field list, so their
+ * entry keeps `fields` absent — a conservative classification that never
+ * manufactures a spurious `type`-phase reject, and the constructor-field check
+ * (`walkExpr`'s `object` arm, via `TypeLayerWalk.declaredFieldsOf`) skips a
+ * declaration with no field list.
  */
 export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
   const env: Record<string, NamedDecl> = {};
   for (const stmt of statements) {
     if (stmt.kind === "schema") {
-      env[stmt.name] = { kind: "object-schema" };
+      const fields = collectSchemaFields(stmt.fields);
+      env[stmt.name] = {
+        kind: "object-schema",
+        ...(fields !== undefined ? { fields } : {}),
+      };
     }
   }
   return env;
+}
+
+/**
+ * The declared field-type record for an object-form `schema`'s field list,
+ * mapping each `SchemaFieldSource.typeSource` through `annotationToCompatType`
+ * — the same conversion a `let` annotation gets, so a schema field and a `let`
+ * annotation resolve identically (e.g. both leave an `enum`-typed or
+ * literal-union-typed field as an unresolvable `named` reference).
+ * `undefined` for the alias / `by … = …` forms, whose declaration carries no
+ * object field list (`SchemaDecl.fields` is optional).
+ *
+ * Null-prototype because a theta field name is unconstrained and may collide
+ * with an `Object.prototype` member: on an ordinary `{}` the record would
+ * answer a `toString` / `constructor` / `valueOf` lookup through the prototype
+ * chain (manufacturing a declared type for an undeclared field), and assigning
+ * a field literally named `__proto__` would set the record's prototype instead
+ * of creating an own property (losing the declared type). With no prototype,
+ * both reads and writes are ordinary own properties.
+ */
+function collectSchemaFields(
+  fields: readonly SchemaFieldSource[] | undefined,
+): Readonly<Record<string, CompatType>> | undefined {
+  if (fields === undefined) {
+    return undefined;
+  }
+  const out: Record<string, CompatType> = Object.create(null) as Record<string, CompatType>;
+  for (const f of fields) {
+    const type = annotationToCompatType(f.typeSource);
+    if (type !== undefined) {
+      out[f.name] = type;
+    }
+  }
+  return out;
 }
 
 /**
@@ -665,6 +709,98 @@ class TypeLayerWalk {
     return null;
   }
 
+  /**
+   * The type-phase field-value check for a schema-constructor field
+   * (`Schema { field: expr, … }`, `walkExpr`'s `object` arm). Runs only when
+   * `e.typeName` resolves in `this.env` to an object-schema declaration
+   * carrying a declared field list — an unresolved or non-constructible name
+   * (bug 0025's territory) and an alias-form schema (fieldless by
+   * construction) both keep the check silent, and a bare `{ … }` literal
+   * (`typeName === null`) has no declaration to resolve at all. Checks run
+   * over the intersection of the literal's fields and the declaration's
+   * fields: an undeclared field and an omitted declared field keep reporting
+   * through `checkObjectExpr`'s presence gates alone
+   * (`theta/parse/extra-object-field` / `theta/parse/missing-object-field`),
+   * so a mistyped extra field is not double-reported. The walk still recurses
+   * into every field value afterwards, exactly as before this check existed.
+   */
+  private checkObjectFields(
+    e: Expr & { kind: "object" },
+    bindings: ReadonlyMap<string, CompatType>,
+    flow: WalkCtx,
+  ): void {
+    const typeName = e.typeName;
+    const declaredFields = typeName === null ? undefined : this.declaredFieldsOf(typeName);
+    for (const field of e.fields) {
+      let skipArray: Expr | null = null;
+      // Own-key lookup: a theta field name may collide with an
+      // `Object.prototype` member (`toString`, `constructor`, …), and the
+      // record must never answer through the prototype chain and manufacture a
+      // declared type for a field the schema does not declare.
+      const declared =
+        declaredFields !== undefined && Object.hasOwn(declaredFields, field.name)
+          ? declaredFields[field.name]
+          : undefined;
+      if (typeName !== null && declared !== undefined) {
+        skipArray = this.checkObjectField(typeName, field, declared, bindings);
+      }
+      this.walkExpr(field.value, bindings, flow, skipArray);
+    }
+  }
+
+  /**
+   * `typeName`'s declared field-type record, or `undefined` when it does not
+   * resolve in `this.env` to an object-schema declaration carrying one.
+   */
+  private declaredFieldsOf(
+    typeName: string,
+  ): Readonly<Record<string, CompatType>> | undefined {
+    const decl = this.env[typeName];
+    if (decl === undefined || decl.kind !== "object-schema") {
+      return undefined;
+    }
+    return decl.fields;
+  }
+
+  /**
+   * One constructor field's value against its declared type. A `result-ctor`
+   * value (`Ok(...)` / `Err(...)`) is rejected outright — every declared
+   * field type is lowerable (`theta/parse/result-in-schema-position` makes a
+   * `Result`-typed field undeclarable), so a `Result` value is incompatible
+   * with whatever the field declares even though `checkCompatible` alone
+   * answers `"unknown"` for it. Otherwise routes the compatibility outcome
+   * the way `checkLetRhsCompat` does. When the value is an array literal and
+   * the declared type is `array<T>`, also checks it against the declared
+   * element type as a sink (mirroring the typed-`let` arm's `sinkedArrayOf`)
+   * and returns the value node so the caller skips the generic sink-less
+   * array check on the same node; otherwise returns `null`.
+   */
+  private checkObjectField(
+    schema: string,
+    field: ObjectFieldNode,
+    declared: CompatType,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): Expr | null {
+    const value = field.value;
+    const valueType = this.typeOf(value, bindings);
+    this.diagnostics.push(
+      ...checkObjectFieldCompat({
+        schema,
+        field: field.name,
+        declared,
+        value: valueType,
+        env: this.env,
+        site: { file: this.file, range: value.range },
+        forceIncompatible: value.kind === "result-ctor",
+      }),
+    );
+    if (value.kind === "array" && declared.kind === "array") {
+      this.checkArrayLiteral(value, declared.element, bindings);
+      return value;
+    }
+    return null;
+  }
+
   private walkExpr(
     e: Expr,
     bindings: ReadonlyMap<string, CompatType>,
@@ -752,9 +888,7 @@ class TypeLayerWalk {
         }
         return;
       case "object":
-        for (const field of e.fields) {
-          this.walkExpr(field.value, bindings, flow);
-        }
+        this.checkObjectFields(e, bindings, flow);
         return;
       case "result-ctor":
         this.walkExpr(e.arg, bindings, flow);

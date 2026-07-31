@@ -89,6 +89,7 @@ trigger.
 | `theta/parse/non-string-array-join` | E | type | `array.join requires a string element type; got array<<element>>` |
 | `theta/parse/extra-object-field` | E | parse | `extra field '<field>' on schema '<schema>'` |
 | `theta/parse/missing-object-field` | E | parse | `missing field '<field>' on schema '<schema>'` |
+| `theta/parse/object-field-type-mismatch` | E | type | `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/bare-object-literal` | E | parse | `bare object literal not permitted in this position; name the schema (Schema { ... })` |
 | `theta/parse/default-not-literal` | E | parse | `params default RHS must be a literal-sublanguage form; offending sub-expression: <expr>` |
 | `theta/parse/non-trailing-default` | E | parse | `non-defaulted param '<field>' follows a defaulted param; defaulted params must be trailing` |

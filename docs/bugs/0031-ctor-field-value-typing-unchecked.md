@@ -1,6 +1,9 @@
 # Bug 0031 — Schema-constructor field values are never checked against the declared field types: `Point { x: "hello" }` loads clean and mints a `Point`-branded value
 
-- **Status:** open
+- **Status:** fixed (0.43.0). §Fix as settled — declared field types threaded
+  into the `TypeEnv`, one per-field compatibility check at the type-phase
+  `object` arm, new `theta/parse/object-field-type-mismatch` row (DIAG-2),
+  `type-system.md:27` enumeration entry. See §Fix (0.43.0) below.
 - **Kind:** defect — the constructor position runs no compatibility check over
   its field values. Two elements with different spec standing:
   1. **The declared field type is not threaded as an `array<T>` element sink.**
@@ -84,6 +87,86 @@
   (`type-layer-checks.ts`) and mints a different row. The two gates partition
   the input space — a constructor whose name does not resolve to a declared
   object schema never reaches the field-value check.
+
+## Fix (0.43.0)
+
+The settled §Fix, implemented as written. Line anchors are at the fix commit.
+
+**Declared field types carried into the `TypeEnv`.** `NamedDecl`'s
+`object-schema` arm (`src/parser/type-compat.ts`) gains an optional
+`fields?: Readonly<Record<string, CompatType>>`; `collectTypeEnv`
+(`src/parser/type-layer-checks.ts`) populates it from `SchemaDecl.fields`
+through the existing `annotationToCompatType`. The record is
+null-prototyped and the lookup own-keyed (review finding F1: theta field
+names may collide with `Object.prototype` members — `toString`,
+`constructor`, `__proto__` — and the record must neither answer through the
+prototype chain nor let a `__proto__` assignment set the prototype). The
+alias / `by … = …` forms keep a fieldless decl; `checkCompatible`'s
+TYPE-10 arm reads only `env[name] !== undefined`, so no existing relation
+moved (`tests/type-compat.test.ts` green unmodified).
+
+**The check at the `object` arm.** For a constructor resolving to an object
+schema with fields, each field in the literal∩declaration intersection is
+checked by the new `checkObjectFieldCompat` (mirrors `checkLetRhsCompat`
+routing): a `result-ctor` value is rejected outright (the only route that
+closes w2 — `checkCompatible` answers `"unknown"` for it at every sink);
+otherwise `"incompatible"` emits the new code, `"integer-narrowing"` emits
+the registered `theta/parse/integer-narrowing` (closes w5),
+`"compatible"`/`"unknown"` emit nothing. An array-literal value under an
+`array<T>` declared type is additionally sunk through `checkArrayLiteral`
+with the per-field skip threaded through `walkExpr`'s `skipArray`, closing
+w4 through the already-registered `theta/parse/array-element-type-mismatch`
+beside the new code — the c3 let-arm pair. Extra/missing fields keep
+reporting only through the presence gates (x1/x2). No runtime change; brand
+sites, `checkObjectExpr`, and the parse-structural layer untouched.
+
+**Registry (DIAG-2, same commit).**
+`docs/spec_topics/diagnostics/code-registry-parse.md:46` — the
+`theta/parse/object-field-type-mismatch` row exactly as §Fix specifies
+(Sev E, phase type, the row-`:54` resolvability qualifier, Message
+`field '<field>' on schema '<schema>' type mismatch: expected <expected>,
+got <actual>`); mirrored at `docs/reference/diagnostics.md:92`. All four
+placeholders pre-exist in the closed placeholder surface (`<field>`
+category 5, `<schema>` category 7, `<expected>`/`<actual>` category 1) — no
+closure edit. `type-system.md:27` gains "or a schema-constructor field
+value against its declared field type" in the check-site enumeration; the
+reference type-system page is position-generic and needed nothing.
+
+**Reproduction re-derived at the fix baseline** (`62a848ff`, 0.42.0): all
+17 rows (w1–w5, c1–c7, r1–r5 both sides) plus the four runtime brand
+observables byte-identical to the recorded 0.32.0 tables — zero drift
+across eight releases. Post-fix: w1 fires the new code per field, w2
+`expected Inner, got Ok`, w3 `expected Inner, got Other`, w4 the
+new-code + array-element pair, w5 `cannot narrow number to integer`;
+c1–c7 byte-unchanged; r1–r5 still silent on both sides.
+
+**Offline lock.** `tests/ctor-field-type-check.test.ts` (30 tests):
+w1–w5 red-first, x1/x2 intersection rule, c1–c7 controls with
+registry-sourced messages, ten residue negatives pinned as total silence
+(so widening `collectTypeEnv` to `enum` names is a deliberate edit),
+e1–e5 production-executor observables (branded-malformed values gone
+because the source is refused; well-typed constructor still brands),
+p1–p4 prototype-collision pins, REG DIAG-4 drift guard reconciling the
+pinned template against the live registry. Verified in both directions:
+neutralising the object-arm check reds exactly w1–w5/x2/e1–e4/p4 with the
+recorded signatures (REG stays green — the red attributes to the code
+path, not the row); byte-exact restore per blob hash greens 30/30. Full
+gate 234 files / 2856 tests; typecheck and lint clean. Live: H8a 7/7 green
+(the forged-ingress row's child body is itself a schema constructor parsed
+by the new check inside a real spawned child) plus the H9a
+constructor-bearing acceptance witness green.
+
+**Residuals.** (i) A field whose declared type names an alias-form schema
+(`schema Alias = number` — body-level, already refused as
+`unsupported-feature`, bug 0033) emits the new code beside the refusal on a
+mistyped value, exactly parallel to the matched `let`'s pre-existing
+`let-rhs-type-mismatch` pair on the same fixture — within §Fix's
+"identical to the typed-`let` position's" bound, on documents already
+refused at error severity; noted, not filed. (ii) `collectTypeEnv`'s `env`
+itself is a plain `{}` keyed by schema names — the same prototype-hazard
+class one level up, pre-existing at baseline, shielded at the schema-name
+position by `theta/parse/schema-case-mismatch` (every `Object.prototype`
+member name is lowercase); candidate for a separate filing, not filed here.
 
 ## Summary
 

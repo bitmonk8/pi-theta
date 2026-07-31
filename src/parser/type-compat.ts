@@ -68,12 +68,21 @@ export type CompatType =
  *
  *   - `object-schema` — `schema X { ... }`. Nominal (TYPE-10): related only by
  *     name identity, variant-to-union, and union widening/distribution.
+ *     `fields` carries the declared field-name → `CompatType` mapping for the
+ *     object form (`schema X { f: T, … }`), so a constructor-field check can
+ *     resolve `X`'s declared type for a given field; it is absent for a
+ *     declaration the parser retains no object field list for (the `= …`
+ *     alias and `by … = …` discriminated-union forms), which
+ *     `collectTypeEnv` never populates.
  *   - `alias`         — `schema X = R`. Transparent (TYPE-11): replaced by `rhs`
  *     and the check re-evaluated, recursing through nested aliases. The alias
  *     is identified solely by the `=` form, not by what `rhs` resolves to.
  */
 export type NamedDecl =
-  | { readonly kind: "object-schema" }
+  | {
+      readonly kind: "object-schema";
+      readonly fields?: Readonly<Record<string, CompatType>>;
+    }
   | { readonly kind: "alias"; readonly rhs: CompatType };
 
 /** Resolves a `NamedType` name to its declaration; `undefined` if unresolvable. */
@@ -444,6 +453,65 @@ export function checkFnArgCompat(opts: {
       message: `fn '${fnName}' argument ${index} ('${paramName}') type mismatch: expected ${displayType(
         paramType,
       )}, got ${displayType(argType)}`,
+    },
+  ];
+}
+
+/**
+ * TYPE-9 — a schema-constructor field value against its declared field type
+ * (`Schema { field: expr, … }`). Reports `theta/parse/object-field-type-mismatch`
+ * when the field value's static type is not `⊑` the schema's declared type for
+ * that field (both statically resolvable), or `theta/parse/integer-narrowing`
+ * when the failure is specifically a `number` value under an
+ * `integer`-declared field (TYPE-2's one-way widening) — the same routing
+ * `checkLetRhsCompat` applies at the typed-`let` sink. Returns no diagnostic
+ * when the relation holds or is statically unresolvable.
+ *
+ * `forceIncompatible` decides a `Result` constructor value (`Ok(...)` /
+ * `Err(...)`) outright, bypassing `checkCompatible`: every declared field type
+ * is lowerable (`theta/parse/result-in-schema-position` makes a `Result`-typed
+ * field undeclarable), so a `Result` value is incompatible with whatever the
+ * field declares — but a `result-ctor` types as an unresolvable named
+ * `Ok`/`Err` (`static-type-inference.ts`), which `checkCompatible` alone
+ * answers `"unknown"` for at every sink.
+ */
+export function checkObjectFieldCompat(opts: {
+  readonly schema: string;
+  readonly field: string;
+  readonly declared: CompatType;
+  readonly value: CompatType;
+  readonly env: TypeEnv;
+  readonly site: CompatSite;
+  readonly forceIncompatible?: boolean;
+}): Diagnostic[] {
+  const { schema, field, declared, value, env, site, forceIncompatible } = opts;
+  const r = forceIncompatible === true ? "incompatible" : checkCompatible(value, declared, env);
+  if (r === "compatible" || r === "unknown") {
+    return [];
+  }
+  if (r === "integer-narrowing") {
+    // TYPE-2 — a `number` value under an `integer`-declared field. Message
+    // from diagnostics/code-registry-parse.md.
+    return [
+      {
+        severity: "error",
+        code: "theta/parse/integer-narrowing",
+        file: site.file,
+        range: site.range,
+        message: "cannot narrow number to integer",
+      },
+    ];
+  }
+  // Incompatible field value. Message from diagnostics/code-registry-parse.md.
+  return [
+    {
+      severity: "error",
+      code: "theta/parse/object-field-type-mismatch",
+      file: site.file,
+      range: site.range,
+      message: `field '${field}' on schema '${schema}' type mismatch: expected ${displayType(
+        declared,
+      )}, got ${displayType(value)}`,
     },
   ];
 }
