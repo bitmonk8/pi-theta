@@ -1,6 +1,6 @@
 # Bug 0039 — `lowerInlineObject` splits an inline object type's field list without tracking braces, so `@<{a: integer, b: {x: integer, y: string}}>` lowers to a fragment carrying a phantom top-level `y` that QRY-22 then enforces — rejecting the author's own conformant reply and accepting a shape they never declared — while a name written inside a nested inline object is invisible to `theta/parse/unresolved-named-type` at three of the row's five positions
 
-- **Status:** open.
+- **Status:** fixed (0.49.0).
 - **Kind:** defect, three elements on two mechanisms in one function pair.
   (1) *Implementation disagrees with the specification, silently and
   wrongly.* grammar.md `:109` admits `ObjectType` "in any `Type` position"
@@ -113,6 +113,176 @@
   `collectUnresolvedNamedTypes`, `lowerTypeSource`, `lowerInlineObject`,
   `respondToolWireSchema`, and the production `AjvSchemaValidator` with the
   real canonical-hash slug function; written, run, deleted.
+
+## Fix (0.49.0)
+
+The settled §Fix, both parts, in the shared lowering so every caller inherits
+them; five review rounds and four fixer rounds hardened the dispatch guards,
+the retention posture and the comment set. Line anchors are at the fix commit.
+
+**A — `lowerInlineObject`'s interior split nests brace depth.**
+`splitTopLevel(body, ",", "angle-and-brace")` (`src/parser/body-type-lowering.ts`).
+`topLevelColon` needed no change. This closes the phantom-field and
+duplicate-`required` class at the `@<T>` annotation root (fixtures A1, F1, F2,
+F3) and restores per-`Type` entries for the diagnostic walk.
+
+**B — the recursive lowerer gains the hoisting inline-object arm.** The hoist
+`lowerParamsFieldType` has owned since bug 0035 is factored out as exported
+`hoistInlineObjectType` (`src/parser/params.ts`), parameterised by the
+caller's per-field recursion. `lowerParamsFieldType` passes itself, so the
+`params:` position's bytes and minted slugs are byte-identical to 0.48.0.
+`lowerTypeSource` passes an inner helper that returns through its own literal
+check, so the SUBS-1 literal sublanguage survives at depth (`{a: {b: "x" |
+"y"}}` lowers the enum form, not `anyOf: [{}, {}]`). `body-type-lowering.ts`
+imports from `params.ts`; the reverse import the §Fix forbids does not appear.
+
+**Two dispatch guards, settled inside §Fix constraint 1** ("a shape the
+lowering cannot derive stays permissive `{}` — permissive is admissible, wrong
+is not"). A naive `startsWith("{") && endsWith("}")` also matches a union of
+object arms and a shredded brace group, and reading either interior as a field
+list mints a `properties` key the author never wrote at that level. So
+`lowerTypeSource` hoists a whole source only when it is a SINGLE ENCLOSING
+BRACE GROUP (`isSingleEnclosingBraceGroup`), and takes the per-arm path only
+when every `|` segment is brace-balanced and at least one is such a group
+(`isBraceBalanced`). The two guards are provably disjoint — a balanced segment
+set forces brace depth 0 at every cut, a single enclosing group holds depth at
+least 1 strictly inside — so their order is immaterial. The shredded family
+(`Cat | {a: integer | {c: Ghost} | boolean}`, bug 0033's per-`|`-segment
+`arms` caveat) is byte- and diagnostic-identical to 0.48.0, pinned by group (h)
+in both directions.
+
+**`$defs` closure absorption.** `buildBodyTypeSchemas`'s pass 3 rebuilt each
+name's closure from `bodies`, where an `__inline_<slug>` has no entry — a mint
+at the `schema`-body or alias-RHS position would have left a dangling `$ref`
+and an AJV `MissingRefError` at compile. A second `inlineBodies` map (first-wins,
+never merged into `bodies`, so an `__inline_` name stays unresolvable as an
+author-written `NamedType` — bug 0040's subject is untouched) carries the
+minted fragments, and pass 3 resolves `bodies` first, `inlineBodies` second.
+
+**Slug-collision posture wired at the new mint sites** (schema-subset.md
+§Schema-slug collision posture). The retention is split across two optional
+`LowerCtx` sinks: `inlineCanonical` (the canonical bytes the posture requires
+beside the artefact) and a new `inlineFragments` (the winning fragment, so a
+scope that does not hold the `$defs` entry can re-register it rather than
+dangle its `$ref`). The already-minted guard consults BOTH this call's `defs`
+and the retention, because `buildBodyTypeSchemas` shares one retention across a
+document while giving each schema decl its own `defs` — consulting `defs` alone
+let a second decl skip the byte comparison and overwrite the retention
+last-wins, the silent aliasing the posture forbids. `collectBodyTypes` drains
+the document-scoped sink into the registered `theta/load/schema-slug-collision`
+at the offending decl's range, message held to the registry template by DIAG-4.
+`lowerQueryResponseSchema` threads the retention per call so the byte check runs
+and first-wins is deliberate; it is a runtime call with no load-time channel
+(residual (iii)).
+
+**No spec or registry edit.** DIAG-2 holds: no new code, no new row, no trigger
+widening. The `unresolved-named-type` row (`code-registry-parse.md:89`) already
+names all five positions; `theta/load/schema-slug-collision`
+(`code-registry-load.md:58`) was already registered, its trigger is
+position-agnostic ("one theta file's lowering pass"), and it was already in
+`tests/fixtures/h7a/permitted-codes.json` — H9a's empty-capture stderr gate
+needed no change and stayed clean. GOV-15's carve-out covers the newly-refused
+inputs enumerated below.
+
+**Reproduction re-derived at the fix baseline** (`8847de79`, 0.48.0): every
+fixture A1–A4, B0–B5, C1–C6, D1/D3/D5/D6, E1–E3, F1–F3 byte-identical to the
+recorded 0.45.0 table — zero drift, and no cited `path:line` moved. Post-fix:
+A1 lowers C3's shape (two root fields, `b` a `$ref` to a fragment carrying both
+`x` and `y`, `$defs` closed); A3 (the author's own declared payload) validates
+and A4 (the phantom shape) is refused; D6's wire schema follows; B0/B1/B3/D1/D5
+each raise exactly one `unresolved named type 'Tirage'` byte-identical to B5,
+with the theta refused; C1/C2 lower `$defs.S.properties.p` to a `$ref` and stop
+being byte-identical; C5 hoists; C6 lowers an `anyOf` of two `$ref`s.
+
+**Blast radius — lowered bytes that move for thetas that load unchanged**
+(§Fix's "assessed before landing"), across a 41-source by 5-position sweep:
+(1) brace-rooted `@<T>` roots whose field types contain a brace group — the
+phantom family, the nested single-field and nested-literal families, and the
+mis-parsed union-of-objects with a nested comma (fixture G7, where part A
+removes the phantom the comma minted); (2) non-brace `@<T>` roots that are a
+top-level union carrying a balanced brace arm, including `{…} | array<T>`;
+(3) every brace-rooted `schema` body field type (`{}` to a `$ref` plus closure
+entries); (4) alias RHS — single-group rejoins and balanced brace-arm unions;
+(5) the respond-tool `parameters`, the QRY-15 `<schema-json>` conveyance,
+QRY-22 validation and the `invoke<T>` return boundary move exactly with (1)–(2).
+Unmoved: the `params:` field lowering itself (byte-identical over 18 shapes;
+a params document changes only where a referenced schema's closure now carries
+hoisted entries), `array<{…}>` (`items: {}`), the empty inline `{}` at every
+position (bug 0045 untouched), `@<{}>`, `{a: {}}`, brace-free unions, the
+shredded family, and the annotation ROOT's naive brace dispatch (fixture G1).
+
+**Newly-refused inputs** (loaded clean at 0.48.0, now refused; GOV-15
+carve-out; the only code is `theta/parse/unresolved-named-type` at error
+severity): a name the descent now reaches inside inline-object FIELDS at depth
+1 or deeper, including inside a union arm or a generic argument of such a
+field's type — at the `@<T>`, `schema`-body-field and alias-RHS positions; and
+a name inside a brace-group union ARM of a balanced segment set — at the `@<T>`
+and alias-RHS positions (the `schema`-body field position refuses that shape at
+parse with `theta/parse/empty-schema-body` already). NOT refused: the shredded
+segment sets; a name inside a brace group that is itself a generic argument
+(`array<{x: Tirage}>`, any depth); anything under `params:` (zero new raises).
+`theta/load/schema-slug-collision` gains two emission positions with no
+constructible input (it needs a genuine 64-bit slug collision).
+
+**Offline lock.** `tests/inline-object-nested-lowering.test.ts` (58 tests):
+group (0) an independent `node:crypto` slug oracle over hand-written canonical
+forms (`schemaSlug` is never imported), cross-checked against two
+production-minted slugs; (a) the annotation root incl. the SUBS-1 literal and
+declared-name depths and the unchanged controls; (b) QRY-22 through the real
+`AjvSchemaValidator`; (c) the respond-tool wire shape; (d) the five-position
+diagnostic parity, message read from the registry (DIAG-4); (e) the
+`schema`-body and alias-RHS bytes with `$ref` closure and AJV compile;
+(f) the two shared lowerers at the seam; (g) the cross-scope retention states,
+the re-registration branch, the collision sink and the registry template;
+(h) the shredded-set guard in both directions. Neutralisation evidence, each a
+targeted byte edit restored byte-exactly (blob-hash equal before and after;
+`git stash` never used): part A gives 12 red with the report's own signatures;
+part B whole-source 21 red; part B union-arm 4 red; the `inlineBodies` fallback
+7 red, with `MissingRefError: can't resolve reference
+#/$defs/__inline_dd69af402813aa7d` reproduced through the production validator;
+`arms.every(isBraceBalanced)` forced true gives h1–h3 red while h4 stays green.
+Full gate 239 files / 3112 tests; typecheck and lint clean; the bug-0035 lock
+(`tests/params-inline-object-lowering.test.ts`) and the bug-0033 lock
+(`tests/schema-alias-union-decl.test.ts`) SHA-identical to 0.48.0 and unedited.
+
+**Live.** H8a `tests/live/live-production-acceptance.test.ts` 7/7 and H9a
+`tests/live/acceptance/` 11/11 green against the real provider. No shipped live
+fixture reaches the changed branch — the live inline-object annotations are all
+flat single-level and were proved byte-identical to 0.48.0 — so the obligation
+was discharged by a scratch live probe over fixture A1's annotation
+(`@<{a: integer, b: {x: integer, y: string}}>`), asserting on the settled
+`SessionManager`'s system-note channel and the bound value's shape with a
+fixture-pinned sentinel: GREEN with the fix, RED with part A neutralised (the
+QRY-11 repair spin against the phantom contract, the live consequence this
+report predicts), GREEN again on restore. Probe deleted.
+
+**Residuals.** (i) An author-written duplicate field name
+(`{a: integer, a: string}`) lowers a last-wins `properties.a` and
+`required: ["a", "a"]` at the newly-hoisting positions — byte-identical to the
+frozen `params:` position's output for the same text, so deduping in the shared
+arm is not available; the phantom-induced duplicate (fixture F1) IS closed, and
+no duplicate-field diagnostic exists for an inline object body. (ii)
+`lowerQueryResponseSchema`'s ROOT brace dispatch keeps its naive
+prefix/suffix test, so `@<{a: integer} | {b: integer}>` is still read as one
+field list and mints an enforcing fragment naming `a` (pinned as fixture G1);
+the alias-RHS and non-brace annotation positions handle that shape correctly.
+(iii) The annotation position's mint is a runtime call, so its collision sink
+has no load-time diagnostic channel; the byte check runs and first-wins holds,
+but a mismatch there is retained without a report. (iv) `hoistNestedDefs`
+(params.ts) and `pruneDocumentDefs` (query-schema-lowering.ts) merge
+`__inline_` names arriving from two independent mint scopes under name-keyed
+first-wins with no byte comparison — a surface that did not exist while only
+`params:` minted. (v) Bug 0043's family narrows: `{a: integer} | array<integer>`
+lowered `{}` (swallowed by `lowerTypeExpr`'s generic pre-emption) and now lowers
+`anyOf: [{$ref}, {type: array}]`; brace-free unions stay `{}`. (vi) Bug 0044's
+blast radius widens: keyword-shaped text at the newly-descended sites now draws
+the row (`@<{a: {b: match}}>` refuses). (vii) `lowerTypeSource`'s literal-union
+arm emits a bare `{ enum: [...] }` where SUBS-1 (schema-subset.md `:81`) spells
+`{"type": "string", "enum": [...]}` — pre-existing, pinned as a control.
+(viii) The `params:` position has no literal sublanguage at any depth
+(`p: "x" | "y"` lowers `anyOf: [{}, {}]`) where the `lowerTypeSource` positions
+do; the shared arm takes each caller's own recursion precisely so that
+asymmetry does not move the frozen `params:` bytes. All unfiled.
 
 ## Summary
 

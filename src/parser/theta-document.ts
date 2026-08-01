@@ -82,7 +82,11 @@ import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
 import { checkTypeLayer } from "./type-layer-checks";
 import { resolveQuerySchemas } from "./query-schema-resolve";
-import { buildBodyTypeSchemas, collectUnresolvedNamedTypes } from "./body-type-lowering";
+import {
+  buildBodyTypeSchemas,
+  collectUnresolvedNamedTypes,
+  type SchemaSlugCollision,
+} from "./body-type-lowering";
 import { splitTopLevel } from "./params";
 // QRY-19 lives in the runtime discard module (it owns the discarded-query
 // discipline shared with the QRY-20 runtime obligation); the parser reuses its
@@ -565,13 +569,40 @@ export interface SchemaDecl extends NodeBase {
    * NOT braces, so a `|` written INSIDE an inline-object arm reads as an arm
    * separator: `schema X = { a: string | null } | Cat` yields the three
    * segments `{a:string`, `null}`, `Cat` rather than two arms. That input is
-   * legal (an `ObjectType` field may be optional), so for it `arms` is
+   * legal (an `ObjectType` field's `Type` may be a union), so for it `arms` is
    * per-`|`-SEGMENT rather than per-`Type`. The two consumers agree by
-   * construction — lowering re-splits the rejoined arms the same way — which
-   * is why the family loads clean and lowers to a per-segment `anyOf`
-   * (group (j)'s j3 in tests/schema-alias-union-decl.test.ts pins the arm
-   * COUNT and the clean load, and deliberately puts no byte pin on the lowered
-   * inline-object arm).
+   * construction — lowering re-splits the rejoined arms the same way — so the
+   * family loads clean either way, and what it LOWERS to turns on whether the
+   * rejoin closes the brace group:
+   *
+   *   - ONE brace group and nothing else (`schema X = { a: string | null }`,
+   *     the two segments `{a:string` and `null}`): the rejoin IS a single
+   *     enclosing brace group, so `lowerTypeSource` dispatches it whole and
+   *     the segmentation leaves no trace — one hoisted
+   *     `{"$ref": "#/$defs/__inline_<slug>"}` over a fragment carrying
+   *     `a: {"type": ["string", "null"]}`. Bug 0039 §Fix part B moved those
+   *     BYTES; the typo variant `{ a: Tirage | null }` raised
+   *     `unresolved named type 'Tirage'` before it too, on the walker's own
+   *     brace dispatch — the rejoin reads as a field list whose `a` carries
+   *     `Tirage | null` into `lowerTypeExpr`'s union, which sinks an
+   *     unresolved arm.
+   *   - The brace group BESIDE another arm (`… | Cat` above): the split
+   *     SHREDDED the group, leaving segments that open or close a brace they
+   *     do not match, so `lowerTypeSource` declines the arm dispatch for the
+   *     whole segment set — nothing hoists and the union lowers PER SEGMENT,
+   *     `anyOf: [{}, {}, {"$ref": "#/$defs/Cat"}]`. A name inside the shredded
+   *     group resolves against nothing and raises nothing — bug 0033 §Fix
+   *     residual (ii), untouched by bug 0039. The decline covers a shard that
+   *     is itself balanced: `Cat | {a: integer | {c: Ghost} | boolean}` leaves
+   *     `{c: Ghost}` standing as a segment, and that shard is a NESTED arm
+   *     inside the destroyed group rather than an arm of this union.
+   *
+   * An arm carrying no interior `|` is not in this family and is captured
+   * per-`Type`: `schema X = { a: string } | Cat` is two arms, and each lowers
+   * on its own — the brace arm hoists its own `$ref` (bug 0039 §Fix, "Existing
+   * pins that move by design"). Group (j)'s j3 in
+   * tests/schema-alias-union-decl.test.ts pins the arm COUNT and the clean
+   * load for that shape, and deliberately puts no byte pin on the arm.
    */
   readonly arms?: readonly string[];
   /**
@@ -771,9 +802,9 @@ export function parseThetaDocument(
   const statements = resolvedQuery.body.statements;
   const resolvedTail = resolvedQuery.body.tail;
 
-  const bodyTypes = collectBodyTypes(statements);
+  const { bodyTypes, diagnostics: bodyTypeDiags } = collectBodyTypes(statements, file);
 
-  const frontmatterDiags: Diagnostic[] = [];
+  const frontmatterDiags: Diagnostic[] = [...bodyTypeDiags];
   let frontmatter: ParsedFrontmatter | null = null;
   if (split.frontmatterText !== null) {
     // `splitFrontmatter` returns the frontmatter text with the `---` fences
@@ -1127,17 +1158,22 @@ export function parseExpressionSource(source: string): Expr | null {
  * sufficient to decide `theta/parse/unresolved-named-type`; the schema field
  * sources let the `system:` surface descend `.Ident` steps.
  */
-function collectBodyTypes(statements: readonly Stmt[]): FrontmatterBodyTypes {
+function collectBodyTypes(
+  statements: readonly Stmt[],
+  file: string,
+): { readonly bodyTypes: FrontmatterBodyTypes; readonly diagnostics: readonly Diagnostic[] } {
   const schemas = new Map<string, readonly SchemaFieldSource[] | undefined>();
   const enums = new Set<string>();
   const imports = new Set<string>();
   const schemaDecls: SchemaDecl[] = [];
   const enumDecls: EnumDecl[] = [];
   const importNames: string[] = [];
+  const rangeByName = new Map<string, SourceRange>();
   for (const stmt of statements) {
     if (stmt.kind === "schema") {
       schemas.set(stmt.name, stmt.fields);
       schemaDecls.push(stmt);
+      rangeByName.set(stmt.name, stmt.range);
     } else if (stmt.kind === "enum") {
       enums.add(stmt.name);
       enumDecls.push(stmt);
@@ -1159,8 +1195,12 @@ function collectBodyTypes(statements: readonly Stmt[]): FrontmatterBodyTypes {
   // head-only / malformed form) and an imported symbol lower permissively to
   // `{}` — the name still resolves, so
   // `theta/parse/unresolved-named-type` does not fire, and the `params:`
-  // schema is present (not mis-classified as no-params).
-  const lowered = buildBodyTypeSchemas(schemaDecls, enumDecls);
+  // schema is present (not mis-classified as no-params). A `schema` body field
+  // type or an alias/union arm may itself hoist an `__inline_<slug>` fragment
+  // now (bug 0039 §Fix), so this pass also carries the document-scoped
+  // slug-collision sink through to a registered diagnostic.
+  const collisions: SchemaSlugCollision[] = [];
+  const lowered = buildBodyTypeSchemas(schemaDecls, enumDecls, collisions);
   for (const decl of schemaDecls) {
     if (!lowered.has(decl.name)) {
       lowered.set(decl.name, {});
@@ -1171,7 +1211,22 @@ function collectBodyTypes(statements: readonly Stmt[]): FrontmatterBodyTypes {
       lowered.set(name, {});
     }
   }
-  return { schemas, enums, imports, lowered };
+  // schema-subset.md §Schema-slug collision posture: a byte-mismatched slug
+  // match anywhere in this pass is a load-time refusal, at the offending
+  // decl's own range. The message literal is held identical to `parseParams`'s
+  // by DIAG-4, not by shared code (`code-registry-load.md:58`; the row and its
+  // trigger prose already cover this site — no registry edit).
+  const diagnostics: Diagnostic[] = collisions.map((collision): Diagnostic => {
+    const message = `schema-slug collision on slug ${collision.slug}: two distinct inline schemas hash alike`;
+    const range = rangeByName.get(collision.schemaName);
+    // `exactOptionalPropertyTypes` forbids an explicit `undefined` on `range`,
+    // so omit the key entirely on the (unreachable in practice, since every
+    // collision's `schemaName` is a decl this same pass walked) miss.
+    return range === undefined
+      ? { severity: "error", code: "theta/load/schema-slug-collision", file, message }
+      : { severity: "error", code: "theta/load/schema-slug-collision", file, range, message };
+  });
+  return { bodyTypes: { schemas, enums, imports, lowered }, diagnostics };
 }
 
 // --------------------------------------------------------------------------
@@ -4683,24 +4738,56 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
  * cycle, and the two message literals are held identical to the registry row by
  * DIAG-4 rather than by sharing code.
  *
- * That fourth position under-emitted against the other three until bug 0035,
- * and the asymmetry was in the resolution rather than the message.
- * `collectUnresolvedNamedTypes` dispatches an inline object type (`{ … }`) to
- * `lowerInlineObject` and descends its field types; `parseParams` resolved
- * through `lowerTypeExpr` alone, which has no inline-object arm, so a
- * brace-shaped RHS fell to that function's trailing catch-all and
- * `p: {a: Tirage, b: integer}` raised nothing under `params:`, lowering
- * `properties.p = {}` whether or not the names inside resolved. `parseParams`
- * now routes a brace-rooted RHS through `lowerParamsFieldType` (params.ts)
- * first, walking the field list to `topLevelColon` and resolving each field's
- * type through the same `lowerCtx`, so the position raises exactly as its three
- * siblings do (the hoist under `__inline_<slug>` is the `params:` position's
- * own, per schema-subset.md:73 — the annotation position uses
- * `lowerInlineObject`'s fragment in place as its document root, and the
- * schema-body position raises through the `collectUnresolvedNamedTypes` walk
- * while its own lowering of the field stays permissive). Its interior `,`
- * split nests brace depth where `lowerInlineObject`'s does not;
- * `lowerParamsFieldType`'s own comment records why.
+ * The RESOLUTION behind the four positions that carry a TYPE EXPRESSION is one
+ * arm. A brace-rooted type source hoists under `__inline_<slug>`
+ * (schema-subset.md:73) through `hoistInlineObjectType` (params.ts), which
+ * walks the field list to `topLevelColon` and resolves each field's type
+ * through the caller's own `lowerCtx` (bug 0039 §Fix). The `params:`
+ * right-hand side reaches that arm through `lowerParamsFieldType`
+ * (params.ts); the `@<T>` annotation, a `schema` body field type and the
+ * alias/union right-hand side reach it through `lowerTypeSource`
+ * (body-type-lowering.ts), which `collectUnresolvedNamedTypes` and the
+ * `schema`-body lowering both run on. The fifth position, the
+ * object-constructor name, resolves a NAME rather than a type expression, so
+ * no inline object can nest under it. The annotation root is the one position
+ * that ALSO lowers a fragment in place rather than hoisting it —
+ * `lowerInlineObject`'s fragment is its document root — and that function's
+ * interior `,` split nests brace depth exactly as the shared arm's does, so no
+ * position reads a nested `ObjectType`'s comma as a FIELD-LIST separator.
+ *
+ * WHAT BOUNDS THE DESCENT IS THE ROUTE, NOT THE DEPTH. A name lands in
+ * `lowerCtx.unresolved` from any nesting of inline-object FIELDS, because each
+ * field's type re-enters the same arm — `{a: {x: {y: Tirage}}}` raises at all
+ * four positions. It stops wherever the route leaves that arm for
+ * `lowerTypeExpr`'s own recursion, which has no inline-object arm and drops a
+ * brace-rooted source on its trailing catch-all. Three shapes leave it, and
+ * each is a permissive silence rather than a wrong fragment:
+ *
+ *   - a brace group inside a GENERIC ARGUMENT. `{a: array<{x: Tirage}>}`
+ *     raises no unresolved-named-type at any position: `lowerTypeExpr`
+ *     recurses an argument
+ *     through itself, and the argument split stays angle-only because
+ *     widening it would disagree with `theta/parse/generic-arity-mismatch`
+ *     (params.ts, `TypeSplitNesting`).
+ *   - a brace group that is a UNION ARM under `params:`. `{a: {x: Tirage} | Cat}`
+ *     raises at the other three positions, where `lowerTypeSource` splits a
+ *     union carrying a brace arm and hoists that arm, and stays silent here,
+ *     where `lowerParamsFieldType` hands the field's non-brace-rooted type
+ *     straight to `lowerTypeExpr`. This is the one shape whose asymmetry now
+ *     runs the other way, `params:` under-emitting against its siblings.
+ *   - a brace group whose OWN interior `|` sits beside another arm.
+ *     `{ a: Tirage | null } | Cat` raises none anywhere either: the angle-only
+ *     `|` split SHREDS the group into `{ a: Tirage` and `null }`, and
+ *     `lowerTypeSource` declines the arm dispatch for any segment set carrying
+ *     a shard like those, handing the whole source to `lowerTypeExpr`, which
+ *     has no inline-object arm to descend with. The decline holds even when
+ *     one shard is itself a balanced brace group —
+ *     `Cat | {a: integer | {c: Ghost} | boolean}` leaves `{c: Ghost}` standing
+ *     as a segment, a NESTED arm inside the destroyed group rather than an arm
+ *     of this union, so `Ghost` raises nowhere (bug 0033 §Fix residual (ii);
+ *     `SchemaDecl.arms`' own caveat records the same split from the capture
+ *     side, and `isBraceBalanced` (body-type-lowering.ts) states why a
+ *     balanced shard is no exception).
  *
  * `splitTopLevel`'s `"angle"` default keeps that permissive outcome HONEST for
  * a brace-under-generic shape instead of papering over it. With brace depth

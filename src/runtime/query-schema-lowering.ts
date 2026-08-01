@@ -23,10 +23,16 @@
 // costs a `$ref`.
 //
 // A permissive `{}` fragment — one AJV accepts every payload against, so the
-// QRY-22 gate constrains nothing at that position — has exactly three origins
-// below this seam, the three `{}` returns of `lowerTypeExpr` (params.ts). Arms
-// 1 and 2 always build a typed object or enum fragment, so the residual reduces
-// to those three, and each is reachable from a LOADABLE theta:
+// QRY-22 gate constrains nothing at that position — has exactly four origins
+// below this seam: the three `{}` returns of `lowerTypeExpr` (params.ts) and
+// the ZERO-FIELD return of `hoistInlineObjectType` (params.ts), which an empty
+// inline object `{}` written in a field's type position reaches now that
+// `lowerTypeSource` routes a brace group there (`@<{a: {}}>` → `properties.a =
+// {}`); grammar.md:109's `empty-schema-body` case stays unimplemented at every
+// position (bug 0033 §Fix residual (iv)), so that shape asserts nothing rather
+// than being refused. Arms 1 and 2 always build a typed object or enum
+// fragment, so the residual reduces to those four, and each is reachable from
+// a LOADABLE theta:
 //
 //   - THE UNRESOLVED-NAME ARM, for a name in scope that carries no lowerable
 //     body here: a symbol a body `import` pulls in (both call sites hand this
@@ -48,13 +54,23 @@
 //     top-level comma (`array<{a: string, b: integer}>`), which the angle-depth
 //     argument split reports as two arguments, so the single-argument `array`
 //     arm does not match and the generic arm takes it.
-//   - THE TRAILING CATCH-ALL, one level under the root: arm 2 below is the only
-//     dispatch to `lowerInlineObject`, so an inline object type in any other
-//     position lowers `{}` (`array<{a: string}>` → `items: {}`; the `params:`
-//     field root is the one exception, hoisting before `lowerTypeExpr` runs —
-//     bug 0035, `lowerParamsFieldType` in params.ts), and a literal atom is
-//     recognised only by `lowerTypeSource`'s own top-level check, so a literal
-//     arm of a union that is not all-literal lowers `{}` (`"a" | Triage` →
+//   - THE TRAILING CATCH-ALL, which a brace-rooted source still reaches
+//     through recursions that never re-enter `lowerTypeSource` and so never
+//     meet its inline-object arm. A GENERIC ARGUMENT: `array<{a: string}>`
+//     recurses its element type through `lowerTypeExpr` directly —
+//     `items: {}`. A UNION ARM reached through `lowerTypeExpr`'s OWN per-arm
+//     recursion: a `params:` field's `{a: integer} | integer` lands here,
+//     where the same text at a `lowerTypeSource` position does not — that
+//     function splits a union carrying a brace arm itself and hoists the arm
+//     (bug 0039 §Fix part B). And a brace group the angle-only `|` split has
+//     already cut in half: `{ a: string | null } | Cat` presents as the three
+//     arms `{ a: string`, `null }`, `Cat`, none of them a brace group. Every
+//     OTHER brace-rooted type position, at any depth of inline-object FIELDS,
+//     hoists through the arm `lowerTypeSource` shares with the `params:`
+//     position, and the annotation root lowers through `lowerInlineObject`
+//     (bug 0039 §Fix). Separately, a literal atom is recognised only by
+//     `lowerTypeSource`'s own top-level check, so a literal arm of a union
+//     that is not all-literal still lowers `{}` (`"a" | Triage` →
 //     `anyOf: [{}, {"$ref": …}]`).
 //
 // Spec: schema-subset.md (SUBS-1 lowering), query/query-failure-and-repair.md
@@ -66,6 +82,7 @@ import {
   buildBodyTypeSchemas,
   lowerInlineObject,
   lowerTypeSource,
+  type InlineHoistSinks,
 } from "../parser/body-type-lowering";
 import {
   prunePerQueryDefs,
@@ -105,17 +122,30 @@ export function lowerQueryResponseSchema(
     }
   }
 
+  // The annotation's OWN inline-object hoist (bug 0039 §Fix) is a RUNTIME mint
+  // with no load-time diagnostic channel to report a collision through — the
+  // annotation position's lowering runs after load, so there is no registered
+  // code's site to attach one at this seam. The sinks are threaded anyway so
+  // the byte-equality check still runs and first-wins retention stays
+  // deliberate rather than accidental; a collision is silently retained here,
+  // same as at any position no sink is threaded at all.
+  const sinks: InlineHoistSinks = {
+    inlineCanonical: new Map(),
+    inlineFragments: new Map(),
+    slugCollisions: [],
+  };
+
   // An inline object type `{ field: Type, … }`.
   if (s.startsWith("{") && s.endsWith("}")) {
     return pruneDocumentDefs(
-      lowerInlineObject(s.slice(1, -1), bodyTypeMap),
+      lowerInlineObject(s.slice(1, -1), bodyTypeMap, undefined, sinks),
       s,
     ) as LoweredSchema;
   }
 
   // An inline primitive / union / `array<T>` type.
   const defs: Record<string, Record<string, unknown>> = {};
-  const root = lowerTypeSource(s, bodyTypeMap, defs);
+  const root = lowerTypeSource(s, bodyTypeMap, defs, undefined, sinks);
   const result: Record<string, unknown> = { ...root };
   if (Object.keys(defs).length > 0) {
     result["$defs"] = defs;

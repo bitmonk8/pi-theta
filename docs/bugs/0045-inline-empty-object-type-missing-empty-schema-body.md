@@ -556,6 +556,18 @@ bytes this fix makes unreachable for the empty case only. Whichever of 0045 and
 0039 lands second updates the other's record of the empty case; 0039's fix must
 not reintroduce a lowering path for an input this fix refuses.
 
+0039 landed first, in 0.49.0. Its fix left the empty case untouched at every
+position, as required: the shared hoisting arm returns the permissive `{}` for
+a zero-field body, so `@<{}>` still lowers the closed object, and `{}` at the
+`schema`-body, alias-RHS, `params:` and nested-field positions still lowers the
+permissive `{}` — pinned as unchanged controls in
+`tests/inline-object-nested-lowering.test.ts`. The one shift 0045 inherits is
+the origin of that permissive `{}` below the query-lowering seam: the
+zero-field return of `hoistInlineObjectType` (`src/parser/params.ts`) now
+reaches a field's type position where `lowerTypeExpr`'s trailing catch-all used
+to, so this report's position matrix reads against that arm rather than the
+catch-all.
+
 **Test witness — unit, offline, no live provider.** Every fixture in
 §Reproduction is a `parseThetaDocument` call; the red/green contrast is the
 diagnostic list, and the message is sourced from the registry row (DIAG-4).

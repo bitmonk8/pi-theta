@@ -6,6 +6,48 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-08-01
+
+### Fixed
+
+- **An inline object type nested inside another one was neither split nor
+  lowered as a type** (bug 0039). Two mechanisms, three symptoms.
+  `lowerInlineObject` split its field list on top-level commas without
+  tracking brace depth, so `@<{a: integer, b: {x: integer, y: string}}>` read
+  as the three entries `a: integer`, `b: {x: integer`, `y: string}` and minted
+  a response schema carrying a phantom top-level `y` and a three-name
+  `required` — QRY-22 then refused the author's own conformant reply
+  (`{"a":1,"b":{"x":1,"y":"s"}}` failed on "must have required property 'y'")
+  and accepted a shape they never declared, while QRY-15 showed the model the
+  same phantom schema on every repair turn. Separately, no lowerer below a
+  root had an inline-object arm at all, so a nested object's shape and names
+  were dropped even without a comma: `theta/parse/unresolved-named-type` was
+  silent on a one-level-down typo at the `@<T>` annotation, a `schema` body
+  field type and the `schema X = …` alias right-hand side — the three
+  positions the registry row's five-position list names beside the `params:`
+  right-hand side, which already raised — and those two positions lowered
+  `properties.<field> = {}` for a nested and a flat inline object alike.
+  `lowerInlineObject`'s interior split now nests brace depth, and the shared
+  recursive lowerer gained the hoisting inline-object arm the `params:`
+  position has had since bug 0035, factored out so both call sites run one
+  implementation: an inline object type in any type position hoists into
+  `$defs` under `__inline_<slug>` and its enclosing field emits a `$ref`
+  (schema-subset.md §Lowering Algorithm steps 2–3), each field's type recurses
+  back through the literal sublanguage so a nested `"x" | "y"` still lowers
+  SUBS-1's enum form, and the whole-file `$defs` closure absorbs the minted
+  entries so no `$ref` dangles. A shape the lowering cannot derive stays
+  permissive `{}`: `array<{…}>` keeps `items: {}`, an empty inline `{}` keeps
+  its disposition at every position, and a brace group the union split has cut
+  in half keeps its per-segment lowering. Newly refused — under GOV-15's
+  diagnostic-registry carve-out — is a `NamedType` resolving to nothing that
+  the widened descent now reaches: inside inline-object fields at depth 1 or
+  deeper, and inside a brace-group union arm, at those three positions. No
+  registry edit: the row already named all five positions.
+  `tests/inline-object-nested-lowering.test.ts` (58 tests) locks it, over the
+  real load path, the production AJV validator and the respond-tool wire
+  shape, with the minted slugs derived from an independent `node:crypto`
+  oracle rather than from `schemaSlug`.
+
 ## [0.48.0] - 2026-08-01
 
 ### Fixed

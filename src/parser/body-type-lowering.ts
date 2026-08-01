@@ -12,7 +12,46 @@
 // Keeping the lowering here (rather than duplicated per caller) means an enum or
 // named schema lowers identically wherever it is referenced.
 
-import { lowerTypeExpr, splitTopLevel, topLevelColon, type LowerCtx } from "./params";
+import {
+  classifyLoweredUnionArm,
+  hoistInlineObjectType,
+  lowerTypeExpr,
+  splitTopLevel,
+  topLevelColon,
+  type LowerCtx,
+} from "./params";
+import { lowerUnion } from "./schema-lowering";
+
+/**
+ * The three `LowerCtx` sinks an `__inline_<slug>` mint reads and writes
+ * (schema-subset.md §Schema-slug collision posture, plus the cross-scope
+ * fragment retention `LowerCtx.inlineFragments` documents), threaded as ONE
+ * optional trailing parameter through the three RECURSIVE LOWERING functions
+ * that take it: `lowerObjectFields`, `lowerInlineObject` and
+ * `lowerTypeSource`, which call one another down a single type source and
+ * therefore have to share one retention.
+ *
+ * The module's other two minting entry points do not take it, and each has
+ * its own reason. `buildBodyTypeSchemas` is the document-scoped pass that OWNS
+ * the sinks — it constructs them, threads them into those three, and exposes
+ * only the outcome, through a `collisions` out-sink whose entries carry the
+ * decl each failure is attributable to. `collectUnresolvedNamedTypes` mints
+ * into a `defs` record it discards on the next line: it returns NAMES, never
+ * bytes, so there is no `$defs` closure to keep consistent and nothing for a
+ * retention to serve.
+ *
+ * Optional because a caller that mints no `__inline_` entry has nothing to
+ * retain and no check to run (the three `LowerCtx` fields are themselves
+ * optional for the same reason).
+ */
+export interface InlineHoistSinks {
+  /** Canonical-form bytes of every minted fragment, keyed by the bare slug. */
+  readonly inlineCanonical: Map<string, string>;
+  /** The retained fragment behind each of those slugs, same key. */
+  readonly inlineFragments: Map<string, Record<string, unknown>>;
+  /** Bare slugs whose byte-equality check FAILED, in lowering order. */
+  readonly slugCollisions: string[];
+}
 
 /** A lowerable object-body field: a field name and its verbatim type source. */
 export interface LowerableField {
@@ -71,12 +110,19 @@ export function lowerObjectFields(
   fields: readonly LowerableField[],
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
   unresolved?: string[],
+  sinks?: InlineHoistSinks,
 ): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   const defs: Record<string, Record<string, unknown>> = {};
   for (const field of fields) {
-    properties[field.name] = lowerTypeSource(field.typeSource, bodyTypeMap, defs, unresolved);
+    properties[field.name] = lowerTypeSource(
+      field.typeSource,
+      bodyTypeMap,
+      defs,
+      unresolved,
+      sinks,
+    );
     required.push(field.name);
   }
   const schema: Record<string, unknown> = {
@@ -91,14 +137,25 @@ export function lowerObjectFields(
   return schema;
 }
 
-/** Lower an inline object type's comma-separated `field: Type` body. */
+/**
+ * Lower an inline object type's comma-separated `field: Type` body. The
+ * interior split nests brace depth (bug 0039 §Fix part A —
+ * `"angle-and-brace"`, not the angle-only default `splitTopLevel` otherwise
+ * takes): a nested `ObjectType` is ONE field's own type (grammar.md:109), so a
+ * comma inside it is not this list's separator. Splitting on angle depth alone
+ * read `{a: integer, b: {x: integer, y: string}}` as the three entries
+ * `a: integer`, `b: {x: integer`, `y: string}` — a phantom top-level `y` and a
+ * duplicated `required` name whenever the phantom collides with a real field.
+ * `topLevelColon` needs no change: it already tracks brace depth.
+ */
 export function lowerInlineObject(
   body: string,
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
   unresolved?: string[],
+  sinks?: InlineHoistSinks,
 ): Record<string, unknown> {
   const fields: LowerableField[] = [];
-  for (const entry of splitTopLevel(body, ",")) {
+  for (const entry of splitTopLevel(body, ",", "angle-and-brace")) {
     const colon = topLevelColon(entry);
     if (colon < 0) {
       continue;
@@ -110,14 +167,156 @@ export function lowerInlineObject(
     }
     fields.push({ name, typeSource });
   }
-  return lowerObjectFields(fields, bodyTypeMap, unresolved);
+  return lowerObjectFields(fields, bodyTypeMap, unresolved, sinks);
+}
+
+/**
+ * Whether `s` is a SINGLE enclosing brace group: the `{` at index 0 is closed
+ * by the `}` at the final index, with no unmatched close before then (quote
+ * contents are skipped so a brace inside a string literal cannot perturb
+ * depth). `lowerTypeSource` asks this twice — of the whole source, then of
+ * each arm of a union — and both seams need it rather than a naive
+ * `startsWith("{") && endsWith("}")`, which also matches
+ * `{a: integer} | {b: integer}`: a UNION of two object arms whose first `{`
+ * closes at `{a: integer}`, well short of the string's end. Reading that
+ * interior as one field list yields the single field `a` of type
+ * `integer} | {b: integer` and mints a `properties.a` fragment for a shape the
+ * author never wrote at that level — the silently WRONG lowering bug 0039 §Fix
+ * constraint 1 forbids ("a shape the lowering cannot derive stays permissive
+ * `{}`… permissive is admissible, wrong is not"). Declining the whole source
+ * is what lets the union split instead, and on a segment set the split left
+ * INTACT (`isBraceBalanced` below is what decides that) every brace-group arm
+ * is a genuine `Type` and hoists on its own terms.
+ *
+ * `lowerParamsFieldType`'s own brace check (params.ts) stays the naive form on
+ * purpose: bug 0039 §Fix freezes the `params:` position's lowered bytes
+ * byte-for-byte, so `p: "{a: integer} | {b: integer}"` keeps hoisting the one
+ * fragment `{"a": {"anyOf": [{}, {}]}}` it hoists today. That reading is
+ * pre-existing and out of scope for this fix.
+ */
+function isSingleEnclosingBraceGroup(s: string): boolean {
+  if (!(s.startsWith("{") && s.endsWith("}"))) {
+    return false;
+  }
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i] ?? "";
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < s.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "{") {
+      depth += 1;
+    } else if (c === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return i === s.length - 1;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether `s`'s own brace depth starts at zero, never goes negative, and ends
+ * at zero (quote contents skipped, as above). Asked of EVERY segment of the
+ * `|` split before any arm may hoist: a set carrying one unbalanced segment is
+ * a set the split SHREDDED, and a shredded set has no arms to dispatch.
+ *
+ * WHY the question is worth asking. `splitTopLevel(s, "|")` here runs in its
+ * angle-only default, which tracks `<…>` and quotes but not `{…}`, so a `|`
+ * written INSIDE a brace group reads as an arm separator and cuts the group
+ * into pieces: `Cat | {a: integer | {c: Ghost} | boolean}` presents as the
+ * four segments `Cat`, `{a: integer`, `{c: Ghost}`, `boolean}`. Two of those
+ * are visibly not types — one opens a brace it never closes, the other closes
+ * a brace it never opened — and that is what this predicate sees.
+ *
+ * WHY A BALANCED-LOOKING SEGMENT INSIDE A SHREDDED SET IS STILL NOT A `Type`.
+ * `{c: Ghost}` above is balanced and is a single enclosing brace group, yet it
+ * is not an arm of this union at all: it is the type of a nested union arm
+ * two levels down, inside the field `a` of the group the split destroyed.
+ * Hoisting it would mint a `$defs` entry and emit a `$ref` for a shape the
+ * author never wrote at THIS level — the silently wrong lowering bug 0039 §Fix
+ * constraint 1 forbids — and would descend names the enclosing group's own
+ * lowering never reaches, refusing thetas on a trigger that is positionally
+ * invisible: `{ a: X | {c: Ghost} } | Cat` shreds into `{ a: X` and
+ * `{c: Ghost} }`, neither of them a standalone group, while appending
+ * ` | boolean` after the nested group leaves `{c: Ghost}` standing alone as a
+ * segment. Where the cuts fall is a function of where the author put the next
+ * `|`, not of the type.
+ *
+ * So a shredded set declines the arm dispatch entirely and the whole source
+ * goes to `lowerTypeExpr`, which lowers each segment permissively — the
+ * per-segment `anyOf` bug 0033 §Fix residual (ii) records, and the same
+ * silence, since `lowerTypeExpr` has no inline-object arm to descend with.
+ */
+function isBraceBalanced(s: string): boolean {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i] ?? "";
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < s.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "{") {
+      depth += 1;
+    } else if (c === "}") {
+      depth -= 1;
+      if (depth < 0) {
+        return false;
+      }
+    }
+  }
+  return depth === 0;
 }
 
 /**
  * Lower a single type-expression source to its JSON-Schema fragment. A literal
- * union (`"a" | "b"`) lowers to an `enum`, a single literal to a `const`, and
- * every other form (primitive, `array<T>`, named type, non-literal union)
+ * union (`"a" | "b"`) lowers to an `enum`, a single literal to a `const`, a
+ * SINGLE ENCLOSING BRACE GROUP (an inline object type, at any depth) hoists
+ * into `defs` under `__inline_<slug>` (bug 0039 §Fix part B), a union CARRYING
+ * such a group as one of its arms lowers arm by arm so that arm can hoist too,
+ * and every other form — primitive, `array<T>`, named type, brace-free union —
  * delegates to the `params:` `lowerTypeExpr` machinery.
+ *
+ * The inline-object arm recurses each field's type through `lowerTypeSource`
+ * itself (an inner helper closing over `sinks`), not through `lowerTypeExpr`:
+ * the literal sublanguage below is this function's own, so a field's type has
+ * to re-enter here or a nested `"x" | "y"` would lower `anyOf: [{}, {}]`
+ * instead of the SUBS-1 enum form.
+ *
+ * THE ARM DISPATCH IS GUARDED TWICE, and both guards are behavioural rather
+ * than optimisations. A union with no brace-group arm is handed WHOLE to
+ * `lowerTypeExpr` exactly as before, which re-splits it identically — except
+ * where its own generic check pre-empts that split (a union whose last arm
+ * ends in `>` lowers to a bare `{}`). That pre-emption is pre-existing and
+ * outside this fix's subject, so a brace-free union must keep reaching it;
+ * splitting here unconditionally would move bytes for unions the fix never
+ * assessed. A union whose segment set is SHREDDED — the angle-only `|` split
+ * cut through a brace group, so at least one segment is unbalanced — is handed
+ * whole to `lowerTypeExpr` too, because a shredded set's segments are pieces
+ * of a type rather than types (`isBraceBalanced` above states why a balanced
+ * piece is no exception). Arm ORDER is source order, and the SUBS-1
+ * combination is `lowerUnion`'s, so an arm that is not an inline object lowers
+ * through the same call `lowerTypeExpr`'s union branch would have made on it.
  *
  * `unresolved`, when supplied, is a SINK (bug 0028 §Fix): every `NamedType`
  * name `lowerTypeExpr` cannot resolve against `bodyTypeMap` is appended to it.
@@ -127,14 +326,34 @@ export function lowerInlineObject(
  * the call returns. Omitted, the names are collected into a throwaway array
  * and discarded, which is the behaviour every OTHER caller relies on (the
  * lowering itself stays permissive regardless of `unresolved`).
+ *
+ * `sinks`, when supplied, carries the slug-collision posture's two sinks
+ * through to the inline-object arm's mint (bug 0039 §Fix constraint: the
+ * posture must be wired wherever an `__inline_` entry can now be minted, not
+ * only at the `params:` position).
  */
 export function lowerTypeSource(
   source: string,
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
   defs: Record<string, Record<string, unknown>>,
   unresolved?: string[],
+  sinks?: InlineHoistSinks,
 ): Record<string, unknown> {
   const s = source.trim();
+  // `exactOptionalPropertyTypes` forbids an explicit `undefined` on
+  // `LowerCtx`'s optional keys, so only spread them in when `sinks` is present.
+  const ctx: LowerCtx = {
+    bodyTypeMap,
+    defs,
+    unresolved: unresolved ?? [],
+    ...(sinks !== undefined
+      ? {
+          inlineCanonical: sinks.inlineCanonical,
+          inlineFragments: sinks.inlineFragments,
+          slugCollisions: sinks.slugCollisions,
+        }
+      : {}),
+  };
 
   const arms = splitTopLevel(s, "|");
   if (arms.length > 1) {
@@ -149,8 +368,63 @@ export function lowerTypeSource(
     }
   }
 
-  const ctx: LowerCtx = { bodyTypeMap, defs, unresolved: unresolved ?? [] };
+  // An inner helper, not `lowerTypeExpr`, so a nested field's own type routes
+  // back through THIS function's literal check before anything else — the
+  // SUBS-1 literal sublanguage must survive at depth (bug 0039 §Fix).
+  const lowerField = (fieldSource: string, fieldCtx: LowerCtx): Record<string, unknown> =>
+    lowerTypeSource(fieldSource, fieldCtx.bodyTypeMap, fieldCtx.defs, fieldCtx.unresolved, sinks);
+
+  // THE TWO DISPATCHES BELOW ARE DISJOINT — no source satisfies both guards —
+  // so their order cannot change what this function returns. The arm guard
+  // requires EVERY `|` segment to be brace-balanced; the segments and the
+  // separators between them restore the source, and neither a separator nor
+  // whitespace carries brace depth (a quoted region is skipped by the split and
+  // by both predicates alike), so a set of balanced segments forces brace depth
+  // 0 at every cut. A single enclosing brace group instead holds depth at 1 or
+  // more everywhere strictly inside it, and a set of more than one segment has
+  // at least one cut strictly inside the source — the two guards cannot both
+  // answer yes. `{a: string | null}` is that pair made concrete: it IS one
+  // brace group, and the angle-only split cuts its interior union into
+  // `{a: string` and `null}`, both unbalanced, which is what the arm guard
+  // refuses.
+  //
+  // The containing case is asked first because it is a question about the
+  // source itself, which leaves the arm block below reasoning only about
+  // sources that are not one brace group.
+  if (isSingleEnclosingBraceGroup(s)) {
+    return hoistInlineObjectType(s, ctx, lowerField);
+  }
+
+  if (
+    arms.length > 1 &&
+    arms.every((arm) => isBraceBalanced(arm)) &&
+    arms.some((arm) => isSingleEnclosingBraceGroup(arm))
+  ) {
+    const loweredArms = arms.map((arm) =>
+      classifyLoweredUnionArm(
+        isSingleEnclosingBraceGroup(arm)
+          ? hoistInlineObjectType(arm, ctx, lowerField)
+          : lowerTypeExpr(arm, ctx),
+      ),
+    );
+    return { ...lowerUnion(loweredArms) };
+  }
+
   return lowerTypeExpr(s, ctx);
+}
+
+/**
+ * One `theta/load/schema-slug-collision` occurrence from a single
+ * `buildBodyTypeSchemas` pass, attributed to the schema decl being lowered
+ * when the byte-equality check failed (bug 0039 §Fix constraint: the
+ * slug-collision posture must be wired wherever an `__inline_` entry can now
+ * be minted, not only at the `params:` position). `collectBodyTypes`
+ * (theta-document.ts) turns each entry into the registered diagnostic, at the
+ * named decl's own range.
+ */
+export interface SchemaSlugCollision {
+  readonly slug: string;
+  readonly schemaName: string;
 }
 
 /**
@@ -182,7 +456,34 @@ export function lowerTypeSource(
  * placeholder and mints a `$ref` instead of taking the unresolved arm
  * (schemas.md §Recursion; schema-subset.md §Lowering Algorithm step 3).
  * `directRefs` records the names each body's fields name DIRECTLY, for pass 3
- * to turn into a transitive closure.
+ * to turn into a transitive closure. `inlineBodies` records every entry a
+ * field type's own hoist minted THIS PASS whose name is absent from `bodies`
+ * (bug 0039 §Fix constraint 4): a `schema`/`enum` decl seeds `bodies` in pass
+ * 1, but an `__inline_<slug>` name never does — `lowerTypeExpr`'s identifier
+ * atom only registers a name it resolved IN `bodies` — so a field type whose
+ * own hoist mints an inline fragment needs a SECOND table for pass 3's
+ * closure lookup to find it; without it, a hoisted def minted at the
+ * `schema`-body or alias-RHS position would drop out of the closure and leave
+ * a dangling `$ref` AJV refuses with `MissingRefError`. `inlineBodies` is
+ * never merged into `bodies` itself — doing so would make an `__inline_` name
+ * resolvable as an author-written `NamedType`, which is bug 0040's open
+ * subject, not this fix's.
+ *
+ * The slug-collision posture (schema-subset.md §Schema-slug collision
+ * posture) is DOCUMENT-scoped across this whole pass — one retention table
+ * and one `slugCollisions` list serve every decl's lowering — while each decl
+ * lowers into a `defs` record of its OWN. Those two scopes DIFFER here, where
+ * at `parseParams` they coincide (one block-shared retention over the one
+ * block-shared `defs` it mints into). That difference is what the SECOND
+ * retention map is for (`LowerCtx.inlineFragments`, params.ts): when a second
+ * decl mints a slug the first already retained, `hoistInlineObjectType`
+ * compares bytes, reports a mismatch to `slugCollisions`, and re-registers the
+ * FIRST decl's fragment under this decl's `defs` so the `$ref` it emits still
+ * closes. `inlineBodies` is first-wins for the same reason: pass 3 must serve
+ * every `$ref` to that slug the one retained fragment. `collisions`, when
+ * supplied, receives each
+ * failure attributed to the decl being lowered when it happened, by the same
+ * append-and-slice pattern `parseParams` applies per field.
  *
  * PASS 3 attaches a FLAT TRANSITIVE `$defs` closure to each body and returns
  * the result. THIS IS LOAD-BEARING: leaving `lowerObjectFields`'s own nested
@@ -197,7 +498,10 @@ export function lowerTypeSource(
  * `$defs` of their own, so every fragment this function returns is ACYCLIC
  * while staying transitively complete — the invariant `pruneDocumentDefs`
  * (query-schema-lowering.ts) and `binder-inference.ts`'s `inlineDefsRefs`
- * both rely on.
+ * both rely on. A reached name resolves against `bodies` first,
+ * `inlineBodies` second — an author-declared name wins a namespace clash with
+ * a synthesised one, though the mint recipe makes that clash astronomically
+ * unlikely on the slug alone, let alone the `__inline_` prefix.
  *
  * For an ACYCLIC document this produces the same final `pruneDocumentDefs`
  * output as the single-pass lowering did: today's per-fragment nested `$defs`
@@ -210,6 +514,7 @@ export function lowerTypeSource(
 export function buildBodyTypeSchemas(
   schemas: readonly LowerableSchema[],
   enums: readonly LowerableEnum[],
+  collisions?: SchemaSlugCollision[],
 ): Map<string, Record<string, unknown>> {
   // PASS 1 — seed the name set before any body lowers.
   const bodies = new Map<string, Record<string, unknown>>();
@@ -223,15 +528,31 @@ export function buildBodyTypeSchemas(
     bodies.set(decl.name, {});
   }
 
+  // Document-scoped slug-collision sinks (see the doc comment above).
+  const inlineCanonical = new Map<string, string>();
+  const inlineFragments = new Map<string, Record<string, unknown>>();
+  const slugCollisions: string[] = [];
+  const sinks: InlineHoistSinks = { inlineCanonical, inlineFragments, slugCollisions };
+
   // PASS 2 — lower each body (object fields or alias/union right-hand side)
   // against the fully seeded map.
   const directRefs = new Map<string, readonly string[]>();
+  const inlineBodies = new Map<string, Record<string, unknown>>();
   for (const decl of schemas) {
     let computed: Record<string, unknown>;
     let direct: string[];
     if (decl.fields !== undefined) {
-      computed = lowerObjectFields(decl.fields, bodies);
-      direct = Object.keys((computed["$defs"] ?? {}) as object);
+      computed = lowerObjectFields(decl.fields, bodies, undefined, sinks);
+      const nestedDefs = (computed["$defs"] ?? {}) as Record<string, Record<string, unknown>>;
+      direct = Object.keys(nestedDefs);
+      // FIRST WINS, matching the mint's own retention: a slug two decls both
+      // mint resolves to the fragment the first one retained, so a later decl
+      // must not displace what pass 3 will serve to the earlier decl's `$ref`.
+      for (const [mintedName, fragment] of Object.entries(nestedDefs)) {
+        if (!bodies.has(mintedName) && !inlineBodies.has(mintedName)) {
+          inlineBodies.set(mintedName, fragment);
+        }
+      }
       // `computed` is fresh — `lowerObjectFields` built it above — so mutating
       // it here touches nothing else.
       delete computed["$defs"];
@@ -242,8 +563,14 @@ export function buildBodyTypeSchemas(
       // this side-channel, never inside `computed` itself (nothing to
       // `delete` here).
       const localDefs: Record<string, Record<string, unknown>> = {};
-      computed = lowerTypeSource(decl.arms.join(" | "), bodies, localDefs);
+      computed = lowerTypeSource(decl.arms.join(" | "), bodies, localDefs, undefined, sinks);
       direct = Object.keys(localDefs);
+      // First-wins, as in the object-body arm above.
+      for (const [mintedName, fragment] of Object.entries(localDefs)) {
+        if (!bodies.has(mintedName) && !inlineBodies.has(mintedName)) {
+          inlineBodies.set(mintedName, fragment);
+        }
+      }
     } else {
       continue;
     }
@@ -262,6 +589,13 @@ export function buildBodyTypeSchemas(
     }
     Object.assign(placeholder, computed);
     directRefs.set(decl.name, direct);
+    // Append-and-slice attribution, per decl — `parseParams`'s own pattern for
+    // one `params:` field, applied here to one schema decl.
+    if (collisions !== undefined) {
+      for (const slug of slugCollisions.slice(collisions.length)) {
+        collisions.push({ slug, schemaName: decl.name });
+      }
+    }
   }
 
   // PASS 3 — flatten each body's transitive $defs closure and return.
@@ -274,7 +608,7 @@ export function buildBodyTypeSchemas(
     }
     const closure: Record<string, Record<string, unknown>> = {};
     for (const reachedName of reached) {
-      const reachedBody = bodies.get(reachedName);
+      const reachedBody = bodies.get(reachedName) ?? inlineBodies.get(reachedName);
       if (reachedBody !== undefined) {
         closure[reachedName] = reachedBody;
       }
@@ -326,10 +660,12 @@ function transitiveDefNames(
  * resolution `lowerTypeExpr` already performs, rather than re-deriving a
  * second name-walk.
  *
- * `source` dispatches the inline-object annotation form itself (`{ … }`,
- * which `lowerTypeSource` does not handle — `lowerQueryResponseSchema`
- * dispatches it to `lowerInlineObject` directly) before falling through to
- * `lowerTypeSource` for every other annotation / field-type shape.
+ * `source` dispatches the inline-object annotation form itself (`{ … }`) to
+ * `lowerInlineObject` before falling through to `lowerTypeSource` for every
+ * other annotation / field-type shape — the same root-level split
+ * `lowerQueryResponseSchema` makes, so a name nested inside either function's
+ * own inline-object handling still reaches this walk's `unresolved` sink
+ * (bug 0039 §Fix parts A/B).
  */
 export function collectUnresolvedNamedTypes(
   source: string,

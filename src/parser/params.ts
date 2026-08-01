@@ -137,7 +137,11 @@ export function parseParams(
   // its retained canonical bytes and its collision sink are block-shared too:
   // schema-subset.md §Schema-slug collision posture mandates the byte-equality
   // check on every slug match across the whole lowering pass, not per field.
+  // Both retentions share ONE scope with `defs` here, so
+  // `hoistInlineObjectType`'s cross-scope re-registration never fires at this
+  // position.
   const inlineCanonical = new Map<string, string>();
+  const inlineFragments = new Map<string, Record<string, unknown>>();
   const slugCollisions: string[] = [];
   const collisionSites: { readonly slug: string; readonly range: SourceRange }[] = [];
   for (const field of fields) {
@@ -146,6 +150,7 @@ export function parseParams(
       defs,
       unresolved: [],
       inlineCanonical,
+      inlineFragments,
       slugCollisions,
     };
     properties[field.name] = lowerParamsFieldType(field.typeSource, lowerCtx);
@@ -298,16 +303,38 @@ export interface LowerCtx {
   readonly unresolved: string[];
   /**
    * The canonical-form bytes of each `__inline_<slug>` fragment already minted
-   * into `defs`, keyed by the bare 16-hex slug. schema-subset.md §Schema-slug
-   * collision posture requires a slug-keyed dedup table to store the bytes
-   * ALONGSIDE the keyed artefact, so a slug match is settled by a byte
-   * comparison rather than a re-serialisation.
+   * through this context, keyed by the bare 16-hex slug. schema-subset.md
+   * §Schema-slug collision posture requires a slug-keyed dedup table to store
+   * the bytes ALONGSIDE the keyed artefact, so a slug match is settled by a
+   * byte comparison rather than a re-serialisation.
    *
-   * OPTIONAL because only the `params:` field position mints `__inline_` entries
-   * (`lowerParamsFieldType`): the body-type and query-lowering call sites thread
-   * no map and perform no check, and adding the field must not force them to.
+   * OPTIONAL because a call site that mints no `__inline_` entry has no bytes
+   * to retain and no check to run, and the field must not force either on it.
    */
   readonly inlineCanonical?: Map<string, string>;
+  /**
+   * The fragment behind each slug `inlineCanonical` retains bytes for, under
+   * the same bare-slug key.
+   *
+   * THE RETENTION IS SPLIT ACROSS TWO MAPS because the two halves answer
+   * different obligations, and only the first is the posture's. §Schema-slug
+   * collision posture asks for the canonical BYTES to sit beside the keyed
+   * artefact so the match check is a comparison and not a re-serialisation —
+   * `inlineCanonical` alone is that, and its shape is the posture's shape. The
+   * fragment retention exists for one mechanical reason instead: a scope whose
+   * own `defs` does not hold the `$defs` entry must re-register the WINNING
+   * fragment before it may emit a `$ref` naming it, or the enclosing `$defs`
+   * closure dangles. Merging them into one record of pairs would present a
+   * mechanism the posture does not ask for as though it were the posture's
+   * own. Both maps are written at ONE site and read at ONE site, adjacent to
+   * each other in `hoistInlineObjectType`, so they cannot drift apart.
+   *
+   * OPTIONAL independently of `inlineCanonical`: absent, "already minted" is
+   * decided by THIS scope's `defs` alone and no re-registration can fire —
+   * which is what a caller whose retention and `defs` share one scope needs
+   * (`parseParams`), and all a caller threading no sink at all gets.
+   */
+  readonly inlineFragments?: Map<string, Record<string, unknown>>;
   /**
    * Sink for the bare slugs whose byte-equality check FAILED, appended in
    * lowering order. Like `unresolved`, the caller owns the array's lifetime and
@@ -412,57 +439,74 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
 }
 
 /**
- * Lower a single `params:` field's type expression, intercepting a
- * brace-rooted inline object type (`{a: Triage, b: integer}`) before it can
- * reach `lowerTypeExpr`'s catch-all: `parseParams`'s per-field loop calls this
- * instead of `lowerTypeExpr` directly (bug 0035), so a name inside the object
- * resolves through the same `lowerCtx` — landing in `lowerCtx.unresolved` for
- * the caller's diagnostic loop, or in `lowerCtx.defs` as a hoisted `$ref`
- * target — exactly as the `@<T>` annotation and `schema`-body positions
- * already do (schema-subset.md:73/:76).
+ * Classify one ALREADY-LOWERED union arm for `lowerUnion` (SUBS-1,
+ * schema-subset.md §Lowering Algorithm step 3): a fragment whose ONLY key is a
+ * `type` naming a primitive is the one shape admitted into the multi-type-array
+ * form, and every other fragment is `non-primitive` and forces `anyOf`.
  *
- * THE INTERIOR SPLIT NESTS BRACE DEPTH. The interior of a brace-rooted `params:`
- * field is an inline-object FIELD LIST whose per-field `Type` is recursive
+ * Exported because `lowerTypeSource` (body-type-lowering.ts) dispatches a
+ * union's arms one at a time — an inline-object arm hoists where the others go
+ * to `lowerTypeExpr` (bug 0039 §Fix part B) — and must then reach the SAME
+ * verdict `lowerTypeExpr`'s own union branch reaches for the same fragment.
+ * Two classifications that disagreed would lower one source to
+ * `{"type": [...]}` at one type position and `{"anyOf": [...]}` at another,
+ * against type-system.md's one-grammar-everywhere rule. `PRIMITIVE_TYPES` is
+ * the single set both read.
+ */
+export function classifyLoweredUnionArm(lowered: Record<string, unknown>): LoweredUnionArm {
+  const type = lowered["type"];
+  if (
+    Object.keys(lowered).length === 1 &&
+    typeof type === "string" &&
+    PRIMITIVE_TYPES.has(type as LoweredPrimitiveType)
+  ) {
+    return { kind: "primitive", type: type as LoweredPrimitiveType };
+  }
+  return { kind: "non-primitive", lowered };
+}
+
+/**
+ * Hoist a brace-rooted type source (`{a: Triage, b: integer}`) into a `$ref`
+ * against a freshly-minted `__inline_<slug>` entry in `lowerCtx.defs` — the
+ * mechanism `lowerParamsFieldType` (below) has owned since bug 0035, now
+ * shared with `lowerTypeSource` (body-type-lowering.ts) so the `@<T>`
+ * annotation, a `schema` body field type and the alias/union right-hand side
+ * hoist an inline object exactly as the `params:` position does (bug 0039
+ * §Fix part B). `body-type-lowering.ts` imports from this module and not the
+ * reverse, so the shared arm lives here rather than there.
+ *
+ * THE INTERIOR SPLIT NESTS BRACE DEPTH. The interior of a brace-rooted type is
+ * an inline-object FIELD LIST whose per-field `Type` is recursive
  * (grammar.md:109), so a nested `ObjectType` is ONE field's type and the comma
  * inside it is not an outer separator — hence `"angle-and-brace"`. Splitting on
  * angle depth alone reads `{a: Triage, b: {x: integer, y: string}}` as the three
- * entries `a: Triage`, `b: {x: integer`, `y: string}`: the theta loads clean and
- * mints a fragment carrying a permissive `b`, a PHANTOM top-level `y`, and a
- * three-name `required`, so AJV then rejects the author's own payload and
- * accepts the phantom shape instead. `topLevelColon` needs no change and is
- * shared with `lowerInlineObject` as-is — it already tracks brace depth, so a
- * nested object's own `:` never splits the enclosing entry.
+ * entries `a: Triage`, `b: {x: integer`, `y: string}`: a fragment carrying a
+ * permissive `b`, a PHANTOM top-level `y`, and a three-name `required` — AJV
+ * then rejects the author's own payload and accepts the phantom shape instead.
+ * `topLevelColon` needs no change: it already tracks brace depth, so a nested
+ * object's own `:` never splits the enclosing entry.
  *
- * That is a DELIBERATE divergence from `lowerInlineObject`
- * (body-type-lowering.ts), whose interior split is angle-only and which
- * therefore drops those same two fragments at the three sibling positions. Their
- * behaviour on nested-comma texts is theirs — pre-existing, recorded as a
- * residual, not changed from here. What an author moving a type expression
- * between positions relies on is the SINGLE-LEVEL raise-parity, and that is
- * unchanged: all four positions name `Tirage` in `{a: Tirage, b: integer}`.
+ * `lowerFieldType` is the caller's OWN recursion for a field's `Type`.
+ * `lowerParamsFieldType` passes itself, so a nested brace-rooted field stays
+ * routed through the same interception (the MIXED fixture). `lowerTypeSource`
+ * passes an inner helper that returns through ITS OWN literal-sublanguage check
+ * first — recursing through `lowerTypeExpr` instead would lower a nested
+ * `"x" | "y"` to `anyOf: [{}, {}]` rather than the SUBS-1 enum form (bug 0039
+ * §Fix constraint: the literal sublanguage must not regress).
  *
  * A zero-field body — `{}`, or an interior of only whitespace — returns the
- * permissive `{}` with no hoist and no diagnostic. grammar.md:109's
- * empty-schema-body case stays open for the `params:` position (bug 0035
- * §Expected leaves it out of scope); this arm must not pre-empt it.
- *
- * Each field's own type recurses through this same function, so a nested
- * brace-rooted type hoists its own `__inline_<slug>` entry (the MIXED
- * fixture); the recursion falls through to `lowerTypeExpr` the moment a
- * field's type is not itself brace-rooted.
+ * permissive `{}` with no hoist and no diagnostic: grammar.md:109's
+ * empty-schema-body case stays unimplemented at every position (bug 0033
+ * §Fix residual (iv)), so this function must not pre-empt it.
  */
-export function lowerParamsFieldType(
+export function hoistInlineObjectType(
   source: string,
   lowerCtx: LowerCtx,
+  lowerFieldType: (fieldSource: string, fieldCtx: LowerCtx) => Record<string, unknown>,
 ): Record<string, unknown> {
-  const s = source.trim();
-  if (!(s.startsWith("{") && s.endsWith("}"))) {
-    return lowerTypeExpr(s, lowerCtx);
-  }
-
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
-  for (const entry of splitTopLevel(s.slice(1, -1), ",", "angle-and-brace")) {
+  for (const entry of splitTopLevel(source.slice(1, -1), ",", "angle-and-brace")) {
     const colon = topLevelColon(entry);
     if (colon < 0) {
       continue;
@@ -472,7 +516,7 @@ export function lowerParamsFieldType(
     if (fieldName.length === 0 || fieldType.length === 0) {
       continue;
     }
-    properties[fieldName] = lowerParamsFieldType(fieldType, lowerCtx);
+    properties[fieldName] = lowerFieldType(fieldType, lowerCtx);
     required.push(fieldName);
   }
   if (required.length === 0) {
@@ -498,9 +542,19 @@ export function lowerParamsFieldType(
   const canonical = canonicalForm(lowered);
   const slug = schemaSlug(lowered);
   const defName = `__inline_${slug}`;
-  if (lowerCtx.defs[defName] !== undefined) {
-    const retained = lowerCtx.inlineCanonical?.get(slug);
-    if (retained !== undefined && retained !== canonical) {
+  const retainedBytes = lowerCtx.inlineCanonical?.get(slug);
+  const retainedFragment = lowerCtx.inlineFragments?.get(slug);
+  // ALREADY MINTED means either scope says so — this call's `defs`, or the
+  // fragment retention. The two are not always one scope: `buildBodyTypeSchemas`
+  // (body-type-lowering.ts) shares one retention across a document while giving
+  // each schema decl its own `defs`. Consulting `defs` alone would let a second
+  // decl minting a slug the first already minted skip the byte comparison,
+  // record no collision, and overwrite the retention last-wins — the silent
+  // aliasing schema-subset.md §Schema-slug collision posture forbids. A caller
+  // that threads no fragment retention keeps the single-scope reading, `defs`
+  // alone.
+  if (lowerCtx.defs[defName] !== undefined || retainedFragment !== undefined) {
+    if (retainedBytes !== undefined && retainedBytes !== canonical) {
       // Differing bytes: refuse to merge and report the slug. The caller raises
       // the registered `theta/load/schema-slug-collision`, whose message literal
       // is held identical to `dedupInlineSchemas`'s (schema-lowering.ts) by
@@ -509,6 +563,13 @@ export function lowerParamsFieldType(
       // while this site needs the decision AT MINT TIME because the `$ref` it
       // returns must name whichever fragment is retained.
       lowerCtx.slugCollisions?.push(slug);
+    }
+    if (retainedFragment !== undefined && lowerCtx.defs[defName] === undefined) {
+      // The RETAINED fragment, never the one built above: first-wins holds
+      // across scopes, and the `$ref` returned below has to name a def that
+      // exists in THIS scope or the enclosing `$defs` closure dangles (AJV
+      // refuses a dangling `$ref` with `MissingRefError`).
+      lowerCtx.defs[defName] = retainedFragment;
     }
     // FIRST WINS either way — the retention posture `dedupInlineSchemas` applies:
     // byte-equal fragments are the silent dedup case (schema-subset.md step 2),
@@ -523,7 +584,34 @@ export function lowerParamsFieldType(
   }
   lowerCtx.defs[defName] = fragment;
   lowerCtx.inlineCanonical?.set(slug, canonical);
+  lowerCtx.inlineFragments?.set(slug, fragment);
   return { $ref: `#/$defs/${defName}` };
+}
+
+/**
+ * Lower a single `params:` field's type expression, intercepting a
+ * brace-rooted inline object type (`{a: Triage, b: integer}`) before it can
+ * reach `lowerTypeExpr`'s catch-all: `parseParams`'s per-field loop calls this
+ * instead of `lowerTypeExpr` directly (bug 0035), so a name inside the object
+ * resolves through the same `lowerCtx` — landing in `lowerCtx.unresolved` for
+ * the caller's diagnostic loop, or in `lowerCtx.defs` as a hoisted `$ref`
+ * target — exactly as every OTHER type position now does too (bug 0039 §Fix).
+ *
+ * The hoist itself is `hoistInlineObjectType`, shared with `lowerTypeSource`
+ * (body-type-lowering.ts); this function's own bytes are unchanged by that
+ * sharing (bug 0039 §Fix constraint: "The `params:` position's bytes do not
+ * move"), since it recurses into ITSELF for a nested brace-rooted field type,
+ * exactly as before.
+ */
+export function lowerParamsFieldType(
+  source: string,
+  lowerCtx: LowerCtx,
+): Record<string, unknown> {
+  const s = source.trim();
+  if (!(s.startsWith("{") && s.endsWith("}"))) {
+    return lowerTypeExpr(s, lowerCtx);
+  }
+  return hoistInlineObjectType(s, lowerCtx, lowerParamsFieldType);
 }
 
 /**
@@ -604,12 +692,12 @@ export function topLevelColon(entry: string): number {
  *     `Result<{a: string, b: integer}, QueryError>` has exactly two arguments and
  *     its first carries a comma, so an angle-only split yields three parts and
  *     disagrees with the parser that computes
- *     `theta/parse/generic-arity-mismatch`. And the inline-object FIELD LIST of a
- *     brace-rooted `params:` field (`lowerParamsFieldType`), where a nested
- *     `ObjectType` is a single field's type; that function's comment records what
- *     an angle-only split mints there, and why `lowerInlineObject`
- *     (body-type-lowering.ts) keeping the angle-only split is a residual rather
- *     than a shared rule.
+ *     `theta/parse/generic-arity-mismatch`. And the inline-object FIELD LIST,
+ *     where a nested `ObjectType` is a single field's type: `hoistInlineObjectType`
+ *     (above) splits it for every type position that hoists, and
+ *     `lowerInlineObject` (body-type-lowering.ts) splits it for the annotation
+ *     root it lowers in place. `hoistInlineObjectType`'s comment records what an
+ *     angle-only split mints there.
  */
 export type TypeSplitNesting = "angle" | "angle-and-brace";
 

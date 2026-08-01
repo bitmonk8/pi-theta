@@ -142,7 +142,14 @@ off-session binder pass).
 angle-only interior split: on nested-comma texts
 (`{a: T, b: {x: integer, y: string}}`) the `@<T>` and schema-body positions
 still mint silently-wrong fragments (phantom fields, wrong `required`) —
-pre-existing, unchanged here, unfiled. (ii) The `__inline_` name prefix is
+pre-existing, unchanged here, unfiled. Filed as bug
+[0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md),
+which corrected this residual in two places (three sibling positions, not two —
+bug 0033 added the alias RHS; and only the annotation root minted a wrong
+fragment, the other two lowering `{}`), and discharged by its fix (0.49.0): the
+interior split nests brace depth and the shared recursive lowerer gained the
+hoisting inline-object arm, so every registered position now hoists through one
+implementation. (ii) The `__inline_` name prefix is
 not spec-reserved: an author-declared schema literally named
 `__inline_<16hex>` that matches a minted slug aliases silently in either
 field order (outside the collision row's anonymous-inline trigger) — a
