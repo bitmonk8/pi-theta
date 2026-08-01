@@ -6,6 +6,33 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-08-01
+
+### Fixed
+
+- **Placeholder-rendering §5's second `<key>` test vector labelled the bracket
+  spelling `obj["kind"]` "A member access", the name `expressions.md:9`
+  reserves for `a.b`** (bug 0037). The vector's substance was correct and
+  locked — the `<key>` rule is a runtime predicate on the key string, and the
+  rendered `missing object key: kind` is pinned at the renderer and at the
+  emission site by bug 0036's tests — but a normative page named a grammar
+  production its own quoted example does not use, contradicting the
+  `expressions.md §Supported forms` naming authority a reader would reconcile
+  it against. The sentence now reads "An indexed access `obj["kind"]` …",
+  matching `expressions.md:10`; every other byte, including the rendered
+  string and the identifier-shape parenthetical, is unchanged. Prose only: no
+  behavioural surface, no registry edit (DIAG-2 holds — the
+  `theta/runtime/missing-object-key` row already covered both spellings since
+  bug 0032), no `docs/reference/` mirror repeats the vector sentence, no test
+  file changed, and the sibling `:19` vector is left as found so the verbatim
+  quotation of it in the 0036 lock does not stale. No test witness exists and
+  none was manufactured: the only mechanism that reads the page is the
+  closing gate, whose full output is byte-identical across the substitution
+  (2217 findings, gated arms empty both sides), and the sole constructible
+  witness — a prose-matching assertion — would invert DIAG-4. Default gate 237
+  files / 2976 tests green, lint and typecheck clean, H8a 7/7 green as
+  no-regression cover.
+
 ## [0.46.0] - 2026-08-01
 
 ### Fixed

@@ -148,7 +148,11 @@ gate; the fix itself is offline per this §Fix).
 fix. The pre-existing `placeholder-rendering-b.md:20` vector label ("A
 member access" describing the bracket spelling `obj["kind"]`) predates this
 bug, asserts a correct byte string, and is left as found — flagged for
-separate curation.
+separate curation. That curation is bug
+[0037](./0037-placeholder-vector-mislabels-bracket-indexing-as-member-access.md),
+and the residual is discharged by its fix (0.47.0): the label now reads "An
+indexed access", the name `expressions.md:10` gives the bracket form. The
+byte string this bug's fix made spelling-independent is unchanged.
 
 ## Summary
 

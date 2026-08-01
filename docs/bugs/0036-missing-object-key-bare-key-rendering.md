@@ -184,6 +184,13 @@ Reading the table:
   `missing object key: "my-key"` (key is not identifier-shaped, so quoted)"
   and "A member access `obj["kind"]` on a missing key renders
   `missing object key: kind` (key is identifier-shaped, so bare)."
+  The `:20` quotation above is the page's text as this report read it and is
+  retained verbatim as a dated record. Its "A member access" label was the
+  defect of bug
+  [0037](./0037-placeholder-vector-mislabels-bracket-indexing-as-member-access.md),
+  discharged by its fix (0.47.0): the sentence now reads "An indexed access",
+  the name `expressions.md:10` gives the bracket spelling both vectors quote.
+  Only the label moved — the byte strings this report pins are unchanged.
 - `:129` — the predicate restated as a normative edge case, with the
   reserved-keyword carve-out ("a key like `kind` renders bare, `my-key`
   renders quoted").

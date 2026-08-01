@@ -17,7 +17,7 @@
 - An unknown frontmatter field `wibble` renders `unknown frontmatter field 'wibble'` (the registry template supplies the surrounding single quotes; the placeholder itself contributes the bare identifier).
 - A non-existent settings-sourced theta directory `~/work/theta` renders `discovery source path does not exist: settings:"~/work/theta"`.
 - A `match` on `obj["my-key"]` against a missing key renders `missing object key: "my-key"` (key is not identifier-shaped, so quoted).
-- A member access `obj["kind"]` on a missing key renders `missing object key: kind` (key is identifier-shaped, so bare).
+- An indexed access `obj["kind"]` on a missing key renders `missing object key: kind` (key is identifier-shaped, so bare).
 
 ### 6. Underlying-error placeholders
 

@@ -1,7 +1,8 @@
 # Bug 0037 — placeholder-rendering §5's second `<key>` test vector calls the bracket spelling `obj["kind"]` "A member access", the name expressions.md:9 reserves for `a.b`; the byte string the vector pins is correct and locked, only the syntax label is wrong
 
-- **Status:** open. §Fix settled — one label correction in one spec sentence;
-  no behavioural, registry, or test change.
+- **Status:** fixed (0.47.0). §Fix as settled — one label correction in one
+  spec sentence; no behavioural, registry, or test change. See §Fix (0.47.0)
+  below.
 - **Kind:** spec-doc defect — a normative page mislabels the syntax of its own
   test vector. Not a spec gap and not an implementation defect: the §5 `<key>`
   rule (`placeholder-rendering-b.md:11`), its runtime identifier-shape
@@ -53,6 +54,93 @@
     contains no mislabel, and §Fix leaves it as found.
 - **Observed at:** `0.45.0` (HEAD `f959f8de`). Text defect, read from the
   file. No execution, no live model.
+
+## Fix (0.47.0)
+
+The settled §Fix, implemented as written: one word class, one sentence, no
+other byte in the corpus moved. Line anchors are at the fix commit.
+
+**The label corrected.**
+`docs/spec_topics/diagnostics/placeholder-rendering-b.md:20` now reads "An
+indexed access `obj["kind"]` on a missing key renders `missing object key:
+kind` (key is identifier-shaped, so bare)." The article moves `A` → `An`
+before the vowel; the rest of the sentence is byte-identical, including the
+quoted expression, the rendered string `missing object key: kind` and the
+parenthetical. "Indexed access" is the name `expressions.md:10` gives the
+bracket form, so no term is coined; the mid-sentence lowercase matches the
+corpus's running-prose spelling (`error-model.md:71`,
+`placeholder-rendering-a.md:7`, `docs/reference/errors-and-results.md:88`),
+where the capitalised form appears only bullet-label- or sentence-initial.
+The diff is `1 file changed, 1 insertion(+), 1 deletion(-)`; the file stays
+LF at 133 lines, so every inbound `path:line` citation into the page — the
+`:19` verbatim quotation at `tests/missing-object-key-rendering.test.ts:322`
+and the `:20` citation at `:335` — remains valid.
+
+**Nothing else moved, as §Fix scoped it.** The sibling `:19` vector is
+byte-unchanged (its verbatim quotation in the 0036 lock would otherwise
+stale). DIAG-2 holds: no code, row, trigger or Message cell was touched —
+`code-registry-runtime.md:17` is untouched, and the row already covered both
+spellings since 0032. No `docs/reference/` mirror repeats the vector
+sentence (re-verified at the fix commit: `rg 'obj["kind"]|A member access'
+docs/reference/` is empty; `errors-and-results.md:88`'s "Member or indexed
+access" is a correct disjunction, not a vector label), so no same-commit
+mirror correction is owed. No test file changed: no comment in the suite
+repeats the mislabel, and no assertion depends on the label word.
+
+**No test witness — established by execution, not by assertion.** §Fix's
+"No test witness" holds and was re-proved independently. The one mechanism
+that ingests the page is the closing gate
+(`tools/closing-gate/live-corpus.js:123`, `readTree(docs/spec_topics)` into
+both the `specSources` and `registryText` channels), consumed by
+`tests/live-corpus-release-gate.test.ts` (hard-fail, `:145
+expect(findings).toEqual([])`) and `tests/warn-only-canary.test.ts`. Applying
+the exact substitution to an in-memory corpus clone — the pattern
+`warn-only-canary.test.ts:27–31` sanctions, the live tree never written —
+leaves the full unfiltered gate output **byte-identical**, 2217 findings
+before and after, with the gated arms empty on both sides. The changed line
+carries no `theta/` code, no `MUST`, no REQ-ID and is not a table row, so
+every gate recogniser is structurally inert over it; no test opens the page
+as a file. The only constructible witness would be a prose-matching
+assertion, which inverts DIAG-4 (`diagnostic-shape.md:74`: expected strings
+come from the *Message* column "rather than copy-pasting prose from the spec
+rule's home page") — deliberately not built, and recorded as a residual
+below instead.
+
+**Verification.** All citations in this report re-read at the fix baseline
+with zero drift from the `f959f8de` line numbers they were filed against.
+Default gate 237 files / 2976 tests green; `npm run lint` and `npm run
+typecheck` exit 0. Live: H8a `tests/live/live-production-acceptance.test.ts`
+7/7 green as no-regression cover (the change has no runtime surface, so no
+live path exercises it and none was written — a new live test would exercise
+unrelated behaviour under this bug's name). One review round, clean on the
+diff. No neutralisation edit was performed: the pre-fix bytes were read from
+the object store (`git show HEAD:…`), never written to the tree, and the
+file's blob hash was identical before and after verification.
+
+**Version-bump arbitration.** Bumped to 0.47.0 despite being prose-only. The
+repo defines no docs-only exemption, and `docs/bugs/README.md` indexes every
+closed report as `— fixed (x.y.z)`, so a version is required to close the
+line. GOV-19 is not engaged: it governs `theta <major>.<minor>[.<patch>]`
+release literals, not the npm package version.
+
+**Residuals.** Two, neither blocking, both left for separate curation rather
+than folded in against §Fix's "Scope: one sentence".
+(i) `docs/spec_topics/grammar.md:54` — the forbidden-inside-a-literal bullet
+"Member access on anything other than `Enum.Variant` (no `obj.field`, no
+`arr[i]`)" heads a bracket spelling with the member-access label, the same
+genus as this defect in a different sentence on a different page. Its mirror
+(`docs/reference/grammar.md:501`) carries no bracket example, so the mirror is
+clean.
+(ii) The corpus has no vocabulary/prose-consistency gate: `expressions.md
+§Supported forms` is the naming authority for access forms and nothing
+mechanically checks that other normative pages use its terms correctly, which
+is why this mislabel survived two adjacent fixes (0032, 0036) that both read
+the sentence. Such a gate would key on syntax-form labels applied to quoted
+example expressions — a different surface from DIAG-4, which governs rendered
+diagnostic message strings — and its DIAG-4 boundary would need explicit
+adjudication before anyone builds it.
+Bug 0032 §Fix (0.42.0)'s flagged-for-separate-curation item — this vector
+label — is discharged by this fix.
 
 ## Summary
 
