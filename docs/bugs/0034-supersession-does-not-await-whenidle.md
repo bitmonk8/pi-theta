@@ -1,6 +1,10 @@
 # Bug 0034 — The supersession pass never awaits `handle.whenIdle()`: a superseded-generation rebuild already in flight publishes into the drained registry and re-registers its slash names after the superseding generation has registered, so those names dispatch to a dead generation until `/reload`
 
-- **Status:** open
+- **Status:** fixed (0.46.0). §Fix as settled — the supersession pass now marks
+  the outgoing generation's debouncer torn-down and bounded-awaits its
+  already-in-flight rebuild before any mutating step, re-checking the staleness
+  predicate after the one new await, and `#repeat-start-supersession` gained
+  the normative sentence prescribing both acts. See §Fix (0.46.0) below.
 - **Kind:** defect **plus spec gap** — one call site, one clause.
   - *Defect* — the supersession pass supersedes the outgoing generation with
     two synchronous acts (drain, `detach()`) and publishes immediately
@@ -112,6 +116,158 @@
   surviving a throwing detach), this report the rebuild **already in flight**.
   0029 is itself sequenced after
   [bug 0023](./0023-production-composition-omits-bootstrap-seams.md).
+
+## Fix (0.46.0)
+
+The settled §Fix, implemented as written; four review rounds and two
+verification rounds hardened the spec prose and the new emission's coverage.
+Line anchors are at the fix commit.
+
+**Bounded quiesce before the mutating steps** (`src/extension/factory.ts`, the
+`session_start` handler, between the post-compose staleness check and the
+supersession fold). The outgoing handle is read into a local without clearing
+the slot; when an outgoing handle is present the pass runs
+`outgoingHandle.markTornDown?.()` and then awaits `quiesceOutgoingRebuild`,
+which races `whenIdle?.() ?? Promise.resolve()` against a cap timer armed on
+the **outgoing** generation's own `Clock` — the `liveClock` the publish below
+overwrites only afterwards — and clears that timer in a `finally`. The
+staleness predicate is then re-evaluated and the zero-touch return taken if a
+shutdown or a newer start landed while the pass was suspended; every mutating
+step (fold, drain, slot clear, isolated `detach()`, publish,
+`registerFixtures`) still runs in one synchronous run-to-completion after that
+second check, and the declaration-site comment now states that
+one-await-one-recheck invariant in place of the await-free-tail one. The whole
+block is skipped when there is no outgoing handle, so the first start, the
+subagent-child return and the start-after-shutdown rebind stay await-free.
+Placing the await before generation 2's registration is what removes the harm:
+the settling rebuild re-registers against a still-undrained generation-1
+registry, and generation 2's registration then lands last and owns every
+surviving name.
+
+**Cap** (`src/extension/capability-probe.ts`).
+`SUPERSESSION_QUIESCE_CAP_MS = SHUTDOWN_AWAIT_CAP_MS` (2000 ms), declared
+beside its source on the `SUBAGENT_DISPOSE_BUDGET_MS` precedent: one magnitude
+declaration site, but a deadline **owned by the supersession path** and
+captured at the quiesce, since the teardown's handler-entry deadline does not
+exist here. Cap expiry emits no diagnostic — the rebuild is abandoned under the
+torn-down mark, PIC-57's own rule for the identical case.
+
+**Two arbitrations settled inside §Fix's constraints.** (1) §Fix step 2 asks
+for the mark "guarded by the catch-and-emit arm bug 0029 installs at this
+site"; at the fix baseline that arm sits inside the `detach()` `try`, which
+step 5 moves *after* the await, so the mark and the quiesce needed their own
+`try` — one `try` spanning both acts under one label, mirroring the teardown,
+which lumps its own `markTornDown()` and bounded quiesce under the single
+label `debouncer.whenIdle(awaitCap)`. The emission reuses the existing code
+with a new `details.call` value `hotReloadHandle.whenIdle(awaitCap)`, defended
+by its own inner `try`/`catch` per Diagnostic-emission isolation. (2) No new
+code is minted, but that row's closed `details.call` set moves from one member
+to two — the same-commit spec edit the row's own rule requires.
+
+**Spec amendment.** `registration-steps.md#repeat-start-supersession` gains the
+normative sentence: before publishing its own live resources the pass MUST (a)
+mark the outgoing generation's debouncer torn-down and (b) bounded-await any
+already-in-flight superseded-generation rebuild, so that rebuild either
+completes its single synchronous publish per PIC-36 against the still-undrained
+outgoing registry, or is a no-op, or is abandoned once the bound elapses. The
+bound is owned by the supersession pass, not by the `session_shutdown`
+deadline; theta 1.0 contracts its **existence, not its value**, on the same
+footing as the 250 ms debounce window. A repeat `session_start` delivery is
+recorded as bounded-blocking on the superseded generation's rebuild — the
+contract change §Fix names. PIC-57 gains a timeless cross-reference recording
+that its in-flight-rebuild await has a second prescribed site, with its own
+deadline. `code-registry-host.md`'s row widens its closed call-label set,
+corrects the now-false "exactly one fallible sub-step" parenthetical, and
+scopes its containment claim to *fresh or deferred* rebuilds — a throw out of
+the quiesce leaves an already-in-flight rebuild unawaited, on the same footing
+as cap expiry. `docs/reference/diagnostics.md` carries only this row's code,
+severity, phase and Message template, none of which changed, so no reference
+mirror needed an edit; `docs/reference/coverage-matrix.md` places the whole
+Pi-integration-contract cluster outside the author-facing Reference scope.
+H9a's permitted-code list is untouched: no code is minted and the slug has been
+listed since bug 0029.
+
+**Reproduction re-derived at the fix baseline** (`3715fa5f`, 0.45.0) with a
+scratch probe, written, run and deleted. Two drifts against the recorded
+0.32.0 evidence, both from later fixes:
+
+- **The `theta/load/cross-format-collision` arm no longer fires.** Bug 0024's
+  fix (0.36.0) made the own-registration ledger factory-scoped and
+  cross-generational (PIC-69), and the rediscover closure now excludes
+  `ownRegisteredNames` before falling back to the registry snapshot, so the
+  leaked pass reads generation 2's registrations as its own. The probe recorded
+  zero diagnostics on the whole path. §Summary item 3, §Actual behaviour's
+  fourth paragraph and §Fix's "the cross-generation … window closes for the
+  same reason" therefore describe a window that was already closed. Nothing
+  else in the report depends on it and no regression test asserts that note.
+- **The control is green for a different reason.** At 0.32.0 it rested on the
+  un-thrown `debouncer.cancel()`; since bug 0029's fix (0.40.0) it rests on the
+  containment-first `detach()`. Every `src/` citation in §Affected is stale by
+  the 0024 and 0029 fixes, and the "byte-identical to `7fa76517`" claim no
+  longer holds.
+
+Everything else reproduced verbatim: a rebuild in flight at the supersession
+instant, its re-registration and publish landing after generation 2's, the
+drained registry gaining the newly-planted name, the structural-change note
+delivered from a dead generation, and the arm-(b) shutting-down note answering
+a live name.
+
+**Offline lock.** `tests/supersession-inflight-rebuild-quiesce.test.ts` (6
+tests, offline, real `createThetaExtension` over the injectable
+`deps.composeInstance` seam wrapping the real `composeExtensionInstance`, with
+the real `installHotReload` / `ReloadDebouncer` / `HotReloadHandle` /
+`ThetaRegistry` and a gated `rediscover` parking the rebuild): (1) a
+generation-1 rebuild parked in `rediscover` across the supersession boundary
+settles BEFORE the drain — the drained registry gains no post-drain entry and
+no re-registration follows the drain; (2) the last `pi.registerCommand` for
+every surviving name is generation 2's, and dispatching it runs the theta
+rather than answering the arm-(b) shutting-down note; (3) the §Reproduction
+control (a debounce window still open at supersession) fires nothing — the
+discriminator against bug 0029's fix; (4) the bound — a rebuild still parked at
+the cap arms exactly one cap timer at the declared magnitude, and the
+supersession completes without hanging and without a diagnostic; (5) evidence
+at the quiesce — a throwing `markTornDown()`, a synchronously throwing
+`whenIdle()` and a rejecting `whenIdle()` each emit exactly one diagnostic
+under the pinned code with `details.call` equal to the new label, the severity
+and Message read from the registry itself (DIAG-4), while generation 2 still
+publishes, registers and arms; (6) a throwing `emitDiagnostic` sink at the
+quiesce arm does not abort the superseding pass. Tests 1, 2 and 5 red at HEAD,
+and test 4's cap-arming assertions red there too; test 3 is green in both
+directions. Verified in every direction: full neutralisation reds 1/2/4/5/6
+with the leaked-pass signature; neutralising ONLY the `await` while keeping the
+mark still reds 1 and 2, proving the await rather than the mark closes the
+defect; mislabelling or removing the emission reds 5; removing the inner
+defended `try`/`catch` reds 6; perturbing either the registry row's label text
+or its Message template reds 5. `tests/reload-teardown-quiesce.test.ts`,
+`tests/double-session-start-supersession.test.ts` and
+`tests/supersession-detach-throw-containment.test.ts` are unchanged and green.
+
+**Live.** `tests/live/double-session-start-live.test.ts` (the bug-0021/0024
+witness on the supersession path) green; H9a real-binary acceptance 11/11 green
+with bug 0030's empty-capture stderr gate holding on every spawn; H8a
+`live-production-acceptance` 7/7 green. No shipped live test drives a
+supersession with a rebuild in flight, so a scratch live probe supplied that
+coverage: a real chokidar seam, the real 250 ms debounce, and a compose padded
+to about a second so the window closes inside generation 2's compose. With the
+fix neutralised it reproduced the defect on a live session — the superseded
+generation's structural note arrived 713 ms after `bindExtensions()` returned,
+and dispatching the surviving name answered the shutting-down note — and with
+the fix restored that note is already in the settled transcript when
+`bindExtensions()` resolves. Probe deleted.
+
+**Residuals.** (i) A rebuild still running at the cap is abandoned, resumes
+after the publish, and reproduces the pre-fix behaviour unevidenced; the cap
+bounds how much of the defect survives, and the abandonment is the posture the
+teardown takes at its own deadline. Recorded in §Fix and now pinned in the spec
+(abandonment under the torn-down mark, no diagnostic). (ii) A throw out of
+either quiesce act leaves an already-in-flight rebuild unawaited, on the same
+footing as cap expiry; the registry row and the amendment both state it, and
+the emission itself is locked by test 5. (iii) The quiesce is gated on the
+outgoing handle and the outgoing clock both being present. The second conjunct
+is unreachable by construction — `liveClock` is assigned before
+`hotReloadHandle`, and the teardown clears the handle while keeping the clock —
+so no test pins it; were that ordering ever edited the quiesce would be skipped
+silently.
 
 ## Summary
 

@@ -185,6 +185,10 @@ bug 0030's empty-capture stderr gate holding on all spawns.
 supersession time still publishes and re-registers — the supersession pass
 never awaits `handle.whenIdle()`; filed as bug
 [0034](./0034-supersession-does-not-await-whenidle.md), unchanged here.
+Discharged by its fix (0.46.0): the supersession pass now marks the outgoing
+generation's debouncer torn-down and bounded-awaits its already-in-flight
+rebuild before any mutating step, so that rebuild settles against the
+still-undrained outgoing registry and generation 2's registration lands last.
 (ii) The inert fs-handle leak on a throwing chokidar `close()` (the un-run
 `_closers`) is unchanged — no retry path exists and none was added; the
 leak is bounded, delivery-dead, and now evidenced by the diagnostic.

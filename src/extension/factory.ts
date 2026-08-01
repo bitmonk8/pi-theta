@@ -52,7 +52,11 @@ import {
   createProductionProbeHost,
   type ExtensionInstanceWiring,
 } from "./production-composition";
-import { hostIncompatibleDiagnostic, runCapabilityProbe } from "./capability-probe";
+import {
+  hostIncompatibleDiagnostic,
+  runCapabilityProbe,
+  SUPERSESSION_QUIESCE_CAP_MS,
+} from "./capability-probe";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 
 /**
@@ -179,8 +183,10 @@ function composeFailedDiagnostic(caught: unknown): Diagnostic {
 
 /**
  * The diagnostics-registry code the repeat-`session_start` supersession pass
- * surfaces when its detach of the prior generation's hot-reload handle throws
- * (bug 0029; diagnostics/code-registry-host.md
+ * surfaces when one of its two fallible acts on the outgoing generation's
+ * hot-reload handle throws — the isolated `detach()` (bug 0029) or the
+ * bounded `whenIdle()` quiesce that now precedes it (bug 0034;
+ * diagnostics/code-registry-host.md
  * `theta/host/session-start-supersession-detach-failed`). Kept distinct from
  * `theta/host/session-shutdown-teardown-step-failed`: that code's
  * `(details.step, details.call)` label set is closed to the `session_shutdown`
@@ -191,29 +197,73 @@ export const SUPERSESSION_DETACH_FAILED_CODE =
   "theta/host/session-start-supersession-detach-failed";
 
 /**
- * The closed one-member `details.call` label for
- * `SUPERSESSION_DETACH_FAILED_CODE`: the supersession pass has exactly one
- * fallible sub-step, so (unlike the teardown's per-step label set) no
- * `details.step` discriminator carries information here.
+ * The closed two-member `details.call` label set for
+ * `SUPERSESSION_DETACH_FAILED_CODE`, one member per fallible act. The
+ * supersession pass is not a numbered sub-step sequence the way the
+ * `session_shutdown` teardown is, so no `details.step` discriminator applies —
+ * `call` alone identifies the site. Both labels are declared side by side so
+ * the two call sites below cannot drift apart from the set this comment
+ * documents.
  */
 const SUPERSESSION_DETACH_CALL_LABEL = "hotReloadHandle.detach";
+const SUPERSESSION_QUIESCE_CALL_LABEL = "hotReloadHandle.whenIdle(awaitCap)";
 
 /**
  * Construct the `theta/host/session-start-supersession-detach-failed`
- * diagnostic (bug 0029) for a throwing detach of the outgoing generation's
- * hot-reload handle at supersession time. `details.error` carries the caught
- * throw's underlying-error string
+ * diagnostic (bug 0029; extended to a second `call` site by bug 0034) for a
+ * throwing act on the outgoing generation's hot-reload handle at supersession
+ * time. `details.error` carries the caught throw's underlying-error string
  * (placeholder-rendering-b.md#underlying-error-coercion), the same coercion
  * the sibling teardown row's `details.error` uses.
  */
-function supersessionDetachFailedDiagnostic(caught: unknown): Diagnostic {
+function supersessionDetachFailedDiagnostic(
+  caught: unknown,
+  call: typeof SUPERSESSION_DETACH_CALL_LABEL | typeof SUPERSESSION_QUIESCE_CALL_LABEL,
+): Diagnostic {
   const error = renderUnderlyingError(caught);
   return {
     severity: "warning",
     code: SUPERSESSION_DETACH_FAILED_CODE,
-    message: `session_start supersession detach failed at ${SUPERSESSION_DETACH_CALL_LABEL}: ${error}`,
-    details: { call: SUPERSESSION_DETACH_CALL_LABEL, error },
+    message: `session_start supersession detach failed at ${call}: ${error}`,
+    details: { call, error },
   };
+}
+
+/**
+ * Bug 0034 (registration-steps.md#repeat-start-supersession, PIC-57) — race an
+ * already-in-flight superseded-generation rebuild's `whenIdle()` against a cap
+ * timer armed on the OUTGOING generation's own `Clock`, mirroring
+ * `quiesceDebouncer` (session-shutdown.ts): `clock.setTimeout` arms a
+ * `resolveCap`, `Promise.race` resolves on the earlier of the two, and the cap
+ * timer is cleared in a `finally` so a settled quiesce never leaks a timer.
+ * Unlike the teardown's quiesce, this path owns its OWN deadline
+ * (`SUPERSESSION_QUIESCE_CAP_MS`, captured at this call rather than at
+ * `session_shutdown` handler entry — no such deadline exists on this path).
+ * `whenIdle` is optional on `HotReloadHandle`, so a `detach()`-only handle
+ * degrades to an immediate resolve, the same degradation the teardown adapter
+ * applies. A rebuild still in flight when the cap fires is left to settle in
+ * the background under the caller's already-applied torn-down mark (PIC-57);
+ * this function itself never throws for that reason — only a throw out of the
+ * quiesce's own calls — `whenIdle()`, or the cap timer's `Clock` arm/clear —
+ * propagates, for the caller to diagnose.
+ */
+async function quiesceOutgoingRebuild(
+  outgoingHandle: HotReloadHandle,
+  outgoingClock: Clock,
+): Promise<void> {
+  let resolveCap: () => void = (): void => {};
+  const capRace = new Promise<void>((resolve) => {
+    resolveCap = resolve;
+  });
+  const capHandle = outgoingClock.setTimeout(
+    () => resolveCap(),
+    SUPERSESSION_QUIESCE_CAP_MS,
+  );
+  try {
+    await Promise.race([outgoingHandle.whenIdle?.() ?? Promise.resolve(), capRace]); // allow: PIC-57 — pi-integration-contract/session-shutdown-semantics.md
+  } finally {
+    outgoingClock.clearTimeout(capHandle);
+  }
 }
 
 /**
@@ -690,11 +740,20 @@ export function createThetaExtension(
       // pass that owns nothing), and no watcher arming (a watcher no teardown
       // or supersession will ever detach). Zero-touch return; not arming IS
       // the PIC-57-correct posture, and the suppression is pinned by PIC-67
-      // and PIC-68. One check per arm suffices: the tail is await-free after
-      // it (the supersession fold and registerFixtures are synchronous), so
-      // no shutdown and no newer start can interleave past the check. Any
-      // future touch-free staleness evidence for this late tail joins here as
-      // a disjunct.
+      // and PIC-68. One check per arm suffices up to the pass's one await: the
+      // tail is synchronous from here through the bounded quiesce below (bug
+      // 0034, PIC-57 — mark the outgoing generation's debouncer torn-down,
+      // then bounded-await its already-in-flight rebuild against the
+      // supersession path's own cap), so neither disjunct's evidence can shift
+      // underneath it before that await. The re-check immediately after the
+      // quiesce is the pass's one interleave point — a shutdown or a newer
+      // start can land only while this pass is suspended there. Past that
+      // second check every mutating step (the fold, the drain, the detach,
+      // the publish, `registerFixtures`) runs in one synchronous
+      // run-to-completion, so nothing can interleave past it either. Any
+      // future touch-free staleness evidence for this late tail joins the
+      // disjunction above; any future awaited step joins this same
+      // one-await-one-recheck discipline.
       const composeTailSuperseded = (): boolean =>
         shutdownEventsObserved !== shutdownsAtComposeStart ||
         composeStartsObserved !== generationAtComposeStart;
@@ -720,6 +779,62 @@ export function createThetaExtension(
       }
       if (composeTailSuperseded()) {
         return;
+      }
+      // Bug 0034 (registration-steps.md#repeat-start-supersession, PIC-57) —
+      // bounded quiesce of an already-in-flight superseded-generation rebuild,
+      // BEFORE any of the mutating supersession steps below. `runReload`'s
+      // torn-down guard (hot-reload.ts) is an entry check only: a rebuild
+      // already past it resumes and completes its `reRegister` and publish
+      // against whichever registry is live when it settles, so the fold/
+      // drain/detach/publish tail below cannot by itself keep this pass's
+      // outcome inside the no-rebuild-after-supersession posture
+      // `session_shutdown` sub-step 4 already gets for the identical
+      // already-in-flight case — only awaiting the rebuild first can. Read
+      // `hotReloadHandle` into a local without clearing it: the slot write
+      // stays with the tail's existing clear below, so a zero-touch return
+      // above this point still leaves it untouched. `liveClock` is read here
+      // BEFORE `liveClock = wiring.clock` overwrites it below, so this is
+      // still the OUTGOING generation's own clock. The guard's
+      // `liveClock !== undefined` conjunct is not a live branch: `liveClock`
+      // is always assigned before `hotReloadHandle` (below, in that order),
+      // and `session_shutdown` clears `hotReloadHandle` while KEEPING
+      // `liveClock` live (its lazy drain-state read depends on it) — an
+      // outgoing handle is therefore never observed without its own
+      // generation's clock, and the conjunction documents that implication
+      // rather than adding a branch nothing can reach.
+      const outgoingHandle = hotReloadHandle;
+      if (outgoingHandle !== undefined && liveClock !== undefined) {
+        const outgoingClock = liveClock;
+        try {
+          // PIC-57 sub-step 4 (a)'s analogue: suppress a fresh rebuild and
+          // drop any PIC-49 deferred re-arm before the await, so at most the
+          // ONE already-in-flight rebuild remains for the await below to
+          // observe (reload-debounce.ts `#onRebuildSettled`).
+          outgoingHandle.markTornDown?.();
+          await quiesceOutgoingRebuild(outgoingHandle, outgoingClock);
+        } catch (e: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
+          // Same isolation posture as the sibling `detach()` catch below: a
+          // throwing mark/quiesce must not abort the superseding pass's
+          // publication or registration and must not escape into the host
+          // `session_start` dispatch. Evidence: exactly one diagnostic per
+          // failing quiesce, defended by its own try/catch so a throwing
+          // `deps.emitDiagnostic` sink cannot escape this handler.
+          try {
+            deps.emitDiagnostic?.(
+              supersessionDetachFailedDiagnostic(e, SUPERSESSION_QUIESCE_CALL_LABEL),
+            );
+          } catch (emitError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+            void emitError;
+          }
+        }
+        // The quiesce above is this pass's one await and therefore its one
+        // interleave point (the invariant the `composeTailSuperseded`
+        // declaration-site comment states): re-evaluate it immediately and
+        // take the same zero-touch return if a shutdown or a newer start
+        // landed while this pass was suspended there.
+        if (composeTailSuperseded()) {
+          return;
+        }
       }
       // Bug 0021 (registration-steps.md#watcher-hot-reload-registration,
       // PIC-57/PIC-68) — supersede-before-publish: the live-resource slots
@@ -748,7 +863,6 @@ export function createThetaExtension(
         });
       }
       liveRegistry?.drain();
-      const outgoingHandle = hotReloadHandle;
       hotReloadHandle = undefined;
       try {
         outgoingHandle?.detach();
@@ -766,7 +880,9 @@ export function createThetaExtension(
         // diagnostic per failing detach, defended by its own try/catch so a
         // throwing `deps.emitDiagnostic` sink cannot escape this handler.
         try {
-          deps.emitDiagnostic?.(supersessionDetachFailedDiagnostic(e));
+          deps.emitDiagnostic?.(
+            supersessionDetachFailedDiagnostic(e, SUPERSESSION_DETACH_CALL_LABEL),
+          );
         } catch (emitError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
           void emitError;
         }

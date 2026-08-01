@@ -75,6 +75,20 @@ export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
 export const SHUTDOWN_AWAIT_CAP_MS = 2000;
 
 /**
+ * Bug 0034 (PIC-57; registration-steps.md#repeat-start-supersession). The
+ * bounded deadline (milliseconds) the repeat-`session_start` supersession
+ * pass owns for its already-in-flight-rebuild quiesce — captured at the
+ * quiesce call, not at `session_shutdown` handler entry, since no such
+ * deadline exists on this path. Sources its magnitude from the single
+ * `SHUTDOWN_AWAIT_CAP_MS` declaration site above, so
+ * `SUPERSESSION_QUIESCE_CAP_MS === SHUTDOWN_AWAIT_CAP_MS`. What the two share
+ * is that declared magnitude, not a budget: this quiesce runs against a
+ * deadline of its own, so it neither consumes nor is consumed by a
+ * `session_shutdown` teardown's deadline.
+ */
+export const SUPERSESSION_QUIESCE_CAP_MS = SHUTDOWN_AWAIT_CAP_MS;
+
+/**
  * The diagnostics-registry code the step-0 refusal emits on any of the seven
  * `HostIncompatibleKind` outcomes (bug 0023 element 3;
  * diagnostics/code-registry-load.md `theta/load/host-incompatible`).

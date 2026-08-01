@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-08-01
+
+### Fixed
+
+- **The repeat-`session_start` supersession pass never awaited
+  `handle.whenIdle()`, so a superseded-generation rebuild already in flight
+  published into the drained registry and re-registered its slash names after
+  the superseding generation had registered** (bug 0034). Pi's registration is
+  last-writer within one extension instance and exposes no unregister, so every
+  name the leaked rebuild carried dispatched `theta /<name>: extension shutting
+  down` on a live session until `/reload`. The trigger was overlap, not an error
+  path: any watcher rebuild whose debounce window closed during the superseding
+  compose was in flight at the supersession instant. Now the pass, before any
+  mutating step, reads the outgoing hot-reload handle, marks its debouncer
+  torn-down, and bounded-awaits the in-flight rebuild against a cap the
+  supersession path owns (`SUPERSESSION_QUIESCE_CAP_MS`, captured at the
+  quiesce rather than at `session_shutdown` handler entry), then re-evaluates
+  the staleness predicate before the fold, drain, detach, publish and
+  registration — which still run in one synchronous run-to-completion. The
+  settling rebuild therefore re-registers against a still-undrained
+  generation-1 registry and generation 2's registration lands last. A repeat
+  `session_start` delivery is now bounded-blocking on the superseded
+  generation's rebuild; a rebuild still running at the cap is abandoned under
+  the torn-down mark with no diagnostic. Spec: `#repeat-start-supersession`
+  gains the normative two-act sentence (bound's existence contracted, not its
+  value), PIC-57 records its second prescribed await site, and
+  `theta/host/session-start-supersession-detach-failed`'s closed `details.call`
+  set widens to two members. No new diagnostic code. Locked by
+  `tests/supersession-inflight-rebuild-quiesce.test.ts` (6 offline tests over
+  the real factory, hot-reload handle and debouncer; five neutralisation
+  directions verified, including that the await rather than the mark closes the
+  defect), with H8a, H9a 11/11 and the live double-`bindExtensions` witness
+  green, and a scratch live probe proving the fixed path red-before/green-after
+  on a real session.
+
 ## [0.45.0] - 2026-07-31
 
 ### Fixed
