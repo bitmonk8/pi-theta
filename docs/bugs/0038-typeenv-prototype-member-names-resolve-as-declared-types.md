@@ -1,6 +1,6 @@
 # Bug 0038 — The `TypeEnv` is a plain `{}`, so an annotation naming an `Object.prototype` member resolves as a declared type: `let c: constructor = 3` reports a mismatch, and `1 + constructor` throws a `TypeError` out of the parse
 
-- **Status:** open
+- **Status:** fixed (0.48.0)
 - **Kind:** defect — implementation. `collectTypeEnv`
   (`src/parser/type-layer-checks.ts:282`) builds the `TypeEnv` as
   `const env: Record<string, NamedDecl> = {}`, and every consumer resolves a
@@ -100,6 +100,129 @@
   live model, no provider.
 - **Fix ordering:** none. The fix is confined to `collectTypeEnv`'s record and
   the eight reads listed above; no other open bug touches them.
+
+## Fix (0.48.0)
+
+The settled §Fix, implemented as written, both halves; four review rounds and
+three fixer rounds hardened the prose and the witness. Line anchors are at the
+fix commit.
+
+**The construction site.** `collectTypeEnv` (`src/parser/type-layer-checks.ts`)
+builds its record with `Object.create(null)` in place of `{}`, matching the
+sibling `collectSchemaFields` (`:417`) that 0031 null-prototyped one level down.
+The doc comment carries the reason: a `NamedType` *reference* is under no case
+constraint — unlike a declaration position, which
+`theta/parse/schema-case-mismatch` refuses — so a reference may spell an
+`Object.prototype` own property verbatim, and a prototype-bearing record
+manufactures a declared type for a name no `schema` statement wrote.
+
+**The reads.** One exported `resolveNamed(env, name): NamedDecl | undefined`
+(`src/parser/type-compat.ts`, beside the `TypeEnv` declaration) returns
+`Object.hasOwn(env, name) ? env[name] : undefined`, and all eight read sites go
+through it: `unfoldAlias`, `decide`'s three TYPE-10 arms, `classifyIndexReceiver`
+(type-compat.ts) and `classifyOperand`, `classifyReceiver`, `declaredFieldsOf`
+(type-layer-checks.ts). Post-fix the complete set of `env[` occurrences under
+`src/parser/` is the guarded read inside `resolveNamed` plus `collectTypeEnv`'s
+two writes — zero unguarded reads remain. The guard is what makes the fix hold
+for a `TypeEnv` constructed anywhere else, including `tests/type-compat.test.ts`'s
+plain-`{}` literals and the genuine plain-`{}` env at
+`src/runtime/expression-evaluator.ts:590`.
+
+**Each half is independently load-bearing, measured.** Neutralising the
+construction alone reds exactly the two construction pins (g1/g2) and nothing
+else; neutralising the read guard alone reds exactly the twelve plain-`{}`
+engine pins and nothing else; neutralising both reds 49 of 78. The classifiers'
+two guards recover their stated invariant — past them the declaration is an
+`alias` and `decl.rhs` is a `CompatType` — rather than the throw being relocated:
+an unresolvable name answers `"unknown"` and defers, which is
+[type-system.md:48](../spec_topics/type-system.md#type-compatibility)'s
+disposition.
+
+**No spec or registry edit.** DIAG-2 is not engaged: no code is added, removed,
+or re-triggered. `theta/parse/let-rhs-type-mismatch`
+(`code-registry-parse.md:54`) and `theta/parse/object-field-type-mismatch`
+(`:46`) both delegate the judgement to §Type compatibility, whose §Unresolvable
+operands rule the fix now satisfies — the implementation moved to match the
+registered triggers, so no Trigger prose became inaccurate. H9a's
+`tests/fixtures/h7a/permitted-codes.json` is untouched. GOV-15 does not range
+over the affected inputs: every w-row emitted an `E` and every t-row failed to
+load, so none satisfied the loads-cleanly predicate
+(`source-language-stability.md:9`). No runtime change — both edited files are
+parse-phase, and the four `src/runtime/` helpers importing `type-compat` are
+static checkers whose only callers are in `type-layer-checks.ts`.
+
+**Reproduction re-derived at the fix baseline** (`562d3607`, 0.47.0): all 8
+w-rows, 11 t-rows, 11 c-rows, 2 L-rows and 5 engine rows byte-identical to the
+recorded 0.45.0 tables — zero drift across two releases. The ten-name annotation
+sweep was extended to all twelve `Object.prototype` own names; the two §Reproduction
+left to mechanism (`__defineSetter__`, `__lookupSetter__`) behave identically, so
+the claim for them is now measured. Post-fix: w1–w6 load silently matching
+c1/c2/c3; w7/w8 keep `theta/parse/unresolved-named-type` alone matching c4/c5;
+t1–t11 load; L1 takes L2's shape (`registered=["actl","zctl"]`,
+`notified=["unknown identifier 'constructor'"]`); c1–c11 byte-unchanged.
+
+**Two §Fix predictions were measured false and are corrected here.**
+(1) *Post-fix observables* predicted "t8–t11 silent as their `zzz`-named
+counterparts are". The rule is right and the values are not: t10
+(`"x".toString() + 1`) reports `theta/parse/unknown-method: unknown method
+'toString' on type string` and t11 (`constructor { a: 1 }`) reports
+`theta/parse/unresolved-named-type`, because their counterparts are not silent
+either — `"x".zzz() + 1` draws the method gate and `Zzz { a: 1 }` draws bug
+0025's constructor-name gate. The lock asserts the measured counterpart
+disposition, so the rows pin the rule §Fix states rather than the value it
+mis-derived. (2) §Affected calls the `__proto__` write "unreachable through the
+grammar". The grammar admits it: `theta/parse/schema-case-mismatch` is a
+contextual lexer diagnostic (`src/lexer/lexer.ts:833`), not a parse refusal, so
+the `SchemaDecl` reaches `doc.body.statements` and `checkTypeLayer` runs over it
+ungated (`theta-document.ts:843`). The bound is the `E` severity denying
+registration, not the grammar. Measured at the neutralised baseline,
+`schema __proto__ { a: number }` beside `let c: kind = 3` draws a spurious
+`let-rhs-type-mismatch: expected kind, got integer`, `let c: fields = 3` the same
+under the other own property name, and `let r = 1 + kind` the `TypeError` — all
+three closed by the fix, all three locked.
+
+**Offline lock.** `tests/typeenv-prototype-names.test.ts` (78 tests): (a) w1–w8
+as complete ordered diagnostic lists, (b) the w1 shape as a table over
+`Object.getOwnPropertyNames(Object.prototype)` behind a loud non-empty
+precondition guard, (c) t1–t11 as an explicit `not.toThrow` gate plus each row's
+measured disposition with the four `zzz`-named counterparts pinned beside them,
+(d) L1 through `discoverAndComposeFixtures` over a `mkdtemp` root with L2 as the
+measured control, (e) c1–c11 byte-unchanged controls, (f) the three exported
+engine entry points × four names × both env constructions — the plain-`{}` side
+the read-guard witness, the `Object.create(null)` side the construction witness,
+(g) three direct pins on the exported `collectTypeEnv` including §Reproduction's
+synthetic `__proto__`-named statement, (h) the author-reachable `__proto__`
+route. Every expected message is read from the live registry through
+`registryMessage` (DIAG-4); a missing row throws naming it, never skips.
+Prototype-collision pins for the sibling record stay at
+`tests/ctor-field-type-check.test.ts:522–593` (0031's p1–p4); these are their
+env-level counterparts. Full gate 238 files / 3054 tests; typecheck and lint
+clean. Live: H8a `live-production-acceptance` 7/7 and the whole live suite 13
+files / 35 tests green, plus a scratch H8a probe — a registrable theta carrying
+`let c: constructor = 3`, and a discovery root whose middle file is
+`let r = 1 + constructor` — green with the fix and red with it neutralised (zero
+thetas registered, including the clean one sorting ahead of the crasher), then
+deleted.
+
+**0031 residual (ii) discharged.** That fix recorded `collectTypeEnv`'s `env` as
+"the same prototype-hazard class one level up … shielded at the schema-name
+position by `theta/parse/schema-case-mismatch`". The class is closed here, and
+the recorded shield is weaker than stated in two ways this fix measured: it is a
+load gate rather than a grammar refusal, and it never covered the read side,
+where both symptoms lived.
+
+**Residuals.** (i) `theta/parse/fn-arg-type-mismatch` stays unreachable —
+`checkFnArgCompat` (`type-compat.ts:436`) has no caller in `src/`, so a mistyped
+argument against a declared schema parameter is silent. Pre-existing, orthogonal,
+recorded as a §Non-goal and unchanged. (ii) A lowercase `NamedType` at a
+*reference* position is still admitted without a case diagnostic
+(`let a: nope = 3` is silent), which is what puts an author-chosen lowercase name
+into the engine at all. §Non-goals; unchanged. (iii) `enum` declarations are
+still absent from the `TypeEnv`, so an `enum`-named annotation stays unresolvable
+at every position — 0031's recorded non-goal, unchanged, and pinned negative by
+0031's residue tests so a later widening is deliberate. (iv) The parse phase
+carries no registered internal-defect code; the fix removes the throw rather than
+reporting it, so the question is not engaged.
 
 ## Summary
 

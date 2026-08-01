@@ -6,6 +6,42 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-08-01
+
+### Fixed
+
+- **The `TypeEnv` was a plain `{}`, so a `NamedType` naming one of the twelve
+  `Object.prototype` own property names resolved as a declared type** (bug
+  0038). Two symptoms, one mechanism. `let c: constructor = 3` reported
+  `theta/parse/let-rhs-type-mismatch` against a type no declaration declares,
+  in a parse where `theta/parse/unresolved-named-type` called the same name
+  unresolved; and `let r = 1 + constructor` — a two-line body, no `schema`, no
+  `fn` — threw `TypeError: Cannot read properties of undefined (reading
+  'kind')` out of `parseThetaDocument`, taking down the whole compose pass so
+  that every clean theta in the same discovery root went unregistered with no
+  author-visible per-file diagnostic. The throwing surface needed no
+  annotation: `s.toString + 1`, `toString() + 1` and `"x".toString() + 1`
+  reached it through the static-type inference arms that mint a `named` type
+  from an author-chosen name. `collectTypeEnv` now builds its record with
+  `Object.create(null)`, matching the sibling declared-field record bug 0031
+  null-prototyped one level down, and all eight read sites resolve through one
+  exported `resolveNamed(env, name)` that answers own keys only — so the fix
+  holds for a `TypeEnv` constructed anywhere, not only at `collectTypeEnv`.
+  Each half is independently load-bearing and independently witnessed. An
+  unresolvable name now answers `"unknown"` and defers to the runtime AJV net,
+  which is what `type-system.md` §Unresolvable operands requires and what the
+  registered `let-rhs-type-mismatch` trigger's "statically resolvable"
+  qualifier already presupposed: the implementation moved to match the
+  registry, so no row, trigger or code changed (DIAG-2 holds, H9a's
+  permitted-code list untouched). No runtime change — both edited files are
+  parse-phase. Locked by `tests/typeenv-prototype-names.test.ts` (78 tests):
+  the wrong-diagnostic and throwing rows, the prototype-name family as a table
+  over `Object.getOwnPropertyNames(Object.prototype)`, the load consequence
+  through the shipped composition root over a temp discovery root, the engine
+  pins on both env constructions, and the author-reachable `__proto__` write.
+  Default gate 238 files / 3054 tests green, lint and typecheck clean; H8a 7/7
+  and the full live suite 35/35 green.
+
 ## [0.47.0] - 2026-08-01
 
 ### Fixed

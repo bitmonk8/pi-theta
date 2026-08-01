@@ -167,6 +167,12 @@ itself is a plain `{}` keyed by schema names — the same prototype-hazard
 class one level up, pre-existing at baseline, shielded at the schema-name
 position by `theta/parse/schema-case-mismatch` (every `Object.prototype`
 member name is lowercase); candidate for a separate filing, not filed here.
+Filed as [0038](./0038-typeenv-prototype-member-names-resolve-as-declared-types.md)
+and discharged by its fix (0.48.0): the env is null-prototyped and its eight
+reads own-key-guarded through one exported `resolveNamed`. That fix also
+measured the recorded shield weaker than stated — `schema-case-mismatch` is a
+lexer diagnostic whose `E` severity denies registration rather than a grammar
+refusal, and it never covered the read side, where both of 0038's symptoms lived.
 
 ## Summary
 

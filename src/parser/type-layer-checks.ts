@@ -56,6 +56,7 @@ import {
   checkLetRhsCompat,
   checkObjectFieldCompat,
   displayType,
+  resolveNamed,
   type CompatType,
   type NamedDecl,
   type PrimitiveName,
@@ -125,7 +126,7 @@ function classifyOperand(type: CompatType, env: TypeEnv): OperandCategory {
     case "union":
       return "other";
     case "named": {
-      const decl = env[type.name];
+      const decl = resolveNamed(env, type.name);
       if (decl === undefined) {
         return "unknown";
       }
@@ -168,7 +169,7 @@ function classifyReceiver(type: CompatType, env: TypeEnv): BuiltinReceiver {
     case "union":
       return "unknown";
     case "named": {
-      const decl = env[type.name];
+      const decl = resolveNamed(env, type.name);
       if (decl === undefined) {
         return "unknown";
       }
@@ -258,7 +259,7 @@ export function checkTypeLayer(body: ThetaBody, file: string): Diagnostic[] {
  *
  * OMISSION, not a nominal fallback, is what keeps the guard conservative: an
  * absent name answers `"unknown"` at every `decide` site (type-compat.ts's
- * `env[name] === undefined` arms), and `classifyReceiver` / `classifyOperand`
+ * `resolveNamed`-guarded arms), and `classifyReceiver` / `classifyOperand`
  * defer on it, so a cycle member takes the same silent-and-deferred
  * disposition as any type past the parser's static view and the runtime AJV
  * net remains the only judge. A nominal entry would instead relate by
@@ -277,9 +278,21 @@ export function checkTypeLayer(body: ThetaBody, file: string): Diagnostic[] {
  * entry is not `object-schema` WITH a field list — an alias/union entry
  * included, since a constructor naming one is rejected upstream
  * (`checkObjectExpr`, bug 0025 §Fix) before this check would matter.
+ *
+ * Null-prototype (`Object.create(null)`) because a `NamedType` reference
+ * carries no case constraint — unlike a declaration position, which
+ * `theta/parse/schema-case-mismatch` shields — so a reference may spell an
+ * `Object.prototype` own property (`constructor`, `toString`, `valueOf`,
+ * `__proto__`, …) verbatim. On an ordinary `{}` a lookup for such a name
+ * resolves through the prototype chain to a value that is not a `NamedDecl`,
+ * manufacturing a declared type for a name no `schema` statement wrote — a
+ * hazard the exported `resolveNamed` (type-compat.ts) also own-key-guards
+ * independently at every consumption site, so either defence alone suffices.
+ * With no prototype, a declaration literally named `__proto__` becomes an
+ * ordinary own property too, instead of replacing the record's prototype.
  */
 export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
-  const env: Record<string, NamedDecl> = {};
+  const env: Record<string, NamedDecl> = Object.create(null) as Record<string, NamedDecl>;
   const aliasRhs = new Map<string, CompatType>();
   for (const stmt of statements) {
     if (stmt.kind === "schema" && stmt.arms !== undefined) {
@@ -903,7 +916,7 @@ class TypeLayerWalk {
   private declaredFieldsOf(
     typeName: string,
   ): Readonly<Record<string, CompatType>> | undefined {
-    const decl = this.env[typeName];
+    const decl = resolveNamed(this.env, typeName);
     if (decl === undefined || decl.kind !== "object-schema") {
       return undefined;
     }

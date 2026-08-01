@@ -90,6 +90,22 @@ export type NamedDecl =
 export type TypeEnv = Readonly<Record<string, NamedDecl>>;
 
 /**
+ * Resolve a `NamedType` name to its declaration, through an own-key lookup
+ * only. A `TypeEnv` is keyed by author-chosen declaration names; on a plain
+ * `{}` record, a name that is instead an `Object.prototype` own property
+ * (`constructor`, `toString`, `valueOf`, `__proto__`, …) answers through the
+ * prototype chain with a value that is not a `NamedDecl`, breaking the
+ * `NamedDecl` union invariant the three classifiers' two guards
+ * (`decl === undefined`, then `decl.kind === "object-schema"`) are meant to
+ * establish before treating `decl.rhs` as a `CompatType`. `Object.hasOwn`
+ * makes this hold for a `TypeEnv` value constructed anywhere, independent of
+ * whether `env` itself is null-prototyped.
+ */
+export function resolveNamed(env: TypeEnv, name: string): NamedDecl | undefined {
+  return Object.hasOwn(env, name) ? env[name] : undefined;
+}
+
+/**
  * The outcome of a directed compatibility check `sub ⊑ sup`:
  *
  *   - `"compatible"`        — the relation holds.
@@ -146,7 +162,7 @@ function unfoldAlias(type: CompatType, env: TypeEnv): CompatType {
   // diagnostic — that rejection is reported alongside this pass, not before
   // it, so it gates nothing here.
   while (current.kind === "named") {
-    const decl = env[current.name];
+    const decl = resolveNamed(env, current.name);
     if (decl === undefined || decl.kind !== "alias") {
       return current;
     }
@@ -235,11 +251,11 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
   // schema by name identity (TYPE-1). It never relates structurally to an
   // inline object or to a distinct named schema.
   if (sup.kind === "named") {
-    if (env[sup.name] === undefined) {
+    if (resolveNamed(env, sup.name) === undefined) {
       return "unknown";
     }
     if (sub.kind === "named") {
-      if (env[sub.name] === undefined) {
+      if (resolveNamed(env, sub.name) === undefined) {
         return "unknown";
       }
       return sub.name === sup.name ? "compatible" : "incompatible";
@@ -249,7 +265,7 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
 
   // A `named` sub against a non-named, non-union sup: nominal, never structural.
   if (sub.kind === "named") {
-    return env[sub.name] === undefined ? "unknown" : "incompatible";
+    return resolveNamed(env, sub.name) === undefined ? "unknown" : "incompatible";
   }
 
   // TYPE-2 / TYPE-3 — primitive and literal-to-primitive against a primitive
@@ -362,7 +378,7 @@ export function classifyIndexReceiver(
     case "union":
       return "unknown";
     case "named": {
-      const decl = env[type.name];
+      const decl = resolveNamed(env, type.name);
       if (decl === undefined) {
         return "unknown";
       }
