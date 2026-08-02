@@ -178,6 +178,8 @@ const EMPTY_BODY = "theta/parse/empty-schema-body";
 const UNRESOLVED = "theta/parse/unresolved-named-type";
 const LET_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
+/** Bug 0042 §Fix — a `schema X = …` right-hand side that is not an `AliasRhs`. */
+const MALFORMED_ALIAS_RHS = "theta/parse/malformed-alias-rhs";
 
 /** The three codes the unparsed shape is misattributed to today. */
 const RESIDUE_CODES = [
@@ -1845,16 +1847,23 @@ describe("bug 0033 (m) — an alias arm answers to the field-type checks", () =>
 
 // ===========================================================================
 // (n) REVIEW ROUND 2, F3 — same-line residue whose text RESOLVES.
-// RECORDED AS A RESIDUAL, NOT A PROMISE. `schema X = Cat Cat` (with `Cat`
-// declared) captures one arm and leaves the second `Cat` to the statement loop,
-// where it reduces to theta's silent no-op class: a bare declared-name
-// expression statement, which the language accepts with no diagnostic wherever
-// it is written (the control in n11). No diagnostic is invented for it here.
-// The UNRESOLVABLE arrangement stays loud through the ordinary name checks.
+// `schema X = Cat Cat` (with `Cat` declared) captures one arm and leaves the
+// second `Cat` to the statement loop, where it reduces to theta's silent no-op
+// class: a bare declared-name expression statement, which the language
+// accepts with no diagnostic wherever it is written (the control in n11).
+// That STATEMENT-level silence is unchanged — bug 0042 does not touch the
+// general same-line statement permissiveness (`42 43` and friends), which is
+// wider than this boundary and out of scope. The DECLARATION is no longer
+// silent about having severed a token onto that path:
+// `theta/parse/malformed-alias-rhs` (bug 0042 §Fix) reports a right-hand side
+// that is not an `AliasRhs ::= Type ("|" Type)*` from the declaration's own
+// extent, once per declaration, before the residue is ever parsed as a
+// statement. The UNRESOLVABLE arrangement stays loud through the ordinary
+// name checks, alongside the same declaration-level report.
 // ===========================================================================
 
-describe("bug 0033 (n) — same-line resolvable residue is the language's no-op class", () => {
-  it("n11: `schema X = Cat Cat` keeps one arm and one no-op expression statement", () => {
+describe("bug 0033 (n) — the residue STATEMENT is the language's no-op class, the DECLARATION is reported", () => {
+  it("n11: `schema X = Cat Cat` keeps one arm, one no-op expression statement, and the declaration's own report", () => {
     const doc = parse(F_RESIDUE_RESOLVABLE);
     expect(
       armsOf(doc, "X", "n11"),
@@ -1867,14 +1876,17 @@ describe("bug 0033 (n) — same-line resolvable residue is the language's no-op 
     ).toEqual(["schema:Cat", "schema:X", "expr", "let:a"]);
     expect(
       diagLines(doc),
-      "n11 — WHY no diagnostic: the residue is a bare declared-name expression statement, " +
-        "which theta accepts silently wherever it appears (control below). A code raised here " +
-        "would have to be raised there too, which is a language change and not a parse fix",
-    ).toEqual([]);
+      "n11 — the DECLARATION is reported, the STATEMENT is not: the severed `Cat` is still a " +
+        "bare declared-name expression statement, silent wherever it is written (control below), " +
+        "but `schema X = Cat Cat` is not an `AliasRhs` the grammar derives, and " +
+        "`finishAliasSchema` reports that from the declaration's own extent (bug 0042 §Fix) " +
+        "rather than staying silent about it",
+    ).toEqual([line(MALFORMED_ALIAS_RHS, msg(MALFORMED_ALIAS_RHS, [["<X>", "X"]]))]);
     expect(
       diagLines(parse(F_BARE_DECLARED_NAME)),
       "n11 CONTROL — the same statement written on its own line, away from any declaration " +
-        "shape, is equally silent; that is the class the residue falls into",
+        "shape, is equally silent; that is the class the residue STATEMENT falls into — no " +
+        "declaration sits behind it for `malformed-alias-rhs` to report",
     ).toEqual([]);
     expect(
       stmtSig(parse(F_BARE_DECLARED_NAME)),
@@ -1882,16 +1894,23 @@ describe("bug 0033 (n) — same-line resolvable residue is the language's no-op 
     ).toEqual(["schema:Cat", "expr", "let:a"]);
   });
 
-  it("n11 (other half): the UNRESOLVABLE arrangement stays loud", () => {
-    // The residual is confined to text that resolves. `schema X = Ghost Ghost`
-    // fails on both the arm (`unresolved-named-type`, the alias-RHS position of
-    // the widened registry row) and the residue statement
-    // (`unknown-identifier`), so nothing about this arrangement is silent.
+  it("n11 (other half): the UNRESOLVABLE arrangement stays loud, and the declaration's report joins it", () => {
+    // The residual is confined to what a STATEMENT does with text that
+    // resolves. `schema X = Ghost Ghost` fails on the arm
+    // (`unresolved-named-type`, the alias-RHS position of the widened registry
+    // row), on the declaration's own shape (`malformed-alias-rhs`, bug 0042
+    // §Fix), and on the residue statement (`unknown-identifier`) — three
+    // independent checks over the same input, none of them silent.
     expect(
       diagLines(parse(F_RESIDUE_UNRESOLVABLE)),
-      "n11 — an unresolvable arm and an unresolvable residue are each reported",
+      "n11 — an unresolvable arm, a malformed declaration and an unresolvable residue are each " +
+        "reported, in source-position order: the arm's name resolution anchors at the whole " +
+        "declaration (the earliest position), the malformed-shape report and the residue's name " +
+        "resolution both anchor at the severed `Ghost` (a tied position, where the parser's own " +
+        "diagnostics sort ahead of the identifier-resolution walk's)",
     ).toEqual([
       line(UNRESOLVED, msg(UNRESOLVED, [["<name>", "Ghost"]])),
+      line(MALFORMED_ALIAS_RHS, msg(MALFORMED_ALIAS_RHS, [["<X>", "X"]])),
       line(UNKNOWN_IDENT, msg(UNKNOWN_IDENT, [["<name>", "Ghost"]])),
     ]);
   });
@@ -2183,14 +2202,19 @@ describe("bug 0033 (r) — the cycle diagnostic's range names a participating de
 });
 
 // ===========================================================================
-// (s) REVIEW ROUND 3 — the reviewer's dangling-`|` observation, PINNED, not
-// repaired. `schema X = Cat |` ends on a top-level `|` with no arm behind it;
-// the capture stops at the following statement's head and the empty trailing
-// arm is dropped, so the declaration loads as the one-arm alias `Cat`.
+// (s) REVIEW ROUND 3 — the reviewer's dangling-`|` observation. `schema X =
+// Cat |` ends on a top-level `|` with no arm behind it; the capture stops at
+// the following statement's head and the empty trailing arm is dropped, so
+// the declaration loads as the one-arm alias `Cat`. That capture and its
+// lowering are unchanged (a shared-mechanism question bug 0043 owns, not this
+// one): `finishAliasSchema` now reports the shape itself as malformed — a
+// trailing `|` with no `Type` behind it is an EMPTY ARM POSITION, not a
+// well-formed one-arm alias (`theta/parse/malformed-alias-rhs`, bug 0042
+// §Fix) — which the object form's field-type position does not reach.
 // ===========================================================================
 
-describe("bug 0033 (s) — a dangling `|` is dropped silently, at both positions", () => {
-  it("n24: `schema X = Cat |` is a silent one-arm alias, and the field position agrees", () => {
+describe("bug 0033 (s) — a dangling `|` is reported at the alias position, silent at the field position", () => {
+  it("n24: `schema X = Cat |` is a one-arm alias the declaration reports as malformed, and the field position stays silent", () => {
     const doc = parse(F_DANGLING_PIPE);
     expect(
       armsOf(doc, "X", "n24"),
@@ -2203,17 +2227,17 @@ describe("bug 0033 (s) — a dangling `|` is dropped silently, at both positions
     ).toEqual(["schema:Cat", "schema:X", "let:a"]);
     expect(
       diagLines(doc),
-      "n24 — WHY no diagnostic: this is the same-line-residual family group (n) records. The " +
-        "trailing `|` is a same-line token the grammar gives the declaration no way to hold, " +
-        "and theta drops it wherever it is written — the field-position control below is " +
-        "equally silent, so a code raised here would have to be raised there too, which is a " +
-        "language change and not a parse fix",
-    ).toEqual([]);
+      "n24 — WHY the declaration is reported: `splitTopLevelSegments` keeps the empty segment " +
+        "behind the trailing `|` that the non-empty arm filter drops, so the segment count (2) " +
+        "disagrees with the arm count (1) — an empty arm position, anchored at the declaration's " +
+        "own range because the dropped segment was never a token to point at",
+    ).toEqual([line(MALFORMED_ALIAS_RHS, msg(MALFORMED_ALIAS_RHS, [["<X>", "X"]]))]);
     expect(
       diagLines(parse(F_FIELD_DANGLING_PIPE)),
       "n24 CONTROL — `schema S { a: string | }`, the identical dangling `|` in the object " +
-        "form's field-type position: equally silent, and that parity is the reason this cell " +
-        "pins rather than repairs",
+        "form's field-type position: still silent and still lowers permissively — the " +
+        "malformed-right-hand-side rule is scoped to the `schema X = …` declaration and does " +
+        "not reach a field type",
     ).toEqual([]);
   });
 });
@@ -2357,8 +2381,11 @@ describe("bug 0033 (u) — `-` after a completed arm ends the capture", () => {
     ).toEqual(["-"]);
     expect(
       diagLines(single),
-      `n29 — and nothing fires over it; stmts=${JSON.stringify(stmtSig(single))}`,
-    ).toEqual([]);
+      `n29 — the captured arm is not the right-hand side the author wrote: the field-boundary ` +
+        `stop severed the \`1\`, and \`finishAliasSchema\` reports that same-line residue from the ` +
+        `declaration's own extent (bug 0042 §Fix) rather than staying silent about it. stmts=` +
+        `${JSON.stringify(stmtSig(single))}`,
+    ).toEqual([line(MALFORMED_ALIAS_RHS, msg(MALFORMED_ALIAS_RHS, [["<X>", "X"]]))]);
     const unioned = parse(F_NEG_LITERAL_ARMS);
     expect(
       armsOf(unioned, "X", "n29"),
@@ -2367,9 +2394,13 @@ describe("bug 0033 (u) — `-` after a completed arm ends the capture", () => {
     ).toEqual(["-"]);
     expect(
       diagLines(unioned),
-      "n29 — that residue's own disposition, pinned as observed: the orphaned `|` is a stray " +
-        "token in statement position",
+      "n29 — the malformed-right-hand-side report joins the orphaned `|`'s own stray-token " +
+        "diagnostic rather than replacing it: the severed `1` is the residue head the " +
+        "declaration's own check reads (and sorts first, being the earlier position), and the " +
+        "`| null` behind it keeps its pre-existing disposition as a stray token in statement " +
+        "position",
     ).toEqual([
+      line(MALFORMED_ALIAS_RHS, msg(MALFORMED_ALIAS_RHS, [["<X>", "X"]])),
       line(
         "theta/parse/unsupported-feature",
         "unsupported syntactic feature: stray '|' in statement position",
@@ -2379,8 +2410,9 @@ describe("bug 0033 (u) — `-` after a completed arm ends the capture", () => {
       diagLines(parse(F_FIELD_NEG_LITERAL)),
       "n29 CONTROL — `schema S { a: -1 }`, the identical `-1` in the object form's field-type " +
         "position: the field list is dropped whole and the body reads as empty. No `Type` " +
-        "position in the implementation carries a negative numeric literal, which is why the " +
-        "alias position pins rather than repairs",
+        "position in the implementation carries a negative numeric literal, and the " +
+        "malformed-right-hand-side rule is a declaration-shape question this field position " +
+        "never reaches",
     ).toEqual([line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "S"]]))]);
   });
 });

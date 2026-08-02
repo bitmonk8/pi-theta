@@ -88,7 +88,7 @@ import {
   collectUnresolvedNamedTypes,
   type SchemaSlugCollision,
 } from "./body-type-lowering";
-import { splitTopLevel } from "./params";
+import { splitTopLevel, splitTopLevelSegments } from "./params";
 // QRY-19 lives in the runtime discard module (it owns the discarded-query
 // discipline shared with the QRY-20 runtime obligation); the parser reuses its
 // pure parse-time check rather than re-deriving the diagnostic. Parser→runtime
@@ -1538,9 +1538,13 @@ const ALIAS_ARM_STOP_KEYWORDS: ReadonlySet<string> = new Set([
  * both: no `Type` begins with `-` either (`LiteralType ::= STRING | NUMBER |
  * BOOLEAN | NULL`, grammar.md §"Type grammar" — the `"-" NUMBER` alternative
  * belongs to the value sublanguage's `PrimitiveLit`), so an arm-start `-`
- * opens no legal arm and is CAPTURED there, keeping the ill-formed `= -1`
- * family on the same-line-residue disposition n29 pins rather than moving it
- * to `empty-schema-body`. A `-` straight after a COMPLETED arm is a different position
+ * opens no legal arm and is CAPTURED there instead of stopping the scan:
+ * `schema X = -1` keeps the junk arm `"-"` rather than falling to the
+ * shapeless-RHS `empty-schema-body` path. Whether that right-hand side is a
+ * well-formed `AliasRhs` is a question answered from the DECLARATION's own
+ * extent, not from this capture — `finishAliasSchema` checks the two against
+ * each other once the capture returns (bug 0042 §Fix), and this stop set is
+ * unchanged by that check. A `-` straight after a COMPLETED arm is a different position
  * entirely — no `Type` continues with it, and it heads a unary-negation
  * expression statement — so `parseType` stops on it through its own
  * completed-arm-only test rather than through this set, whose members stop at
@@ -1553,6 +1557,40 @@ const ALIAS_ARM_STOP_KEYWORDS: ReadonlySet<string> = new Set([
  * `checkInlineEnumForm`.
  */
 const ALIAS_ARM_STOP_PUNCT: ReadonlySet<string> = new Set(["@", "`", "(", "[", "!"]);
+
+/**
+ * Whether a token stopping an alias/union right-hand-side capture is residue
+ * the author wrote, rather than one of the structural closers `parseType`
+ * also breaks on — `,`, `)`, `{`, `}`, `=`. Each of those is excluded for one
+ * of two reasons. It closes an ENCLOSING construct, where a report would be a
+ * false positive: `fn f(): integer { schema X = integer }` is a legal program
+ * whose body-closing `}` sits on the declaration's own line, and it is the
+ * case this exclusion exists to protect. Or the statement loop already draws
+ * its own diagnostic at that boundary — `unsupported-feature`'s
+ * `stray '<t>' in statement position` for a top-level `,` / `)` / `}` / `=`,
+ * `bare-object-literal` for a `{` — so a second code here would add nothing
+ * an author can act on and must not double up.
+ *
+ * A residue head is a value-ish atom
+ * (`ident` / `keyword` / `string` / `number`) or a punct that heads a
+ * punct-led statement (`ALIAS_ARM_STOP_PUNCT`) or a unary-negation `-` — the
+ * same token kinds `parseType`'s own stops fire on, read back at the
+ * cursor rather than at the token before it (`finishAliasSchema`, bug 0042
+ * §Fix).
+ */
+function isAliasResidueHead(t: Token): boolean {
+  switch (t.kind) {
+    case "ident":
+    case "keyword":
+    case "string":
+    case "number":
+      return true;
+    case "punct":
+      return ALIAS_ARM_STOP_PUNCT.has(t.text) || t.text === "-";
+    default:
+      return false;
+  }
+}
 
 /** Whether a token can begin an expression (a ternary consequent). */
 function canStartExpression(t: Token): boolean {
@@ -2255,16 +2293,24 @@ class BodyParser {
    * object form's own `skipBraceRemainder` already consumes a malformed body
    * whole.
    *
-   * The invariant is about the SHAPE, and one residual sits outside it: a
-   * same-line token that is part of no shape at all. `schema X = Cat Cat` is
-   * `AliasRhs` = one `Type` followed by text the grammar gives the declaration
-   * no way to hold, so the field-boundary stop ends the arm at the second
-   * `Cat` and it reaches the statement loop as its own expression statement.
-   * There it takes the language's ordinary disposition for that statement:
+   * The invariant is about the SHAPE, and the declaration's OWN extent is a
+   * separate question from what a severed token does once it sits outside
+   * that extent. `schema X = Cat Cat` is `AliasRhs` = one `Type` followed by
+   * text the grammar gives the declaration no way to hold, so the
+   * field-boundary stop ends the arm at the second `Cat` and it still reaches
+   * the statement loop as its own expression statement — the general
+   * same-line statement permissiveness every pair of statements shares
+   * (`42 43` loads clean the same way), untouched and out of scope here.
+   * There it keeps the language's ordinary disposition for that statement:
    * silent when the name resolves (a bare declared-name expression statement
    * is a no-op wherever it is written), `theta/parse/unknown-identifier` when
-   * it does not. Recorded, not repaired: a code raised for the residue here
-   * would have to be raised for the same statement everywhere else.
+   * it does not. What `finishAliasSchema` checks is upstream of that
+   * statement: whether the right-hand side it captured is itself an
+   * `AliasRhs` at all, reported once per malformed declaration (bug 0042
+   * §Fix) before the severed token is ever parsed, and anchored wherever the
+   * defect is visible — the declaration's own range for an empty arm
+   * position, which the split consumes leaving no token to point at, and the
+   * residue token itself for same-line residue.
    */
   private parseSchema(): Stmt {
     const kw = this.advance();
@@ -2349,7 +2395,14 @@ class BodyParser {
    */
   private finishAliasSchema(kw: Token, name: string, by: string | undefined): Stmt {
     const rhsSource = this.parseType(true, false, true);
-    const arms = splitTopLevel(rhsSource, "|");
+    // One split, read two ways (bug 0042 §Fix): `segments` is every top-level
+    // `|`-delimited slice INCLUDING the empty ones, and `arms` is its
+    // non-empty filter — the same arm list `lowerTypeSource` re-derives from
+    // the rejoined arms, so the arm granularity downstream sees is unchanged
+    // by construction. A mismatch between the two counts is an empty arm
+    // position the split silently dropped.
+    const segments = splitTopLevelSegments(rhsSource, "|");
+    const arms = segments.filter((segment) => segment.length > 0);
     if (arms.length === 0) {
       // A shapeless `schema X =` (nothing a `Type` can start with ahead of the
       // cursor) yields no fields: no more specific registered code fits a
@@ -2364,7 +2417,66 @@ class BodyParser {
       return { kind: "schema", name, range };
     }
     const range = spanRange(kw.range, this.prevRange());
+    this.emitMalformedAliasRhs(name, range, segments, arms);
     return { kind: "schema", name, arms, ...(by !== undefined ? { by } : {}), range };
+  }
+
+  /**
+   * `theta/parse/malformed-alias-rhs` (bug 0042 §Fix) for a right-hand side
+   * that captured at least one arm but is still not an
+   * `AliasRhs ::= Type ("|" Type)*`. At most one diagnostic, in two shapes:
+   *
+   *   - EMPTY ARM POSITION, checked first — `segments.length` exceeds
+   *     `arms.length` whenever a top-level `|` had no `Type` on one of its
+   *     sides (`splitTopLevelSegments` keeps the blank slice that
+   *     `finishAliasSchema`'s non-empty filter drops). Checked first because
+   *     it can coincide with same-line residue: the lexer emits `||` as ONE
+   *     token, so `schema X = Cat || Cat` is both an empty arm position (an
+   *     empty segment on each side of the doubled `|`) and, read the other
+   *     way, a same-line residue (the second `Cat`) — and an empty arm
+   *     position leaves no token of its own to point at, so the
+   *     declaration's own range is the only anchor either shape can use here.
+   *   - SAME-LINE RESIDUE otherwise — the token now at the cursor is one
+   *     `parseType`'s own stops fire on (`isAliasResidueHead`) and it begins
+   *     on the same source line as the declaration's last consumed token: the
+   *     newline that would otherwise separate a following statement was never
+   *     there to swallow, so this is text on the DECLARATION's own line
+   *     rather than the next statement (a token on the NEXT line is not
+   *     residue — grammar.md §"Newline continuation" already closes the
+   *     statement there). Anchored at that token, mirroring the object body's
+   *     own boundary-token emission (`parseSchemaObjectBody`'s comma rule).
+   *
+   * A right-hand side with no arms at all took the `empty-schema-body` path
+   * above and never reaches here.
+   */
+  private emitMalformedAliasRhs(
+    name: string,
+    declRange: SourceRange,
+    segments: readonly string[],
+    arms: readonly string[],
+  ): void {
+    const message = `'${name}' has a malformed right-hand side; write a single type, or arms separated by single '|', and nothing else on the declaration's line`;
+    if (segments.length !== arms.length) {
+      this.diagnostics.push({
+        severity: "error",
+        code: "theta/parse/malformed-alias-rhs",
+        file: this.file,
+        range: declRange,
+        message,
+      });
+      return;
+    }
+    const cursor = this.peek();
+    if (!isAliasResidueHead(cursor) || cursor.range.start.line !== this.prevRange().end.line) {
+      return;
+    }
+    this.diagnostics.push({
+      severity: "error",
+      code: "theta/parse/malformed-alias-rhs",
+      file: this.file,
+      range: cursor.range,
+      message,
+    });
   }
 
   /**
@@ -2795,8 +2907,10 @@ class BodyParser {
    * no `Type` can start or continue with, so meeting one proves the same
    * swallowed boundary newline the keyword stop proves. `-` ends the capture at
    * the COMPLETED-arm boundary alone; at an arm start it is captured — no
-   * `Type` begins with `-`, so the arm is ill-formed either way, and n29 pins
-   * the captured disposition.
+   * `Type` begins with `-`, so the arm is ill-formed either way, and the
+   * captured `"-"` is what `finishAliasSchema` checks a malformed-right-hand-
+   * side disposition against once this scan returns (bug 0042 §Fix), from the
+   * declaration's own extent rather than from this capture.
    */
   private parseType(
     stopAtFieldBoundary = false,
@@ -2838,8 +2952,10 @@ class BodyParser {
       // `-` stops after a COMPLETED arm only, never at an arm start: at a start
       // no legal `Type` begins with `-` (grammar.md `LiteralType` has no
       // unary-minus alternative); it is captured there so the ill-formed `= -1`
-      // family keeps its pinned same-line-residue disposition (n29), while
-      // after a finished arm no `Type`
+      // family keeps the junk arm `"-"` rather than emptying the right-hand
+      // side — whether that arm is REPORTED is `finishAliasSchema`'s question,
+      // answered from the declaration's own extent (bug 0042 §Fix). After a
+      // finished arm no `Type`
       // continues with it and it heads the unary-negation expression statement
       // on the line whose boundary newline the trailing `=` / `>` continuation
       // swallowed.

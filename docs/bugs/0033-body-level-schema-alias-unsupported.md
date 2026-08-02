@@ -117,7 +117,10 @@ for depth-0 punct no `Type` can start or continue (`@`, backtick, `(`, `[`,
 as balanced brace groups. No token of a declaration shape survives into the
 statement loop; the one recorded residual is same-line resolvable residue
 (`schema X = Cat Cat`), which reduces to the language's silent no-op
-expression-statement class and is pinned as observed.
+expression-statement class and is pinned as observed — the pin later
+discharged by [0042](./0042-schema-decl-same-line-residue-silent.md)'s fix
+(0.52.0), which reports the DECLARATION while leaving the severed statement's
+silence exactly where this fix put it (*Residuals* (i) below).
 
 **Dispositions** (§Fix delegated; decided here, registry-honest): a headless
 `schema X`, a brace body that is not an `ident: Type` field list, a
@@ -197,7 +200,13 @@ probe green with the fix and red with it neutralised, then deleted.
 **Residuals.** (i) Same-line resolvable residue after a complete
 declaration loads silently (n11/n24's family, incl. `schema X = -<number>`
 yielding a junk `"-"` arm) — pinned as observed; a later loud disposition
-needs the GOV-15 carve-out. (ii) A union arm shape the shared lowerer does
+needs the GOV-15 carve-out. Filed as
+[0042](./0042-schema-decl-same-line-residue-silent.md) and discharged by its
+fix (0.52.0): the arrangement now draws the registered
+`theta/parse/malformed-alias-rhs` under that carve-out, taking the empty arm
+position (`schema X = Cat |`) with it; cells n11, n24 and n29 were rewritten
+in place under that report's §Fix constraint 4, and the residue statement's own
+silence is unchanged. (ii) A union arm shape the shared lowerer does
 not support (e.g. a generic arm) keeps the pre-existing permissive `{}` —
 field-position parity, unchanged. (iii) `theta/parse/unknown-identifier`'s
 double-emission with `unresolved-named-type` for keyword-shaped names

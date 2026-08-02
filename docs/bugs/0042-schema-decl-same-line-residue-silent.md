@@ -1,6 +1,6 @@
 # Bug 0042 — Same-line residue after a grammatically complete `schema X = …` right-hand side is consumed with no diagnostic: `schema X = Cat Cat` registers a one-arm alias and severs the author's second name into a no-op statement, `schema X = Cat |` drops the dangling arm inside the declaration, and `schema X = -1` keeps a junk `"-"` arm that lowers to the permissive `{}` — while the identical missing separator inside an object body is rejected
 
-- **Status:** open.
+- **Status:** fixed (0.52.0).
 - **Kind:** defect — silent partial consumption of a malformed declaration.
   Two elements: what the capture's boundary leaves unreported, and the
   disagreement between the two `Type` positions over the same defect.
@@ -377,6 +377,144 @@ the bound leaves behind.
   `code-registry-parse.md:16`). That mismatch is pre-existing at both emission
   sites and unfiled. It bears on §Fix constraint (i) and is not this report's
   subject.
+
+## Fix (0.52.0)
+
+The §Fix below leaves the disposition open between rejecting the residue and
+keeping the pinned silence, and settles the constraints either way. The
+disposition taken is **rejection**, inside those four constraints. Line anchors
+are at the fix commit.
+
+**Why rejection.** Keeping the silence is a no-op against the tree, and the
+evidence §Fix records for the other side is the evidence this report adds: the
+declaration's own content is malformed in fixtures 2 and 3 (a dropped arm, a
+`"-"` arm lowering to `{}`) and fixture 2 reaches no statement at all, so
+0033's rationale — that the residue reduces to the language's silent no-op
+expression-statement class — holds for fixture 1's severed token and for
+nothing else; the object-body position rejects the same missing separator
+(fixture 1d) and the same `-1` (3b); and the next-line arrangement (fixture 4)
+is already loud. Constraint 2's discrimination is what makes the narrow rule
+reachable, so the general same-line statement permissiveness §Non-goals
+excludes stays untouched: `42 43` still loads clean.
+
+**The code.** `theta/parse/malformed-alias-rhs` (E, parse) is registered in
+`code-registry-parse.md` immediately before `theta/parse/empty-enum-body` and
+mirrored in `docs/reference/diagnostics.md` — a DIAG-2 same-commit landing
+covered within a 1.x minor by the GOV-15 diagnostic-registry carve-out.
+Constraint 1's two candidates were both refused as §Fix requires:
+`empty-schema-body`'s trigger is a shape yielding neither fields nor alias
+arms, and these declarations yield arms; `unsupported-feature` would need a
+third freeform tail in the closed `<construct>` table of
+`placeholder-rendering-a.md` §3, which is a GOV-7 / GOV-8 table edit that would
+also have to reconcile the two tails already emitted unlisted (§Non-goals). The
+*Message* uses only `<X>`, the established category-7 identifier-shaped
+placeholder `empty-schema-body` already renders, so the closed placeholder
+surface is untouched. The owning spec sentence is `schemas.md` §Type-alias /
+union schema, mirrored in `docs/reference/schema-subset.md`.
+
+**The rule, in two shapes.** `finishAliasSchema` splits the captured
+right-hand side once and reads the split two ways: `splitTopLevelSegments`
+(`params.ts`) returns every top-level `|`-delimited segment INCLUDING the empty
+ones, and `splitTopLevel` is now its non-empty filter, so the arm granularity
+`lowerTypeSource` re-derives is unchanged by construction.
+
+- *Empty arm position* — the segment count exceeds the arm count, i.e. a
+  top-level `|` had no `Type` on one of its sides (`schema X = Cat |`,
+  `= | Cat`, `= Cat || Cat`). Anchored at the declaration's own range: the
+  empty segment was never a token, so there is nothing else to point at.
+- *Same-line residue* — otherwise, the token at the cursor is one the capture's
+  own stops fire on (`isAliasResidueHead`: an `ident`, `keyword`, `string` or
+  `number`, or a punct among `@`, a backtick, `(`, `[`, `!` and `-`) and it
+  begins on the same source line as the declaration's last consumed token.
+  Anchored at that token, mirroring the object body's own boundary-token
+  emission. The line comparison is constraint 2's discrimination, read off
+  `Token.range.start.line`; the next-line arrangement stays silent whether the
+  newline survives (`schema X = Cat` + a next-line `let`) or a trailing `>` /
+  `=` continuation swallowed it (`schema X = array<integer>` + a next-line
+  `let`), because in the second case the right-hand side still ends at its last
+  arm ahead of that line's first token.
+
+The empty-arm shape is tested first, so `schema X = Cat || Cat` — which is
+both, the lexer emitting `||` as one token — emits exactly once.
+
+**Nothing else moved.** The declaration keeps the arms it captured and its
+range, the severed residue keeps whatever statement-loop disposition it already
+had, tail promotion is untouched, and lowering is untouched — the junk `"-"`
+arm of fixture 3 still lowers to `{}` (0043's frame, refused here at parse
+rather than repaired downstream). This is not incidental: it is what puts the
+change inside the carve-out, whose in-scope condition is that an edit's only
+effect is the appearance of a code's emission. The verifier's branch-partition
+neutralisation is the evidence — with the emission disabled, 26 of the 108
+witness cells red and the remaining 82, which pin arms, ranges, statement
+kinds, tail promotion, lowered `$defs` and every pre-existing diagnostic, stay
+green.
+
+**The inputs moved out of the GOV-15 loads-cleanly set** (constraint 3, whose
+set is defined post-hoc over the diff) are named by the registry *Trigger* and
+are: fixtures 1, 1b, 2, 3, 5a–5d, 6, and the same arrangement at the `by`
+spelling, the inline-object arm, the generic arm, the `params:` spelling, the
+`.thetalib` spelling, the leading and doubled `|`, and the six punct residue
+heads. Fixtures 1c and 3a were never in the set — they already carried
+error-severity diagnostics — and gain the new code beside their existing ones.
+Fixture 4 keeps `empty-schema-body` alone. The *Trigger* also names what stays
+outside the row, verified in both directions: a stray `,` / `)` / `=` / `}` at
+the boundary keeps `theta/parse/unsupported-feature`, a `{` keeps
+`theta/parse/bare-object-literal`, and an operator absorbed into the arm
+(`schema X = Cat +`) leaves no boundary token and is not this row's subject
+(*Residuals* (i)).
+
+**The witness pins were rewritten, not deleted** (constraint 4). Cells n11
+(both halves), n24 and n29 of `tests/schema-alias-union-decl.test.ts` carry new
+expected lists and new assertion messages stating the reasoning that now holds;
+the file's `it` count is unchanged at 77 and every control — the bare declared
+name, the field dangling `|`, the field `-1` — is untouched and green. The
+field-position controls (fixtures 1d, 2a, 3b) are unmoved, as constraint 4
+requires: the object body's behaviour is byte-identical.
+
+**Reproduction re-derived at the fix baseline** (`3027a1d9`, 0.51.0, after
+0038/0039/0040/0041): every fixture byte-identical to the recorded 0.45.0 table
+— **zero drift** in arms, statement kinds, spans, diagnostics, tail promotion
+and lowered `$defs`. Only source anchors drifted: `finishAliasSchema`
+`:2294–2312` → `:2386`, `parseSchema`'s residual paragraph `:2202–2211` →
+`:2298`, the field-boundary stop `:2816–2826` → `:2960`, the `-` stop
+`:2772–2781` → `:2943`, `splitTopLevel` `params.ts:616–673` → `:745`.
+
+**Post-fix acceptance set.** Fixtures 1, 1b, 2, 3, 5a–5d and 6: exactly one
+error-severity `theta/parse/malformed-alias-rhs`, and the theta is refused.
+Fixture 1c keeps its `unresolved-named-type` and `unknown-identifier` and gains
+the code between them; 3a keeps its `stray '|'` and gains the code; 1f keeps
+`thetalib-top-level-statement` and gains it. Fixtures 1a, 1d, 1e, 2a, 3b, 4,
+6a and 6b are byte-identical.
+
+**Gates.** Full default suite 242 files / 3212 tests, typecheck and lint clean.
+Both witness files proven red per shape by targeted neutralisation restored
+byte-exact (blob hash `1e8d31ff` before and after): the segment-count branch
+reds 5 cells, the cursor branch reds 21, disjointly, and the whole emission
+reds 26. Live: H8a 7/7 and H9a acceptance 11/11 green, plus a scratch H9a probe
+over the real `pi -p` load path — a well-formed control registering and
+driving, both malformed shapes refused — green with the fix, red with it
+neutralised (`B42 OFFENDER LOADED` against the expected `B42 OFFENDER
+REFUSED`), then deleted. No committed `.theta` / `.thetalib` in the repo emits
+the code, so `tests/fixtures/h7a/permitted-codes.json` was correctly left
+alone — verified by the H9a run.
+
+**Residuals.** (i) An operator with no operand behind it is absorbed INTO the
+arm rather than left at the boundary, so `schema X = Cat +` keeps the junk arm
+`"Cat+"`, lowers to `{}` and stays silent, where `schema X = Cat + 1` fires at
+the severed `1` — out of this report's frame (a capture that completes and
+leaves text behind), and closed here only by the *Trigger* naming it as outside
+the row; the general case is arm-text validation against the type grammar,
+which is shared by all four `Type` positions. (ii) The field position keeps its
+own dispositions unchanged — `schema S { a: string | }` is still silent and
+still lowers the field to `{}`, and `schema S { a: -1 }` still draws
+`empty-schema-body` — so the two `Type` positions still answer differently for
+the dangling `|`, in the opposite direction from the one this report opened
+with. (iii) `grammar.md` §Newline continuation's closed trailing-trigger table
+omits the bare `=` the lexer implements; pre-existing, and no clause of this
+fix relies on it. (iv) The `stray '<t>' in statement position` and `schema
+fields must be comma-separated` tails remain absent from
+`placeholder-rendering-a.md` §3's closed table (§Non-goals); this fix coined no
+third tail, choosing a new code instead.
 
 ## Fix
 

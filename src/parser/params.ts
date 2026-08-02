@@ -738,11 +738,21 @@ export function topLevelColon(entry: string): number {
 export type TypeSplitNesting = "angle" | "angle-and-brace";
 
 /**
- * Split a type expression on a top-level `separator`, respecting `nesting`
- * bracket depth and `"`/`'` string literals so nested generics, inline object
- * types and literal arms are not split mid-token. Empty segments are dropped.
+ * Split a type expression on a top-level `separator` into every trimmed
+ * segment, in source order, respecting `nesting` bracket depth and `"`/`'`
+ * string literals so nested generics, inline object types and literal arms
+ * are not split mid-token. Segments are returned INCLUDING the empty ones —
+ * a leading, trailing or doubled `separator` yields an empty string at that
+ * position rather than silently disappearing. `splitTopLevel` (below) is
+ * this function's non-empty filter, and the split is factored this way
+ * because one caller needs to tell "one well-formed arm" apart from "an arm
+ * position the author left empty": `AliasRhs ::= Type ("|" Type)*` treats
+ * `schema X = Cat |` and `schema X = Cat` differently even though both
+ * filter down to the one arm `Cat` (bug 0042 §Fix — the malformed-alias-rhs
+ * check compares this function's segment count against `splitTopLevel`'s arm
+ * count, so the two functions' contracts have to be read together).
  */
-export function splitTopLevel(
+export function splitTopLevelSegments(
   source: string,
   separator: string,
   nesting: TypeSplitNesting = "angle",
@@ -780,18 +790,32 @@ export function splitTopLevel(
       continue;
     }
     if (depth === 0 && c === separator) {
-      const trimmed = current.trim();
-      if (trimmed.length > 0) {
-        parts.push(trimmed);
-      }
+      parts.push(current.trim());
       current = "";
       continue;
     }
     current += c;
   }
-  const tail = current.trim();
-  if (tail.length > 0) {
-    parts.push(tail);
-  }
+  parts.push(current.trim());
   return parts;
+}
+
+/**
+ * `splitTopLevelSegments`'s non-empty filter — the split every pre-existing
+ * caller wants (a generic's argument list, a union's arm list, an inline
+ * object's field list), where a blank arm position carries no information
+ * and is dropped rather than surfaced as an empty string. Empty segments are
+ * dropped, so `splitTopLevel("")` is `[]` and a dangling separator
+ * (`splitTopLevel("Cat|", "|")` is `["Cat"]`) reads as one arm, not one arm
+ * plus a blank. A caller that must distinguish those two inputs reads
+ * `splitTopLevelSegments` instead.
+ */
+export function splitTopLevel(
+  source: string,
+  separator: string,
+  nesting: TypeSplitNesting = "angle",
+): string[] {
+  return splitTopLevelSegments(source, separator, nesting).filter(
+    (segment) => segment.length > 0,
+  );
 }

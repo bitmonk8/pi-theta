@@ -6,6 +6,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-08-02
+
+### Fixed
+
+- **Same-line residue after a complete `schema X = …` right-hand side was
+  consumed with no diagnostic** (bug 0042). The alias/union capture ends where
+  the declaration grammatically ends, and nothing owned what the boundary left:
+  `schema X = Cat Cat` registered a one-arm alias and severed the author's
+  second name into a no-op expression statement; `schema X = Cat |` dropped the
+  dangling arm inside the declaration, so no token reached the statement loop at
+  all; and `schema X = -1` kept a junk `"-"` arm that lowered to the permissive
+  `{}`, leaving a `params:` field or `@<T>` annotation naming `X` validating
+  nothing. All three loaded with zero diagnostics, while the same missing
+  separator inside an object body (`schema S { f: Cat Cat }`) was rejected.
+
+### Added
+
+- **`theta/parse/malformed-alias-rhs`** — a `schema X = …` (or
+  `schema X by f = …`) right-hand side that is not `Type ("|" Type)*` is now
+  refused at parse and the theta does not register. Two shapes: an empty arm
+  position (`= Cat |`, `= | Cat`, `= Cat || Cat`), reported at the declaration;
+  and same-line residue — a boundary token the right-hand side cannot hold,
+  sitting on the declaration's own line (`= Cat Cat`, `= -1`, `= string
+  "junk"`, `= array<integer> 42`) — reported at that token. Unchanged: a
+  right-hand side that yields no arm at all keeps `theta/parse/empty-schema-body`;
+  a token on the next source line still opens the next statement, whether or not
+  a trailing continuation trigger swallowed the newline; a stray `,` / `)` / `=`
+  / `}` keeps `theta/parse/unsupported-feature` and a `{` keeps
+  `theta/parse/bare-object-literal`; and the declaration's arms, range, lowering
+  and the statement a severed residue parses as are all byte-identical — the
+  code's only effect is its own emission.
+
 ## [0.51.0] - 2026-08-02
 
 ### Fixed
