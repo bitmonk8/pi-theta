@@ -6,6 +6,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-08-02
+
+### Fixed
+
+- **A `params:` right-hand side written as a YAML block mapping loaded with no
+  diagnostic and accepted any JSON value** (bug 0041). The type side of a
+  `params:` field is a type expression in the theta type grammar, which is
+  inline text; a field written as nested YAML instead —
+  `p:` over an indented `a: Triage` — spells no type expression, but the
+  frontmatter read recovered the block's bytes for any non-scalar node and the
+  lowering's catch-all absorbed them, so the field lowered to the permissive
+  `{}`, AJV validated nothing for it at the argument boundary, a name declared
+  nowhere was never resolved, and nothing at any severity said so. The same
+  bytes were recorded as the field's declared type, and a two-key block broke
+  the binder's `Parameters:` block across two physical lines, against the
+  one-line-per-field and declared-type-display rules. The block sequence and
+  the flow sequence reached the same silence.
+
+### Added
+
+- **`theta/load/params-type-not-expression`** — a `params:` field whose YAML
+  value node is neither a scalar nor a flow mapping, and a field carrying no
+  value node at all, are now refused at load and the theta does not register.
+  Refused: a block mapping or block sequence written under the field name, a
+  flow sequence, an alias, any other node kind, and the value-less forms `? p`
+  and `params: {p}`. Unchanged: the inline object type `{a: Triage}` is a YAML
+  flow mapping and is admitted; a scalar is admitted whatever text it carries
+  (the check judges the node's shape, not its text); the ordinary value-less
+  key `p:` (and `params: {p: }`) parses as a null scalar and keeps its
+  disposition.
+
 ## [0.50.0] - 2026-08-02
 
 ### Fixed

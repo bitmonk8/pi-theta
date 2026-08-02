@@ -177,6 +177,7 @@ trigger.
 | `theta/load/deferred-frontmatter-field` | W | load | `frontmatter field '<field>' is reserved for a deferred theta 1.0 feature` |
 | `theta/load/missing-mode` | E | load | `frontmatter is missing required field 'mode:'` |
 | `theta/load/params-null` | E | load | `'params: null' is not permitted; omit 'params:' or use 'params: {}'` |
+| `theta/load/params-type-not-expression` | E | load | `'params:' field '<param>' right-hand side is not a theta type expression` |
 | `theta/load/frontmatter-value-out-of-range` | E | load | `frontmatter field '<dotted-key>' must be a non-negative integer; got <observed>` |
 | `theta/load/bind-echo-without-params` | W | load | `'bind_echo: true' has no effect on a no-params theta` |
 | `theta/load/unknown-mode-value` | E | load | `unknown 'mode:' value '<value>'; expected 'prompt' or 'subagent'` |

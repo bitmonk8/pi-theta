@@ -77,7 +77,15 @@ anchors, and prose ("binder model").
   `NamedType` resolves against the file's body-level `schema`/`enum` declarations
   and imported `.thetalib` symbols. Resolution is whole-file — a frontmatter →
   body forward reference resolves. An unresolved named type is
-  `theta/parse/unresolved-named-type`.
+  `theta/parse/unresolved-named-type`. The RHS is inline text, not a YAML
+  structure: a value that is neither a scalar nor a flow mapping (a block
+  mapping or block sequence under the field name, a flow sequence, an alias,
+  or any other node kind), or a field with no value node at all (an explicit
+  key `? p`; a value-less flow member, as in `params: {p}`), is
+  `theta/load/params-type-not-expression` and the theta does not register. A
+  value-less `p:` (or `params: {p: }`) parses as a null scalar and is
+  admitted. The inline object type `{a: Triage}` is a YAML flow mapping and is
+  admitted.
 - **Defaults.** `field: type = literal`. The RHS is the [Theta literal
   sublanguage](./grammar.md#theta-literal-sublanguage) — primitives (incl. unary-`-`
   on numerics), `null`, arrays, bare-key object literals (declared type supplies

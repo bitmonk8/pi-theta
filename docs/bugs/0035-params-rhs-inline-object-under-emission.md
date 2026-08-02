@@ -164,7 +164,17 @@ the four exact forms is `theta/parse/import-reserved-synthesised-name`, and
 (iii) A block-mapping RHS (`p:` followed by an indented YAML mapping) now
 recovers its block-YAML bytes as the recorded type and still lowers
 permissively silent — the adjacent silent spelling, unchanged in
-disposition, unfiled.
+disposition. Filed as bug
+[0041](./0041-params-block-mapping-rhs-silent-permissive.md), which widened the
+input class beyond the block mapping to the block sequence, the flow sequence
+and the equivalent scalar spellings, and discharged by its fix (0.51.0): the
+frontmatter read admits a `params:` value node that is a scalar or a flow
+mapping and refuses every other shape with the registered
+`theta/load/params-type-not-expression`, so the block collections no longer
+reach the lowering and the two-key block mapping can no longer break the
+binder's `Parameters:` block. The scalar spellings that carry the same bytes
+stay silent — that route reads no text — and are recorded as that fix's
+residual (i).
 
 ## Summary
 

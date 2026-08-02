@@ -59,6 +59,22 @@
     `Parameters:` block) reached from the YAML intake rather than from the
     lowering. Its frame is `extractParsedParams`; this one's is
     `lowerParamsFieldType`, one layer down and after the text survives intact.
+    **Fixed in 0.51.0**, and the route framing above still holds: that fix is a
+    YAML **node-shape** test — a `params:` value node that is neither a scalar
+    nor a flow mapping (or absent) is `theta/load/params-type-not-expression`
+    (`paramValueCanCarryType`, `src/parser/frontmatter.ts:379–381`, judged in
+    `extractParsedParams` at `:713`) — and it reads no text, so every scalar is
+    admitted whatever it carries and this report's whole input class is
+    untouched. It does add a **third pinned lock** beside the two named in §Fix
+    constraint 1: `tests/params-block-mapping-rhs-refusal.test.ts` group (e)
+    pins, at pre-0056 bytes, exactly the rows this report inverts — `p: 42` and
+    `p: '"hello"'` lowering `{}`, and `p: true` refused as an unresolved named
+    type — naming this report as the authority licensed to move them; move all
+    three in lock-step. That file's one-line scalar rows and its multi-line
+    block-scalar row stay green under this report's fix (the literal recogniser
+    declines their text). Citation drift from the 0.51.0 change: `type:
+    typeSource` (cited here as `frontmatter.ts:686`) is now `:730`, and FM-5
+    (cited as `:737–750`) now begins at `:782`.
   - [0028](./0028-unresolved-annotation-silent-permissive-lowering.md) — owns
     the permissive-`{}` inventory (`src/runtime/query-schema-lowering.ts:26–63`)
     and the question of whether `{}` should ever be a lowering. This report adds

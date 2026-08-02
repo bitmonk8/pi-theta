@@ -1,6 +1,6 @@
 # Bug 0041 — A `params:` right-hand side written as a YAML block mapping is not a theta type expression, yet it loads with no diagnostic: the recovered block-YAML text falls past every lowering arm to the permissive `{}`, the param accepts any JSON value, and the same text is recorded as the field's declared type and rendered — newlines included — into the binder's `Parameters:` block
 
-- **Status:** open
+- **Status:** fixed (0.51.0)
 - **Kind:** defect, two elements on one mechanism.
   1. *An input the type grammar does not admit is accepted silently and lowers
      permissively.* frontmatter-fields-a.md (`:58`) pins the `params:` right-hand
@@ -370,6 +370,148 @@ text.
   [0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md)
   and [0040](./0040-inline-slug-def-namespace-not-reserved.md) and are not in
   scope here.
+
+## Fix (0.51.0)
+
+The §Fix below settles the code and leaves the enforcement point open between
+two candidate points. The point taken is **the frontmatter read**, and the
+check is the shape test the §Fix specifies for it. Line anchors are at the fix
+commit.
+
+**Why that point.** The lowering point is unavailable at this baseline on the
+§Fix's own terms: its catch-all is still the disposition for `LiteralType`
+(fixture M), whose lowering is unimplemented and is bug
+[0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md)'s
+subject — that bug is open and was not scheduled ahead of this one, so the
+§Fix's escape clause ("unless literal lowering lands first") does not apply.
+The alternative escape — narrowing the trigger to text no `Type` production
+can spell — needs a text-level grammar recogniser, and `lowerTypeExpr` is the
+shared arm of all four type positions since bug 0039, so a diagnostic there
+would move three positions this report does not cover. The frontmatter read
+closes fixtures A–D with a predicate that reads no text at all.
+
+**The check.** `extractParsedParams` (`src/parser/frontmatter.ts:713`) tests
+the field's YAML value node through `paramValueCanCarryType` (`:379–381`),
+stated positively exactly as the §Fix requires: a scalar, or a mapping whose
+`flow` is `true` (the inline object type), is admitted; every other node kind
+and a field carrying no value node at all is refused. No text is parsed, no
+`lowerCtx` is consulted, and the refusal is available before any name is
+resolved. `paramValueSource`'s doc comment (`:344–358`) now names the refused
+shapes, per the §Fix's last obligation.
+
+**The field is retained.** A refused field still enters `fieldInputs` and
+`bypassFields`, so `toSystemParamType` and `parseParams` see the baseline
+field set and the input draws exactly one diagnostic; fixture L's
+`system: "${p}"` spelling stays at one. Registration is withheld by the
+pre-existing error-severity gate (`:1153` → `hasLoadParseError`,
+`production-composition.ts:1894–1901`); no second gate was added.
+
+**Registry.** `theta/load/params-type-not-expression` (E, load) is registered
+in `code-registry-load.md` immediately after `theta/load/params-null` and
+mirrored in `docs/reference/diagnostics.md` — a DIAG-2 same-commit landing
+covered within a 1.x minor by the GOV-15 diagnostic-registry carve-out. The
+*Message* uses only the established category-5 `<param>` placeholder (the same
+one `theta/parse/invoke-arg-type-mismatch` renders for a `params:` field
+name), so the closed placeholder surface is untouched. The *Trigger* is the
+GOV-15 post-hoc in-scope set and names every refused spelling, including the
+two the report's table does not reach (an alias node, and a field with no
+value node — `? p`, `params: {p}`); it also states the admission that reads
+alike, the value-less key `p:` / `params: {p: }`, which parses as a null
+*scalar* and keeps fixture J's `{"type":"null"}`. The owning spec sentence is
+`frontmatter-fields-a.md` §`params` *Type side*, mirrored in
+`docs/reference/frontmatter.md`. The code un-registers the theta and is
+unreachable from every committed H9a fixture, so
+`tests/fixtures/h7a/permitted-codes.json` was correctly left alone — verified
+by the H9a run.
+
+**The `Parameters:` newline obligation is discharged for this input class, not
+corpus-wide.** Element 2's stated input — the two-key block mapping
+(fixture B), which rendered `["Parameters:", "  p (a: Tirage", "    b: integer) required", ""]` —
+is closed by refusal, as are C and D. A first implementation also refused any
+recovered type text carrying a line break; review round 1 removed it, because
+it refused a **multi-line flow mapping** (`p: {a: Triage,` newline
+`b: integer}`) — a grammar-admitted `ObjectType` that loads clean and hoists a
+correct `$ref` — with a message asserting it is not a type expression, the
+exact failure mode this §Fix rejects the lowering point for; and because it
+did not close the reach anyway (a line break still arrives through the default
+RHS). The escapes are recorded in *Residuals* below. The §Fix's own route-1
+text licenses the scalar half ("This closes fixtures A–D and does **not** close
+fixture E").
+
+**Reproduction re-derived at the fix baseline** (`8ea0c958`, 0.50.0, after
+0038/0039/0040): all sixteen fixtures byte-identical to the recorded 0.45.0
+table — **zero drift**, including fixture G's slug `__inline_6a8e2246094f0455`
+re-derived by an independent `node:crypto` oracle and fixture J's node-level
+claim (a value-less `p:` is a Scalar carrying `null`, not an absent node).
+Only source anchors drifted: `extractParsedParams` `:666–696` → `:670`,
+`lowerTypeExpr`'s catch-all `:409–411` → `params.ts:469`,
+`lowerParamsFieldType` `:454–460` → `params.ts:642`.
+
+**Post-fix acceptance set.** A, B, C, D: exactly one error-severity
+`theta/load/params-type-not-expression` at the offending field, and the theta
+is refused. E1–E3 and M unchanged (the settled route admits every scalar).
+F, G, H, J byte-identical; I keeps its single `theta/load/missing-mode`.
+
+**Newly-refused inputs** (GOV-15 post-hoc in-scope set; the only code is
+`theta/load/params-type-not-expression` at error severity): a `params:` field
+whose YAML value node is a block mapping, a block sequence, a flow sequence,
+an alias, or any other node kind; and a field written with no value node at
+all (`? p`, `params: {p}`) — the last two lowered permissively-silent at HEAD
+through `paramValueSource`'s empty-string arm and are the only members outside
+the report's own table. **Lowered bytes that move for thetas that still load:
+none** — the change adds a diagnostic branch and touches no lowering.
+
+**Offline lock.** `tests/params-block-mapping-rhs-refusal.test.ts` (24 tests):
+(a) the DIAG-4 registry anchor, every expected message in the file derived
+from it; (b) fixtures A–D refused with exactly one diagnostic and a nulled
+frontmatter; (b2) the two absent-value-node spellings refused, with
+`params: {p: }` fenced as admitted; (c) the multi-line block scalar pinned as
+the recorded residual, the multi-line flow mapping fenced as still admitted
+and correctly hoisted against an independent `node:crypto` oracle, and the
+registering controls' `Parameters:` block pinned to one physical line per
+field; (d) F, G, H, J, I byte-identical; (e) the scalar spellings and the
+`LiteralType` traffic pinned unchanged, bug 0056 named as the authority
+licensed to move them; (f) fixture L at exactly one diagnostic (the retention
+witness); (g) the H9a permitted-codes fence. Neutralisation evidence, each a
+targeted byte edit restored byte-exactly (`git hash-object` equal before and
+after; `git stash` never used): killing the emission gives 7 red, all with the
+report's `diags :: []` signature; removing the registry row gives 8 red at the
+DIAG-4 anchor and every message-derived assertion; inverting the predicate to
+refuse everything gives 14 red across every fence. Full gate 241 files /
+3181 tests; typecheck and lint clean; the 0035, 0039 and 0040 locks unedited.
+
+**Live.** H8a `tests/live/live-production-acceptance.test.ts` 7/7 and H9a
+`tests/live/acceptance/` 11/11 green against the real provider, the H9a
+empty-capture stderr gate holding with the new code absent from the permitted
+list. No committed live fixture carries a block-mapping `params:` RHS, so the
+end-to-end obligation was discharged by a scratch live probe over the real
+load path in a planted workspace: a block-mapping offender plus a
+flow-mapping control and a driven single-string control, asserting on
+registration and on the settled `SessionManager`'s `theta-system-note`
+channel — GREEN with the fix (only the controls register, exactly one note
+naming the code), RED with the emission neutralised (the offender registers),
+GREEN again on restore. Probe deleted.
+
+**Residuals.** (i) The one-line scalar spellings (fixture E: `p: "a: Tirage"`,
+one-line `p: |` / `p: >`, and a folded multi-line that folds to one line) stay
+silent-permissive with `properties.p = {}` — the settled route reads no text,
+and the §Fix names this as route 1's boundary. Unfiled; adjacent to 0056's
+surface but not its subject (0056 owns literal-shaped text, these carry
+non-type text). (ii) The `Parameters:` per-field line-shape MUSTs
+(binder-bypass-and-envelope.md `:117`/`:129`) remain violable for a theta that
+**registers**, through three reaches, all byte-identical to 0.50.0 and none in
+this report's input class: a multi-line block-scalar type text
+(`"a: Tirage\nb: integer"` → `["Parameters:", "  p (a: Tirage", "b: integer) required"]`);
+a multi-line **flow-mapping** type text, which is grammar-admitted and lowers
+correctly to `$ref #/$defs/__inline_d84e83b5ca07d0e6` yet records the raw
+slice (`["Parameters:", "  p ({a: Triage,", "      b: integer}) required"]`);
+and the **default** RHS, where the break rides `defaultSource` rather than the
+type (`p: |` + `array<integer> = [1,` + `2]` → `["Parameters:", "  p (array<integer>) default=[1,", "2]"]`,
+and the same through a double-quoted `\n` escape). One sibling defect covers
+the family: a recorded declared type or default source carrying a line break
+reaches `renderBinderParamLine` unescaped. Unfiled. (iii) The implementation
+comments say "any unenumerated node kind" and do not spell out the
+value-node-absent case that the registry *Trigger* names; prose-only, unfiled.
 
 ## Fix
 

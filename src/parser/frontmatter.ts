@@ -348,7 +348,13 @@ function rangeOf(
  * value node's own `[range[0], range[1])` offsets into `yamlSource` rather
  * than re-serialised through YAML: the type side is theta's grammar, not
  * YAML's, and a round-trip could reorder or requote what the author wrote
- * (bug 0035). A node carrying no range recovers the empty string — there is
+ * (bug 0035). The function is total over non-scalar nodes, but the flow
+ * mapping is the only non-scalar shape whose recovered bytes are accepted as
+ * a declared type: every other shape — a block mapping, a block sequence, a
+ * flow sequence, or any unenumerated node kind — is refused in
+ * `extractParsedParams` with `theta/load/params-type-not-expression`
+ * (`paramValueCanCarryType`, bug 0041), and its bytes serve only the retained
+ * field record. A node carrying no range recovers the empty string — there is
  * no declared type to read.
  */
 function paramValueSource(value: unknown, yamlSource: string): string {
@@ -358,6 +364,20 @@ function paramValueSource(value: unknown, yamlSource: string): string {
   }
   const [start, end] = node.range;
   return yamlSource.slice(start, end);
+}
+
+/**
+ * Whether a `params:` field's YAML value node can carry a theta type
+ * expression. The type side is theta's grammar, not YAML's: the only
+ * non-scalar YAML shape that spells a `Type` is the flow mapping an inline
+ * object type (`p: {a: Triage}`) parses as — every other node shape recovers
+ * bytes no `Type` production spells. Stated positively (scalar or flow
+ * mapping) so an unenumerated node kind is refused
+ * (`theta/load/params-type-not-expression`) rather than recovered as bytes
+ * and lowered permissively (bug 0041).
+ */
+function paramValueCanCarryType(value: unknown): boolean {
+  return isScalar(value) || (isMap(value) && value.flow === true);
 }
 
 /**
@@ -647,7 +667,11 @@ function typeSourceIsNullable(typeSource: string): boolean {
  * RHS reads its parsed value; a non-scalar RHS — an inline object type, a YAML
  * flow mapping — reads the value node's own source range via
  * `paramValueSource` (bug 0035), so that shape reaches `parseParams` instead of
- * being discarded as an empty type.
+ * being discarded as an empty type. A value node that cannot carry a type
+ * expression (`paramValueCanCarryType`) draws the per-field
+ * `theta/load/params-type-not-expression` in the returned diagnostics; the
+ * field is still recorded so the `system:` interpolation seam and `parseParams`
+ * see the same field set and the refusal stays one diagnostic (bug 0041).
  */
 function extractParsedParams(
   paramsNode: Node | null | undefined,
@@ -656,13 +680,18 @@ function extractParsedParams(
   lineOffset: number,
   bodyTypeDecls: readonly BodyTypeDeclaration[],
   yamlSource: string,
-): { params: ParsedParams | undefined; fieldInputs: readonly ParamFieldInput[] } {
+): {
+  params: ParsedParams | undefined;
+  fieldInputs: readonly ParamFieldInput[];
+  diagnostics: readonly Diagnostic[];
+} {
   if (paramsNode === null || paramsNode === undefined || !isMap(paramsNode)) {
-    return { params: undefined, fieldInputs: [] };
+    return { params: undefined, fieldInputs: [], diagnostics: [] };
   }
   const fieldInputs: ParamFieldInput[] = [];
   const bypassFields: BypassParamsField[] = [];
   const defaultedFields: string[] = [];
+  const diagnostics: Diagnostic[] = [];
   for (const item of paramsNode.items) {
     if (!isScalar(item.key)) {
       continue;
@@ -675,6 +704,21 @@ function extractParsedParams(
     const range =
       rangeOf((item.value ?? item.key) as Node, lineCounter, lineOffset) ??
       { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
+    // A value node outside `paramValueCanCarryType`'s set declares no type
+    // expression: the only non-scalar YAML shape that spells a `Type` is the
+    // flow mapping an inline object type parses as, and every other node
+    // shape recovers bytes no `Type` production spells. One registered error
+    // per offending field; the field is still recorded below so no second
+    // diagnostic cascades at the `system:` interpolation seam (bug 0041).
+    if (!paramValueCanCarryType(item.value)) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/load/params-type-not-expression",
+        file,
+        range,
+        message: `'params:' field '${name}' right-hand side is not a theta type expression`,
+      });
+    }
     fieldInputs.push({
       name,
       typeSource,
@@ -702,6 +746,7 @@ function extractParsedParams(
       fields: bypassFields,
     },
     fieldInputs,
+    diagnostics,
   };
 }
 
@@ -1077,7 +1122,11 @@ export function parseFrontmatter(
   }
 
   // `params:` lowering + bypass classification (the binder's runtime schema).
-  const { params, fieldInputs } = extractParsedParams(
+  const {
+    params,
+    fieldInputs,
+    diagnostics: paramsShapeDiags,
+  } = extractParsedParams(
     paramsNode,
     file,
     lineCounter,
@@ -1085,6 +1134,10 @@ export function parseFrontmatter(
     bodyTypeDecls,
     block?.yaml ?? "",
   );
+  // The per-field shape refusals land before the `parseParams` diagnostics:
+  // a field whose RHS spells no type expression is reported as such, not by
+  // whatever the lowering makes of its recovered bytes.
+  diagnostics.push(...paramsShapeDiags);
 
   // Whole-file `params:` named-type / ordering / default-literal diagnostics.
   // The named-type resolution is whole-file, so the body `schema`/`enum` decls
