@@ -4954,6 +4954,31 @@ function unresolvedNamedTypeDiagnostic(
   };
 }
 
+/**
+ * The registered `theta/parse/reserved-keyword-as-identifier` rejection
+ * (code-registry-parse.md:21) for a reserved spelling `collectUnresolvedNamedTypes`
+ * finds where a `NamedType` is read: `NamedType ::= Ident` (grammar.md:98) is
+ * an identifier position, so the row's existing trigger already covers it —
+ * this builder renders the same registered Message the lexer's own
+ * declarator-name check (lexer.ts) emits from a second site, held identical by
+ * DIAG-4 rather than by shared code (bug 0044 §Fix). Same severity/range/file
+ * construction as `unresolvedNamedTypeDiagnostic` above, the sibling sink's
+ * builder.
+ */
+function reservedKeywordAsIdentifierDiagnostic(
+  keyword: string,
+  range: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/reserved-keyword-as-identifier",
+    file,
+    range,
+    message: `reserved keyword '${keyword}' cannot be used as an identifier`,
+  };
+}
+
 /** A `Result<Ok, Err>` application, captured as its two type arguments. */
 const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
 
@@ -5647,7 +5672,16 @@ function checkSchemaDeclarationGraph(
     // whole-file resolution walk the object-form field-type position already
     // drives (`collectUnresolvedNamedTypes`, body-type-lowering.ts) over the
     // arms rejoined with the same separator `lowerTypeSource` re-splits on.
-    for (const name of collectUnresolvedNamedTypes(s.arms.join(" | "), typeNames)) {
+    const aliasReservedKeywords: string[] = [];
+    const aliasUnresolved = collectUnresolvedNamedTypes(
+      s.arms.join(" | "),
+      typeNames,
+      aliasReservedKeywords,
+    );
+    for (const keyword of aliasReservedKeywords) {
+      out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
+    }
+    for (const name of aliasUnresolved) {
       out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
     }
     if (s.by !== undefined) {
@@ -6045,7 +6079,16 @@ function walkStatement(
           // not `s.name` is ever referenced by a query annotation, matching
           // the registry row's "resolves to no declaration usable at the
           // position it is written".
-          for (const name of collectUnresolvedNamedTypes(f.typeSource, refs.typeNames)) {
+          const fieldReservedKeywords: string[] = [];
+          const fieldUnresolved = collectUnresolvedNamedTypes(
+            f.typeSource,
+            refs.typeNames,
+            fieldReservedKeywords,
+          );
+          for (const keyword of fieldReservedKeywords) {
+            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
+          }
+          for (const name of fieldUnresolved) {
             out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
           }
         }
@@ -6297,7 +6340,27 @@ function walkExpr(
       if (e.schema !== null && e.schema.trim().length > 0) {
         const responseAnnotation = queryResponseAnnotation(e.schema);
         if (responseAnnotation !== undefined) {
-          for (const name of collectUnresolvedNamedTypes(responseAnnotation, refs.typeNames)) {
+          // `@<Schema>` is a type ASCRIPTION (query-forms.md:44, :57), and
+          // `TypePosition`'s closed classification (type-grammar.ts) puts an
+          // ascription in `"value"`, not `"schema-feeding"`: `void` is
+          // rejected there and `Result` remains admitted (grammar.md §Type
+          // grammar), and `result-in-schema-position` (code-registry-parse.md
+          // :60) does not name this position — `"schema-feeding"` here would
+          // widen that row's trigger, which bug 0044 §Fix Blast-radius
+          // forbids.
+          out.push(
+            ...parseTypeExpression(responseAnnotation, "value", { file, range: e.range }),
+          );
+          const annotationReservedKeywords: string[] = [];
+          const annotationUnresolved = collectUnresolvedNamedTypes(
+            responseAnnotation,
+            refs.typeNames,
+            annotationReservedKeywords,
+          );
+          for (const keyword of annotationReservedKeywords) {
+            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, e.range, file));
+          }
+          for (const name of annotationUnresolved) {
             out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
           }
         }

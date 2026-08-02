@@ -222,7 +222,18 @@ only alone — lowers per SUBS-1 like every other arm. (iii)
 `theta/parse/unknown-identifier`'s
 double-emission with `unresolved-named-type` for keyword-shaped names
 (`void`) exists at BOTH the alias and field positions — pre-existing,
-unfiled. (iv) The inline `{}` empty-object rule of grammar.md:109
+unfiled. Filed as
+[0044](./0044-unresolved-named-type-fires-for-keyword-shaped-text.md) and
+discharged by its fix (0.54.0), which corrects the record in one place: the
+code beside `unresolved-named-type` is `theta/parse/void-in-non-return-position`
+— the position's own registered rejection, as cell n8's expectation always
+stated — not `theta/parse/unknown-identifier`. `lowerTypeExpr`
+(`src/parser/params.ts`) now classifies a reserved-keyword spelling before the
+`NamedType` resolution can reach it, so `void` draws that row alone at both
+positions and the other 24 spellings draw
+`theta/parse/reserved-keyword-as-identifier`. Cell n8 moved to the single-line
+expectation under that report's §Fix, keeping `expectArmMatchesFieldControl` as
+the alias/field equality assertion this fix established. (iv) The inline `{}` empty-object rule of grammar.md:109
 (`empty-schema-body`) is unimplemented at every `Type` position —
 pre-existing, unfiled. (v) The `by` field naming no variant's field, and
 `by` over a non-object ≥2-arm union, load silently — spec-undecided,

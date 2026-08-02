@@ -943,7 +943,6 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
       "array<{x: integer, y: string}>",
       {},
     ],
-    ["g5 `Result<integer, string>`", "Result<integer, string>", {}],
   ];
 
   for (const [label, source, expected] of rows) {
@@ -959,10 +958,35 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
     });
   }
 
+  it("CONTROL (g5): `Result<integer, string>` stays permissive at the positions that do not refuse it", () => {
+    // Bug 0044 §Fix wires `parseTypeExpression(…, "schema-feeding")` at the
+    // `params:` position too — a registered trigger implemented, not widened:
+    // `result-in-schema-position`'s row (code-registry-parse.md:60) and
+    // grammar.md §Type grammar both already name "a `params:` field type" among
+    // its trigger positions, exactly as :59 does for `void`. So `params:` now
+    // refuses this bare source outright, joining `alias` and `field`, and only
+    // `annotation` still has no top-level `|` AND no refusal to reach it.
+    for (const position of ["alias", "field", "annotation"] as const) {
+      const fragment = fragmentOf(
+        "g5 `Result<integer, string>`",
+        position,
+        "Result<integer, string>",
+      );
+      expect(
+        fragment,
+        `g5 [${position}]: no top-level \`|\`, so the reordering cannot reach it; ` +
+          `observed ${JSON.stringify(fragment)}`,
+      ).toEqual({});
+    }
+  });
+
   it("CONTROL (g6): `Result<integer, string>` keeps its `result-in-schema-position` refusal", () => {
     // The generic arm is not silent for every input that reaches it: the parse
-    // gate refuses this one first, at the two positions that run it.
-    for (const position of ["alias", "field"] as const) {
+    // gate refuses this one first, at the three positions that run it —
+    // `params:` joins `alias` and `field` because the registry row already
+    // names it (code-registry-parse.md:60), so wiring it there (bug 0044 §Fix)
+    // implements a registered trigger rather than widening one.
+    for (const position of ["alias", "field", "params"] as const) {
       const read = readAt(position, "Result<integer, string>");
       expect(
         read.diags.filter((line) => line.includes(RESULT_IN_SCHEMA)).length,
@@ -1178,9 +1202,14 @@ describe("bug 0043 (j) — a `Result` union arm keeps its `{}` as ONE variant", 
   const SOURCE = "string | Result<integer, string>";
 
   it("RED (j1): the primitive arm survives beside the permissive `Result` variant", () => {
-    // Read at the two positions that do NOT refuse the source, so the bytes are
-    // the only thing under assertion.
-    for (const position of ["params", "annotation"] as const) {
+    // Read at the one position that does NOT refuse the source. `@<Schema>` is
+    // a type ASCRIPTION, so it is checked at `"value"`, not `"schema-feeding"`,
+    // where grammar.md §Type grammar admits `Result` ("remains admitted in …
+    // `invoke<Type>` / type-ascription contexts") — `params:` now joins
+    // `alias` and `field` in refusing this source (bug 0044 §Fix wires
+    // `parseTypeExpression(…, "schema-feeding")` there too), so only the
+    // annotation position still has bytes for this cell to assert.
+    for (const position of ["annotation"] as const) {
       const fragment = fragmentOf("j1", position, SOURCE);
       expect(
         fragment,
@@ -1191,7 +1220,7 @@ describe("bug 0043 (j) — a `Result` union arm keeps its `{}` as ONE variant", 
   });
 
   it("CONTROL (j2): the `result-in-schema-position` refusal does not move", () => {
-    for (const position of ["alias", "field"] as const) {
+    for (const position of ["alias", "field", "params"] as const) {
       const read = readAt(position, SOURCE);
       expect(
         read.diags.filter((line) => line.includes(RESULT_IN_SCHEMA)).length,

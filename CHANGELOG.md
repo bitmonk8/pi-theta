@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-08-02
+
+### Fixed
+
+- **`theta/parse/unresolved-named-type` fired for reserved-keyword-shaped text,
+  which is not a `NamedType`** (bug 0044). `NamedType ::= Ident`, and reserved
+  status is precisely what stops a keyword being an `Ident`, but the resolution
+  walk behind four of the row's five positions tested a bare
+  `^[A-Za-z_][A-Za-z0-9_]*$` shape regex and looked the result up in a map built
+  from declaration names — which no keyword can ever be in. Every keyword
+  spelling therefore missed and was reported as a name the file fails to
+  declare, advice `lexical.md` forbids taking. `schema X = void` and
+  `schema X { f: void }` emitted the correct `void-in-non-return-position` and
+  then a false `unresolved named type 'void'`; at the `params:` right-hand side
+  and the `@<T>` annotation, where `void`'s own row was not wired, the false one
+  was the only diagnostic; and 25 of the 32 keywords drew the row alone or
+  beside residue at the schema-body field and `@<T>` positions, 27 at
+  `params:`. `lowerTypeExpr` now classifies a reserved spelling before the
+  `NamedType` resolution can reach it: the other 24 spellings draw the
+  registered `theta/parse/reserved-keyword-as-identifier`, and `void` draws its
+  own row — now wired at all four positions — alone. No registry edit: every
+  code was already registered with a trigger covering the position it fires at.
+- **`true` and `false` were refused as `Type` atoms in a mixed union and
+  anywhere on the `params:` right-hand side** (bug 0044, second element). Both
+  are reserved keywords *and* `LiteralType` atoms, and only the boolean
+  spellings match the identifier regex, so `schema X { f: true | string }` and
+  `params: p: true` carried an `E` and did not load while `f: true` alone and
+  every string, number and `null` sibling loaded. The arm also vanished from the
+  lowered fragment — `true | string` lowered `{"anyOf":[{},{"type":"string"}]}`,
+  which accepts every instance on one arm. Both now lower `{"const": true}` /
+  `{"const": false}` and report nothing, matching what the top-level literal
+  check already returned for the same atom. The lowered bytes feed the QRY-15
+  instruction and hash into the `__theta_respond_<slug>` tool name, so affected
+  annotations change respond-tool name — for inputs that did not load at all
+  before.
+- **`void`, `Result` and a generic-arity mismatch went unreported at the
+  `params:` right-hand side, and `void` and arity at `@<T>`** (bug 0044, third
+  element). The position-sensitive type-grammar checks were wired at the
+  schema-body field type and each alias arm only, so the registry rows that
+  already name "a `params:` field type" and "type ascription" among their
+  trigger positions had no implementation there. Both positions now run the
+  check — the `params:` field at the schema-feeding position, the `@<T>`
+  annotation at the ascription position, where `Result` stays admitted as
+  `grammar.md` §Type grammar specifies.
+
 ## [0.53.0] - 2026-08-02
 
 ### Fixed

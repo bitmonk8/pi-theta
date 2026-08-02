@@ -149,8 +149,14 @@ interface RawToken {
   readonly range: Range;
 }
 
-/** The reserved keywords that cannot be used as identifiers (lexical.md). */
-function reservedKeywords(): ReadonlySet<string> {
+/**
+ * The reserved keywords that cannot be used as identifiers (lexical.md).
+ * Exported for `src/parser/params.ts`'s reserved-keyword classification: a
+ * parser leaf needs the same 32-member set this module already enforces at
+ * the token level (`NamedType ::= Ident`, and a reserved spelling is never an
+ * `Ident`), rather than a second copy of it.
+ */
+export function reservedKeywords(): ReadonlySet<string> {
   return new Set([
     "let", "mut", "fn", "if", "else", "for", "in", "while", "break",
     "continue", "return", "match", "schema", "enum", "import", "export",

@@ -287,7 +287,14 @@ position, whose naive brace check declines a source ending `>`,
 `{a: integer} | array<integer>` moves from `{}` to `anyOf: [{}, {type:
 array}]`, the permissive fragment surviving as one variant. (vi) Bug 0044's
 blast radius widens: keyword-shaped text at the newly-descended sites now draws
-the row (`@<{a: {b: match}}>` refuses). (vii) `lowerTypeSource`'s literal-union
+the row (`@<{a: {b: match}}>` refuses). Discharged by bug
+[0044](./0044-unresolved-named-type-fires-for-keyword-shaped-text.md)'s fix
+(0.54.0): the descent this report added is unchanged and those sites still
+refuse, but the row they draw is now
+`theta/parse/reserved-keyword-as-identifier` — a reserved spelling is not a
+`NamedType ::= Ident`, so `theta/parse/unresolved-named-type` was never its
+trigger. `@<{a: {b: match}}>` is pinned at the new row in that fix's witness.
+(vii) `lowerTypeSource`'s literal-union
 arm emits a bare `{ enum: [...] }` where SUBS-1 (schema-subset.md `:81`) spells
 `{"type": "string", "enum": [...]}` — pre-existing, pinned as a control.
 (viii) The `params:` position has no literal sublanguage at any depth

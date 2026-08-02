@@ -1,6 +1,9 @@
 # Bug 0044 — `theta/parse/unresolved-named-type` fires for reserved-keyword-shaped text, which is not a `NamedType`: `schema X { f: void }` and `schema X = void` each emit the registered `void-in-non-return-position` AND `unresolved named type 'void'`, and 25 of the 32 reserved keywords draw the row at the schema-body field and `@<T>` positions, 27 at the `params:` right-hand side
 
-- **Status:** open.
+- **Status:** fixed (0.54.0). §Fix as settled — the atom section classifies a
+  reserved-keyword spelling before the `NamedType` resolution can reach it, and
+  `void`'s own registered row is wired at the two positions that lacked it. See
+  §Fix (0.54.0) below.
 - **Kind:** defect — an emission outside its registry row's trigger. The row
   (`docs/spec_topics/diagnostics/code-registry-parse.md:89`) triggers on "A
   `NamedType` that resolves to no declaration usable at the position it is
@@ -158,6 +161,187 @@
   model, no provider. Scratch vitest driving `parseThetaDocument` (via
   `tests/helpers/e2e-s1.ts`), `lowerTypeSource` and `lowerTypeExpr` over all 32
   reserved keywords × four positions; written, run, deleted.
+
+## Fix (0.54.0)
+
+The settled §Fix, implemented as written. Two review rounds, one fixer round
+and one verification round; line anchors are at the fix commit.
+
+**Classification.** `lowerTypeExpr`'s atom section (`src/parser/params.ts`)
+tests the lexer's own 32-member set between `PRIMITIVE_TYPES` and the
+`IDENTIFIER` regex, so no reserved spelling reaches the `NamedType` resolution
+that was guaranteed to miss it. `true` / `false` lower `{const: true}` /
+`{const: false}` and report nothing (`LiteralType`, grammar.md:102), matching
+what `parseLiteralArm` already returned for the same atom at the top level;
+`void` lowers `{}` and records nothing, its own registered row being the
+rejection; every other reserved spelling lowers `{}` and records on a second
+sink, `LowerCtx.reservedKeywords`, which each of the four callers drains as
+`theta/parse/reserved-keyword-as-identifier`. The set is
+`reservedKeywords()` (`src/lexer/lexer.ts`), exported for this use rather than
+restated — one source of truth for the 32 spellings, and the export closes no
+cycle. It is bound once as an immutable module-level `ReadonlySet` beside
+`PRIMITIVE_TYPES`; a `Set` and not a record keyed by author text, which would
+need a null prototype and an own-key guard to be indexed by source spellings
+safely.
+
+**Wiring `void`'s own row.** `parseTypeExpression` now runs at the `params:`
+right-hand side and the `@<T>` annotation root, the two of the four positions
+that lacked it, so `void` draws `theta/parse/void-in-non-return-position` at
+every position and nothing else. Two route choices inside §Fix's constraints,
+settled here:
+
+- **The `params:` RHS runs at `"schema-feeding"`**, §Fix's literal text. That is
+  also what the seam's own closed `TypePosition` classification
+  (`src/parser/type-grammar.ts`) names a `params:` field type, and both rows the
+  position newly draws beyond `void` are already registered *for that position*:
+  `theta/parse/result-in-schema-position`
+  (`docs/spec_topics/diagnostics/code-registry-parse.md:60` — "a schema field
+  type, a `params:` field type, or any type reachable transitively from those")
+  and `theta/parse/generic-arity-mismatch` (`:58`, whose trigger is
+  position-independent). `params: p: Result<string, string>` and
+  `params: p: array<integer, string>` therefore move from silent to their own
+  registered rejections.
+- **The `@<T>` annotation root runs at `"value"`, not `"schema-feeding"`.**
+  `@<Schema>` is a type ascription (`docs/spec_topics/query/query-forms.md:44`,
+  `:57` — the same citation §Expected behaviour uses to put `void` there), and
+  `TypePosition` places ascriptions in `"value"`: `void` rejected, `Result`
+  admitted. `docs/spec_topics/grammar.md` §Type grammar says so directly —
+  `Result` "remains admitted in … `invoke<Type>` / type-ascription contexts" —
+  and `:60` does not name the annotation among its positions. Running the
+  annotation at `"schema-feeding"` would have widened that row's trigger, which
+  §Blast radius forbids ("**Registry.** No new code and no *Message* edit"), so
+  the position argument is the one that leaves the trigger where the registry
+  has it. `@<array<Result<string, string>>>` staying silent is pinned as the
+  guard cell for this choice; `@<array<integer, string>>` draws the
+  position-independent arity row.
+
+**Emission order.** At all four callers the `parseTypeExpression` diagnostics
+drain first, then the keyword sink, then `unresolved` — the order the
+schema-body field position already had, where `parseTypeExpression` precedes the
+walk. The two sinks can never name the same spelling (`NamedType ::= Ident`
+bars a keyword from `unresolved`), so the order is only observable when one
+source carries both classes: `schema X = Nope | mut` reports the keyword, then
+the name.
+
+**No spec, registry, `docs/reference/` or `permitted-codes.json` edit.** DIAG-2
+held: no new code, no new row, no widened trigger. Every code emitted was
+already registered with a trigger covering the position it now fires at — `:21`
+("Reserved keyword used in an identifier position", and `NamedType ::= Ident`
+is one), `:59` (already naming "schema or `params:` field" and "type
+ascription"), `:58`, `:60`. `theta/parse/unresolved-named-type`'s row (`:90` —
+`:89` in this report's cites, one line of drift since 0042 landed a row above
+it) states its trigger as "a `NamedType` that resolves to no declaration usable
+at the position it is written"; the narrowing brings the implementation *into*
+that trigger rather than out of it, so the prose needed no edit — before the
+fix the implementation over-stepped the row, after it the two agree.
+`docs/reference/diagnostics.md` mirrors messages only, and no message moved.
+No committed `.theta` / `.thetalib` fixture writes a reserved keyword in a
+`Type` position, so no committed fixture emits any of the four codes and the
+H9a EMPTY-CAPTURE permitted-code list is unchanged — verified by an acceptance
+run, not inferred. GOV-15: every input whose code changes carried an `E` at
+baseline except the `true` / `false` class (which the fix makes load, per
+grammar.md:102) and the `params:` `Result` / arity classes (silent → their own
+registered rows); all of it is the
+[diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out)'s
+addition-and-removal arm over already-registered triggers.
+
+**The stale records §Fix names are corrected in the same commit.** 0033 §Fix
+(0.45.0) residual (iii) gained an appended discharge note naming the correct
+sibling code — the emission beside `unresolved-named-type` is
+`theta/parse/void-in-non-return-position`, never
+`theta/parse/unknown-identifier` — and recording that the residual is now both
+filed and closed. Nothing was deleted from it. 0039 §Fix (0.49.0) residual (vi)
+gained the same treatment: the newly-descended inline-object sites still refuse
+`@<{a: {b: match}}>`, under this report's row rather than the one that residual
+names. Two further restatements of the `unknown-identifier` misnaming, in
+`docs/bugs/0042-…md` and the still-open `docs/bugs/0046-…md`, are left to their
+owners and recorded as residuals below.
+
+**The defect family reproduced byte for byte at HEAD.** §Reproduction was
+written at 0.45.0 and six fixes landed between; the baseline was re-derived at
+`af7f932e` with a scratch probe over all 32 keywords × four positions before
+any assertion was pinned. Every count holds — `U` at the alias RHS for 10
+keywords, the schema-body field for 25, the `params:` RHS for 27, `@<T>` for
+25, sole for 9 / 20 / 27 / 21 — as do the 15 alias-arm-stopped cells' residue
+codes, the boolean-`LiteralType` split, the multiplicity table and the
+unreachable object-constructor position. Only `path:line` drifted: the registry
+row is `:90`; `params.ts`'s frame is `lowerTypeExpr` at `:394` with the atom
+section at `:439–465`, `IDENTIFIER` at `:357` and the `params:` emission site at
+`:155–176`; `body-type-lowering.ts`'s `lowerTypeSource` is `:336`,
+`collectUnresolvedNamedTypes` `:671`, `parseLiteralArm` `:694`;
+`theta-document.ts`'s four call sites are `:5632` / `:5650` (alias), `:6037` /
+`:6048` (field) and `:6300` (annotation), with `unresolvedNamedTypeDiagnostic`
+at `:4943`; `lexer.ts`'s `reservedKeywords()` is `:153`; cell n8 is `:1773–1792`.
+One fact §Reproduction under-states: `false | integer` reds at all four
+positions, not only at `params:` — same mechanism as `true | string`.
+
+**Boundary against the open siblings.** Keyword-shaped text at a `Type`
+position is this report's subject and is now `reserved-keyword-as-identifier`.
+Lowercase *non-keyword* text at a reference position — the `NamedType` casing
+rule — remains [0051](./0051-lowercase-named-type-reference-positions-silent.md)'s,
+untouched here: such text still resolves or draws `unresolved-named-type`.
+Junk and operator-absorbed arm text is
+[0061](./0061-nonparams-type-positions-keep-junk-arm-text-silent.md)'s, the
+inline `{}` [0045](./0045-inline-empty-object-type-missing-empty-schema-body.md)'s,
+and `params:` scalar non-type text
+[0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md)'s;
+none of the three is a reserved spelling, so none moves.
+
+**Offline lock.** `tests/reserved-keyword-type-position.test.ts` (42 cells,
+unit, offline, provider-free): the whole 32-keyword × four-position matrix as
+one pinned table per position, tied to `lexical.md` §Reserved keywords by a
+cell that reads the spec list itself, including the alias column's 15
+residue-bearing cells as controls; `void` as the sole emission at all four
+positions plus `array<void>`, the union arm, `@<{ f: void }>` and
+`params: p: { f: void }`; the boolean-`LiteralType` set at all four positions
+with `lowerTypeSource`-beside-`lowerTypeExpr` byte pins and a real
+`AjvSchemaValidator` accept/reject table over
+`{"anyOf":[{"const":true},{"type":"string"}]}`; the multiplicity cells; the
+drain-order cells; the two new positions' collateral including the
+`@<array<Result<…>>>` guard; and no-op cells for the five primitives,
+`array<integer>`, `Result<string, string>`, `Nope`, `let a: match = 1` and
+`fn f(p: match)`. Every expected message is read from the registry through
+`registryMessage` (DIAG-4), never copied prose. Three existing cells moved
+under §Fix's own authority: cell n8
+(`tests/schema-alias-union-decl.test.ts`) to the single-line expectation §Blast
+radius specifies, keeping `expectArmMatchesFieldControl` as the equality
+assertion; cell e-M3 (`tests/params-block-mapping-rhs-refusal.test.ts`) from
+pinning the mis-classification of `params: p: true` to pinning that it loads
+and lowers `{"const": true}` — its comment's attribution of the
+mis-classification to 0056 is corrected, 0056 owning only the non-keyword
+literal forms; and cells g5 / g6 / j1 / j2
+(`tests/union-generic-arm-lowering.test.ts`), where the `params:` position
+joins the alias and field positions as one that runs the schema-feeding gate.
+No other existing test moved: `collectUnresolvedNamedTypes` keeps its
+signature and return type, taking the keyword class through a trailing optional
+out-param sink in the shape `lowerTypeSource` already uses for `unresolved`, so
+0039's three walker cells needed no edit.
+
+**Both directions verified.** Each of the three parts was neutralised
+separately and restored byte-exactly (blob-hash proved): removing the
+classification reds 31 cells, removing the `params:` call reds 11, removing the
+annotation call reds 8. Default suite 244 files / 3327 tests green; typecheck
+and lint clean. Live: H8a `live-production-acceptance` 7/7 and the H9a
+acceptance half 11/11, each twice. No shipped live test writes a reserved
+keyword in a `Type` position, so a scratch live probe drove three planted
+thetas (`params: p: void`, `@<void>`, `schema Flag { v: true | string }` behind
+a typed query) through the shipped extension — red with the fix neutralised,
+green with it in place, then deleted, per the 0033 precedent.
+
+**Residuals.** (i) The `params:`-site dedup asymmetry is inherited by both
+sinks, as §Non-goals directs: `p: match | match` reports twice where
+`f: match | match` reports once. Unfiled. (ii) The `unknown-identifier`
+misnaming this fix corrects on 0033 is restated independently in
+`docs/bugs/0042-schema-decl-same-line-residue-silent.md` (fixed, so historical)
+and in the still-open `docs/bugs/0046-by-clause-undecided-inputs-load-silently.md`,
+which this fix does not own and did not edit. (iii) `parseParams`'s docstring
+lists the three codes its schema-feeding call can raise in a different order
+from `walkType`'s own emission sequence (`generic-arity-mismatch`,
+`result-in-schema-position`, `void-in-non-return-position`); the group-level
+order it asserts is correct. Prose only. (iv) A bare generic head
+(`array`, `Result` without arguments) draws `reserved-keyword-as-identifier`
+under this fix; whether an unapplied constructor head deserves its own row is
+the registry question §Non-goals declines to open.
 
 ## Summary
 

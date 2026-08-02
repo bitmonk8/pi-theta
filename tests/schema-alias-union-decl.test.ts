@@ -1772,16 +1772,13 @@ describe("bug 0033 (m) — an alias arm answers to the field-type checks", () =>
 
   it("n8: `schema X = void` and `void | string` fire void-in-non-return-position", () => {
     // The registry row names "union arm" among the rejecting positions
-    // explicitly. BOTH lines are the field control's, byte for byte: the second,
-    // `unresolved named type 'void'`, is what the whole-file name walk makes of
-    // the keyword at BOTH positions, and rescuing the arm means reproducing the
-    // field position exactly rather than improving on it. Narrowing that walk
-    // moves the object form's behaviour too, and belongs to a report that takes
-    // the field position as its subject.
-    const expected = [
-      line(VOID_POSITION, msg(VOID_POSITION, [])),
-      line(UNRESOLVED, msg(UNRESOLVED, [["<name>", "void"]])),
-    ];
+    // explicitly, and it is the WHOLE rejection: `void` is a reserved keyword,
+    // so it is not a `NamedType ::= Ident` (grammar.md:98, lexical.md:20) and
+    // the whole-file name walk has no subject in it — bug 0044's §Fix. The
+    // equality against the object-field control is what keeps the alias arm and
+    // the field position answering to one type grammar (type-system.md:15), so
+    // this cell still inverts if either position drifts.
+    const expected = [line(VOID_POSITION, msg(VOID_POSITION, []))];
     expectArmMatchesFieldControl("n8 (single arm)", F_ALIAS_VOID, F_FIELD_VOID, expected);
     expectArmMatchesFieldControl(
       "n8 (union arm)",

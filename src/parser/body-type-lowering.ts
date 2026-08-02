@@ -111,6 +111,7 @@ export function lowerObjectFields(
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
   unresolved?: string[],
   sinks?: InlineHoistSinks,
+  reservedKeywords?: string[],
 ): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
@@ -122,6 +123,7 @@ export function lowerObjectFields(
       defs,
       unresolved,
       sinks,
+      reservedKeywords,
     );
     required.push(field.name);
   }
@@ -153,6 +155,7 @@ export function lowerInlineObject(
   bodyTypeMap: ReadonlyMap<string, Record<string, unknown>>,
   unresolved?: string[],
   sinks?: InlineHoistSinks,
+  reservedKeywords?: string[],
 ): Record<string, unknown> {
   const fields: LowerableField[] = [];
   for (const entry of splitTopLevel(body, ",", "angle-and-brace")) {
@@ -167,7 +170,7 @@ export function lowerInlineObject(
     }
     fields.push({ name, typeSource });
   }
-  return lowerObjectFields(fields, bodyTypeMap, unresolved, sinks);
+  return lowerObjectFields(fields, bodyTypeMap, unresolved, sinks, reservedKeywords);
 }
 
 /**
@@ -339,14 +342,16 @@ export function lowerTypeSource(
   defs: Record<string, Record<string, unknown>>,
   unresolved?: string[],
   sinks?: InlineHoistSinks,
+  reservedKeywords?: string[],
 ): Record<string, unknown> {
   const s = source.trim();
   // `exactOptionalPropertyTypes` forbids an explicit `undefined` on
-  // `LowerCtx`'s optional keys, so only spread them in when `sinks` is present.
+  // `LowerCtx`'s optional keys, so only spread them in when present.
   const ctx: LowerCtx = {
     bodyTypeMap,
     defs,
     unresolved: unresolved ?? [],
+    ...(reservedKeywords !== undefined ? { reservedKeywords } : {}),
     ...(sinks !== undefined
       ? {
           inlineCanonical: sinks.inlineCanonical,
@@ -373,7 +378,14 @@ export function lowerTypeSource(
   // back through THIS function's literal check before anything else — the
   // SUBS-1 literal sublanguage must survive at depth (bug 0039 §Fix).
   const lowerField = (fieldSource: string, fieldCtx: LowerCtx): Record<string, unknown> =>
-    lowerTypeSource(fieldSource, fieldCtx.bodyTypeMap, fieldCtx.defs, fieldCtx.unresolved, sinks);
+    lowerTypeSource(
+      fieldSource,
+      fieldCtx.bodyTypeMap,
+      fieldCtx.defs,
+      fieldCtx.unresolved,
+      sinks,
+      fieldCtx.reservedKeywords,
+    );
 
   // THE TWO DISPATCHES BELOW ARE DISJOINT — no source satisfies both guards —
   // so their order cannot change what this function returns. The arm guard
@@ -647,19 +659,19 @@ function transitiveDefNames(
 
 /**
  * The `NamedType` names in `source` that resolve to no member of `declared` —
- * a schema-body field type or a `@<T>` query annotation (including its
- * inline-object-annotation field form) naming no in-scope declaration —
- * deduped to first-occurrence order (one diagnostic per distinct name per
- * position; bug 0028 §Fix). `declared` is the RESOLUTION SET, not a lowering
- * result: `collectBodyTypes` (theta-document.ts) deliberately maps an
- * imported `.thetalib` symbol to `{}` AS RESOLVED (bug 0033 §Fix narrowed
- * this permissive arm to imports and head-only declarations — an alias-form
- * schema name now lowers via `buildBodyTypeSchemas`, concretely for the arm
- * shapes `lowerTypeSource` supports), so checking the lowering RESULT
- * for a `{}` fragment would reject those legal thetas too — this function is
- * handed the NAME set and threads an `unresolved` sink through the same
- * resolution `lowerTypeExpr` already performs, rather than re-deriving a
- * second name-walk.
+ * a schema-body field type, an alias/union arm, or a `@<T>` query annotation
+ * (including its inline-object-annotation field form) naming no in-scope
+ * declaration — deduped to first-occurrence order (one diagnostic per
+ * distinct name per position; bug 0028 §Fix). `declared` is the RESOLUTION
+ * SET, not a lowering result: `collectBodyTypes` (theta-document.ts)
+ * deliberately maps an imported `.thetalib` symbol to `{}` AS RESOLVED (bug
+ * 0033 §Fix narrowed this permissive arm to imports and head-only
+ * declarations — an alias-form schema name now lowers via
+ * `buildBodyTypeSchemas`, concretely for the arm shapes `lowerTypeSource`
+ * supports), so checking the lowering RESULT for a `{}` fragment would reject
+ * those legal thetas too — this function is handed the NAME set and threads
+ * an `unresolved` sink through the same resolution `lowerTypeExpr` already
+ * performs, rather than re-deriving a second name-walk.
  *
  * `source` dispatches the inline-object annotation form itself (`{ … }`) to
  * `lowerInlineObject` before falling through to `lowerTypeSource` for every
@@ -667,21 +679,37 @@ function transitiveDefNames(
  * `lowerQueryResponseSchema` makes, so a name nested inside either function's
  * own inline-object handling still reaches this walk's `unresolved` sink
  * (bug 0039 §Fix parts A/B).
+ *
+ * `reservedKeywords`, when supplied, carries a SECOND, DIFFERENTLY-SHAPED
+ * class this walk also passes over: a reserved-keyword spelling used where a
+ * `NamedType` was read is never a resolution failure (`NamedType ::= Ident`,
+ * grammar.md:98, and a reserved spelling cannot be an `Ident`, lexical.md:20)
+ * — it is `theta/parse/reserved-keyword-as-identifier`, never
+ * `unresolved-named-type` (bug 0044 §Fix) — so it cannot travel in THIS
+ * function's returned list without misnaming what the function's own name
+ * and return type already commit to: an unresolved NAME. It travels instead
+ * exactly as `lowerTypeSource` already threads `unresolved` itself — an
+ * optional, caller-owned, append-only OUT-PARAMETER this function never
+ * reads back — deduped to the same `[...new Set(...)]` posture the returned
+ * list uses before being appended to the caller's array.
  */
 export function collectUnresolvedNamedTypes(
   source: string,
   declared: ReadonlySet<string>,
+  reservedKeywords?: string[],
 ): string[] {
   const bodyTypeMap = new Map<string, Record<string, unknown>>(
     [...declared].map((name) => [name, {}] as const),
   );
   const unresolved: string[] = [];
+  const keywordHits: string[] = [];
   const s = source.trim();
   if (s.startsWith("{") && s.endsWith("}")) {
-    lowerInlineObject(s.slice(1, -1), bodyTypeMap, unresolved);
+    lowerInlineObject(s.slice(1, -1), bodyTypeMap, unresolved, undefined, keywordHits);
   } else {
-    lowerTypeSource(s, bodyTypeMap, {}, unresolved);
+    lowerTypeSource(s, bodyTypeMap, {}, unresolved, undefined, keywordHits);
   }
+  reservedKeywords?.push(...new Set(keywordHits));
   return [...new Set(unresolved)];
 }
 

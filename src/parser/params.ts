@@ -32,6 +32,7 @@
 // The paired V6b implementation leaf fills it in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import { reservedKeywords } from "../lexer/lexer";
 import { type LoweredSchema } from "../seams/schema-validator";
 import { checkLiteralSublanguage } from "./literal-sublanguage";
 import { isReservedSynthesisedName } from "./synthesised-names";
@@ -44,6 +45,7 @@ import {
   type LoweredPrimitiveType,
   type LoweredUnionArm,
 } from "./schema-lowering";
+import { parseTypeExpression } from "./type-grammar";
 
 /**
  * One `params:` field as written in source, in declaration order.
@@ -87,8 +89,8 @@ export interface ParamsParseSite {
 /**
  * The outcome of parsing a `params:` block: every diagnostic raised in source
  * order, plus the lowered AJV-validatable schema document — present iff the
- * block lowered cleanly (no `theta/parse/unresolved-named-type`, no ordering or
- * default-literal error), absent otherwise.
+ * block raised no `error`-severity diagnostic, absent otherwise (`parseParams`
+ * enumerates the codes this seam raises at `error` severity).
  */
 export interface ParamsParseResult {
   readonly diagnostics: readonly Diagnostic[];
@@ -98,18 +100,30 @@ export interface ParamsParseResult {
 /**
  * Parse a `params:` block against the field contract of
  * frontmatter/frontmatter-fields-a.md §params and §Defaults, returning every
- * diagnostic raised (in source order) and the lowered AJV-validatable schema:
+ * diagnostic raised (in source order) and the lowered AJV-validatable schema.
+ * Every diagnostic below is raised at `error` severity, and `loweredSchema` is
+ * present iff none of them fired:
  *
+ *   - `theta/parse/void-in-non-return-position`,
+ *     `theta/parse/result-in-schema-position`, and
+ *     `theta/parse/generic-arity-mismatch` — a field's type RHS parsed at the
+ *     schema-feeding position (`parseTypeExpression`, type-grammar.ts);
+ *   - `theta/parse/reserved-keyword-as-identifier` — a reserved keyword
+ *     (lexical.md §Reserved keywords) written where a field's type RHS reads
+ *     a `NamedType`;
+ *   - `theta/parse/unresolved-named-type` — a RHS `NamedType` resolving to no
+ *     `bodyTypes` entry (whole-file resolution, so forward references resolve);
+ *   - `theta/load/schema-slug-collision` — an `__inline_<slug>` slug match
+ *     whose retained canonical-form bytes differ (schema-subset.md §Schema-slug
+ *     collision posture);
  *   - `theta/parse/non-trailing-default` — a non-defaulted field after a
  *     defaulted field (the diagnostic names the first offending field);
  *   - `theta/parse/default-not-literal` — a default RHS outside the literal
  *     sublanguage (the diagnostic names the offending sub-expression);
- *   - `theta/parse/unresolved-named-type` — a RHS `NamedType` resolving to no
- *     `bodyTypes` entry (whole-file resolution, so forward references resolve);
  *   - `loweredSchema` — the per-theta object schema (non-defaulted fields
  *     `required`, named types lowered to in-document `$ref`s against a `$defs`
- *     table holding the transitive closure — see `hoistNestedDefs`),
- *     validated through the `V8c` AJV `SchemaValidator` at invocation time.
+ *     table holding the transitive closure — see `hoistNestedDefs`), validated
+ *     through the `V8c` AJV `SchemaValidator` at invocation time.
  *
  * V6b-T stubs this as an inert pass (no diagnostics, no lowered schema); the
  * paired V6b implementation leaf computes the ordering check, the default-literal
@@ -150,10 +164,22 @@ export function parseParams(
       bodyTypeMap,
       defs,
       unresolved: [],
+      reservedKeywords: [],
       inlineCanonical,
       inlineFragments,
       slugCollisions,
     };
+    // A `params:` field type is a lowered-schema position
+    // (code-registry-parse.md:59, :60), wired here as the schema-body field
+    // position already is: `void`, a schema-feeding `Result`, and a
+    // generic-arity mismatch all draw their registered row ahead of either
+    // sink below, matching that position's own order (bug 0044 §Fix).
+    diagnostics.push(
+      ...parseTypeExpression(field.typeSource, "schema-feeding", {
+        file: site.file,
+        range: field.range,
+      }),
+    );
     properties[field.name] = lowerParamsFieldType(field.typeSource, lowerCtx);
     // The sink is append-only and shared, so every slug appended during THIS
     // field's lowering is attributable to THIS field's range — which is the
@@ -161,6 +187,19 @@ export function parseParams(
     // check failed.
     for (const slug of slugCollisions.slice(collisionSites.length)) {
       collisionSites.push({ slug, range: field.range });
+    }
+    // Reserved-keyword spellings drain before unresolved names: `NamedType ::=
+    // Ident` bars a keyword from ever reaching `lowerCtx.unresolved`, so the
+    // two sinks never name the same spelling, and this is the order every
+    // other caller of this pair now uses.
+    for (const keyword of lowerCtx.reservedKeywords ?? []) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/reserved-keyword-as-identifier",
+        file: site.file,
+        range: field.range,
+        message: `reserved keyword '${keyword}' cannot be used as an identifier`,
+      });
     }
     for (const name of lowerCtx.unresolved) {
       diagnostics.push({
@@ -303,6 +342,20 @@ export interface LowerCtx {
   /** `NamedType` names this field references that resolve to no declaration. */
   readonly unresolved: string[];
   /**
+   * Reserved-keyword spellings (lexical.md §Reserved keywords) this field's
+   * type source used where a `NamedType` was read. `NamedType ::= Ident`
+   * (grammar.md:98) bars a reserved spelling from ever being one, so this sink
+   * and `unresolved` never name the same spelling. Like `unresolved`, the
+   * caller owns the array's lifetime and this module never reads it back:
+   * each of the four callers renders an entry as
+   * `theta/parse/reserved-keyword-as-identifier`.
+   *
+   * OPTIONAL because a caller threading no sink collects nothing and the
+   * lowering stays permissive (`{}`) regardless — matching every other sink
+   * here.
+   */
+  readonly reservedKeywords?: string[];
+  /**
    * The canonical-form bytes of each `__inline_<slug>` fragment already minted
    * through this context, keyed by the bare 16-hex slug. schema-subset.md
    * §Schema-slug collision posture requires a slug-keyed dedup table to store
@@ -357,6 +410,19 @@ const PRIMITIVE_TYPES = new Set<LoweredPrimitiveType>([
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * The reserved-keyword spellings `lowerTypeExpr`'s atom section classifies
+ * before the `IDENTIFIER` / `NamedType` test below would otherwise consume
+ * them, read from the lexer's own set (`reservedKeywords()`, lexer.ts) rather
+ * than restated here as a second source of truth. A `Set`, not a plain object
+ * keyed by author text — a record keyed by arbitrary source spellings needs a
+ * null prototype and an own-key guard to be indexed safely by author input,
+ * which a `Set.has` call needs neither of. Immutable module-level data, not
+ * mutable cross-invocation state, matching `PRIMITIVE_TYPES` above and
+ * `PERMITTED_SUBSET_KEYWORDS` (schema-subset-gate.ts).
+ */
+const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
+
+/**
  * Lower a single `params:` type expression to its JSON-Schema fragment,
  * resolving every `NamedType` whole-file against `lowerCtx.bodyTypeMap`:
  *
@@ -368,17 +434,29 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *   - `array<T>` lowers to `{ "type": "array", "items": <lowered T> }`;
  *   - a primitive (`string`/`number`/`integer`/`boolean`/`null`) lowers to
  *     `{ "type": <name> }`;
- *   - an identifier-shaped `NamedType` resolves against the body declarations,
- *     lowering to an in-document `{ "$ref": "#/$defs/<name>" }` (and registering
- *     the resolved fragment under `$defs`), or — when it resolves to no
- *     declaration — records the name for the `theta/parse/unresolved-named-type`
- *     diagnostic and lowers permissively; a RESOLVED name matching one of
- *     schema-subset.md §Synthesised names (`:108`)'s four reserved forms lowers
- *     permissively and registers nothing under `$defs` (bug 0040 §Fix Half A) —
- *     that namespace belongs to `hoistInlineObjectType`'s mint, not to this
- *     whole-file resolution — while a reserved-form name that resolves to no
- *     declaration takes the `theta/parse/unresolved-named-type` route above,
- *     which the reservation exempts nothing from.
+ *   - a reserved-keyword spelling (lexical.md §Reserved keywords) is never a
+ *     `NamedType` (`NamedType ::= Ident`, grammar.md:98, and a reserved
+ *     spelling cannot be an `Ident`): `true` / `false` lower their
+ *     `LiteralType` fragment (`{ "const": true }` / `{ "const": false }`,
+ *     matching what `parseLiteralArm`, body-type-lowering.ts, already returns
+ *     for the same atom at the top level); `void` lowers `{}` and records
+ *     nothing (its own registered row, `void-in-non-return-position`, is the
+ *     rejection); every other reserved spelling lowers `{}` and records the
+ *     spelling on a second sink, which each of the four callers renders as
+ *     `theta/parse/reserved-keyword-as-identifier` (bug 0044 §Fix);
+ *   - an identifier-shaped atom that is NEITHER a primitive NOR a reserved
+ *     keyword is a genuine `NamedType`: it resolves against the body
+ *     declarations, lowering to an in-document `{ "$ref": "#/$defs/<name>" }`
+ *     (and registering the resolved fragment under `$defs`), or — when it
+ *     resolves to no declaration — records the name for the
+ *     `theta/parse/unresolved-named-type` diagnostic and lowers permissively;
+ *     a RESOLVED name matching one of schema-subset.md §Synthesised names
+ *     (`:108`)'s four reserved forms lowers permissively and registers
+ *     nothing under `$defs` (bug 0040 §Fix Half A) — that namespace belongs
+ *     to `hoistInlineObjectType`'s mint, not to this whole-file resolution —
+ *     while a reserved-form name that resolves to no declaration takes the
+ *     `theta/parse/unresolved-named-type` route above, which the reservation
+ *     exempts nothing from.
  *
  * Literal-type and inline-object lowering beyond this subset is owned by the
  * schema-subset lowering leaves, not this seam; an unrecognised form lowers
@@ -440,8 +518,37 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
   if (PRIMITIVE_TYPES.has(s as LoweredPrimitiveType)) {
     return { type: s };
   }
+  if (RESERVED_KEYWORDS.has(s)) {
+    // `NamedType ::= Ident` (grammar.md:98) and lexical.md §Reserved keywords
+    // bars every one of these 32 spellings from identifier position — the
+    // split the lexer's own `keyword` / `ident` token-kind tagging already
+    // makes (lexer.ts:665). `IDENTIFIER` below does not make it, so a
+    // reserved spelling has to be dispositioned here, before it can reach —
+    // and always miss — the resolution map below (bug 0044 §Fix).
+    if (s === "true" || s === "false") {
+      // `LiteralType ::= ... BOOLEAN ...` (grammar.md:102): a `Type` atom,
+      // not a `NamedType`, matching what `parseLiteralArm`
+      // (body-type-lowering.ts) already returns for the same atom at the top
+      // level.
+      return { const: s === "true" };
+    }
+    if (s === "void") {
+      // The position's own registered row, `void-in-non-return-position`, is
+      // the rejection (wired at every position through `parseTypeExpression`);
+      // recording it as an unresolved name too would misname a real error.
+      return {};
+    }
+    // Every other reserved spelling is not a `NamedType`, so it is not a
+    // resolution failure either: the registered disposition for a keyword
+    // written where an identifier is read is `reserved-keyword-as-identifier`
+    // (code-registry-parse.md:21), rendered by each of the four callers from
+    // this sink.
+    lowerCtx.reservedKeywords?.push(s);
+    return {};
+  }
   if (IDENTIFIER.test(s)) {
-    // An identifier-shaped atom is a `NamedType`: resolve whole-file.
+    // An identifier-shaped atom that survives the reserved-keyword
+    // classification above is a genuine `NamedType`: resolve whole-file.
     const resolved = lowerCtx.bodyTypeMap.get(s);
     if (resolved === undefined) {
       lowerCtx.unresolved.push(s);

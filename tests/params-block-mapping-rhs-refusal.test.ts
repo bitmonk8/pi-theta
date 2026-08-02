@@ -862,17 +862,34 @@ describe("bug 0041 (e) — the residual spellings keep their measured dispositio
     );
   });
 
-  it("GREEN (e-M3): `p: true` keeps its unresolved-named-type mis-classification", () => {
-    // Pre-existing and 0056's to move: the boolean literal is identifier-shaped,
-    // so `lowerTypeExpr` reads it as a `NamedType` and the resolution fails.
-    // Wrong as that classification is, this fix must not change it — a change
-    // here means the refusal predicate leaked into the scalar arm.
+  it("GREEN (e-M3): `p: true` loads as its `LiteralType` fragment, not a name miss", () => {
+    // `true` is keyword-shaped (lexical.md §Reserved keywords), which is bug
+    // 0044's own subject, not 0056's: 0056 owns the NON-keyword literal
+    // spellings (`42`, `'"hello"'`, group (e-M1/M2) above), which fail the
+    // `IDENTIFIER` regex and are untouched by this fix. Bug 0044 §Fix's "No
+    // input goes from loud to silent" table, row 5: "`true` / `false` in a
+    // mixed union, or anywhere on the `params:` RHS | today:
+    // unresolved-named-type | after: nothing; the arm lowers `{const: …}`" —
+    // and §Why it matters: "Two grammar-admitted inputs fail to load.
+    // `schema X { f: true | string }` and `params: p: true` carry
+    // `E`-severity diagnostics, so neither loads; `docs/spec_topics/grammar.md
+    // :102` admits both." The lowered
+    // `{"const": true}` fragment is the strongest form of the witness this
+    // cell keeps from bug 0041: its node-shape refusal (at frontmatter read,
+    // upstream of every lowering arm) never reached this scalar arm — a
+    // lowering the refusal had touched could not produce a LiteralType
+    // fragment at all.
     const doc = parseDoc(src("  p: true"), "bug0041.theta");
     expect(
       diagLines(doc),
-      "fixture M3: exactly one unresolved-named-type naming 'true', byte-identical to HEAD",
-    ).toEqual([`error theta/parse/unresolved-named-type: ${unresolvedMessage("true")}`]);
-    expect(doc.frontmatter, "fixture M3: refused, as at HEAD").toBeNull();
+      "fixture M3: `true` is a Type atom (grammar.md:102) — no diagnostic",
+    ).toEqual([]);
+    expect(doc.frontmatter, "fixture M3: loads").not.toBeNull();
+    const loaded = loadCleanly("fixture M3", src("  p: true"));
+    expect(
+      loaded.properties["p"],
+      "fixture M3: the lowered fragment IS the LiteralType const — 0041's refusal predicate never touched this arm",
+    ).toEqual({ const: true });
   });
 });
 
