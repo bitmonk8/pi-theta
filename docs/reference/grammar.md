@@ -39,8 +39,17 @@ zero-or-more; `+` one-or-more; quoted strings are terminals.
   function parameters, function names, schema field names. Both `snake_case` and
   `lowerCamelCase` accepted. Violation: `theta/parse/binding-case-mismatch`.
 
-Casing is the only enforced naming constraint. The lowercase-first rule applies
-to the theta-side field name; the wire name (`as "WireName"`) may be any string.
+Casing and the import-specifier synthesised-name reservation below are the only
+enforced naming constraints. The lowercase-first rule applies to the theta-side
+field name; the wire name (`as "WireName"`) may be any string.
+
+A parsed `import` / `export` specifier's local binding — on either statement
+kind, with or without a trailing `from` clause — may not match one of
+[Schema subset](./schema-subset.md#canonical-schema-hash)'s four synthesised-name
+forms (`__inline_<slug>`, `__theta_respond_<slug>`, `__theta_bind_<slug>`,
+`__theta_callee_<slug>__<post-rename-name>`; `<slug>` = 16 lowercase hex
+characters).
+Violation: `theta/parse/import-reserved-synthesised-name`.
 
 ## Reserved keywords
 

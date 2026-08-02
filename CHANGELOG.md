@@ -6,6 +6,39 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-08-02
+
+### Fixed
+
+- **Nothing reserved the synthesised `__inline_<slug>` `$defs` name against
+  author names** (bug 0040). `$defs` is one flat table holding both
+  author-declared names and the names the lowering pass mints for hoisted
+  inline object schemas, and no rule said an author name may not be one of the
+  minted forms. An imported binding named `__inline_<16hex>` that equalled a
+  minted slug therefore collapsed two distinct declarations into one entry, in
+  both field orders and with no diagnostic: the inline field's `$ref` resolved
+  to the imported symbol's permissive `{}`, so a `params:` field declared
+  `{q: boolean}` accepted any JSON value while its recorded declared type still
+  read `{q: boolean}` — the accept-anything hole at the untrusted-input
+  boundary that bug 0035 had closed, re-opened whenever the name agreed. The
+  casing rule already refused the `schema` / `enum` spelling, leaving the
+  import specifier's local binding as the one open name-introducing position;
+  after bug 0039 the same collision also silenced a `schema` body field's own
+  hoisted fragment, in a file that mentioned no import in its own text.
+
+### Added
+
+- **`theta/parse/import-reserved-synthesised-name`** — the schema subset's four
+  synthesised-name forms (`__inline_<slug>`, `__theta_respond_<slug>`,
+  `__theta_bind_<slug>`, `__theta_callee_<slug>__<post-rename-name>`, with
+  `<slug>` exactly 16 lowercase hex characters) are now reserved against
+  author-introduced names, and an `import` / `export` specifier whose local
+  binding matches one of them exactly is refused at parse time. The bare
+  prefix is not reserved: `__inline_zzz`, uppercase hex, and 15- or
+  17-character hex runs stay legal, since none can equal a minted slug. A
+  `.thetalib` may still declare `fn __inline_<16hex>`; the refusal fires where
+  the name is bound.
+
 ## [0.49.0] - 2026-08-01
 
 ### Fixed

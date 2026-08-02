@@ -157,6 +157,7 @@ trigger.
 | `theta/parse/thetalib-top-level-statement` | E | parse | `top-level statement not permitted in .thetalib file; move into a fn body` |
 | `theta/parse/import-name-collision` | E | parse | `imported symbol '<name>' collides with another import or top-level declaration` |
 | `theta/parse/import-unknown-symbol` | E | parse | `imported symbol '<name>' is not declared or re-exported by '<path>'` |
+| `theta/parse/import-reserved-synthesised-name` | E | parse | `imported symbol '<name>' binds a reserved synthesised name` |
 | `theta/parse/invoke-arg-type-mismatch` | E | type | `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/tool-arg-type-mismatch` | E | type | `tool '<name>' argument type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/fn-arg-type-mismatch` | E | type | `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>` |

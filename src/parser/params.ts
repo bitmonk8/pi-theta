@@ -34,6 +34,7 @@
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type LoweredSchema } from "../seams/schema-validator";
 import { checkLiteralSublanguage } from "./literal-sublanguage";
+import { isReservedSynthesisedName } from "./synthesised-names";
 import {
   canonicalForm,
   lowerUnion,
@@ -368,7 +369,13 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *     lowering to an in-document `{ "$ref": "#/$defs/<name>" }` (and registering
  *     the resolved fragment under `$defs`), or — when it resolves to no
  *     declaration — records the name for the `theta/parse/unresolved-named-type`
- *     diagnostic and lowers permissively.
+ *     diagnostic and lowers permissively; a RESOLVED name matching one of
+ *     schema-subset.md §Synthesised names (`:108`)'s four reserved forms lowers
+ *     permissively and registers nothing under `$defs` (bug 0040 §Fix Half A) —
+ *     that namespace belongs to `hoistInlineObjectType`'s mint, not to this
+ *     whole-file resolution — while a reserved-form name that resolves to no
+ *     declaration takes the `theta/parse/unresolved-named-type` route above,
+ *     which the reservation exempts nothing from.
  *
  * Literal-type and inline-object lowering beyond this subset is owned by the
  * schema-subset lowering leaves, not this seam; an unrecognised form lowers
@@ -428,6 +435,30 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     const resolved = lowerCtx.bodyTypeMap.get(s);
     if (resolved === undefined) {
       lowerCtx.unresolved.push(s);
+      return {};
+    }
+    // The synthesised namespace (schema-subset.md:108) is owned by the mint
+    // path (`hoistInlineObjectType`), never by this whole-file resolution arm:
+    // claiming the key here would let an author-controlled fragment alias a
+    // mint this arm does not own (bug 0040 §Fix Half A, arm 2). Lowering
+    // permissively instead of registering a `$ref` keeps every OTHER field's
+    // `$ref` into that key resolvable against the mint's own fragment rather
+    // than dangling or being silently overwritten.
+    //
+    // THE TEST SITS AFTER RESOLUTION because the reservation exempts no name
+    // from `theta/parse/unresolved-named-type`: a reserved-form name bound by
+    // nothing is unresolvable input like any other and belongs in the sink
+    // above, whose registry row (code-registry-parse.md) triggers on any
+    // `NamedType` resolving to no declaration usable at the position it is
+    // written. Reaching HERE therefore means the name RESOLVES, and every
+    // builder of a `bodyTypeMap` keys it only by body `schema`/`enum`
+    // declaration names and `import`-specifier local bindings — positions that
+    // both refuse a reserved-form name (the casing rule at a declaration,
+    // fixture E / group (d); `theta/parse/import-reserved-synthesised-name` at
+    // a specifier, imports.ts). So this arm raises nothing of its own and such
+    // a document keeps exactly the one diagnostic its introducing position
+    // gives it.
+    if (isReservedSynthesisedName(s)) {
       return {};
     }
     lowerCtx.defs[s] = resolved;
@@ -574,12 +605,17 @@ export function hoistInlineObjectType(
     // FIRST WINS either way — the retention posture `dedupInlineSchemas` applies:
     // byte-equal fragments are the silent dedup case (schema-subset.md step 2),
     // and a colliding one must not displace the fragment an earlier field's
-    // `$ref` already names. An entry carrying no retained bytes has nothing to
-    // compare and is retained too — the reachable input class there is an
-    // author-declared schema whose name is literally `__inline_<16hex>` and
-    // matches a minted slug: a namespace clash outside the registry row's
-    // anonymous-inline trigger, retained silently pending a spec decision on
-    // reserving the prefix.
+    // `$ref` already names. schema-subset.md:108 reserves the four
+    // synthesised-name forms against author names (bug 0040 §Fix Half A): the
+    // import-specifier check (imports.ts) refuses a binding shaped like this
+    // key, and `lowerTypeExpr`'s `IDENTIFIER` arm (above) never writes one, so
+    // an author-declared fragment cannot reach `defs[defName]` under this exact
+    // key any more. An entry carrying no retained bytes is therefore a
+    // CROSS-SCOPE mint, not an author declaration: a caller that shares this
+    // `defs` object across `hoistInlineObjectType` calls without also sharing
+    // THIS call's `inlineCanonical` / `inlineFragments` retention mints the
+    // same slug twice with nothing to compare — the slug-vs-slug surface bug
+    // 0054 owns.
     return { $ref: `#/$defs/${defName}` };
   }
   lowerCtx.defs[defName] = fragment;

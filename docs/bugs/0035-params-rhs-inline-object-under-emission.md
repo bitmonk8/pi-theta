@@ -153,7 +153,14 @@ implementation. (ii) The `__inline_` name prefix is
 not spec-reserved: an author-declared schema literally named
 `__inline_<16hex>` that matches a minted slug aliases silently in either
 field order (outside the collision row's anonymous-inline trigger) — a
-namespace clash pending a spec decision on reserving the prefix, unfiled.
+namespace clash pending a spec decision on reserving the prefix. Filed as bug
+[0040](./0040-inline-slug-def-namespace-not-reserved.md), which corrected the
+input class (the `schema`-declaration spelling this residual names is refused
+by the casing rule; the reachable spelling is an imported binding), and
+discharged by its fix (0.50.0): schema-subset.md §Synthesised names reserves
+the full set, an `import` / `export` specifier's local binding matching one of
+the four exact forms is `theta/parse/import-reserved-synthesised-name`, and
+`lowerTypeExpr`'s `IDENTIFIER` arm no longer claims a reserved `$defs` key.
 (iii) A block-mapping RHS (`p:` followed by an indented YAML mapping) now
 recovers its block-YAML bytes as the recorded type and still lowers
 permissively silent — the adjacent silent spelling, unchanged in

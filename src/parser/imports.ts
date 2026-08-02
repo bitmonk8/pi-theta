@@ -21,6 +21,7 @@
 
 import { posix } from "node:path";
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
+import { isReservedSynthesisedName } from "./synthesised-names";
 
 /** A located `import` / `export … from` / top-level-form site. */
 export interface ImportSite {
@@ -292,6 +293,52 @@ export function importUnknownSymbolMessage(name: string, path: string): string {
 /** `theta/parse/import-name-collision` message (`<name>` as written). */
 export function importNameCollisionMessage(name: string): string {
   return `imported symbol '${name}' collides with another import or top-level declaration`;
+}
+
+// ── theta/parse/import-reserved-synthesised-name ───────────────────────────────
+
+export const IMPORT_RESERVED_SYNTHESISED_NAME_CODE =
+  "theta/parse/import-reserved-synthesised-name";
+
+/**
+ * `theta/parse/import-reserved-synthesised-name` message. `<name>` renders the
+ * LOCAL binding — the `as` alias where present, else the source name — not the
+ * source symbol: the opposite of `importUnknownSymbolMessage`, because the
+ * reservation is a property of the name the importing file BINDS (the one that
+ * can occupy a `$defs` key or resolve as a `params:` `NamedType`), not of the
+ * name the `.thetalib` file exports.
+ */
+export function importReservedSynthesisedNameMessage(name: string): string {
+  return `imported symbol '${name}' binds a reserved synthesised name`;
+}
+
+/**
+ * Check an import / `export … from` specifier's LOCAL binding (`parse` phase):
+ * a binding matching one of schema-subset.md §Synthesised names (`:108`)'s four
+ * forms exactly is `theta/parse/import-reserved-synthesised-name`. This is the
+ * one name-introducing position the casing rule (lexical.md:15) does not close
+ * — a leading `_` is legal in the lowercase-first binding position it governs
+ * (lexical.md:16) — and it is the reachable spelling: the `schema`/`enum`
+ * declaration spelling of the same name is already refused there (bug 0040
+ * §Kind). Checked at `local` rather than `source` because `local` is the name
+ * that ends up resolvable as a `params:` `NamedType`
+ * (frontmatter-fields-a.md:58) and reachable as a `$defs` key
+ * (schema-subset.md:73/:76); the source symbol never is.
+ */
+export function checkImportReservedSynthesisedName(
+  local: string,
+  site: ImportSite,
+): Diagnostic | undefined {
+  if (!isReservedSynthesisedName(local)) {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: IMPORT_RESERVED_SYNTHESISED_NAME_CODE,
+    file: site.file,
+    range: site.range,
+    message: importReservedSynthesisedNameMessage(local),
+  };
 }
 
 /** A single `import { … }` / `export { … } from` specifier. */

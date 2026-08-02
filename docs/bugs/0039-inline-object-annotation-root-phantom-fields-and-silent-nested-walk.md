@@ -685,3 +685,33 @@ their `{}` and are not touched here.
   `collectUnresolvedNamedTypes`, `lowerTypeSource`, `lowerInlineObject`,
   `respondToolWireSchema` and the production `AjvSchemaValidator` (real
   `schemaSlug` / `canonicalForm`); deleted per scratch policy.
+
+## Note (2026-08-02) — clauses touched by bug 0040's fix (0.50.0)
+
+Two clauses of §Fix (0.49.0) are now dated, without their substance changing.
+
+1. *`$defs` closure absorption* says `inlineBodies` is never merged into
+   `bodies` "so an `__inline_` name stays unresolvable as an author-written
+   `NamedType` — bug 0040's subject is untouched". Still true, and now
+   redundant on the reachable path: bug
+   [0040](./0040-inline-slug-def-namespace-not-reserved.md)'s fix reserves the
+   four schema-subset.md §Synthesised names forms against an `import` /
+   `export` specifier's local binding
+   (`theta/parse/import-reserved-synthesised-name`) and bars
+   `lowerTypeExpr`'s `IDENTIFIER` arm from registering a resolved fragment
+   under a reserved-form key. Keeping the two maps separate remains the local
+   invariant; it is no longer the only thing holding the namespace.
+2. *Slug-collision posture wired at the new mint sites* — the retention arm's
+   comment about an entry carrying no retained canonical bytes attributed that
+   input class to an author-declared `__inline_<16hex>` schema. With the
+   namespace reserved, its only remaining reachable input is a cross-scope
+   mint, which is bug
+   [0054](./0054-inline-slug-merges-unchecked-across-mint-scopes.md)'s
+   §Element 1; the comment was rewritten to say so. The branch's behaviour is
+   unchanged.
+
+Residual (iv) (the name-keyed first-wins merges in `hoistNestedDefs` and
+`pruneDocumentDefs`) is **not** discharged — it remains open as bug 0054. What
+0040's fix did close is the instance where residual (iv) composed with 0040's
+own mechanism: an imported reserved-form binding no longer reaches the merge,
+so a `schema` body field's hoisted fragment keeps its enforcement.

@@ -201,6 +201,12 @@ The recipe that content-addresses a lowered fragment; its 16-hex output is the
 tool); `__theta_callee_<slug>__<post-rename-name>` (prompt-mode registered tool of
 a `.theta` callee); `__theta_bind_<slug>` (binder's structured-output tool).
 
+The full set is reserved against author-introduced names. At a parsed `import` /
+`export` specifier's local binding (with or without a trailing `from` clause) —
+the one name-introducing position the [Grammar](./grammar.md#identifiers) casing
+rule does not close — a matching binding is
+`theta/parse/import-reserved-synthesised-name`.
+
 Canonical-form key sorting is independent of the emitted `$defs` property order:
 the hash sorts keys for reproducibility; the emitted schema retains theta-source
 field order.

@@ -1,6 +1,6 @@
 # Bug 0040 — Nothing reserves the synthesised `__inline_<slug>` `$defs` name against author names: an imported binding named `__inline_<16hex>` that equals a minted inline-object slug replaces or aliases the hoisted fragment in both field orders, so the declared `params:` shape stops constraining the argument and no diagnostic fires
 
-- **Status:** open
+- **Status:** fixed (0.50.0)
 - **Kind:** spec gap with a reachable implementation consequence. Two
   elements on one namespace.
   1. *No spec rule reserves the synthesised-name forms against author
@@ -331,6 +331,162 @@ instead.
 - 0035 §Fix (0.44.0) Residuals (i) is filed as
   [0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md);
   Residual (iii) is unfiled. Neither is in scope here.
+
+## Fix (0.50.0)
+
+**Half A**, on the evidence the report itself supplies. The §Fix left the route
+to a spec decision and stated both halves' obligations; Half B is not available
+without weakening the very posture this report cites as violated —
+schema-subset.md `:112` requires a slug-keyed table to store canonical bytes
+"alongside the keyed artefact", an author entry has none, so declaring the
+namespace shared would mean amending `:112` rather than satisfying it. Half A
+delivers `:112`'s stated outcome ("surfaces a diagnostic and disambiguates …
+rather than silently aliasing two distinct fragments") at the declaring
+position, which §Expected behaviour names as the first candidate. Three review
+rounds and two fixer rounds hardened the guard's position, the prose's input
+class and the spelling of the callee form. Line anchors are at the fix commit.
+
+**The reservation rule.** schema-subset.md §Synthesised names (`:108`) now
+states that the full set is reserved against author-introduced names, and
+lexical.md §Identifiers carries the enforceable rule: an `import` /
+`export … from` specifier's local binding — the `as` alias where present, else
+the source name — MUST NOT match one of the four forms exactly, `<slug>` being
+exactly 16 lowercase hex characters (§Canonical schema hash step 4). The
+amended lexical.md sentence no longer claims the casing rule is the *only*
+enforced naming constraint; `docs/reference/grammar.md` §Identifiers mirrors
+the amendment, `docs/reference/schema-subset.md` the reservation.
+
+**The set is the EXACT forms, not the bare prefix** (the §Fix's second forced
+obligation). `__inline_zzz`, uppercase hex, 15- and 17-character hex runs,
+`__theta_callee_<slug>` with no `__`-and-tail, and `__theta_callee_<slug>__`
+with an empty tail all stay legal: none can equal a slug the recipe mints, so
+refusing them would refuse more than the namespace the mint occupies, and the
+GOV-15 post-hoc input set would have to name inputs the defect cannot reach.
+`src/parser/synthesised-names.ts` is the one construction point for the shape
+test, imported by both consumers so they cannot drift; its `[0-9a-f]{16}`
+provably matches `schemaSlug`'s `digest("hex").slice(0, 16)`.
+
+**The enforcement point is the parse site, not the load pass** (the §Fix's
+first forced obligation — fixture E shows the `schema` / `enum` positions are
+already closed by the casing rule, so a rule scoped to them closes nothing).
+`BodyParser.parseImportExport` (`src/parser/theta-document.ts`) pushes the
+diagnostic onto its own sink beside the existing path-literal check, so
+`parseThetaDocument` alone witnesses it, the refusal is total (it fires whether
+or not the `.thetalib` resolves), and `export { … }` specifiers are covered by
+the same walk. `checkThetaImports` was deliberately NOT the seam: the load pass
+sees only specifiers whose lib resolved *and* parsed, which would leave the
+refusal partial.
+
+**Key ownership at the second `$defs` writer** (the §Fix's shared
+implementation obligation). `lowerTypeExpr`'s `IDENTIFIER` arm no longer
+registers a resolved fragment under a reserved-form key: it lowers permissively
+and returns no `$ref`, so a mint's fragment cannot be displaced by an
+author-resolved one and no `$ref` dangles. The test sits AFTER the
+`bodyTypeMap` lookup, deliberately — the reservation exempts no name from
+`theta/parse/unresolved-named-type`, so an unbound reserved-form reference
+stays refused byte-identically to 0.49.0 at all six `NamedType` positions
+(review round 1 caught the reverse ordering, which silently registered six
+accept-anything shapes). The arm raises nothing of its own, which is what keeps
+fixture E at exactly one diagnostic.
+
+**Registry.** `theta/parse/import-reserved-synthesised-name` (E, parse) is
+registered in `code-registry-parse.md` at the end of the Imports cluster and
+mirrored in `docs/reference/diagnostics.md` — a DIAG-2 same-commit landing,
+covered within a 1.x minor by the GOV-15 diagnostic-registry carve-out. The
+*Message* uses only the established category-5 `<name>` placeholder
+(placeholder-rendering-b.md), so the closed placeholder surface is untouched;
+the *Trigger* records that `<name>` renders the LOCAL binding, the inverse of
+the `import-unknown-symbol` row. No governance page changed: a code addition is
+already the recognised carve-out and no count-bearing aggregator enumerates
+registry rows. The code is unreachable from every committed H9a fixture, so
+`tests/fixtures/h7a/permitted-codes.json` was correctly left alone — it is a
+load-refusing parse error, not sanctioned note content.
+
+**Reproduction re-derived at the fix baseline** (`4361d42a`, 0.49.0, after bug
+0039 rebuilt inline-object hoisting in three mint scopes): fixtures A, B, C, D,
+E, G, H all byte-identical to the recorded 0.45.0 table — zero drift; the slug
+`e39f064476c952aa` re-confirmed by an independent `node:crypto` derivation. Two
+corrections to the report's own citations: `params.ts:306–308` ("only the
+`params:` field position mints `__inline_` entries") and
+`query-schema-lowering.ts:109–114` ("the annotation arm mints no `__inline_`
+name") are both GONE at the fix baseline and their claims false — 0039 made
+every type position hoist. That widening also composed a NEW instance of this
+report's mechanism which the 0.45.0 table could not contain: an imported
+reserved-form binding referenced in `params:` silenced a `schema S { f: {q:
+boolean} }` field's own enforcement in both field orders, because
+`hoistNestedDefs`' name-keyed first-wins lift handed the slug key to the
+imported `{}` before the nested mint reached it. That instance closes here too,
+through key ownership alone — the merge itself is untouched (bug 0054's
+surface).
+
+**Post-fix acceptance set.** A byte-identical. E keeps its single
+`theta/parse/schema-case-mismatch` (its `$defs` entry under the reserved key is
+now the mint rather than the author's fragment — an observable only inside a
+file that never registers). B, C and D converge on one disposition a rule
+names: exactly one error-severity `theta/parse/import-reserved-synthesised-name`
+at the offending specifier, the `params:` field's own minted fragment intact and
+enforcing, and the theta refused by the same drop gate that refuses E.
+
+**Newly-refused inputs** (GOV-15 post-hoc in-scope set; the only code is
+`theta/parse/import-reserved-synthesised-name` at error severity): (1) any
+parsed `import` / `export` specifier in a `.theta` whose local binding matches
+one of the four exact forms — from-bearing or from-less, aliased or direct;
+(2) any `.thetalib` carrying such a specifier, whose importers un-register
+through the pre-existing IMP-4 registration-error propagation, including
+importers that never mention the name. NOT refused, unchanged: a `.thetalib`
+`fn __inline_<16hex>` DECLARATION (auto-exported, legal per lexical.md `:16`)
+— the reachable spelling is closed at the binding, which is the report's own
+scoping; `fn` / `let` declarations in any reserved form; an unbound
+reserved-form `NamedType` reference at any position. **Lowered bytes that move
+for thetas that still load unchanged: none** — a reserved name resolves only
+through a `bodyTypeMap`, and every key source of every builder is refused at
+its introducing position or never admits the shape.
+
+**Offline lock.** `tests/inline-slug-name-reservation.test.ts` (45 tests):
+(a) the DIAG-4 registry anchor, every expected message in the file derived from
+it; (b) control A's exact lowered bytes plus AJV accept/reject; (c) fixtures
+B / C / D in all three spellings, plus the use-independence fence (an unused
+reserved binding is refused too — the rule is on the binding, not its use);
+(d) fixture E's single diagnostic and its post-fix `$defs` disposition; (e) the
+composed `schema`-body hazard in both orders with its d0 control; (f) the
+reserved-set boundary, four refused forms against nine legal near-misses;
+(g) the two `$defs` writers at the unit seam, with an ordinary-name control;
+(h) the no-drift matrix — an unbound reserved-form name still draws
+`theta/parse/unresolved-named-type` at all six `NamedType` positions, against a
+`Tirage` control. Neutralisation evidence, each a targeted byte edit restored
+byte-exactly (blob-hash equal before and after; `git stash` never used):
+removing the specifier emission gives 10 red with the report's `diags :: []`
+signature; removing the `$defs` guard gives 13 red including `$defs :: {"D":{}}`
+and the accepted `{p: 7, n: 1}`; widening `[0-9a-f]{16}` to a bare prefix reds
+exactly the five legal-name fences; reversing the guard's position reds the six
+(h) rows. Full gate 240 files / 3157 tests; typecheck and lint clean; the
+bug-0035, bug-0039 and bug-0033 locks SHA-identical and unedited.
+
+**Live.** H8a `tests/live/live-production-acceptance.test.ts` 7/7 and H9a
+`tests/live/acceptance/` 11/11 green against the real provider. No committed
+live fixture binds a reserved-form name, so the obligation was discharged by a
+scratch live probe over the real load path: a colliding theta and its
+ordinary-name control, asserting on registration and the settled
+`SessionManager`'s system-note channel — GREEN with the fix (only the control
+registers), RED with the fix neutralised (both register, no reservation note —
+the report's own fixture F), GREEN again on restore. Probe deleted.
+
+**Residuals.** (i) The refused-file closure path still aliases:
+`buildBodyTypeSchemas` pass 3 resolves a closure name against `bodies` before
+`inlineBodies`, so inside a document that never registers an author decl can
+still shadow a minted fragment in a map VALUE's `$defs`. Byte-identical to
+0.49.0 and reachable only in refused files; adjacent to bug 0054's surface,
+unfiled. (ii) `docs/spec_topics/glossary.md:57` spells the callee form's tail
+`__<name>` where schema-subset.md `:108` spells it `__<post-rename-name>` —
+pre-existing drift, untouched, unfiled. (iii) The reservation is enforced at
+the binding, not at the `.thetalib` declaration: a lib may declare
+`fn __inline_<16hex>` and parse clean, and the refusal fires only when a client
+binds it un-aliased. Deliberate (the report's own scoping), recorded so the
+asymmetry is not mistaken for a gap. (iv) The from-less `export { … }` form the
+check also covers is not a spec-defined production — imports.md spells the
+re-export with `from` and grammar.md carries no `ExportDecl` production — so
+the registry *Trigger* names the parser's tolerance explicitly rather than
+resting on a production that does not exist. Unfiled.
 
 ## Fix
 

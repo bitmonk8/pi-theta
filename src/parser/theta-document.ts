@@ -35,6 +35,7 @@ import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import { lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
 import { validatePathLiteral } from "../lexer/literals";
 import {
+  checkImportReservedSynthesisedName,
   checkThetaLibTopLevelForm,
   type ImportSpecifier,
   type ThetaLibTopLevelForm,
@@ -2703,12 +2704,30 @@ class BodyParser {
               this.advance();
             }
           }
+          const specifierRange = spanRange(sourceRange, endRange);
           specifiers.push({
             source,
             local,
-            range: spanRange(sourceRange, endRange),
+            range: specifierRange,
           });
           symbols.push(local);
+          // Reserve the four synthesised-name forms against the LOCAL binding
+          // here, at parse time, rather than only where the `.thetalib` load
+          // pass checks a specifier (import-static-checks.ts): that pass sees
+          // only a specifier whose lib RESOLVED AND PARSED, so a check placed
+          // there alone would miss an unresolvable import and leave the
+          // refusal partial. Emitting straight onto `this.diagnostics` here —
+          // exactly as `validatePathLiteral` does below for the path literal —
+          // makes `parseThetaDocument` alone witness it, with no `.thetalib`
+          // resolution required, and covers `export { … } from` re-exports
+          // too (this function parses both kinds; bug 0040 §Fix Half A).
+          const reserved = checkImportReservedSynthesisedName(local, {
+            file: this.file,
+            range: specifierRange,
+          });
+          if (reserved !== undefined) {
+            this.diagnostics.push(reserved);
+          }
         } else if (t.kind === "punct" && t.text === ",") {
           this.advance();
         } else {

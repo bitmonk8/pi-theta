@@ -562,3 +562,27 @@ as it is unless 0040's fix moves it.
   two-decl control), plus an independent `node:crypto` derivation of the slug
   from the canonical form; run on those signatures, then deleted per scratch
   policy.
+
+## Note (2026-08-02) — line moves from bug 0040's fix (0.50.0)
+
+Bug [0040](./0040-inline-slug-def-namespace-not-reserved.md) landed first and
+edited two files this report cites. The **merge-site behaviour is unchanged** —
+`hoistNestedDefs` and `pruneDocumentDefs` carry no hunk, and
+`src/runtime/query-schema-lowering.ts` is absent from that fix's diff entirely,
+so every observable §Element 1 and §Element 2 record still holds. Only line
+anchors moved:
+
+- `src/parser/params.ts` — `:143–145` → `:144–146`; `:161–163` → `:162–164`;
+  `:183–191` → `:184–192`; `:274–295` (`hoistNestedDefs`) → `:275–296`;
+  `:545–557` (`hoistInlineObjectType`'s byte check) → `:576–588`.
+- `src/parser/theta-document.ts` — `:1202–1203` → `:1203–1204`;
+  `:1219–1228` → `:1220–1229`.
+- `src/parser/body-type-lowering.ts`, `src/runtime/query-schema-lowering.ts`
+  and `src/extension/production-theta-producer.ts` — unmoved.
+
+One prose surface this report quotes also changed: `hoistInlineObjectType`'s
+retention-arm comment no longer attributes an occupied-with-no-retained-bytes
+entry to an author-declared `__inline_<16hex>` schema. With the synthesised
+namespace reserved and `lowerTypeExpr`'s `IDENTIFIER` arm barred from claiming
+a reserved key, that branch's only remaining reachable input is a cross-scope
+mint — this report's §Element 1. The comment now says so and names this report.
