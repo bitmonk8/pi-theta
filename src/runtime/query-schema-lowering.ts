@@ -25,14 +25,15 @@
 // A permissive `{}` fragment — one AJV accepts every payload against, so the
 // QRY-22 gate constrains nothing at that position — has exactly four origins
 // below this seam: the three `{}` returns of `lowerTypeExpr` (params.ts) and
-// the ZERO-FIELD return of `hoistInlineObjectType` (params.ts), which an empty
-// inline object `{}` written in a field's type position reaches now that
-// `lowerTypeSource` routes a brace group there (`@<{a: {}}>` → `properties.a =
-// {}`); grammar.md:109's `empty-schema-body` case stays unimplemented at every
-// position (bug 0033 §Fix residual (iv)), so that shape asserts nothing rather
-// than being refused. Arms 1 and 2 always build a typed object or enum
-// fragment, so the residual reduces to those four, and each is reachable from
-// a LOADABLE theta:
+// the ZERO-FIELD return of `hoistInlineObjectType` (params.ts) for an empty
+// inline object `{}` in a field's type position, which `lowerTypeSource`
+// still routes to a brace group there (`@<{a: {}}>` → `properties.a = {}`).
+// grammar.md:109's `empty-schema-body` rule refuses that shape at parse time
+// (bug 0045 §Fix), so this fourth origin is unreachable from a loading
+// theta — it answers only a caller that bypasses the parse gate (a direct
+// call to this seam). Arms 1 and 2 always build a typed object or enum
+// fragment, so the residual reduces to those four; the other three remain
+// reachable from a LOADABLE theta:
 //
 //   - THE UNRESOLVED-NAME ARM, for a name in scope that carries no lowerable
 //     body here: a symbol a body `import` pulls in (both call sites hand this

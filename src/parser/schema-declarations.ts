@@ -52,6 +52,28 @@ export interface ObjectSchemaDecl {
 }
 
 /**
+ * The `theta/parse/empty-schema-body` diagnostic (schemas.md §Object schema;
+ * grammar.md §"Inline object types"), naming `subject` as whatever has no
+ * fields. The SOLE construction point for this code: `checkObjectSchema`'s
+ * zero-field arm below passes the declaration's name, and `walkType`
+ * (type-grammar.ts) passes the literal two bytes `{}` for an inline object
+ * whose brace interior carries no token. A second construction site would let
+ * the two positions' messages drift apart.
+ */
+export function emptySchemaBodyDiagnostic(
+  subject: string,
+  site: SchemaDeclSite,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/empty-schema-body",
+    file: site.file,
+    range: site.range,
+    message: `'${subject}' has no fields; an empty schema cannot be validated.`,
+  };
+}
+
+/**
  * Check an object-schema declaration, returning every diagnostic raised in
  * source order:
  *
@@ -71,13 +93,7 @@ export function checkObjectSchema(
   // `schema X { }` with no fields — the lowered empty-object shape would
   // silently accept every object (schemas.md §Object schema).
   if (decl.fields.length === 0) {
-    diagnostics.push({
-      severity: "error",
-      code: "theta/parse/empty-schema-body",
-      file: site.file,
-      range: site.range,
-      message: `'${decl.name}' has no fields; an empty schema cannot be validated.`,
-    });
+    diagnostics.push(emptySchemaBodyDiagnostic(decl.name, site));
     return diagnostics;
   }
 

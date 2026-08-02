@@ -643,9 +643,11 @@ export function classifyLoweredUnionArm(lowered: Record<string, unknown>): Lower
  * §Fix constraint: the literal sublanguage must not regress).
  *
  * A zero-field body — `{}`, or an interior of only whitespace — returns the
- * permissive `{}` with no hoist and no diagnostic: grammar.md:109's
- * empty-schema-body case stays unimplemented at every position (bug 0033
- * §Fix residual (iv)), so this function must not pre-empt it.
+ * permissive `{}` with no hoist and no diagnostic. grammar.md:109's rule now
+ * refuses an empty inline object at parse time, at every position and every
+ * nesting depth (bug 0045 §Fix), so a loading document never reaches this arm
+ * with an empty body; it stays unreachable defence in depth for a caller that
+ * lowers a source string directly, bypassing the parse gate.
  */
 export function hoistInlineObjectType(
   source: string,

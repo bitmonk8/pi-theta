@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-08-02
+
+### Fixed
+
+- **An empty inline object type `{}` drew no diagnostic at any `Type` position,
+  and the same two bytes meant two contradictory things** (bug 0045).
+  `grammar.md` §"Inline object types" gives the empty inline object one
+  disposition — `theta/parse/empty-schema-body`, the diagnostic an empty named
+  schema body raises — unqualified by position and by nesting depth, and nothing
+  implemented it. The type-grammar parser read `{}` into an object node with
+  zero field types and the walk's object arm iterated that empty list, so every
+  position the walk serves accepted it; the `invoke<T>` return annotation ran no
+  type-grammar pass at all. Three lowerings then disagreed about what the author
+  had asked for: `@<{}>` and `invoke<{}>` minted a closed object fragment that
+  AJV accepts `{}` against and rejects every non-empty object, array, scalar and
+  `null` against — the respond tool was registered with it verbatim, offering
+  the model a reply schema no informative reply satisfies — while `{}` at the
+  schema-field, alias-RHS and `params:` positions lowered the permissive `{}`,
+  which accepts every JSON value at the argument and response boundaries. The
+  walk now raises the registered code for a brace interior that carries no token
+  and closes, reaching the `let` annotation, `fn` parameter and return types, the
+  schema body field type, the alias/union arm, the `params:` field type and the
+  `@<T>` annotation root in one edit; `invoke<T>` gains one call selecting that
+  rule alone, so the three checks that position never ran stay unrun there. One
+  diagnostic per occurrence, in source order, at every nesting depth
+  (`array<{}>`, `{ a: {} }`, a union arm). Malformed-but-non-empty interiors
+  (`{ a }`, `{ "a": string }`, `{ a: }`) and an unterminated `{` keep their
+  silence, the first because the grammar assigns them no diagnostic and the
+  second because `ObjectType` requires the closing brace. The declaration
+  renderings are byte-unchanged and the message interpolates the author's own two
+  bytes at the inline positions: `'{}' has no fields; an empty schema cannot be
+  validated.` The registry row's *Trigger* gains the inline case and the
+  placeholder-rendering surface gains the matching `<X>` carve-out; the *Message*
+  is untouched. No committed example or fixture carries the shape.
+
 ## [0.56.0] - 2026-08-02
 
 ### Fixed

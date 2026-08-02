@@ -909,9 +909,12 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
       additionalProperties: false,
     });
 
-    // grammar.md:109's `empty-schema-body` case stays unimplemented at every
-    // position (bug 0033 §Fix residual (iv)), so neither the nested nor the
-    // root empty object may acquire a shape here.
+    // grammar.md:109's `empty-schema-body` rule now refuses an empty inline
+    // object at parse time, at every position and every nesting depth (bug
+    // 0045 §Fix), so a LOADING theta never reaches this lowering. This cell
+    // drives `lowerQueryResponseSchema` directly, below the parse seam, so it
+    // still exercises the unchanged unreachable-defence-in-depth arm and its
+    // assertions stay exactly as pinned.
     const nestedEmpty = loweredAnnotation("G4", "{a: {}}");
     expect(
       nestedEmpty,

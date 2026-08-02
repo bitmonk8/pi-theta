@@ -18,6 +18,17 @@
 //     lowered-schema position (a schema field type, a `params:` field type, or
 //     any type reachable transitively from those, including `array<T>` element
 //     types and union arms).
+//   - `theta/parse/empty-schema-body` — an inline object type (`{}`): a brace
+//     interior carrying no token AND a consumed closing brace. `ObjectType`
+//     spells that `}` (grammar.md §"Type grammar"), so an unterminated `{` is
+//     no inline object type and carries no emptiness claim. Otherwise
+//     unqualified by position and by nesting depth (grammar.md §"Inline object
+//     types"). Shares its message and its construction with the
+//     named-declaration case (`schema-declarations.ts`'s
+//     `emptySchemaBodyDiagnostic`).
+//
+// A caller may select a narrower rule SET than all four checks
+// (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
 //
 // The `array<T>` literal type-sink rule of grammar.md fires
 // `theta/parse/array-no-common-type` when an `[]` / `[expr, ...]` literal has no
@@ -32,6 +43,7 @@
 // engine are absent). The paired V2a implementation leaf fills them in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import { emptySchemaBodyDiagnostic } from "./schema-declarations";
 
 /**
  * The annotation position a type expression occupies, which governs the
@@ -57,17 +69,47 @@ export interface TypeCheckSite {
 }
 
 /**
+ * The rule SET `parseTypeExpression` applies:
+ *
+ *   - `"all"` (the default) — every check the seam owns, gated by `position`
+ *     as documented on `walkType`.
+ *   - `"inline-object-shape"` — the checks that constrain the SHAPE of an
+ *     inline object type, independent of position and of the other three
+ *     checks: today, exactly `theta/parse/empty-schema-body`'s
+ *     empty-brace-interior rule. The walk still DESCENDS generic arguments,
+ *     object field types and union arms under this selection — a nested `{}`
+ *     is found at any depth — but withholds `void-in-non-return-position`,
+ *     `generic-arity-mismatch` and `result-in-schema-position`, which stay
+ *     `"all"`-only.
+ *
+ * A caller selects `"inline-object-shape"` when its position runs no other
+ * type-grammar pass, so importing the other three checks in the same edit
+ * would widen that position's emission set beyond the one rule being wired
+ * (the `invoke<T>` return annotation is exactly this case: it selects this
+ * rule alone, not the full walk — theta-document.ts's `walkExpr`, `"invoke"`
+ * arm). The set is named after the SHAPE its member checks govern rather than
+ * after any one rule, so a later fix adding a further inline-object-shape
+ * check (the grammar's `ObjectType` clause also governs a repeated field
+ * name within one inline object, a distinct rule from this one) widens this
+ * same set and reuses the calls already selecting it, instead of adding a
+ * parallel selector and a parallel call site.
+ */
+export type TypeCheckRules = "all" | "inline-object-shape";
+
+/**
  * Parse a single type expression as written in source and apply the
  * position-sensitive type-grammar checks, returning every diagnostic raised
  * (in source order). The closed `GenericType` arity check
  * (`theta/parse/generic-arity-mismatch`) is position-independent; the
  * `theta/parse/void-in-non-return-position` and `theta/parse/result-in-schema-position`
- * checks consult `position`.
+ * checks consult `position`. `rules` (default `"all"`) narrows which checks
+ * run — see `TypeCheckRules`.
  */
 export function parseTypeExpression(
   source: string,
   position: TypePosition,
   site: TypeCheckSite,
+  rules: TypeCheckRules = "all",
 ): Diagnostic[] {
   const tokens = tokeniseType(source);
   const parser = new TypeParser(tokens);
@@ -76,7 +118,7 @@ export function parseTypeExpression(
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  walkType(node, true, position, site, diagnostics);
+  walkType(node, true, position, rules, site, diagnostics);
   return diagnostics;
 }
 
@@ -87,7 +129,32 @@ type TypeNode =
   | { readonly kind: "void" }
   | { readonly kind: "literal" }
   | { readonly kind: "generic"; readonly ctor: string; readonly args: TypeNode[] }
-  | { readonly kind: "object"; readonly fieldTypes: TypeNode[] }
+  | {
+      readonly kind: "object";
+      readonly fieldTypes: TypeNode[];
+      /**
+       * The two halves of the empty-inline-object key. It is `fieldTypes.length
+       * === 0` on neither half, and emptiness alone on neither:
+       *
+       *   - `interiorHasTokens` — whether the brace interior carried any token,
+       *     read off the token immediately after `{`, before the field loop can
+       *     consume it. The loop's tolerant recovery (a non-`ident` field name
+       *     is skipped, a missing `:` breaks the loop) also yields an empty
+       *     `fieldTypes` for a malformed-but-non-empty interior (`{ a }`,
+       *     `{ "a": string }`, `{ a: }`), which the rule must not take with it.
+       *   - `braceClosed` — whether a closing `}` was consumed.
+       *     `ObjectType ::= "{" Field ("," Field)* ","? "}"` requires it, so an
+       *     unterminated `{` (`{`, `array<{`, `null | {`) spells no inline
+       *     object type at all, even though this tolerant parser still hands
+       *     back an object node for it. Such a source has no empty `{}` in it
+       *     for the diagnostic's message to name.
+       *
+       * The rule fires for a token-free interior WITH a closing brace, and for
+       * no other shape.
+       */
+      readonly interiorHasTokens: boolean;
+      readonly braceClosed: boolean;
+    }
   | { readonly kind: "union"; readonly arms: TypeNode[] };
 
 interface TypeToken {
@@ -274,6 +341,11 @@ class TypeParser {
 
   private parseObject(): TypeNode {
     this.eatPunct("{");
+    // Captured off the token immediately after `{`, before the field loop
+    // below can advance `pos` — see `TypeNode`'s doc comment for why the
+    // empty-inline-object key is this flag paired with `braceClosed`, and not
+    // `fieldTypes.length === 0`.
+    const interiorHasTokens = this.peek() !== undefined && this.peek()?.text !== "}";
     const fieldTypes: TypeNode[] = [];
     while (this.peek() !== undefined && this.peek()?.text !== "}") {
       // FieldName `:` Type — skip the field name and the colon, parse the type.
@@ -303,33 +375,53 @@ class TypeParser {
         break;
       }
     }
-    this.eatPunct("}");
-    return { kind: "object", fieldTypes };
+    const braceClosed = this.eatPunct("}");
+    return { kind: "object", fieldTypes, interiorHasTokens, braceClosed };
   }
 }
 
 /**
- * Walk a type AST in source order, applying the position-sensitive checks:
+ * Walk a type AST in source order, applying the checks `rules` selects
+ * (`TypeCheckRules`; `"all"` runs every check below, gated by `position`
+ * where noted):
  *
  *   - `theta/parse/void-in-non-return-position` — `void` anywhere other than the
  *     top-level return-type annotation in a `return` position. A `void` nested
  *     in a generic argument, an inline-object field, or a union arm is never
- *     the top-level return type and always fires.
+ *     the top-level return type and always fires. `"all"`-only.
  *   - `theta/parse/generic-arity-mismatch` — a closed-set generic constructor
  *     applied with a type-argument count other than its declared arity.
+ *     `"all"`-only.
  *   - `theta/parse/result-in-schema-position` — a `Result` application anywhere
  *     within a `schema-feeding` type (the whole tree is lowered-schema
  *     reachable, including `array<T>` element types and union arms).
+ *     `"all"`-only.
+ *   - `theta/parse/empty-schema-body` — an inline object type whose brace
+ *     interior carries no token AND whose closing `}` was consumed
+ *     (`TypeNode.interiorHasTokens` false, `TypeNode.braceClosed` true). Runs
+ *     under EVERY `rules` value — it is the one check `"inline-object-shape"`
+ *     admits — and is unqualified by `position` or by `isRoot`. An
+ *     unterminated `{` fails the second half and stays silent: `ObjectType`
+ *     requires the closing brace, so there is no inline object type there to
+ *     call empty.
+ *
+ * Every `rules` value still descends generic arguments, object field types
+ * and union arms, so a nested empty inline object is found at any depth
+ * regardless of which of the other three checks are withheld.
  */
 function walkType(
   node: TypeNode,
   isRoot: boolean,
   position: TypePosition,
+  rules: TypeCheckRules,
   site: TypeCheckSite,
   out: Diagnostic[],
 ): void {
   switch (node.kind) {
     case "void": {
+      if (rules !== "all") {
+        return;
+      }
       const admitted = position === "return" && isRoot;
       if (!admitted) {
         out.push({
@@ -344,41 +436,53 @@ function walkType(
       return;
     }
     case "generic": {
-      const expected = GENERIC_ARITY[node.ctor];
-      if (expected !== undefined && node.args.length !== expected) {
-        out.push({
-          severity: "error",
-          code: "theta/parse/generic-arity-mismatch",
-          file: site.file,
-          range: site.range,
-          message: `generic type '${node.ctor}' expects ${expected} type argument(s); got ${node.args.length}`,
-        });
-      }
-      if (position === "schema-feeding" && node.ctor === "Result") {
-        out.push({
-          severity: "error",
-          code: "theta/parse/result-in-schema-position",
-          file: site.file,
-          range: site.range,
-          message:
-            "'Result' has no lowered-schema form and is not permitted in a schema-feeding position",
-          hint: "`Result` has no lowered-schema form; use it only in `fn` / `let` / `invoke` positions, and feed the schema position a lowerable type.",
-        });
+      if (rules === "all") {
+        const expected = GENERIC_ARITY[node.ctor];
+        if (expected !== undefined && node.args.length !== expected) {
+          out.push({
+            severity: "error",
+            code: "theta/parse/generic-arity-mismatch",
+            file: site.file,
+            range: site.range,
+            message: `generic type '${node.ctor}' expects ${expected} type argument(s); got ${node.args.length}`,
+          });
+        }
+        if (position === "schema-feeding" && node.ctor === "Result") {
+          out.push({
+            severity: "error",
+            code: "theta/parse/result-in-schema-position",
+            file: site.file,
+            range: site.range,
+            message:
+              "'Result' has no lowered-schema form and is not permitted in a schema-feeding position",
+            hint: "`Result` has no lowered-schema form; use it only in `fn` / `let` / `invoke` positions, and feed the schema position a lowerable type.",
+          });
+        }
       }
       for (const arg of node.args) {
-        walkType(arg, false, position, site, out);
+        walkType(arg, false, position, rules, site, out);
       }
       return;
     }
     case "object": {
+      if (!node.interiorHasTokens) {
+        // Nothing to descend — a token-free interior leaves `fieldTypes` empty
+        // whether or not the brace closed. The closing brace is the second
+        // half of the key (see `TypeNode`); the check itself runs regardless of
+        // `rules`, being the one `"inline-object-shape"` admits.
+        if (node.braceClosed) {
+          out.push(emptySchemaBodyDiagnostic("{}", site));
+        }
+        return;
+      }
       for (const fieldType of node.fieldTypes) {
-        walkType(fieldType, false, position, site, out);
+        walkType(fieldType, false, position, rules, site, out);
       }
       return;
     }
     case "union": {
       for (const arm of node.arms) {
-        walkType(arm, false, position, site, out);
+        walkType(arm, false, position, rules, site, out);
       }
       return;
     }

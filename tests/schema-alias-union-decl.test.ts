@@ -1798,16 +1798,16 @@ describe("bug 0033 (m) — an alias arm answers to the field-type checks", () =>
   });
 
   it("n10: `schema X = {}` takes the field position's disposition for `{}`", () => {
-    // HONEST PIN, not a preference. grammar.md §"Inline object types" says an
-    // empty inline object `{}` is `theta/parse/empty-schema-body`, and the
-    // type-grammar parser implements no such rule: `parseTypeExpression`
-    // (type-grammar.ts `parseObject`) reads `{}` as an object node with zero
-    // field types and raises nothing, at every position it is called from. The
-    // field control is therefore silent, and the rescued arm is silent with it.
-    // What this cell pins is the EQUALITY — whatever the type grammar makes of
-    // `{}`, the arm and the field agree. The unimplemented rule is the type
-    // grammar's at both positions; no diagnostic is invented here to cover it.
-    expectArmMatchesFieldControl("n10", F_ALIAS_EMPTY_OBJECT, F_FIELD_EMPTY_OBJECT, []);
+    // grammar.md §"Inline object types" says an empty inline object `{}` is
+    // `theta/parse/empty-schema-body`, and the type grammar now implements
+    // that rule at every position it is called from, including this one (bug
+    // 0045 §Fix). What this cell pins is the EQUALITY — whatever the type
+    // grammar makes of `{}`, the arm and the field agree — not which
+    // disposition that is; the rule landing at both positions in one edit is
+    // what keeps the equality true rather than incidental.
+    expectArmMatchesFieldControl("n10", F_ALIAS_EMPTY_OBJECT, F_FIELD_EMPTY_OBJECT, [
+      line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "{}"]])),
+    ]);
     expect(
       armsOf(parse(F_ALIAS_EMPTY_OBJECT), "X", "n10"),
       "n10 — the empty inline object is captured as the single arm it is",

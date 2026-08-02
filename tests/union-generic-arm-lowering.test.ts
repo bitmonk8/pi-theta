@@ -187,6 +187,31 @@ function unresolvedLine(name: string): string {
   return `error ${UNRESOLVED}: ${unresolvedMessage(name)}`;
 }
 
+/**
+ * The `EMPTY_SCHEMA_BODY` row's normative *Message* template with its single
+ * `<X>` placeholder filled. Definedness AND placeholder presence are asserted
+ * first, so a missing row — or a template that lost its placeholder — reds by
+ * naming the registry rather than by a bare `undefined` comparison or a
+ * silently unsubstituted string.
+ */
+function emptySchemaBodyMessage(subject: string): string {
+  const template = registryMessage(REGISTRY, EMPTY_SCHEMA_BODY) as string | undefined;
+  expect(
+    template,
+    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${EMPTY_SCHEMA_BODY}`,
+  ).toBeDefined();
+  expect(
+    template,
+    `DIAG-4: the ${EMPTY_SCHEMA_BODY} Message template must carry the <X> placeholder; template=${JSON.stringify(template)}`,
+  ).toContain("<X>");
+  return (template as string).replace("<X>", subject);
+}
+
+/** The one rendered line an empty inline object type produces (bug 0045 §Fix). */
+function emptySchemaBodyLine(subject: string): string {
+  return `error ${EMPTY_SCHEMA_BODY}: ${emptySchemaBodyMessage(subject)}`;
+}
+
 // ===========================================================================
 // Fixtures and readers. Loud on every unexpected disposition.
 // ===========================================================================
@@ -937,7 +962,6 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
       "array<integer|string>",
       { type: "array", items: { type: ["integer", "string"] } },
     ],
-    ["g3 `array<{}>`", "array<{}>", { type: "array", items: {} }],
     [
       "g4 `array<{x: integer, y: string}>` (two arguments, so the `array` arm declines)",
       "array<{x: integer, y: string}>",
@@ -957,6 +981,44 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
       }
     });
   }
+
+  it("CONTROL (g3 `array<{}>`): unchanged at the positions bug 0045 does not refuse", () => {
+    // Bug 0045 §Fix wires the empty-inline-object rule into every
+    // `parseTypeExpression` call, so `array<{}>`'s element type is refused at
+    // the `params:` position now too (g3b below) — joining `alias` and `field`,
+    // whose own refusal is a body-position diagnostic that does not null the
+    // fragment this cell reads. `annotation` calls the lowerer directly
+    // (bypassing the parse gate), so its fragment is equally unmoved. None of
+    // the three positions below runs the reorder this describe block is about.
+    for (const position of ["alias", "field", "annotation"] as const) {
+      const fragment = fragmentOf("g3 `array<{}>`", position, "array<{}>");
+      expect(
+        fragment,
+        `g3 [${position}]: no top-level \`|\`, so the reordering cannot reach it; ` +
+          `observed ${JSON.stringify(fragment)}`,
+      ).toEqual({ type: "array", items: {} });
+    }
+  });
+
+  it("CONTROL (g3b `array<{}>`): the `params:` position now refuses the empty element", () => {
+    // grammar.md:109's empty-inline-object rule is unqualified by nesting
+    // depth, so `array<{}>`'s element type is refused exactly as a bare `{}`
+    // is (bug 0045 §Fix); `theta/parse/empty-schema-body` joins `alias` and
+    // `field`, which already carry the same diagnostic for this source.
+    // The whole ordered list against the registry-sourced line, not a code
+    // substring: DIAG-4 fixes the *Message* character-for-character, so a
+    // reworded row or a second diagnostic joining it has to red here too.
+    const read = readAt("params", "array<{}>");
+    expect(
+      read.diags,
+      `g3b [params]: bug 0045 §Fix refuses an empty inline object at every position and every ` +
+        `nesting depth, naming the author's own two bytes; observed ${JSON.stringify(read.diags)}`,
+    ).toEqual([emptySchemaBodyLine("{}")]);
+    expect(
+      read.document,
+      "g3b [params]: an error-severity params diagnostic withholds the lowered document",
+    ).toBeUndefined();
+  });
 
   it("CONTROL (g5): `Result<integer, string>` stays permissive at the positions that do not refuse it", () => {
     // Bug 0044 §Fix wires `parseTypeExpression(…, "schema-feeding")` at the

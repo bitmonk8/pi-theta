@@ -179,6 +179,34 @@ function unresolvedLine(name: string): string {
   return `error ${CODE}: ${unresolvedMessage(name)}`;
 }
 
+/** `theta/parse/empty-schema-body` — the code bug 0045 wires into every `Type` position. */
+const EMPTY_SCHEMA_BODY = "theta/parse/empty-schema-body";
+
+/**
+ * The registry row's normative *Message* template for `EMPTY_SCHEMA_BODY`, its
+ * single `<X>` placeholder filled. Definedness AND placeholder presence are
+ * asserted first, so a missing row — or a template that lost its placeholder —
+ * reds by naming the registry rather than by a bare `undefined` comparison or a
+ * silently unsubstituted string.
+ */
+function emptySchemaBodyMessage(subject: string): string {
+  const template = registryMessage(REGISTRY, EMPTY_SCHEMA_BODY) as string | undefined;
+  expect(
+    template,
+    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${EMPTY_SCHEMA_BODY}`,
+  ).toBeDefined();
+  expect(
+    template,
+    `DIAG-4: the ${EMPTY_SCHEMA_BODY} Message template must carry the <X> placeholder; template=${JSON.stringify(template)}`,
+  ).toContain("<X>");
+  return (template as string).replace("<X>", subject);
+}
+
+/** The one rendered line an empty inline object type produces (bug 0045 §Fix). */
+function emptySchemaBodyLine(subject: string): string {
+  return `error ${EMPTY_SCHEMA_BODY}: ${emptySchemaBodyMessage(subject)}`;
+}
+
 // ===========================================================================
 // Fixtures. One body, one frontmatter shape, one `params:` entry per fixture —
 // byte-identical to the bug doc's §Reproduction table.
@@ -788,34 +816,26 @@ describe("bug 0035 (c) — `BypassParamsField.type` carries the author's bytes",
 });
 
 // ===========================================================================
-// (d) THE EMPTY INLINE OBJECT — bug 0035 §Expected: "`p: array<{}>` and an
-// empty `p: {}` keep their current dispositions". The lowering claim is
-// therefore GREEN-by-construction and the recovered-text claim is RED.
+// (d) THE EMPTY INLINE OBJECT — bug 0035 §Expected left `p: {}` permissive
+// deliberately, pinned here as fixture I. Bug 0045 §Fix closes exactly that
+// gap — grammar.md:109's empty-inline-object rule is unqualified by position
+// — and this cell inverts in lock-step with it, exactly as its own prior
+// comment required ("an implementer who ALSO closes that case must update
+// this row deliberately, in lock-step with a spec decision, not silently").
 // ===========================================================================
 
-describe("bug 0035 (d) — `p: {}` keeps its permissive disposition", () => {
-  it("MIXED (d1, fixture I): no diagnostic and `properties.p = {}`, but the recovered text is `{}`", () => {
-    const loaded = loadCleanly("fixture I", src("  p: {}"));
-    // REQUIRED disposition (green now, must stay green): this bug does not
-    // widen the empty case. grammar.md:109 assigns the empty inline object its
-    // own diagnostic (`theta/parse/empty-schema-body`), which bug 0035
-    // §Expected explicitly leaves out of scope — an implementer who ALSO closes
-    // that case must update this row deliberately, in lock-step with a spec
-    // decision, not silently.
+describe("bug 0035 (d) — `p: {}` now refuses at parse (bug 0045 §Fix)", () => {
+  it("REFUSED (d1, fixture I): bug 0045 refuses the empty inline object instead of lowering it permissively", () => {
+    const doc = parseDoc(src("  p: {}"), "bug0035.theta");
     expect(
-      loaded.properties["p"],
-      "bug 0035 §Expected: the empty inline object keeps its current permissive `{}` — NOT hoisted, NOT additionalProperties:false",
-    ).toEqual({});
+      diagLines(doc),
+      "d1 — bug 0045 §Fix: an empty inline object type refuses at every `Type` position and " +
+        `every nesting depth; expected exactly one error naming '{}'. Observed: ${JSON.stringify(diagLines(doc))}`,
+    ).toEqual([emptySchemaBodyLine("{}")]);
     expect(
-      Object.keys(loaded.defs),
-      "nothing is hoisted for the empty case",
-    ).toEqual([]);
-    // RED observable: the frontmatter read must recover the bytes here too, so
-    // the binder prompt renders `  p ({}) required` rather than `  p () required`.
-    expect(
-      fieldOf(loaded, "p").type,
-      'the recovered surface text of `p: {}` is the two bytes the author wrote. At HEAD this is "" (the non-scalar discard applies to the empty flow mapping as well)',
-    ).toBe("{}");
+      doc.frontmatter,
+      "d1 — an error-severity params diagnostic collapses the frontmatter exactly as fixture D's does",
+    ).toBeNull();
   });
 });
 
@@ -931,13 +951,22 @@ describe("bug 0035 (e) — controls the fix must leave byte-unchanged", () => {
     ).toEqual([]);
   });
 
-  it("SCOPE BOUND (e6, `p: array<{}>`): the empty inline object under a generic keeps its current disposition", () => {
-    // Named by bug 0035 §Expected verbatim.
-    const loaded = loadCleanly("`p: array<{}>`", src("  p: array<{}>"));
-    expect(loaded.properties["p"], "unchanged: an array of a permissive element schema").toEqual({
-      type: "array",
-      items: {},
-    });
+  it("REFUSED (e6, `p: array<{}>`): bug 0045 refuses the empty element instead of lowering it permissively", () => {
+    // Named by bug 0035 §Expected verbatim as staying open; bug 0045 §Fix
+    // closes it, unqualified by nesting depth — the `array<T>` element is a
+    // `Type` position exactly as a bare field type is (schema-field twin: an
+    // element `array<{}>` refuses exactly as a field typed `{}` does) — so the
+    // empty element is refused rather than lowering `items: {}`.
+    const doc = parseDoc(src("  p: array<{}>"), "bug0035.theta");
+    expect(
+      diagLines(doc),
+      "e6 — bug 0045 §Fix: `array<{}>`'s element type is refused exactly as a bare `{}` field " +
+        `type is; expected exactly one error naming '{}'. Observed: ${JSON.stringify(diagLines(doc))}`,
+    ).toEqual([emptySchemaBodyLine("{}")]);
+    expect(
+      doc.frontmatter,
+      "e6 — an error-severity params diagnostic collapses the frontmatter exactly as fixture D's does",
+    ).toBeNull();
   });
 
   it("SCOPE BOUND (e7): the UNQUOTED `p: array<{a: string}>` stays fail-closed on the YAML frame (0028 §Residuals (iv))", () => {

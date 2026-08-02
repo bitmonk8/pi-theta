@@ -6262,6 +6262,26 @@ function walkExpr(
       }
       return;
     case "invoke":
+      // The `<T>` return-type annotation sits ahead of the argument list in
+      // source (`invoke<T>(args)`), so its diagnostics push before the
+      // argument walk's, matching every other wired position's source-order
+      // emission. `"value"`: `TypePosition`'s own doc comment (type-grammar.ts)
+      // classifies `invoke<T>` there, as it does `@<T>`. `"inline-object-shape"`:
+      // this position runs no other type-grammar pass and no name-resolution
+      // pass today, so selecting the full walk would newly fire
+      // `generic-arity-mismatch`, `void-in-non-return-position` and
+      // `result-in-schema-position` here — a different subject than the one
+      // rule this call wires (bug 0045 §Fix; §Non-goals).
+      if (e.returnSchema !== null && e.returnSchema.trim().length > 0) {
+        out.push(
+          ...parseTypeExpression(
+            e.returnSchema,
+            "value",
+            { file, range: e.range },
+            "inline-object-shape",
+          ),
+        );
+      }
       for (const arg of e.args) {
         walkExpr(arg, refs, file, out);
       }

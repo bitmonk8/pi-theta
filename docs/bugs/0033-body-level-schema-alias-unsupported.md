@@ -235,7 +235,14 @@ positions and the other 24 spellings draw
 expectation under that report's §Fix, keeping `expectArmMatchesFieldControl` as
 the alias/field equality assertion this fix established. (iv) The inline `{}` empty-object rule of grammar.md:109
 (`empty-schema-body`) is unimplemented at every `Type` position —
-pre-existing, unfiled. (v) The `by` field naming no variant's field, and
+pre-existing, unfiled. Filed as
+[0045](./0045-inline-empty-object-type-missing-empty-schema-body.md) and
+discharged by its fix (0.57.0): `walkType` raises the registered code for a
+brace interior that carries no token and closes, which reaches every position
+the walk is called from at every nesting depth, and the registry row's
+*Trigger* names the inline case. Cell n10 keeps the alias/field equality this
+fix established and takes the one registry-sourced line under that report's
+§Fix. (v) The `by` field naming no variant's field, and
 `by` over a non-object ≥2-arm union, load silently — spec-undecided,
 pinned as observed.
 

@@ -1,6 +1,9 @@
 # Bug 0045 — `grammar.md:109`'s empty-inline-object rule is unimplemented at every `Type` position: `{}` draws no `theta/parse/empty-schema-body` anywhere, so the same two bytes lower to a closed object at `@<T>` / `invoke<T>` (AJV then refuses every non-empty payload) and to the permissive `{}` at the schema-field, alias-RHS and `params:` positions (accepting every JSON value) — while the registry row's *Trigger* describes `schema` declarations only
 
-- **Status:** open.
+- **Status:** fixed (0.57.0). One rule, one construction point: the type-grammar
+  walk refuses an empty inline object at every `Type` position and every nesting
+  depth, and the registry row's *Trigger* names the inline case. See §Fix
+  (0.57.0) below.
 - **Kind:** defect, two elements on one rule. (1) *A prescribed diagnostic is
   unimplemented at every position it governs.*
   `docs/spec_topics/grammar.md:109` states "An empty inline object `{}` is
@@ -126,6 +129,173 @@
   `parseDoc`, `tests/helpers/e2e-s1.ts`), `parseTypeExpression`,
   `buildBodyTypeSchemas`, `lowerQueryResponseSchema` and a real AJV compile over
   the lowered fragments; deleted after the outputs below were recorded.
+
+## Fix (0.57.0)
+
+The settled §Fix, implemented against a tree eleven releases past the one it was
+written at; two review rounds and one fixer round hardened the emission key and
+the placeholder closure. Line anchors are at the fix commit.
+
+**Baseline drift, re-derived before anything was pinned.** The report's
+citations are at `f959f8de` (0.45.0) and its §Fix counts *three* positions that
+run no type-grammar pass. Two of the three were wired in the interval:
+[0044](./0044-unresolved-named-type-fires-for-keyword-shaped-text.md)'s fix
+(0.54.0) added `parseTypeExpression` at the `params:` per-field loop
+(`params.ts`, `schema-feeding`) and at the `@<T>` annotation root
+(`theta-document.ts`, `value`), both with the FULL walk — the very widening
+§Non-goals reserves as "a different subject", settled there rather than here. A
+scratch probe at the fix baseline confirmed it: `@<void>`,
+`@<array<string, integer>>`, `params:` `p: "void"` and `p: "array<string,
+integer>"` each draw their registered row, while `invoke<Ghost>`,
+`invoke<void>`, `invoke<array<string, integer>>` and `invoke<Result<…>>` draw
+nothing. So §Fix's "three unwired positions gain one call each" reduces to ONE
+new call site, and the other two inherit the rule from the walk with no edit —
+adding a second call there would double-emit. Every other observable in
+§Reproduction re-derived unchanged: all sixteen matrix rows, the `.thetalib`
+spelling and all fifteen seam cells were `[]` at the baseline, and the four
+declaration controls rendered byte-identically.
+[0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md)'s
+fix (0.49.0) had already moved the lowering anchors §Fix names, as this
+report's own §Fix-ordering addendum anticipated.
+
+**The construction point stays single.** `emptySchemaBodyDiagnostic(subject,
+site)` is exported from `schema-declarations.ts`; `checkObjectSchema`'s
+zero-field arm calls it with the declaration name, so `schema X { }`, the
+headless `schema X` and 0033's mis-shaped heads render byte-identically. The
+inline rule calls the same function with `{}`. Two call sites, one constructor.
+
+**The rule.** `TypeParser.parseObject` records two facts about the brace group
+the tolerant field loop cannot recover from `fieldTypes`: whether the interior
+carried any token, read off the token immediately after `{`, and whether a
+closing `}` was consumed. `walkType`'s `object` arm raises for a token-free
+interior WITH a closing brace, and for no other shape. The first half is §Fix's
+own key — `{ a }`, `{ "a": string }` and `{ a: }` arrive with an empty
+`fieldTypes` through the recovery path and keep their silence (§Non-goals). The
+second half was added in review: keyed on the interior alone, an unterminated
+`{` also emits, and `ObjectType ::= "{" Field ("," Field)* ","? "}"`
+(grammar.md) requires the closing brace, so `params:` `p: "{"`, `p: "array<{"`,
+`invoke<{>` and `@<{>` would have drawn a row whose *Message* names a `{}` their
+source does not contain — an emission outside the widened *Trigger*, which
+[DIAG-2](../spec_topics/diagnostics/diagnostic-shape.md#diag-2) closes.
+
+**Seven positions in one edit, one new call site.** The walk already descends
+generic arguments, inline-object field types and union arms, so the `let`
+annotation, `fn` parameter, `fn` return, schema body field, alias/union arm,
+`params:` field and `@<T>` annotation root are all covered by the walk edit
+alone. `walkExpr`'s `invoke` arm gains the one new call, ahead of the argument
+walk because the `<T>` annotation precedes the argument list in source. It
+selects the rule alone: `parseTypeExpression` takes a `TypeCheckRules`
+argument, `"all"` (the default, leaving the eight existing call sites
+byte-unchanged) or `"inline-object-shape"`, which descends every construct but
+withholds `generic-arity-mismatch`, `void-in-non-return-position` and
+`result-in-schema-position` — the three §Non-goals keeps out of this fix at a
+position that runs no other pass. The selector is named for the shape its
+members govern, not for its single current member, so a further
+inline-object-shape rule joins the same set and reuses the same call site.
+
+**Registry — one *Trigger*-only widening; *Message* untouched.**
+`code-registry-parse.md`'s row gains the inline case (an empty inline object
+type in any `Type` position, at any nesting depth). One further same-commit spec
+edit was needed and is not in the report:
+`placeholder-rendering-b.md` §7 lists `<X>` under the *Identifier-shaped*
+sub-rule, and `{}` is not identifier form, so the settled *Message* rendering
+contradicted the closed placeholder surface
+(`placeholder-rendering-a.md` §Closure). The bullet now carries an `<X>`
+carve-out in the idiom of its neighbouring `<callee>` fall-through, scoped to
+this row's inline trigger; the row's declaration triggers and every other `<X>`
+row keep identifier form. No new placeholder, no category move, no *Message*
+edit — `placeholder-rendering-a.md`'s closure clause (a) admits it, as it admits
+`<callee>`'s own conditional. `docs/reference/diagnostics.md` carries no
+*Trigger* column and `docs/reference/grammar.md` already states the rule
+unqualified by position, so neither mirror moved.
+
+**Multiplicity.** One diagnostic per occurrence, in source order, no dedup: two
+sibling empties raise twice, one nested empty raises once. The compound
+position is the exception, recorded rather than repaired: a `let` annotation
+over a query initialiser (``let r: {} = @`hi` ``) propagates the annotation text
+into the query's schema, so the annotation walk and the query walk each check
+it and the list carries two lines. The mechanism is the propagation's, not this
+rule's — ``let r: array<string, integer> = @`hi` `` doubles
+`generic-arity-mismatch` identically with nothing in this fix touching it — and
+repairing it would move three other checks at that position (§Non-goals).
+
+**GOV-15.** Every newly-refused input carried no `E` diagnostic before, so all
+sit inside the
+[loads-cleanly](../spec_topics/governance/source-language-stability.md#gov-15-loads-cleanly)
+set, and the
+[diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out)
+disposes of the *Trigger* change. No committed `.theta` / `.thetalib` and no
+file under `docs/examples/` carries the shape, so the shipped-fixture parse
+gate never witnesses it and the code is unreachable from the H9a acceptance
+suite — `tests/fixtures/h7a/permitted-codes.json` is therefore correctly left
+unedited under its reachability rule.
+
+**Offline lock.** `tests/inline-empty-object-type.test.ts` (44 cells): a
+registry-sourced *Message* oracle (DIAG-4 — a *Message* drift reds group (0)
+first and by name); one cell per row of §Reproduction's sixteen-row position
+matrix, both `params:` spellings included; the `.thetalib` spelling; the
+nested, generic-argument and union-arm depths, the union-arm cells written at
+the alias position because the schema-field spelling hits the unrelated capture
+defect §Non-goals names; a seam table over all three `TypePosition` values, so
+position-independence is asserted rather than inspected; the declaration
+controls byte-unchanged; the malformed-interior family and the unterminated
+family both silent, at the seam and at four document positions, which is what
+pins the two-part key; the multiplicity cells; the compound-position record with
+its arity proxy as the pre-existence control; a document-level
+lowering-unreachability pair beside a cell pinning both lowerer seams'
+bytes unchanged as defence in depth; and the `invoke<T>` cells holding the
+narrow rule selection — `invoke<void>`, `invoke<array<string, integer>>`,
+`invoke<Result<…>>` and `invoke<Ghost>` stay silent while the three empty
+spellings raise. Verified in three directions: removing the walk's push reds 30
+of the 44 cells and no control; removing the `invoke<T>` call site reds exactly
+the two `invoke<T>` cells; a live probe over the shipped extension's real
+registration path reds with the walk neutralised and greens with it. Byte-exact
+restores per blob hash, `git stash` unused throughout. Full gate 247 files /
+3416 tests; typecheck and lint clean. Live: H8a 7/7 green, H9a acceptance 11/11
+green (area (c) timed out once on a provider stall and passed in 10 s on the
+isolated re-run; its fixture carries a non-empty inline object and no code path
+of this fix).
+
+**The landed pins moved deliberately.** `tests/schema-alias-union-decl.test.ts`
+n10 keeps its equality claim and takes the one registry-sourced line, its
+comment rewritten. `tests/params-inline-object-lowering.test.ts` d1 and e6
+invert into refusal cells, exactly as d1's own comment demanded. One pin the
+report could not name because it postdates it moved the same way:
+`tests/union-generic-arm-lowering.test.ts`'s `array<{}>` control asserted the
+permissive lowering at all four of its positions, and its `params:` column is
+the same claim e6 makes; it is split into an unchanged three-position control
+and a `params:` refusal cell, using that file's own idiom for the same split
+under 0044. `tests/inline-object-nested-lowering.test.ts`'s G4/G5 keep their
+assertions untouched — they drive the lowerer directly, below the parse seam —
+and only their comment's claim about the rule being unimplemented was corrected,
+as were the matching claims in `params.ts` and `query-schema-lowering.ts`.
+
+**0052 coordination.** [0052](./0052-inline-object-duplicate-field-names-silent-last-wins.md)
+§Fix's ordering clause says whichever of the two lands second reuses the first's
+call sites rather than adding a second pass, and records the reuse. This landed
+first. The sites 0052 reuses are: `walkType`'s `object` arm for the rule itself,
+which reaches seven of the eight positions with no further wiring; the single
+`invoke<T>` call in `walkExpr`; and the `"inline-object-shape"` selection, which
+is a rule SET rather than a rule, so 0052's duplicate-name check joins it and
+the `invoke<T>` call needs no edit. Its rule needs the field NAMES that
+`parseObject` currently discards, which is a change to the node rather than to
+any call site.
+
+**Residuals.** (i) The compound `let`-annotation-over-query position emits per
+check-site rather than per occurrence, for this rule and for the three the walk
+already owned — recorded in the offline lock, unfiled. (ii) `checkSchemaFeedingType`
+(`schema-subset-gate.ts`) takes the default rule set and so now also refuses an
+empty inline object; it has no production caller and its doc comment enumerates
+no checks, pre-existing and unchanged here. (iii) The scope clauses in
+[0035](./0035-params-rhs-inline-object-under-emission.md) (§Expected and §Fix
+Frame 2), [0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md)
+(§Expected and §Fix "Unmoved") and
+[0041](./0041-params-block-mapping-rhs-silent-permissive.md) (§Non-goals) state
+in the present tense that this case stays open; all three reports are fixed, so
+§Fix's "whichever … is still open" clause selects none of them and their records
+were left as written. (iv) `schemas.md`'s rationale sentence still describes the
+closed empty-object fragment as accepting every object, which real AJV refuses —
+§Non-goals' documentation residual, unchanged.
 
 ## Summary
 
