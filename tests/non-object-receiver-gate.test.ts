@@ -704,7 +704,7 @@ describe("bug 0027 (e) — Result receiver: the { ok, value } representation is 
 // ===========================================================================
 // (f) annotation laundering — the reason the fix is a RUNTIME gate. The A2
 // layer registers `schema` declarations only (`collectTypeEnv`,
-// src/parser/type-layer-checks.ts:231), so an enum name answers `"unknown"` and
+// src/parser/type-layer-checks.ts:232), so an enum name answers `"unknown"` and
 // `Result` has no `CompatType` form at all; `checkMemberAccess` defers on
 // `"unknown"` exactly as it does on `"object"`. All three sources are
 // parse-clean at HEAD.

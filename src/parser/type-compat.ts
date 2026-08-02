@@ -145,14 +145,14 @@ export function checkCompatible(
 }
 
 /**
- * TYPE-11 — transparently unfold a `named` type whose declaration is a
- * type-alias schema (`schema X = R`) to its right-hand side, recursing through
- * nested aliases until a non-alias form is reached. A `named` that resolves to
- * an object schema stays `named` (nominal, TYPE-10); an unresolvable `named`
- * (past the parser's static view) stays `named` so the relation reports
- * `"unknown"` and the runtime AJV safety net applies.
+ * TYPE-11 — transparently unfold a `named` type whose declaration is a type-alias
+ * schema (`schema X = R`) to its right-hand side, recursing through nested aliases
+ * until a non-alias form is reached. A `named` that resolves to an object schema stays
+ * `named` (nominal, TYPE-10); an unresolvable `named` (past the parser's static view)
+ * stays `named` so the relation reports `"unknown"` and the runtime AJV safety net
+ * applies. Callers reach for this directly; the classifiers unfold inline instead.
  */
-function unfoldAlias(type: CompatType, env: TypeEnv): CompatType {
+export function unfoldAlias(type: CompatType, env: TypeEnv): CompatType {
   let current = type;
   // Bounded by the alias chain length, because the `TypeEnv` carries no cyclic
   // alias: `collectTypeEnv` (type-layer-checks.ts) OMITS a cycle-participating

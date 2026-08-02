@@ -57,6 +57,7 @@ import {
   checkObjectFieldCompat,
   displayType,
   resolveNamed,
+  unfoldAlias,
   type CompatType,
   type NamedDecl,
   type PrimitiveName,
@@ -543,33 +544,54 @@ class TypeLayerWalk {
       case "let": {
         if (stmt.init !== null) {
           const rhsType = this.typeOf(stmt.init, bindings);
-          if (stmt.annotation !== null && stmt.annotation.length > 0) {
-            const annotation = annotationToCompatType(stmt.annotation);
-            if (annotation !== undefined) {
-              // The typed-binding RHS narrowing / mismatch check (surfaces
-              // `theta/parse/integer-narrowing` for a `number → integer` RHS).
-              this.diagnostics.push(
-                ...checkLetRhsCompat({
-                  name: stmt.name,
-                  annotation,
-                  rhs: rhsType,
-                  env: this.env,
-                  site: { file: this.file, range: stmt.range },
-                }),
-              );
-              // A typed array literal is checked against the annotation's
-              // element sink here, so the generic (sink-less) array check does
-              // not re-flag a validly-annotated union array.
-              if (stmt.init.kind === "array" && annotation.kind === "array") {
-                this.checkArrayLiteral(stmt.init, annotation.element, bindings);
-              }
+          // Resolved once, ahead of both uses below: the initialiser
+          // compatibility check and the recorded binding type. An
+          // unresolvable source (`annotationToCompatType` → `undefined`)
+          // falls back to `rhsType` in both places, so a name the type
+          // environment cannot resolve never turns into a hole (bug 0083).
+          const annotation =
+            stmt.annotation !== null && stmt.annotation.length > 0
+              ? annotationToCompatType(stmt.annotation)
+              : undefined;
+          if (annotation !== undefined) {
+            // The typed-binding RHS narrowing / mismatch check (surfaces
+            // `theta/parse/integer-narrowing` for a `number → integer` RHS).
+            this.diagnostics.push(
+              ...checkLetRhsCompat({
+                name: stmt.name,
+                annotation,
+                rhs: rhsType,
+                env: this.env,
+                site: { file: this.file, range: stmt.range },
+              }),
+            );
+            // A typed array literal is checked against the annotation's
+            // element sink here, so the generic (sink-less) array check does
+            // not re-flag a validly-annotated union array.
+            if (stmt.init.kind === "array" && annotation.kind === "array") {
+              this.checkArrayLiteral(stmt.init, annotation.element, bindings);
             }
           }
           // Walk the initialiser for nested checks. A typed array already
           // checked against its element sink above is skipped by the walk.
-          this.walkExpr(stmt.init, bindings, flow, this.sinkedArrayOf(stmt));
-          // Record the binding type so later identifier references resolve.
-          bindings.set(stmt.name, rhsType);
+          this.walkExpr(stmt.init, bindings, flow, this.sinkedArrayOf(stmt, annotation));
+          // Record the declared type, not merely the initialiser's inferred
+          // one: `checkLetRhsCompat` above has already verified the
+          // initialiser against it, so later identifier references seeing the
+          // annotation instead admit nothing unchecked (bug 0083).
+          //
+          // Recorded in its TYPE-11-transparent form, because that IS the
+          // declared type: `schema L = array<string>` makes `L` and
+          // `array<string>` the same type, and the structural gates reading
+          // this map off an identifier (the `for` / `par for` iterand
+          // contract, the `array.join` element precondition) test `kind`
+          // directly rather than through the alias-unfolding `⊑` engine.
+          // `unfoldAlias` leaves an object-schema `named` nominal (TYPE-10)
+          // and an unresolvable `named` intact.
+          bindings.set(
+            stmt.name,
+            annotation === undefined ? rhsType : unfoldAlias(annotation, this.env),
+          );
         }
         return;
       }
@@ -853,19 +875,21 @@ class TypeLayerWalk {
     );
   }
 
-  /** The array node already checked against a binding-annotation element sink. */
-  private sinkedArrayOf(stmt: Stmt): Expr | null {
+  /**
+   * The array node already checked against a binding-annotation element sink.
+   * `annotation` is the `let` arm's own resolution of `stmt.annotation` — a
+   * null or blank annotation source, and one `annotationToCompatType` cannot
+   * convert, both arrive as `undefined` and answer `null` here.
+   */
+  private sinkedArrayOf(stmt: Stmt, annotation: CompatType | undefined): Expr | null {
     if (
       stmt.kind === "let" &&
       stmt.init !== null &&
       stmt.init.kind === "array" &&
-      stmt.annotation !== null &&
-      stmt.annotation.length > 0
+      annotation !== undefined &&
+      annotation.kind === "array"
     ) {
-      const annotation = annotationToCompatType(stmt.annotation);
-      if (annotation !== undefined && annotation.kind === "array") {
-        return stmt.init;
-      }
+      return stmt.init;
     }
     return null;
   }

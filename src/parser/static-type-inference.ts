@@ -173,11 +173,11 @@ export class StaticTypeInferencePass {
   /**
    * The static type this pass assigns to an arbitrary expression node — the
    * per-expression static-type lookup the `V20c` type-layer checkers consume.
-   * `bindings` resolves an in-scope `let`-binding identifier to its inferred
-   * type; an unbound identifier remains a nominal self-reference (deferred to
-   * the runtime AJV safety net). The computation is pure — it records nothing —
-   * so a consumer may query any node (nested or statement-level) without
-   * mutating the pass.
+   * `bindings` resolves an in-scope `let`-binding identifier to its recorded
+   * type — the declared annotation where it carries one, else the initialiser's
+   * inferred type; an unbound identifier remains a nominal self-reference
+   * (deferred to the runtime AJV safety net). The computation is pure — it
+   * records nothing — so a consumer may query any node without mutating the pass.
    */
   typeOf(
     node: Expr,
@@ -192,7 +192,7 @@ export class StaticTypeInferencePass {
    * `CompatType` model. Recurses into operands to compute composite types; the
    * recursion is pure (it records nothing), so only the statement-level nodes
    * the walk visits enter the published lookup. `bindings` resolves an in-scope
-   * `let`-binding identifier to its inferred type.
+   * `let`-binding identifier to its declared-or-inferred recorded type.
    */
   #typeExpr(
     node: Expr,

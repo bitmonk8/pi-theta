@@ -6,6 +6,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-08-02
+
+### Fixed
+
+- **A `let` binding's declared type annotation was discarded after the
+  initialiser check** (bug 0083). The annotation was resolved, used to check the
+  initialiser, and then dropped: the binding was recorded with the
+  *initialiser's* inferred type, so every later reference resolved that instead
+  of the declared type. The divergence ran both ways. Where the annotation was
+  wider, the declared widening was lost and the guard it exists to arm never
+  fired — `let n: number = 1` followed by `let m: integer = n` reported
+  nothing, because the check saw `integer → integer` rather than the
+  `theta/parse/integer-narrowing` that `lexical.md` §"Number literals" reserves
+  for that direction. Where the annotation supplied what the initialiser could
+  not, the information was lost and a check fired that should not —
+  `let e: array<string> = []` followed by `e.join(",")` drew a false
+  `theta/parse/non-string-array-join`, because an empty literal types as
+  `array<unknown>`. That second shape is the accumulate-then-join idiom
+  `control-flow.md` prescribes, so the recommended program did not load.
+  The binding is now recorded with the declared type when the annotation
+  resolves, in its TYPE-11-transparent form so an alias of an array remains a
+  legal `for` iterand and still answers the `array.join` element-type
+  precondition; an unresolvable annotation continues to fall back to the
+  initialiser's type. No diagnostic code, registry row or trigger changed, and
+  no shipped example or fixture changes disposition.
+
 ## [0.54.0] - 2026-08-02
 
 ### Fixed

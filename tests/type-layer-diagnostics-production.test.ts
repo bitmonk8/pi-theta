@@ -121,12 +121,12 @@ describe("V20c-T — question-on-non-result fires in production", () => {
     // theta/parse/question-on-non-result — `x?` where `x: number | string`.
     // Bug 0019: the ERR-18 classifier handles only prim/literal/array
     // CompatTypes; a `union` falls to the unclassified arm and the theta
-    // loads. The fn-param route is the one source-level route to a `union`
+    // loads. The fn-param route is a source-level route to a `union`
     // CompatType at a `?` operand site: `walkFn` seeds the fn scope with
-    // `annotationToCompatType(p.type)` (a `let` annotation does NOT work —
-    // bindings store the RHS inferred type). No return annotation → the
-    // enclosing scope is `inferred`, so no `question-outside-result-fn`
-    // noise.
+    // `annotationToCompatType(p.type)` (a `let` annotation is also such a
+    // route — the binding records the resolved annotation, bug 0083). No
+    // return annotation → the enclosing scope is `inferred`, so no
+    // `question-outside-result-fn` noise.
     const diag = parse(
       ["fn f(x: number | string) {", "  let v = x?", "  v", "}"].join("\n"),
     ).diagnostics.find(

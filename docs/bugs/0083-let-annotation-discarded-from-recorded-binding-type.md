@@ -1,6 +1,8 @@
 # Bug 0083 — A `let` binding's declared type annotation is discarded after the initialiser check: the recorded binding type is the initialiser's inferred type, so `let n: number = 1` silently defeats `theta/parse/integer-narrowing` at every later use and `let e: array<string> = []` draws a false `theta/parse/non-string-array-join`
 
-- **Status:** open.
+- **Status:** fixed (0.55.0). §Fix option 1 as settled — the `let` arm
+  records the declared annotation, in its TYPE-11-transparent form. See
+  §Fix (0.55.0) below.
 - **Kind:** defect. The annotation is used once — to check the initialiser —
   and then dropped; every subsequent reference to the binding resolves the
   initialiser's type instead. The divergence is bidirectional: permissive where
@@ -184,6 +186,90 @@ Constraints any fix must satisfy:
 - The annotated-array element sink at `:563–565` must continue to suppress the
   sink-less `array-no-common-type` check, so a validly annotated union array
   still loads.
+
+## Fix (0.55.0)
+
+The settled §Fix option 1, implemented as written; three review rounds, two
+fixer rounds and one verification round. Line anchors are at the fix commit.
+
+**The record.** `TypeLayerWalk.walkStmt`'s `case "let"`
+(`src/parser/type-layer-checks.ts:591–594`) records
+`annotation === undefined ? rhsType : unfoldAlias(annotation, this.env)`. The
+resolved annotation is hoisted to one construction point immediately after
+`rhsType` (`:551–556`), so `annotationToCompatType` runs once per `let` and
+the same value feeds `checkLetRhsCompat`, the annotated-array element sink and
+the record. All three of §Fix's constraints hold and are locked by tests: an
+unresolvable annotation still falls back to `rhsType` —
+`annotationToCompatType` answers `undefined` only for trim-empty source, an
+undeclared *name* converting
+to a deferred `named` instead; `let m: number = n` over an `integer`-declared
+`n` stays silent (TYPE-2 widening); and the element sink still suppresses the
+sink-less `theta/parse/array-no-common-type`.
+
+**Why the recorded form is TYPE-11-transparent.** Recording the raw annotation
+regressed two spec-legal dispositions through an alias, both caught in review
+round 1 and both now pinned:
+
+- `schema L = array<string>` with `let e: L = ["a"]` used as a `for` iterand
+  drew a false `theta/parse/non-array-iterand`. `checkForIterand`
+  (`src/parser/control-flow.ts:51`) tests `type.kind === "array"` directly and
+  takes no `TypeEnv`, so an opaque `named L` fails a test the unfolded type
+  passes. TYPE-11 (`docs/spec_topics/type-system.md:54`) makes `L` and
+  `array<string>` the same type, and `docs/spec_topics/control-flow.md:13`
+  requires only that the iterand have type `array<T>`.
+- `schema L = array<integer>` with `let e: L = [1]` then `e.join(",")` LOST its
+  true `theta/parse/non-string-array-join`. The join element gate
+  (`type-layer-checks.ts:1222`) keys on `targetType.kind === "array"` the same
+  way, so the opaque form turned a parse-time rejection prescribed by
+  `docs/spec_topics/expressions.md:108` into a runtime deferral.
+
+The transparent form IS the declared type under TYPE-11, so recording it is
+still §Fix option 1. `unfoldAlias` (`src/parser/type-compat.ts:155`) — the
+existing cycle-safe unfolder the `⊑` engine already applies, exported for this
+reuse rather than duplicated — leaves an object-schema `named` nominal
+(TYPE-10) and an unresolvable `named` intact, so `let p: P = P { … }` still
+records `named P` and a nominal binding is still not iterable.
+`checkForIterand` and the join gate were deliberately NOT modified: unfolding
+inside them would also change the `fn`-parameter route, which this report does
+not own. `sinkedArrayOf` (`:884`) now takes the arm's resolved annotation
+instead of recomputing it — its one caller is that arm.
+
+**No spec, registry, `docs/reference/` or `permitted-codes.json` edit.** DIAG-2
+held: no new code, no new row, no widened trigger. Every code the fix newly
+emits or newly suppresses is already registered at the position it fires
+from — `theta/parse/integer-narrowing` at a typed-binding initialiser and
+`theta/parse/non-string-array-join` at an `array<T>` receiver. All 34 committed
+`.theta` / `.thetalib` files were parsed through `parseThetaDocument` with the
+fix in place and with it neutralised: byte-identical diagnostic dispositions,
+so no shipped example or fixture changes and the H9a empty-capture stderr gate
+is unaffected.
+
+**Tests.** `tests/let-annotation-recorded-binding-type.test.ts` (19 assertions,
+offline, through the production `parseThetaDocument`). Groups (a) and (b) are
+the two reported directions; group (d) the alias-transparency guards; the rest
+are invariants. Neutralising the record proves `a1`, `b1`, `s12`, `d4` and the
+`let mut` pin red; neutralising only the unfold proves `d1`, `d2`, `d3` red.
+A scratch live probe drove the spec's own accumulate-then-join idiom
+(`let mut xs: array<string> = []` … `xs.join(", ")`) through the shipped
+extension against a live model: pre-fix the theta carries an error-severity
+diagnostic and `parseDiscoveredTheta` never registers the command; post-fix it
+registers and the turn renders the joined value. Probe deleted after the run,
+per the 0033 precedent.
+
+**Residuals.** (i) §Non-goals declined to settle `let mut` reassignment.
+Checked and pinned, not changed: `case "reassign"` (`:598–600`) walks the
+value and never re-records, so the declared type governs for the binding's
+scope and `let mut n: number = 1` / `n = 2` / `let m: integer = n` now reports
+`theta/parse/integer-narrowing`. (ii) The `fn`-parameter twin of the alias
+regression is pre-existing and untouched: `schema L = array<string>` with
+`fn f(xs: L) { for x in xs { … } }` still draws a false
+`theta/parse/non-array-iterand`, and the join element gate still defers on an
+alias-typed parameter. `checkForIterand` and the join gate are the only two of
+six classifiers that do not apply TYPE-11. (iii) Pre-existing line-citation
+drift in `tests/typeenv-prototype-names.test.ts` (`:282`, `:906`, `:1218`,
+`:1256`, `type-compat.ts:149`, `theta-document.ts:843`) was wrong at
+`61806a3a` and is left as found; only the citations this fix's own import line
+shifted were corrected.
 
 ## Provenance
 

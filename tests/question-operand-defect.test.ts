@@ -39,7 +39,8 @@ import type { QueryError } from "../src/runtime/query-error";
 // src/parser/type-layer-checks.ts) leaves member / index / identifier operands
 // unclassified — their inferred CompatTypes are `named` placeholders (a member
 // access types as `named <field>`, an index read as the element type or
-// `named "index"`, an identifier as its binding's RHS inferred type) — no
+// `named "index"`, an identifier as its recorded binding type: the declared
+// annotation where it carries one, else the initialiser's inferred type) — no
 // runtime net exists, and `evalTry` (src/runtime/statement-executor.ts)
 // blind-casts the raw operand value to `ResultValue`:
 //   - a plain value:           `.ok` is undefined → forged Err(undefined) →
@@ -283,9 +284,9 @@ describe("bug 0019 — `?` over a non-Result member/index/identifier operand abo
   });
 
   it("CONTROL: `?` over a GENUINE stored Result — identifier bound to `Ok(5)` — still unwraps (green now, green after)", async () => {
-    // `let r = Ok(5)` stores the RHS inferred type `named "Ok"` (bindings hold
-    // the inferred type, not an annotation), so `r?` is statically
-    // unclassified and takes the same runtime path as m3 — but the stored
+    // `let r = Ok(5)` stores the RHS inferred type `named "Ok"` (an
+    // unannotated binding records the initialiser's inferred type), so `r?`
+    // is statically unclassified and takes m3's runtime path — but the stored
     // value IS a genuine constructor-built Result, so the stage-2 brand guard
     // must pass it through. The no-false-positive pin.
     const execution = await runSource(FM + "let r = Ok(5)\nlet v = r?\nv");

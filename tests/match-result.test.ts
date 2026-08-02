@@ -114,11 +114,12 @@ describe("V4a-T — `?` operand-type precondition (ERR-18)", () => {
 // must interpolate (display via `displayType`).
 //
 // Source reachability (verified at 7fa76517):
-//   - `union`: reachable ONLY through a fn-param annotation — `walkFn` seeds
+//   - `union`: reachable through a fn-param annotation — `walkFn` seeds
 //     the fn scope with `annotationToCompatType(p.type)`, and
 //     `annotationToCompatType` maps `number | string` to a `union` CompatType.
-//     A `let` annotation does NOT reach the `?` site (bindings store the RHS
-//     INFERRED type, not the annotation).
+//     A `let` annotation is also such a route: the binding records the
+//     resolved annotation, not merely the initialiser's inferred type
+//     (bug 0083).
 //   - `object`: NOT constructible at a `?` operand site from real source —
 //     `annotationToCompatType` maps an inline object annotation (`{ a: T }`)
 //     to a nominal `named` reference, and the inference pass's `#typeExpr`
