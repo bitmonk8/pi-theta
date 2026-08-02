@@ -1,6 +1,8 @@
 # Bug 0087 — The `bind_echo` success echo is emitted without rule-1 sanitisation: a bound `params:` value carrying a line break renders the user-facing `Running /<name>: …` system note across two or more physical lines, and a crafted break forges a second `Running /<name>: …` line where the Echo-policy rules say exactly one
 
-- **Status:** open. Live-confirmed against a real provider.
+- **Status:** fixed (0.56.0). §Fix as settled — `renderString` applies rule 1
+  per interpolated value, before the quote predicate and the escape pass. See
+  §Fix (0.56.0) below.
 - **Kind:** defect at the emission seam. The renderer
   (`renderArgumentEcho`) and the sanitiser (`sanitizeSystemNoteSubstring`)
   both exist and are individually conformant; the production emitter composes
@@ -249,6 +251,100 @@ Alternative placement — sanitising each `EchoParam.value` in
 to walk the array/object arms itself, duplicating the recursion the renderer
 already owns, and would leave the seam re-breakable by any future caller of
 `renderArgumentEcho`.
+
+## Fix (0.56.0)
+
+The settled §Fix, implemented as written; two review rounds, one fixer round
+and one verification round. Line anchors are at the fix commit.
+
+**The edit.** `renderString` (`src/render/argument-echo.ts:110`) passes its
+`value` through `sanitizeSystemNoteSubstring` (`src/binder/system-note.ts:71`)
+and runs the `UNQUOTED_STRING` predicate (`:92`) and the escape pass over that
+output. One edit covers both arms that can carry a U+000A — the `string` arm
+(`:165`) and the `enum` arm (`:175`) call the same function — and the array and
+object arms inherit it by recursing into those leaves. The import is acyclic:
+`src/binder/system-note.ts` declares no imports of its own.
+
+All four of §Fix's constraints hold and are locked by tests. The rule-1
+implementation is reused rather than re-derived, so the whitespace set stays
+the six ASCII characters and U+00A0, U+2003, U+2028 and U+2029 survive verbatim
+— each of the four is a character a `\s`-class implementation would wrongly
+collapse. The predicate reads the collapsed text, so `"a\nb"` renders `"a b"`
+quoted and never bare `a b`. `capSystemNote` is untouched at its sole call site
+(`src/extension/production-theta-producer.ts:891`) and still measures the whole
+rendered line last. `renderArgumentEcho` carries no change, so the
+`Running /<name>: ` prefix, the `, ` separator and the ` (default)` tag are
+rendered from theta-controlled text without passing through rule 1 — a theta
+whose slash name itself contains a two-space run keeps it.
+
+**Consequences of the trim sub-step.** Rule 1 trims before the predicate runs,
+so a value whose only out-of-set characters are at its edges now satisfies the
+unquoted predicate: `"\nplain\n"` renders bare `plain` and `"  ab  "` renders
+bare `ab`. A value that sanitises away entirely renders `""`, the BNDR-6a
+rendering, at every position the leaf reaches — top level, array element,
+object first field, and enum wire string. None of these moves a BNDR-6 row: no
+row in that table carries an edge, tab, or multi-character whitespace run, and
+the two rows with a single interior U+0020 (BNDR-6c, BNDR-6x, and the `"b c"`
+leaves of BNDR-6k and BNDR-6n) are runs of length one that collapse to
+themselves. The 26 byte-exact pins in `tests/argument-echo.test.ts` are green
+unchanged.
+
+**No spec, registry, `docs/reference/` or `permitted-codes.json` edit.** The
+fix conforms the implementation to prose that already exists; DIAG-2 held with
+no new code, no new row and no widened trigger. `:35`'s "rule 1 has already
+collapsed them to spaces upstream" describes the ORDERING the predicate
+depends on, not a function boundary — the spec names no formatter entry point,
+and no consumer-visible observable distinguishes a collapse performed before
+the call from one performed as the call's first step. No `docs/reference/`
+page restates the sentence.
+
+**Tests.** `tests/echo-value-rule1-sanitisation.test.ts` (25 tests, offline,
+deterministic). Groups A–C are the per-arm rule-1 rows (the six-character set
+one character at a time, run collapse, edge trim, the empty result, and the
+non-ASCII survivors), D is rule 3's one-line contract including the forging
+vector, E is the rule-1-before-rule-2 ordering, F is the theta-controlled
+spans, and G drives `ProductionThetaProducer.runBinder()` with a scripted
+off-session binder reply and reads the delivered `pi.sendMessage` payload on
+the `theta-system-note` channel — the §Actual behaviour carrier-2 path.
+Neutralising the sanitiser call reds 22 of the 25; a7, a10 and e2 are green on
+both trees by design, being the guards against a `\s`-class substitution and
+against deleting the cap.
+
+**Live.** No shipped live test reaches the fixed path: the H8a production
+acceptance file declares no `params:` theta at all, and the H9a binder area
+asserts only exit code, stderr cleanliness and envelope non-leakage on `pi -p`
+stdout, declining by design to read the note channel — its `acc-params-binder`
+fixture declares `count: number = 3`, which carries no whitespace. A scratch
+live probe planted the §Reproduction theta under the project discovery root and
+drove `/echonl widgets` through `bootShippedExtension` + `driveSlashCaptureTurn`
+against a real provider, pinning `bind_model: anthropic/claude-haiku-4-5` (the
+[0064](./0064-binder-temperature-400-newest-anthropic-models.md) escape).
+Neutralised, it reproduced the report byte-for-byte —
+`"Running /echonl: topic=widgets, extra=\"a\nb\" (default)"`, 2 physical lines,
+deterministic across the retry. Restored, one line:
+`Running /echonl: topic=widgets, extra="a b" (default)`. Probe deleted after
+the run, per the 0033 precedent. Both shipped live suites ran green alongside
+it (18 tests).
+
+**Reproduction re-derived at the fix baseline** (`5a008bcf`, 0.55.0) with a
+scratch offline probe before any assertion was pinned: `lines=2 scalars=53`,
+content byte-identical to the 0.53.0 live observation recorded above — zero
+drift. Every `path:line` citation in §Affected was re-verified at that HEAD and
+none had moved.
+
+**Residuals.** (i) U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR lie
+outside rule 1's six-character set and therefore survive verbatim, which `:18`
+requires and `a10` now pins. A consumer that treats the JavaScript line
+terminators as line breaks still sees a two-line note from such a value. The
+set is closed at six characters by `:18`, so widening it is a spec question,
+not an implementation one. (ii) The `renderObject` first-field read
+(`src/render/argument-echo.ts:153`) casts `value[first.name]` to `ThetaValue`
+without an own-key guard; the value is a lowered-schema-driven record and the
+throw class is unchanged by this fix, but the cast is pre-existing and
+untouched. (iii) [0060](./0060-binder-parameters-line-shape-violable-by-embedded-newlines.md)
+is untouched, as its own report and this one agree: it renders the recorded
+declared type and the default SOURCE text into the model-facing binder prompt
+through `renderBinderParamLine`, a different renderer on a different channel.
 
 ## Provenance
 

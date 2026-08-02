@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-08-02
+
+### Fixed
+
+- **The `bind_echo` success echo was composed without the shared system-note
+  rule-1 pass, so a bound `params:` value carrying a line break broke the note's
+  own one-line contract** (bug 0087). `binder/defaulting-system-note-echo.md`
+  names "the echo's interpolated values" as one of the three substring classes
+  whose `\r`, `\n` and `\r\n` must collapse to a single space before the note is
+  composed, and the quote rule's own justification for escaping only `"` and `\`
+  is that newlines cannot reach the formatter. Nothing performed the collapse:
+  the production emitter applied the 120-code-point cap and no other rule, so a
+  raw U+000A reached the renderer, failed the unquoted predicate, and was
+  emitted verbatim inside the quotes. A declared default of `"a\nb"` —
+  author-controlled, evaluated by the runtime with no model in the loop — put
+  the user-facing `Running /<name>: …` note on two physical lines, and a crafted
+  break forged a complete second `Running /<other>: …` line inside one note's
+  content, so a consumer splitting the channel on newlines read an echo for a
+  theta that never ran. The renderer now applies rule 1 per interpolated value,
+  before the quote predicate and the escape pass, covering the `string` and
+  `enum` arms and, through their leaves, the array and object arms. The
+  whitespace set stays the six ASCII characters the rule enumerates, so U+00A0
+  and the other non-ASCII whitespace survive verbatim; the cap still runs last
+  over the collapsed line; and the `Running /<name>: ` prefix, the `, `
+  separator and the `(default)` tag are theta-controlled text that is not
+  sanitised. Because the trim runs before the predicate, a value whose only
+  out-of-set characters are at its edges now renders unquoted — `"\nplain\n"`
+  renders `plain` — and a value that sanitises away renders `""`. No BNDR-6
+  reference rendering moves.
+
 ## [0.55.0] - 2026-08-02
 
 ### Fixed

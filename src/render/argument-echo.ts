@@ -27,6 +27,7 @@
 // their own primary assertions (the format-rule renderer is absent). The paired
 // V11h implementation leaf fills these in.
 
+import { sanitizeSystemNoteSubstring } from "../binder/system-note";
 import type { ThetaValue } from "../runtime/value";
 import { renderCanonicalNumber } from "./canonical-number";
 
@@ -91,17 +92,27 @@ export interface ArgumentEchoInput {
 const UNQUOTED_STRING = /^[A-Za-z0-9_.-]+$/;
 
 /**
- * Apply the §"Echo policy" string quote predicate. Unquoted when the string is
- * non-empty and matches {@link UNQUOTED_STRING}; otherwise quoted as U+0022,
- * the body with each `\` replaced by `\\` and each `"` by `\"` (backslash
- * first so the escapes are not re-doubled), then a closing U+0022. The empty
- * string renders as `""`.
+ * Apply the §"Echo policy" string quote predicate over the
+ * §"System-note rendering" rule 1 output (anchor #system-note-rendering), not
+ * over the raw `value`: `value` is first passed through
+ * {@link sanitizeSystemNoteSubstring}, which collapses each ASCII-whitespace
+ * run — the six-character set {U+0009, U+000A, U+000B, U+000C, U+000D,
+ * U+0020}, which subsumes `\r`/`\n`/`\r\n` — to one U+0020 and trims that
+ * same set from both ends; non-ASCII whitespace (e.g. U+00A0) lies outside
+ * the set and survives verbatim. The predicate and the escape pass below
+ * therefore never see an interpolated value carrying a line break. Unquoted
+ * when the sanitised string is non-empty and matches {@link UNQUOTED_STRING};
+ * otherwise quoted as U+0022, the body with each `\` replaced by `\\` and
+ * each `"` by `\"` (backslash first so the escapes are not re-doubled), then
+ * a closing U+0022. The empty string, and a value that sanitises to empty,
+ * render as `""`.
  */
 function renderString(value: string): string {
-  if (value.length > 0 && UNQUOTED_STRING.test(value)) {
-    return value;
+  const sanitized = sanitizeSystemNoteSubstring(value);
+  if (sanitized.length > 0 && UNQUOTED_STRING.test(sanitized)) {
+    return sanitized;
   }
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const escaped = sanitized.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `"${escaped}"`;
 }
 
