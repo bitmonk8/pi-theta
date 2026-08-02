@@ -6,6 +6,39 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-08-02
+
+### Fixed
+
+- **A union whose last arm is a generic application was captured whole as one
+  generic and never split** (bug 0043). `lowerTypeExpr`, the single recursive
+  lowerer behind four of the five registered `Type` positions, tested for a
+  generic application before it split a union, and it asked that question of the
+  whole source: a `<` anywhere past the first character plus a trailing `>`.
+  Every union whose last arm ended in `>` answered yes on that arm's own closing
+  bracket. `integer | array<integer>` lowered `{}` at the alias, `schema`-body
+  field, `params:` and `@<T>` positions — an AJV envelope built from it accepted
+  `"not an integer"`, `{"nope":true}` and `null` and rejected nothing — while an
+  `array`-headed spelling lowered the wrong concrete type
+  `{"type":"array","items":{}}`, so `params: p: array<string> | integer |
+  array<boolean>` refused the `3` its own `integer` arm admits and accepted
+  `[{"junk":1}]`, which no arm admits. The union split now runs ahead of the
+  generic test, so each arm lowers on its own terms and is combined per SUBS-1
+  (`{"anyOf":[…]}`, arms in source order). The lowered bytes are conveyed to the
+  model in the QRY-15 instruction and hash into the `__theta_respond_<slug>`
+  tool name, so affected annotations stop sharing one slug and, having an
+  `anyOf` root, move from the pass-through respond-tool wire form to the `value`
+  envelope — both forms already specified.
+- **`theta/parse/unresolved-named-type` under-emitted for a name inside an
+  `array`-headed union** (bug 0043, second element). `schema M = array<Ghost> |
+  array<integer>` raised nothing, where the same undeclared name one arm later
+  (`schema M = integer | array<Ghost>`) raised: the mis-sliced generic argument
+  was never identifier-shaped, so it never reached the resolution arm. Each arm
+  now lowers through that arm, and `Ghost` raises the same one diagnostic in
+  every spelling at all four positions. No registry edit — the row's trigger is
+  stated by position and already covered them; the code merely stopped
+  under-emitting against it.
+
 ## [0.52.0] - 2026-08-02
 
 ### Fixed

@@ -208,7 +208,18 @@ position (`schema X = Cat |`) with it; cells n11, n24 and n29 were rewritten
 in place under that report's §Fix constraint 4, and the residue statement's own
 silence is unchanged. (ii) A union arm shape the shared lowerer does
 not support (e.g. a generic arm) keeps the pre-existing permissive `{}` —
-field-position parity, unchanged. (iii) `theta/parse/unknown-identifier`'s
+field-position parity, unchanged. Filed as
+[0043](./0043-union-nonprimitive-arm-lowers-permissive.md) and discharged by
+its fix (0.53.0), which corrects the record in three ways: the shared
+lowerer *does* support `array<T>` (`schema M = array<integer> | integer`
+already lowered the spec-correct `anyOf`); the `{}` was not confined to one
+arm but replaced the whole union, discarding the primitive arms too; and one
+family of these inputs (an `array`-headed union, e.g. `array<string> |
+array<integer>`) lowered not `{}` but a concrete wrong `array` type.
+`lowerTypeExpr` (`src/parser/params.ts`) now splits a union before testing
+for a generic application, so an `array<T>` arm — anywhere in the union, not
+only alone — lowers per SUBS-1 like every other arm. (iii)
+`theta/parse/unknown-identifier`'s
 double-emission with `unresolved-named-type` for keyword-shaped names
 (`void`) exists at BOTH the alias and field positions — pre-existing,
 unfiled. (iv) The inline `{}` empty-object rule of grammar.md:109

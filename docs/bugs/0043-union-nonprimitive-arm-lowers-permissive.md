@@ -1,6 +1,9 @@
 # Bug 0043 — `lowerTypeExpr` tests for a generic application before it splits a union, so any union whose last arm is `array<T>` is captured whole as one generic: `integer | array<integer>` lowers to `{}` at all four `Type` positions, and an `array`-headed spelling lowers to the concrete wrong type `{"type":"array","items":{}}` while swallowing the `theta/parse/unresolved-named-type` a name inside it owes
 
-- **Status:** open.
+- **Status:** fixed (0.53.0). Both elements closed by the one reordering the
+  §Fix settles — the union split runs ahead of the generic-application test, so
+  every arm lowers on its own terms and a `NamedType` in any arm reaches the
+  resolution arm. See §Fix (0.53.0) below.
 - **Kind:** defect, two elements on one frame. (1) *The lowering disagrees with
   SUBS-1.* `docs/spec_topics/schema-subset.md:81` requires that "a union with
   any non-primitive arm MUST lower to `{ "anyOf": [...] }`", and `:77` gives
@@ -125,6 +128,163 @@
   model, no provider. Scratch vitest driving `parseThetaDocument`,
   `lowerQueryResponseSchema`, `lowerTypeExpr` / `lowerUnion` and a real
   `Ajv2020` compile; written, run, deleted.
+
+## Fix (0.53.0)
+
+The settled §Fix below is discharged exactly as written: in `lowerTypeExpr`
+(`src/parser/params.ts`) the union block now runs above the generic-application
+block. One frame, one reordering — the moved generic block is byte-identical to
+the block that was removed, and `lowerUnion`, `lowerTypeSource`,
+`lowerParamsFieldType`, `hoistInlineObjectType`, `splitTopLevel` and all four
+callers are untouched. Both elements close together: each arm lowers through
+the same function as a single term and is combined by `lowerUnion` per SUBS-1
+(`docs/spec_topics/schema-subset.md:81`, arms in source order per `:85`), and
+every arm reaching the identifier arm is what makes a `NamedType` inside an
+`array`-headed spelling append to `lowerCtx.unresolved` and raise
+`theta/parse/unresolved-named-type` at all four positions.
+
+**No spec, registry, `docs/reference/` or `permitted-codes.json` edit.** DIAG-2
+held: no new code, no new row, no widened trigger. The
+`theta/parse/unresolved-named-type` row
+(`docs/spec_topics/diagnostics/code-registry-parse.md:90` — `:89` in the
+§Provenance cite, one line of drift) states its trigger by POSITION ("a
+`NamedType` that resolves to no declaration usable at the position it is
+written", five positions, four of them this frame's), not by which type shapes
+may carry such a name, so the newly-firing emissions sit inside the set the row
+already describes: before the fix the row over-stated what the implementation
+did, after it the two agree. No committed H9a fixture reaches a parse/load
+diagnostic, so the EMPTY-CAPTURE stderr gate is untouched (verified by the
+acceptance run, not inferred).
+
+**The stale records the §Fix names are corrected in the same commit** — with one
+deviation, recorded below. `src/parser/theta-document.ts`'s `collectBodyTypes`
+comment now states the arm-by-arm truth (an arm the lowerer cannot resolve alone
+keeps `{}` as ONE `anyOf` variant, never as the whole union).
+`docs/bugs/0033-…md` §Fix (0.45.0) residual (ii) gained an appended discharge
+note naming the three ways it was wrong; nothing was deleted from it.
+`src/runtime/query-schema-lowering.ts`'s arm-2 trigger list needed **no** edit:
+it enumerates its three real triggers and never asserted that a union source
+could reach it, so it was accurate-if-incomplete before and is
+accurate-and-complete after — the code fix alone closes it. A FOURTH record the
+doc could not know about was corrected with them: `lowerTypeSource`'s
+doc-comment (`src/parser/body-type-lowering.ts`, added by bug 0039 in 0.49.0)
+named the pre-emption as a live exception its brace-free hand-off had to
+preserve. That exception is gone, and the hand-off is now byte-equivalent to a
+local split (proved by probe over nine union shapes), so only the SHREDDED guard
+remains behavioural. Comment only; neither guard's code moved.
+
+**The defect family had NARROWED since §Reproduction was written** (0.45.0;
+seven fixes landed between). The pre-fix baseline was re-derived at
+`d06daae3` with a scratch probe over all four positions before any assertion was
+pinned, and §Reproduction reproduces byte for byte except in three places:
+
+- **`{a: integer} | array<integer>` has three different per-position answers,
+  not one `{}`.** Bug 0039 (0.49.0) gave `lowerTypeSource` a brace-arm dispatch,
+  so the ALIAS and ANNOTATION positions already lowered
+  `{"anyOf":[{"$ref":"#/$defs/__inline_<slug>"},{"type":"array","items":
+  {"type":"integer"}}]}` — correct before this fix and unmoved by it. The
+  `params:` position uses `lowerParamsFieldType`'s naive
+  `startsWith("{") && endsWith("}")` check, which a source ending `>` fails, so
+  it alone still reached the frame; it moves from `{}` to
+  `{"anyOf":[{},{"type":"array","items":{"type":"integer"}}]}`, the permissive
+  fragment surviving as one variant (§Non-goals' inline-object arm, kept). The
+  SCHEMA-BODY FIELD position cannot carry the spelling at all —
+  `schema S { a: {a: integer} | array<…> }` is refused by
+  `theta/parse/empty-schema-body` before any lowering, a pre-existing parser
+  limitation outside this frame. So the defect family at HEAD was the
+  brace-FREE unions with a generic tail (`integer | array<integer>`,
+  `Triage | array<integer>`, every `array`-headed spelling), plus the `params:`
+  position's brace-carrying variant.
+- **`string | Result<integer, string>` is listed as a control but is not one.**
+  It carries a top-level `|`, so §Fix's own rule ("a no-op for every source
+  WITHOUT a top-level `|`") puts it inside the changed set: it moves from `{}`
+  to `{"anyOf":[{"type":"string"},{}]}`. The `Result` ARM keeps its permissive
+  `{}`, which is what §Non-goals preserves — that non-goal is about the
+  single-term triggers of arm 2, and only the union wrapper changes. Its
+  `theta/parse/result-in-schema-position` diagnostic does not move.
+- **Line drift throughout.** The frame is `params.ts:391` (generic block
+  `:394–409`, union split `:411–427`, catch-all `:429–460`), not
+  `:357`/`:360–375`/`:377–393`; the `theta-document.ts` record is `:1191–1197`,
+  not `:1151–1156`; the registry row is `:90`, not `:89`; `schemas.md`
+  §Recursion is `:123` and the pure-alias-cycle rule `:147`, not `:119`/`:143`.
+
+**Offline lock.** `tests/union-generic-arm-lowering.test.ts` (73 cells, unit,
+offline, provider-free): (a) the `integer | array<T>` spelling at all four
+positions; (b) the `array`-headed spelling, including the `$defs` registration
+`array<Cat> | array<Dog>` used to lose entirely; (c) six reversed-arm mirrors
+that production already emitted at HEAD, so every expected value is stated twice
+— once as what must start happening, once as what already happens one arm along;
+(d) a real `AjvSchemaValidator` accept/reject table over both lowered documents,
+including the inverting `{"p":3}` cell; (e) `theta/parse/unresolved-named-type`
+parity across the `Ghost` triple × four positions, the expected message read
+from the registry (DIAG-4), never hardcoded; (f) `respondSchemaSlug` no longer
+collapsing onto `44136fa355b3678a` or `4718677af1cfaad3`; (g) no-op cells for
+`array<integer>`, `array<integer|string>`, `array<{}>`,
+`array<{x: integer, y: string}>`, `Result<integer, string>`, the literal union
+`"x" | "y"` and `"a" | Triage`; (h) 0033 cell n25's own fixture
+(`schema X = integer | array<X>`) and its reversed mirror; (i)/(j) the two
+§Reproduction drifts above, pinned so a change there reds as itself. Verified in
+both directions: neutralising the reorder in place reds exactly 40 of the 73 and
+reds the moved 0039 cell, restored byte-exact by blob hash
+(`eb2d2047903161a6e2aa2d79db5ae2120d208999` before and after), green again after.
+Full gate 243 files / 3285 tests; typecheck and lint clean; the committed-fixture
+parse gate green (no committed `.theta`/`.thetalib` carries the shape, so none
+changed disposition).
+
+**Live.** No shipped live test exercises a union with a generic tail
+(`tests/live/**` carries none). H8a `live-production-acceptance` 7/7 and H9a
+`tests/live/acceptance/` 11/11 green, run twice for real against
+`claude-sonnet-5`. A scratch live probe supplied the missing end-to-end
+coverage and was deleted after (the 0033 precedent): two cells over planted
+thetas, one asserting that `array<Ghost> | array<integer>` at the `@<T>`
+position now refuses registration and lands the parse note, one driving
+`array<string> | integer | array<boolean>` through a real turn. Both red under
+neutralisation and green restored. The second red is the sharpest evidence in
+this record: told to answer with the integer `7`, the live model unprompted
+returned `[7]` — satisfying the pre-fix wrong concrete type
+`{"type":"array","items":{}}` that §Summary's K2 row predicts, conveyed to it
+verbatim through the QRY-15 instruction.
+
+**One existing pin moved, pre-authorized.**
+`tests/inline-object-nested-lowering.test.ts`'s `braceFree` cell
+`Triage | array<integer>` moves from `{}` to the SUBS-1 `anyOf`. Authority: this
+§Fix pre-describes the union family's correction, and bug 0039's own fix report
+pinned the cell in explicit anticipation ("0043's family statement should be
+narrowed to the brace-free subset"). The other two rows of that table are
+byte-identical, and 0039's doc gained a dated discharge note on the residual.
+No other existing test changed.
+
+**Residuals.** (i) The changed set is exactly {top-level `|` ∧ `<` past index 0
+∧ trailing `>`} and contains members neither enumerated in §Reproduction nor
+pinned by any test: a literal arm with a generic tail (`"x" | array<integer>`),
+a SHREDDED brace source with a generic tail
+(`{a: string|null} | array<integer>`, whose angle-only `|` split cuts the group
+into unbalanced pieces), and a doubled separator with a generic tail
+(`Cat | | array<integer>`). All three move from `{}` to an `anyOf` carrying one
+or more permissive variants. §Fix's general rule covers them and a carve-out
+would need the new arm §Fix forbids; acceptance semantics do not move (both
+forms accept everything), and the movement makes the pre-existing shredded-set
+rationale true without exception where it was previously false for `>`-ending
+sources. Unpinned; worth pinning when
+[0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md) or
+[0061](./0061-nonparams-type-positions-keep-junk-arm-text-silent.md) re-derive.
+(ii) `respondSchemaSlug` and the respond-tool wire form move for the affected
+annotations, as §Fix's blast radius predicts: an `anyOf` root is not
+argument-object-satisfiable, so those annotations cross from the pass-through
+form to the `value` envelope (`src/runtime/respond-tool-wire.ts`). Both forms
+are specified; the crossing is unpinned by any wire-shape test of its own.
+(iii) The `params:` position still has no literal sublanguage
+(`p: "x" | "y"` lowers `anyOf: [{}, {}]` where the `lowerTypeSource` positions
+lower `{enum:[…]}`) — pre-existing, byte-unchanged here, and pinned as a
+no-op cell so a change reds as itself.
+[0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md) owns the
+`{enum:[…]}` bytes; they did not move. (iv) §Non-goals hold as written: the
+inline-object union arm keeps `{}` as one variant
+([0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md)),
+the three single-term triggers of the permissive-`{}` arm 2 keep theirs
+([0028](./0028-unresolved-annotation-silent-permissive-lowering.md)), a literal
+arm of a mixed union still lowers `{}`, and `splitTopLevel`'s angle-only default
+nesting is unchanged. All unfiled.
 
 ## Summary
 

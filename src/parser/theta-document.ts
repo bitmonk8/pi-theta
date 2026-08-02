@@ -1188,18 +1188,21 @@ function collectBodyTypes(
   // Lower each named type to the JSON-Schema fragment a `params:` `NamedType`
   // resolves to (BIND-1): schema object bodies and enum wire-value sets lower
   // concretely, and alias/union right-hand sides lower through the same shared
-  // lowerer the object form's field types use (a union arm shape that lowerer
-  // does not support — e.g. a generic arm — keeps its existing permissive
-  // `{}`) (bug 0033 §Fix widened the alias/union case from the permissive
-  // fallback below to a real lowering, seeded in `buildBodyTypeSchemas`' own
-  // pass 1); a schema with NEITHER an object body nor alias arms (the
-  // head-only / malformed form) and an imported symbol lower permissively to
-  // `{}` — the name still resolves, so
-  // `theta/parse/unresolved-named-type` does not fire, and the `params:`
-  // schema is present (not mis-classified as no-params). A `schema` body field
-  // type or an alias/union arm may itself hoist an `__inline_<slug>` fragment
-  // now (bug 0039 §Fix), so this pass also carries the document-scoped
-  // slug-collision sink through to a registered diagnostic.
+  // lowerer the object form's field types use, arm by arm — so `array<T>` and
+  // every other arm shape that lowerer can lower on its own terms lower
+  // concretely as a union arm, not only in isolation (a union arm the lowerer
+  // genuinely cannot resolve alone — an unresolved name, a non-`array` generic
+  // such as `Result<T, E>`, or a literal beside a non-literal arm — still
+  // keeps `{}` there, as one `anyOf` variant, never as the whole union) (bug
+  // 0033 §Fix widened the alias/union case from the permissive fallback below
+  // to a real lowering, seeded in `buildBodyTypeSchemas`' own pass 1); a
+  // schema with NEITHER an object body nor alias arms (the head-only /
+  // malformed form) and an imported symbol lower permissively to `{}` — the
+  // name still resolves, so `theta/parse/unresolved-named-type` does not fire,
+  // and the `params:` schema is present (not mis-classified as no-params). A
+  // `schema` body field type or an alias/union arm may itself hoist an
+  // `__inline_<slug>` fragment now (bug 0039 §Fix), so this pass also carries
+  // the document-scoped slug-collision sink through to a registered diagnostic.
   const collisions: SchemaSlugCollision[] = [];
   const lowered = buildBodyTypeSchemas(schemaDecls, enumDecls, collisions);
   for (const decl of schemaDecls) {

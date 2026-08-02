@@ -303,20 +303,21 @@ function isBraceBalanced(s: string): boolean {
  * to re-enter here or a nested `"x" | "y"` would lower `anyOf: [{}, {}]`
  * instead of the SUBS-1 enum form.
  *
- * THE ARM DISPATCH IS GUARDED TWICE, and both guards are behavioural rather
- * than optimisations. A union with no brace-group arm is handed WHOLE to
- * `lowerTypeExpr` exactly as before, which re-splits it identically — except
- * where its own generic check pre-empts that split (a union whose last arm
- * ends in `>` lowers to a bare `{}`). That pre-emption is pre-existing and
- * outside this fix's subject, so a brace-free union must keep reaching it;
- * splitting here unconditionally would move bytes for unions the fix never
- * assessed. A union whose segment set is SHREDDED — the angle-only `|` split
- * cut through a brace group, so at least one segment is unbalanced — is handed
- * whole to `lowerTypeExpr` too, because a shredded set's segments are pieces
- * of a type rather than types (`isBraceBalanced` above states why a balanced
- * piece is no exception). Arm ORDER is source order, and the SUBS-1
- * combination is `lowerUnion`'s, so an arm that is not an inline object lowers
- * through the same call `lowerTypeExpr`'s union branch would have made on it.
+ * THE ARM DISPATCH IS GUARDED TWICE, but only the SHREDDED guard below is
+ * behavioural. A union with no brace-group arm is handed WHOLE to
+ * `lowerTypeExpr` exactly as before, which re-splits it identically — bug 0043
+ * §Fix retired the exception: `lowerTypeExpr`'s own generic check no longer
+ * pre-empts that split, so a union whose last arm ends in `>` reaches the same
+ * split as any other union does. Splitting here unconditionally would
+ * therefore move no bytes; the hand-off survives only because it is the
+ * simpler of the two routes that now agree. A union whose segment set is
+ * SHREDDED — the angle-only `|` split cut through a brace group, so at least
+ * one segment is unbalanced — is handed whole to `lowerTypeExpr` too, because
+ * a shredded set's segments are pieces of a type rather than types
+ * (`isBraceBalanced` above states why a balanced piece is no exception). Arm
+ * ORDER is source order, and the SUBS-1 combination is `lowerUnion`'s, so an
+ * arm that is not an inline object lowers through the same call
+ * `lowerTypeExpr`'s union branch would have made on it.
  *
  * `unresolved`, when supplied, is a SINK (bug 0028 §Fix): every `NamedType`
  * name `lowerTypeExpr` cannot resolve against `bodyTypeMap` is appended to it.

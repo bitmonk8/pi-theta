@@ -1813,13 +1813,27 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
     }
 
     // A union with NO brace arm is handed whole to `lowerTypeExpr` exactly as
-    // before, which is what keeps the shapes bug 0039 never assessed frozen —
-    // including the one where that function's generic check pre-empts its own
-    // union split.
+    // before, which is what keeps the shapes bug 0039 never assessed frozen.
+    // `lowerTypeExpr` itself now splits that union before testing for a
+    // generic application (bug 0043 §Fix), so the third row below moved: it
+    // is what the retired pre-emption used to swallow. The first two rows
+    // never reached that pre-emption at all — neither source ends in `>` —
+    // so they stay exactly as they were.
     const braceFree: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
       ["Triage | integer", { anyOf: [{ $ref: "#/$defs/Triage" }, { type: "integer" }] }],
       ["string | null", { type: ["string", "null"] }],
-      ["Triage | array<integer>", {}],
+      // post-fix bytes: bug 0043 §Fix reorders `lowerTypeExpr` to split a
+      // union before testing for a generic application, so this brace-free
+      // union — whose last arm is `array<integer>` — now splits and lowers
+      // per SUBS-1 instead of collapsing to `{}`. Pinned in anticipation by
+      // bug 0039's own fix report, `.pi/tmp/fixes/0039-report.md` residual 5:
+      // "Brace-free unions (`Triage | array<integer>`) stay `{}` and are
+      // pinned. 0043's family statement should be narrowed to the
+      // brace-free subset."
+      [
+        "Triage | array<integer>",
+        { anyOf: [{ $ref: "#/$defs/Triage" }, { type: "array", items: { type: "integer" } }] },
+      ],
     ];
     for (const [source, expected] of braceFree) {
       const lowered = lowerTypeSource(source, triageMap(), {}, []);

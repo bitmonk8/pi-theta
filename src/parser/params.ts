@@ -360,11 +360,14 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Lower a single `params:` type expression to its JSON-Schema fragment,
  * resolving every `NamedType` whole-file against `lowerCtx.bodyTypeMap`:
  *
+ *   - a union `A | B` lowers per SUBS-1 (`{ "type": [...] }` all-primitive,
+ *     else `{ "anyOf": [...] }`) — split BEFORE the generic-application test
+ *     below, so a union whose last arm is itself a generic application splits
+ *     into arms rather than being consumed whole as one generic (bug 0043
+ *     §Fix);
+ *   - `array<T>` lowers to `{ "type": "array", "items": <lowered T> }`;
  *   - a primitive (`string`/`number`/`integer`/`boolean`/`null`) lowers to
  *     `{ "type": <name> }`;
- *   - `array<T>` lowers to `{ "type": "array", "items": <lowered T> }`;
- *   - a union `A | B` lowers per SUBS-1 (`{ "type": [...] }` all-primitive, else
- *     `{ "anyOf": [...] }`);
  *   - an identifier-shaped `NamedType` resolves against the body declarations,
  *     lowering to an in-document `{ "$ref": "#/$defs/<name>" }` (and registering
  *     the resolved fragment under `$defs`), or — when it resolves to no
@@ -391,24 +394,14 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string, unknown> {
   const s = source.trim();
 
-  // Generic application: `ctor<args>`.
-  const lt = s.indexOf("<");
-  if (lt > 0 && s.endsWith(">")) {
-    const ctor = s.slice(0, lt).trim();
-    const args = splitTopLevel(s.slice(lt + 1, s.length - 1), ",");
-    if (ctor === "array" && args.length === 1) {
-      const first = args[0] ?? "";
-      return { type: "array", items: lowerTypeExpr(first, lowerCtx) };
-    }
-    // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
-    // resolve nested named types best-effort, lower permissively.
-    for (const arg of args) {
-      lowerTypeExpr(arg, lowerCtx);
-    }
-    return {};
-  }
-
-  // Union: lower each arm and combine per SUBS-1.
+  // Union: lower each arm and combine per SUBS-1. THIS RUNS BEFORE THE
+  // GENERIC-APPLICATION TEST BELOW (bug 0043 §Fix): that test is positional,
+  // not structural — a `<` anywhere past index 0 plus the source ENDING in
+  // `>` — so a union whose LAST arm ends in `>` (an `array<T>` arm, or any
+  // other generic application) satisfies it on the union's OWN trailing `>`
+  // and would otherwise be consumed whole as one generic application,
+  // discarding every arm, including the primitive ones (SUBS-1,
+  // schema-subset.md:81).
   const arms = splitTopLevel(s, "|");
   if (arms.length > 1) {
     const loweredArms: LoweredUnionArm[] = arms.map((arm) => {
@@ -424,6 +417,23 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
       return { kind: "non-primitive", lowered };
     });
     return { ...lowerUnion(loweredArms) };
+  }
+
+  // Generic application: `ctor<args>`.
+  const lt = s.indexOf("<");
+  if (lt > 0 && s.endsWith(">")) {
+    const ctor = s.slice(0, lt).trim();
+    const args = splitTopLevel(s.slice(lt + 1, s.length - 1), ",");
+    if (ctor === "array" && args.length === 1) {
+      const first = args[0] ?? "";
+      return { type: "array", items: lowerTypeExpr(first, lowerCtx) };
+    }
+    // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
+    // resolve nested named types best-effort, lower permissively.
+    for (const arg of args) {
+      lowerTypeExpr(arg, lowerCtx);
+    }
+    return {};
   }
 
   // Atom.

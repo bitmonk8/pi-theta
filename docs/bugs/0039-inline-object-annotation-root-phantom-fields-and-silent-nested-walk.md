@@ -274,7 +274,18 @@ but a mismatch there is retained without a report. (iv) `hoistNestedDefs`
 first-wins with no byte comparison — a surface that did not exist while only
 `params:` minted. (v) Bug 0043's family narrows: `{a: integer} | array<integer>`
 lowered `{}` (swallowed by `lowerTypeExpr`'s generic pre-emption) and now lowers
-`anyOf: [{$ref}, {type: array}]`; brace-free unions stay `{}`. (vi) Bug 0044's
+`anyOf: [{$ref}, {type: array}]`; brace-free unions stay `{}`. Discharged by
+bug [0043](./0043-union-nonprimitive-arm-lowers-permissive.md)'s fix (0.53.0),
+which retired the pre-emption itself: `lowerTypeExpr` splits a union before
+testing for a generic application, so the brace-free unions this residual
+left `{}` now lower per SUBS-1 too. The `braceFree` cell that pinned
+`Triage | array<integer>` to `{}`
+(`tests/inline-object-nested-lowering.test.ts`) moved to the `anyOf` under
+that fix's authority; the other two rows are byte-unchanged, and the
+brace-arm dispatch this report added is untouched — at the `params:`
+position, whose naive brace check declines a source ending `>`,
+`{a: integer} | array<integer>` moves from `{}` to `anyOf: [{}, {type:
+array}]`, the permissive fragment surviving as one variant. (vi) Bug 0044's
 blast radius widens: keyword-shaped text at the newly-descended sites now draws
 the row (`@<{a: {b: match}}>` refuses). (vii) `lowerTypeSource`'s literal-union
 arm emits a bare `{ enum: [...] }` where SUBS-1 (schema-subset.md `:81`) spells
