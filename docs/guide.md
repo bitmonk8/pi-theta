@@ -184,8 +184,8 @@ The file-extension split is the language's only structural separation between
 callable surface and reusable building blocks. Code inside a `.thetalib` `fn` body
 uses the full language, including queries; when such a function is called, its
 queries execute against the *calling* `.theta`'s conversation. Import paths are
-relative and must end in `.thetalib`; the resolution and re-export rules are in the
-[grammar reference](./reference/grammar.md#source-files).
+relative and must end in `.thetalib`; the import / export grammar and re-export
+rules are in the [grammar reference](./reference/grammar.md#imports-and-re-exports).
 
 ## What a theta cannot do
 

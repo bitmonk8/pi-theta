@@ -1873,6 +1873,16 @@ async function collectCallableClosureSources(
     sources.push({ path: absPath, content: decoder.decode(bytes) });
     const document = parseThetaDocument({ path: absPath, bytes }, deps);
     for (const statement of document.body.statements) {
+      // Invariant: `statement.path` is `""` only for a statement already
+      // refused at parse time (`theta/parse/import-missing-from-clause`,
+      // imports.md §"Re-exports"; bug 0058 §Fix constraint 3), but that is
+      // not the only route: an empty path literal is refused separately, by
+      // the extension check. This walk re-parses each closure member on its own
+      // and never reads `document.diagnostics`, so a refused statement's
+      // empty path can still reach here; it resolves to the containing
+      // directory, which `readBytes` below fails, and the walk already drops
+      // it with no source added and no recursion — recorded as the input
+      // class this branch now sees, not a guard it needs to add.
       if (statement.kind === "import" || statement.kind === "export") {
         const importAbs = isAbsolute(statement.path)
           ? statement.path

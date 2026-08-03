@@ -28,6 +28,32 @@ zero-or-more; `+` one-or-more; quoted strings are terminals.
   ASCII** everywhere (discovery glob, `import`, `invoke`, `tools:` entries,
   settings/CLI). No case-folding at any site.
 
+## Imports and re-exports
+
+```
+ImportDecl ::= "import" "{" ImportSpec ("," ImportSpec)* ","? "}" "from" STRING
+ExportDecl ::= "export" "{" ExportSpec ("," ExportSpec)* ","? "}" "from" STRING
+ImportSpec ::= Ident ("as" Ident)?
+ExportSpec ::= Ident ("as" Ident)?
+```
+
+`import` binds each specifier's local name (the `as` alias, or the source name
+when unaliased) in the importing `.theta` or `.thetalib` file. `export`
+re-exports a symbol from another `.thetalib` file and creates no local binding
+of its own; the downstream-visible name is the alias, or the source name when
+unaliased. A plain `import` does not re-export its local: only declarations and
+`export ... from` re-exports are visible to a downstream importer.
+
+Path literals follow the [Source files](#source-files) forward-slash rule; an
+`import` / `export ... from` path literal additionally must end in
+`.thetalib`, or it is `theta/parse/import-non-thetalib-extension`.
+
+A specifier list with no `from` clause — the bare keyword, an empty list, or a
+`from` clause with no path-literal token after it — is
+`theta/parse/import-missing-from-clause`. A specifier naming a symbol absent
+from the resolved `.thetalib` file's declarations and re-exports is
+`theta/parse/import-unknown-symbol`.
+
 ## Identifiers
 
 `[A-Za-z_][A-Za-z0-9_]*`, case-sensitive. First-letter case is enforced:
@@ -559,6 +585,10 @@ ToolField ::= Ident ":" Expr
   `docs/rfcs/0001-subagent-fn.md` (accepted; Proposal — Semantics).
 - `return` (RET-1…RET-3): `docs/spec_topics/return.md`.
 - Bindings & mutability: `docs/spec_topics/bindings.md`.
+- Imports and re-exports (`ImportDecl` / `ExportDecl` grammar, binding rules,
+  path rule, diagnostic codes): `docs/spec_topics/imports.md`; the from-less-form
+  refusal this section documents:
+  `docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`.
 - Same-line rule for postfix index access (a line-leading `[` begins a new
   statement): `docs/bugs/0006-leading-bracket-glued-as-index-access.md`
   (fixed 0.13.0, Option 1).

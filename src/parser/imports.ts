@@ -341,6 +341,44 @@ export function checkImportReservedSynthesisedName(
   };
 }
 
+// ── theta/parse/import-missing-from-clause ─────────────────────────────────────
+
+export const IMPORT_MISSING_FROM_CLAUSE_CODE = "theta/parse/import-missing-from-clause";
+export const IMPORT_MISSING_FROM_CLAUSE_MESSAGE =
+  "import / export specifier list requires a 'from' clause with a .thetalib path literal";
+export const IMPORT_MISSING_FROM_CLAUSE_HINT =
+  "Add a `from` clause naming the `.thetalib` the symbols come from.";
+
+/**
+ * Check an `import` / `export` statement's trailing clause (`parse` phase): a
+ * specifier list is a production only with a `from` clause naming a
+ * `.thetalib` path literal (imports.md §"Re-exports"), so an absent `from`
+ * keyword, or one present with no `string` token after it, is
+ * `theta/parse/import-missing-from-clause`. One call answers for the WHOLE
+ * statement — `parseImportExport` calls this once, after the specifier list
+ * and the trailing clause are both consumed, ranged over the statement rather
+ * than a specifier — unlike `checkImportReservedSynthesisedName` above, which
+ * answers a per-specifier question and stays per-specifier on the same
+ * from-less input (bug 0058 §Fix constraint 1: the two checks co-emit).
+ */
+export function checkImportMissingFromClause(
+  hasFromKeyword: boolean,
+  hasPathLiteral: boolean,
+  site: ImportSite,
+): Diagnostic | undefined {
+  if (hasFromKeyword && hasPathLiteral) {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: IMPORT_MISSING_FROM_CLAUSE_CODE,
+    file: site.file,
+    range: site.range,
+    message: IMPORT_MISSING_FROM_CLAUSE_MESSAGE,
+    hint: IMPORT_MISSING_FROM_CLAUSE_HINT,
+  };
+}
+
 /** A single `import { … }` / `export { … } from` specifier. */
 export interface ImportSpecifier {
   /** The symbol as named in the resolved `.thetalib` file (the source symbol). */

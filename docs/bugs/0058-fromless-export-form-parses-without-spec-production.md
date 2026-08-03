@@ -1,7 +1,10 @@
 # Bug 0058 — The from-less `export { … }` form is a production of no spec page — imports.md spells the re-export only with `from`, grammar.md defines no `ExportDecl` — yet `parseImportExport` makes the `from` clause optional and accepts the shape with zero diagnostics: in a `.thetalib` it adds a downstream-visible export name backed by no file, taking a plain import's local out of `theta/parse/import-unknown-symbol`'s emission set — the one rule imports.md `:36` states negatively — while materialising nothing; in a `.theta` it takes an undeclared name out of `theta/parse/unknown-identifier`'s emission set at expression position
 
-- **Status:** open. §Fix recommends one of the two routes it adjudicates —
-  refuse the shape — and pins the constraints on that route. The evidence
+- **Status:** fixed (0.60.0). §Fix as settled — the recommended route: the
+  from-less form is refused at parse time by
+  `theta/parse/import-missing-from-clause`, imports.md gained the `ImportDecl` /
+  `ExportDecl` productions, and `export` symbols no longer seed a `.theta`'s
+  identifier root scope. See §Fix (0.60.0) below. The evidence
   selects it: the form's three reachable input classes deliver, respectively,
   nothing (the name is already auto-exported), a downstream export name that
   binds nothing, and the reversal of a spec-stated negative rule. Specifying
@@ -159,6 +162,164 @@
   model, no provider. Scratch vitest driving the real `parseThetaDocument` and
   the real `checkThetaImports` over an in-memory `FileSystem` double; written,
   run, deleted.
+
+## Fix (0.60.0)
+
+The settled §Fix, implemented as written on its recommended route: refuse the
+shape. Two review rounds (round 1 deep, round 2 fast) and one fixer round; no
+round raised a `correctness`, `fidelity` or `spec` finding against the refusal
+itself — round 1's single blocker and both rounds' residuals were stale comment
+prose. Line anchors are at the fix commit.
+
+**Reproduction re-derived at the fix baseline** (`3e190fbc`, 0.59.0), before any
+assertion was pinned: every row of §Reproduction reproduces byte-identically at
+HEAD — the three input classes and their controls, the measured
+`theta/parse/import-unknown-symbol` pair, the alias, the from-bearing
+materialisation contrast, the six parse-only spellings and their nodes, the
+bug-0040 co-emission rows, and the nine `.theta` scope rows. **Behavioural drift:
+zero.** The doc's registry citations are off by one at HEAD
+(`code-registry-parse.md:110` is `import-name-collision`; `:111` is
+`import-unknown-symbol`; `:112` is `import-reserved-synthesised-name`), and
+`theta-document.ts` has moved across the 0044 / 0045 / 0053 / 0055 fixes
+(`parseImportExport` `:2671` → `:2786`, `collectIdentRoots` `:4383` → `:4509`,
+`checkLexicalCallSites` `:5030` → `:5174`). Two rows the doc does not record,
+measured here as baseline: a path-less `import { greet } from` parses silently to
+`{path:"",symbols:["greet"]}`, and a from-less `import { __inline_<16hex> }`
+emits bug 0040's code.
+
+**The refusal.** `checkImportMissingFromClause` (`src/parser/imports.ts`) is a
+pure predicate over the trailing clause — a `from` keyword present AND a path
+literal after it — returning the new error-severity
+`theta/parse/import-missing-from-clause` otherwise. `parseImportExport`
+(`src/parser/theta-document.ts`) tracks both facts as it consumes the clause and
+raises the diagnostic onto `this.diagnostics` beside the existing
+`validatePathLiteral` call — the seam bug 0040 established, which makes
+`parseThetaDocument` alone the witness with no `.thetalib` resolution required.
+**One diagnostic per statement**, ranged over the statement: the node's
+`spanRange(kw.range, this.prevRange())` is hoisted to a `const` and shared, so
+the diagnostic range and the node range are the same span by construction. The
+returned node's shape is untouched (`path: ""` stays); the refusal is the
+observable. §Fix constraint 1 holds: bug 0040's per-specifier
+`theta/parse/import-reserved-synthesised-name` is unnarrowed and **co-emits** on
+a from-less reserved-name specifier, each provable red-able alone.
+
+**Constraint 2 — `.theta` scope stops gaining export names.** `collectIdentRoots`
+and `checkLexicalCallSites` drop their `case "export":` fall-through, so only
+`import` symbols seed the whole-file identifier root scope and `fnImportDecls`.
+The basis is spec-stated, not inferred: expressions.md `:47` arm (3) is "A symbol
+imported from a `.thetalib` file", and imports.md `:29` says a re-export "creates
+no local binding". The measured control is the pin in both directions — a bare
+`Ghost("x")` raises `theta/parse/unknown-identifier`; a from-**bearing**
+`export { Ghost } from "./lib.thetalib"` beside it now raises it too; an
+`import { Ghost } from "./lib.thetalib"` beside it still does not. The three
+sibling prose sites that described the old behaviour were re-derived with it.
+
+**Constraint 3 — the empty-path readers get a contract, deliberately not a
+guard.** `extractThetaLibForms`' `fromPath: stmt.path`
+(`src/extension/import-static-checks.ts`) and `collectCallableClosureSources`'
+`statement.path` resolution (`src/extension/production-composition.ts`) record
+the narrowed input class in place. **The doc's constraint-3 premise is wrong at
+HEAD and the fix does not adopt it:** "after the fix no parsed `ExportDecl`
+reaching them has an empty path" is false, because `checkThetaImports` pushes a
+resolved lib's registration errors and *then* calls `extractThetaLibForms` over
+the same parsed body unconditionally, so a refused-but-parsed lib's `path: ""`
+still reaches that reader. An assert there would crash on refused input. What
+keeps a from-less re-export out of any REGISTERED export set is the pushed
+error, and the comments say so. Both comments also record that the new code is
+not the only route to an empty path: `import { x } from ""` sets a path literal
+and is refused by `theta/parse/import-non-thetalib-extension` instead.
+
+**Spec and registry, same commit (DIAG-2).** imports.md §Re-exports gains the
+four productions in grammar.md `:5`'s notation — `ImportDecl`, `ExportDecl`,
+`ImportSpec`, `ExportSpec`, all `from`-bearing — with the refusal stated on the
+spellings it covers. `docs/spec_topics/grammar.md` is correctly untouched: `:3`
+leaves the surface to its owner page. One new registry row in the Imports
+cluster of `code-registry-parse.md`, directly after
+`theta/parse/import-reserved-synthesised-name`, mirrored into
+`docs/reference/diagnostics.md`. The *Message* carries **no placeholder** —
+the category-3 `<construct>` table is closed (placeholder-rendering-a.md `:45`),
+so a placeholder-free template is the only closure-respecting shape:
+`import / export specifier list requires a 'from' clause with a .thetalib path
+literal`. Constraint 1's re-derivation landed with it: the reserved-name row's
+*Trigger* no longer rests on "a `from`-less list is a shape imports.md defines no
+production for" — a premise this change falsifies — and states the co-emission
+instead. A *Trigger* change, inside the diagnostic-registry carve-out
+(`source-language-stability.md:25`), as is the code addition itself and the
+widened `theta/parse/unknown-identifier` emission set constraint 2 produces.
+
+**Constraint 4 — the user-facing route corrected.** `docs/reference/grammar.md`
+gains `## Imports and re-exports`: the productions, the binding rules, the
+`.thetalib` path rule cross-linked to §Source files, and the three reachable
+codes. `docs/guide.md` repoints from `#source-files` — which carries none of
+this — to `#imports-and-re-exports`, reworded to name what that section holds.
+
+**Blast radius re-measured at the fix baseline, and one correction to the doc's
+census.** 34 committed `.theta` / `.thetalib` files; the only occurrence of the
+token `export` in any of them is the word "exported" in a comment
+(`tests/live/acceptance/fixtures/acc-lib.thetalib:2`); both committed `import`
+statements are from-bearing. The doc's census is accurate for what it measures,
+but it could not reach a fixture that is a TypeScript string literal:
+`tests/reserved-keyword-type-position.test.ts` — named in no §Affected list —
+synthesises `schema X = import` / `schema X = export` inside its 32-keyword
+matrix, and the pre-existing alias-arm-stop recovery leaves the swallowed keyword
+as its own bare `import` / `export` residue statement, which is exactly the shape
+this fix refuses. Measured: `["error theta/parse/empty-schema-body", "error
+theta/parse/import-missing-from-clause"]`, statements `["schema","import","let"]`.
+The two matrix cells gained the second expected code — a strictly additive
+strengthening, no cell weakened, no other cell moved. That input already emitted
+an `E` before the change and so was never in GOV-15's loads-cleanly set.
+
+**Offline lock.** `tests/import-export-from-clause-required.test.ts` (20 tests,
+seven groups): (a0) the DIAG-4 registry anchor — row present, *Message* / *Sev* /
+*Phase* pinned, and every expected string in the file sourced through
+`registryMessage`, never copied prose, with a missing row failing loudly by name
+rather than skipping; (a) the six degenerate spellings, each exactly one
+diagnostic at the statement range, plus a three-specifier list proving
+per-statement not per-specifier; (b) the from-bearing controls silent; (c) the
+imports.md `:36` pair through the real `checkThetaImports` over an in-memory
+`FileSystem` — the control's `theta/parse/import-unknown-symbol` pinned, the
+previously-silenced case now refused at the lib and propagated by IMP-4; (d) the
+`.theta` expression-position control pinned in all three directions; (e) the
+bug-0040 co-emission row and its from-bearing control; (f) the invented
+downstream name refused and still materialising nothing. Verified in three
+directions by targeted neutralisation, each restored byte-exact against its blob
+hash: neutralising the refusal reds exactly (a)/(c)/(e)/(f) (10 of 20);
+neutralising constraint 2 alone reds exactly (d-export) (1 of 20), so the two
+halves are independently witnessed; deleting the registry row reds the DIAG-4
+anchor loudly by name. Full gate 250 files / 3495 tests; typecheck and lint
+clean.
+
+**Live.** H8a `tests/live/live-production-acceptance.test.ts` 7/7 and the H9a
+acceptance suite 11/11 green, including area (g), the only area that loads
+`acc-lib.thetalib` / `acc-imports-invoke.theta`. H9a's empty-capture stderr gate
+and its permitted-code subset check both passed on every spawn, which is the
+measurement — not the assumption — that the new code is fault-injection-only:
+`tests/fixtures/h7a/permitted-codes.json` is correctly unextended. No shipped
+live test exercises the refused form (blast radius zero), so a scratch live probe
+carried the obligation per the bug 0033 precedent: two sibling thetas planted
+through the real H8a harness — one importing from a lib whose whole content is a
+from-less `export { Ghost }`, one importing an ordinary lib and driving a real
+model turn. With the refusal neutralised the bad theta REGISTERS (red); with it
+restored the bad theta un-registers and the control registers and returns its
+sentinel (green). Probe deleted.
+
+**Residuals.** (i) Three spellings the newly published productions exclude still
+parse clean: `import from "./m.thetalib"`, `export from "./m.thetalib"`, and
+`import {} from "./m.thetalib"` (which resolves and registers a lib while binding
+nothing); a dangling `import { a as } from "./m.thetalib"` also drops the alias
+silently. Not refused here on purpose — they load cleanly today, so refusing them
+is outside §Fix's GOV-15 refused set and would breach constraint 6. Same shape as
+the defect this report filed, one level down; unfiled. (ii) The from-bearing
+re-export's materialisation gap is untouched, as §Non-goals scopes: a resolvable
+`export { greet } from "./mid.thetalib"` still passes IMP-3 downstream and
+materialises nothing. Unfiled. (iii) `thetalibLocalBindings`
+(`src/parser/imports.ts`) still has no `src/` caller, so nothing cross-checks the
+local-binding set against the export set; unchanged here, unfiled. (iv) This
+fix's insertions push `hasLoadParseError` in
+`src/extension/production-composition.ts` down by ten lines, staling the
+`:1894–1901` citation carried by bugs 0038, 0040, 0041, 0054, 0059, 0060, 0061,
+0089, 0099 and by two test comments. Pre-existing citation-drift class, not
+reconciled here.
 
 ## Summary
 

@@ -153,6 +153,13 @@ const CONTINUE_OUTSIDE = "theta/parse/continue-outside-loop";
 const BARE_RETURN = "theta/parse/bare-return-in-non-void";
 const UNREACHABLE = "theta/parse/unreachable-code";
 const MATCH_ARM_MISMATCH = "theta/parse/match-arm-type-mismatch";
+/**
+ * The residue row for `stopped("import", …)` / `stopped("export", …)`: the
+ * alias-arm stop leaves a bare `import` / `export` residue — a specifier list
+ * with no `from` clause — which bug 0058 §Fix refuses
+ * (`docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`).
+ */
+const MISSING_FROM_CLAUSE = "theta/parse/import-missing-from-clause";
 
 /**
  * The reserved set read out of its normative source, `docs/spec_topics/lexical.md`
@@ -205,6 +212,7 @@ const ASSERTED_CODES = [
   BARE_RETURN,
   UNREACHABLE,
   MATCH_ARM_MISMATCH,
+  MISSING_FROM_CLAUSE,
 ] as const;
 
 /**
@@ -451,6 +459,15 @@ function matrix(): readonly MatrixRow[] {
     line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", name]]));
   const headSwallowed = [emptyBody("X")];
   const singleLine = line(SINGLE_LINE_IF, msg(SINGLE_LINE_IF, []));
+  // `import` / `export` residue only (bug 0058 §Fix): the swallowed head is
+  // itself a specifier list with no `from` clause, which
+  // `theta/parse/import-missing-from-clause` refuses. The reachable-matrix's
+  // other `headSwallowed` residues (`invoke`, `Ok`, `Err`) are not
+  // `import` / `export` statements, so the refusal does not reach them.
+  const headSwallowedMissingFromClause = [
+    ...headSwallowed,
+    line(MISSING_FROM_CLAUSE, msg(MISSING_FROM_CLAUSE, [])),
+  ];
 
   return [
     stopped("let", [
@@ -496,8 +513,12 @@ function matrix(): readonly MatrixRow[] {
     ]),
     stopped("schema", [emptyBody("X"), emptyBody("\n")]),
     kwOnly("enum"),
-    stopped("import", headSwallowed),
-    stopped("export", headSwallowed),
+    // Bug 0058 §Fix: the alias capture empties the schema first, and the
+    // swallowed `import` / `export` head is itself a specifier list with no
+    // `from` clause, so the residue is BOTH codes — the empty schema and
+    // `theta/parse/import-missing-from-clause`.
+    stopped("import", headSwallowedMissingFromClause),
+    stopped("export", headSwallowedMissingFromClause),
     kwOnly("from"),
     kwOnly("as"),
     kwOnly("by"),

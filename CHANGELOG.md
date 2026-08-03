@@ -6,6 +6,45 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-08-03
+
+### Fixed
+
+- **A specifier list with no `from` clause parsed as a re-export of nothing**
+  (bug 0058). `parseImportExport` handles `import` and `export` in one function
+  and made the `from` clause optional for both, so `export { Ghost }` parsed to
+  an `ExportDecl` with an empty path. No page defined that form: `imports.md`
+  owns the surface and spelled the re-export only as `export { … } from "…"`,
+  and `grammar.md` defines no declaration production for either keyword. The
+  accepted node was not inert — its specifier entered the resolved-export set
+  that `theta/parse/import-unknown-symbol` admits an importing specifier
+  against, while materialisation, a separate walk over the resolved file's
+  declarations, bound nothing. Adding `export { greet }` beside a plain
+  `import { greet } from "./mid.thetalib"` therefore removed the diagnostic that
+  enforces `imports.md`'s one negative rule — a plain import is not re-exported
+  downstream — and still materialised nothing. In a `.theta`, a file no `import`
+  can name, the same statement's symbols reached the whole-file identifier root
+  scope and took an undeclared name out of `theta/parse/unknown-identifier`'s
+  emission set at expression position.
+
+  The form is now refused where it is parsed. `parseImportExport` raises the new
+  error-severity `theta/parse/import-missing-from-clause` when a specifier list
+  is followed by no `from` clause, or by a `from` clause with no path literal —
+  once per statement, ranged over the statement, on both keywords, covering the
+  degenerate `import` / `export` / `import {}` / `export {}` /
+  `export { x } from` spellings. `imports.md` §Re-exports gains the `ImportDecl`
+  and `ExportDecl` productions the refusal rests on, mirrored for readers by a
+  new *Imports and re-exports* section in the grammar reference that the guide
+  now links to. `export` symbols no longer seed a `.theta`'s identifier root
+  scope, matching `expressions.md`'s identifier-resolution arm (3) and the rule
+  that a re-export creates no local binding. `theta/parse/import-reserved-`
+  `synthesised-name` keeps its per-specifier emission and co-emits on the same
+  input.
+
+  Zero of the 34 committed `.theta` / `.thetalib` files carry an `export`
+  statement of either form and every committed `import` is from-bearing, so no
+  file that loaded cleanly before loads differently now.
+
 ## [0.59.0] - 2026-08-03
 
 ### Fixed

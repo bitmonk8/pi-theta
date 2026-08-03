@@ -486,7 +486,13 @@ asymmetry is not mistaken for a gap. (iv) The from-less `export { … }` form th
 check also covers is not a spec-defined production — imports.md spells the
 re-export with `from` and grammar.md carries no `ExportDecl` production — so
 the registry *Trigger* names the parser's tolerance explicitly rather than
-resting on a production that does not exist. Unfiled.
+resting on a production that does not exist. Filed as bug
+[0058](./0058-fromless-export-form-parses-without-spec-production.md), and
+discharged by its fix (0.60.0): imports.md gained the `ImportDecl` /
+`ExportDecl` productions, the from-less form is refused at parse time by
+`theta/parse/import-missing-from-clause`, and this row's *Trigger* was
+re-derived off the no-production premise onto the co-emission the two checks
+now produce on that input.
 
 ## Fix
 

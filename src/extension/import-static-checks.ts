@@ -112,6 +112,17 @@ function extractThetaLibForms(body: ThetaBody): ThetaLibModuleForms {
       declarations.push({ kind: stmt.kind, name: stmt.name });
     } else if (stmt.kind === "export") {
       for (const specifier of stmt.specifiers) {
+        // Invariant, not a guard: a conforming `ExportDecl` always carries a
+        // non-empty `.thetalib` path literal — a from-less specifier list is
+        // refused at parse time (`theta/parse/import-missing-from-clause`,
+        // imports.md §"Re-exports"), but that is not the only route: an
+        // empty path literal is refused separately, by the extension check.
+        // `stmt.path` can still be `""` here for a REFUSED lib, because
+        // `checkThetaImports` pushes that lib's parse errors and then calls
+        // this reader over the same parsed body regardless (bug 0058 §Fix
+        // constraint 3); the pushed error is what keeps a from-less
+        // re-export from ever reaching a REGISTERED export set, so this
+        // reader does not re-test the path itself.
         reExports.push({
           source: specifier.source,
           exported: specifier.local,

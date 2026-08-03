@@ -33,6 +33,18 @@ export { Author } from "./personas.thetalib"
 export { Author as Reviewer } from "./personas.thetalib"
 ```
 
+```
+ImportDecl ::= "import" "{" ImportSpec ("," ImportSpec)* ","? "}" "from" STRING
+ExportDecl ::= "export" "{" ExportSpec ("," ExportSpec)* ","? "}" "from" STRING
+ImportSpec ::= Ident ("as" Ident)?
+ExportSpec ::= Ident ("as" Ident)?
+```
+
+The `from` clause is part of both productions. A specifier list with no `from`
+clause — the bare keyword (`import`, `export`), an empty list (`import {}`,
+`export {}`), or a `from` keyword with no path-literal token after it — is
+`theta/parse/import-missing-from-clause`.
+
 A plain `import { Author } from "./personas.thetalib"` does **not** re-export `Author` from the importing file — only declarations and explicit `export ... from` forms are visible to downstream importers.
 
 **Unknown imported symbol.** An `import { Foo }` or `export { Foo } from` specifier — including the `as`-aliased forms `import { Foo as Bar }` and `export { Foo as Bar } from` — that names a symbol `Foo` which is neither a top-level declaration nor a transitive re-export (`export … from`) of the resolved `.thetalib` file is a static error `theta/parse/import-unknown-symbol`. The error names the source symbol (`Foo`), not the alias (`Bar`). The check fires after the resolved `.thetalib` file's own parse completes: the resolved file's set of top-level declarations and `export … from` re-exports must be known before an importing specifier can be matched against it. It participates in the [Diagnostics — Multi-error reporting](./diagnostics.md) batching rule rather than fast-failing — an unknown-symbol error is collected alongside every other parse / type error from the importing file and its transitive `.thetalib` imports, and all are reported in one batch. This error is distinct from `theta/parse/unknown-identifier`, which is scoped to bare identifiers in expression position and is never raised for `import` or `export … from` specifiers.

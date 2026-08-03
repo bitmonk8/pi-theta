@@ -35,6 +35,7 @@ import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import { lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
 import { validatePathLiteral } from "../lexer/literals";
 import {
+  checkImportMissingFromClause,
   checkImportReservedSynthesisedName,
   checkThetaLibTopLevelForm,
   type ImportSpecifier,
@@ -2853,12 +2854,15 @@ class BodyParser {
         this.advance();
       }
     }
-    if (this.isKeyword("from")) {
+    const hasFromKeyword = this.isKeyword("from");
+    if (hasFromKeyword) {
       this.advance();
     }
     let path = "";
     const pathTok = this.peek();
+    let hasPathLiteral = false;
     if (pathTok.kind === "string") {
+      hasPathLiteral = true;
       path = pathTok.value ?? pathTok.text;
       // imports.md §"Path resolution": an `import` / `export … from` path
       // literal must end in a byte-exact lowercase `.thetalib` and use forward-slash
@@ -2874,12 +2878,27 @@ class BodyParser {
       );
       this.advance();
     }
+    const range = spanRange(kw.range, this.prevRange());
+    // imports.md §"Re-exports": the `from` clause is part of both the
+    // `ImportDecl` and `ExportDecl` production. A specifier list this parser
+    // otherwise accepts with no `from` keyword, or with one carrying no path
+    // literal, is refused here — one diagnostic for the STATEMENT, ranged over
+    // it like the node below, not one per specifier (bug 0040's per-specifier
+    // reserved-name check above answers a different question and keeps firing
+    // on the same input; the two co-emit).
+    const missingFromClause = checkImportMissingFromClause(hasFromKeyword, hasPathLiteral, {
+      file: this.file,
+      range,
+    });
+    if (missingFromClause !== undefined) {
+      this.diagnostics.push(missingFromClause);
+    }
     return {
       kind,
       path,
       symbols,
       specifiers,
-      range: spanRange(kw.range, this.prevRange()),
+      range,
     } as ImportDecl | ExportDecl;
   }
 
@@ -4502,7 +4521,7 @@ function toolCallableName(entry: string): string {
 /**
  * Build the whole-file identifier root scope: every name visible everywhere in
  * the body regardless of source order — hoisted top-level `fn` names, `schema` /
- * `enum` names, imported / re-exported symbols, `params:` field names, resolved
+ * `enum` names, imported symbols, `params:` field names, resolved
  * `tools:` callable names, and the stdlib builtins. Theta-level `let` bindings are
  * NOT roots (they bind sequentially and are accumulated as the walk descends).
  */
@@ -4519,7 +4538,10 @@ function collectIdentRoots(
         roots.add(s.name);
         break;
       case "import":
-      case "export":
+        // expressions.md §"Identifier resolution" arm (3) is "a symbol
+        // imported from a `.thetalib` file" — an `export` specifier creates
+        // no local binding (imports.md §"Re-exports"), so it must not seed a
+        // name this whole-file scope treats as bound.
         for (const sym of s.symbols) {
           roots.add(sym);
         }
@@ -5099,7 +5121,7 @@ interface CallSiteWalkContext {
   readonly rootLocals: ReadonlyMap<string, LocalBinder>;
   /**
    * Whole-file names on resolution arms (2)–(3): top-level `fn` declarations
-   * and import/export symbols. A call of such a name is a legal user-fn /
+   * and imported symbols. A call of such a name is a legal user-fn /
    * import call, NOT a shadowed-callable-call site (a `tools:` collision with
    * these names is separately load-rejected via
    * `theta/load/tool-name-collision`), and its callee is not lexically a Pi
@@ -5196,7 +5218,10 @@ function checkLexicalCallSites(
         fnImportDecls.add(s.name);
         break;
       case "import":
-      case "export":
+        // expressions.md §"Identifier resolution" arm (3) is the import arm
+        // only — an `export` specifier binds nothing (imports.md
+        // §"Re-exports"), so it must not make a call site read as a known
+        // fn/import callee.
         for (const sym of s.symbols) {
           fnImportDecls.add(sym);
         }
@@ -5311,8 +5336,8 @@ function walkCallSiteStmt(
       return;
     default:
       // schema / enum / import / export / break / continue / doc-comment carry
-      // no call sites (fn / import / export names were pre-collected as
-      // whole-file declarations; schema / enum names are not resolution arms).
+      // no call sites (fn / import names were pre-collected as whole-file
+      // declarations; schema / enum names are not resolution arms).
       return;
   }
 }
