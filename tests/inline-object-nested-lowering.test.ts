@@ -30,7 +30,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // TWO MECHANISMS, THREE ELEMENTS. The mechanisms are independent and both are
 // needed to close any of the elements:
 //
-//   A. `lowerInlineObject` (src/parser/body-type-lowering.ts:101) splits its
+//   A. `lowerInlineObject` (src/parser/body-type-lowering.ts:153) splits its
 //      interior field list with `splitTopLevel(body, ",")` — the nesting
 //      argument omitted, so the default `"angle"` applies (src/parser/params.ts)
 //      and `{…}` is not depth. `{a: integer, b: {x: integer, y: string}}` reads
@@ -69,7 +69,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     when their lowered fragments are byte-identical; `:76` — step 3: a named
 //     or inline schema reference emits `{"$ref": "#/$defs/<Name>"}`. No spec
 //     text defines the object fragment the annotation root mints today.
-//   - :81 — SUBS-1's literal sublanguage, which must survive at depth.
+//   - :80 — the enum / string-literal-union emission, the literal sublanguage
+//     that must survive at depth (not SUBS-1, `:81`, which governs a union of
+//     `PrimitiveType` arms; a string-literal union is `LiteralType` arms).
 //   - :92–:108 — §Canonical schema hash: the slug recipe used by the oracle
 //     below (code-point-sorted object keys, array elements in lowering order,
 //     no insignificant whitespace, SHA-256, first 16 lowercase hex characters).
@@ -342,19 +344,19 @@ const F3_MID_CANONICAL =
 const F3_MID_INLINE = inlineDefName(F3_MID_CANONICAL);
 
 /**
- * `{b: "x" | "y"}` — G2's nested fragment. `b` carries the SUBS-1 literal-union
- * emission `lowerTypeSource`'s own literal arm produces (group (a)'s LITERAL-ARM
- * control pins those bytes at depth 0), which is the form the fix must preserve
- * at depth.
+ * `{b: "x" | "y"}` — G2's nested fragment. `b` carries the step-3 emission
+ * `schema-subset.md:80` spells for an enum or a string-literal union, which
+ * `lowerTypeSource`'s own literal arm produces (group (a)'s LITERAL-ARM control
+ * pins those bytes at depth 0), and which the fix must preserve at depth.
  */
 const G2_NESTED_FRAGMENT = {
   type: "object",
-  properties: { b: { enum: ["x", "y"] } },
+  properties: { b: { type: "string", enum: ["x", "y"] } },
   required: ["b"],
   additionalProperties: false,
 };
 const G2_NESTED_CANONICAL =
-  '{"additionalProperties":false,"properties":{"b":{"enum":["x","y"]}},"required":["b"],"type":"object"}';
+  '{"additionalProperties":false,"properties":{"b":{"enum":["x","y"],"type":"string"}},"required":["b"],"type":"object"}';
 const G2_NESTED_INLINE = inlineDefName(G2_NESTED_CANONICAL);
 
 /** `{b: Triage}` — G6's nested fragment: a DECLARED name one level down. */
@@ -880,7 +882,7 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
     expectRefsClosed("F3", lowered);
   });
 
-  it("RED (a5, fixture G2): the SUBS-1 literal sublanguage survives one level down", () => {
+  it("RED (a5, fixture G2): the `schema-subset.md:80` literal sublanguage survives one level down", () => {
     // `{a: {b: "x" | "y"}}` has no interior comma at the outer level, so this
     // reds on mechanism B alone. It is also the constraint bug 0039 §Fix states
     // on the recursion: the arm must recurse through `lowerTypeSource`, whose
@@ -890,7 +892,7 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
     const lowered = loweredAnnotation("G2", '{a: {b: "x" | "y"}}');
     expect(
       lowered,
-      `schema-subset.md:81 (SUBS-1) — a literal union lowers to the enum form at every depth; observed ${JSON.stringify(lowered)}`,
+      `schema-subset.md:80 — a string-literal union lowers to the enum form at every depth; observed ${JSON.stringify(lowered)}`,
     ).toEqual({
       type: "object",
       properties: { a: { $ref: `#/$defs/${G2_NESTED_INLINE}` } },
@@ -1019,8 +1021,8 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
   it("CONTROL (a10, LITERAL-ARM): `lowerTypeSource`'s literal-union emission at depth 0 is the bytes a5 pins at depth 1", () => {
     // a5's expected fragment — and therefore its minted slug — is a function of
     // this arm's output. Pinning it here means a change to the literal emission
-    // (SUBS-1 spells the enum form with a `type`; this arm omits it) reds as
-    // ITSELF rather than as a mysterious slug mismatch in a5.
+    // (schema-subset.md:80 spells the enum form with a `type`) reds as ITSELF
+    // rather than as a mysterious slug mismatch in a5.
     const unresolved: string[] = [];
     const lowered = lowerTypeSource(
       '"x" | "y"',
@@ -1030,8 +1032,8 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
     );
     expect(
       lowered,
-      `body-type-lowering.ts:139–150 owns the literal sublanguage; observed ${JSON.stringify(lowered)}`,
-    ).toEqual({ enum: ["x", "y"] });
+      `body-type-lowering.ts:378–392 owns the literal sublanguage, and schema-subset.md:80 spells its multi-arm emission; observed ${JSON.stringify(lowered)}`,
+    ).toEqual({ type: "string", enum: ["x", "y"] });
     expect(unresolved, "a literal union names no type").toEqual([]);
   });
 });

@@ -1060,22 +1060,28 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
 
   it("CONTROL (g7): the LITERAL union `\"x\" | \"y\"` keeps its per-position bytes (bug 0055 owns them)", () => {
     // The literal sublanguage lives in `lowerTypeSource`'s own top-level check
-    // (body-type-lowering.ts), which the `params:` position does not run — that
-    // divergence is bug 0055's subject. Neither spelling carries a `<`, so the
-    // generic arm never fires for either and the reorder moves nothing here.
+    // (body-type-lowering.ts:378–392), which `alias`, `field` and `annotation`
+    // run and the `params:` position does not: the first three carry
+    // schema-subset.md:80's spelled emission since bug 0055 §Fix landed, while
+    // the `params:` position never reaches the check and stays outside :80.
+    // Neither spelling carries a `<`, so the generic arm never fires for either
+    // and the reorder moves nothing here.
     for (const position of ["alias", "field", "annotation"] as const) {
       const fragment = fragmentOf("g7", position, '"x" | "y"');
       expect(
         fragment,
-        `g7 [${position}]: SUBS-1's literal-union emission; observed ${JSON.stringify(fragment)}`,
-      ).toEqual({ enum: ["x", "y"] });
+        `g7 [${position}]: schema-subset.md:80's literal-union emission — a string-literal ` +
+          `union is \`LiteralType\` arms (grammar.md:102), not the \`PrimitiveType\` arms ` +
+          `SUBS-1 (:81) governs; observed ${JSON.stringify(fragment)}`,
+      ).toEqual({ type: "string", enum: ["x", "y"] });
     }
     const atParams = fragmentOf("g7", "params", '"x" | "y"');
     expect(
       atParams,
-      `g7 [params]: the \`params:\` position reaches \`lowerTypeExpr\` without the literal ` +
-        `pre-check, so each literal arm lands on the trailing catch-all — bug 0055's bytes, ` +
-        `unmoved by this fix; observed ${JSON.stringify(atParams)}`,
+      `g7 [params]: bug 0055 §Non-goals declares this position out of scope — it reaches ` +
+        `\`lowerTypeExpr\` without the literal pre-check, so each literal arm lands on the ` +
+        `trailing catch-all — and 0055 §Fix left these bytes identical; observed ` +
+        `${JSON.stringify(atParams)}`,
     ).toEqual({ anyOf: [{}, {}] });
   });
 

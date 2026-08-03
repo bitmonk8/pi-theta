@@ -123,14 +123,16 @@ class RespondingModel implements QueryModelDriver {
   }
 }
 
-// The lowered response schema `V5d`/`SUBS-1` produces for the declared shape
-// `{ status: "ok" | "degraded"; summary: string }`. This is the LOWERED JSON
-// Schema — the only form the model has seen during the original turn (per the
-// forced-respond conveyance) — not the source-Theta-type form.
+// The lowered response schema `V5d` produces for the declared shape
+// `{ status: "ok" | "degraded"; summary: string }`, with `status` carrying the
+// step-3 emission `schema-subset.md:80` spells for a string-literal union. This
+// is the LOWERED JSON Schema — the only form the model has seen during the
+// original turn (per the forced-respond conveyance) — not the source-Theta-type
+// form.
 const LOWERED: LoweredSchema = {
   type: "object",
   properties: {
-    status: { enum: ["ok", "degraded"] },
+    status: { type: "string", enum: ["ok", "degraded"] },
     summary: { type: "string" },
   },
   required: ["status", "summary"],

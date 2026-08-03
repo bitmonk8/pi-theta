@@ -308,7 +308,19 @@ refuse, but the row they draw is now
 trigger. `@<{a: {b: match}}>` is pinned at the new row in that fix's witness.
 (vii) `lowerTypeSource`'s literal-union
 arm emits a bare `{ enum: [...] }` where SUBS-1 (schema-subset.md `:81`) spells
-`{"type": "string", "enum": [...]}` — pre-existing, pinned as a control.
+`{"type": "string", "enum": [...]}` — pre-existing, pinned as a control. Filed as
+[0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md), which
+corrects the record in two ways — the governing line is `:80`, the step-3 enum /
+string-literal-union emission rule, not `:81` (SUBS-1 governs unions of
+`PrimitiveType`, and a string-literal union is `LiteralType` arms), and the
+divergence is not confined to the annotation root but reaches every
+`lowerTypeSource` position at every depth after this fix's part B — and
+discharged by its fix (0.59.0): the arm emits `{"type":"string","enum":[…]}` with
+`type` first when every arm is a string literal, so that spelling and the
+equivalent named `enum` produce byte-identical fragments, one `respondSchemaSlug`
+and one respond-tool registration. Non-string literal unions keep the bare
+`enum`, which `:80` does not spell. The `a10` control was re-pinned with the spec
+line as authority, discharging the purpose its own comment states.
 (viii) The `params:` position has no literal sublanguage at any depth
 (`p: "x" | "y"` lowers `anyOf: [{}, {}]`) where the `lowerTypeSource` positions
 do; the shared arm takes each caller's own recursion precisely so that
@@ -603,6 +615,11 @@ Constraints on any implementation of the above:
   through `lowerTypeSource` — otherwise a nested `{a: "x" | "y"}` lowers
   `anyOf: [{}, {}]` where the same field at depth 0 lowers
   `{"type":"string","enum":["x","y"]}` (SUBS-1, schema-subset.md `:81`).
+  This constraint's mechanism held, but its cited depth-0 byte string was the
+  spec's rather than the implementation's: depth 0 lowered `{"enum":["x","y"]}`
+  here and at every release until bug
+  [0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md)'s fix
+  (0.59.0) made the sentence true as written. The rule is `:80`, not `:81`.
 - **`buildBodyTypeSchemas`'s `$defs` discipline must absorb the new
   entries.** Pass 2 discards `lowerObjectFields`'s nested `$defs`
   (`body-type-lowering.ts:237`) and pass 3 rebuilds the closure by looking

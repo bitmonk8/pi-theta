@@ -247,9 +247,13 @@ describe("V13e (Defect B) — production typed-query schema validation (QRY-22)"
       required: ["category", "urgent"],
       additionalProperties: false,
     });
-    // The declared literal set lowers to an enum; the boolean field to a type.
+    // The declared literal set lowers to the enum form; the boolean field to a type.
     const properties = (lowered as { readonly properties: Record<string, unknown> }).properties;
-    expect(properties["category"]).toEqual({ enum: ["bug", "feature", "question"] });
+    expect(
+      properties["category"],
+      `schema-subset.md:80 spells one emission for an enum or a string-literal union; ` +
+        `observed ${JSON.stringify(properties["category"])}`,
+    ).toEqual({ type: "string", enum: ["bug", "feature", "question"] });
     expect(properties["urgent"]).toEqual({ type: "boolean" });
     // Not the bare type name.
     expect(lowered).not.toBe("Triage");

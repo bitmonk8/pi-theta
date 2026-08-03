@@ -6,6 +6,47 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-08-03
+
+### Fixed
+
+- **One declared value set written two ways lowered to two schemas, minted two
+  slugs, and registered two respond tools** (bug 0055). `schema-subset.md` gives
+  a single step-3 emission rule covering two source forms — "Enum (or
+  string-literal union): `{ "type": "string", "enum": [...wire values...] }`" —
+  and the implementation split it across two functions that were never
+  reconciled. The named `enum` declaration emitted the spelled bytes; the
+  anonymous string-literal union emitted the same `enum` array with the `type`
+  keyword absent. Both fragments admit and refuse exactly the same JSON values,
+  so no theta accepted or rejected differently, but the bytes are load-bearing in
+  four places: the canonical schema hash that names a hoisted `__inline_<slug>`
+  entry, the slug that names the registered respond tool and keys its
+  registration cache, the QRY-15 instruction text the model is shown, and the
+  AJV issue list that drives QRY-11 respond-repair. `enum Sev { Low = "low",
+  High = "high" }` and `schema Sev = "low" | "high"` therefore produced different
+  slugs and two permanent respond-tool registrations where the single emission
+  rule implies one — and tool registration cannot be undone. An author moving a
+  declaration between the two spellings changed the schema conveyed to the model
+  and the repair instruction rendered back to it, without changing the declared
+  type. The literal-union arm now emits the spelled form when every arm is a
+  string literal, with `type` written first so the two spellings produce
+  byte-identical fragments and collapse onto one slug and one registration; the
+  respond-slug recipe hashes the serialised fragment and is key-order sensitive,
+  so that order is part of the contract. A union of non-string literals keeps the
+  bare `enum`, because the emission table spells the added `type` keyword for an
+  enum or a string-literal union only and the typed form would refuse every value
+  such a union declares; a single literal keeps its `const`. Respond-tool names
+  and `__inline_<slug>` names move for affected declarations — both are
+  synthesised, never author-written, and the collision with the equivalent named
+  `enum` is byte-equal, so the registration cache reuses one entry. The wire
+  envelope decision, argument coercion, and the sidecar's named-enum positions
+  are unchanged, the last because it keys off the source type kind rather than
+  the lowered bytes. No source-language change, no new diagnostic, and no
+  registry edit: the emission table already spelled the bytes the code now emits.
+  The `params:` position, a literal arm of a mixed union, and a generic
+  argument's element type reach a different lowerer and keep their permissive
+  fragments.
+
 ## [0.58.0] - 2026-08-02
 
 ### Fixed

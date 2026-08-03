@@ -1062,11 +1062,12 @@ describe("bug 0033 (c) — an alias declaration lowers concretely", () => {
 
   it("RED c5: a string-literal union alias accepts exactly its arms (real AJV, behavioural pin)", () => {
     // The §Fix names byte shapes only for the primitive (`{"type":[...]}`) and
-    // `anyOf` cases, so the string-literal union's fragment shape is the
-    // implementer's choice between the enum form (schema-subset.md step 3,
-    // "Enum (or string-literal union)") and an `anyOf` of `const`s. What is
-    // NOT the implementer's choice is the admitted value set, so it is pinned
-    // behaviourally instead of by bytes.
+    // `anyOf` cases, but the fragment shape is not the implementer's choice:
+    // schema-subset.md:80 spells one emission for an enum or a string-literal
+    // union, `{"type":"string","enum":[...]}`, and those bytes are pinned at
+    // every position by tests/literal-union-string-enum-emission.test.ts. This
+    // cell holds the other half of the contract — the admitted value set — so
+    // it stays behavioural and does not move with the emission.
     const loaded = loadParams("c5", P_SEVERITY);
     aliasDef(loaded, "Severity", "c5");
     const { validator, emitted } = ajv();

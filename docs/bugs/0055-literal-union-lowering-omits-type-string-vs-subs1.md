@@ -1,6 +1,10 @@
 # Bug 0055 — `lowerTypeSource`'s literal-union arm emits a bare `{"enum":[…]}` where `schema-subset.md:80` spells `{"type":"string","enum":[…]}`, so the two spellings that rule groups under one emission — `enum Sev { Low = "low", High = "high" }` and `schema Sev = "low" | "high"` — lower to different bytes, mint different slugs, and register two `__theta_respond_` tools for one declared value set
 
-- **Status:** open.
+- **Status:** fixed (0.59.0). §Fix as settled — the literal-union arm emits
+  `{"type":"string","enum":[…]}` with `type` first when every arm is a string
+  literal, so a string-literal union and the equivalent named `enum` lower to
+  byte-identical fragments, hash to one `respondSchemaSlug`, and share one
+  respond-tool registration. See §Fix (0.59.0) below.
 - **Kind:** defect, single element. The implementation emits a fragment the
   spec's own step-3 emission table does not spell.
   `docs/spec_topics/schema-subset.md:80` gives one rule for two source forms —
@@ -137,6 +141,149 @@
   `tests/helpers/e2e-s1.ts`), the shipped lowerers, the shipped
   `respondSchemaSlug` / `respondToolWireSchema`, and the production
   `AjvSchemaValidator`; written, run, and deleted.
+
+## Fix (0.59.0)
+
+The settled §Fix, implemented as written: one branch inside one `return`. Three
+review rounds (round 1 deep, rounds 2–3 fast) and two fixer rounds, all of which
+found citation accuracy only — no round raised a `correctness`, `fidelity` or
+`spec` finding against the emission itself. Line anchors are at the fix commit.
+
+**The emission.** `lowerTypeSource`'s literal-union arm
+(`src/parser/body-type-lowering.ts:378–392`) now derives the arm values once and
+branches on their type: every arm a string literal emits
+`{ type: "string", enum: values }`, anything else keeps the pre-existing bare
+`{ enum: values }`. `type` is written FIRST, matching `lowerEnumToSchema` (`:100`).
+That order is contractual, not cosmetic — `respondSchemaSlug`
+(`src/runtime/typed-query-validation.ts:347–348`) hashes `JSON.stringify(lowered)`
+and is key-order sensitive, so `type`-first is precisely what collapses the two
+spellings onto one slug. `{ enum: values, type: "string" }` would satisfy every
+`toEqual` in the witness and still red its two byte-equality cells. The
+all-strings guard is load-bearing rather than defensive: `parseLiteralArm`
+(`:741`) accepts numbers, `true`, `false` and `null`, and
+`{"type":"string","enum":[1,2]}` would refuse every value `1 | 2` declares. The
+single-literal `const` arm (`:388–391`) is byte-untouched — `:79` spells it.
+
+**No spec, registry or diagnostic edit.** `docs/spec_topics/schema-subset.md:80`
+and its mirror `docs/reference/schema-subset.md:163–164` already spell the bytes
+the code now emits; the fix moves the implementation to the spec, not the spec to
+the implementation. No diagnostic code is added, widened or narrowed,
+`docs/spec_topics/diagnostics/` is untouched, DIAG-2's closed registry needs no
+row, and H9a's `tests/fixtures/h7a/permitted-codes.json` needs no entry —
+confirmed empirically by a clean H9a stderr gate across all areas.
+
+**Records corrected.** `lowerTypeSource`'s doc comment (`:302–320`) and its
+`lowerField` comment (`:394–398`) said a literal union "lowers to an `enum`" and
+named "the SUBS-1 enum form"; both are re-derived to the emitted bytes and
+re-anchored on `:80`. SUBS-1 (`:81`) governs a union of `PrimitiveType` arms; a
+string-literal union is `LiteralType` arms (`grammar.md:102`) and is governed by
+`:80`. The same mis-attribution is corrected at
+`tests/inline-object-nested-lowering.test.ts:72` and in `a5`'s title and message,
+and `tests/schema-alias-union-decl.test.ts`'s `c5` comment — which recorded the
+fragment shape as "the implementer's choice between the enum form … and an
+`anyOf` of `const`s" — is replaced by the `:80` rule. `c5`'s assertions do not
+move and stay green, as §Fix stated.
+
+**Reproduction re-derived at the fix baseline** (`6fdccf0b`, 0.58.0): every value
+in §Reproduction reproduced byte-identically — all seven position fragments, both
+pre-fix slugs (`3738bdf57eb9ee93` for either literal-union spelling,
+`16d4106209c9ee70` for the named `enum`), all three post-fix slugs
+(`16d4106209c9ee70`, `6fe5fb9a460eb639`, `2451e4ccd157b4a4`), the moved
+`__inline_` name (`f58549a813c166f9` → `e5d2019c9669ee7c`), the thirteen-payload
+AJV verdict table, the issue-list divergence, and all three unreached positions.
+**Zero observable drift** across nine intervening releases. Line anchors did
+drift: this document's citations were computed at `52e257bc` (0.49.0) and bugs
+0044, 0045 and 0053 have since moved the file. §Citation drift below records it.
+
+**Offline lock.** `tests/literal-union-string-enum-emission.test.ts` (new, 23
+cells): group (0) an independent `node:crypto` slug oracle over hand-written
+canonical forms, proved honest before use; (a) a byte pin at each of the seven
+positions the arm reaches — direct call, the annotation root's non-brace and
+brace forms, depth 1 through `lowerField`, pass 2's `schema`-body and alias-RHS
+calls each cross-checked byte-for-byte against `@<Name>`, and `lowerInlineObject`;
+(b) `enum Sev { Low = "low", High = "high" }` and `schema Sev = "low" | "high"`
+lower to identical bytes, hash to one `respondSchemaSlug`, and register one
+envelope payload; (c) the thirteen-payload real-AJV table over both spellings
+plus the issue-list cell proving a non-string payload gains the leading `type`
+entry; (d) the all-strings guard in the refusing direction (`1 | 2`,
+`"x" | null`, `true | false`, `"x" | 1`, and the single literal); (e) the three
+unreached positions plus the SUBS-1 `string | null` control, byte-identical to
+HEAD. Seven existing pins re-derived, never relaxed — the six §Fix enumerates
+plus `g7` (see §Seventh moved pin). Verified in both directions: neutralising the
+ternary to the pre-fix `return { enum: values };` reds 16 cells with the missing
+`type: "string"`, the `__inline_e5d2019c9669ee7c` → `f58549a813c166f9` and
+`16d4106209c9ee70` → `3738bdf57eb9ee93` consequences visible in the diffs;
+widening the guard to emit `type` unconditionally reds exactly the four group-(d)
+cells and nothing else. Both restored byte-exact, blob hash
+`71d4b1b1da52755e2e072489d413d81c2b072cb2` re-verified after each. Full gate 249
+files / 3475 tests; typecheck and lint clean.
+
+**Live.** H8a `live-production-acceptance` 7/7, H9a acceptance 11/11, no stall
+and no red. The claim in this document's §Reproduction that
+`tests/fixtures/h7a/acceptance.theta:21` gives the arm live coverage is **wrong**:
+that fixture is read by `tests/integration-acceptance.test.ts` against the
+in-process session double and is part of the offline default suite. No fixture
+under `tests/live/**` carries a string-literal union — the typed-query live
+fixtures use inline objects, a named `schema`, or a named `enum`. A scratch live
+probe therefore supplied the end-to-end evidence (the 0033 precedent): patching
+`globalThis.fetch` call-through — loader-agnostic, because the Anthropic SDK
+resolves the bare `fetch` identifier lazily off the process global, whereas
+`vi.mock` cannot reach an extension Pi loads outside vitest's module graph —
+captured the real outbound HTTP request body for a `@<"ok" | "degraded">` drive.
+The registered respond tool's `parameters` carried
+`{"type":"string","enum":["ok","degraded"]}` with the fix and
+`{"enum":["ok","degraded"]}` with it neutralised. Probe deleted after use.
+
+**Seventh moved pin.** `tests/union-generic-arm-lowering.test.ts`'s `g7` CONTROL
+is a pin this document's §Fix enumeration does not name, because the cell did not
+exist when the document was written: bug 0043's fix (0.53.0) added it four
+releases after this report's 0.49.0 baseline. Its own title reads "(bug 0055 owns
+them)" and its comment named the divergence "bug 0055's subject", so it is a
+forward-deferral by that fix's author and materially identical to the six named
+pins. Re-derived here: the `alias` / `field` / `annotation` loop takes the spelled
+emission and its message moves off SUBS-1 onto `:80`. Its `params:`
+sub-assertion `{ anyOf: [{}, {}] }` does NOT move — that position is this
+report's declared non-goal — and only its message is re-derived to say so.
+
+**Citation drift.** Every observable in §Reproduction survived nine releases
+unchanged, but the line anchors did not. At the fix commit: the literal
+sublanguage is `:378–392` (union arm `:382–385`, single literal `:388–391`), not
+`:358–369`; `parseLiteralArm` is `:741`, not `:693–714`; `lowerField` is `:399`,
+not `:375–376`; pass 2's `schema`-body call is `:577` and its alias-RHS call
+`:598`, not `:545` and `:566`; `lowerObjectFields`'s per-field call is `:120`;
+`lowerInlineObject` is `:153` and reaches that call by delegating at `:173`; the
+annotation root's brace and non-brace arms are `query-schema-lowering.ts:153` and
+`:160`, not `:139–143` and `:148`. `lowerEnumToSchema` at `:100` is the one
+implementation citation that did not move. Four cross-document citations are also
+wrong and are corrected here rather than in place: bug 0043 is **fixed (0.53.0)**,
+not open as §Related states; its §Non-goals bullet is `0043.md:743–746`, not
+`:583–586`; bug 0039's residuals (vii) and (viii) are `0039.md:309–311` and
+`:312–315`, not `:279–281` and `:282–285`; and its *must not regress* constraint
+is `0039.md:600–605`, not `:570–575`. `docs/reference/schema-subset.md`'s mirror
+is `:163–164`, not `:151–152`. `docs/spec_topics/schemas.md`'s §Enum declarations
+heading is `:66` and its name-is-wire sentence `:78`, not `:62`.
+
+**Residuals.** (i) The `params:` position still has no literal sublanguage —
+`p: "x" | "y"` lowers `{"anyOf":[{},{}]}`, neither spelling. Untouched by design
+(§Non-goals); it is bug 0039 §Fix residual (viii), filed as
+[0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md), whose
+ordering clause this fix discharges by landing first and alone. (ii) A literal arm
+of a mixed union (`"x" | string`) and a generic argument's element type
+(`array<"x" | "y">`) keep their permissive fragments; both are pinned as no-ops in
+group (e) and owned by 0043 §Non-goals. (iii) Non-string literal unions (`1 | 2`,
+`true | false`, `"x" | null`) keep the bare `{ enum: [...] }`. The subset admits
+`enum` as a validation keyword (`schema-subset.md:7`), so the fragment is inside
+the subset; what is absent is a step-3 rule spelling it. Whether the emission
+table should gain one is a spec question, unfiled. (iv) `respondSchemaSlug` hashes
+`JSON.stringify(lowered)` rather than the key-sorted canonical form
+`schema-subset.md:99–105` defines, which is why emission order is contractual
+here at all. Unfiled and unchanged; this fix only makes the two spellings agree
+under the recipe as it stands. (v) The witness pins `respondSchemaSlug`'s
+`16d4106209c9ee70` as a hex literal alongside the derived enum-vs-alias equality,
+rather than deriving it from an oracle as the `__inline_` slug is derived. Both
+key orders were computed during review (`type`-first `16d4106209c9ee70`,
+`enum`-first `1aae0990d53b3485`), so the cell reds on reversal; accepted as
+written.
 
 ## Summary
 

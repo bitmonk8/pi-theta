@@ -744,6 +744,19 @@ proving the single-term path is byte-unchanged.
   `{"anyOf":[{},{"$ref":…}]}` because literal recognition lives only in
   `lowerTypeSource`'s top-level check
   (`src/parser/body-type-lowering.ts:139–151`). Unfiled, unchanged here.
+  Still unfiled and still unchanged at 0.59.0, and pinned there as a no-op:
+  bug [0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md)'s fix
+  changed what the top-level check EMITS for an all-string-literal union without
+  changing which sources reach it, so this bullet's mixed-union case is
+  byte-identical. Two citations are stale: the check is
+  `src/parser/body-type-lowering.ts:378–392` at that fix's commit, and this
+  bullet's own §Non-goals anchor is `:743–746`, not the `:583–586` that report
+  cites. This fix's `g7` CONTROL in `tests/union-generic-arm-lowering.test.ts`
+  — whose title already deferred its bytes to 0055 — was re-derived by that fix
+  to the spelled emission at the `alias`, `field` and `annotation` positions; its
+  `params:` sub-assertion `{ anyOf: [{}, {}] }` did not move, and the cell's own
+  subject (that neither spelling carries a `<`, so this fix's reorder moves
+  nothing there) is intact.
 - **`splitTopLevel`'s angle-only default nesting.** A brace-carrying union
   source (`{a: string | null}`) still splits inside the braces. That is 0039's
   and 0035's subject; the reordering neither improves nor worsens it, because

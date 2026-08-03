@@ -609,6 +609,22 @@ positions emit today or the `{"type":"string","enum":[…]}` schema-subset.md
 against it; landing this first would re-pin the same fragments twice, including
 every `__inline_<slug>` a nested literal mints.
 
+The ordering clause is discharged by 0055's fix (0.59.0): 0055 landed first and
+alone, so this fix inherits its emission rather than deciding it. The settled
+spelling is `{ type: "string", enum: values }` with `type` written FIRST when
+every arm is a string literal, and the bare `{ enum: values }` for any other
+literal kind. `type`-first is contractual, not cosmetic — `respondSchemaSlug`
+hashes `JSON.stringify(lowered)` and is key-order sensitive, so the order is what
+collapses a string-literal union onto `lowerEnumToSchema`'s slug. The exported
+recogniser this fix moves to `params.ts` must reuse that emission verbatim, order
+included, or the `params:` position will agree with the other three on `toEqual`
+and disagree on every slug. Two of this report's citations are stale at 0.59.0:
+`parseLiteralArm` is `body-type-lowering.ts:741`, not `:693–714`; the literal
+sublanguage is `:378–392` (the union arm's emitting ternary at `:382–385`), not
+`:358–369`; and the four references to `lowerField` at `:371–375` (`:55`, `:114`,
+`:494`, `:764`) are `:399`. The frozen `params:` bytes 0055 left byte-identical
+are pinned as no-ops in that fix's witness, group (e).
+
 Constraints on any implementation:
 
 1. **The frozen `params:` bytes move, and only for the enumerated class.** Bug

@@ -149,10 +149,10 @@ describe("bug 0028 wire contract — the respond tool's registered parameters", 
     ["a bare `string` root", "string", "", { type: "string" }],
     ["a bare `integer` root", "integer", "", { type: "integer" }],
     [
-      "a literal-union root (lowered to a bare `enum`, no `type`)",
+      "a literal-union root (schema-subset.md:80, the same rule as the declared enum)",
       '"a" | "b"',
       "",
-      { enum: ["a", "b"] },
+      { type: "string", enum: ["a", "b"] },
     ],
   ] as const) {
     it(`ENVELOPE ${label}: the lowered root rides the envelope's \`value\` position`, () => {

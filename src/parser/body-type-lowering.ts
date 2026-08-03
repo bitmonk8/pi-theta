@@ -300,19 +300,25 @@ function isBraceBalanced(s: string): boolean {
 }
 
 /**
- * Lower a single type-expression source to its JSON-Schema fragment. A literal
- * union (`"a" | "b"`) lowers to an `enum`, a single literal to a `const`, a
- * SINGLE ENCLOSING BRACE GROUP (an inline object type, at any depth) hoists
- * into `defs` under `__inline_<slug>` (bug 0039 §Fix part B), a union CARRYING
- * such a group as one of its arms lowers arm by arm so that arm can hoist too,
- * and every other form — primitive, `array<T>`, named type, brace-free union —
- * delegates to the `params:` `lowerTypeExpr` machinery.
+ * Lower a single type-expression source to its JSON-Schema fragment. A
+ * string-literal union (`"a" | "b"`) lowers to `{ "type": "string", "enum":
+ * [...] }` (schema-subset.md:80); a union whose arms are literals of any
+ * other kind (numbers, `true`/`false`, `null`, or a mix) lowers to the bare
+ * `enum` form, because `:80` spells the added `type` keyword for the enum /
+ * string-literal-union case only; a single literal of any kind lowers to a
+ * `const` (`:79`). A SINGLE ENCLOSING BRACE GROUP (an inline object type, at
+ * any depth) hoists into `defs` under `__inline_<slug>` (bug 0039 §Fix part
+ * B), a union CARRYING such a group as one of its arms lowers arm by arm so
+ * that arm can hoist too, and every other form — primitive, `array<T>`,
+ * named type, brace-free union — delegates to the `params:` `lowerTypeExpr`
+ * machinery.
  *
  * The inline-object arm recurses each field's type through `lowerTypeSource`
  * itself (an inner helper closing over `sinks`), not through `lowerTypeExpr`:
  * the literal sublanguage below is this function's own, so a field's type has
  * to re-enter here or a nested `"x" | "y"` would lower `anyOf: [{}, {}]`
- * instead of the SUBS-1 enum form.
+ * instead of the `schema-subset.md:80` enum form (a string-literal union is
+ * `LiteralType` arms, not the `PrimitiveType` arms SUBS-1, `:81`, governs).
  *
  * THE ARM DISPATCH IS GUARDED TWICE, but only the SHREDDED guard below is
  * behavioural. A union with no brace-group arm is handed WHOLE to
@@ -373,7 +379,10 @@ export function lowerTypeSource(
   if (arms.length > 1) {
     const literals = arms.map(parseLiteralArm);
     if (literals.every((lit) => lit !== undefined)) {
-      return { enum: literals.map((lit) => (lit as { readonly value: unknown }).value) };
+      const values = literals.map((lit) => (lit as { readonly value: unknown }).value);
+      return values.every((v) => typeof v === "string")
+        ? { type: "string", enum: values }
+        : { enum: values };
     }
   } else {
     const lit = parseLiteralArm(s);
@@ -383,8 +392,10 @@ export function lowerTypeSource(
   }
 
   // An inner helper, not `lowerTypeExpr`, so a nested field's own type routes
-  // back through THIS function's literal check before anything else — the
-  // SUBS-1 literal sublanguage must survive at depth (bug 0039 §Fix).
+  // back through THIS function's literal check before anything else — without
+  // that re-entry a nested `"x" | "y"` reaches `lowerTypeExpr`, which owns no
+  // literal sublanguage, and lowers `anyOf: [{}, {}]` instead of
+  // `schema-subset.md:80`'s enum form (bug 0039 §Fix).
   const lowerField = (fieldSource: string, fieldCtx: LowerCtx): Record<string, unknown> =>
     lowerTypeSource(
       fieldSource,
