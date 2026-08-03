@@ -728,15 +728,25 @@ async function runComposePass(
     }
 
     // INV-3 / INV-4 / INV-5: run the invoke static checks against the resolved
-    // callees and the shared invoke graph. An error-severity diagnostic (an
-    // arity error, a discovery-root escape, or an invocation cycle) un-registers
-    // the theta.
+    // callees and the shared invoke graph, over BOTH the `invoke(...)` call
+    // surface and the `.theta`-callable call surface (tool-calls.md
+    // §"Argument shape" binds INV-3 arity to both by name; bug 0071). An
+    // error-severity diagnostic (an arity error, a discovery-root escape, or an
+    // invocation cycle) un-registers the theta.
     const invokeDiagnostics = await checkInvokeStaticResolution(input, {
       fs: fileSystem,
       activeRoots,
       graph: invokeGraph,
       resolveCalleeArity: (absolutePath) =>
         resolveCalleeArity(fileSystem, absolutePath, parseDeps),
+      // `toolResult` is this theta's already-frozen `tools:` snapshot (resolved
+      // above by `resolveThetaToolsAtLoad`); the `.theta`-callable-call arity
+      // loop resolves each call's callee against it. Guarded spread (not a bare
+      // `callableSet: toolResult.callableSet`): `exactOptionalPropertyTypes`
+      // distinguishes an omitted key from one explicitly set to `undefined`.
+      ...(toolResult.callableSet !== undefined
+        ? { callableSet: toolResult.callableSet }
+        : {}),
     });
     sink.emitGroup(invokeDiagnostics);
     if (invokeDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {

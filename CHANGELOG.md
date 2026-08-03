@@ -6,6 +6,45 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-08-03
+
+### Fixed
+
+- **Argument arity was never checked on the `.theta`-callable call form, only on
+  `invoke(...)`** (bug 0071). `tool-calls.md` §"Argument shape" binds the two call
+  surfaces onto a `.theta` callee together and names the codes explicitly:
+  `theta/parse/invoke-arity-too-few` / `theta/parse/invoke-arity-too-many` "apply
+  equally to a `.theta` callable call". The checker was live and correct, but its
+  only caller walked `invoke(...)` expressions, so listing `./twoparam.theta` in
+  `tools:` and then calling `twoparam("a")`, `twoparam()` or `twoparam("a","b","c")`
+  loaded with zero diagnostics while the same mistakes written as
+  `invoke("./twoparam.theta", …)` were rejected at the same callee. An author
+  migrating an `invoke(...)` call to a `tools:` entry plus a bare call — the
+  migration the spec calls operationally equivalent — silently lost a static check:
+  a too-few call was deferred to the callee-side runtime validation and surfaced as
+  an infra-side `Err` attributed to the callee rather than as the caller's parse
+  error, possibly after a child process had already been spawned, and a too-many
+  call discarded the author's surplus argument with no diagnostic at either phase,
+  because positional binding has no destination for it. Both forms are now rejected
+  at load, at the call site, and un-register the caller. At a `.theta`-callable call
+  site the message renders the presented callable name the author wrote there
+  (`invoke 'twoparam' passes too many arguments: expected at most 2, got 3`), while
+  an `invoke(...)` site keeps rendering its path literal — the callee path appears
+  nowhere on the line the diagnostic points at. The callee is resolved through the
+  caller's frozen resolution snapshot, so an `as` rename and the
+  hyphen→underscore rewrite are both honoured (`./two-param-hyph.theta as renamed`
+  is checked, and the diagnostic names `renamed`). A `tools:` entry that failed to
+  resolve raises only its own rejection and never a second, derived arity error. No
+  new diagnostic code: both codes were already registered against both surfaces.
+- **Call sites inside a `par for` body, iterand or `max` operand were invisible to
+  the load-time invoke static checks** (found while fixing bug 0071). The parallel
+  fan-out expression was walked as a leaf, so `control-flow.md` CTRL-4's explicit
+  admission of `invoke(...)`, `.theta` callable calls, `subagent fn` calls and
+  Pi-tool calls in that body was unenforced: a wrong-arity call there loaded clean
+  even in the `invoke(...)` form. Arity on both surfaces, the discovery-root
+  path-escape check, the callee-has-errors check and the invocation-cycle graph now
+  all reach `par for`.
+
 ## [0.63.0] - 2026-08-03
 
 ### Fixed

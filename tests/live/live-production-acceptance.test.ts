@@ -713,3 +713,136 @@ describe("H8a-T — bug 0070: a .theta tools: entry's unvalidated derived name (
     }
   });
 });
+
+// ===========================================================================
+// Bug 0071 — `theta/parse/invoke-arity-too-few` / `theta/parse/invoke-arity-
+// too-many` were checked for the `invoke("./x.theta", …)` call surface only;
+// a `.theta`-callable call (`<name>(args)` for a `tools:` `.theta` entry) at
+// wrong arity loaded with zero diagnostics (`docs/spec_topics/tool-calls.md`
+// §"Argument shape": "apply equally to a `.theta` callable call"). The fix
+// extends the shared invoke static-check pass's call-site walk to also resolve
+// `.theta`-callable call sites against the caller's frozen callable set and
+// run the SAME `checkInvokeArity` check against them
+// (`src/extension/invoke-static-checks.ts`).
+//
+// No existing live test (H8a, H9a, or the hardening probes) plants a `.theta`-
+// path `tools:` entry at all: every `tools:` occurrence across `tests/live/**`
+// is the bare Pi-tool identifier `read`
+// (`tests/live/acceptance/fixtures/acc-code-tool-loop.theta` and the hardening
+// probes' `tool_loop` fixtures), which never reaches the `.theta`-callable-call
+// arity loop at all (that loop resolves only callable-set entries of kind
+// `"theta"`; a Pi-tool entry is excluded by construction —
+// `resolveThetaCallableCallSites` in the fix). The fixed arm therefore had NO
+// live reach before this cell, mirroring bug 0070's H8a addition above.
+//
+// This drives the SAME registration observable the bug 0070 cell above uses
+// (`handle.command` / `handle.registeredNames()`, read after the real
+// `session_start` → `resources_discover` → `composeExtensionInstance` →
+// `discoverAndComposeFixtures` → `checkInvokeStaticResolution` path settles)
+// through the shipped extension entry against a live host — never through the
+// offline stubbed-`ctx` harness the unit witnesses use. Registration-only: no
+// slash command is invoked, so no model turn runs and the cell spends zero
+// tokens (the same profile the file header claims for the two
+// discovery→registration tests and the bug 0070 cell above).
+// ===========================================================================
+
+describe("H8a-T — bug 0071: a .theta-callable call at wrong arity (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose .theta-callable call passes too few arguments, while its correct-arity sibling registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The two-required-param callee both callers below name in `tools:`. Two
+      // typed `params:` fields make it non-bypass-eligible (`classifyBinderBypass`
+      // admits only no-params / single-string), so it needs a resolvable
+      // `bind_model:` to independently register too (the planted live workspace
+      // carries no `.pi/settings.json`, so `theta.binderModel` is never set) —
+      // the same provider-qualified id the committed H9a fixture
+      // `tests/live/acceptance/fixtures/acc-params-binder.theta` uses. Pure name
+      // resolution against the model registry at LOAD time, not a dispatched
+      // turn: registering this callee spends no tokens, only DRIVING its slash
+      // command would.
+      {
+        source: "project",
+        stem: "b71livecallee",
+        text: [
+          "---",
+          "mode: subagent",
+          "bind_model: anthropic/claude-haiku-4-5",
+          "params:",
+          "  x: string",
+          "  y: string",
+          "---",
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+      // The load-bearing caller: one argument against a 2-non-defaulted-param
+      // callee — `theta/parse/invoke-arity-too-few` must reject it at load time.
+      {
+        source: "project",
+        stem: "b71livetoofew",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          "  - ./b71livecallee.theta",
+          "---",
+          'b71livecallee("a")?',
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+      // The correct-arity sibling, same callee: the check rejects wrong arity
+      // specifically, not every `.theta`-callable call at this callee.
+      {
+        source: "project",
+        stem: "b71livectl",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          "  - ./b71livecallee.theta",
+          "---",
+          'b71livecallee("a", "b")?',
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the callee and the correct-arity sibling must both
+      // register before the rejected caller's absence can be attributed to the
+      // arity rule instead of a broken workspace.
+      expect(
+        handle.command("b71livecallee"),
+        "the callee did not register — precondition unmet. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b71livectl"),
+        "the correct-arity `.theta`-callable caller did not register — " +
+          "precondition unmet. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline stubbed-`ctx` harness), the caller whose `.theta`-
+      // callable call passes one argument to a 2-required-param callee does not
+      // register.
+      expect(
+        handle.command("b71livetoofew"),
+        "the caller passing too few arguments to a `.theta`-callable call " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/parse/invoke-arity-too-few did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b71livetoofew");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

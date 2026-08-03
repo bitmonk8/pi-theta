@@ -61,6 +61,17 @@ const MSG = {
     "which must be lowercase-first; rename the file or add an 'as' clause",
   // `theta/load/callee-has-errors`
   calleeHasErrors: "callee './broken.theta' has errors; see related diagnostics",
+  // `theta/parse/invoke-arity-too-many` (diagnostics/code-registry-parse.md) —
+  // the `.theta`-callable call surface renders `<callee>` as the presented
+  // callable name written at the call site, not as the callee path.
+  callableArityTooMany:
+    "invoke 'b71callee' passes too many arguments: expected at most 2, got 3",
+  // `theta/parse/invoke-arity-too-few`
+  callableArityTooFew:
+    "invoke 'b71callee' passes too few arguments: expected 2 non-defaulted, got 1",
+  // `theta/parse/invoke-arity-too-few` at a zero-argument call site
+  callableArityZeroArgs:
+    "invoke 'b71callee' passes too few arguments: expected 2 non-defaulted, got 0",
 } as const;
 
 // --- Planted discovery workspace -------------------------------------------
@@ -162,6 +173,99 @@ const THETAS: readonly PlantedTheta[] = [
   {
     stem: "broken",
     text: theta("---", "mode: subagent", "params:", "  x: NoSuchType", "---", "@`broken`"),
+  },
+
+  // Bug 0071 — `theta/parse/invoke-arity-too-few` / `-too-many` over the
+  // `.theta`-callable call surface. The `b71` stem prefix keeps this group's
+  // callee names disjoint from every other planted theta: `ctx.ui.notify`
+  // carries the message text with no caller attribution, so a cell asserting
+  // the absence of an arity diagnostic is sound only when its callee name
+  // cannot occur in a sibling group's message.
+  //
+  // The callee for the three rejected call forms: two non-defaulted `params:`,
+  // so `requiredCount` and `totalCount` are both 2.
+  {
+    stem: "b71callee",
+    text: theta("---", "mode: subagent", "params:", "  x: string", "  y: string", "---", "@`hi`"),
+  },
+  {
+    stem: "b71toomany",
+    text: theta(
+      "---",
+      "mode: subagent",
+      "tools:",
+      "  - ./b71callee.theta",
+      "---",
+      'b71callee("a", "b", "c")?',
+      "@`hi`",
+    ),
+  },
+  {
+    stem: "b71toofew",
+    text: theta(
+      "---",
+      "mode: subagent",
+      "tools:",
+      "  - ./b71callee.theta",
+      "---",
+      'b71callee("a")?',
+      "@`hi`",
+    ),
+  },
+  {
+    stem: "b71zero",
+    text: theta(
+      "---",
+      "mode: subagent",
+      "tools:",
+      "  - ./b71callee.theta",
+      "---",
+      "b71callee()?",
+      "@`hi`",
+    ),
+  },
+  // The correct-arity control's own callee, referenced by `b71ctl` alone.
+  {
+    stem: "b71ctlcallee",
+    text: theta("---", "mode: subagent", "params:", "  x: string", "  y: string", "---", "@`hi`"),
+  },
+  {
+    stem: "b71ctl",
+    text: theta(
+      "---",
+      "mode: subagent",
+      "tools:",
+      "  - ./b71ctlcallee.theta",
+      "---",
+      'b71ctlcallee("a", "b")?',
+      "@`hi`",
+    ),
+  },
+  // A defaulted tail param lowers `requiredCount` to 1, so the 1-argument call
+  // in `b71def` supplies every non-defaulted param and is legal.
+  {
+    stem: "b71defcallee",
+    text: theta(
+      "---",
+      "mode: subagent",
+      "params:",
+      "  x: string",
+      '  y: string = "d"',
+      "---",
+      "@`hi`",
+    ),
+  },
+  {
+    stem: "b71def",
+    text: theta(
+      "---",
+      "mode: subagent",
+      "tools:",
+      "  - ./b71defcallee.theta",
+      "---",
+      'b71defcallee("a")?',
+      "@`hi`",
+    ),
   },
 ];
 
@@ -403,5 +507,110 @@ describe("V20a-T — theta/load/invalid-derived-tool-name rejected at production
       "the `as`-overridden theta must still register. Registered: " +
         JSON.stringify(outcome.registered),
     ).toContain("digitrenamed");
+  });
+});
+
+// ===========================================================================
+// Bug 0071 — `theta/parse/invoke-arity-too-few` / `-too-many` over the
+// `.theta`-callable call surface. `docs/spec_topics/tool-calls.md`
+// §"Argument shape" binds both codes to both call surfaces by name — they
+// "apply equally to a `.theta` callable call" — and one shared call-site walk
+// carries both surfaces into the compose pass: `collectInvokeExprs` and the
+// `.theta`-callable-call resolution read the same traversal result, which the
+// INV-3 arity block of `checkInvokeStaticResolution` consumes.
+//
+// The three rejected forms are pinned here; the correct-arity control and the
+// defaulted-param callee hold green in both directions, so the arity check is
+// pinned to wrong arity rather than to the `.theta`-callable call form itself.
+// The full matrix — the `as` rename, the hyphen→underscore rewrite, the
+// already-failed `tools:` entry, and the `invoke(...)` rendering divergence —
+// lives in `tests/theta-callable-call-arity.test.ts`.
+// ===========================================================================
+describe("bug 0071 — `.theta`-callable call arity rejected at production load time", () => {
+  it("theta/parse/invoke-arity-too-many: a 3-argument `.theta`-callable call at a 2-param callee un-registers the caller", () => {
+    expect(
+      outcome.registered,
+      "the arity check does not reach the `.theta`-callable call surface: the caller " +
+        "passing 3 arguments to a 2-param callee was registered anyway. Registered: " +
+        JSON.stringify(outcome.registered),
+    ).not.toContain("b71toomany");
+  });
+
+  it("theta/parse/invoke-arity-too-many: the load path surfaces the registry rejection message", () => {
+    expect(
+      outcome.notifications,
+      "no theta/parse/invoke-arity-too-many diagnostic surfaced, so the surplus " +
+        "argument is discarded with no signal at either phase. Notified: " +
+        JSON.stringify(outcome.notifications),
+    ).toContain(MSG.callableArityTooMany);
+  });
+
+  it("theta/parse/invoke-arity-too-few: a 1-argument `.theta`-callable call at a 2-param callee un-registers the caller", () => {
+    expect(
+      outcome.registered,
+      "the caller passing 1 argument to a 2-non-defaulted-param callee was registered " +
+        "anyway, deferring the rejection to the callee-side runtime AJV net. Registered: " +
+        JSON.stringify(outcome.registered),
+    ).not.toContain("b71toofew");
+  });
+
+  it("theta/parse/invoke-arity-too-few: the load path surfaces the registry rejection message", () => {
+    expect(
+      outcome.notifications,
+      "no theta/parse/invoke-arity-too-few diagnostic surfaced for the " +
+        "`.theta`-callable call form. Notified: " + JSON.stringify(outcome.notifications),
+    ).toContain(MSG.callableArityTooFew);
+  });
+
+  it("theta/parse/invoke-arity-too-few: a zero-argument `.theta`-callable call at a 2-param callee un-registers the caller", () => {
+    expect(
+      outcome.registered,
+      "the caller passing no arguments to a 2-non-defaulted-param callee was registered " +
+        "anyway. Registered: " + JSON.stringify(outcome.registered),
+    ).not.toContain("b71zero");
+  });
+
+  it("theta/parse/invoke-arity-too-few: the zero-argument call renders `got 0`", () => {
+    expect(
+      outcome.notifications,
+      "no theta/parse/invoke-arity-too-few diagnostic surfaced for the zero-argument " +
+        "`.theta`-callable call form. Notified: " + JSON.stringify(outcome.notifications),
+    ).toContain(MSG.callableArityZeroArgs);
+  });
+
+  it("theta/parse/invoke-arity-*: a correct-arity `.theta`-callable call registers", () => {
+    // Green today (nothing rejects it) and after the fix (the arity matches):
+    // the control proves the check rejects wrong arity specifically, not every
+    // `.theta`-callable call.
+    expect(
+      outcome.registered,
+      "the exact-arity `.theta`-callable caller must still register. Registered: " +
+        JSON.stringify(outcome.registered),
+    ).toContain("b71ctl");
+    expect(
+      outcome.notifications.filter(
+        (n) => n.includes("b71ctlcallee") && n.includes("passes too"),
+      ),
+      "an arity diagnostic fired against a call supplying exactly the callee's 2 " +
+        "declared params",
+    ).toEqual([]);
+  });
+
+  it("theta/parse/invoke-arity-too-few: a call omitting a defaulted param registers", () => {
+    // `<required>` counts non-defaulted `params:` fields, not fields; a
+    // defaulted tail param makes the 1-argument call legal. Green in both
+    // directions.
+    expect(
+      outcome.registered,
+      "the caller omitting its callee's defaulted tail param must still register. " +
+        "Registered: " + JSON.stringify(outcome.registered),
+    ).toContain("b71def");
+    expect(
+      outcome.notifications.filter(
+        (n) => n.includes("b71defcallee") && n.includes("passes too"),
+      ),
+      "an arity diagnostic fired against a call supplying every non-defaulted param " +
+        "of its callee",
+    ).toEqual([]);
   });
 });
