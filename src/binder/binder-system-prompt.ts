@@ -29,9 +29,17 @@
 //      substring `defaulted` and at least one of `Do not` / `omit` / `skip`.
 //
 //   *Type display* — the per-field `<type>` is the declared Theta type in the
-//   surface syntax of Type System, not the JSON-Schema lowering.
+//   surface syntax of Type System, not the JSON-Schema lowering; a line break
+//   inside a string literal renders as the two-character escape `\n`,
+//   preserving the value that literal denotes, and every other line break
+//   collapses, with its surrounding horizontal whitespace, to one U+0020
+//   SPACE, so the rendering never spans more than the one physical line item 4
+//   requires.
 //   *Default-literal rendering* — the `<literal>` in `default=<literal>` is the
-//   field default in the Theta literal sublanguage surface syntax.
+//   field default in the Theta literal sublanguage surface syntax, and the same
+//   two-arm rule governs its line breaks. The string-literal arm escapes where
+//   the other collapses because `\n` is that sublanguage's own spelling for a
+//   newline, so the rendered literal still denotes the recorded value.
 //   *Parameter-line reference renderings* — the four reference per-field lines
 //   are reproduced byte-exact, including the description-omitted form
 //   (`  language (string) required`, no trailing space or em-dash).
@@ -142,6 +150,15 @@ export interface BuildBinderSystemPromptInput {
  * leading bytes are U+0020 U+0020; the content is
  * `<wire-name> (<type>) <requirement>[ — <description>]`.
  *
+ * `<type>` and the `<literal>` inside `<requirement>` are each recorded,
+ * author-controlled text (`SystemPromptParamField.type`,
+ * `ParamRequirement.literal`) that may itself carry a line break, so both are
+ * passed through `normaliseParamLineBreaks` before interpolation — the two
+ * tokens *Type display* and *Default-literal rendering* govern. `description`
+ * receives no such transform: it is a caller-supplied string, and no
+ * `params:` field populates one, so this segment carries no author-controlled
+ * line break to normalise.
+ *
  * The requirement token is `required` or `default=<literal>` (item 4,
  * Default-literal rendering); the ` — <description>` segment (U+0020 U+2014
  * U+0020 separator) is appended iff `description` is present and non-empty, and
@@ -149,18 +166,111 @@ export interface BuildBinderSystemPromptInput {
  * requirement with no trailing whitespace.
  */
 export function renderBinderParamLine(field: SystemPromptParamField): string {
+  const type = normaliseParamLineBreaks(field.type);
   const requirement =
     field.requirement.kind === "required"
       ? "required"
-      : `default=${field.requirement.literal}`;
+      : `default=${normaliseParamLineBreaks(field.requirement.literal)}`;
   // Two leading U+0020 SPACE, then `<wire-name> (<type>) <requirement>`.
-  const base = `  ${field.wireName} (${field.type}) ${requirement}`;
+  const base = `  ${field.wireName} (${type}) ${requirement}`;
   const description = field.description;
   if (description !== undefined && description !== "") {
     // Separator is exactly U+0020 U+2014 U+0020 (space, em-dash, space).
     return `${base} \u2014 ${description}`;
   }
   return base;
+}
+
+/**
+ * Render the line breaks out of one recorded `<type>` or `<literal>` token
+ * before it is interpolated into a per-field line (*Type display*,
+ * *Default-literal rendering*): a `params:` declaration's declared type or
+ * default RHS is recorded verbatim, and its source may itself span physical
+ * lines (a YAML block scalar, a flow mapping wrapped for readability, a union
+ * or generic split across lines) — item 4 requires the rendered line to stay
+ * one physical line regardless of how the source was wrapped.
+ *
+ * A line break inside a string literal renders as the two-character escape
+ * `\n` — collapsing it to a space would change the value the literal
+ * denotes. Every other line break renders as one U+0020 SPACE, collapsing
+ * with any surrounding horizontal whitespace into that one space. Text
+ * carrying no line break is returned unchanged (the fast path below), which is
+ * what keeps the four *Parameter-line reference renderings* and every
+ * committed-corpus `Parameters:` block byte-identical.
+ *
+ * "String literal" is docs/spec_topics/lexical.md §String literals' regular
+ * string: a single- (`'...'`) or double-quoted (`"..."`) span in which a
+ * backslash and the character immediately after it form one escape unit, so
+ * `\"` does not close the span. The span walk below mirrors the string-token
+ * loop in `tokeniseExpr` (src/parser/literal-sublanguage.ts:136–150),
+ * including its unterminated-quote disposition: an opening quote with no
+ * match runs to end of text. A backtick or `@` byte never opens a span here —
+ * template and query-template forms are outside the literal sublanguage
+ * (docs/spec_topics/grammar.md §Theta literal sublanguage) and outside this
+ * scan, so a line break next to one takes the collapse arm below.
+ */
+function normaliseParamLineBreaks(text: string): string {
+  if (!/[\r\n]/.test(text)) {
+    return text;
+  }
+  const n = text.length;
+  let out = "";
+  let i = 0;
+  while (i < n) {
+    const c = text[i] ?? "";
+    if (c === '"' || c === "'") {
+      const quote = c;
+      out += quote;
+      i += 1;
+      while (i < n && text[i] !== quote) {
+        let ch = text[i] ?? "";
+        if (ch === "\\" && i + 1 < n) {
+          // The escape unit: emitted verbatim, and what keeps the character
+          // after it — even a quote — from ending the span here.
+          out += "\\";
+          i += 1;
+          ch = text[i] ?? "";
+        }
+        if (ch === "\r") {
+          out += "\\n";
+          i += text[i + 1] === "\n" ? 2 : 1;
+          continue;
+        }
+        if (ch === "\n") {
+          out += "\\n";
+          i += 1;
+          continue;
+        }
+        out += ch;
+        i += 1;
+      }
+      if (i < n) {
+        out += text[i] ?? ""; // the closing quote
+        i += 1;
+      }
+      continue;
+    }
+    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
+      let j = i;
+      let sawBreak = false;
+      while (j < n) {
+        const wc = text[j] ?? "";
+        if (wc !== " " && wc !== "\t" && wc !== "\r" && wc !== "\n") {
+          break;
+        }
+        if (wc === "\r" || wc === "\n") {
+          sawBreak = true;
+        }
+        j += 1;
+      }
+      out += sawBreak ? " " : text.slice(i, j);
+      i = j;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 // --- the full prompt ---------------------------------------------------------

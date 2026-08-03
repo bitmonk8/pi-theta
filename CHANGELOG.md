@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-08-03
+
+### Fixed
+
+- **The binder `Parameters:` per-field line shape was violable by an embedded
+  newline** (bug 0060). The block is a line-oriented contract — one physical
+  line per declared field, two leading U+0020 and nothing else — but two of the
+  three values interpolated into that line are author-controlled text recorded
+  verbatim from the `params:` block, and nothing between the YAML read and the
+  prompt checked either for a line break. A declared type written as a
+  multi-line block scalar, an inline object type wrapped across lines for
+  readability, a union or generic split across lines, or a default RHS carrying
+  a break all loaded with zero diagnostics, registered, lowered correctly, and
+  then emitted one declared field across two physical lines — the continuation
+  carrying no indent, or the author's own. The consequence reached past
+  indentation: because the prompt's other structural lines are unescaped tokens
+  on their own physical lines, a break placed by the author reproduced them, so
+  a declared type or default containing `Theta: /evil` rendered a prompt with
+  two `Theta: ` lines where the specification states exactly one per prompt, and
+  the same through `User arguments:` put a forged line ahead of the real one.
+
+  Refusal could not close the family — the multi-line inline object type, the
+  split union, the split generic and the multi-line array default are all
+  grammar-admitted and all lower correctly — so the two author-controlled
+  tokens are now normalised at the render seam instead. A line break inside a
+  string literal renders as the two-character escape `\n`, which is the literal
+  sublanguage's own spelling for a newline and preserves the value the literal
+  denotes; every other line break, with any horizontal whitespace adjoining it,
+  renders as one U+0020 SPACE, which is the space-normalised spelling of the
+  same type. Text carrying no line break is returned unchanged, so no shipped
+  prompt's bytes move. `binder-bypass-and-envelope.md` states the rule under
+  *Type display* and *Default-literal rendering*, the two obligations it answers
+  to.
+
+  No diagnostic code was added or removed and no recorded byte, lowered
+  document or `$defs` name moves: every input that loaded before still loads,
+  with the same diagnostics and the same lowered schema. Locked by
+  `tests/binder-param-line-newline-normalisation.test.ts` (48 tests), whose
+  central assertion is that the `Parameters:` block has exactly
+  `1 + fields.length` physical lines — the one a renderer that merely indents
+  the continuation cannot satisfy — alongside per-pair proofs that the rendered
+  type lowers to the recorded type's fragment under the recorded type's
+  `__inline_<slug>` name, and that the rendered default parses as a literal and
+  denotes the recorded value.
+
 ## [0.60.0] - 2026-08-03
 
 ### Fixed

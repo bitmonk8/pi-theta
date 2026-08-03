@@ -509,7 +509,17 @@ and the **default** RHS, where the break rides `defaultSource` rather than the
 type (`p: |` + `array<integer> = [1,` + `2]` → `["Parameters:", "  p (array<integer>) default=[1,", "2]"]`,
 and the same through a double-quoted `\n` escape). One sibling defect covers
 the family: a recorded declared type or default source carrying a line break
-reaches `renderBinderParamLine` unescaped. Unfiled. (iii) The implementation
+reaches `renderBinderParamLine` unescaped. Unfiled — filed as bug
+[0060](./0060-binder-parameters-line-shape-violable-by-embedded-newlines.md),
+and discharged by the 0060 fix (0.61.0): the declared type and the default
+literal are normalised at the render seam, inside `renderBinderParamLine`, so
+all three reaches render one physical line per declared field, and
+`binder-bypass-and-envelope.md` states the transform under *Type display* and
+*Default-literal rendering*. That closes this residual's family and the
+remaining three reaches of the §Fix obligation below (`:565–568`) without
+refusing any grammar-admitted spelling: the recorded bytes group (c1) pins are
+untouched, because the transform runs on the prompt copy alone. (iii) The
+implementation
 comments say "any unenumerated node kind" and do not spell out the
 value-node-absent case that the registry *Trigger* names; prose-only, unfiled.
 

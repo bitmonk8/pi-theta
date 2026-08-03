@@ -1,10 +1,13 @@
 # Bug 0060 — The binder `Parameters:` per-field line shape is violable by an embedded newline: a recorded declared type or default source carrying a line break reaches `renderBinderParamLine` unescaped, so a theta that loads with zero diagnostics and registers emits one declared field across two or more physical lines — the continuation carrying no indent, or the source's own — and a crafted break forges a second `Theta: /<name>` line where item 1 says exactly one
 
-- **Status:** open. §Fix is constraint-pinned. It recommends one route — normalise
-  at the render seam — and pins the constraints, because the transform has two
-  arms answering to two different MUSTs (*Type display* `:129` for `<type>`,
-  *Default-literal rendering* `:142` for `<literal>`) and the spec states
-  neither today. No fix-ordering dependency.
+- **Status:** fixed (0.61.0). §Fix as settled — the recommended route: the two
+  author-controlled tokens are normalised at the render seam, inside
+  `renderBinderParamLine`, and `binder-bypass-and-envelope.md` gained the
+  transform under *Type display* and *Default-literal rendering* in the same
+  commit. Both of the transform's arms apply to both tokens: a break inside a
+  string literal escapes, every other break collapses to one U+0020. See
+  §Fix (0.61.0) below. Routes B (recording-seam normalisation) and C (refusal)
+  were not taken. No fix-ordering dependency.
 - **Kind:** defect at the render seam, with one spec silence over the remedy.
   1. *The rendering breaks stated MUSTs.*
      `binder-bypass-and-envelope.md:117` requires "one per-field line per
@@ -753,3 +756,157 @@ not a substitute for the transform.
   `renderBinderParamLine`, plus a Python census over the 35 committed
   `.theta` / `.thetalib` files. Every `@@` row in §Reproduction is a recorded
   output of that run. Probes deleted; nothing left in the tree.
+
+## Fix (0.61.0)
+
+The constraint-pinned §Fix above is discharged on its recommended route, with
+the transform's two arms applied to both author-controlled tokens and no
+recorded byte, lowered document or diagnostic sequence moved. Line anchors are
+at the fix commit.
+
+**What shipped.**
+
+- `src/binder/binder-system-prompt.ts` — one module-local transform,
+  `normaliseParamLineBreaks`, applied to `field.type` and to
+  `field.requirement.literal` on the way into the per-field line. A line break
+  inside a regular string literal renders as the two-character escape `\n`;
+  every other line break, together with any horizontal whitespace adjoining it,
+  renders as one U+0020 SPACE. Text carrying no line break is returned
+  unchanged, which is what holds the four *Parameter-line reference renderings*
+  and every committed-corpus `Parameters:` block byte-identical.
+  `buildBinderSystemPrompt` and its `line` helper are untouched: the fix is that
+  the call they terminate with one `\n` can no longer return a string carrying
+  its own.
+- `docs/spec_topics/binder/binder-bypass-and-envelope.md` — the rule stated
+  where the two MUSTs it answers to live: *Type display* carries the two-arm
+  rule (the string-literal arm named against `LiteralType`, which admits a
+  string literal in type position), and *Default-literal rendering* defers to it
+  and states why the string arm escapes where the other collapses — `\n` is the
+  literal sublanguage's own spelling for a newline, so the rendered `<literal>`
+  still denotes the value the source denotes. Item 4 (`:117`) needed no edit;
+  the four reference renderings are unedited; both paragraphs were amended
+  within their existing physical line, so no line number in the page moved.
+  No `docs/reference/` mirror of this page exists, and `cka-45`'s
+  coverage-matrix row is section-granular — neither was due an edit.
+
+**Both in-route decisions, recorded.** Constraint 4's seam is
+`renderBinderParamLine`, not `binderPromptParamField`: the guarantee is then
+structural for every caller of the exported renderer, including the four
+normative reference renderings, and `binderPromptParamField` stays
+byte-identical. The constraint's stated cost — the module's first dependency
+outside `src/binder/` — was avoidable and was avoided: the string-literal arm
+needs only a single-pass span walk over quote and escape units, written
+module-locally and anchored by doc comment to lexical.md §String literals as its
+authority, so no `src/parser/` import was added. Constraint 5's
+` — <description>` slot is NOT transformed: `binderPromptParamField` supplies no
+`description`, so no caller reachable from a `params:` block populates it and a
+transform there would be dead code; `renderBinderParamLine`'s doc comment
+records that disposition against the two tokens that are reachable.
+
+**No refusal, no code, no registry.** Constraint 1 holds by construction — the
+parser is untouched, so R1c, R1d, R1e, R2, R2b and R3a load, lower and record
+exactly as at HEAD. Constraint 6 holds the same way: no `theta/*` code is added
+or removed, every input's diagnostic sequence is unchanged, GOV-15's
+diagnostic-registry carve-out is not reached, and H9a's permitted-code list is
+untouched.
+
+**Reproduction re-derived at the fix baseline** (`cf75460c`, 0.60.0): all 25 `@@`
+rows byte-identical to the recorded 0.51.0 table — zero behavioural drift. Three
+citations in this report drifted and are corrected here:
+`src/parser/params.ts:216–226` (the per-field default check) is `:253–265` with
+the `checkLiteralSublanguage` call at `:260`;
+`src/extension/production-composition.ts:1894–1901` (`hasLoadParseError`) is
+`:1904–1911`; and the closed `Type` production set is
+`docs/spec_topics/grammar.md:90–:102`, not `:95–:102` (`:95` is only its last
+alternative). §Reproduction's corpus census reads 35 committed `.theta` /
+`.thetalib` files; the count is **34**, at this baseline and at `d88742f0`
+alike. The census result is unaffected — 17 declare `params:`, 19 fields total,
+zero carry an embedded break — and was re-derived independently through the real
+front end rather than a text scan.
+
+**Offline lock.** `tests/binder-param-line-newline-normalisation.test.ts`
+(48 tests), driving the real `parseThetaDocument` through
+`tests/helpers/e2e-s1.ts` with `binderPromptParamField`'s mapping mirrored
+field-for-field, then the shipped `buildBinderSystemPrompt` /
+`renderBinderParamLine`. Group (a) is constraint 3's mandatory assertion — the
+`Parameters:` block has exactly `1 + fields.length` physical lines and every
+per-field line matches `/^ {2}[^ \t]/` — over R1, R1c, R1d, R1e, R2, R2b, R3a,
+R3b, R3c and both two-field rows. Group (b) pins exactly one `Theta: /` line and
+exactly one `User arguments: ` line, each the real one, against F1, F2, R3d and
+R3e. Group (c) is constraint 2 for `<type>`: the rendered text is lowered and
+its fragment and `__inline_<slug>` name asserted equal the recorded text's, over
+the pairs R1c/N1, R2/N1, R1d/N2, R1e/N3, with an independent `node:crypto` slug
+oracle. Group (d) is constraint 2 for `<literal>`: the rendered text draws no
+diagnostic from `checkLiteralSublanguage` and denotes the recorded value — the
+array arm compared as an AST modulo spans, the string arm as the decoded
+`StringExpr.value`, which is the assertion that discriminates escape from
+collapse. Group (e) is constraint 1's over-refusal fence (same diagnostics, same
+lowered fragment, same recorded bytes — green before and after, and red if the
+fix were to drift to route B). Group (f) is the byte-stability guard: C1, C2,
+C3, N1, N2, N3, R1b and the four reference renderings read off the spec page.
+Group (g) is the `default-not-literal` control with its message read from the
+registry. Group (h) records the body-code contrast as a disposition, asserting
+no refusal.
+
+**Gates.** Witness red before, green after: neutralising the two call sites reds
+exactly 24 of the 48 — the pre-fix baseline count — across all four assertion
+groups, and the byte-exact restore is verified by identical blob hash
+(`7c767f92…`). Full default suite 251 files / 3543 tests green;
+`npm run typecheck` and `npm run lint` clean. Live: H8a
+`tests/live/live-production-acceptance.test.ts` 7/7 and H9a
+`tests/live/acceptance/` 11/11 green, with H9a-T (d) driving
+`acc-params-binder.theta`'s real off-session binder pass — the one live fixture
+that reaches this renderer — so the fixed path is exercised live in its ordinary
+break-free shape. No live test can witness the defect itself: the prompt is a
+model input, not one of GOV-15's three observables, and no committed fixture
+embeds a break.
+
+**Review.** Two rounds plus one comment-only polish pass. Round 1 (deep) raised
+one blocker: the *Type display* sentence as first written stated a collapse-only
+rule while the code applied both arms to `<type>` as well — and the code was
+right, because `grammar.md:102`'s `LiteralType ::= STRING` admits a string
+literal in type position, where collapsing a break would change the value that
+literal type denotes (two registering zero-diagnostic fixtures demonstrate it:
+`p: |` + `don't` + `x`, and a double-quoted type carrying a break). The spec
+sentence and the module header were rewritten to the two-arm rule; the transform
+was not changed. The same round corrected the census count and three
+stale-at-birth citations, and moved the transform below the exported renderer so
+the item-4 section header is followed by the renderer and the citation churn in
+this module is bounded. Round 2 (fast) returned clean on all of it.
+
+**Residuals.** (i) The orthogonal refusal candidate route C names is confirmed
+at this baseline and is NOT closed here: a raw newline inside a string literal
+is `theta/parse/literal-newline-in-string` in body code (X1) and draws no
+diagnostic at the `params:` default position (R3b, R3c), and the registry row's
+*Phase* cell reads `lex` while the frontmatter default is read at load.
+Bringing those inputs into the code's emission set is a DIAG-2 trigger widening
+under GOV-15's carve-out, out of scope for a rendering fix, and not a substitute
+for the transform — it would leave R3a, a legal multi-line `ArrayLit`, open.
+Unfiled. (ii) Item 2's `Description:` line and item 3's `Argument hint:` line
+are built by the same `line` helper from frontmatter scalars and carry the same
+seam shape; this report measured neither and the fix does not reach them.
+Unfiled, and a §Non-goal above. (iii) `renderBinderParamLine`'s
+` — <description>` slot stays untransformed by decision (constraint 5), so a
+future caller that supplies a description carrying a line break would re-open
+item 4's per-field cardinality through that third slot. Bounded today by there
+being no such caller; recorded in the function's doc comment rather than
+closed. (iv) The transform's string-literal arm is lexical, so an apostrophe in
+text that is not a type opens a span and a break inside it escapes rather than
+collapses (`p: |` + `don't` + `x` renders `don't\nx`). The rendered line is
+still one physical line and still carries the two-U+0020 indent, so item 4
+holds; what the text denotes is 0059's subject, not this one's. (v) The
+transform's doc comment carries a hard line range for `tokeniseExpr`'s
+string-token loop (`src/parser/literal-sublanguage.ts:136–150`), accurate at
+this commit and ungated against drift.
+
+**Records corrected.** Bug
+[0041](./0041-params-block-mapping-rhs-silent-permissive.md)'s §Fix *Residuals*
+(ii) recorded this family as unfiled and its own §Fix obligation (`:565–568`)
+recorded the target; a discharge note is appended there. Bug
+[0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md) is
+unaffected: the render-side route was taken, so this fix reads `typeSource` and
+writes only prompt bytes, and 0056's lowering work does not re-pin these
+fixtures. Bug
+[0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md) is
+unaffected for the same reason — R1's `{}` lowering of non-type scalar text is
+its subject and a §Non-goal here.
