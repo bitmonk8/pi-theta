@@ -414,7 +414,11 @@ Production wires exactly this: `production-composition.ts:1481` passes
 - The `as`-target validation rule itself (`theta/load/invalid-tool-rename`),
   which is correct and already enforced.
 - The derived-default-name shape gap for `.theta` entries — a separate report in
-  this batch.
+  this batch. Discharged by the 0070 fix (0.63.0): `resolveCallableSet` now
+  applies the lowercase-first predicate to the merged presented name, after
+  `resolveEntry` returns `defaultName` and before the collision test, raising
+  `theta/load/invalid-derived-tool-name` for the derived case. The malformed-arm
+  block this fix added is untouched by it.
 
 ## Fix
 

@@ -125,7 +125,10 @@ Two entry kinds:
   for a `.theta`-ending literal resolving to no file), and must point at a
   **subagent-mode** theta (a prompt-mode callee is `theta/load/prompt-mode-callable`).
   Default name is the basename without `.theta`, hyphens → underscores
-  (`./code-review.theta` → `code_review`). `as <name>` overrides for either kind
+  (`./code-review.theta` → `code_review`); a derived name outside the
+  lowercase-first rule is `theta/load/invalid-derived-tool-name`
+  (`./2fast.theta` → `2fast`; rename the file or add `as <name>`), checked
+  before the collision rule below. `as <name>` overrides for either kind
   (target must be lowercase-first, else `theta/load/invalid-tool-rename`). Two
   entries resolving to the same name, or a collision with a top-level `fn` or
   import, is `theta/load/tool-name-collision`.

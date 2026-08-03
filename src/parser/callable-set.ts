@@ -11,10 +11,11 @@
 //     entries (resolved against the per-load-pass parse cache);
 //   - the default name derivation (Pi-tool name verbatim; `.theta` basename with
 //     hyphens replaced by underscores) and the `as <name>` rename override;
-//   - the six load-time rejections — `theta/load/malformed-tool-entry` (an
+//   - the seven load-time rejections — `theta/load/malformed-tool-entry` (an
 //     entry outside the closed per-entry grammar), `theta/load/unknown-tool`,
 //     `theta/load/unresolvable-theta-path`, `theta/load/prompt-mode-callable`,
-//     `theta/load/invalid-tool-rename`, `theta/load/tool-name-collision`;
+//     `theta/load/invalid-tool-rename`, `theta/load/invalid-derived-tool-name`,
+//     `theta/load/tool-name-collision`;
 //   - the frozen resolution snapshot (no ambient inheritance): only the
 //     explicitly-listed callables appear, and an absent / empty `tools:` yields
 //     the empty callable set.
@@ -141,8 +142,9 @@ export interface ResolveCallableSetInput {
 export interface CallableSetResult {
   /**
    * Whether the theta is registered. `false` when any load-time rejection fired
-   * (unknown tool, unresolvable / prompt-mode `.theta`, invalid rename, name
-   * collision); `true` when the callable set resolved cleanly.
+   * (unknown tool, unresolvable / prompt-mode `.theta`, invalid rename, invalid
+   * derived name, name collision); `true` when the callable set resolved
+   * cleanly.
    */
   readonly registered: boolean;
   /** The frozen resolution snapshot, present iff `registered` is `true`. */
@@ -164,8 +166,9 @@ export interface CallableSetResult {
  *   - reject an unknown Pi tool (`theta/load/unknown-tool`), an unresolvable
  *     `.theta` path (`theta/load/unresolvable-theta-path`), a prompt-mode `.theta`
  *     callee (`theta/load/prompt-mode-callable`), an invalid `as` rename target
- *     (`theta/load/invalid-tool-rename`), and a name collision
- *     (`theta/load/tool-name-collision`);
+ *     (`theta/load/invalid-tool-rename`), a derived default name that is not
+ *     lowercase-first (`theta/load/invalid-derived-tool-name`), and a name
+ *     collision (`theta/load/tool-name-collision`);
  *   - freeze the resulting snapshot (no ambient inheritance).
  *
  * The theta registers iff no error-severity diagnostic was raised.
@@ -217,6 +220,38 @@ export function resolveCallableSet(
     }
 
     const name = parsed.rename ?? resolution.defaultName;
+
+    // The lowercase-first rule governs the presented name whatever produced
+    // it (frontmatter-fields-a.md §`tools`), so this predicate runs against
+    // the MERGED name rather than against one of its two sources. It runs
+    // before the collision test below so a derived-name rejection is never
+    // masked by a name collision. The `parsed.rename === undefined` conjunct
+    // keeps this diagnostic's claim about its own trigger true: an `as`
+    // target was already judged by `theta/load/invalid-tool-rename` above and
+    // `continue`d out, so this arm never survives to describe a rename the
+    // author wrote as though it were a derivation. The arm is scoped to
+    // `.theta` entries for that same reason: the Pi-tool arm's default name is
+    // the registry name verbatim, so a name outside the rule there is a
+    // host-registry fact with no file to rename and no derivation to describe
+    // (bug 0070 §Non-goals), while this code's registered Trigger, Hint and
+    // Message all speak of a `.theta` basename derivation. The discriminant is
+    // read off the resolution `resolveEntry` already computed — authoritative
+    // here because a failed resolution `continue`d out above — rather than
+    // re-derived from `parsed.spec`, so the arm test cannot fall out of
+    // lock-step with the arm split the resolver owns (bug 0069).
+    if (
+      parsed.rename === undefined &&
+      resolution.callable.kind === "theta" &&
+      !isLowercaseFirstIdentifier(name)
+    ) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/load/invalid-derived-tool-name",
+        file,
+        message: `'tools:' entry '${parsed.spec}' derives the default name '${name}', which must be lowercase-first; rename the file or add an 'as' clause`,
+      });
+      continue;
+    }
 
     // Name-collision: against a name already bound by an earlier entry, or a
     // top-level `fn` / imported symbol.
@@ -401,8 +436,9 @@ function isBareIdentifier(spec: string): boolean {
 
 /**
  * The theta lowercase-first identifier rule (lexical.md §Identifiers): a
- * lowercase letter or `_` first, then identifier characters. The `as` rename
- * target must satisfy this.
+ * lowercase letter or `_` first, then identifier characters. It governs both
+ * `tools:` name sources the rule is stated for: the `as` rename target, and —
+ * absent a rename — a `.theta` entry's derived default name.
  */
 function isLowercaseFirstIdentifier(name: string): boolean {
   return /^[a-z_][A-Za-z0-9_]*$/.test(name);

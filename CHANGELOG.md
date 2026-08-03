@@ -6,6 +6,44 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-08-03
+
+### Fixed
+
+- **A `.theta` `tools:` entry's derived default callable name was never checked
+  against the lowercase-first identifier rule** (bug 0070). A `tools:` entry is
+  exposed under one name drawn from one of two places — the `as` override, or the
+  default derived from the file's basename with hyphens rewritten to underscores
+  — and the frontmatter spec gives the same justification for both: theta
+  identifiers must be lowercase-first identifier-shaped. Only the `as` target was
+  enforced. Because the discovery stem regex admits a leading digit,
+  `2fast.theta` is a fully valid, registrable theta file, and listing it as
+  `- ./2fast.theta` minted a callable named `2fast`: bound into the frozen
+  callable set, offered to the model, counted for collision detection — and
+  uncallable from theta code, because no bare identifier can spell it. The theta
+  registered with zero load diagnostics, so a declared capability was silently
+  half-present. The only signal the author got was a parse error at their own
+  call site (`unsupported syntactic feature: 2fast`) that named no `tools:` entry
+  and from which neither remedy — rename the callee file, or add an `as` clause —
+  was derivable. The same final name was refused through one source and admitted
+  through the other: `./2fast.theta as 2fast` failed load while `./2fast.theta`
+  passed. Version- or step-numbered file names (`2-classify.theta` →
+  `2_classify`) are a natural naming style, and dotted or uppercase stems reach
+  the same gap through a `tools:` path even though they cannot register a slash
+  name.
+
+  The resolver now applies that one predicate to the merged presented name rather
+  than to one of its sources, judged after the entry resolves and **before** the
+  name-collision test so a derived-name rejection is never reported as a
+  collision. A derived name outside the rule is the new error-severity
+  `theta/load/invalid-derived-tool-name`, whose message names the entry path, the
+  derived name, and the `as` escape hatch; the theta does not register. The
+  rejection is scoped to `.theta` entries: a Pi tool's name is the host registry
+  name verbatim, with no file to rename and no basename derivation to describe,
+  so that arm keeps its previous behaviour. An `as` override still keeps its own
+  `theta/load/invalid-tool-rename`, and `./code-review.theta` → `code_review`
+  keeps resolving as before.
+
 ## [0.62.0] - 2026-08-03
 
 ### Fixed

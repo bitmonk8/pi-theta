@@ -55,6 +55,10 @@ const MSG = {
     "tool name 'dup' collides with another 'tools:' entry, top-level fn, or import",
   // `theta/load/invalid-tool-rename`
   invalidToolRename: "'as BadName' rename target must be lowercase-first; got 'BadName'",
+  // `theta/load/invalid-derived-tool-name`
+  invalidDerivedToolName:
+    "'tools:' entry './2fast.theta' derives the default name '2fast', " +
+    "which must be lowercase-first; rename the file or add an 'as' clause",
   // `theta/load/callee-has-errors`
   calleeHasErrors: "callee './broken.theta' has errors; see related diagnostics",
 } as const;
@@ -120,6 +124,31 @@ const THETAS: readonly PlantedTheta[] = [
   {
     stem: "badrename",
     text: theta("---", "mode: prompt", "tools:", "  - read as BadName", "---", "@`hi`"),
+  },
+
+  // `theta/load/invalid-derived-tool-name`: a `.theta` entry whose DERIVED
+  // default name is not lowercase-first, so the callable it mints has no
+  // bare-identifier spelling in theta code (bug 0070).
+  {
+    stem: "digitdefault",
+    text: theta("---", "mode: subagent", "tools:", "  - ./2fast.theta", "---", "@`hi`"),
+  },
+  // The digit-leading callee both `digitdefault` and `digitrenamed` point at.
+  // Valid on its own merits: the discovery stem regex `^[a-z0-9][a-z0-9_-]*$`
+  // admits a leading digit, so it registers as `/2fast`.
+  { stem: "2fast", text: theta("---", "mode: subagent", "---", "@`fast`") },
+  // Positive control: the `as` override supplies the presented name, so the
+  // derived name is never used and the theta registers.
+  {
+    stem: "digitrenamed",
+    text: theta(
+      "---",
+      "mode: subagent",
+      "tools:",
+      "  - ./2fast.theta as fast",
+      "---",
+      "@`hi`",
+    ),
   },
 
   // `theta/load/callee-has-errors`: a subagent-mode `.theta` callee that itself
@@ -331,5 +360,48 @@ describe("V20a-T — theta/load/callee-has-errors rejected at production load ti
       "no theta/load/callee-has-errors diagnostic surfaced. Notified: " +
         JSON.stringify(outcome.notifications),
     ).toContain(MSG.calleeHasErrors);
+  });
+});
+
+// ===========================================================================
+// Bug 0070 — `theta/load/invalid-derived-tool-name`. The presented name of a
+// `.theta` entry comes from the `as` override or from the derived default, and
+// the lowercase-first identifier rule
+// (frontmatter/frontmatter-fields-a.md §`tools`) governs both, but at the
+// baseline only the `as` override was checked. A derived name outside that
+// rule was bound into the frozen callable set, offered to the model and
+// counted for collision detection, while theta code had no bare-identifier
+// form for it (tool-calls.md §opening). The paired cell keeps the gate honest
+// in both directions: the derived name un-registers, the `as` override
+// registers.
+// ===========================================================================
+describe("V20a-T — theta/load/invalid-derived-tool-name rejected at production load time", () => {
+  it("theta/load/invalid-derived-tool-name: a digit-leading derived default name un-registers the theta", () => {
+    expect(
+      outcome.registered,
+      "the theta whose `tools:` entry derives the unspellable callable name " +
+        "`2fast` was registered anyway. Registered: " +
+        JSON.stringify(outcome.registered),
+    ).not.toContain("digitdefault");
+  });
+
+  it("theta/load/invalid-derived-tool-name: the load path surfaces the registry rejection message", () => {
+    expect(
+      outcome.notifications,
+      "no theta/load/invalid-derived-tool-name diagnostic surfaced, so the only " +
+        "signal the author gets is a parse error at their own call site. " +
+        "Notified: " + JSON.stringify(outcome.notifications),
+    ).toContain(MSG.invalidDerivedToolName);
+  });
+
+  it("theta/load/invalid-derived-tool-name: an `as` override resolves it — the theta registers", () => {
+    // Green today (nothing rejects it) and after the fix (the override supplies
+    // the presented name): the positive control proves the rule rejects the
+    // derived name specifically, not every entry naming a digit-leading callee.
+    expect(
+      outcome.registered,
+      "the `as`-overridden theta must still register. Registered: " +
+        JSON.stringify(outcome.registered),
+    ).toContain("digitrenamed");
   });
 });

@@ -275,6 +275,7 @@ function preEvalCauseOf(code: string): PreEvalFailureCause {
     code === "theta/load/unknown-tool" ||
     code === "theta/load/tool-name-collision" ||
     code === "theta/load/invalid-tool-rename" ||
+    code === "theta/load/invalid-derived-tool-name" ||
     code === "theta/load/prompt-mode-callable" ||
     code === "theta/load/callee-has-errors"
   ) {

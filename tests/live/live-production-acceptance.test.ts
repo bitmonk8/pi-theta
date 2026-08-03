@@ -600,3 +600,116 @@ describe("H8a-T — forged __thetaEnum wire ingress binds as a plain object, liv
     }
   });
 });
+
+// ===========================================================================
+// Bug 0070 — a `.theta` `tools:` entry's DERIVED default callable name (the
+// basename without `.theta`, hyphens rewritten to underscores) was never
+// checked against the lowercase-first-identifier rule the `as` override target
+// IS checked against (`src/parser/callable-set.ts` `resolveCallableSet`). A
+// digit-leading callee stem (`./2fastbug0070.theta`, discovery-valid under the
+// stem regex `^[a-z0-9][a-z0-9_-]*$`) therefore minted an unspellable callable
+// name with zero load diagnostics at the offline production-load seam
+// (`tests/production-tools-load-resolution.test.ts`,
+// `tests/tools-derived-name-shape.test.ts`).
+//
+// No existing live test (H8a, H9a, or the hardening probes) planted a
+// `.theta`-path `tools:` entry at all before this cell — every `tools:`
+// occurrence across `tests/live/**` was the bare Pi-tool identifier `read`
+// (`tests/live/acceptance/fixtures/acc-code-tool-loop.theta` and the
+// hardening probes' `tool_loop` fixtures), which resolves through the
+// Pi-tool arm the new check deliberately exempts (`resolution.callable.kind
+// === "theta"` in the fix), never through the `.theta`-path arm the fix
+// actually validates. The new `theta/load/invalid-derived-tool-name` arm was
+// therefore unreached by the live suite before this cell.
+//
+// This drives the SAME registration observable the "discovery →
+// registration" bullet above uses (`handle.command` / `handle.registeredNames()`,
+// read after the real `session_start` → `resources_discover` →
+// `composeExtensionInstance` → `discoverAndComposeFixtures` →
+// `resolveCallableSet` path settles) through the shipped extension entry
+// against a live host — never through the offline stubbed-`ctx` harness the
+// unit witnesses use. Registration-only: no slash command is invoked, so no
+// model turn runs and the cell spends zero tokens (the same profile the file
+// header claims for the two discovery→registration tests).
+// ===========================================================================
+
+describe("H8a-T — bug 0070: a .theta tools: entry's unvalidated derived name (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose tools: entry derives the unspellable name `2fastbug0070`, while its `as`-overridden sibling registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The digit-leading callee — discovery-valid on its own merits (the stem
+      // regex admits a leading digit); its stem is what a `tools:` entry turns
+      // into an unspellable callable name.
+      {
+        source: "project",
+        stem: "2fastbug0070",
+        text: ["---", "mode: subagent", "---", "@`fast`", ""].join("\n"),
+      },
+      // The load-bearing caller: `./2fastbug0070.theta` derives the default
+      // name `2fastbug0070` (digit-leading, not lowercase-first-identifier-
+      // shaped) with no `as` override.
+      {
+        source: "project",
+        stem: "digitdefaultbug0070",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          "  - ./2fastbug0070.theta",
+          "---",
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+      // The `as` escape hatch the rejection message points the author at.
+      {
+        source: "project",
+        stem: "digitrenamedbug0070",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          "  - ./2fastbug0070.theta as fastbug0070",
+          "---",
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the callee and the `as`-overridden caller must both
+      // register before the rejected caller's absence can be attributed to the
+      // derived-name rule instead of a broken workspace.
+      expect(
+        handle.command("2fastbug0070"),
+        "the digit-leading callee did not register — precondition unmet. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("digitrenamedbug0070"),
+        "the `as`-overridden caller did not register — precondition unmet. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline stubbed-`ctx` harness), the caller whose `tools:`
+      // entry derives the unspellable name `2fastbug0070` does not register.
+      expect(
+        handle.command("digitdefaultbug0070"),
+        "the caller whose `tools:` entry derives the unspellable callable name " +
+          "`2fastbug0070` registered anyway through the live discovery/" +
+          "session_start path — theta/load/invalid-derived-tool-name did not " +
+          "fire. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("digitdefaultbug0070");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
