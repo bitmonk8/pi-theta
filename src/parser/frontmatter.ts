@@ -399,15 +399,23 @@ function renderScalarValue(value: unknown): string {
  * Extract the `tools:` callable set (FRNT-2/FRNT-3): a plain scalar is the
  * comma-separated short form (frontmatter-fields-b-and-templates.md §YAML-shape:
  * the plain scalar split on commas, each entry trimmed) so `read, grep` becomes
- * two entries interchangeable with the YAML list form; a sequence becomes the
- * list of its scalar entries; any other shape (empty / non-scalar) yields
- * `undefined` (no callable set). Entries are split ONLY on commas — the
+ * two entries interchangeable with the YAML list form; a sequence becomes one
+ * entry per item — a scalar item verbatim, a non-scalar item (`- {a: b}`) its
+ * own verbatim YAML source slice via `paramValueSource`, so the closed
+ * per-entry grammar in callable-set.ts judges it instead of the item being
+ * dropped unexamined (bug 0069 §Fix constraint 3); an absent `tools:` field,
+ * and a `tools:` value that is neither a scalar nor a sequence (a YAML
+ * mapping, flow or block, or any other unenumerated node kind), both yield
+ * `undefined` (no callable set) — the per-item recovery above closes the
+ * sequence ITEM, not the whole-field shape. Entries are split ONLY on commas — the
  * whitespace split that separates an `as` rename (`grep as g`) happens later in
  * the per-entry grammar, so a single scalar entry with an `as` clause stays one
  * entry. Entries are carried verbatim so the H8b resolvers can classify each as
- * a Pi-tool name or a `.theta`-callable path.
+ * a Pi-tool name or a `.theta`-callable path. `yamlSource` is the frontmatter
+ * block's raw YAML text, threaded from the `parseFrontmatter` call site, that
+ * `paramValueSource` slices a non-scalar item's byte range out of.
  */
-function extractToolsList(node: unknown): readonly string[] | undefined {
+function extractToolsList(node: unknown, yamlSource: string): readonly string[] | undefined {
   if (isScalar(node)) {
     const entries = String(node.value)
       .split(",")
@@ -418,9 +426,12 @@ function extractToolsList(node: unknown): readonly string[] | undefined {
   if (isSeq(node)) {
     const entries: string[] = [];
     for (const item of node.items) {
-      if (isScalar(item)) {
-        entries.push(String(item.value));
-      }
+      // A non-scalar sequence item recovers its own verbatim YAML source
+      // instead of being dropped (bug 0069 §Fix constraint 3): the resolver's
+      // closed per-entry grammar is the sole arbiter of well-formedness, so
+      // the item still reaches a `tools:` diagnostic naming its own text
+      // rather than silently narrowing the callable set.
+      entries.push(isScalar(item) ? String(item.value) : paramValueSource(item, yamlSource));
     }
     return entries.length > 0 ? entries : undefined;
   }
@@ -905,7 +916,7 @@ export function parseFrontmatter(
         // FRNT-2/FRNT-3 callable set: a scalar (`tools: grep`) or a sequence
         // (`tools:\n  - ./sentiment.theta`) of Pi-tool names / `.theta`-callable
         // paths. Surfaced verbatim; the H8b resolvers classify each entry.
-        toolsValue = extractToolsList(item.value);
+        toolsValue = extractToolsList(item.value, block?.yaml ?? "");
         continue;
       }
       if (key === "system") {

@@ -1,6 +1,9 @@
 # Bug 0069 — A `tools:` entry's trailing residue is discarded with no diagnostic: a missing comma in the short form silently drops every entry after the first, and `read as` / `read as file_read junk` / a non-scalar list item load clean
 
-- **Status:** open.
+- **Status:** fixed (0.62.0). The per-entry grammar is closed — an entry outside
+  it raises `theta/load/malformed-tool-entry` and the theta does not register —
+  and a non-scalar sequence item is recovered as its own verbatim source and
+  judged by that same grammar rather than dropped. See §Fix (0.62.0) below.
 - **Kind:** spec gap — `frontmatter-fields-a.md` §`tools` states the per-entry
   grammar (`<spec>` plus an optional `as <name>` clause) but prescribes no
   disposition for text past the end of that grammar, and the implementation
@@ -26,6 +29,219 @@
   production load path (`discoverAndComposeFixtures`, the `session_start`
   composition root) over a real on-disk `.pi/theta/` discovery workspace — the
   harness pattern of `tests/production-tools-load-resolution.test.ts`.
+
+## Fix (0.62.0)
+
+The §Fix below is constraint-pinned but leaves the route open ("Not yet
+decided", five constraints plus one rejected alternative). The route settled
+inside those constraints, and the settlement is recorded here. Line anchors are
+at the fix commit.
+
+**Route settled.** One new code, `theta/load/malformed-tool-entry` (E, load),
+for one rule: the per-entry grammar is closed and admits exactly two token
+shapes. The alternative §Fix rejects — treating a whitespace-separated entry as
+multiple entries — is absent: entries are never split on whitespace into
+several entries, `./a.theta as b` still parses as one spec plus one rename, and
+the short form's comma stays load-bearing.
+
+**Reproduction re-derived at the fix baseline** (`125d3691`, 0.61.0), offline
+over a real on-disk `.pi/theta/` workspace through `discoverAndComposeFixtures`
+— a scratch vitest on the `tests/production-tools-load-resolution.test.ts`
+harness, written, run, deleted:
+
+```
+REGISTERED: ["asresidue","ctlcomma","danglingas","goodrename","mapitem",
+             "nocommaq","seqitem","threenoas","twotoken"]
+NOTIFICATIONS: [
+ "bare object literal not permitted in this position; name the schema (Schema { ... })",
+ "unknown identifier 'grep'"
+]
+```
+
+Every residue theta registered; the only absent stem was the paired `nocomma`
+cell, absent for the downstream body reason §Reproduction records, not for a
+`tools:` reason. No notification named a `tools:` entry. **Citation drift:
+none** — every path:line §Affected and §Actual behaviour cite was exact at the
+fix baseline (`callable-set.ts:275`, `:170`, `:186`;
+`frontmatter.ts:410–428` with the skip at `:421`;
+`production-composition.ts:1401` / `:1481`;
+`production-theta-producer.ts:3595` with the fallback body at `:3600–3607`).
+
+- What shipped:
+  - `src/parser/callable-set.ts` — `parseEntry` became the exported
+    `parseToolsEntry` returning a discriminated `ToolsEntryParse`; the grammar
+    admits exactly one token (bare spec) or three tokens with `as` in the
+    middle, and every other token count is `malformed` (constraint 1). The
+    two-token dangling `as` is malformed rather than falling into the no-rename
+    arm (constraint 2). `resolveCallableSet` raises the error-severity
+    `theta/load/malformed-tool-entry` naming the entry verbatim and continues,
+    so the existing all-or-nothing `registered` computation un-registers the
+    theta on the same footing as `theta/load/unknown-tool`. The grammar check
+    runs BEFORE the `as`-target validation, so `read as MyTool` still reaches
+    `theta/load/invalid-tool-rename` (§Non-goals) while `read as MyTool junk`
+    is malformed first.
+  - `src/parser/frontmatter.ts` — `extractToolsList` stopped skipping a
+    non-scalar sequence item; the item recovers its own verbatim YAML source
+    slice through the existing `paramValueSource` helper (the same recovery
+    frame bug 0041 established for the `params:` side), with the frontmatter
+    block's raw YAML text threaded in explicitly, so the closed grammar judges
+    it instead of it being dropped below the resolver (constraint 3).
+  - `src/extension/production-theta-producer.ts` — `presentedCallableNames`'
+    snapshot-absent fallback consumes the exported `parseToolsEntry` and its
+    duplicated whitespace split is deleted; a malformed entry has no presented
+    name and contributes nothing (constraint 5 — the lock-step is closed by
+    sharing the grammar, not by mirroring it).
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — the new row,
+    immediately before `theta/load/unknown-tool` (constraint 4).
+  - `docs/reference/diagnostics.md` — the mirror row, same relative position.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — the new code
+    added to §7's parse-time literal-value `<value>` enumeration. No new
+    placeholder, no retirement, no category move, so
+    `placeholder-rendering-a.md` §Closure is untouched and GOV-7 / GOV-8 are
+    not engaged beyond the registry row itself.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md` — the §`tools`
+    closed-grammar sentence (constraint 4).
+  - `docs/reference/frontmatter.md` — the same statement in the mirror's
+    "Two entry kinds" block.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md` — the
+    new code added, first, to the §`tools` rejection-family enumeration whose
+    posture it shares.
+  - `tests/tools-entry-closed-grammar.test.ts`,
+    `tests/tools-entry-closed-grammar-lockstep.test.ts` — new witnesses
+    (31 cells).
+- Gates:
+  - Witness run — `npx vitest run tests/tools-entry-closed-grammar.test.ts
+    tests/tools-entry-closed-grammar-lockstep.test.ts`: baseline
+    `Tests 21 failed | 10 passed (31)` → post-fix `Tests 31 passed (31)`.
+  - Full default suite — `npm test`: `Test Files 253 passed (253)` /
+    `Tests 3574 passed (3574)` (baseline 251 / 3543; the delta is exactly the
+    two new witness files and their 31 cells).
+  - `npm run typecheck` — clean, no output.
+  - `npm run lint` — clean, no output.
+  - Live — H8a `tests/live/live-production-acceptance.test.ts` `7 passed (7)`;
+    H9a `tests/live/acceptance/` `11 passed (11)`. Both run for real against a
+    live model; no 0064 / 0065 signature and no stochastic stall occurred.
+- Review: 1 round.
+  - Round 1 (`bug-fix-reviewer`) — `DEFECTS: 1` plus four recorded residuals.
+    The defect was a born-stale spec anchor in the witness header (the new
+    registry row lands AT the line the header cited). Orchestrator review of
+    the same diff added three more prose defects the round missed: the witness
+    header naming `parseEntry` at a line that no longer holds it, the
+    `extractToolsList` doc comment narrowed to "absent field" when the
+    whole-field non-scalar shape also returns `undefined`, and the §`tools`
+    rejection-family enumeration in `frontmatter-fields-b-and-templates.md`
+    omitting the new member. All four discharged by one
+    `bug-fix-fixer-light` round; every hunk in that round touches only a
+    comment, a doc comment, or `docs/` prose, and the orchestrator's own gate
+    re-run stayed green — polish verified by gate-diff, confirmation round
+    skipped.
+- Verification: `VERDICT: PASS`, all four obligations discharged with quoted
+  evidence.
+  - Witness genuinely witnesses — each of the three source seams neutralised
+    alone and all three together, by targeted byte edit, never `git stash` and
+    never a path checkout. Seam 1 alone reds 17/31, seam 2 alone reds the two
+    constraint-3 cells, seam 3 alone reds the two constraint-5 cells, all three
+    together red 20/31 (the set-union — the seams compose additively with no
+    masking). Every red is the bug's symptom (the malformed theta back in the
+    registered set, or no notification naming the entry text), never a compile
+    error. All five files restored byte-exact and blob-hash verified
+    (`4ab6ee3d…`, `b692a982…`, `1ba32ad5…`, plus the two untracked witnesses,
+    never edited).
+  - Full default suite, typecheck and lint — green, quoted above.
+  - Live end-to-end over the fixed path — H8a and H9a both green. Coverage of
+    the fixed path already existed and no live cell was added: H9a area (f)
+    (`tests/live/acceptance/noninteractive-acceptance.test.ts`) drives
+    `/acc-code-tool-loop` through a genuinely spawned `pi` binary, and that
+    fixture's `tools:` entry must parse through `parseToolsEntry` →
+    `resolveCallableSet` → registration for the run to exit 0 at all.
+  - The `permitted-codes.json` question decided by the live run, not by
+    assumption: **do not append.** Every `tools:` entry in H9a's reach was
+    enumerated (only `acc-code-tool-loop.theta` carries `tools:` at all, a
+    single-token `- read`; the other nine acceptance fixtures and every
+    runtime-authored theta carry no `tools:` field; `tests/fixtures/h7a/`
+    contributes only `permitted-codes.json` to H9a, its `.theta` sibling being
+    offline-only), and the H9a run's `assertCodesSubsetOfPermitted` +
+    `assertStderrClean` passed on all 11 areas with the new code absent from
+    every capture. `tests/fixtures/h7a/permitted-codes.json` is unedited.
+- Residuals:
+  1. **A whole-field non-scalar `tools:` value still loads silently.**
+     `extractToolsList`'s final `return undefined` (`src/parser/frontmatter.ts`)
+     covers a `tools:` VALUE that is neither a scalar nor a sequence — a flow or
+     block mapping — so `tools: {a: b}` is treated as an absent field and the
+     theta registers with the empty callable set, no diagnostic. Same hazard
+     class one level up; out of scope here because §Fix constraint 3 names the
+     *sequence item* and §Reproduction's input table contains only `- {a: b}`.
+     Evidence: reviewer finding R1, `src/parser/frontmatter.ts:436` →
+     `src/extension/production-composition.ts:1402–1410`; the doc comment on
+     `extractToolsList` now states this contract explicitly.
+  2. **A multi-line recovered slice embeds a raw newline in the rendered
+     message.** A block-mapping sequence item of two or more keys (`- name:
+     read` / `    as: file_read`) recovers a slice containing `\n`, which the
+     `<value>` interpolation carries into a `message` that
+     `diagnostics/diagnostic-shape.md:34` describes as a single-line summary.
+     The hazard class pre-exists in the same placeholder sub-rule (a block
+     scalar `mode: |` value reaches `renderScalarValue` the same way); this
+     fix's verbatim-slice recovery widens its reachability. Evidence: reviewer
+     finding R2, `src/parser/callable-set.ts:191`.
+  3. **Three same-shape entry-grammar derivations remain outside the
+     lock-step.** `toolsEntrySpec`
+     (`src/extension/production-composition.ts:1584`) and `toolCallableName` /
+     `piToolCallableName` (`src/parser/theta-document.ts:4506` / `:4825`) each
+     re-derive a spec or a presented name from an entry with their own
+     whitespace split. §Fix constraint 5 names only `presentedCallableNames`,
+     and none of the three can contradict the load observable because a
+     malformed entry un-registers the theta outright. One visible corner:
+     the pre-parse callee cache derives specs from malformed entries too, so a
+     malformed entry whose first token names an existing erroneous `.theta` can
+     co-fire `theta/load/callee-has-errors` alongside the grammar rejection —
+     the un-registration outcome is unchanged. Evidence: reviewer finding R3.
+  4. **The constraint-5 witness is a source-shape gate.**
+     `tests/tools-entry-closed-grammar-lockstep.test.ts` group (D1) asserts
+     that `presentedCallableNames`' body carries no `split(` and no quoted
+     `as`, because the function is module-private with no cheap behavioural
+     observable (its only reach is a full bind-and-execute producer drive whose
+     observable is the environment's callable registry, not the name list). It
+     reds correctly against the pre-fix body — verified by neutralisation — but
+     a novel re-tokenisation (`match(/\S+/g)`, `includes(" as ")`) would evade
+     it. Reshape only if a behavioural observable appears. Evidence: reviewer
+     finding R4(a), verification round 3.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals:
+  - A non-scalar sequence item whose recovered slice is a single token (`[a]`,
+    `{a:b}`) is not malformed by token count and is not a bare identifier, so it
+    falls to `theta/load/unresolvable-theta-path`. Still error-severity, still
+    un-registers — a loud rejection under a neighbouring code, deliberately not
+    forced onto the new one.
+  - A YAML node carrying no `range` would recover the empty string and be
+    filtered as an empty entry. Unreachable: every node `parseDocument`
+    produces carries CST offsets, so no defensive dead code was added.
+  - §Non-goals held: the entry grammar is not widened;
+    `theta/load/invalid-tool-rename` is untouched and still fires for
+    `read as BadName`; the derived-default-name shape gap for `.theta` entries
+    (bug 0070) is untouched — `thetaDefaultName` and `thetaCallableName` are
+    byte-unchanged.
+  - **For the bug 0070 orchestrator, which runs next.** 0070 edits the same
+    region of `src/parser/callable-set.ts`. What moved here: `parseEntry` /
+    `interface ParsedEntry` are gone, replaced by the exported
+    `parseToolsEntry` returning the exported `ToolsEntryParse`
+    (`{ kind: "ok", spec, rename? } | { kind: "malformed" }`);
+    `resolveCallableSet`'s per-entry loop gained a leading malformed-arm block
+    before the `as`-target check; `thetaDefaultName`, `isBareIdentifier`,
+    `isLowercaseFirstIdentifier`, `resolveEntry` and `splitEntries` are
+    byte-unchanged. `src/parser/frontmatter.ts`'s `extractToolsList` gained a
+    second parameter (`yamlSource`). The witness surface 0070 should extend is
+    `tests/tools-entry-closed-grammar.test.ts` — groups (A) registry, (B)
+    production-load matrix, (C) resolver-direct token boundary — and
+    `tests/tools-entry-closed-grammar-lockstep.test.ts` groups (D1) source-scan
+    and (D2) presented-name derivation, the latter of which pins
+    `./code-review.theta` → `code_review` and will interact with 0070's
+    derived-name validation. `tests/production-tools-load-resolution.test.ts`
+    and `tests/callable-set.test.ts` are byte-unchanged by this fix.
+  - The `theta/load/malformed-tool-entry` rejection mirrors bug 0042's posture
+    for `theta/parse/malformed-alias-rhs`: a grammatically complete construct
+    followed by residue is rejected outright rather than truncated, under a new
+    registered code landed in the same commit as its spec sentence. 0042's
+    surfaces are untouched.
 
 ## Summary
 

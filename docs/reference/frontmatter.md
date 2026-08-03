@@ -131,6 +131,10 @@ Two entry kinds:
   import, is `theta/load/tool-name-collision`.
 - A callee that fails to parse/lower during the parent's load pass is
   `theta/load/callee-has-errors` (severity `error` for `tools:` entries).
+- The per-entry grammar is closed: exactly a spec (Pi tool name or `.theta`
+  path), optionally `as <name>`. Any other token sequence, or a `tools:`
+  sequence item that is not a YAML scalar, is `theta/load/malformed-tool-entry`;
+  the theta does not register.
 
 **Extension-registered Pi tools.** “Pi's tool registry” is the *full* registry:
 the built-ins plus any tool an installed Pi extension contributes (e.g.

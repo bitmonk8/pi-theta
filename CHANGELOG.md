@@ -6,6 +6,50 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-08-03
+
+### Fixed
+
+- **A `tools:` entry's trailing residue was discarded with no diagnostic**
+  (bug 0069). The per-entry grammar is `<spec>` plus an optional `as <name>`
+  clause, and the resolver implemented it by splitting the entry on whitespace
+  and reading the first and third tokens — every other token was consumed
+  unexamined. A dropped comma in the documented comma-separated short form
+  (`tools: read grep`) therefore narrowed the callable set to `{read}`, a
+  two-name list entry (`- read bash`) kept only the first name, a dangling
+  `as` (`- read as`) resolved as a rename-less entry, and residue after a
+  complete rename (`- read as file_read junk_here`) bound `file_read` as though
+  the author had finished writing it. A `tools:` sequence item that was not a
+  YAML scalar (`- {a: b}`) was dropped one layer earlier still, before the
+  resolver saw it. In every case the theta registered and ran with a callable
+  set its author never wrote — and because the callable set is the only door to
+  both the model-facing and the code-side call paths, a dropped name was
+  unreachable for the whole invocation. When the dropped tool was model-facing
+  only, nothing failed: the theta ran and the model was simply never offered
+  the tool, so the observable was a worse answer attributed to the model.
+
+  The per-entry grammar is now closed. An entry is exactly a Pi tool name or a
+  `.theta` path, optionally followed by an `as <name>` clause — one token, or
+  three tokens with `as` in the middle. Every other token count, including the
+  two-token dangling `as` and three tokens whose middle token is not `as`,
+  raises the new error-severity `theta/load/malformed-tool-entry` naming the
+  entry text verbatim, and the theta does not register, on the same
+  all-or-nothing footing as `theta/load/unknown-tool`. A non-scalar sequence
+  item now recovers its own verbatim YAML source and is judged by that same
+  grammar instead of being dropped. The grammar check runs before the
+  `as`-target validation, so `read as MyTool` still fails under
+  `theta/load/invalid-tool-rename` while `read as MyTool junk` fails as a
+  malformed entry. The snapshot-absent fallback that derives presented callable
+  names for in-memory harness fixtures now consumes the same exported grammar
+  rather than re-implementing it, so the tree holds one answer to which entries
+  exist. The new code is registered in `code-registry-load.md` and mirrored in
+  `docs/reference/diagnostics.md`; `frontmatter-fields-a.md` §`tools` and its
+  reference mirror now state that the entry grammar is closed. Locked by
+  `tests/tools-entry-closed-grammar.test.ts` and
+  `tests/tools-entry-closed-grammar-lockstep.test.ts` (31 cells: the registry
+  row, the production-load matrix over a real on-disk discovery workspace, the
+  resolver-direct token-count boundary, and the fallback lock-step).
+
 ## [0.61.0] - 2026-08-03
 
 ### Fixed

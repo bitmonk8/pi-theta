@@ -11,7 +11,8 @@
 //     entries (resolved against the per-load-pass parse cache);
 //   - the default name derivation (Pi-tool name verbatim; `.theta` basename with
 //     hyphens replaced by underscores) and the `as <name>` rename override;
-//   - the five load-time rejections — `theta/load/unknown-tool`,
+//   - the six load-time rejections — `theta/load/malformed-tool-entry` (an
+//     entry outside the closed per-entry grammar), `theta/load/unknown-tool`,
 //     `theta/load/unresolvable-theta-path`, `theta/load/prompt-mode-callable`,
 //     `theta/load/invalid-tool-rename`, `theta/load/tool-name-collision`;
 //   - the frozen resolution snapshot (no ambient inheritance): only the
@@ -155,7 +156,9 @@ export interface CallableSetResult {
  * (frontmatter-fields-a.md §`tools`, frontmatter-fields-b-and-templates.md
  * §Resolution snapshot):
  *
- *   - parse both YAML spellings by one per-entry grammar;
+ *   - parse both YAML spellings by one per-entry grammar, rejecting an entry
+ *     outside its closed two-shape grammar (`theta/load/malformed-tool-entry`)
+ *     before any resolution is attempted;
  *   - resolve each Pi-tool / `.theta` entry, applying the default-name / `as`
  *     rename rules;
  *   - reject an unknown Pi tool (`theta/load/unknown-tool`), an unresolvable
@@ -175,7 +178,23 @@ export function resolveCallableSet(
   const entries = new Map<string, ResolvedCallable>();
 
   for (const raw of splitEntries(tools)) {
-    const parsed = parseEntry(raw);
+    const parsed = parseToolsEntry(raw);
+
+    // The closed grammar's rejection runs before the `as`-rename-target check
+    // and before callable resolution (bug 0069): a malformed entry names no
+    // spec to resolve and no rename target to validate, so neither later check
+    // may see it. `read as MyTool` (three tokens, well-formed) still reaches
+    // the rename-target check below; a fourth token makes the entry itself
+    // malformed first, so the grammar rejection fires instead.
+    if (parsed.kind === "malformed") {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/load/malformed-tool-entry",
+        file,
+        message: `malformed 'tools:' entry '${raw}'; expected a Pi tool name or a .theta path, optionally followed by an 'as' clause`,
+      });
+      continue;
+    }
 
     // Validate an `as` rename target before resolving the underlying callable:
     // a rename target that is not theta-identifier-shaped is rejected outright
@@ -228,13 +247,16 @@ export function resolveCallableSet(
   return { registered, callableSet, diagnostics };
 }
 
-/** A parsed `tools:` entry: the callable spec plus an optional `as` rename. */
-interface ParsedEntry {
-  /** The Pi-tool name or `.theta` path literal as written. */
-  readonly spec: string;
-  /** The `as <name>` rename target, if present. */
-  readonly rename?: string;
-}
+/**
+ * The outcome of parsing one `tools:` entry against the closed per-entry
+ * grammar (frontmatter-fields-a.md §`tools`): `ok` for one of the two accepted
+ * shapes — a bare spec, or a spec plus an `as` rename — carrying the Pi-tool
+ * name or `.theta` path literal as written, and the rename target when
+ * present; `malformed` for every other token count.
+ */
+export type ToolsEntryParse =
+  | { readonly kind: "ok"; readonly spec: string; readonly rename?: string }
+  | { readonly kind: "malformed" };
 
 /** The outcome of resolving one entry's underlying callable. */
 interface EntryResolution {
@@ -268,14 +290,29 @@ function splitEntries(tools: ToolsField): readonly string[] {
 }
 
 /**
- * Parse one trimmed entry into its callable spec and optional `as` rename. The
- * grammar is `<spec> ('as' <name>)?`; neither a `.theta` path nor an `as` target
- * contains whitespace, so a whitespace split disambiguates.
+ * Parse one trimmed `tools:` entry against the CLOSED grammar `<spec> ('as'
+ * <name>)?`: exactly one token (a bare spec), or exactly three tokens with
+ * `as` in the middle (a spec plus rename target). Neither a `.theta` path nor
+ * an `as` target contains whitespace, so a whitespace split disambiguates.
+ * Every other token count is malformed — including a two-token dangling `as`
+ * (bug 0069 §Fix constraint 2) and three tokens whose middle token is not
+ * `as` — rather than silently keeping `parts[0]` / `parts[2]` and discarding
+ * the rest, which is how a dropped comma in the short form or residue after a
+ * complete `as` clause used to register a callable set the author never wrote
+ * (bug 0069). Exported so `presentedCallableNames`
+ * (src/extension/production-theta-producer.ts) answers "which entries exist"
+ * from the SAME grammar `resolveCallableSet` enforces, rather than
+ * re-implementing its own token split (bug 0069 §Fix constraint 5).
  */
-function parseEntry(raw: string): ParsedEntry {
+export function parseToolsEntry(raw: string): ToolsEntryParse {
   const parts = raw.split(/\s+/).filter((p) => p.length > 0);
-  const rename = parts.length >= 3 && parts[1] === "as" ? parts[2] : undefined;
-  return rename !== undefined ? { spec: parts[0] ?? "", rename } : { spec: parts[0] ?? "" };
+  if (parts.length === 1) {
+    return { kind: "ok", spec: parts[0] ?? "" };
+  }
+  if (parts.length === 3 && parts[1] === "as") {
+    return { kind: "ok", spec: parts[0] ?? "", rename: parts[2] ?? "" };
+  }
+  return { kind: "malformed" };
 }
 
 /**

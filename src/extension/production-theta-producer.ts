@@ -219,7 +219,7 @@ import { parseExpressionSource } from "../parser/theta-document";
 import { renderSystemPrompt } from "../parser/system-interpolation";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
 import type { CompiledValidator, LoweredSchema } from "../seams/schema-validator";
-import type { ResolvedCallable } from "../parser/callable-set";
+import { parseToolsEntry, type ResolvedCallable } from "../parser/callable-set";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
   buildTypedQueryValidation,
@@ -3590,21 +3590,33 @@ function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<st
  * (an in-memory harness fixture) falls back to deriving per-entry names from
  * `frontmatter.tools` — the same snapshot-absent fallback pattern
  * `thetaCalleePath` / `#resolvePiToolForTheta` use, so production always takes
- * the snapshot arm.
+ * the snapshot arm. The fallback answers "which entries exist" from the SAME
+ * closed grammar `resolveCallableSet` enforces (`parseToolsEntry`) rather than
+ * re-tokenising the entry itself, so the two cannot disagree about a malformed
+ * entry (bug 0069 §Fix constraint 5): a malformed entry has no presented name
+ * and contributes nothing to the returned list, matching the resolver
+ * un-registering the theta outright rather than truncating it to a name.
  */
 function presentedCallableNames(theta: ConversationBindInput["theta"]): readonly string[] {
   const set = theta.callableSet;
   if (set !== undefined) {
     return [...set.entries.keys()];
   }
-  return (theta.frontmatter.tools ?? []).map((entry) => {
-    const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);
-    if (parts.length >= 3 && parts[1] === "as") {
-      return parts[2] ?? "";
+  const names: string[] = [];
+  for (const entry of theta.frontmatter.tools ?? []) {
+    const parsed = parseToolsEntry(entry.trim());
+    if (parsed.kind !== "ok") {
+      continue;
     }
-    const spec = parts[0] ?? "";
-    return /^[A-Za-z_][A-Za-z0-9_]*$/.test(spec) ? spec : thetaCallableName(spec);
-  });
+    if (parsed.rename !== undefined) {
+      names.push(parsed.rename);
+      continue;
+    }
+    names.push(
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.spec) ? parsed.spec : thetaCallableName(parsed.spec),
+    );
+  }
+  return names;
 }
 
 /**
