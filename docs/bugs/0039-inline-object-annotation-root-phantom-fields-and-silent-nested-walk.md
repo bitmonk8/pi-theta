@@ -218,7 +218,11 @@ severity): a name the descent now reaches inside inline-object FIELDS at depth
 field's type — at the `@<T>`, `schema`-body-field and alias-RHS positions; and
 a name inside a brace-group union ARM of a balanced segment set — at the `@<T>`
 and alias-RHS positions (the `schema`-body field position refuses that shape at
-parse with `theta/parse/empty-schema-body` already). NOT refused: the shredded
+parse with `theta/parse/empty-schema-body` already; that clause holds only
+where the whole source is not `{`-prefixed and `}`-suffixed — the correction
+bug [0053](./0053-annotation-root-brace-union-read-as-one-field-list.md)
+§Related records — and is unconditional from its fix (0.58.0), which routes
+the brace-suffixed subset through the same walk). NOT refused: the shredded
 segment sets; a name inside a brace group that is itself a generic argument
 (`array<{x: Tirage}>`, any depth); anything under `params:` (zero new raises).
 `theta/load/schema-slug-collision` gains two emission positions with no
@@ -266,6 +270,14 @@ no duplicate-field diagnostic exists for an inline object body. (ii)
 prefix/suffix test, so `@<{a: integer} | {b: integer}>` is still read as one
 field list and mints an enforcing fragment naming `a` (pinned as fixture G1);
 the alias-RHS and non-brace annotation positions handle that shape correctly.
+Filed as bug
+[0053](./0053-annotation-root-brace-union-read-as-one-field-list.md), which
+also found the identical predicate in `collectUnresolvedNamedTypes` that this
+residual does not mention, and discharged by its fix (0.58.0): the root
+dispatch and the name walk both ask the exported `isSingleEnclosingBraceGroup`
+this report added, so the annotation root reaches the same per-arm hoist every
+other position already took, and fixture G1's pin (`a9`) moved to the SUBS-1
+`anyOf` under 0053's authority.
 (iii) The annotation position's mint is a runtime call, so its collision sink
 has no load-time diagnostic channel; the byte check runs and first-wins holds,
 but a mismatch there is retained without a report. (iv) `hoistNestedDefs`

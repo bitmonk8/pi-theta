@@ -134,8 +134,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // g7 do; h1–h3 are its controls. Every row labelled CONTROL is green now and
 // must stay green byte-for-byte — including C3, whose two minted slugs the
 // `params:` position's own 37-test lock also pins
-// (tests/params-inline-object-lowering.test.ts), and G1, which is the
-// annotation ROOT's own brace dispatch rather than this lowering.
+// (tests/params-inline-object-lowering.test.ts).
 //
 // THE PERMISSIVE `{}` FAMILY KEEPS THE MEMBERS §Fix EXCLUDES BY NAME, and their
 // controls are what keeps the fix from over-reaching: `array<{…}>` keeps
@@ -151,12 +150,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `$ref`s (e5, g7). The WHOLE source is still not a single enclosing brace
 // group — its first `{` closes at `{a: integer}` — which is what keeps a field
 // list from being read off it; the ARMS are, one at a time. The `@<T>`
-// annotation root (a9) keeps its pre-existing enforcing fragment for that same
-// source because `lowerQueryResponseSchema`'s own ROOT brace dispatch decides
-// before this lowering is reached, and bug 0039 does not touch that dispatch.
-// Part A still reaches the field-list SPLIT the dispatch hands to
-// `lowerInlineObject`, so a source whose mis-parsed interior carries a nested
-// comma loses the phantom field that split used to mint (a9b).
+// annotation root asks the identical `isSingleEnclosingBraceGroup` question of
+// the WHOLE annotation before `lowerQueryResponseSchema` ever reaches this
+// lowering, and a union of object arms answers false there for the same
+// reason it answers false here, so the root falls through to the same split
+// and the same per-arm hoist (a9, bug 0053 §Fix). a9b nests one level deeper:
+// its first arm carries its own nested object, which hoists in turn, so the
+// document closes three `$defs` entries instead of two.
 //
 // THE SLUG ORACLE IS INDEPENDENT. `schemaSlug` (src/parser/schema-lowering.ts)
 // is deliberately NOT imported: an oracle taken from the implementation under
@@ -459,6 +459,40 @@ const A_GHOST_CANONICAL =
   '{"additionalProperties":false,"properties":{"a":{}},"required":["a"],"type":"object"}';
 const A_GHOST_INLINE = inlineDefName(A_GHOST_CANONICAL);
 
+/** `{p: integer, q: boolean}` — a9b/G7's innermost fragment, one level down. */
+const PQ_FRAGMENT = {
+  type: "object",
+  properties: { p: { type: "integer" }, q: { type: "boolean" } },
+  required: ["p", "q"],
+  additionalProperties: false,
+};
+const PQ_CANONICAL =
+  '{"additionalProperties":false,"properties":{"p":{"type":"integer"},"q":{"type":"boolean"}},"required":["p","q"],"type":"object"}';
+const PQ_INLINE = inlineDefName(PQ_CANONICAL);
+
+/** `{x: {p: integer, q: boolean}}` — a9b/G7's FIRST arm, itself carrying a hoist. */
+const X_PQ_FRAGMENT = {
+  type: "object",
+  properties: { x: { $ref: `#/$defs/${PQ_INLINE}` } },
+  required: ["x"],
+  additionalProperties: false,
+};
+const X_PQ_CANONICAL =
+  `{"additionalProperties":false,"properties":{"x":{"$ref":"#/$defs/${PQ_INLINE}"}},` +
+  `"required":["x"],"type":"object"}`;
+const X_PQ_INLINE = inlineDefName(X_PQ_CANONICAL);
+
+/** `{y: string}` — a9b/G7's SECOND arm. */
+const Y_STR_FRAGMENT = {
+  type: "object",
+  properties: { y: { type: "string" } },
+  required: ["y"],
+  additionalProperties: false,
+};
+const Y_STR_CANONICAL =
+  '{"additionalProperties":false,"properties":{"y":{"type":"string"}},"required":["y"],"type":"object"}';
+const Y_STR_INLINE = inlineDefName(Y_STR_CANONICAL);
+
 // ===========================================================================
 // Fixtures and load helpers. Loud on every unexpected disposition.
 // ===========================================================================
@@ -685,6 +719,9 @@ describe("bug 0039 (0) — the independent slug oracle", () => {
     ["`{b: integer}`", B_INT_CANONICAL, B_INT_FRAGMENT],
     ["`{a: string}`", A_STR_CANONICAL, A_STR_FRAGMENT],
     ["`{a: Ghost}` (permissive `a`)", A_GHOST_CANONICAL, A_GHOST_FRAGMENT],
+    ["G7 inner `{p: integer, q: boolean}`", PQ_CANONICAL, PQ_FRAGMENT],
+    ["G7 first arm `{x: {p: integer, q: boolean}}`", X_PQ_CANONICAL, X_PQ_FRAGMENT],
+    ["G7 second arm `{y: string}`", Y_STR_CANONICAL, Y_STR_FRAGMENT],
   ];
 
   for (const [label, canonical, fragment] of cases) {
@@ -933,60 +970,49 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
     ).toEqual({ type: "object", properties: {}, required: [], additionalProperties: false });
   });
 
-  it("CONTROL (a9, fixture G1): the ROOT brace dispatch's pre-existing enforcing fragment for a mixed union of object arms", () => {
-    // The pinned root is NOT permissive, and that is the point of the control.
-    // `{a: integer} | {b: integer}` opens with `{` and closes with `}`, so
-    // `lowerQueryResponseSchema`'s naive ROOT brace dispatch takes the whole
-    // source as an inline object type and reads its interior as one field `a`
-    // of type `integer} | {b: integer` — a two-arm union lowering to
-    // `anyOf: [{}, {}]`. The fragment then REQUIRES `a` and sets
-    // `additionalProperties: false`, so a payload matching the author's second
-    // arm is refused. Those are the pre-existing bytes, and pinning them is
-    // what makes this a control: bug 0039's fix does not reach this source.
-    // Its index-0 `{` closes at `{a: integer}` rather than at the end, so the
-    // source is not a single enclosing brace group; deriving a field list from
-    // text the lowerer never parsed as one is what §Fix constraint 1 forbids.
-    // What the shared lowering does with that same source is e5 — split the
-    // union and hoist each ARM — and the two disagree here only because this
-    // dispatch runs first and never consults it.
+  it("a9 (fixture G1): the ROOT brace dispatch hoists a mixed union of object arms instead of reading it as one field list", () => {
+    // `{a: integer} | {b: integer}` opens with `{` and closes with `}`, but its
+    // index-0 `{` closes at `{a: integer}`, well short of the source's end —
+    // it is NOT a single enclosing brace group. `isSingleEnclosingBraceGroup`
+    // (body-type-lowering.ts) answers false, so the annotation root's own
+    // guard (query-schema-lowering.ts) falls through to `lowerTypeSource`
+    // exactly as every other brace-rooted position does (bug 0053 §Fix).
+    // `lowerTypeSource` splits the union, hoists each object arm under its own
+    // `__inline_<slug>` and combines them with `anyOf` (schema-subset.md:81),
+    // so the root declares no `required` property at all — `required` belongs
+    // to each arm's own fragment, not to the union. `e5` pins the identical
+    // union at the alias RHS to the same two fragments; the root and the alias
+    // now lower one type expression identically, as type-system.md:15 states.
     const lowered = loweredAnnotation("G1", "{a: integer} | {b: integer}");
     expect(
       lowered,
-      `pre-existing and out of scope for bug 0039; observed ${JSON.stringify(lowered)}`,
+      `schema-subset.md:81 (SUBS-1) — a union with a non-primitive arm lowers to \`anyOf\`, both arms hoisted (bug 0053 §Fix); observed ${JSON.stringify(lowered)}`,
     ).toEqual({
-      type: "object",
-      properties: { a: { anyOf: [{}, {}] } },
-      required: ["a"],
-      additionalProperties: false,
+      anyOf: [{ $ref: `#/$defs/${A_INT_INLINE}` }, { $ref: `#/$defs/${B_INT_INLINE}` }],
+      $defs: { [A_INT_INLINE]: A_INT_FRAGMENT, [B_INT_INLINE]: B_INT_FRAGMENT },
     });
   });
 
-  it("RED (a9b, fixture G7): part A removes the phantom a nested comma minted under that same ROOT brace dispatch", () => {
-    // a9's source one nested comma deeper. The ROOT brace dispatch's mis-parse
-    // is the same one and is equally pre-existing and out of scope: the whole
-    // source opens with `{` and closes with `}`, so the interior
-    // `x: {p: integer, q: boolean}} | {y: string` is read as a field list it is
-    // not. What part A changes is how that interior is SPLIT. On angle depth
-    // alone the nested comma cut a second entry out of it, minting a phantom
-    // top-level `q` the author wrote one level down —
-    // `properties {"x":{},"q":{"anyOf":[{},{}]}}`, `required ["x","q"]` — which
-    // §Fix constraint 1 forbids by name. Tracking brace depth leaves the one
-    // entry the outer list actually has, so the phantom is gone.
-    //
-    // The surviving `properties.x` is the mis-parse's own artefact, not a
-    // derived shape: its `anyOf: [{}, {}]` is `lowerTypeExpr` over the two
-    // shards `{p: integer, q: boolean}}` and `{y: string`, neither of which is
-    // a type. Pinning it here is what makes the improvement measurable without
-    // claiming the dispatch itself was fixed.
+  it("a9b (fixture G7): the ROOT brace dispatch hoists an arm carrying its own nested object, transitively", () => {
+    // One nesting level deeper than a9.
+    // `{x: {p: integer, q: boolean}} | {y: string}` is not a single enclosing
+    // brace group either, so the identical guard falls through to
+    // `lowerTypeSource` and the union splits into its two arms (bug 0053
+    // §Fix). The first arm, `{x: {p: integer, q: boolean}}`, is itself a
+    // single enclosing brace group, so its own nested object hoists one level
+    // down before the arm's own fragment hoists in turn — the document closes
+    // three `$defs` entries: the two arms and the arm's nested fragment.
     const lowered = loweredAnnotation("G7", "{x: {p: integer, q: boolean}} | {y: string}");
     expect(
       lowered,
-      `bug 0039 §Fix part A removes the phantom \`q\`; the root dispatch's mis-parse is pre-existing and out of scope; observed ${JSON.stringify(lowered)}`,
+      `schema-subset.md:73 hoists an inline object at ANY depth, so the arm's own nested object hoists with it (bug 0053 §Fix); observed ${JSON.stringify(lowered)}`,
     ).toEqual({
-      type: "object",
-      properties: { x: { anyOf: [{}, {}] } },
-      required: ["x"],
-      additionalProperties: false,
+      anyOf: [{ $ref: `#/$defs/${X_PQ_INLINE}` }, { $ref: `#/$defs/${Y_STR_INLINE}` }],
+      $defs: {
+        [PQ_INLINE]: PQ_FRAGMENT,
+        [X_PQ_INLINE]: X_PQ_FRAGMENT,
+        [Y_STR_INLINE]: Y_STR_FRAGMENT,
+      },
     });
   });
 

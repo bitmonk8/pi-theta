@@ -1,6 +1,6 @@
 # Bug 0053 — `lowerQueryResponseSchema`'s root brace dispatch is a prefix/suffix test, so a top-level union of object arms is read as ONE inline field list: `@<{a: integer} | {b: integer}>` lowers an enforcing fragment requiring a field `a` whose type asserts nothing, QRY-22 refuses `{"b":1}` and accepts `{"a":null}`, and the identical dispatch in `collectUnresolvedNamedTypes` swallows the `theta/parse/unresolved-named-type` a name in either arm owes — at the `@<T>` annotation and the alias RHS alike
 
-- **Status:** open.
+- **Status:** fixed (0.58.0).
 - **Kind:** defect, two elements on one mechanism at two dispatch sites.
   (1) *A silently wrong lowering at the one position that enforces it.*
   grammar.md `:94` admits `Type "|" Type` with `Type` recursive and `:101`
@@ -573,6 +573,167 @@ envelope crossing; the name-walk parity table of §Reproduction (5) at both
 positions; and no-op cells for `@<{a: integer, b: string}>`, `@<{}>`,
 `@<X>`, the shredded segment set and the `params:` spelling proving each is
 byte-unchanged.
+
+## Fix (0.58.0)
+
+The settled §Fix, implemented against a tree eight releases past the one it was
+written at. Parts A and B landed together behind one export; three review
+rounds and two fixer rounds hardened the in-tree records and the test file's
+own slug oracle. Line anchors are at the fix commit.
+
+**Baseline drift: citations only, observables none.** The report's evidence is
+at `52e257bc` (0.49.0), and [0044](./0044-unresolved-named-type-fires-for-keyword-shaped-text.md)'s
+fix (0.54.0) and [0045](./0045-inline-empty-object-type-missing-empty-schema-body.md)'s
+(0.57.0) have since grown all three files this report cites. A scratch probe at
+the fix baseline (`bdb1cca5`, 0.57.0) re-derived every fixture of
+§Reproduction (1)–(5) — P1, P2, P2b, the V1–V4 spacing and arm-count variants,
+P7, the P8/P8b controls, the AJV six-payload table, the
+`respondToolWireSchema` / `respondSchemaSlug` pair, the seven-row walker table
+and its load-path counterparts at both emitting positions — and every one was
+**byte-identical** to the recorded 0.49.0 output, minted slugs included. Only
+the line anchors moved: `query-schema-lowering.ts:139`→`:140` (the frame),
+`:148`→`:149` (the arm it pre-empts), `:25–74`→`:25–80` (the permissive-`{}`
+inventory); `body-type-lowering.ts:197`→`:200`
+(`isSingleEnclosingBraceGroup`), `:173–196`→`:172–199` (its doc comment),
+`:262`→`:265` (`isBraceBalanced`), `:335`→`:339` (`lowerTypeSource`),
+`:398–411`→`:412–424` (the per-arm union path), `:670`→`:696` /
+`:679`→`:707` (`collectUnresolvedNamedTypes` and its dispatch);
+`theta-document.ts:6162`→`:6375` (the `@<T>` walker call site),
+`:5512`→`:5676` (the alias RHS); `params.ts:611`→`:766`. The registry row is at
+`code-registry-parse.md:90`, not `:89`.
+
+**The change is five lines of code.** `isSingleEnclosingBraceGroup`
+(`src/parser/body-type-lowering.ts`) is exported; `lowerQueryResponseSchema`
+imports it and asks it in place of `s.startsWith("{") && s.endsWith("}")`
+(part A); `collectUnresolvedNamedTypes` asks it at the identical dispatch
+(part B). No new machinery: the predicate, the balanced-segment guard
+(`isBraceBalanced`) and the per-arm hoist all shipped with bug 0039, and this
+fix routes two callers through them. The substitution is a **conservative
+refinement** — the predicate's own first line is the naive test, so
+`isSingleEnclosingBraceGroup(s)` implies it and no source that already reached
+`lowerTypeSource` changed route.
+
+**The crossing set, enumerated rather than left to be discovered.** Exactly the
+sources that satisfy the naive test but are not one enclosing brace group move,
+in three families — and for every one of them the lowered root becomes `anyOf`,
+so `rootIsArgumentObjectSatisfiable` (`src/runtime/respond-tool-wire.ts`) flips
+to false, the respond tool registers under the single-property `value` envelope
+instead of passing the fragment through verbatim, and the QRY-15 initial
+instruction and QRY-12 follow-ups carry the envelope with it. The registered
+`__theta_respond_<slug>` name moves with the bytes.
+
+1. *A union of brace-balanced arms with at least one brace-group arm* — the
+   report's subject. `{a: integer} | {b: integer}` goes from the enforcing
+   single-field fragment to the SUBS-1 `anyOf` over two hoisted `$ref`s, which
+   is byte-identical to what `@<X>` for `schema X = {a: integer} | {b: integer}`
+   already produced (P1 = P3b, now pinned). Three arms and the nested-arm shape
+   (fixture G7, whose first arm's own object hoists in turn, closing three
+   `$defs`) behave the same.
+2. *A shredded segment set that happens to end `}`* — `{ a: string | null } | {b: Cat}`
+   goes from the enforcing mis-parse to the per-segment permissive
+   `{"anyOf":[{},{},{}]}`, and stays silent at the name walk. §Fix's shredded
+   clause names `{ a: string | null } | Cat`, which never satisfied the naive
+   test and is byte-unchanged; its `}`-suffixed sibling **does** move, and moves
+   from WRONG to PERMISSIVE, which is the direction bug 0039 §Fix constraint 1
+   admits.
+3. *A malformed brace-suffixed source* — `{a: integer} | integer}` likewise
+   lowers per-segment permissive instead of minting a field list.
+
+Byte-unchanged, verified as no-op cells: every genuine single enclosing brace
+group (`@<{a: integer, b: string}>`, `@<{a: integer, b: {x: integer, y: string}}>`,
+and `@<{}>` — `isSingleEnclosingBraceGroup("{}")` is true, so bug 0045's
+subject is not reached), the named-annotation arm (`@<X>`), the unsuffixed
+shredded set, and the `params:` spelling.
+
+**Element 2 at both positions.** `{a: integer} | {b: Ghost}` now raises exactly
+one `theta/parse/unresolved-named-type` naming `Ghost` at the `@<T>` annotation
+and at the alias RHS, byte-identically to what `integer | {b: Ghost}` raises
+there. This also discharges the correction §Related records: 0039 §Fix's
+"Newly-refused inputs" clause about a name in a brace-group union arm now holds
+unconditionally, not only where the source is not `{`-prefixed-and-`}`-suffixed.
+
+**No spec or registry edit.** The row (`code-registry-parse.md:90`) already
+names both positions; no code, row or trigger widened, so DIAG-2's closure is
+untouched, and GOV-15's diagnostic-registry carve-out
+(`source-language-stability.md:25`) covers the newly-refused typo inputs as it
+covered 0035's and 0039's. `tests/fixtures/h7a/permitted-codes.json` needs no
+edit: it carries no `theta/parse/*` code at all, and no committed `.theta` /
+`.thetalib` fixture carries a brace-rooted union of object arms — verified by
+grep and by the green `tests/committed-fixture-parse-gate.test.ts`, so H9a's
+empty-capture stderr gate cannot newly fire.
+
+**Three in-tree records re-derived**, as §Fix requires: the permissive-`{}`
+origin inventory's catch-all bullet (`src/runtime/query-schema-lowering.ts`),
+`collectUnresolvedNamedTypes`'s "the same root-level split" doc comment, and
+`isSingleEnclosingBraceGroup`'s own doc comment, whose closing paragraph now
+scopes the naive form's remaining reach — among the type-lowering dispatches
+this predicate serves — to `params.ts:766`. Review round 1 caught a **fourth**
+record stating the removed behaviour as live (the test file header's clause
+naming G1 a byte-frozen CONTROL) and rejected a first attempt at the third as
+categorically false: `classifyDiscriminatorFieldType`
+(`src/parser/theta-document.ts:5822`) carries the identical two-ended test
+ahead of its own `|` split, so "the naive test's whole remaining reach" is only
+true when scoped to this predicate's callers. That classifier is a different
+mechanism — discriminator-candidate classification, not lowering and not the
+name walk — and is left untouched; it is recorded as a residual below.
+
+**Offline lock.** `tests/annotation-root-brace-union-lowering.test.ts`, 33
+tests in six groups: (0) an independent oracle — hand-written canonical forms
+per the §Canonical schema hash recipe hashed with `node:crypto`, never
+`schemaSlug`, cross-checked against three slugs production mints today; (a)
+eight byte-invariance controls; (b) the corrected root over P1, the V1–V4
+variants and G7; (c) the P1-against-P3b parity pin, which asserts the
+resolution set is non-empty so an empty one fails loudly instead of pinning a
+lie; (d) the real-`AjvSchemaValidator` accept/reject table with both inverting
+cells (`{"b":1}` accepts where it was refused; `{"a":null}`,
+`{"a":"not an integer"}` and `{"a":{"deep":true}}` are refused where they
+bound) plus the envelope crossing and the slug move; (e) the name-walk parity
+table at the walker, the `@<T>` position and the alias RHS, reading expected
+messages from the registry (DIAG-4) rather than copying prose. `a9` and `a9b`
+(`tests/inline-object-nested-lowering.test.ts`) are re-derived under this
+report's authority — neither relaxed — with the file header's coupling
+paragraph; that file's group (0) oracle self-check grew three rows to enrol the
+canonical forms `a9b` needed, 58→61 tests.
+
+**Verified in both directions.** Neutralising the two guard substitutions
+(targeted byte edits, restored byte-exact per `git hash-object`; no `git
+stash`) reds exactly 14 cells — the 12 of the new file plus `a9`/`a9b` — each
+with bug 0053's own symptom in the failure text (the observed
+`{"type":"object","properties":{"a":{"anyOf":[{},{}]}},…}` fragment, or an
+empty diagnostic list where the registry line is owed), never a typecheck,
+import or harness error. Full gate 248 files / 3452 tests; typecheck and lint
+clean.
+
+**Live.** H8a `live-production-acceptance` 7/7 and H9a acceptance 11/11 green,
+including area (c)'s `acc-typed-inline.theta`, whose annotation is a single
+enclosing brace group and is the no-op control. No committed live fixture
+carries the union shape, so the obligation was met the way bug 0033's fix met
+it: a scratch live probe drove `@<{ flagAlpha: integer } | { chosenText: string }>`
+end to end, green with the fix and red with it neutralised, then deleted. The
+red is the defect made visible at the wire: under the mis-parsed schema the
+only offered field is `flagAlpha`, so the model crammed the author's intended
+payload into it as a string —
+`{"flagAlpha":"{\"chosenText\": \"ZQPROBE42DONE\"}"}` — with zero diagnostics,
+which is §"Why it matters"'s "invisible at authoring time" clause observed live.
+
+**Residuals.** (i) `classifyDiscriminatorFieldType`
+(`src/parser/theta-document.ts:5822`) carries a third copy of the naive
+prefix/suffix test, ordered ahead of its own top-level `|` split, so
+`{a: X} | {b: Y}` classifies as one nested object there; it is a classifier,
+not a lowering, and is outside this report's settled two-copy scope. (ii) The
+`params:` position keeps its own naive test (`src/parser/params.ts:766`) and
+its bytes by bug 0039 §Fix's freeze, so `p: "{a: integer} | {b: integer}"`
+still hoists the single-field mis-parse the annotation root no longer mints —
+the asymmetry §Non-goals leaves open, now one-sided. (iii) The annotation
+position's slug-collision sink is still a runtime mint with no load-time
+diagnostic channel (bug 0039 §Fix residual (iii)); routing the root through
+`lowerTypeSource` threads the same sinks and does not change that. (iv) The
+test file header at `tests/inline-object-nested-lowering.test.ts:143` cites
+`(a10, g7)` for "a LITERAL arm of a mixed union keeps its `{}`"; the row that
+actually asserts it is `g8`'s first table row. Pre-existing, untouched here.
+(v) The oracle cross-check block of
+`tests/annotation-root-brace-union-lowering.test.ts` labels two of three rows
+for one fragment triad where its sibling file labels all three.
 
 ## Non-goals
 

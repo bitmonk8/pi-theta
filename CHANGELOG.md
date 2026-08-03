@@ -6,6 +6,44 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-08-02
+
+### Fixed
+
+- **A top-level union of object types at a `@<T>` annotation was read as ONE
+  inline field list, so the query enforced a shape nobody wrote** (bug 0053).
+  `grammar.md` admits `Type "|" Type` over `ObjectType` arms, and
+  `schema-subset.md` (SUBS-1) lowers such a union to `{"anyOf": […]}` with each
+  inline object arm hoisted under `__inline_<slug>`. The annotation lowering
+  instead asked whether its source began `{` and ended `}` — a positional test a
+  union satisfies, because its first arm opens the source and its last arm
+  closes it — and handed the interior to the inline-object path as a field list.
+  `@<{a: integer} | {b: integer}>` therefore lowered an object requiring a
+  single property `a` whose type asserted nothing and refusing every other
+  property: QRY-22 rejected `{"b":1}`, the author's own second arm, while
+  `{"a":null}` and `{"a":"not an integer"}` — matching neither arm — bound as
+  the typed value. The same fragment was registered as the respond tool's wire
+  schema and interpolated into the QRY-15 instruction and the QRY-12 repair
+  follow-ups, so repair drove the model towards a payload the theta could not
+  use, and the same lowering governed `invoke<T>` return values. The identical
+  predicate in the name walk swallowed the `theta/parse/unresolved-named-type`
+  a name inside either arm owes, at the `@<T>` annotation and the alias RHS
+  both, so a typo in a union arm refused the theta or not depending on whether
+  a primitive arm happened to be written last. Both dispatches now ask the
+  structural predicate the shared lowering already owned — whether the `{` at
+  index 0 is closed by the `}` at the final index — so a genuine single
+  enclosing brace group keeps its object-rooted fragment byte-for-byte
+  (`@<{}>` included) and everything else falls through to the per-arm union
+  path, producing the document the named spelling `schema X = …` plus `@<X>`
+  already produced for the same text. Affected annotations move from an
+  object root to an `anyOf` root, so the respond tool now registers under the
+  single-property `value` envelope and its `__theta_respond_<slug>` name
+  changes with the bytes. No new diagnostic code and no registry edit: the
+  `unresolved-named-type` row already named both positions, and GOV-15's
+  diagnostic-registry carve-out covers the newly-refused typo inputs. The
+  `params:` position keeps its own naive test and its bytes under bug 0039's
+  freeze.
+
 ## [0.57.0] - 2026-08-02
 
 ### Fixed

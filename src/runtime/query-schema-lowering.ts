@@ -66,13 +66,19 @@
 //     (bug 0039 §Fix part B). And a brace group the angle-only `|` split has
 //     already cut in half: `{ a: string | null } | Cat` presents as the three
 //     arms `{ a: string`, `null }`, `Cat`, none of them a brace group. Every
-//     OTHER brace-rooted type position, at any depth of inline-object FIELDS,
-//     hoists through the arm `lowerTypeSource` shares with the `params:`
-//     position, and the annotation root lowers through `lowerInlineObject`
-//     (bug 0039 §Fix). Separately, a literal atom is recognised only by
-//     `lowerTypeSource`'s own top-level check, so a literal arm of a union
-//     that is not all-literal still lowers `{}` (`"a" | Triage` →
-//     `anyOf: [{}, {"$ref": …}]`).
+//     OTHER brace-rooted type position, at any depth of inline-object FIELDS
+//     or union arms, hoists through the arm `lowerTypeSource` shares with the
+//     `params:` position (`isSingleEnclosingBraceGroup`,
+//     body-type-lowering.ts). The annotation root takes that identical arm
+//     for a union of object arms too (bug 0053 §Fix). It lowers through
+//     `lowerInlineObject`'s brace-aware interior split (bug 0039 §Fix) only
+//     where the annotation itself IS one enclosing brace group, a
+//     restriction bug 0053 §Fix places on the one position where the
+//     fragment is the document root rather than a field or an arm.
+//     Separately, a literal
+//     atom is recognised only by `lowerTypeSource`'s own top-level check, so a
+//     literal arm of a union that is not all-literal still lowers `{}`
+//     (`"a" | Triage` → `anyOf: [{}, {"$ref": …}]`).
 //
 // Spec: schema-subset.md (SUBS-1 lowering), query/query-failure-and-repair.md
 // (QRY-22).
@@ -81,6 +87,7 @@ import type { LoweredSchema } from "../seams/schema-validator";
 import type { EnumDecl, SchemaDecl } from "../parser/theta-document";
 import {
   buildBodyTypeSchemas,
+  isSingleEnclosingBraceGroup,
   lowerInlineObject,
   lowerTypeSource,
   type InlineHoistSinks,
@@ -136,8 +143,12 @@ export function lowerQueryResponseSchema(
     slugCollisions: [],
   };
 
-  // An inline object type `{ field: Type, … }`.
-  if (s.startsWith("{") && s.endsWith("}")) {
+  // A source that IS a single enclosing brace group: the annotation root is
+  // the one position where the fragment must BE the object, not a $ref to
+  // one, so this keeps returning it directly. A top-level union of object
+  // arms is not this shape (bug 0053 §Fix) and falls through below, where
+  // `lowerTypeSource` hoists each arm on its own terms.
+  if (isSingleEnclosingBraceGroup(s)) {
     return pruneDocumentDefs(
       lowerInlineObject(s.slice(1, -1), bodyTypeMap, undefined, sinks),
       s,

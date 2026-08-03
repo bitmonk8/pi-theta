@@ -191,13 +191,21 @@ export function lowerInlineObject(
  * INTACT (`isBraceBalanced` below is what decides that) every brace-group arm
  * is a genuine `Type` and hoists on its own terms.
  *
- * `lowerParamsFieldType`'s own brace check (params.ts) stays the naive form on
- * purpose: bug 0039 §Fix freezes the `params:` position's lowered bytes
- * byte-for-byte, so `p: "{a: integer} | {b: integer}"` keeps hoisting the one
- * fragment `{"a": {"anyOf": [{}, {}]}}` it hoists today. That reading is
- * pre-existing and out of scope for this fix.
+ * `lowerQueryResponseSchema` (query-schema-lowering.ts) and
+ * `collectUnresolvedNamedTypes` below ask the identical question of their own
+ * root for the identical reason (bug 0053 §Fix): a root position is one more
+ * place a naive prefix/suffix test reads a union of object arms as a single
+ * field list. Exporting the one predicate is what keeps a root position and
+ * an arm position from answering that question two different ways.
+ *
+ * `lowerParamsFieldType`'s own brace check (params.ts:766) is the one copy of
+ * the naive form among the type-lowering dispatches this predicate serves:
+ * bug 0039 §Fix freezes the `params:` position's lowered bytes byte-for-byte,
+ * so `p: "{a: integer} | {b: integer}"` keeps hoisting the one fragment
+ * `{"a": {"anyOf": [{}, {}]}}` it hoists today. That is the naive test's
+ * whole remaining reach among those dispatches.
  */
-function isSingleEnclosingBraceGroup(s: string): boolean {
+export function isSingleEnclosingBraceGroup(s: string): boolean {
   if (!(s.startsWith("{") && s.endsWith("}"))) {
     return false;
   }
@@ -673,12 +681,12 @@ function transitiveDefNames(
  * an `unresolved` sink through the same resolution `lowerTypeExpr` already
  * performs, rather than re-deriving a second name-walk.
  *
- * `source` dispatches the inline-object annotation form itself (`{ … }`) to
- * `lowerInlineObject` before falling through to `lowerTypeSource` for every
- * other annotation / field-type shape — the same root-level split
- * `lowerQueryResponseSchema` makes, so a name nested inside either function's
- * own inline-object handling still reaches this walk's `unresolved` sink
- * (bug 0039 §Fix parts A/B).
+ * `source` dispatches to `lowerInlineObject` when it IS a single enclosing
+ * brace group and to `lowerTypeSource` otherwise — the same structural split
+ * `lowerQueryResponseSchema` makes (`isSingleEnclosingBraceGroup` above; bug
+ * 0053 §Fix), so a name nested inside either function's own inline-object
+ * handling, an arm of a union included, still reaches this walk's
+ * `unresolved` sink (bug 0039 §Fix parts A/B; bug 0053 §Fix).
  *
  * `reservedKeywords`, when supplied, carries a SECOND, DIFFERENTLY-SHAPED
  * class this walk also passes over: a reserved-keyword spelling used where a
@@ -704,7 +712,7 @@ export function collectUnresolvedNamedTypes(
   const unresolved: string[] = [];
   const keywordHits: string[] = [];
   const s = source.trim();
-  if (s.startsWith("{") && s.endsWith("}")) {
+  if (isSingleEnclosingBraceGroup(s)) {
     lowerInlineObject(s.slice(1, -1), bodyTypeMap, unresolved, undefined, keywordHits);
   } else {
     lowerTypeSource(s, bodyTypeMap, {}, unresolved, undefined, keywordHits);
