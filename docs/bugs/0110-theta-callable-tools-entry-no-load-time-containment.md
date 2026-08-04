@@ -1,10 +1,11 @@
 # Bug 0110 — Nothing on the load path applies the discovery-root containment rule to a `tools:` `.theta` entry: `tool-calls.md` §"Argument shape" says such a path "is rejected with `theta/load/invoke-path-escape` and the callable is not created", yet a caller whose `tools:` entry names a callee planted far outside every active discovery root registers with zero containment diagnostics — and, as an ordering consequence, bug 0071's new `.theta`-callable arity check now emits against that out-of-root callee, un-registering the caller on the wrong rule
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the check's home is
-  adjudicated in-run between the invoke static-check compose pass and
-  `tools:`-resolution time, and the registry disposition is decided against a
-  *Trigger* that already names this surface. No new code is expected. No
-  ordering dependency on another open report:
+- **Status:** fixed (0.66.0). §Fix was constraint-pinned rather than settled:
+  the check's home was adjudicated in-run between the invoke static-check
+  compose pass and `tools:`-resolution time, and the registry disposition was
+  decided against a *Trigger* that already names this surface. Route B was
+  taken and no code was added to the registry — see §Fix (0.66.0). No ordering
+  dependency on another open report:
   [0071](./0071-theta-callable-call-arity-unchecked.md) shipped in 0.64.0 and is
   the baseline this report measures.
 - **Sev/Diff estimate:** S1/D3 — a containment rule the spec states with a
@@ -953,3 +954,370 @@ Constraints on either route:
   callee) and an observable dump quoted verbatim above. Run on the output
   quoted, then deleted per scratch policy. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug doc are unmodified by this filing.
+
+
+## Fix (0.66.0)
+
+**Route B, at `tools:` resolution time.** A `tools:` `.theta` entry's discovery-root
+containment is judged at load, before the callable is created, by the same
+`checkInvokePathAtLoad` the `invoke(...)` surface calls, and an escape is
+`theta/load/invoke-path-escape` at error severity — which un-registers the caller
+and leaves no frozen snapshot behind.
+
+### (a) The site decision, and why
+
+The check lives in `resolveThetaToolsAtLoad` / `parseCalleeForTools`
+(`src/extension/production-composition.ts`) — Route B — not in the invoke
+static-check compose pass (Route A) and not inside the synchronous
+`resolveCallableSet`. Five reasons, each measured at the fix baseline:
+
+1. **"the callable is not created" is literal here.** An error-severity `tools:`
+   diagnostic makes `resolveThetaToolsAtLoad` return `{ diagnostics }` with no
+   `callableSet` key at all, so the frozen snapshot is never built and
+   `attachLoadTimeClosureHashes` never runs. Route A un-registers the caller
+   *after* the snapshot exists.
+2. **Element 2's ordering is discharged structurally.** `runComposePass`
+   `continue`s the per-theta loop on any error-severity `tools:` diagnostic
+   strictly before `checkInvokeStaticResolution` runs, so bug 0071's arity loop
+   and bug 0072's two type loops are unreachable for an escaping entry. No
+   ordering code was added to that pass, and the `.some(...)` scan that decides
+   the `continue` is order-independent, so the position cannot silently regress.
+3. **Every distinct `.theta` entry is judged, called or not.** The pass's
+   `.theta`-callable loop sees only call *sites*; an out-of-root entry that is
+   never called would keep its callable under Route A. The spec sentence is about
+   creation, not about calls.
+4. **Zero contact with the file bug 0072 had just rewritten.**
+   `src/extension/invoke-static-checks.ts` carries one comment-only hunk (below)
+   and no executable change, so no walk was forked and no second body traversal
+   was added (§Fix constraint 8).
+5. **Route B's stated cost was avoided rather than paid.** `resolveCallableSet`
+   did not become async and `src/parser/callable-set.ts` is byte-unchanged, so
+   `tests/callable-set.test.ts`, `tests/tools-entry-closed-grammar.test.ts`,
+   `tests/tools-entry-closed-grammar-lockstep.test.ts`,
+   `tests/tools-derived-name-shape.test.ts` and `tests/subagent-fn.test.ts` are
+   untouched: the verdict is computed in `parseCalleeForTools`, which already
+   resolves and reads the callee and is already `async`.
+
+### (b) Registry determination: no edit
+
+`docs/spec_topics/diagnostics/code-registry-load.md`'s
+`theta/load/invoke-path-escape` row was read as written at the fix baseline. Its
+*Trigger* already reads "An `invoke(...)` literal **or a `tools:` `.theta`
+entry** resolves (post-realpath) to a path that lies outside every active
+discovery root" and its *Phase* is already `load, runtime`. No new code, no
+*Trigger* widening, no *Message* change, and therefore no
+`docs/reference/diagnostics.md` mirror edit (that table transcribes Code / Sev /
+Phase / Message only). The *Message* stays byte-exact — `invoke path '<path>'
+resolves outside every active discovery root` — so on this surface it says
+"invoke path" about a `tools:` entry, which DIAG-4 defers to theta 2.0.
+
+### (c) The resolution primitive
+
+`checkInvokePathAtLoad` (`src/runtime/invocation.ts`) is called, not
+reimplemented, so the callee path *and* every active root are canonicalised
+through `realpath` and compared under the segment-boundary predicate — identical
+semantics at both load-time sites (INV-1). The divergence from the former bare
+`resolvePath` is witnessed for real rather than argued: a directory junction
+inside the active root pointing at the out-of-root directory makes the entry
+`./farlink/linkfar.theta` bare-resolve *inside* the root while its `realpath`
+lies outside it. §Reproduction's "Not measured on this host" is superseded — file
+symlinks still fail `EPERM` here, but `symlinkSync(<dir>, <link>, "junction")`
+succeeds, and discovery expands a directory non-recursively so the junction
+contributes no active root of its own.
+
+### (d) The runtime re-check still stands
+
+`src/extension/production-theta-producer.ts` and `src/runtime/invocation.ts` are
+byte-unchanged (hash-compared against the baseline, not merely `git diff --stat`),
+so `#driveCallee` → `#recheckCalleeContainment` is exactly as found, and
+`tests/invocation-core.test.ts` is unmodified and green. This fix adds a
+load-time gate; it removes nothing.
+
+### (e) The census, re-measured at the fix baseline
+
+`git ls-files '*.theta' '*.thetalib'` → **34** committed files; **14** declare
+`tools:`; **5** declare a `tools:` `.theta` entry
+(`docs/examples/fan-out-reviews.theta`, `ralph.theta`, `refine.theta`,
+`typed-params-across-boundary.theta`, `typed-return.theta`), all `./`-relative
+siblings in `docs/examples/` whose callees exist there. **Zero** resolve outside
+their active roots, and all five callers were driven through the real
+`discoverAndComposeFixtures` with `docs/examples/` as a settings `thetaPaths`
+entry: all five registered with no containment diagnostic. Blast radius: **zero**
+committed files. Extended to entries synthesised as TypeScript string literals in
+`tests/`: the whole default suite is green with no fixture relocated, so no
+in-tree test plants an out-of-root `tools:` `.theta` entry either.
+
+### Element 2's discharge
+
+Structurally, by the position Route B occupies (see (a) 2 above), not by
+placement inside one pass. §Reproduction's cell 4 — an out-of-root callee called
+at the wrong arity — now draws the containment diagnostic and **no** `passes too
+few arguments` message; both halves are asserted (cell F of the witness). Inside
+`resolveThetaToolsAtLoad` the same discipline is applied one level further in: an
+escaping entry's bytes are never parsed and its `CalleeParse` carries neutral
+derived facts, so neither `theta/load/prompt-mode-callable` nor
+`theta/load/callee-has-errors` can co-fire against a callee whose contents were
+never read (cells H1/H2).
+
+### What shipped
+
+- `src/extension/production-composition.ts` — `parseCalleeForTools` takes the
+  active-root union and calls `checkInvokePathAtLoad` between its `readBytes` (so
+  a non-existent path keeps its `theta/load/unresolvable-theta-path` disposition)
+  and `parseThetaDocument` (so an escaping entry's bytes are never parsed). On
+  escape it returns `escape` plus neutral `mode` / `hasErrors` and
+  `fileExists: true`, the last so `resolveThetaCallee` still resolves the entry
+  rather than adding a second, wrong rejection. `resolveThetaToolsAtLoad` pushes
+  each escape diagnostic ahead of the V15f callee-has-errors loop, located as the
+  other `tools:`-surface diagnostics are (`file: parsed.sourcePath`,
+  `range: TOOLS_DIAGNOSTIC_RANGE`), and that loop skips an escaped entry. A
+  `realpath` rejection is absorbed by the same rejection-to-`undefined` idiom this
+  pipeline already uses — never a broad `catch` — leaving the entry at its
+  unjudged disposition with the runtime re-check as its backstop.
+- `src/extension/production-composition.ts`, the two call sites — the
+  discovered-theta compose pass threads `activeRoots`; `parseCalleeTheta` does
+  not. §Fix constraint 5's second authorised arm: that path discards the
+  diagnostics and reads only `callableSet`, so surfacing a rejection there would
+  silently empty a nested callee's callable set. The omission mirrors
+  `#recheckCalleeContainment`'s `activeRoots === undefined` early return, and is
+  documented at both sites. Recorded as residual 1.
+- `src/extension/invoke-static-checks.ts` — **comment only, single hunk.** The
+  INV-5 bullet of `checkInvokeStaticResolution`'s doc comment asserted that the
+  `tools:` surface has no containment check anywhere; that premise is now false,
+  and this document cited that comment as evidence of the gap. It states the
+  invariant that now holds instead: containment on the `tools:` surface is judged
+  upstream, and an escaping entry never reaches this pass's arity or type loops.
+- `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — §5's `<path>` /
+  `<file>` bullet gained the `tools:`-entry arm (the entry spec as written, an
+  unquoted YAML scalar rather than text inside path-literal quotes), and
+  §Edge cases gained "Category 5 `<path>` `tools:`-entry arm" reconciling the two
+  arms of `theta/load/invoke-path-escape` — the shape bug 0071 used for
+  `<callee>`'s two arms in §7. No placeholder was introduced, retired or moved
+  between categories, so `placeholder-rendering-a.md` §Closure and the closed
+  category-3 `<construct>` table are untouched.
+
+### Witness inventory
+
+- `tests/tools-entry-containment.test.ts` — **new**, 37 cells over a real
+  `mkdtempSync` workspace, a planted `.pi/theta/`, `discoverAndComposeFixtures`
+  and a `ctx.ui.notify` collector, with every expected string substituted from the
+  registry *Message* column via `parseRegistry` / `registryMessage` (DIAG-4) under
+  a guard that no unsubstituted placeholder survives. **A** (3) the registry rows
+  and the arity spine; **B0** (2) the loud precondition guard no empty discovery
+  walk can satisfy; **C1/C2/C3** (6) the three escaping spellings — absolute plain
+  scalar, absolute double-quoted scalar, `..`-relative — each un-registering its
+  caller and rendering the spec as written; **D** (2) the in-root control
+  registering silently; **E** (2) the `invoke(...)` surface unchanged, which also
+  proves in-run that the second temp directory is outside every active root;
+  **F** (3) element 2 — containment present and no `passes too` message naming
+  that callee; **G** (2) an `as` rename at an out-of-root callee, where the
+  presented name and the entry path diverge; **H1/H2** (4) constraint 1 at the
+  entry level, a prompt-mode and a self-erroring out-of-root callee each drawing
+  exactly the containment diagnostic; **I** (5) the junction cell for the
+  `realpath` primitive, whose precondition fails loudly naming `symlinkSync`
+  rather than skipping; **J** (8) per escaping cell, the caller is absent from the
+  registered set and the diagnostics naming its callee are exactly
+  `[containment]`. Every callee stem is chosen so no presented name is a substring
+  of another's, since the notification collector is workspace-global.
+- `tests/live/live-production-acceptance.test.ts` — **additive only** (255
+  insertions, 0 deletions): one H8a cell driving the escape arm through the real
+  `session_start` → `resources_discover` → `composeExtensionInstance` →
+  `discoverAndComposeFixtures` path against a live host, asserting on two
+  channels — the caller absent from the registered names, and the containment
+  diagnostic on the `theta-system-note` channel read off the settled
+  `SessionManager` (its *Message* half sourced from the registry row, not
+  transcribed). Added on the bug 0070 / 0071 precedent: the *within* arm of the
+  new gate is already live-exercised by bug 0071's in-root cell in the same file,
+  but no fixture anywhere under `tests/live/**` planted an out-of-root `tools:`
+  entry. Registration-only, zero tokens (356–375 ms); `requireLiveProvider()`
+  fails loudly on a missing provider.
+
+### Gates
+
+```
+npx vitest run tests/tools-entry-containment.test.ts
+  BEFORE (HEAD afff78c8):  Test Files 1 failed (1) / Tests 24 failed | 13 passed (37)
+  AFTER:                   Test Files 1 passed (1) / Tests 37 passed (37)
+
+npm test                 -> Test Files 258 passed (258) / Tests 3737 passed (3737)
+                            (baseline at HEAD: 257 files / 3700 tests, before the witness)
+npm run typecheck        -> tsc -p tsconfig.json --noEmit, clean
+npm run lint             -> eslint "src/**/*.ts", clean
+
+npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts
+  -> Test Files 1 passed (1) / Tests 10 passed (10)          (29.8 s)
+npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/
+  -> Test Files 2 passed (2) / Tests 11 passed (11)          (61.6 s)
+```
+
+Every pre-fix red was the bug's own symptom — the escaping caller present in the
+registered set, the containment message absent, or (cell F) bug 0071's arity
+message present — never a compile error and never a harness throw. No 0064 / 0065
+live signature appeared and no H9a area stalled.
+
+### `tests/fixtures/h7a/permitted-codes.json`: DO NOT APPEND
+
+Decided by the real H9a run. All nine feature areas passed
+`assertCodesSubsetOfPermitted` and `assertStderrClean`, and
+`theta/load/invoke-path-escape` appears in neither capture. The only `tools:`
+occurrence in H9a's reach is the bare Pi-tool token `read` in
+`acc-code-tool-loop.theta`, which `isBareToolName` filters out before any callee
+is resolved, so the new emission is structurally unreachable from an ordinary
+`pi -p` run over the shipped fixtures. The file is unedited, and the code was
+already absent from it.
+
+### Who owns "active discovery roots" (the 0075–0078 boundary)
+
+The union is derived in the composition root
+(`src/extension/production-composition.ts`,
+`Array.from(new Set(discovered.map((theta) => dirname(theta.path))))`) — the
+parent directory of every *discovered* theta. `src/discovery/discovery-walk.ts`,
+which bugs [0075](./0075-symlinked-root-classified-wrong-type.md) …
+[0078](./0078-cli-entries-not-resolved-by-thetapaths-schema.md) own, contains no
+reference to it (`grep -rn activeRoots src/discovery/` is empty): those four
+change *which paths land in the union*, transitively, by changing what is
+discovered; this fix changes *which surfaces consult it*. The two are composable
+and neither blocks the other.
+
+### Stale-citation map
+
+This report's citations were verified at `f8364db1` (0.64.0); the fix baseline is
+`afff78c8` (0.65.0), after bug 0072 grew `invoke-static-checks.ts`,
+`theta-document.ts`, `production-theta-producer.ts`, `production-composition.ts`,
+`tool-call.ts` and `tool-call-execute.ts`. Every anchor was re-verified and the
+reproduction observables re-derived with a scratch probe (written, run, deleted)
+before any assertion was pinned.
+
+| Cited (`f8364db1`) | Actual at `afff78c8` (pre-fix) |
+|---|---|
+| `production-composition.ts:1615` (`parseCalleeForTools`) | `:1624` |
+| `production-composition.ts:1621` (the bare resolve) | `:1630` |
+| `production-composition.ts:498` (the `activeRoots` derivation) | exact |
+| `production-composition.ts:689` (the `tools:` resolution) | exact |
+| `production-composition.ts:730–754` (the invoke pass call) | `:736` |
+| `production-composition.ts:1402` (`resolveThetaToolsAtLoad`) | `:1411` |
+| `production-composition.ts:1791` (`parseCalleeTheta`) | `:1811` |
+| `production-theta-producer.ts:3106` / `:3260` (`#driveCallee` / the re-check) | `:3172` / `:3326` |
+| `invocation.ts:185` / `:239` / `:98–126` / `:142–147` | exact |
+| `callable-set.ts:176` / `:359–415` / `:386–395` | exact |
+
+Two §Reproduction claims are corrected. **The symlink case is measurable on this
+host** after all (junctions, above), so constraint 3's witness is a real planted
+link rather than a `FakeFileSystem` stand-in. And the notification ordering in the
+quoted run differs (the unrelated `binder-model-unresolved` note lands last, not
+first); no assertion depends on order.
+
+### Review rounds
+
+2 review rounds, 2 fixer rounds.
+
+- **Round 1 (`bug-fix-reviewer`): 2 findings + 2 residuals, none
+  `correctness` / `fidelity` / `spec`.** (i) `house-rule` — the
+  `checkInvokeStaticResolution` doc comment still asserted the gap this fix
+  closed; ruled owed in the same commit. (ii) `test` — five
+  `production-composition.ts:N` citations in the new witness were born stale
+  because the fix inserted lines above them, and its header asserted the defect in
+  present tense. (iii) `house-rule` residual — two "before this fix" clauses
+  (historical narration). (iv) `test` residual — cell I compared `realpath` output
+  against a raw `mkdtempSync` string, so a host whose `tmpdir()` sits behind a
+  symlink would red it for a reason that is not this bug. The round also re-derived
+  the escape path at source level (error severity → no snapshot → compose
+  `continue` before the arity/type loops), probed the edge classes (bare Pi-tool
+  name, empty spec, `.thetalib`, duplicate spec, uppercase basename) and re-ran
+  every gate.
+- **Fixer round 1 (`bug-fix-fixer-light`)** discharged all four.
+- **Round 2 (`bug-fix-reviewer-fast`): CLEAN, no escalation.** Re-derived all five
+  citations itself (they landed one line further than proposed, because the comment
+  rewrite shifted them), confirmed the doc-comment hunk touches comment lines only,
+  confirmed `outsideDirCanonical` is used in exactly one assertion while
+  `outSpecDir`'s 23 spec-construction and message uses are unchanged, and
+  re-confirmed constraints 1/3/4/5/8 at source level.
+- **Fixer round 2 (`bug-fix-fixer-light`)**, opened by the orchestrator against
+  the new live cell: one `fidelity` item — the cell built its expected message from
+  a hand-copied template, which DIAG-4 forbids. It is now derived from the registry
+  row with a missing-row guard and an unsubstituted-placeholder guard.
+- The orchestrator reverted 13 unrelated test-file edits the implementer had made
+  (mechanical refreshes of `production-composition.ts:N` citations shifted by this
+  fix's insertions): unapproved edits to existing tests, and corpus-wide stale
+  citations are bug 0069's residual 5. Those 13 files are byte-unchanged.
+
+### Verification
+
+`bug-fix-verifier` → **SOLID**, all four obligations discharged with quoted
+evidence; every gate independently re-run by the orchestrator afterwards.
+
+1. **The witness genuinely witnesses.** Three neutralisations by targeted byte
+   edit, each restored byte-exact and hash-verified against
+   `4a6b1a902ee7f1d80a824071cb85c3d196f0d286`. Removing the containment call and
+   its escape return → 24 red across C/F/G/H/I/J, every one the bug's symptom,
+   with the `invoke(...)`-surface control (E) and the in-root control (D) still
+   green, and cell F reproducing the pre-fix arity message verbatim. Substituting a
+   bare prefix test on the un-canonicalised path for the shared checker → **only
+   cell I (and its J aggregate) red**, so the tests pin the §Fix constraint 3
+   primitive and not merely the emission. Reordering the escape push after the V15f
+   loop and dropping its skip guard reds nothing — recorded as residual 2 with its
+   source-level proof.
+2. **Full default suite green** — 258 files / 3737 tests; typecheck and lint clean.
+   Re-run at every phase boundary.
+3. **Live end-to-end over the fixed path** — H8a 10/10 (including the new cell,
+   whose red direction was proven under neutralisation 1 and whose source was
+   restored byte-exact) and H9a 11/11, both run for real, then both re-run
+   independently by the orchestrator.
+4. **Permitted-codes decided by the run** — do not append; the file is unedited.
+
+### Residuals
+
+Recorded for filing by the parent session; no new bug documents were created here.
+
+1. **A nested callee's own `tools:` entries get no load-time containment check.**
+   `parseCalleeTheta` calls `resolveThetaToolsAtLoad` without the active-root
+   union, so an escaping entry in an invoked callee's own `tools:` still mints its
+   callable at that parse. This is §Fix constraint 5's second authorised arm
+   ("scope the new check to the discovered-theta pass"), taken because that path
+   discards the diagnostics and reads only `callableSet`, so a rejection there
+   would silently empty the callee's whole callable set with nothing on any
+   channel. The runtime open-time re-check (`#recheckCalleeContainment`) remains
+   that path's containment defence. Closing it properly needs a diagnostic channel
+   on the nested-callee parse, which no obligation currently provides.
+2. **The V15f loop's `callee.escape === undefined` skip is unwitnessed.**
+   Neutralising it (and moving the escape push after that loop) leaves 37/37 green.
+   The reason is structural, and proven at source: `parseCalleeForTools` builds
+   `escape` in the *same object literal* as `mode: "subagent"` and
+   `hasErrors: false`, so no `CalleeParse` can carry `escape` together with a
+   prompt mode or with errors, and neither downstream consumer can therefore see a
+   different value. The guard is defence-in-depth against a future edit that
+   reports the callee's real mode alongside an escape, and says so at the site.
+   Same class as bug 0070 residual 1, bug 0071 residual 1 and bug 0072 residual 4.
+3. **`resolveCalleeArity` is still uncached**, so a callee is re-read and re-parsed
+   once per call site. Inherited from the `invoke(...)` surface, untouched here;
+   already bug 0071 residual 4 / bug 0072 residual 6.
+4. **The `INV-5` label drift in the source comments persists.**
+   `src/extension/invoke-static-checks.ts` and
+   `src/extension/production-theta-producer.ts` label the containment check
+   "INV-5" while invocation.md's INV-5 is subagent return-value propagation and its
+   containment pin is INV-1. This fix's own new comments name INV-1 where they name
+   the rule and leave the existing INV-5 labels alone, so the drift is unchanged,
+   not widened. Noted in §Non-goals of this report as an unfiled comment-level
+   citation defect.
+5. **This fix shifted line numbers in `src/extension/production-composition.ts`**,
+   so pre-existing `path:line` citations to that file in 13 unrelated test-file
+   comments are now off by a small constant. The implementer's mechanical refresh
+   of those 13 files was reverted as an unapproved edit to existing tests;
+   corpus-wide stale citations are bug 0069 residual 5, and several of those 13
+   citations were already wrong before this fix.
+6. **No coverage row names the `tools:` surface's load-time containment.**
+   `docs/plan_topics/coverage-matrix.md` carries `INV-1 | V15a` for the
+   two-site-identical-containment pin and nothing for this surface specifically,
+   so the new witness is not reachable from the matrix.
+
+### Where this report turned out to be wrong
+
+Two §Reproduction claims, both corrected in the *Stale-citation map* above: the
+`realpath`-vs-bare-resolve divergence **is** plantable on this host (directory
+junctions succeed where file symlinks fail `EPERM`), and the quoted notification
+order differs. Neither affects the route or any verdict. Everything else in the
+report — the three escaping spellings, the decisive-cell construction, the
+`checkInvokePathAtLoad` call-site count, the absence of any `activeRoots` consumer
+on the `tools:` resolution path, the synchronous-`resolveCallableSet` constraint,
+the `parseCalleeTheta`-discards-diagnostics constraint, the registry-*Trigger*
+reading and the census — reproduced exactly at the fix baseline.

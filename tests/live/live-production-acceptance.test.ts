@@ -30,6 +30,9 @@
 // live-host acceptance pair exception). Narrative spec references:
 // extension-bootstrap-and-per-theta.md, registration-steps.md, discovery.md.
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
 import {
@@ -45,6 +48,10 @@ import {
   type LoweredSchema,
 } from "../../src/seams/schema-validator";
 import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+// @ts-expect-error — JS code-registry module, no type declarations.
+import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 
 /** A minimal prompt-mode `.theta` whose single untyped query names a deterministic sentinel. */
 function promptTheta(sentinel: string): string {
@@ -843,6 +850,254 @@ describe("H8a-T — bug 0071: a .theta-callable call at wrong arity (Convention:
     } finally {
       await handle.dispose();
       workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Bug 0110 — a `tools:` `.theta` entry naming a callee OUTSIDE every active
+// discovery root minted a callable with ZERO containment diagnostics: nothing
+// on the load path applied INV-1's `realpath`-then-discovery-root-containment
+// check to this surface (`parseCalleeForTools`,
+// `src/extension/production-composition.ts`), even though
+// `docs/spec_topics/tool-calls.md` §"Argument shape" states "a path that
+// escapes the active discovery roots is rejected with
+// `theta/load/invoke-path-escape` and the callable is not created" for this
+// exact surface. The fix threads the active-root union into
+// `parseCalleeForTools` and calls the SAME `checkInvokePathAtLoad` checker the
+// `invoke(...)` surface already uses (`src/runtime/invocation.ts`), judged
+// before the callee's own bytes are parsed.
+//
+// No existing live test (H8a, H9a, or the hardening probes) plants an
+// OUT-OF-ROOT `tools:` `.theta` entry: every `tools:` occurrence across
+// `tests/live/**` either is the bare Pi-tool identifier `read`
+// (`tests/live/acceptance/fixtures/acc-code-tool-loop.theta`, the hardening
+// probes' `tool_loop` fixtures) or, since the bug 0071 fix immediately above,
+// an IN-ROOT `.theta`-path sibling (`b71livecallee.theta` — the WITHIN arm of
+// this SAME shared checker, confirmed live by that cell's `b71livectl`
+// control registering silently). The ESCAPE arm has no live fixture before
+// this cell, mirroring the bug 0070 and bug 0071 H8a additions above.
+//
+// This drives the SAME registration observable those two cells use
+// (`handle.command` / `handle.registeredNames()`, read after the real
+// `session_start` → `resources_discover` → `composeExtensionInstance` →
+// `discoverAndComposeFixtures` → `resolveThetaToolsAtLoad` path settles)
+// through the shipped extension entry against a live host, PLUS the
+// `theta-system-note` channel (AGENTS.md §"Assert on real observables"): the
+// shipped path's `loadSink` (`composeExtensionInstance`,
+// `production-composition.ts`) routes every error-severity load-phase
+// diagnostic onto that channel (`preEvalRouter.routePreEvalFailure` →
+// `sendSystemNote`), so the containment diagnostic is directly observable off
+// the settled `SessionManager` — the same channel the subagent-mode cell
+// above already reads through `driveSlashCaptureTurn`, confirming the channel
+// is live (not degraded) in this exact harness. This cell reads it directly
+// off `handle.sessionManager.getEntries()` rather than through
+// `driveSlashCaptureTurn`, because the diagnostic fires at LOAD time (inside
+// `bootShippedExtension`'s `session.bindExtensions({})`), before any slash is
+// driven — there is no prior drive to slice a "during this drive" delta
+// against, so the full entry list IS the delta.
+//
+// The callee planted outside the discovery root is otherwise identical in
+// shape to the bug 0070/0071 callees (a trivial subagent-mode theta, no
+// `params:`, so no arity/type/prompt-mode/errors rule has a subject),
+// isolating containment as the only rule that can explain the caller's
+// non-registration — the same no-co-firing discipline
+// `tests/tools-entry-containment.test.ts` cells F/G/H1/H2/J use offline.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0070 and bug 0071
+// H8a cells above claim). ADDITIVE ONLY: no existing cell in this file is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * The `theta-system-note` channel contents from the settled in-memory
+ * `SessionManager`, read directly off `getEntries()` (AGENTS.md §"Assert on
+ * real observables"). Mirrors `./harness`'s unexported `collectSystemNotes`
+ * (not imported: this cell reads the FULL entry list, not a per-drive slice,
+ * since the diagnostic under test fires at load time, before any drive).
+ */
+function systemNoteContents(entries: readonly unknown[]): readonly string[] {
+  const notes: string[] = [];
+  for (const entry of entries) {
+    const e = entry as { customType?: string; content?: unknown };
+    if (e.customType !== "theta-system-note") continue;
+    if (typeof e.content === "string") notes.push(e.content);
+    else if (Array.isArray(e.content)) {
+      for (const part of e.content) {
+        const t = (part as { text?: string }).text;
+        if (typeof t === "string") notes.push(t);
+      }
+    }
+  }
+  return notes;
+}
+
+/**
+ * `theta/load/invoke-path-escape`'s registry code. DIAG-4
+ * (`docs/spec_topics/diagnostics/diagnostic-shape.md:74`) makes the registry
+ * *Message* column normative, so the fragment this cell asserts is READ from
+ * the row below rather than transcribed — the same discipline
+ * `tests/tools-entry-containment.test.ts` applies offline for the same code,
+ * mirrored here for this file's `tests/live/` location.
+ */
+const INVOKE_PATH_ESCAPE_CODE = "theta/load/invoke-path-escape";
+
+/** The sharded registry page carrying `theta/load/invoke-path-escape`'s row (`:33`). */
+const INVOKE_PATH_ESCAPE_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-load.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * Render `theta/load/invoke-path-escape`'s code-prefixed system-note
+ * fragment with `<path>` substituted by the entry spec as written (the
+ * out-of-root absolute path the fixture plants). The *Message* half is
+ * sourced from the registry row rather than copied, so a reworded row reds
+ * this cell instead of a stale hand-transcribed string passing vacuously;
+ * the code prefix mirrors `renderDiagnosticLine`'s `${code}: ${message}`
+ * join (`src/diagnostics/diagnostic.ts`), which is what the theta-system-note
+ * content this cell asserts against actually carries.
+ */
+function invokePathEscapeFragment(path: string): string {
+  const template = registryMessage(
+    INVOKE_PATH_ESCAPE_REGISTRY,
+    INVOKE_PATH_ESCAPE_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${INVOKE_PATH_ESCAPE_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<path>", path);
+  expect(
+    message,
+    `${INVOKE_PATH_ESCAPE_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${INVOKE_PATH_ESCAPE_CODE}: ${message}`;
+}
+
+describe("H8a-T — bug 0110: an out-of-root .theta tools: entry escapes containment (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose tools: entry names a callee outside every active discovery root, and the theta-system-note channel carries the containment diagnostic, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+
+    // The out-of-root callee: a SECOND, undiscovered temp directory — never a
+    // `--theta` CLI source and never under the planted workspace's
+    // `.pi/theta/` — so the active-root union (the parent directory of every
+    // DISCOVERED theta) cannot contain it, mirroring
+    // `tests/tools-entry-containment.test.ts`'s `outsideDir`.
+    const outsideDir = mkdtempSync(join(tmpdir(), "theta-b0110-livefar-"));
+    const outSpec = outsideDir.replace(/\\/g, "/");
+    writeFileSync(
+      join(outsideDir, "b110livefarcallee.theta"),
+      ["---", "mode: subagent", "---", "@`hi`", ""].join("\n"),
+      "utf8",
+    );
+
+    const thetas: PlantedTheta[] = [
+      // The in-root control: an in-root `.theta` `tools:` entry, proving the
+      // planted workspace and the ordinary WITHIN-root resolution path both
+      // work — without this, the escaping caller's non-registration could be
+      // (wrongly) attributed to a broken workspace instead of containment.
+      {
+        source: "project",
+        stem: "b110livenearcallee",
+        text: ["---", "mode: subagent", "---", "@`hi`", ""].join("\n"),
+      },
+      {
+        source: "project",
+        stem: "b110livecallnear",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          "  - ./b110livenearcallee.theta",
+          "---",
+          "b110livenearcallee()?",
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+      // The load-bearing caller: a `tools:` entry naming the out-of-root
+      // callee by absolute path.
+      {
+        source: "project",
+        stem: "b110livecallescape",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          `  - ${outSpec}/b110livefarcallee.theta`,
+          "---",
+          "b110livefarcallee()?",
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the in-root callee and its caller must both register
+      // before the escaping caller's absence can be attributed to containment
+      // instead of a broken workspace.
+      expect(
+        handle.command("b110livenearcallee"),
+        "the in-root callee did not register — precondition unmet. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b110livecallnear"),
+        "the in-root `tools:` caller did not register — precondition unmet. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline stubbed-`ctx` harness), a `tools:` entry naming a
+      // callee outside every active discovery root does not register its
+      // caller.
+      expect(
+        handle.command("b110livecallescape"),
+        "the caller whose `tools:` entry names an out-of-root callee " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/load/invoke-path-escape did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b110livecallescape");
+
+      // The containment diagnostic itself, off the theta-system-note channel
+      // (AGENTS.md §"Assert on real observables"): the shipped path's
+      // `loadSink` routes every error-severity load-phase diagnostic there
+      // during `session.bindExtensions({})` inside `bootShippedExtension`
+      // above — before any slash is driven, so the full entry list (not a
+      // per-drive slice) is read here.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      // DIAG-4: the fragment is derived from the registry row, not copied — see
+      // `invokePathEscapeFragment`.
+      const expectedFragment = invokePathEscapeFragment(
+        `${outSpec}/b110livefarcallee.theta`,
+      );
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the containment diagnostic for the " +
+          "out-of-root callee. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+      rmSync(outsideDir, { recursive: true, force: true });
     }
   });
 });

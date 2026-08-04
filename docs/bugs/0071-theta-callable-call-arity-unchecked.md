@@ -541,3 +541,29 @@ the containment half is a separate rule with a separate code.
 - Evidence: offline production-load A/B matrix (this report §Reproduction) run at
   `d06daae3` via a scratch vitest on the
   `tests/production-tools-load-resolution.test.ts` harness; scratch deleted.
+
+### Discharge note — bug 0110 (0.66.0)
+
+discharged by the 0110 fix (0.66.0): residuals 2 and 3 above are both closed. A
+`tools:` `.theta` entry's resolved path is now checked for discovery-root
+containment at load, in `resolveThetaToolsAtLoad` / `parseCalleeForTools`, through
+the same `checkInvokePathAtLoad` checker the `invoke(...)` surface calls, and an
+escape is `theta/load/invoke-path-escape` at error severity — so the caller does
+not register and no frozen callable-set snapshot is built. Residual 3 is closed
+structurally rather than by placement: the compose pass `continue`s on any
+error-severity `tools:` diagnostic strictly before the invoke static-check pass
+runs, so this fix's arity loop is unreachable for an out-of-root callee, and the
+0110 witness asserts both halves — the containment diagnostic present, and no
+`passes too` message naming that callee.
+
+The same fix makes §Expected behaviour's clause "The path-restriction half of that
+sentence *is* implemented for `tools:` entries (`theta/load/invoke-path-escape`)"
+TRUE. §Fix (0.64.0) *Where this report turned out to be wrong* retracted that
+clause as false at its own baseline, and that retraction stands as the record of
+0.64.0; from 0.66.0 the clause holds on the load path as well as at runtime. Bug
+0110 carries the measurement, the route decision and the witness inventory.
+
+This fix's own code and tests are untouched by 0110:
+`src/extension/invoke-static-checks.ts` took one comment-only hunk (its INV-5
+doc-comment bullet stated the gap 0110 closed) and
+`tests/theta-callable-call-arity.test.ts` is byte-unchanged and green.

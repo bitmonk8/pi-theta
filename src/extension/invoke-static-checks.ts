@@ -612,19 +612,16 @@ function renderCollectedTypes(types: readonly CompatType[]): string {
  *
  *   - INV-5 path-escape (`theta/load/invoke-path-escape`) via the shared
  *     realpath + discovery-root containment check — the `invoke(...)` surface
- *     ONLY. A `.theta`-callable call's containment is not checked on this load
- *     path at all: the `tools:` admission that produced `deps.callableSet`
- *     (`parseCalleeForTools`) reads the callee's bytes through a bare path
- *     resolve, with no `realpath` and no active-discovery-root test, so a
- *     `tools:` entry naming a callee outside every active root raises no
- *     containment diagnostic anywhere in this pass. Closing that is outside bug
- *     0071's scope (its §Non-goals scopes 0071 to the arity rule), so the load
- *     path is left as found; the containment enforcement that does exist for
- *     the surface is the runtime open-time re-check the dispatch path runs
+ *     ONLY. The `tools:` `.theta`-entry surface's containment is judged
+ *     upstream, at `tools:` resolution time (`parseCalleeForTools`): an
+ *     error-severity rejection there un-registers the caller before this pass
+ *     runs, so an escaping entry never reaches this pass's arity or type
+ *     loops. For a callee this pass cannot statically resolve at load, the
+ *     defence is the runtime open-time re-check the dispatch path runs
  *     before it opens the callee (`#driveCallee` →
  *     `#recheckCalleeContainment` in
- *     `src/extension/production-theta-producer.ts`), which fails the call closed
- *     instead of un-registering the caller;
+ *     `src/extension/production-theta-producer.ts`), which fails the call
+ *     closed instead of un-registering the caller;
  *   - INV-3 arity (`theta/parse/invoke-arity-too-{many,few}`) against the
  *     statically-resolved callee's `params:` counts, over BOTH the
  *     `invoke(...)` call surface and the `.theta`-callable call surface

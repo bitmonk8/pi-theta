@@ -6,6 +6,47 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-08-04
+
+### Fixed
+
+- **A `tools:` `.theta` entry whose path escaped every active discovery root
+  minted its callable anyway** (bug 0110). `docs/spec_topics/tool-calls.md`
+  §"Argument shape" states that such a path "is rejected with
+  `theta/load/invoke-path-escape` and the callable is not created", and the
+  registry row's *Trigger* names this surface alongside `invoke(...)`, but
+  nothing on the load path applied the rule to it: the entry's path met one bare
+  `resolvePath` and one read, with no `realpath` and no comparison against the
+  active roots. Three spellings of an escaping entry — absolute plain scalar,
+  absolute double-quoted scalar, and `..`-relative — all registered their caller
+  with no containment diagnostic, and the only enforcement was the runtime
+  open-time re-check, which fails one call closed at dispatch instead of
+  refusing the callable at load. A second, dependent defect followed from the
+  ordering: the `.theta`-callable arity check emitted against an out-of-root
+  callee, un-registering the caller on the wrong rule and pointing the author at
+  their argument list rather than at the entry's path.
+
+  A `tools:` `.theta` entry's containment is now judged at `tools:` resolution
+  time, before the callable is created, through the same
+  `checkInvokePathAtLoad` checker the `invoke(...)` surface uses — so a
+  symlinked callee classifies identically on both surfaces, and an escape
+  un-registers the caller with no frozen callable-set snapshot built at all.
+  Because an error-severity `tools:` diagnostic stops the compose pass before
+  the invoke static-check pass runs, the arity and tool-argument type checks are
+  structurally unreachable for an escaping entry, and an escaping entry's bytes
+  are never parsed, so no rule derived from the callee's contents can name it
+  either. The runtime open-time re-check is unchanged and remains the defence
+  for a callee that is not statically resolvable at load.
+
+### Changed
+
+- `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — §5's `<path>` rule
+  gained the `tools:`-entry arm (the entry spec as written, an unquoted YAML
+  scalar), and §Edge cases gained a bullet reconciling the two arms of
+  `theta/load/invoke-path-escape`. No diagnostic code, *Trigger* or *Message*
+  changed, so the code registry and `docs/reference/diagnostics.md` are
+  untouched.
+
 ## [0.65.0] - 2026-08-04
 
 ### Fixed
