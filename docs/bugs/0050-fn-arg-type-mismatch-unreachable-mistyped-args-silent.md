@@ -532,3 +532,24 @@ resolution and one call, not design.
   `tests/closing-gate.test.ts:15–26`;
   `tests/typeenv-prototype-names.test.ts:163`, `:553` (0038's recorded note on
   this row).
+
+## Coordination note — bug 0084 landed (0.71.0)
+
+Bug [0084](./0084-increment-decrement-check-dead.md) — cited in this report's
+§Related as the adjacent member of the same dead-enforcement class — shipped
+its fix in 0.71.0, and it is the first member of that class to be discharged by
+*wiring* rather than by amending the promise. Its mechanism is recorded here
+because it is the template this report's own disposition 1 would follow: the
+emitter could not simply be called, because no token existed for it to be called
+on, so the fix (i) taught the lexer to produce the token the emitter's input type
+already described, and (ii) called the emitter at the expression walk, where
+every position that accepts an expression funnels through, rather than at the
+statement walk alone.
+
+That second point is the transferable one. 0084's §Fix warned that
+statement-position-only coverage would leave its `fn`-body row silent; hooking
+`parseUnary` and `parsePostfix` covered statement, expression, loop-body and
+`fn`-body positions with one pair of call sites. This report's defect is
+otherwise untouched: 0.71.0 changed nothing in the argument-typing path, its
+registered row, or its emitter, and settles nothing about the choice between
+this report's two dispositions.

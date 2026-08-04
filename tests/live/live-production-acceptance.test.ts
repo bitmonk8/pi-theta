@@ -1483,3 +1483,158 @@ describe("H8a-T — bug 0080: constructor field order follows the schema's DECLA
     }
   });
 });
+
+// ===========================================================================
+// Bug 0084 — `theta/parse/increment-decrement`'s sole emitter,
+// `checkIncrementDecrement` (src/parser/bindings.ts), had no `src/` caller: no
+// `++`/`--` in author source drew it anywhere. `--` was silently absorbed by
+// the trailing-operator newline-continuation trigger (`c--` glued onto the
+// next line), so `while c > 0 { c-- }` loaded CLEAN with an EMPTY loop body —
+// a non-terminating loop with zero diagnostics (docs/bugs/0084-increment-
+// decrement-check-dead.md, §Reproduction r7 — the doc's own "load-bearing
+// row"). The fix lexes the byte-adjacent pair as one token ahead of the
+// continuation test (`twoCharOperators`, src/lexer/lexer.ts) and calls the
+// existing emitter from two new hooks in the expression walk (`parseUnary` /
+// `parsePostfix`, src/parser/theta-document.ts).
+//
+// No shipped live fixture (H8a, H9a, or the hardening probes) contains a
+// byte-adjacent `++`/`--` anywhere before this cell — confirmed both
+// statically (every `--`/`++` byte run across every committed `.theta` /
+// `.thetalib` is a frontmatter `---` fence or, in exactly one `.theta`, a
+// `--theta` CLI-flag mention inside a `//` comment) and by the H9a acceptance
+// suite's own clean run (no `theta/parse/increment-decrement` appears in any
+// of its ten spawns' captured output) — mirroring the bug
+// 0070/0071/0077/0079/0110 "no existing live fixture reaches this arm"
+// finding. This cell plants the bug doc's own r7 shape and drives it through
+// the REAL shipped composition root against a live host.
+//
+// The check fires at TYPE-phase parse — an `error`-severity `theta/parse/*`
+// diagnostic INSIDE `parseThetaDocument`'s own `document.diagnostics` — so
+// `hasLoadParseError` (production-composition.ts) un-registers the caller
+// before any turn could be dispatched, the SAME registration-absence
+// observable the bug 0070/0071/0077/0079(a)/0110 cells above assert, applied
+// to this bug's own check. This cell ALSO reads the `theta-system-note`
+// channel directly off the settled `SessionManager` (mirroring the bug 0110
+// cell): `preEvalCauseOf` maps every `theta/parse/*` code to the
+// "lex-parse-type" cause and `parseDiscoveredTheta`'s drop path
+// (`{ dropped: [...document.diagnostics, …] }`) forwards through the SAME
+// `sink.emitGroup` → `preEvalRouter.routePreEvalFailure` delivery surface
+// bug 0110's `theta/load/*` diagnostic uses — the router shares one delivery
+// surface across every cause. The diagnostic fires at LOAD time, inside
+// `bootShippedExtension`'s `session.bindExtensions({})`, before any slash is
+// driven, so the full entry list — not a per-drive slice — is the delta.
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the bug 0070/0071/0077/
+// 0079(a)/0110 cells above.
+// ===========================================================================
+
+/** `theta/parse/increment-decrement`'s registered code and registry page. */
+const INCREMENT_DECREMENT_CODE = "theta/parse/increment-decrement";
+const INCREMENT_DECREMENT_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/increment-decrement: '<op>' operator is not supported` —
+ * DIAG-4: the message half is read from the registry row, not copied,
+ * mirroring this file's existing `invokePathEscapeFragment` /
+ * `interpolatedResultAbortedNote` helpers.
+ */
+function incrementDecrementFragment(op: "++" | "--"): string {
+  const template = registryMessage(
+    INCREMENT_DECREMENT_REGISTRY,
+    INCREMENT_DECREMENT_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${INCREMENT_DECREMENT_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<op>", op);
+  expect(
+    message,
+    `${INCREMENT_DECREMENT_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${INCREMENT_DECREMENT_CODE}: ${message}`;
+}
+
+/** The bug doc's own r7 shape — "the row where silence is a non-terminating loop". */
+function incDecWhileBodyTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "let mut c = 3",
+    "while c > 0 {",
+    "  c--",
+    "}",
+    "c",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0084: `--` in a while body draws theta/parse/increment-decrement, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose while-body statement is `c--`, and the theta-system-note channel carries the rejection, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // refused theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the check under test.
+      { source: "project", stem: "b84livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b84liverefused", text: incDecWhileBodyTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b84livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the check under test, would explain the refused theta's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // `while`-body `c--` refuses to register —
+      // theta/parse/increment-decrement un-registers it at the SAME
+      // hasLoadParseError site the bug 0070/0071/0077/0079(a)/0110 cells above
+      // exercise for their own codes.
+      expect(
+        handle.command("b84liverefused"),
+        "the caller whose while-body statement is `c--` registered anyway " +
+          "through the live discovery/session_start path — " +
+          "theta/parse/increment-decrement did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b84liverefused");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"): the diagnostic fires at LOAD time, before any drive, so
+      // the full entry list is the delta (mirrors the bug 0110 cell above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = incrementDecrementFragment("--");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the increment-decrement rejection for " +
+          "the refused theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

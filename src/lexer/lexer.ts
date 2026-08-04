@@ -165,9 +165,15 @@ export function reservedKeywords(): ReadonlySet<string> {
   ]);
 }
 
-/** Two-character operator tokens recognised greedily ahead of single chars. */
+/**
+ * Two-character operator tokens recognised greedily ahead of single chars,
+ * including `++` / `--`. The increment/decrement pair is recognised here,
+ * not at the parser's expression walk, because byte adjacency — no
+ * whitespace between the two characters — is information only the scanner
+ * has; the parser sees tokens, not bytes.
+ */
 function twoCharOperators(): ReadonlySet<string> {
-  return new Set(["==", "!=", "<=", ">=", "&&", "||"]);
+  return new Set(["==", "!=", "<=", ">=", "&&", "||", "++", "--"]);
 }
 
 /**

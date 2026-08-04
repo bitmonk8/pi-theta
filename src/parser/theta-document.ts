@@ -55,6 +55,7 @@ import {
   checkLetBinding,
   checkAssignmentTarget,
   checkMutModifier,
+  checkIncrementDecrement,
 } from "./bindings";
 import { checkDocCommentPlacement } from "./descriptions";
 import { checkBreakStatement, checkContinueStatement } from "./control-flow";
@@ -3287,7 +3288,46 @@ class BodyParser {
     return left;
   }
 
+  /**
+   * The increment/decrement operator at the cursor, or `undefined` for
+   * anything else. Narrows the token's plain `string` text to the
+   * `IncrementDecrementOp.op` literal union so neither call site casts past
+   * the check.
+   */
+  private incrementDecrementOp(): "++" | "--" | undefined {
+    const t = this.peek();
+    if (t.kind !== "punct") {
+      return undefined;
+    }
+    if (t.text === "++") {
+      return "++";
+    }
+    if (t.text === "--") {
+      return "--";
+    }
+    return undefined;
+  }
+
   private parseUnary(): Expr | null {
+    const incDecOp = this.incrementDecrementOp();
+    if (incDecOp !== undefined) {
+      const op = this.advance();
+      // `++` / `--` are rejected, not lowered (bindings.md §"Increment /
+      // decrement"): the operator carries no AST node of its own, so the
+      // operand alone survives once the diagnostic is filed.
+      const diag = checkIncrementDecrement(
+        { op: incDecOp },
+        { file: this.file, range: op.range },
+      );
+      if (diag !== undefined) {
+        this.diagnostics.push(diag);
+      }
+      const operand = this.parsePostfix();
+      if (operand === null) {
+        return null;
+      }
+      return operand;
+    }
     if (this.isPunct("-") || this.isPunct("!")) {
       const op = this.advance();
       const operand = this.parsePostfix();
@@ -3388,6 +3428,21 @@ class BodyParser {
           args,
           range: spanRange(expr.range, this.prevRange()),
         };
+        continue;
+      }
+      const incDecOp = this.incrementDecrementOp();
+      if (incDecOp !== undefined) {
+        // Postfix `++` / `--`: rejected in place like the prefix arm, and
+        // consumed here rather than left for the statement loop — that is
+        // what keeps it out of the stray-punctuation recovery below.
+        const op = this.advance();
+        const diag = checkIncrementDecrement(
+          { op: incDecOp },
+          { file: this.file, range: op.range },
+        );
+        if (diag !== undefined) {
+          this.diagnostics.push(diag);
+        }
         continue;
       }
       break;

@@ -625,3 +625,28 @@ the shape code alone. Both are discharged and superseded here.
   `tests/production-tools-load-resolution.test.ts` harness; scratch deleted.
   Live corroboration of the misattributed cause is bug 0003's own recorded
   repro (`docs/bugs/0003-tool-arg-shape-rule-not-enforced.md` §Reproduction).
+
+## Coordination note — bug 0084 landed (0.71.0)
+
+Bug [0084](./0084-increment-decrement-check-dead.md) — the report whose `++` arm
+this report's §Summary characterises as "rejected with the right severity, the
+wrong code, and a Hint that describes a repair which does not apply" — shipped
+its fix in 0.71.0. Both arms now draw the registered
+`theta/parse/increment-decrement` with the registry *Message* and *Hint*: the
+byte-adjacent pair is lexed as one token ahead of the trailing-operator
+continuation test, and the previously callerless `checkIncrementDecrement` is
+called from the prefix and postfix expression-walk hooks. The wrong code it drew
+(`theta/parse/unsupported-feature`, `stray '+' in statement position`) is no
+longer reachable from that input, so that instance of the misdiagnosis shape is
+closed.
+
+This report's own fix (0.65.0) is untouched, as is
+`tests/production-tools-load-resolution.test.ts`, whose additive-only invariant
+0.71.0 preserved (that file is byte-unchanged). One residual from 0.71.0 belongs
+to this report's shape rather than to 0084's: `--` in `match` pattern position
+(`match x { --y => 1, _ => 2 }`) still draws
+`theta/parse/statement-in-arm-body` and `theta/parse/match-arm-type-mismatch` —
+loud at `E`, under codes that name neither the operator nor its repair. Pattern
+position is not an expression position, so 0084's hooks do not reach it, and
+`parsePattern`'s one-token wildcard recovery behaved equivalently on the pre-fix
+`-`,`-` token pair. Recorded here, not fixed there.

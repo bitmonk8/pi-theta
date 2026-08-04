@@ -180,6 +180,14 @@ lives: it is in the parse / type layer (`collectSchemaFields` /
 that discards field order, not at the runtime constructor evaluation sites, so
 it could supply no declaration order for that report to reuse. Those sites
 resolve `env.resolveSchema` independently. This check is untouched by that fix.
+(iv) [0084](./0084-increment-decrement-check-dead.md) reused this fix's GOV-15
+disposition in 0.71.0 — the diagnostic-registry carve-out
+(`source-language-stability.md` §*Diagnostic-registry carve-out*) applied as an
+addition, whose covered effect is exactly that previously clean-loading inputs
+gain an emission. There the edit is narrower than here: no registry row was
+added, so the carve-out was engaged by the *trigger* arm, which the same clause
+dispositions "as an addition for inputs newly brought into the code's emission
+set". This fix's own registry addition is untouched.
 
 ## Summary
 

@@ -569,3 +569,25 @@ before deciding whether `tests/fixtures/h7a/permitted-codes.json` needs amending
   run and reported. Two scratch vitest files written under `tests/` (the first
   rewritten between runs), run, transcribed verbatim into §Reproduction, and
   deleted; no other file in the tree was written.
+
+## Coordination note — bug 0084 landed (0.71.0)
+
+Element 1's first emission site is the `parseForms` stray-punctuation recovery in
+`src/parser/theta-document.ts`, whose `stray '<t>' in statement position` tail
+this report holds the reconciliation for. Bug
+[0084](./0084-increment-decrement-check-dead.md)'s fix (0.71.0) changes that
+tail's *population*, not its presence: the byte-adjacent `++` / `--` pair is now
+lexed as one token and consumed at the expression walk
+(`parseUnary` / `parsePostfix`) by `checkIncrementDecrement`, so it never reaches
+that recovery. Before 0.71.0 a statement-position `c++` rendered
+`stray '+' in statement position` from that site — §Reproduction F1's own shape
+with `+` as `<t>`; from 0.71.0 it draws `theta/parse/increment-decrement`
+instead, and neither `'++'` nor `'--'` can ever appear as this tail's `<t>`.
+
+This report's own defect is untouched. The tail is still emitted, still absent
+from `placeholder-rendering-a.md` §3's closed table, and still reachable from
+ordinary source text — §Reproduction F1's *fixture* is what needs re-deriving,
+not its finding. 0084 settles nothing about what the construct row should say;
+it records only that `++` no longer belongs in that row's population. Whichever
+disposition is taken here, the set of `<t>` values the site can render is now
+one entry smaller on the `+`-from-`++` route.

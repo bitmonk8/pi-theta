@@ -6,6 +6,64 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-08-04
+
+### Fixed
+
+- **`theta/parse/increment-decrement` was registered, implemented and never
+  called, so `--` was silently re-read as a different program and `++` drew the
+  wrong code** (bug 0084). The lexer had no `++` / `--` token, so both operators
+  reached the parser as two separate `punct` tokens. A trailing `-` is a
+  newline-continuation trigger (`docs/spec_topics/expressions.md`
+  §"Grammar disambiguation"), so `c--` glued to whatever followed:
+  `while c > 0 { c-- }` loaded with **zero diagnostics** and a loop body
+  containing no statements at all — a non-terminating loop written by an author
+  whose source reads as a bounded countdown — and `c--` before a tail expression
+  evaluated to `2 * c`. `++` fell into the statement loop's stray-punctuation
+  recovery and drew `theta/parse/unsupported-feature`
+  (`stray '+' in statement position`), naming a token the author did not think
+  they wrote and never showing the registered repair hint. Meanwhile
+  `docs/spec_topics/diagnostics/code-registry-parse.md`,
+  `docs/spec_topics/bindings.md` §"Increment / decrement",
+  `docs/spec_topics/expressions.md` and `docs/reference/grammar.md` all promised
+  that theta reports the operator.
+
+  The byte-adjacent pair is now lexed as a single two-character operator token
+  (`twoCharOperators` in `src/lexer/lexer.ts`), which by construction happens
+  during scanning — ahead of the trailing-trigger continuation test in
+  `collapseContinuations`, the ordering the decrement rows depend on. The
+  continuation-trigger sets are byte-unchanged: leaving the pair out of both is
+  what stops `c--` swallowing the following newline. `checkIncrementDecrement`
+  (`src/parser/bindings.ts`), previously exported and unit-tested with no
+  production caller, is now called from a prefix arm in `parseUnary` and from
+  `parsePostfix`'s suffix loop (`src/parser/theta-document.ts`); each hook emits
+  the registered code with the source token rendered verbatim into `<op>`,
+  consumes the operator, and yields the operand unlowered. Because every
+  expression-accepting position funnels through those two hooks, statement
+  position, expression position (`let d = c++`), loop bodies and `fn` bodies all
+  draw the diagnostic; consuming the token is what keeps the pair out of the
+  stray-punctuation recovery, so no second code cascades.
+
+  Only the byte-adjacent pair is the operator: `c - - c` and `c - -c` remain
+  legal and remain the way to subtract a negation, while `c-- c` and `c --c` are
+  rejected, matching how every C-family lexer reads those bytes. `--` and `++`
+  inside `//` comments, string literals and `@`-template prose are data, not
+  code, and stay silent. No registry, spec-topic or `docs/reference/` edit was
+  needed — the *Trigger*, *Message* and *Hint* were already accurate; the
+  implementation moved to match them. GOV-15 is discharged under the
+  diagnostic-registry carve-out
+  (`docs/spec_topics/governance/source-language-stability.md`), whose covered
+  effect is exactly that previously clean-loading inputs gain an emission; no
+  committed `.theta` or `.thetalib` contains the operator.
+  Locked by `tests/increment-decrement-wiring.test.ts` (25 cells: ten emission
+  positions with the message and hint read from the live registry, byte-unchanged
+  controls, the whitespace and lexical-context spellings that must stay accepted,
+  the adjacency emissions, the loop-body severity pins, and a registry drift
+  guard) plus an additive live cell in
+  `tests/live/live-production-acceptance.test.ts` that drives the real
+  discovery-to-registration path and asserts the `theta-system-note` channel
+  carries the rejection.
+
 ## [0.70.0] - 2026-08-04
 
 ### Fixed

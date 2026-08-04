@@ -1,6 +1,11 @@
 # Bug 0084 — `theta/parse/increment-decrement`'s sole emitter `checkIncrementDecrement` (`bindings.ts:179`) has no `src/` caller, so `--` is silently absorbed by the trailing-operator newline continuation: `while c > 0 { c-- }` loads with zero diagnostics and an empty loop body, and `c--` at statement level evaluates to `2 * c`
 
-- **Status:** open.
+- **Status:** fixed (0.71.0). Disposition 1 shipped — the byte-adjacent
+  `++` / `--` pair is lexed as one token ahead of the trailing-operator
+  continuation test, and the previously callerless `checkIncrementDecrement`
+  is called at the prefix and postfix expression-walk hooks, so all four
+  measured positions draw `theta/parse/increment-decrement`. See §Fix
+  (0.71.0) below.
 - **Kind:** defect — a registered `E`-severity parse rule is implemented,
   unit-tested and never wired, and the input it was written to reject is not
   merely accepted but **re-read as a different program**. Two arms differ:
@@ -78,6 +83,179 @@
 - **Observed at:** `0.53.0` (`07ef0271`), Windows. Offline and deterministic —
   `parseThetaDocument` and `evaluateSource` through `tests/helpers/e2e-s1.ts`;
   no model, no live provider, no file written.
+
+## Fix (0.71.0)
+
+Disposition 1 of the constraint-pinned §Fix below — "lex the pair, then wire
+the emitter" — implemented as written; disposition 2 ("retire the row")
+rejected, per the §Fix recommendation, because the behaviour is promised in four
+normative places, the emitter is unit-tested green, the repair its Hint names
+(`+= 1`) is accepted today (c1), and retirement leaves r7's non-termination
+unaddressed. Citations are by symbol.
+
+- **What shipped:**
+  - `src/lexer/lexer.ts` — `twoCharOperators()` gains `"++"` and `"--"`.
+    **Mechanism chosen: a two-character operator token, not a lexer-level
+    lookahead.** That set is consumed by the greedy pair branch of the scan
+    loop, so the byte-adjacent pair becomes one `punct` token *during
+    scanning* — by construction ahead of `collapseContinuations()`'s
+    trailing-trigger test, which is the ordering constraint §Fix names as
+    load-bearing for r3, r5 and r7. A lookahead bolted onto the continuation
+    test would have had to run at or after that decision. `trailingTriggers()`
+    and `leadingTriggers()` are deliberately byte-unchanged: leaving the pair
+    out of both is exactly what stops `c--` from swallowing the following
+    newline, and it keeps the closed continuation-trigger table
+    (`grammar.md` §Newline continuation) untouched.
+  - `src/parser/theta-document.ts` — `checkIncrementDecrement` joins the
+    existing `./bindings` import (no new module edge, so no new cycle across
+    the reviewed `type-layer-checks.ts` → `theta-document.ts` edge) and is
+    called from two expression-walk hooks: a new prefix arm in `parseUnary()`
+    and a new arm in `parsePostfix()`'s suffix loop, both through the new
+    `incrementDecrementOp()` helper, which narrows the token's `string` text to
+    `IncrementDecrementOp.op`'s literal union by comparison rather than by a
+    cast. Each hook emits, consumes the operator token, and yields the operand
+    unlowered — the rejected operator carries no AST node. Consuming it is what
+    keeps the pair out of `parseForms`' stray-punctuation recovery, so no
+    `theta/parse/unsupported-feature` cascade appears.
+  - **Positions covered — all four §Fix names, including r9.** Every
+    expression-accepting position funnels through `parseUnary`/`parsePostfix`,
+    so statement position (r1–r6), expression position (r10, `let d = c++`),
+    loop body (r7 `while`, r8 `for`) and `fn` body (r9) all draw the code. §Fix
+    states that "a fix covering only statement position leaves r9 silent"; r9
+    is a witness cell in its own right. Review round 1 traced
+    `parseHeaderExpression`, `parseBracketedExpression`, `parseArgs`,
+    `parseArray`, `parseObjectLiteral` field values, match scrutinee and arm
+    bodies, `parseParFor`, `parseInvoke`, `parseWithClause`, `parseReturn`,
+    `parseLet` and the reassignment RHS to the same two hooks and probed each.
+  - **Adjacency, and one contradiction in §Fix resolved.** §Fix's governing
+    rule — "only the byte-adjacent pair with no separating whitespace is the
+    operator" — contradicts its own Witness bullet, which lists `a-- b` among
+    spellings that must stay accepted, since `a--` *is* byte-adjacent. Resolved
+    in favour of the stated rule: `c-- c` and `c --c` emit (cells s3, s4),
+    while the whitespace-separated `c - - c` and `c - -c` stay silent
+    (cells s1, s2) and remain the accepted spelling for subtraction of a
+    negation. This is C-family maximal munch, and it is the only reading that
+    does not require recognition to inspect the whitespace *after* the pair —
+    which would place recognition at or after the continuation decision, the
+    ordering §Fix forbids.
+  - **No spec, registry or reference edit — DIAG-2 not engaged.** The
+    `theta/parse/increment-decrement` row's *Trigger* ("`++` or `--` operator
+    used."), *Message* and *Hint* are accurate and byte-unchanged, as are
+    `bindings.md`, `expressions.md`, `docs/reference/diagnostics.md`,
+    `docs/reference/grammar.md` and `placeholder-rendering-b.md`'s `<op>`
+    extension. The implementation was moved to match the four documents that
+    already promised the check.
+  - **GOV-15 discharged under the diagnostic-registry carve-out
+    (`source-language-stability.md` §*Diagnostic-registry carve-out*), the
+    disposition 0031 recorded for the same class.** r3–r9 satisfy the
+    loads-cleanly predicate today and gain an `E`, changing observable (b); the
+    carve-out dispositions "a DIAG-2 *trigger* change … as an addition for
+    inputs newly brought into the code's emission set", and its covered effect
+    is exactly the appearance of an emission on inputs that did not previously
+    emit the code. 0031 applied the same clause to a code addition; here it is
+    a trigger change with no registry edit at all, which is strictly narrower.
+    Corpus sweep **re-verified at the fix baseline** (`bb5206a6`, 0.70.0): no
+    `++` occurs anywhere in `docs/examples/`, `tests/fixtures/` or
+    `extensions/`; across every committed `.theta` / `.thetalib` the only
+    non-frontmatter `--` is inside a `//` comment in
+    `tests/live/acceptance/fixtures/acc-multi-source.theta` (the `--theta` CLI
+    flag), which cell s6 pins as silent. §Provenance's claim that
+    `rg -n '\+\+|--' docs/examples/ tests/fixtures/` "returns nothing" is wrong
+    as literally stated — it matches `---` frontmatter fences and markdown table
+    separators — but right in substance: the committed corpus contains no
+    increment/decrement operator, so no committed input is affected. The three
+    lexical contexts where the pair is data rather than code — `//` comments,
+    string literals and `@`-template prose — are pinned silent by cells s5–s7,
+    and frontmatter fences never reach `lexTheta` (only `split.bodyText` is
+    lexed).
+  - **H9a permitted-codes: NOT reachable, `tests/fixtures/h7a/permitted-codes.json`
+    byte-unchanged** — decided by the real run, mirroring 0079's method. The
+    live H9a acceptance suite was run (`tests/live/acceptance/`, 11/11 green)
+    and its captured stdout+stderr carries neither
+    `theta/parse/increment-decrement` nor `theta/parse/unsupported-feature`; a
+    scratch probe extending `tests/committed-fixture-parse-gate.test.ts`'s walk
+    to `.thetalib` parsed both committed libraries free of the code and was
+    deleted. H9a's stderr gate is empty-capture, so a fault-injection-only code
+    must not be listed.
+- **Gates:** witness `npx vitest run tests/increment-decrement-wiring.test.ts`
+  → `Tests  25 passed (25)` (RED before the fix: `14 failed | 11 passed (25)`).
+  Full default suite `npx vitest run` → `Test Files  263 passed (263)`,
+  `Tests  3821 passed (3821)` (baseline 262 / 3796 plus the new file's 25).
+  `npx tsc -p tsconfig.json --noEmit` → clean, exit 0. `npm run lint` → clean,
+  exit 0. Live: H8a `tests/live/live-production-acceptance.test.ts` →
+  `Tests  15 passed (15)` including the new additive cell; H9a
+  `tests/live/acceptance/` → `Tests  11 passed (11)`.
+- **Review:** 2 rounds. Round 1 (full depth) — FINDINGS: one `prose` item, the
+  new witness file was born citing pre-diff `path:NNN` coordinates into the two
+  files this diff moved; fixed by citing symbols only. Four non-blocking
+  residuals recorded (i–iv below). Round 2 (fast, confirmation) — CLEAN, no
+  escalation, one non-blocking note that the replaced `loopBody` precondition
+  is still unfalsifiable under the current parser and not worth further churn.
+- **Verification:** SOLID. (1) The witness reds in **two independent halves**,
+  each a targeted byte edit restored byte-exact and blob-hash-verified
+  (`git stash` never used): neutralising the lexer limb alone reproduces the
+  recorded baseline signatures exactly (14/11; `stray '+' in statement
+  position` for r1/r2/r10, `unknown identifier 'c'` for r4, zero diagnostics
+  for r3/r5/r6/r7/r8/r9/s3/s4), and neutralising the parser limb alone reds the
+  same 14 cells with every signature becoming
+  `stray '++'`/`stray '--' in statement position` — direct evidence that the
+  parser limb is what keeps the pair out of the stray-punctuation recovery.
+  Both restored, 25/25 green. (2) Full default suite 263 files / 3821 tests
+  green. (3) One additive H8a cell (`+155/−0`) plants r7's own
+  `while c > 0 { c-- }` shape, boots the shipped extension for real, and
+  asserts the control theta registers, the `--`-bearing theta does not, and the
+  `theta-system-note` channel carries the registry-sourced rejection; proven
+  red with both fix limbs reverted to HEAD's blobs and green again after a
+  byte-exact restore. H9a decided the permitted-codes question, above.
+  (4) Typecheck and lint clean.
+- **Offline lock.** `tests/increment-decrement-wiring.test.ts` (25 cells):
+  (a) r1–r10, each exactly one diagnostic — the registered code at severity
+  `error`, the *Message* read from the live registry via
+  `parseRegistry`/`registryMessage` with `<op>` rendered as the source token
+  verbatim, and the *Hint* read from the live row's cell by a local oracle that
+  throws loudly on a missing row or column (never a skip), plus explicit
+  absence of both pre-fix wrong codes; (b) c1–c3 byte-unchanged controls;
+  (c) s1/s2 whitespace spellings and s5–s7 lexical contexts pinned as total
+  silence — the GOV-15 blast-radius guards; (d) s3/s4 adjacency emissions;
+  (e) r7/r8 severity plus a deliberate body-shape pin; (f) a DIAG-4 drift guard
+  reconciling Sev, phase, *Trigger*, *Message* and *Hint* against the live row.
+- **Residuals.** (i) §Fix's Witness bullet asks for "r7's AST asserted to carry
+  the rejection rather than an empty body", which is not achievable as
+  literally stated: r7's and r8's post-fix `while` / `for` body is
+  byte-identical to the baseline (`{statements: [], tail: {ident c}}`) because
+  `parseForms` promotes a block's single line-start expression form to the tail
+  either way. The rejection is carried by the `error` severity, which denies
+  registration and is what actually closes the non-terminating loop; the body
+  shape is pinned deliberately so a future AST change is a deliberate edit.
+  (ii) `${c--}` inside a `@`-template interpolation stays silent — the hook
+  fires, but `parseExpressionSource` discards diagnostics by pre-existing
+  design and the load-time interpolation walk reports only `match` / `@`.
+  Control `${c - -}` is equally silent and the pre-fix render degraded to `c`
+  just as silently, so the observable is byte-unchanged by this fix and outside
+  §Fix's four measured positions. (iii) `--` in `match` pattern position
+  (`match x { --y => 1, _ => 2 }`) draws `theta/parse/statement-in-arm-body`
+  and `theta/parse/match-arm-type-mismatch` — rejected loudly at `E` under the
+  wrong codes with no hint, the 0072 shape; `parsePattern`'s one-token wildcard
+  recovery predates this fix and behaved equivalently on the pre-fix `-`,`-`
+  pair. (iv) `--` in type position is swallowed silently (`fn f(n: integer--)`,
+  the return-type and schema-field forms) — but so are `integer%` and
+  `integer-`: generic pre-existing `parseType` leniency toward trailing punct
+  in the captured annotation string, not specific to this pair. All four are
+  surfaced for filing by the operator; none is created or worsened here.
+- **Discharge notes appended:** 0063 (the `<construct>` population loses `++`,
+  which no longer reaches that emission site), 0062 (the continuation-trigger
+  table is byte-unchanged by this fix), 0050 and 0072 (the dead-enforcement
+  family's first member is discharged, and by what mechanism), 0031 (whose
+  GOV-15 diagnostic-registry-carve-out disposition this fix reused).
+- **Pinned dispositions / non-goals.** §Non-goals held: the
+  newline-continuation rule is untouched and its trigger sets are
+  byte-unchanged (0062 owns the table's completeness); the `<construct>`
+  population of `theta/parse/unsupported-feature` is not settled here, only
+  reported as losing `++` (0063 owns it); the *Message* draws no
+  prefix-versus-postfix distinction — `--c` and `c--` both render `'--'`;
+  other trailing-trigger absorptions remain unmeasured; `+=` / `-=` are
+  untouched and still accepted (c1). The adjacency resolution above is pinned,
+  not open: `c-- c` and `c --c` emit by design.
 
 ## Summary
 

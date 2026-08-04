@@ -490,3 +490,20 @@ anchors. Neither report blocks the other.
   `tools/` and `src/` for any file read of either grammar page (none — every
   hit is a comment citation). No scratch file left in the tree; no file
   modified other than this report.
+
+## Coordination note — bug 0084 landed (0.71.0)
+
+Bug [0084](./0084-increment-decrement-check-dead.md)'s fix (0.71.0) depended on
+the trailing-`-` continuation this report's table audits, and left that table
+and its implementation **byte-unchanged**. The `--` absorption 0084 reports is
+not a defect in the continuation rule: recognition of the byte-adjacent pair was
+moved *ahead* of the continuation decision instead, by adding `++` / `--` to the
+lexer's greedy two-character operator set (`twoCharOperators`) so the pair
+becomes one token before `collapseContinuations` tests its triggers.
+`trailingTriggers` and `leadingTriggers` were deliberately not touched — the
+pair is in neither set, which is exactly what stops `c--` swallowing the
+following newline.
+
+So this report's finding stands unmoved: the sets still hold the bare `=` the
+spec table omits, with the same membership 0084 read and left alone. Nothing in
+0.71.0 alters the row count on either side of the comparison this report makes.
