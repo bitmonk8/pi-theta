@@ -67,6 +67,33 @@ ranges, RFC 0002 computed-field and zero-arg controls, both runtime lowerings'
 defect throws and their object-literal / zero-arg / `.theta`-callable
 controls).
 
+### Discharge note — bug 0072 (0.65.0)
+
+Two clauses of the record above are discharged and superseded by the 0072 fix
+(`docs/bugs/0072-tool-arg-checks-dead-and-no-runtime-net.md` §Fix (0.65.0)):
+
+- **`theta/parse/tool-arg-arity` is no longer unwired.** This record left it
+  "unwired (out of this bug's scope)" as the reason the shape arm was re-emitted
+  from the parser rather than reached through `checkToolCallArguments`. That
+  function is now called from `checkLexicalCallSites` for the arity arm, so all
+  three of its previously unreachable codes fire. The shape emission stays
+  exactly where this fix put it — the shared function's shape arm is gated on an
+  `argumentSource` the parser never supplies (it owns AST nodes, not source
+  text), so the two remain byte-identical by DIAG-4 rather than by sharing code.
+- **"A multi-argument call whose first argument is non-object fires the shape
+  code alone" no longer holds.** Such a call now draws
+  `theta/parse/tool-arg-arity` alone, on the authority of
+  `docs/spec_topics/tool-calls.md` §"Argument shape" — a multi-argument form "is
+  `theta/parse/tool-arg-arity` **regardless of the argument shapes**". The arity
+  and shape arms are disjoint by positional count (`> 1` and `<= 1`), so one call
+  site can never draw both. Pinned by cell B3 of
+  `tests/tool-arg-parse-checks.test.ts`.
+
+Everything else in this record stands: the single-argument shape rule, its exact
+argument ranges, the zero-argument acceptance, the named-constructor arm and
+both runtime belt-and-braces throws are untouched, and every one of this bug's
+18 cells is byte-unchanged.
+
 ## Summary
 
 RFC 0002 kept one shape rule on Pi-tool arguments: the single positional argument

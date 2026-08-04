@@ -388,8 +388,10 @@ queries/tools/invokes and spends no tokens); both always produce `boolean`.
   order irrelevant. A bare `{ field: expr }` (no schema name) is
   `theta/parse/bare-object-literal` except in two carve-outs (both restricted to
   the [literal sublanguage](#theta-literal-sublanguage)): `params:` defaults, and
-  the single positional argument of a Pi-tool call. Construct a discriminated-union
-  value via the variant name (`Cat { ... }`).
+  a direct argument of a Pi-tool call (every direct argument position, not a sole
+  one only — a multi-argument form is `theta/parse/tool-arg-arity` for its
+  argument list). Construct a discriminated-union value via the variant name
+  (`Cat { ... }`).
 - `[]` element type inferred from a type sink; `[a, b, c]` element type is the
   common type of its elements narrowed by any sink. No sink and no common type is
   `theta/parse/array-no-common-type`. See [Type system](./type-system.md) for the

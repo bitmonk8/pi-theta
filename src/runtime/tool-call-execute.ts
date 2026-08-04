@@ -275,6 +275,20 @@ export interface CodeSideToolCall {
     readonly result: ResultValue;
     readonly error: CodeToolError;
   };
+  /**
+   * Bug 0072 §Fix runtime half (b): a pre-dispatch AJV rejection of the
+   * constructed argument object against the resolved tool's registered
+   * `parameters` schema, checked AFTER `argDepthBreach` and only when it is
+   * absent (CIO-3 depth-walk-before-AJV). Same shape and short-circuit as
+   * `argDepthBreach`: when present, `runCodeSideToolCall` surfaces the
+   * wrapped `Err(CodeToolError { cause: "validation" })` and NEVER
+   * dispatches — the `dispatch()` closure is not called and no side effect is
+   * committed.
+   */
+  readonly argSchemaViolation?: {
+    readonly result: ResultValue;
+    readonly error: CodeToolError;
+  };
 }
 
 /**
@@ -306,6 +320,20 @@ export type ToolCallExecOutcome =
       // `committed` is empty. Distinct from `execution-error` (which is an
       // `execute()` throw, `cause: "execution"`).
       readonly kind: "arg-depth-error";
+      readonly result: ResultValue;
+      readonly error: CodeToolError;
+      readonly committed: readonly CommittedSideEffect[];
+    }
+  | {
+      // Bug 0072 §Fix runtime half (b): the constructed argument failed the
+      // resolved tool's registered `parameters` schema at the AJV check —
+      // `result` is the wrapped `Err(CodeToolError { cause: "validation" })`
+      // and the tool never ran, so `committed` is empty. Checked strictly
+      // AFTER `arg-depth-error` (CIO-3): a depth-6+ argument that also
+      // violates the schema reports the depth breach, never this arm.
+      // Distinct from `execution-error` (an `execute()` throw,
+      // `cause: "execution"`).
+      readonly kind: "arg-schema-error";
       readonly result: ResultValue;
       readonly error: CodeToolError;
       readonly committed: readonly CommittedSideEffect[];
@@ -378,6 +406,18 @@ export async function runCodeSideToolCall(
       kind: "arg-depth-error",
       result: call.argDepthBreach.result,
       error: call.argDepthBreach.error,
+      committed: [],
+    };
+  }
+
+  // Bug 0072 §Fix runtime half (b): checked SECOND, only once the depth
+  // ceiling has cleared (CIO-3 depth-walk-before-AJV) — never dispatches, so
+  // the host tool's `execute()` is not called and no side effect is committed.
+  if (call.argSchemaViolation !== undefined) {
+    return {
+      kind: "arg-schema-error",
+      result: call.argSchemaViolation.result,
+      error: call.argSchemaViolation.error,
       committed: [],
     };
   }

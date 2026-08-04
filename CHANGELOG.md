@@ -6,6 +6,52 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-08-04
+
+### Fixed
+
+- **Three registered tool-argument diagnostics had no caller, and no runtime
+  check stood behind them** (bug 0072). `checkToolCallArguments` implemented
+  `theta/parse/tool-arg-arity`, `theta/parse/tool-arg-type-mismatch` and
+  `theta/parse/tool-arg-schema-conflict`, but nothing in `src/` called it, so
+  none of the three could fire against any input. Two consequences were
+  observable. A multi-argument Pi-tool call was judged by the bare-object
+  carve-out instead: `read({ path: "a" }, { path: "b" })` drew two
+  `theta/parse/bare-object-literal` diagnostics telling the author to name a
+  schema, when the fix is to merge the arguments. And argument type checking was
+  absent at both phases: `read({ path: 123 })`, `read({ nosuchfield: "a" })` and
+  a `.theta`-callable call passing an integer to a `params: x: string` slot all
+  loaded with zero diagnostics and were handed to the tool. The parse-time
+  checks are now wired at both call surfaces, and the runtime AJV step the spec
+  designates as the safety net exists: a code-side Pi-tool call whose
+  constructed argument object fails the tool's registered `parameters` schema
+  surfaces `Err(CodeToolError { cause: "validation" })` **without dispatching**,
+  after the depth walk and before `execute()` (CIO-3). `CodeToolError`'s
+  `validation` cause was previously reachable only from a depth-6 argument;
+  every other input-schema failure arrived misattributed as `execution`.
+
+### Changed
+
+- **A multi-argument Pi-tool call now draws `theta/parse/tool-arg-arity` alone**
+  (bug 0072), where it previously drew one `theta/parse/bare-object-literal` per
+  bare-object argument. `tool-calls.md` §"Argument shape" specifies the arity
+  code "regardless of the argument shapes". The `bare-object-literal` carve-out
+  is correspondingly re-scoped from the sole argument to every direct argument
+  of a Pi-tool call, reconciled in the same commit across
+  `code-registry-parse.md`, `expressions.md` §"Object construction" and
+  `docs/reference/grammar.md`. A bare object nested *inside* an argument is not
+  a direct argument and keeps its own rejection. One mistake now draws one
+  diagnostic, with the Hint that describes the repair that applies.
+- **A host built-in's registered `parameters` schema now reaches the frozen
+  `tools:` callable-set entry** (bug 0072). Extension tools already carried it;
+  the built-in resolver narrowed the tool definition to its `execute` and
+  dropped the schema, so neither the RFC-0002 disjointness check nor the runtime
+  check had a schema to consult.
+- **Multi-argument bare-object rejections now reach `par for` bodies** (bug
+  0072, a side effect of the callee-aware lexical walk owning every direct
+  argument position). A multi-argument non-Pi-tool call there previously drew
+  nothing; it now behaves as it does at top level.
+
 ## [0.64.0] - 2026-08-03
 
 ### Fixed

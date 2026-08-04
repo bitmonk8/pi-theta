@@ -96,6 +96,12 @@ import { splitTopLevel, splitTopLevelSegments } from "./params";
 // type/pure-function imports are an established pattern (system-interpolation,
 // type-layer-checks).
 import { checkDiscardedQueryResult } from "../runtime/query-discard";
+// Bug 0072 (tool-calls.md §"Argument shape"): the parser's lexical call-site
+// walk emits the shared arity check's ARITY arm directly (no `argumentSource`,
+// so only that arm can fire from this site) instead of re-deriving the
+// message/severity locally — the same parser→runtime reuse pattern as
+// `checkDiscardedQueryResult` above.
+import { checkToolCallArguments } from "../runtime/tool-call";
 // A `@`-query template body is captured verbatim at parse time; its `${…}`
 // interpolations are re-lexed here (the same lexer the render path drives) so
 // the parse-time whole-document walk can reject the forms expressions.md
@@ -4860,9 +4866,12 @@ function toolArgShapeDiagnostic(
  * §"Object construction"; code-registry-parse.md). Shared by the TWO emission
  * sites so the message can never drift from the normative registry row
  * (DIAG-4): `checkObjectExpr` (the structural walk — every position outside
- * the sole-call-argument carve-out) and `walkCallSiteExpr` (the lexical walk —
- * the sole bare-object argument of a call whose callee is not lexically an
- * unshadowed Pi tool; bug 0016 part B).
+ * the direct-call-argument carve-out) and `walkCallSiteExpr` (the lexical walk
+ * — every direct bare-object argument of a call whose callee is not lexically
+ * an unshadowed Pi tool; bug 0016 part B, bug 0072). A Pi-tool callee's own
+ * DIRECT arguments are outside this code at every position: a multi-argument
+ * call is `theta/parse/tool-arg-arity` and a lone non-object argument is
+ * `theta/parse/tool-arg-not-object-literal`.
  */
 function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnostic {
   return {
@@ -5148,7 +5157,7 @@ interface CallSiteWalkContext {
  * statement onward; `for` / `par for` variables, `match`-arm pattern bindings,
  * and `fn` parameters shadow inside their scopes; an `fn` body sees only the
  * whole-file declarations plus its own parameters — theta 1.0 has no
- * closures) — and emits three registered codes from that single resolution
+ * closures) — and emits four registered codes from that single resolution
  * judgement:
  *
  *   1. `theta/parse/shadowed-callable-call` (bug 0016,
@@ -5160,36 +5169,56 @@ interface CallSiteWalkContext {
  *      that does not denote it (silently, for the object-literal and zero-arg
  *      forms). Binding the name without calling it stays legal: only CALL
  *      position emits.
- *   2. `theta/parse/tool-arg-not-object-literal` (bug 0003,
+ *   2. `theta/parse/tool-arg-arity` (bug 0072,
+ *      docs/bugs/0072-tool-arg-checks-dead-and-no-runtime-net.md) for a call
+ *      whose callee resolves to a Pi tool and carries MORE THAN ONE positional
+ *      argument — tool-calls.md §"Argument shape": "A multi-argument form
+ *      (`read({...}, {...})`) is `theta/parse/tool-arg-arity` regardless of
+ *      the argument shapes." Emitted through `checkToolCallArguments`
+ *      (../runtime/tool-call.ts) with no `argumentSource` supplied, so only
+ *      its ARITY arm can fire from this call site; ranged on the CALL node,
+ *      not on one argument — the mistake is the argument LIST, and the repair
+ *      ("merge the arguments") is at the call.
+ *   3. `theta/parse/tool-arg-not-object-literal` (bug 0003,
  *      docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) for a call whose
- *      callee resolves to a Pi tool and whose FIRST argument exists but is
- *      not an inline bare object literal — the surviving RFC 0002 shape rule
- *      (grammar.md §"Pi-tool argument grammar": field VALUES are full
- *      expressions, the argument SHAPE is one inline `{ ... }`). Unchanged
- *      for unshadowed callees; a locally shadowed callee is not the tool, so
- *      the shape rule stands down there (the callee rejection above owns the
- *      site), and an fn/import-shadowed callee is a user-fn call. Emission
- *      mirrors the SHAPE arm of `checkToolCallArguments`
- *      (../runtime/tool-call.ts) rather than calling it — that check's
- *      arity→shape→type ordering would drag the UNWIRED
- *      `theta/parse/tool-arg-arity` code into scope. Zero-argument calls are
- *      legal (`read()` lowers to `{}`).
- *   3. `theta/parse/bare-object-literal` (bug 0016 part B) for a SOLE
- *      bare-object argument whose callee is NOT (lexically) an unshadowed Pi
- *      tool: expressions.md §"Object construction" scopes the carve-out to
- *      Pi-tool callees only — `f({ ... })` for a user `fn`, a `let`-bound
- *      name, a `.theta` callable, or a shadowed tool name is outside it. The
- *      structural walk (`walkExpr` `case "call"`) suppresses the check for
- *      exactly this position, so the two sites partition the emission (never
- *      double-emitting for one node), and both build the diagnostic through
- *      `bareObjectLiteralDiagnostic` so the message cannot drift.
+ *      callee resolves to a Pi tool and carries EXACTLY ONE positional
+ *      argument that is not an inline bare object literal — the surviving RFC
+ *      0002 shape rule (grammar.md §"Pi-tool argument grammar": field VALUES
+ *      are full expressions, the argument SHAPE is one inline `{ ... }`).
+ *      Disjoint from (2) by construction — arity owns `> 1` arguments, this
+ *      owns `=== 1` — so the two codes can never co-fire at one call site.
+ *      Unchanged for unshadowed callees; a locally shadowed callee is not the
+ *      tool, so the shape rule stands down there (the callee rejection above
+ *      owns the site), and an fn/import-shadowed callee is a user-fn call.
+ *      Emission mirrors the SHAPE arm of `checkToolCallArguments`
+ *      (../runtime/tool-call.ts) rather than calling it for this arm too:
+ *      that arm is gated on an `argumentSource` this walk never supplies (it
+ *      owns AST nodes, not source text), so it is structurally unreachable
+ *      from here — this walk keeps its own AST-based shape test instead,
+ *      holding the message / severity / hint byte-identical to it (DIAG-4).
+ *      Zero-argument calls are legal (`read()` lowers to `{}`).
+ *   4. `theta/parse/bare-object-literal` (bug 0016 part B; bug 0072) for EVERY
+ *      DIRECT bare-object argument of a call whose callee is NOT (lexically)
+ *      an unshadowed Pi tool: expressions.md
+ *      §"Object construction" scopes the carve-out to Pi-tool callees only —
+ *      `f({ ... })` for a user `fn`, a `let`-bound name, a `.theta` callable,
+ *      or a shadowed tool name is outside it, at every direct argument
+ *      position, not only a sole one. The structural walk (`walkExpr`
+ *      `case "call"`) suppresses the check for every direct-call-argument
+ *      position UNCONDITIONALLY (position-based, callee-blind), so the two
+ *      sites partition the emission (never double-emitting for one node):
+ *      this lexical walk owns the callee-sensitive judgement for all of
+ *      them, and both build the diagnostic through `bareObjectLiteralDiagnostic`
+ *      so the message cannot drift. A Pi-tool callee's own direct arguments
+ *      are already owned by (2) or (3) above, so this arm only ever fires
+ *      under a non-Pi-tool callee.
  *
  * The walk REPORTS on shadowed names (bug 0016 superseded the earlier
  * under-reporting contract, whose runtime back-stop was loud only for
  * non-object argument nodes); the runtime lowerings still back-stop a gate
  * gap with `ShadowedCalleeDispatchDefectError` / `PiToolArgShapeDefectError`
  * (../runtime/tool-call.ts) — belts behind this gate, not substitutes for it.
- * The walk runs even with an empty callable set: emission (3) is
+ * The walk runs even with an empty callable set: emission (4) is
  * callee-sensitive, not tool-dependent, so `f({ ... })` in a tools-less theta
  * or a `.thetalib` is still rejected.
  */
@@ -5364,30 +5393,51 @@ function walkCallSiteExpr(
         walkCtx.piTools.has(e.callee) &&
         localBinder === undefined &&
         !walkCtx.fnImportDecls.has(e.callee);
-      const first = e.args[0];
-      // (2) Bug 0003: `ToolArg` is a BARE inline object literal — any
-      // non-object node (identifier, string, call, member, …) and a NAMED
-      // schema-constructor (`typeName !== null`) both fail the shape.
-      if (
-        resolvesToPiTool &&
-        first !== undefined &&
-        !(first.kind === "object" && first.typeName === null)
-      ) {
-        walkCtx.out.push(toolArgShapeDiagnostic(e.callee, first.range, walkCtx.file));
-      }
-      // (3) Bug 0016 part B: the §Object construction carve-out admits a sole
-      // bare-object argument ONLY under a (lexically) Pi-tool callee; under
-      // every other callee that argument is the ordinary bare-object
-      // rejection. The structural walk suppressed exactly this position
-      // (callee-blind), so this is the single emission site for it.
-      if (
-        !resolvesToPiTool &&
-        e.args.length === 1 &&
-        first !== undefined &&
-        first.kind === "object" &&
-        first.typeName === null
-      ) {
-        walkCtx.out.push(bareObjectLiteralDiagnostic(first.range, walkCtx.file));
+      if (resolvesToPiTool) {
+        if (e.args.length > 1) {
+          // (2) Bug 0072: a Pi tool takes a single object argument
+          // (tool-calls.md §"Argument shape"); a multi-argument call is
+          // `theta/parse/tool-arg-arity` regardless of the argument shapes.
+          // No `argumentSource` is supplied, so only the shared check's ARITY
+          // arm can fire from this site; ranged on the CALL node, not on one
+          // argument — the mistake is the argument LIST, and the registry
+          // row's repair ("merge the arguments") is at the call.
+          walkCtx.out.push(
+            ...checkToolCallArguments({
+              toolName: e.callee,
+              calleeKind: "pi-tool",
+              positionalCount: e.args.length,
+              file: walkCtx.file,
+              range: e.range,
+            }),
+          );
+        } else {
+          // (3) Bug 0003: `ToolArg` is a BARE inline object literal — any
+          // non-object node (identifier, string, call, member, …) and a
+          // NAMED schema-constructor (`typeName !== null`) both fail the
+          // shape. Disjoint from (2) by construction: arity owns `> 1`
+          // (handled above), this owns `<= 1`, so the two codes never co-fire
+          // at one call site — the reconciliation bug 0072 §Fix (parse half,
+          // option 1) requires of this walk.
+          const first = e.args[0];
+          if (first !== undefined && !(first.kind === "object" && first.typeName === null)) {
+            walkCtx.out.push(toolArgShapeDiagnostic(e.callee, first.range, walkCtx.file));
+          }
+        }
+      } else {
+        // (4) Bug 0016 part B; bug 0072: the §Object construction carve-out
+        // admits a bare-object argument ONLY under a
+        // (lexically) Pi-tool callee, at EVERY direct argument position — a
+        // Pi-tool callee's own direct arguments are already owned by (2) /
+        // (3) above, so this arm only ever reaches a non-Pi-tool callee,
+        // where every direct bare-object argument is the ordinary rejection.
+        // The structural walk suppresses exactly these positions
+        // (callee-blind), so this is the single emission site for them.
+        for (const arg of e.args) {
+          if (arg.kind === "object" && arg.typeName === null) {
+            walkCtx.out.push(bareObjectLiteralDiagnostic(arg.range, walkCtx.file));
+          }
+        }
       }
       for (const arg of e.args) {
         walkCallSiteExpr(arg, locals, walkCtx);
@@ -6143,7 +6193,7 @@ function walkStatement(
 /**
  * Validate an object-construction expression (expressions.md §"Object
  * construction"). A bare `{ field: expr }` (no schema name) in expression
- * position outside the two documented carve-outs (`params:` defaults; the single
+ * position outside the two documented carve-outs (`params:` defaults; a direct
  * argument of a Pi-tool call) is `theta/parse/bare-object-literal`; the caller
  * passes `bareAllowed` for the carve-out positions. A named constructor
  * `Schema { … }` against a declared object schema fires
@@ -6266,24 +6316,25 @@ function walkExpr(
       walkExpr(e.operand, refs, file, out);
       return;
     case "call":
-      // Sole-call-argument position: this walk suppresses the bare-object
-      // check here UNCONDITIONALLY and the lexical call-site walk
-      // (`walkCallSiteExpr`, bug 0016 part B) owns the emission for it,
-      // because the §Object construction carve-out is CALLEE-sensitive — it
-      // admits the sole bare `{ … }` argument only when the callee lexically
-      // resolves to a Pi tool — and this structural walk carries neither the
-      // frontmatter tool set nor any scope tracking. Splitting by POSITION
-      // keeps each code emitted exactly once per node (the two walks
-      // partition the positions); the alternative — threading the tool set
-      // and a full shadow model into every structural walker — would
-      // duplicate the lexical walk's scope machinery here. Nested fields are
-      // still validated.
+      // Direct-call-argument position: this walk suppresses the bare-object
+      // check here UNCONDITIONALLY, for EVERY direct argument (expressions.md
+      // §"Object construction" carve-out 2; bug 0072), and the lexical
+      // call-site walk (`walkCallSiteExpr`, bug 0016 part B) owns the emission
+      // for all of them, because the
+      // §Object construction carve-out is CALLEE- and ARITY-sensitive — it
+      // admits a bare `{ … }` argument only when the callee lexically
+      // resolves to a Pi tool, and a Pi-tool callee's own multi-argument call
+      // draws `theta/parse/tool-arg-arity` instead — and this structural walk
+      // carries neither the frontmatter tool set nor any scope tracking.
+      // Splitting by POSITION keeps each code emitted exactly once per node
+      // (the two walks partition the positions); the alternative —
+      // threading the tool set and a full shadow model into every structural
+      // walker — would duplicate the lexical walk's scope machinery here.
+      // Nested fields, and a bare object at any NON-direct position (e.g.
+      // inside an array argument), are still validated.
       for (const arg of e.args) {
-        const soleBareObject =
-          e.args.length === 1 &&
-          arg.kind === "object" &&
-          arg.typeName === null;
-        walkExpr(arg, refs, file, out, soleBareObject);
+        const directBareObject = arg.kind === "object" && arg.typeName === null;
+        walkExpr(arg, refs, file, out, directBareObject);
       }
       return;
     case "invoke":

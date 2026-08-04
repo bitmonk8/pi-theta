@@ -1326,7 +1326,16 @@ async function resolveCalleeArity(
   const requiredCount = fields.filter(
     (field) => !field.hasDefault && field.optional !== true,
   ).length;
-  return { requiredCount, totalCount: fields.length };
+  return {
+    requiredCount,
+    totalCount: fields.length,
+    // Bug 0072: the `.theta`-callable per-argument type-mismatch check
+    // (`theta/parse/tool-arg-type-mismatch`, tool-calls.md §"Argument shape")
+    // needs each `params:` field's verbatim declared type, positionally —
+    // `field.type` IS that verbatim source (frontmatter.ts's `splitParamValue`
+    // sets it unchanged).
+    fields: fields.map((field) => ({ typeSource: field.type })),
+  };
 }
 
 /**
@@ -1680,7 +1689,7 @@ type HostToolExecute = (
 function builtinToolDefinition(
   name: string,
   cwd: string,
-): { execute: HostToolExecute } | undefined {
+): { execute: HostToolExecute; parameters?: unknown } | undefined {
   switch (name) {
     case "grep":
       return createGrepToolDefinition(cwd);
@@ -1768,13 +1777,24 @@ function resolveRegistryExtensionTool(
 function resolvePiTool(
   name: string,
   ctx: ExtensionContext,
-): { readonly toolName: string; execute: (id: string, params: unknown, signal: AbortSignal) => Promise<{ readonly content: readonly { readonly type: string }[] }> } | undefined {
+): {
+  readonly toolName: string;
+  readonly parameters?: unknown;
+  execute: (id: string, params: unknown, signal: AbortSignal) => Promise<{ readonly content: readonly { readonly type: string }[] }>;
+} | undefined {
   const definition = builtinToolDefinition(name, ctx.cwd);
   if (definition === undefined) {
     return undefined;
   }
   return {
     toolName: name,
+    // Bug 0072: the snapshot entry carries the tool's registered input schema
+    // for a host BUILT-IN, as `resolveRegistryExtensionTool` below carries it
+    // for an extension tool — frontmatter-fields-a.md §`tools` binds every
+    // resolved entry to it, and the pre-dispatch AJV check
+    // (`#resolvePiToolForTheta` → `PiToolDispatch.parameters`) reads it from
+    // there.
+    parameters: definition.parameters,
     execute: async (id, params, signal) => {
       const result = await definition.execute(id, params as never, signal, undefined, ctx);
       return { content: result.content };

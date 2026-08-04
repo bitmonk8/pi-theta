@@ -346,8 +346,15 @@ export class StaticTypeInferencePass {
   }
 }
 
-/** Binary operators whose result is statically a boolean. */
-const BOOLEAN_BINARY_OPS: ReadonlySet<string> = new Set([
+/**
+ * Binary operators whose result is statically a boolean, whatever the operands
+ * evaluate to. Exported because a consumer that reasons over the SET of types a
+ * binary expression can take (`collectProvableArgTypes`,
+ * ../extension/invoke-static-checks.ts) has to agree with `#typeBinary` on
+ * exactly which operators are result-fixed; sharing the one set is what keeps
+ * the two from drifting apart.
+ */
+export const BOOLEAN_BINARY_OPS: ReadonlySet<string> = new Set([
   "==",
   "!=",
   "<",

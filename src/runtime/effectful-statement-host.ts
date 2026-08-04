@@ -316,6 +316,10 @@ async function runToolCallEffect(
     // `execution-error` arm: the `Err` value flows through as the expression
     // value, not a failed operation.
     case "arg-depth-error":
+    // Bug 0072 §Fix runtime half (b): a pre-dispatch AJV schema rejection is
+    // the same shape as the depth breach above — an `Err(CodeToolError)` value
+    // with no dispatch, not a failed operation.
+    case "arg-schema-error":
       return { ok: true, value: outcome.result };
     case "return-shape-defect":
       // V14c non-conforming return shape (host-interfaces-core.md §"Tool

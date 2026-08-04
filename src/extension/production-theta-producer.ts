@@ -146,6 +146,7 @@ import type {
 } from "../runtime/tool-call-execute";
 import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
 import {
+  buildCodeToolArgSchemaViolation,
   enforceCodeToolArgDepth,
   enforceModelToolArgDepth,
   PiToolArgShapeDefectError,
@@ -155,6 +156,7 @@ import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild } from "../runtime/invoke-cancellation";
 import { runInvokeChild } from "../runtime/invoke-cancellation";
 import type {
+  CodeToolError,
   ContextOverflowError,
   ForcedRespondBranch,
   InvokeInfraError,
@@ -317,6 +319,19 @@ import {
  */
 export interface PiToolDispatch {
   readonly toolName: string;
+  /**
+   * The tool's registered input-schema `parameters` (bug 0072 §Fix, runtime
+   * half; frontmatter-fields-a.md §`tools`: "Each resolved entry carries the
+   * tool's `parameters` schema"): the
+   * snapshot-pinned schema `resolveThetaToolsAtLoad` threads onto the frozen
+   * `tools:` callable-set entry at load, for BOTH a host built-in
+   * (`resolvePiTool`, production-composition.ts) and an extension tool
+   * (`resolveRegistryExtensionTool`, same file). Absent for a tool that
+   * registers no input schema. `#resolveToolCall`'s pre-dispatch AJV check
+   * reads this and fails open when it is absent or not a plausible
+   * JSON-Schema object.
+   */
+  readonly parameters?: unknown;
   /**
    * Optional because an extension-supplied entry is execute-less by
    * construction: the §Resolution-snapshot entry pins only the tool's name and
@@ -2786,6 +2801,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // `#driveCallee`, differing only in the carrier (`CodeToolError` vs
     // `InvokeInfraError`) per the per-boundary table.
     const argDepthBreach = enforceCodeToolArgDepth(toolName, params);
+    // Bug 0072 §Fix runtime half (a): the pre-dispatch input-schema check,
+    // AFTER the depth walk and only when it raised no breach (CIO-3 pins
+    // depth-walk-before-AJV, so the two `cause: "validation"` producers never
+    // both fire for one call — the depth breach wins).
+    const argSchemaViolation =
+      argDepthBreach === undefined
+        ? this.#checkPiToolArgSchema(toolName, tool?.parameters, params)
+        : undefined;
     const toolCallId = `theta-direct:${this.#input.root.idSource.newInvocationId()}`;
     return {
       toolName,
@@ -2793,6 +2816,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       ...(argDepthBreach !== undefined
         ? { argDepthBreach: { result: argDepthBreach.result, error: argDepthBreach.error } }
         : {}),
+      ...(argSchemaViolation !== undefined ? { argSchemaViolation } : {}),
       dispatch: (): Promise<AgentToolResultEnvelope> => {
         // PIC-64 (#subagent-host-loop-dispatch): an EXTENSION tool's snapshot
         // entry pins only the tool's name + `parameters` schema — the public
@@ -2849,6 +2873,48 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         );
       },
     };
+  }
+
+  /**
+   * Bug 0072 §Fix runtime half (a) — the runtime AJV check tool-calls.md
+   * §"Argument shape" names as the safety net: compile and run the resolved
+   * tool's registered `parameters` schema against the constructed `params`
+   * object, returning the `Err(CodeToolError { cause: "validation" })` carrier
+   * on a rejection, or `undefined` on a pass. Fail-open (also `undefined`)
+   * when `parameters` is absent or is not a plausible JSON-Schema object (an
+   * entry that registers no input schema — cells E6/E7 of
+   * tests/tool-arg-runtime-schema-validation.test.ts pin this direction) or
+   * when the injected validator seam is absent.
+   *
+   * The seam-absence arm is unreachable in production: `createRuntimeRoot`
+   * (src/runtime-root.ts) always constructs a `RuntimeRoot` with a
+   * `schemaValidator`. It exists so a partial harness `RuntimeRoot` double
+   * (several pre-existing test fixtures construct one with no
+   * `schemaValidator`) degrades to the pre-existing no-check path instead of
+   * throwing `TypeError: Cannot read properties of undefined (reading
+   * 'compile')` — symmetric with the fail-open on a tool that registers no
+   * `parameters`. Defensive-branch house style in this file: see the
+   * `hostLoopDispatch === undefined` "Defensive: … (Unreachable when the
+   * probe is derived from the seam)" arm in `#dispatchExtensionToolViaLadder`
+   * below.
+   */
+  #checkPiToolArgSchema(
+    toolName: string,
+    parameters: unknown,
+    params: Record<string, unknown>,
+  ): { readonly result: ResultValue; readonly error: CodeToolError } | undefined {
+    if (typeof parameters !== "object" || parameters === null || Array.isArray(parameters)) {
+      return undefined;
+    }
+    const validator = this.#input.root.schemaValidator;
+    if (typeof validator?.compile !== "function") {
+      return undefined;
+    }
+    const verdict = validator.compile(parameters as LoweredSchema).validate(params);
+    if (verdict.ok) {
+      return undefined;
+    }
+    return buildCodeToolArgSchemaViolation(toolName, verdict.errors);
   }
 
   /**

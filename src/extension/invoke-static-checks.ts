@@ -8,6 +8,19 @@
 //     entry) against the statically-resolved callee's `params:` counts
 //     (`theta/parse/invoke-arity-too-many` / `-too-few`; tool-calls.md
 //     §"Argument shape" binds both call surfaces to these codes by name).
+//   - bug 0072 — `theta/parse/tool-arg-type-mismatch`, folded into the SAME
+//     `.theta`-callable call-site loop immediately after its arity check, and
+//     only when arity raised no diagnostic (arity before type; invocation.md
+//     §Argument arity): a positional argument whose static type does not
+//     statically match its slot's `params:` field type.
+//     Both type checks reason over `collectProvableArgTypes` — the SET of types
+//     the argument can evaluate to — rather than over the single type
+//     `StaticTypeInferencePass` narrows a composite to, so neither can front-run
+//     a value the runtime AJV check accepts.
+//   - bug 0072 — `theta/parse/tool-arg-schema-conflict`, a THIRD loop over the
+//     SAME call-site collection: a Pi-tool call's sole bare-object-argument
+//     field whose static type is provably disjoint (RFC 0002) from the tool's
+//     registered input-schema type for that field.
 //   - INV-4 — `detectInvocationCycle` over the per-load-pass static-resolution
 //     graph (`theta/load/invocation-cycle`); a self-cycle or an A→B→A cycle
 //     un-registers the entry theta, which is what keeps a self-referential theta
@@ -42,6 +55,21 @@ import {
 import { checkInvokePathAtLoad } from "../runtime/invocation";
 import type { FileSystem } from "../seams/file-system";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
+// Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
+// static-type-inference substrate and `V2b` compatibility engine rather than
+// re-deriving a parallel type model for this pass.
+import { checkToolCallArguments } from "../runtime/tool-call";
+import {
+  BOOLEAN_BINARY_OPS,
+  StaticTypeInferencePass,
+} from "../parser/static-type-inference";
+import { annotationToCompatType, collectTypeEnv } from "../parser/type-layer-checks";
+import {
+  checkCompatible,
+  displayType,
+  type CompatType,
+  type TypeEnv,
+} from "../parser/type-compat";
 
 /** Forward-slash-normalise a host path for byte-stable node identity. */
 function normalizePath(path: string): string {
@@ -324,12 +352,258 @@ export function buildInvokeGraph(inputs: readonly ThetaCompositionInput[]): Invo
   return { edges, unresolvable: new Set<string>() };
 }
 
+/** One `.theta`-callable callee's `params:` field, as the type-mismatch check
+ * (`theta/parse/tool-arg-type-mismatch`, bug 0072) consumes it: positional
+ * order, verbatim declared type source. */
+export interface CalleeArityField {
+  /** The field's verbatim declared type source (`params: { x: <this> }`). */
+  readonly typeSource: string;
+}
+
 /** The callee shape the arity check consults, resolved once per site. */
 export interface CalleeArity {
   /** Count of `params:` fields that are neither defaulted nor optional. */
   readonly requiredCount: number;
   /** Total `params:` field count. */
   readonly totalCount: number;
+  /**
+   * The callee's WHOLE `params:` list, in declaration order (bug 0072): slot
+   * `i` of a `.theta`-callable call binds to `fields[i]`, the same positional
+   * correspondence `checkInvokeArity`'s counts already assume
+   * (invocation.md §"Argument binding").
+   */
+  readonly fields: readonly CalleeArityField[];
+}
+
+/**
+ * Read a Pi tool's registered JSON-Schema `parameters.properties` map (bug
+ * 0072), or `undefined` when `parameters` is absent or not a plausible
+ * JSON-Schema object. A `Map` built from `Object.entries`, never a
+ * plain-object property read on a field name: the caller keys into this map
+ * by the theta author's own object-literal field name, which is arbitrary
+ * source text (the 0031/0038 hazard class) — `parameters`/`properties`/`type`
+ * themselves are fixed keys this module chooses, not author-controlled, so a
+ * direct property read on them is unaffected.
+ */
+function toolParameterProperties(
+  parameters: unknown,
+): ReadonlyMap<string, unknown> | undefined {
+  if (typeof parameters !== "object" || parameters === null || Array.isArray(parameters)) {
+    return undefined;
+  }
+  const properties = (parameters as { readonly properties?: unknown }).properties;
+  if (typeof properties !== "object" || properties === null || Array.isArray(properties)) {
+    return undefined;
+  }
+  return new Map(Object.entries(properties as Record<string, unknown>));
+}
+
+/**
+ * The JSON-Schema keywords that make one input-schema field's disjointness
+ * unprovable: tool-calls.md §"Provable-disjointness check (parse time)" defers
+ * anything the schema subset cannot represent to the runtime AJV check, and
+ * any of these refines the accepted-value set past what a bare `type`
+ * kind-set comparison can decide.
+ */
+const SCHEMA_REFINEMENT_KEYS: ReadonlySet<string> = new Set([
+  "format",
+  "pattern",
+  "enum",
+  "const",
+  "anyOf",
+  "oneOf",
+  "allOf",
+  "$ref",
+  "minimum",
+  "maximum",
+  "multipleOf",
+  "minLength",
+  "maxLength",
+]);
+
+/**
+ * The rendered subset-kind-set source `computeToolArgSchemaConflict`
+ * (../runtime/tool-call.ts) consumes for one Pi-tool input-schema field, or
+ * `undefined` when the field carries no `type` or any `SCHEMA_REFINEMENT_KEYS`
+ * keyword (unprovable: defer to the runtime AJV net). A JSON-Schema
+ * `type` array (`["string", "null"]`) renders as `a | b` — `subsetKinds`
+ * splits top-level unions the same way an author-written union annotation
+ * does.
+ */
+function fieldSchemaType(fieldSchema: unknown): string | undefined {
+  if (typeof fieldSchema !== "object" || fieldSchema === null || Array.isArray(fieldSchema)) {
+    return undefined;
+  }
+  const record = fieldSchema as Record<string, unknown>;
+  if (Object.keys(record).some((key) => SCHEMA_REFINEMENT_KEYS.has(key))) {
+    return undefined;
+  }
+  const type = record["type"];
+  if (typeof type === "string") {
+    return type;
+  }
+  if (Array.isArray(type) && type.every((t) => typeof t === "string")) {
+    return (type as string[]).join(" | ");
+  }
+  return undefined;
+}
+
+/**
+ * The flat set of static types whose UNION covers every value `expr` can
+ * evaluate to, or `undefined` when any value-contributing position is past the
+ * parser's static view. Both type checks below reason over this SET rather than
+ * over `StaticTypeInferencePass`'s single reduced type.
+ *
+ * `#commonType` (../parser/static-type-inference.ts) narrows a composite to ONE
+ * candidate and drops its siblings on two paths: a candidate survives a sibling
+ * that answers `unknown`, and a candidate set with no common member falls back
+ * to `candidates[0]`. Either path renders `flag ? 1 : "a"` as `integer`, and a
+ * check that trusts that rejects the runtime value `"a"` — which `read`'s
+ * `path: { type: "string" }` accepts. tool-calls.md §"Provable-disjointness
+ * check (parse time)" forbids exactly that ("a provable disjointness guarantees
+ * the runtime AJV check would reject the same value … The check therefore never
+ * rejects a program the runtime AJV check would accept"), and on the
+ * `.theta`-callable arm it defeats bug 0072 §Fix's rule that only an explicit
+ * incompatibility is a mismatch while `unknown` defers to the runtime net.
+ * Keeping the whole value-type set in front of both consumers is what lets
+ * `subsetKinds`' "an unrepresentable arm makes the whole union unprovable" rule
+ * (../runtime/tool-call.ts) and the every-arm-incompatible test below decide
+ * these expressions correctly. The RENDERING stays on `displayType`, the
+ * canonical form diagnostics/placeholder-rendering-a.md category 1 mandates.
+ *
+ * The recursion visits exactly the VALUE-contributing positions — a ternary
+ * condition and a `match` scrutinee choose WHICH arm supplies the value, never
+ * what that value is — and mirrors `#typeExpr` / `#typeBinary` shape for shape,
+ * so a collected member can never render differently from the type the pass
+ * itself assigns. It is exhaustive over the `Expr` union with no `default` arm:
+ * a kind added to the union without an arm here is a compile error rather than a
+ * silent verdict. `undefined` at any nested position propagates, and every kind
+ * not named as value-derivable yields `undefined`, so withholding is the
+ * default — it can only suppress an emission, never produce one.
+ */
+function collectProvableArgTypes(
+  expr: Expr,
+  env: TypeEnv,
+  pass: StaticTypeInferencePass,
+): CompatType[] | undefined {
+  switch (expr.kind) {
+    case "number":
+    case "string":
+    case "bool":
+    case "null":
+      // A literal's whole value-type set is its own type. Read off the pass so
+      // the literal→`CompatType` mapping keeps one owner. `typeOf`'s default
+      // empty bindings map applies: no consumer here resolves `let` bindings.
+      return [pass.typeOf(expr, env)];
+    case "ternary":
+      return collectArmUnion([expr.consequent, expr.alternate], env, pass);
+    case "match":
+      return collectArmUnion(
+        expr.arms.map((arm) => arm.body),
+        env,
+        pass,
+      );
+    case "try":
+      // `operand?` evaluates to the operand's success value.
+      return collectProvableArgTypes(expr.operand, env, pass);
+    case "binary": {
+      // `parseUnary` (../parser/theta-document.ts) models unary `!` / `-` as a
+      // binary carrying a SYNTHETIC `null` left operand; the arms below dispatch
+      // on that shape in `#typeBinary`'s own order, so the two agree per shape.
+      if (expr.left.kind === "null" && expr.op === "-") {
+        // Negation carries the operand's own value type.
+        return collectProvableArgTypes(expr.right, env, pass);
+      }
+      if (
+        (expr.left.kind === "null" && expr.op === "!") ||
+        BOOLEAN_BINARY_OPS.has(expr.op)
+      ) {
+        // The value is a boolean whatever the operands evaluate to (`evalBinary`
+        // in ../runtime/statement-executor.ts yields `true` / `false` for `!`,
+        // `&&`, `||` and every comparison), so the set is exact even where an
+        // operand is statically unresolvable — an unresolvable operand under one
+        // of these operators is not a reason to withhold the expression.
+        // `BOOLEAN_BINARY_OPS` is `#typeBinary`'s own set, imported rather than
+        // restated so the two cannot drift.
+        return [pass.typeOf(expr, env)];
+      }
+      // Arithmetic: the value takes one operand's kind or the two widened
+      // together (`integer + number` is a number), all of which the union of the
+      // operand sets covers. Over-approximating is safe in the one direction
+      // that matters — a wider set only makes disjointness harder to prove, and
+      // `kindsDisjoint` (../runtime/tool-call.ts) already reconciles
+      // `integer`/`number` so a division's non-integral result cannot turn a
+      // withheld verdict into a fired one.
+      return collectArmUnion([expr.left, expr.right], env, pass);
+    }
+    case "array":
+      // Bail rather than reduce the elements: `displayType` renders an array as
+      // `array<…>`, which `subsetKinds` (../runtime/tool-call.ts) never admits,
+      // so the Pi-tool arm can prove nothing from it either way and the
+      // element-reduction question does not arise. On the `.theta`-callable arm
+      // an array argument defers to the callee's own AJV load, the same net
+      // every other unrepresentable shape here defers to.
+      return undefined;
+    case "ident":
+    case "member":
+    case "call":
+    case "invoke":
+    case "query":
+    case "object":
+    case "result-ctor":
+    case "method-call":
+      // Each types as a `named` nominal reference past the parser's static view
+      // — the shape `checkCompatible` answers `unknown` for and the runtime AJV
+      // net owns. `ident` included: both consumers below read types with an
+      // EMPTY bindings map, so even a `let`-bound name is nominal here.
+      return undefined;
+    case "index":
+    case "par-for":
+      // Both CAN reduce past a nominal reference — an index read on a
+      // statically-array target narrows to its element type, and a `par for` is
+      // an `array` over a nominal `Result<…>` — so bailing is stricter than
+      // `#typeExpr` needs. Deliberate: withholding suppresses an emission and
+      // can never produce one, and neither shape is a Pi-tool argument field or
+      // callable-argument idiom worth the extra reduction surface.
+      return undefined;
+  }
+}
+
+/**
+ * Concatenate the collected value-type sets of a composite's value-contributing
+ * operands, propagating `undefined` from any one of them: a composite one of
+ * whose arms is unresolvable can take a value of unknown type, so nothing about
+ * it is provable. An EMPTY concatenation is `undefined` too — `#commonType`
+ * maps an empty candidate set to a nominal `unknown`, and a vacuously-true
+ * "every arm is incompatible" must never read as a proof.
+ */
+function collectArmUnion(
+  arms: readonly Expr[],
+  env: TypeEnv,
+  pass: StaticTypeInferencePass,
+): CompatType[] | undefined {
+  const collected: CompatType[] = [];
+  for (const arm of arms) {
+    const armTypes = collectProvableArgTypes(arm, env, pass);
+    if (armTypes === undefined) {
+      return undefined;
+    }
+    collected.push(...armTypes);
+  }
+  return collected.length > 0 ? collected : undefined;
+}
+
+/**
+ * Render a collected value-type set for the `<actual>` placeholder: each member
+ * through `displayType`, deduplicated, joined with `" | "` — the top-level-union
+ * spelling `subsetKinds` (../runtime/tool-call.ts) splits back into kinds and
+ * the same spelling an author-written union annotation carries. Deduplication
+ * keeps a composite whose arms all render alike reading exactly as one arm does,
+ * so `flag ? 1 : 2` renders `integer` rather than `integer | integer`. `Set`
+ * iteration is insertion-ordered, so the arms render in source order.
+ */
+function renderCollectedTypes(types: readonly CompatType[]): string {
+  return [...new Set(types.map((type) => displayType(type)))].join(" | ");
 }
 
 /**
@@ -355,6 +629,21 @@ export interface CalleeArity {
  *     statically-resolved callee's `params:` counts, over BOTH the
  *     `invoke(...)` call surface and the `.theta`-callable call surface
  *     (tool-calls.md §"Argument shape" binds the two by name);
+ *   - bug 0072 `theta/parse/tool-arg-type-mismatch` over the `.theta`-callable
+ *     call surface, immediately AFTER its arity check and only when arity
+ *     raised no diagnostic (arity before type, invocation.md §Argument
+ *     arity): a positional argument whose static type does not match the
+ *     callee's corresponding `params:` field type;
+ *   - bug 0072 `theta/parse/tool-arg-schema-conflict` over the Pi-tool call
+ *     surface: a sole bare-object argument field whose static type is
+ *     provably disjoint from the tool's registered input-schema type for
+ *     that field (RFC 0002's provable-disjointness front-run of the runtime
+ *     AJV check);
+ *
+ *     Both type checks judge an expression by the SET of types it can evaluate
+ *     to (`collectProvableArgTypes`), never by the single type a composite
+ *     narrows to, which is what keeps them off values the runtime AJV check
+ *     accepts — see that function's own comment.
  *   - INV-4 invocation cycle (`theta/load/invocation-cycle`) via the graph walk.
  *
  * The extension / path-separator (INV-1 / INV-2) and dynamic-path (INV-8) checks
@@ -455,6 +744,12 @@ export async function checkInvokeStaticResolution(
       }
     }
 
+    // Bug 0072: both static tool-argument TYPE checks share ONE
+    // `StaticTypeInferencePass` instance and whole-file `TypeEnv`, derived once
+    // per theta from `input.body` — never per call site.
+    const typeEnv = collectTypeEnv(input.body.statements);
+    const typePass = new StaticTypeInferencePass({ checkCompatible });
+
     // INV-3 over the `.theta`-callable call surface (tool-calls.md §"Argument
     // shape"; bug 0071): reached only for a `tools:` entry that already
     // resolved cleanly — an unresolvable path or an erroring callee un-registers
@@ -476,27 +771,195 @@ export async function checkInvokeStaticResolution(
       if (arity === undefined) {
         continue;
       }
-      diagnostics.push(
-        ...checkInvokeArity({
-          // The `invoke(...)` arm above renders `<callee>` as the verbatim path
-          // literal because that IS the text at its diagnostic range. Here the
-          // range is the call site instead, and the callee path appears
-          // nowhere on that line — only the presented callable name does — so
-          // `<callee>` renders the presented name (placeholder-rendering-b.md
-          // §7).
-          callee: site.name,
-          // invocation.md §Static resolution defines a statically-resolvable
-          // callee as one "referenced by a literal `invoke(...)` or by a
-          // `.theta` entry in `tools:`" (quoted in tool-calls.md §"Argument
-          // shape") — a `.theta`-callable call site is statically resolvable BY
-          // DEFINITION, not by inference from reaching this loop.
-          staticallyResolvable: true,
-          requiredCount: arity.requiredCount,
-          totalCount: arity.totalCount,
-          providedCount,
-          site: { file: callerPath, range: site.call.range },
-        }),
-      );
+      const arityDiags = checkInvokeArity({
+        // The `invoke(...)` arm above renders `<callee>` as the verbatim path
+        // literal because that IS the text at its diagnostic range. Here the
+        // range is the call site instead, and the callee path appears
+        // nowhere on that line — only the presented callable name does — so
+        // `<callee>` renders the presented name (placeholder-rendering-b.md
+        // §7).
+        callee: site.name,
+        // invocation.md §Static resolution defines a statically-resolvable
+        // callee as one "referenced by a literal `invoke(...)` or by a
+        // `.theta` entry in `tools:`" (quoted in tool-calls.md §"Argument
+        // shape") — a `.theta`-callable call site is statically resolvable BY
+        // DEFINITION, not by inference from reaching this loop.
+        staticallyResolvable: true,
+        requiredCount: arity.requiredCount,
+        totalCount: arity.totalCount,
+        providedCount,
+        site: { file: callerPath, range: site.call.range },
+      });
+      diagnostics.push(...arityDiags);
+      if (arityDiags.length > 0) {
+        // invocation.md §"Argument arity": arity is checked before type — a
+        // site the arity check already rejected draws no additional
+        // type-mismatch diagnostic (bug 0071 §Fix constraint 5).
+        continue;
+      }
+      // Bug 0072 — per-argument type mismatch (tool-calls.md §"Argument
+      // shape": "an argument that does not type-check against the callee's
+      // `params:` surfaces as `theta/parse/tool-arg-type-mismatch` when the
+      // callee is statically resolvable"), positional slot `i` against the
+      // callee's `i`-th `params:` field. `arity.fields` is the
+      // callee's WHOLE `params:` list in declaration order, and the arity
+      // check above already bounds `providedCount` within
+      // `[requiredCount, totalCount]`, so every provided slot has a
+      // corresponding field.
+      //
+      // The EXPECTED side is the callee's own annotation text, so it must not
+      // resolve through the caller's declarations: `annotationToCompatType`
+      // maps every non-primitive annotation to a `named` reference, and
+      // resolving that name in the caller's `typeEnv` lets a caller-local
+      // homonym decide a verdict about the callee's contract. tool-calls.md
+      // §"Argument shape" puts the judgement in the callee's namespace — the
+      // mismatch is "against the callee's `params:`", and the runtime check it
+      // front-runs validates the argument against the callee's own lowered
+      // `params:` schema. Under an EMPTY environment a `named` expected type is
+      // unresolvable, so `checkCompatible` answers `"unknown"` and the site
+      // defers to that validation. Primitive and literal decisions consult no
+      // environment at all, so a `params: x: string` slot still rejects an
+      // integer argument, and a structurally-decidable slot such as
+      // `array<Named>` still rejects a non-array argument without this pass
+      // needing to know what `Named` denotes — which is why the expected side
+      // is emptied rather than withheld whenever it mentions a name.
+      // Null-prototype for the same reason `collectTypeEnv`
+      // (../parser/type-layer-checks.ts) builds one: an annotation may spell an
+      // `Object.prototype` own property verbatim, and that name must be
+      // unresolvable here too.
+      const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
+      for (const [i, argExpr] of site.call.args.entries()) {
+        const field = arity.fields[i];
+        if (field === undefined) {
+          continue;
+        }
+        const expectedType = annotationToCompatType(field.typeSource);
+        if (expectedType === undefined) {
+          continue;
+        }
+        const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
+        if (argTypes === undefined) {
+          // A value-contributing position past the parser's static view: the
+          // argument can take a value of unknown type, which defers to the
+          // callee's own runtime AJV load — see `collectProvableArgTypes`.
+          continue;
+        }
+        if (
+          !argTypes.every(
+            (argType) =>
+              checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
+              "incompatible",
+          )
+        ) {
+          // Only an explicit incompatibility on EVERY value the argument can
+          // take is provable. One arm the `params:` field accepts — or answers
+          // `"unknown"` / `"integer-narrowing"` for — means a runtime value may
+          // well type-check, so the site defers to the runtime AJV net.
+          continue;
+        }
+        diagnostics.push(
+          ...checkToolCallArguments({
+            toolName: site.name,
+            calleeKind: "theta-callable",
+            // Neutralises `checkToolCallArguments`'s shared arity arm
+            // (`positionalCount > 1`, which fires for ANY `calleeKind` —
+            // pinned by the "arity is checked before type" unit test in
+            // tests/tool-calls.test.ts): this call site's real arity was
+            // already checked and passed above, via `checkInvokeArity`, the
+            // dedicated emitter for this surface.
+            positionalCount: 1,
+            file: callerPath,
+            range: site.call.range,
+            staticResolution: {
+              resolvable: true,
+              matches: false,
+              expected: displayType(expectedType),
+              actual: renderCollectedTypes(argTypes),
+            },
+          }),
+        );
+        // First mismatch only — mirrors the schema-conflict arm's "first
+        // provably-disjoint field fires" below.
+        break;
+      }
+    }
+
+    // Bug 0072 — the Pi-tool provable-disjointness check (tool-calls.md
+    // §"Provable-disjointness check (parse time)"), a THIRD loop over the SAME
+    // `callSites.callExprs` (no new walk; bug 0071 §Fix constraint 3: reuse the
+    // shared collection, never fork the walk).
+    if (deps.callableSet !== undefined) {
+      for (const call of callSites.callExprs) {
+        // Bug 0071 §Fix constraint 2: the snapshot is read through `Map.get`
+        // plus an explicit `!== undefined` test — a callable name is
+        // author-controlled source text (the 0031/0038 hazard class).
+        const entry = deps.callableSet.entries.get(call.callee);
+        if (entry === undefined || entry.kind !== "pi-tool") {
+          continue;
+        }
+        // The arity/shape rules own every site whose sole argument is not a
+        // bare object literal, and every multi-argument site: both are
+        // error-severity PARSE diagnostics, which drop the theta before this
+        // compose pass ever runs (bug 0072 §Fix, parse half). This arm only
+        // ever sees the accepted single-bare-object-argument shape.
+        const sole = call.args.length === 1 ? call.args[0] : undefined;
+        if (sole === undefined || sole.kind !== "object" || sole.typeName !== null) {
+          continue;
+        }
+        const parameters = (
+          entry.toolDefinition as { readonly parameters?: unknown } | undefined
+        )?.parameters;
+        const properties = toolParameterProperties(parameters);
+        if (properties === undefined) {
+          continue;
+        }
+        const schemaFieldStaticTypes: {
+          readonly field: string;
+          readonly exprType: string;
+          readonly schemaType: string;
+        }[] = [];
+        for (const objField of sole.fields) {
+          const schemaType = fieldSchemaType(properties.get(objField.name));
+          if (schemaType === undefined) {
+            // No schema type to be disjoint from: an unknown field name (the
+            // runtime half's case — bug 0072 §Fix) or a refined / typeless
+            // field schema (unprovable). Either way, out of this arm's reach.
+            continue;
+          }
+          const fieldTypes = collectProvableArgTypes(objField.value, typeEnv, typePass);
+          if (fieldTypes === undefined) {
+            // Unprovable by construction: a value-contributing position past the
+            // parser's static view — see `collectProvableArgTypes`. The value
+            // falls through to the runtime AJV net, which is where
+            // tool-calls.md §"Provable-disjointness check (parse time)" puts
+            // everything the subset cannot decide.
+            continue;
+          }
+          schemaFieldStaticTypes.push({
+            field: objField.name,
+            // The whole union of what the field can evaluate to, which is what
+            // `subsetKinds` needs to apply its "an unrepresentable arm makes the
+            // whole union unprovable" rule: `integer | string` against a
+            // `string` schema field intersects and stands down, while a
+            // single-kind `integer` still fires.
+            exprType: renderCollectedTypes(fieldTypes),
+            schemaType,
+          });
+        }
+        if (schemaFieldStaticTypes.length === 0) {
+          continue;
+        }
+        diagnostics.push(
+          ...checkToolCallArguments({
+            toolName: call.callee,
+            calleeKind: "pi-tool",
+            positionalCount: 1,
+            file: callerPath,
+            range: call.range,
+            schemaFieldStaticTypes,
+          }),
+        );
+      }
     }
   }
 

@@ -74,6 +74,7 @@ import type {
   InvokeInfraError,
   QueryError,
 } from "./query-error";
+import type { ValidationError } from "../seams/schema-validator";
 
 // --------------------------------------------------------------------------
 // Parse-time argument checks (arity → not-literal → type; arity before type)
@@ -624,6 +625,52 @@ export function enforceCodeToolArgDepth(
     error,
     issue: walk.issue,
   };
+}
+
+// --------------------------------------------------------------------------
+// Bug 0072 §Fix, runtime half — pre-dispatch AJV rejection of a code-side
+// Pi-tool call's constructed argument object against the tool's registered
+// `parameters` schema.
+// --------------------------------------------------------------------------
+
+/**
+ * A pre-dispatch AJV rejection of a code-side Pi-tool call's constructed
+ * argument object against the tool's registered `parameters` schema (bug 0072
+ * §Fix runtime half; tool-calls.md §"Argument shape": "a Pi-tool argument that does not
+ * match the tool's input schema … surfaces at runtime as
+ * `Err(CodeToolError { cause: "validation", ... })`"). Same shape as
+ * `CodeToolArgDepthBreach` above — `result` is the wrapped `Err`, `error` is
+ * the carrier itself — so both `cause: "validation"` producers compose
+ * identically at their call site.
+ */
+export interface CodeToolArgSchemaViolation {
+  readonly result: ResultValue;
+  readonly error: CodeToolError;
+}
+
+/**
+ * Build the `Err(CodeToolError { cause: "validation" })` carrier for a
+ * pre-dispatch AJV rejection, from a failed `CompiledValidator.validate(...)`
+ * verdict's `errors`. Constructed beside `enforceCodeToolArgDepth` so
+ * `cause: "validation"`'s two code-side producers — the depth ceiling and this
+ * schema check — share one owning module; the AJV compile+validate call itself
+ * runs at the dispatch site (`#resolveToolCall`,
+ * src/extension/production-theta-producer.ts), which holds the injected
+ * `SchemaValidator` seam this module has no dependency on. The message renders
+ * each AJV failure as `<instancePath> <message>`, joined with `"; "` — the
+ * same `<path> <message>` form the QRY-12 `<ajv-summary>` placeholder uses.
+ */
+export function buildCodeToolArgSchemaViolation(
+  toolName: string,
+  errors: readonly ValidationError[],
+): CodeToolArgSchemaViolation {
+  const error: CodeToolError = {
+    kind: "code_tool",
+    message: errors.map((e) => `${e.instancePath} ${e.message}`.trim()).join("; "),
+    tool_name: toolName,
+    cause: "validation",
+  };
+  return { result: makeErr(error as unknown as ThetaValue), error };
 }
 
 // --------------------------------------------------------------------------
