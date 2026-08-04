@@ -844,3 +844,42 @@ by inspection.
   `lowerQueryResponseSchema` calls, twelve real-AJV accept/reject cells, the
   sibling- and nested-empty multiplicity cells, and the union-arm capture cells —
   run on the outputs quoted above, then deleted per scratch policy.
+
+### Discharge note — bug 0095 (0.74.0)
+
+Recorded against this report's §Non-goals *"Unfiled, unchanged here"* exclusion
+and the two control cells it produced: the exclusion's **reason has expired** and
+one of the cells **inverts**.
+
+[0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) fixed the
+capture defect this report recorded but declined to own —
+`ThetaDocument.parseType`'s leading-brace early return, which ended the capture at
+the closing `}` of a leading brace group and left the `("|" Type)*` tail in the
+token stream at every non-alias `Type` position. Three consequences for the record
+above.
+
+**Cell e5's pinned disposition inverts.** It asserted that
+`schema S { f: {} | null }` renders the single declaration-subject line
+`'S' has no fields; an empty schema cannot be validated.` — the misattribution
+this report's §Reproduction recorded as an adjacent mis-parse. That line is gone.
+The field list survives capture, so `finishObjectSchema`'s `fields === null` arm
+is not reached, and the field's type source `{}|null` now reaches
+`parseTypeExpression` at `schema-feeding`, where **this report's own inline rule**
+fires against the empty arm and renders `'{}'`. The cell now asserts that line
+together with the retained field. The rule 0045 shipped is unchanged; what changed
+is that the input finally reaches it.
+
+**The three bounding comments are rewritten.** They stated that this file's
+union-arm cells sit at the ALIAS position because the schema-field spelling is
+unusable. That reason no longer holds, so cells **a2** and **c1** gained
+schema-field twins **a2b** and **c1b**: the empty-arm rule is now asserted at the
+position it governs as well as at the alias position, in both arm orders.
+`schema X = {} | null` and `schema X = null | {}` keep their `arms` bytes exactly —
+0095 reused the alias branch rather than rewriting it, which is what made that
+provable.
+
+**Residual 5 of this report's fix record is discharged.** It named "two adjacent
+capture defects, unfiled and unchanged". Both are fixed, together with a third
+element 0045 did not record — a `fn` signature corrupted with no diagnostic at
+all — which 0095 re-derived and pinned. This report's §Non-goals fence is spent;
+nothing in its own §Fix moved.

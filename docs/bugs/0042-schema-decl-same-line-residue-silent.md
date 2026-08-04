@@ -660,3 +660,33 @@ disposition a rule names.
   `params:` lowering of each declaration; and the tail-promotion pairs
   including the `42 43` general control), run on the signatures recorded
   above, then deleted per scratch policy.
+
+### Note — bug 0095 (0.74.0)
+
+Recorded against this report's §Fix (0.52.0), which built `parseType`'s
+`aliasArmBoundary` mode into its present shape: **the alias-only rationale is
+preserved, and this report's boundary set is untouched.**
+
+[0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) widened one of
+the branches this report wrote — the arm-start `{` branch — from alias-only to
+every `Type` position, and deleted the leading-brace early return that had made
+the alias position the conformant one. It **reused** the branch rather than
+writing a second one, which is what keeps the alias right-hand side byte-identical:
+`schema X = {} | null`, `schema X = null | {}` and `schema X = {a: integer} | null`
+all keep their `arms` bytes exactly, asserted as a control across the fix and its
+neutralisation.
+
+**The three remaining `aliasArmBoundary` guards stay alias-only, for the reason
+this report established.** The `ALIAS_ARM_STOP_PUNCT` stops, the `-` stop and the
+`ALIAS_ARM_STOP_KEYWORDS` stop exist for the newline-continuation boundary a
+declaration's trailing `=` / `>` swallows, which no other caller has: the alias
+right-hand side is the one `Type` slot that is delimiter-less at its end, where
+every other caller's slot is bounded by its own `)`, `,`, `}`, `=`, or the return
+slot's `with` / body-block stop. `parseType`'s re-derived doc comment now states
+that reason explicitly as the scoping criterion, rather than leaving it implicit in
+which callers pass the flag.
+
+`theta/parse/malformed-alias-rhs`'s boundary set is unperturbed — this report's
+own 31-test witness is green and unchanged, and the boundary family was probed
+directly across the fix (a declaration ending on the previous logical line with a
+keyword head, `= -1`, and `(1)` all byte-identical).

@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-08-05
+
+### Fixed
+
+- **A brace-rooted union arm was captured as the whole type at every non-alias
+  `Type` position, so `schema S { f: {} | null }` lost its entire field list and
+  blamed the declaration, `let x: {} | null = 1` split into four diagnostics
+  naming an initialiser the source spells, and `fn f(p: {} | null)` minted two
+  phantom parameters named `|` and `null`** (bug 0095). `ThetaDocument.parseType`
+  had two ways of capturing a type: the `schema X = …` right-hand side consumed
+  an arm-start `{` as a balanced group and kept scanning for the `|` and the arms
+  after it, while every other position took an early return at a leading `{` and
+  left the `("|" Type)*` tail in the token stream for the caller to mis-read.
+  Since `schemas.md:17` makes `T | null` the only spelling for an optional field,
+  an optional inline-object field was unwritable.
+
+  The early return is deleted and the arm-start branch is reused at every
+  position, so all of them consume the same `Type ("|" Type)*` extent the alias
+  right-hand side already consumed (`grammar.md:94`, `:105`, `:109`;
+  `type-system.md:15`). The three alias-only boundary stops stay alias-only —
+  they exist for the newline a declaration's trailing `=` swallows, which no
+  other caller has. A `{` after a completed arm still ends the capture at the
+  depth-0 stop, so an `fn` return type followed by its body block is unaffected.
+
+  Observable movement: the misattributed declaration-subject
+  `theta/parse/empty-schema-body` is replaced by the field-scoped inline
+  `'{}'` line bug 0045 already registered; `schema S { f: {a: integer} | null }`
+  and `fn f(): {a: integer} | null { 1 }` newly load clean; a `let` annotation
+  records its initialiser; a `fn` parameter list holds the one parameter the
+  author wrote. No registry edit, no new diagnostic code, no spec edit.
+
+  Blast radius demonstrated rather than asserted: all 35 committed and present
+  `.theta` / `.thetalib` files re-parsed with the change in place and with it
+  neutralised, 0 rows differing in either direction.
+
 ## [0.73.0] - 2026-08-04
 
 ### Fixed

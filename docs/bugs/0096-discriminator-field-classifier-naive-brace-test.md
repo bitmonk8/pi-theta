@@ -863,3 +863,44 @@ is gone: the classifier now calls the predicate 0053 exported. 0053's *Residuals
 (ii) — the `params:` position keeping its own naive test and its bytes — stands
 unchanged and is now the **only** copy, which is what
 `isSingleEnclosingBraceGroup`'s re-derived closing paragraph records.
+
+### Discharge note — bug 0095 (0.74.0)
+
+Recorded against this report's §Fix **witness item 4** and the *Witness item 4 is
+0095's inherited obligation* paragraph of its fix record: **discharged.**
+
+[0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) landed at
+0.74.0 and carries the item, as this report assigned it — the `parseDoc` cell for
+`Cat { kind: {a: integer} | {b: string}, name: string }` plus
+`schema Animal by kind = Cat | Dog` asserting a clean load, with
+`kind: "a" | "b"` beside it as the parity control. It is cell 6a of
+`tests/brace-rooted-union-arm-capture.test.ts`, with 6b the parity control and 6c
+bounding it: a single enclosing brace group still reports nested, so the guard
+this report installed is asserted from both sides on reachable input for the first
+time. **Stage B's prediction held exactly** — the fixture loads with no
+diagnostics, and in particular with no `theta/parse/nested-discriminator`, the
+wrong line the widened capture would have produced under the naive prefix/suffix
+test.
+
+**The end-to-end live witness is discharged with it.** This report could only run
+its live suites as a no-regression check, because the input was unreachable. 0095
+added an additive H8a cell to `tests/live/live-production-acceptance.test.ts`
+proving a theta whose schema field carries a brace-rooted union arm now registers
+where it previously did not, and proved it in both directions — red with the
+capture neutralised, green with it. H8a 17/17 and H9a 11/11, run for real.
+
+**Item 3's before-bytes moved, as this report's own comments said they would.**
+The two item-3 cells asserted the pre-0095 dispositions for the
+brace-rooted-plus-`|` rows, and their comments named 0095 as the change that
+rewrites them. 0095 updated exactly those ten rows' expected values and the two
+comments whose stated reason expired; every other row is byte-identical, no row was
+deleted or reordered, and items 1 and 2 are untouched. Each changed expectation is
+**stronger** than the one it replaces — a full field list in place of the discard
+shape — so item 3 now genuinely exercises `classifyDiscriminatorFieldType` on the
+input it was written about. 0095's fix record carries this as a scope extension,
+since this report's §Fix pin list did not name the file.
+
+**Residual (i) of this report's fix record is now live rather than prospective.**
+`by kind` over a field typed `{a: X} | {b: Y}` loads clean, as predicted; whether
+that silence is the right end state remains the spec question this report
+declined to settle, and it is being filed separately by the operator.

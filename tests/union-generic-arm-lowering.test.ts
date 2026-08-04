@@ -1242,17 +1242,28 @@ describe("bug 0043 (i) — the brace-arm union, whose four positions DIVERGE at 
     ).toEqual({ anyOf: [{}, { type: "array", items: { type: "integer" } }] });
   });
 
-  it("CONTROL (i3): the schema-body FIELD position cannot carry this spelling at all", () => {
-    // Recorded so the four-position parity claim is not read as assertable here.
-    // A brace group followed by `|` inside a `schema` body is refused before any
-    // lowering runs — a pre-existing parser limitation, unrelated to the arm
-    // order this file is about, and untouched by the fix.
+  it("RED (i3): the schema-body FIELD position joins the parity — it loads, and it lowers the same hoisted `anyOf`", () => {
+    // The four-position parity claim i1 makes at the alias and annotation
+    // positions, extended to the third. A schema field type consumes the whole
+    // `Type ("|" Type)*` extent (grammar.md:94, :105), so this declaration
+    // captures one field whose type source is the union, the load is clean, and
+    // the same arm dispatch bug 0039 §Fix part B installed produces the same
+    // bytes here as at i1's two positions — one lowerer, one `$defs` closure,
+    // one inline hoist key.
     const read = readAt("field", SOURCE);
     expect(
-      read.diags.some((line) => line.includes(EMPTY_SCHEMA_BODY)),
-      `i3: \`schema S { a: ${SOURCE} }\` is refused at parse, so no lowering happens at this ` +
-        `position; observed ${JSON.stringify(read.diags)}`,
-    ).toBe(true);
+      read.diags,
+      `i3: \`schema S { a: ${SOURCE} }\` is ordinary grammar — a brace-group arm beside a ` +
+        `generic arm, neither of them empty — so no parse diagnostic has a subject and the ` +
+        `field's type reaches lowering`,
+    ).toEqual([]);
+    const fragment = fragmentOf("i3", "field", SOURCE);
+    expect(
+      fragment,
+      `i3 [field]: type-system.md:15 makes this one type grammar in every annotation position, ` +
+        `so the field position cannot lower a different shape from the alias and annotation ` +
+        `positions i1 pins; observed ${JSON.stringify(fragment)}`,
+    ).toEqual(HOISTED);
   });
 });
 

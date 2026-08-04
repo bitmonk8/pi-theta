@@ -855,3 +855,30 @@ classifier) is what made the rewrite obligatory rather than optional.
 *Residuals* (ii) — the `params:` position keeping its own naive test and its
 bytes by bug 0039 §Fix's freeze — **stands unchanged**, and is now the only copy
 of the naive form in `src/`.
+
+### Note — bug 0095 (0.74.0)
+
+Recorded against this report's §Fix (0.58.0): **nothing this report owns moved,
+and its exported predicate is now exercised on reachable input.**
+
+[0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) widened
+`ThetaDocument.parseType`'s arm-start `{` handling to every `Type` position, so a
+schema field typed `{a: X} | {b: Y}` finally keeps its field list and its whole
+type source. Two consequences for the record above.
+
+`isSingleEnclosingBraceGroup` — the predicate this report extracted and exported —
+is now asked about brace-rooted union sources that a real `.theta` can actually
+produce at the schema-field position. Bug 0096 substituted it for the naive
+prefix/suffix test in `classifyDiscriminatorFieldType` at 0.73.0, and that
+substitution was observably neutral only because 0095's capture had not landed
+yet; with the capture widened, the two item-3 tables of
+`tests/discriminator-field-classifier-brace-group.test.ts` exercise the guard on
+input that reaches it. The predicate's bytes and its two lowering-dispatch callers
+are untouched.
+
+*Residuals* (ii) — the `params:` position keeping its own naive two-ended test and
+its bytes under bug 0039 §Fix's freeze — **stands unchanged**. 0095 verified the
+freeze directly: `git diff -- src/parser/params.ts` was empty through the whole
+change, and the `params:` capture path is asserted byte-unchanged as a control
+(a `params:` field records the raw YAML scalar trimmed only at its ends, never
+`parseType`'s token-join form, so the two positions remain independent).

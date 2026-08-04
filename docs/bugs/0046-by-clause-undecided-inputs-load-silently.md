@@ -772,3 +772,26 @@ a ≥2-arm union whose arms are not all object schemas).
 `.some` while `allLiteral` is conjoined with `presentInAll` — is unchanged by
 0096, which altered what `nested` is set to, not how absent occurrences are
 folded.
+
+### Note — bug 0095 (0.74.0)
+
+Recorded against the *Note — bug 0096 (0.73.0)* above: **the adjacent silence it
+described is now reachable, and this report's two classes are still untouched.**
+
+[0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) widened
+`ThetaDocument.parseType`'s schema-field capture, so a `by` field typed
+`{a: X} | {b: Y}` survives capture and the declaration loads. The disposition 0096
+predicted is what it receives: **no diagnostic at all** under an explicit
+`by kind`, the same silence `kind: "a" | "b"` already received, asserted as cell 6a
+of `tests/brace-rooted-union-arm-capture.test.ts` with the literal-union spelling
+beside it as the parity control. What was a prospective spec question about
+`schemas.md:99–121` is now a live one; the operator is filing it separately.
+
+**§Fix constraint 2 remains untouched.** The `.some` / `.every` asymmetry in
+`evaluateOccurrences` (`src/parser/schema-declarations.ts`) is unchanged by 0095,
+which altered what text reaches the classifier, not how absent occurrences are
+folded. Neither of this report's two classes moved: an explicit `by` naming a field
+no variant declares, and a `by` over a two-or-more-arm union whose arms are not all
+object schemas. 0095 §Non-goals places everything below the parse seam out of
+scope, and `git diff --stat -- docs/` was empty for the whole change, so no spec
+sentence about `by` was written or relied on.

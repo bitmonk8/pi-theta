@@ -1810,3 +1810,170 @@ describe("H8a-T — bug 0089: an alias-typed fn parameter iterated in a `for` re
     }
   });
 });
+
+// ===========================================================================
+// Bug 0095 — `ThetaDocument.parseType` (src/parser/theta-document.ts) captured a
+// brace-rooted union arm as the WHOLE type at every non-alias `Type` position:
+// a leading `{` consumed the balanced group and RETURNED, leaving the `("|"
+// Type)*` tail of `Type "|" Type` (grammar.md:94) in the token stream. At the
+// schema-field position the residue `|` is not a field name, so
+// `parseSchemaObjectBody`'s recovery discarded the whole field list and
+// `finishObjectSchema` raised `theta/parse/empty-schema-body` against the
+// DECLARATION's own name — for a declaration that does declare fields
+// (docs/bugs/0095-brace-rooted-union-arm-capture-destroys-context.md
+// §Reproduction element 1 row 2). Since schemas.md:17 makes `T | null` the ONLY
+// spelling for an optional field and grammar.md:109 admits `ObjectType` in any
+// `Type` position, an optional inline-object field was unwritable. The fix
+// widens `parseType`'s arm-start `{` branch to every `Type` position, so each
+// consumes the same `Type ("|" Type)*` extent the alias right-hand side
+// (grammar.md:175) already consumes.
+//
+// The refusal fires at PARSE phase, inside `parseThetaDocument`'s own
+// `document.diagnostics` as an `error`-severity `theta/parse/*` diagnostic, so
+// `hasLoadParseError` (production-composition.ts) un-registers the caller at the
+// SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089 cells above exercise
+// for their own codes — and in the same direction as bug 0089's: this fix
+// REMOVES a wrong rejection, so pre-fix the theta below fails to register and
+// post-fix it registers. That is what this cell asserts.
+//
+// No shipped live fixture (H8a, H9a, or the hardening probes) writes a `}`
+// followed by a `|` anywhere — confirmed statically over the whole tree (`rg
+// '\}\s*\|' --glob '*.theta' --glob '*.thetalib'` matches nothing) — so no
+// existing live fixture had reach over this capture, mirroring the bug 0084 and
+// bug 0089 cells' own "no existing live fixture reaches this arm" findings.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and the
+// cell spends zero tokens, the same profile as the bug 0070/0071/0077/0079(a)/
+// 0110/0084/0089 cells above. ADDITIVE ONLY: no existing cell in this file is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** `theta/parse/empty-schema-body`'s registered code and registry page. */
+const EMPTY_SCHEMA_BODY_CODE = "theta/parse/empty-schema-body";
+const EMPTY_SCHEMA_BODY_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/empty-schema-body: '<X>' has no fields; …` with `<X>`
+ * substituted — DIAG-4: the message half is read from the registry row, not
+ * copied, mirroring this file's existing `nonArrayIterandFragment` /
+ * `incrementDecrementFragment` / `invokePathEscapeFragment` helpers. Used only
+ * for the ABSENCE assertion below: post-fix, no note may name the declaration
+ * whose fields the capture destroyed.
+ */
+function emptySchemaBodyFragment(subject: string): string {
+  const template = registryMessage(
+    EMPTY_SCHEMA_BODY_REGISTRY,
+    EMPTY_SCHEMA_BODY_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${EMPTY_SCHEMA_BODY_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<X>", subject);
+  expect(
+    message,
+    `${EMPTY_SCHEMA_BODY_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-zA-Z]+>/);
+  return `${EMPTY_SCHEMA_BODY_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's §Reproduction element 1 rows 2 and 5 in one declaration — the
+ * optional inline-object field (`{a: integer} | null`, the one spelling
+ * schemas.md:17 leaves an author) with an ordinary field written BEFORE it, so
+ * the pre-fix refusal destroys a field the arm has nothing to do with. The
+ * trailing `1` supplies the theta's final value, matching the bug 0089 cell's
+ * own `aliasIterandTheta` above (a prompt-mode theta needs no `@`-query to
+ * register).
+ */
+function optionalInlineObjectFieldTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema Cfg { retries: integer, hook: {a: integer} | null }",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0095: a schema field carrying a brace-rooted union arm registers, live (Convention: live-host acceptance)", () => {
+  it("registers a theta whose schema field type is `{a: integer} | null`, and the theta-system-note channel carries no empty-schema-body rejection for that declaration, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, a regressed
+      // fix (the optional-inline-object caller failing to register) could be
+      // (wrongly) attributed to a broken workspace instead of the capture under
+      // test.
+      { source: "project", stem: "b95livectl", text: promptTheta("THETA-LIVE-OK") },
+      {
+        source: "project",
+        stem: "b95liveopt",
+        text: optionalInlineObjectFieldTheta(),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b95livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the capture under test, would explain the optional-inline-object " +
+          "caller's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // schema whose field type is a brace-rooted union registers — the
+      // widened capture keeps the field list, so `finishObjectSchema`'s
+      // `fields === null` arm is not reached and `hasLoadParseError` no longer
+      // un-registers this caller.
+      expect(
+        handle.command("b95liveopt"),
+        "the theta whose schema field type is `{a: integer} | null` failed to " +
+          "register — theta/parse/empty-schema-body fired against a " +
+          "declaration that declares two fields, on the only spelling " +
+          "schemas.md:17 gives an optional field. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toContain("b95liveopt");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic, when it fires, fires at LOAD
+      // time, before any drive, so the full entry list is the delta (mirrors
+      // the bug 0110 / 0084 / 0089 cells above). Post-fix nothing may name
+      // `Cfg` as field-less, so this fragment's ABSENCE is the success signal.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const regressionFragment = emptySchemaBodyFragment("Cfg");
+      expect(
+        notes.some((note) => note.includes(regressionFragment)),
+        "a theta-system-note entry named the empty-schema-body rejection for " +
+          "the declaration whose field list the union-arm capture destroyed — " +
+          "the widened `parseType` capture regressed. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(false);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

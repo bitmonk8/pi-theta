@@ -591,3 +591,31 @@ not its finding. 0084 settles nothing about what the construct row should say;
 it records only that `++` no longer belongs in that row's population. Whichever
 disposition is taken here, the set of `<t>` values the site can render is now
 one entry smaller on the `+`-from-`++` route.
+
+## Coordination note — bug 0095 landed (0.74.0)
+
+[0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) removed **one
+route** to the `<construct>` tail `stray '<t>' in statement position`, and settled
+nothing about this report's subject.
+
+The route: a `let` annotation whose type was a brace-rooted union arm
+(`let x: {} | null = 1`) had its capture truncated at the closing `}`, so the
+residue `| null = 1` re-entered statement position and the severed `|` and `=` each
+reached the statement loop's punct arm and drew the tail. 0095 widened the capture,
+so that source now records its annotation and its initialiser and reaches the arm
+not at all. The `let`-annotation route is gone.
+
+**Nothing this report owns moved.** The tail's rendering is unchanged, the closed
+category-3 token-name table of `placeholder-rendering-a.md` §3 is unedited, and
+whether the tail may be rendered at all remains this report's open question. 0095's
+§Non-goals states the split directly: it held that the emission should not be
+REACHED from that input, not that its rendering is wrong. No registry edit and no
+`docs/reference/` edit landed with it — `git diff --stat -- docs/` was empty
+through the whole change.
+
+One adjacent measurement, for the record rather than as a finding: the
+`schema fields must be comma-separated` tail — also absent from the closed table —
+is drawn identically before and after 0095, on
+`schema S { f: {} g: string }` and on the one comma-missing row of
+`tests/discriminator-field-classifier-brace-group.test.ts` item 3. Its reachability
+is unchanged; only which fixtures draw it alongside `empty-schema-body` moved.

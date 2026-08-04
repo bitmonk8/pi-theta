@@ -1,6 +1,10 @@
 # Bug 0095 — A brace-rooted union arm is captured as the whole type at every non-alias `Type` position: `schema S { f: {} | null }` loses the entire field list and misattributes `theta/parse/empty-schema-body` to the declaration, `let x: {} | null = 1` splits into four diagnostics naming an initialiser the source has, and `fn f(p: {} | null)` mints two phantom parameters — while the alias right-hand side, the `@<T>` root and a `params:` field capture the same text as two arms
 
-- **Status:** open. §Fix states one approach and the constraints that bound it.
+- **Status:** fixed (0.74.0). One edit at one site: `parseType`'s arm-start `{`
+  branch is reached at every `Type` position instead of the alias right-hand side
+  alone, so every position consumes the same `Type ("|" Type)*` extent
+  (`grammar.md:94`, `:105`). The leading-brace early return is gone; the three
+  alias-only boundary stops stay alias-only. See §Fix (0.74.0).
   Independent of every open report: no other open report touches
   `ThetaDocument.parseType`'s capture, and the one report that pinned this
   shape ([0045](./0045-inline-empty-object-type-missing-empty-schema-body.md))
@@ -727,3 +731,301 @@ no-regression check, since the input was unreachable.
 `tests/discriminator-field-classifier-brace-group.test.ts` item 3 pins that
 cell's before-bytes (`empty-schema-body` naming `Cat`), so this fix has the
 disposition it is moving.
+
+## Fix (0.74.0)
+
+The settled §Fix, implemented at a tree sixteen releases past the one the report
+was written at. **One edit at one site**, reusing a branch that already existed.
+Citations below are symbols, not line anchors — the report's anchors had drifted
+(see *Baseline drift*).
+
+**Baseline drift: citations only, observables none.** The report's evidence is at
+`9ea93511` (0.57.0); this fix's baseline is `04504288` (0.73.0), with 0071, 0072,
+0079, 0084 and 0096 having grown `src/parser/theta-document.ts` in between.
+`parseType`'s leading-brace early return had moved `:2936–2939`→`:2963–2966`, its
+signature `:2918–2922`→`:2945–2949`, `atArmStart` `:2945`→`:2972`, the arm-start
+`{` branch `:2975–2984`→`:3002–3010` (nine lines, not ten), the depth-0 stop set
+`:2985–2995`→`:3012–3022`, `consumeInlineObjectType` `:3047`→`:3074`;
+`tests/union-generic-arm-lowering.test.ts`'s i3 `:1239–1250`→`:1245–1256`. A
+scratch probe at this baseline re-derived **every observable of §Reproduction** —
+all eight element-1 fixtures, all seven controls, the two-declaration recovery
+fixture, all three element-2 fixtures, all seven element-3 fixtures, all seven
+conformant-capture fixtures, all fifteen seam cells, and the two cells inherited
+from 0096 — and **every one was byte-identical** to the recorded 0.57.0 output,
+including the four-line `let` list and element 3's `doc.body.tail` of `null`.
+Probes written, run, deleted.
+
+**Three statements in the report are wrong rather than stale.** (i) The corpus is
+**34 tracked** `.theta` / `.thetalib` files (32 `.theta` plus 2 `.thetalib`; 21
+under `docs/examples/`, 11 under `tests/live/acceptance/fixtures/`, one
+`tests/fixtures/h7a/acceptance.theta`, one seeded-invalid
+`tests/fixtures/h7b-invalid/malformed.theta`), not 35. The figure 35 is reached
+only by counting the present-but-untracked `.pi/theta/smoke.theta`, which the
+shipped gate's filesystem walk does cover. (ii) §Fix delegates the blast-radius
+proof to `tests/committed-fixture-parse-gate.test.ts`, but that walk filters
+`entry.name.endsWith(".theta")`, so it **cannot witness either committed
+`.thetalib`**; the oracle written for this fix covers both extensions. (iii)
+§Fix's list of landed pins that move is **incomplete** — see *One pin the report
+does not list*.
+
+**What shipped.**
+
+- `src/parser/theta-document.ts` — `parseType`'s leading-brace early return is
+  deleted, and its arm-start `{` branch is now reached at every `Type` position:
+  the outer guard is `depth === 0 && atArmStart`, with only the
+  `ALIAS_ARM_STOP_KEYWORDS` check inside it still gated on `aliasArmBoundary`.
+  The branch body — `consumeInlineObjectType`, `armComplete = true`, `continue` —
+  is **byte-unchanged**, which is what makes the alias right-hand side provably
+  untouched: it already ran through exactly this branch. Four deleted lines and
+  one restructured condition are the whole behavioural delta.
+- `src/parser/theta-document.ts` — `parseType`'s doc comment re-derived. The
+  arm-start inline-`ObjectType` rule is stated as **position-general**
+  (`grammar.md` §"Type grammar", §"Inline object types"; `type-system.md`'s
+  position-invariance sentence), with the reason a `{` reaching the scan at a
+  non-arm-start still falls through to the depth-0 stop set — the `fn` body
+  block. The alias-mode paragraph now names exactly the three stops that remain
+  alias-scoped and why only that caller needs them: its `Type` slot is the one
+  that is delimiter-less at the end, so a trailing `=` / `>` continuation can
+  swallow the newline ending its logical line (bug 0042 §Fix), where every other
+  caller's slot is bounded by its own `)`, `,`, `}`, `=`, or the return slot's
+  `with` / body-block stop.
+- No registry edit, no new diagnostic code, no `docs/reference/` edit, no
+  `docs/spec_topics/` edit — `git diff --stat -- docs/` was empty through the
+  whole pipeline. `src/parser/params.ts` byte-unchanged (bug 0039 §Fix freeze).
+
+**What moved, exactly as §"What the fix produces" states.**
+`parseSchemaObjectBody` retains the field list, so `finishObjectSchema`'s
+`fields === null` arm is not reached for these inputs and the declaration-subject
+`empty-schema-body` line disappears; the field's type source `{}|null` reaches
+`parseTypeExpression` at `schema-feeding`, whose walk descends the union arms and
+raises bug 0045's inline rule against the empty arm — the `'{}'` rendering. The
+misattributed declaration line is **replaced** by the field-scoped inline line,
+and both emissions sit inside the *Trigger* `code-registry-parse.md:86` already
+carries. At the `let` position `let-without-initialiser` and the two stray-punct
+lines go with the residue; at the `fn` positions the parameter list holds the one
+parameter the author wrote and the body block stays the body.
+
+**Two post-fix dispositions the report leaves open, measured rather than
+assumed.** `let x: {} | null = 1` draws the single inline `'{}'` line and **no**
+`theta/parse/let-rhs-type-mismatch`: that row is scoped to a statically
+resolvable right-hand-side type, and an object union is not one.
+`schema S { f: {} | {} }` draws **two** `'{}'` lines, one per arm — the only
+fixture that proves the capture reached the *second* arm-start `{`.
+
+**Every "must not move" control, with the fixture that pins it.** All are cells
+of `tests/brace-rooted-union-arm-capture.test.ts` unless named otherwise, and all
+were confirmed byte-identical across the fix and its neutralisation.
+
+- *The `fn` body block* — the one place the widened rule and an existing
+  construct compete for the same token, tested in both directions:
+  `fn f(): {a: integer} { 1 }` keeps `[]` and return type `{a:integer}` (4a);
+  `fn f(): {} { 1 }` keeps the single `'{}'` line (4b); and
+  `fn f(): {a: integer} | null { 1 }` **newly loads clean** with return type
+  `{a:integer}|null`, the body block still the body and `doc.body.tail` present
+  (3d).
+- *The comma-missing field recovery* — `schema S { f: {} g: string }` keeps both
+  fields, the `schema fields must be comma-separated` line and the `'{}'` line,
+  in that order (4c).
+- *The other field delimiters* — `,` and `}` still end a field type at depth 0
+  (4d–4f); every fixture of §Reproduction's control table is byte-unchanged,
+  including both `array<…>` shapes, where the brace group sits at depth greater
+  than zero and never reaches the arm-start branch at all (4g).
+- *The `let` initialiser and the parameter delimiters* — `=` still ends a `let`
+  annotation and `,` / `)` still end a `fn` parameter type, at the completed-arm
+  boundary (4h, 4i, 2c, 3e).
+- *The alias right-hand side* — `arms` byte-identical for `schema X = {} | null`,
+  `schema X = null | {}` and `schema X = {a: integer} | null` (5a); bug 0042's
+  `malformed-alias-rhs` boundary family probed unchanged, and that report's own
+  31-test witness green.
+- *The `@<T>` root and `params:` fields* — different capture code, unchanged
+  (5b, 5c). Measured while strengthening those two cells to pin capture bytes
+  rather than diagnostics alone: a `params:` field's recorded type is the **raw
+  YAML scalar trimmed only at its ends** (`splitParamValue`), so
+  `{a: integer} | null` keeps its internal spaces there and never takes
+  `parseType`'s token-join form; and the empty spelling has **no** captured-text
+  observable at all, because `empty-schema-body` is error-severity and
+  `parseFrontmatter`'s registration gate leaves `doc.frontmatter` null. Both are
+  pinned as measured, with the asymmetry stated in the cell rather than hidden.
+- *The type grammar under the capture* — the fifteen-cell seam table over all
+  three `TypePosition` values, identical across positions and across the fix
+  (group 7): the control that the type grammar was never implicated.
+
+**The blast-radius demonstration, in both directions, with numbers.** A corpus
+oracle lexes and parses every tracked `.theta` / `.thetalib` plus the present
+`.pi/theta/smoke.theta` exactly as the shipped gate does, and renders each file's
+ordered `theta/load/*` and `theta/parse/*` list. Run with the change in place,
+then with it neutralised by a targeted byte edit, then restored: **35 files parsed
+in each direction, 0 rows differing in either direction** — a byte-empty `diff`,
+both ways. The enumerable set of affected sources is a leading `{` (where the
+early return and a correct capture coincide, so nothing moves) plus a `{`
+straight after a depth-0 `|` (which nothing parses correctly today), and no
+committed or documented theta spells the second.
+`tests/committed-fixture-parse-gate.test.ts` was reused as the shipped oracle,
+not rewritten, and stayed green throughout.
+
+**GOV-15, in two parts.** Most inputs this fix moves carry an `E` today, so they
+sit outside the
+[loads-cleanly](../spec_topics/governance/source-language-stability.md#gov-15-loads-cleanly)
+set the equivalence promise ranges over, and the direction of travel is **out of**
+the refused set: `schema S { f: {a: integer} | null }` and
+`fn f(): {a: integer} | null { 1 }` newly load clean, while
+`schema S { f: {} | null }` and `fn f(p: {} | null) { 1 }` keep exactly one
+`'{}'` line and stay refused.
+
+The family that is **inside** the set is `fn f(p: {a: integer} | null) { 1 }`:
+zero diagnostics today carrying three parameters, zero diagnostics after carrying
+one. Its disposition is recorded on four grounds, each measured rather than
+asserted.
+
+1. *The parameter list is not one of GOV-15's observables.* The promise ranges
+   over (a) return values, (b) ordered diagnostic-code sequences and (c)
+   `theta-system-note` content, and that list is **closed at theta 1.0.0**. A
+   recorded parameter list is none of the three, and GOV-15's own third-bucket
+   clause dispositions such an observable directly: its divergence between
+   releases "is, by default, a documentation defect against GOV-15 … and is not
+   itself a departure from the current release's equivalence promise."
+2. *Observable (b) cannot move for this family, and the report's stated ground
+   for fearing otherwise does not apply.* §Fix reasons from
+   [Invocation — Argument binding](../spec_topics/invocation.md#argument-binding)
+   and `:48` §"Argument arity" that a call site reads the parameter list. Those
+   rules govern `invoke<T>` and `.theta`-callable calls through `tools:`;
+   measured at this baseline, an **in-document `fn` call is not arity-checked at
+   the parse seam at all** — `fn f(p: integer) { 1 }` called with three arguments
+   draws `[]`, exactly as the phantom three-parameter signature called with one
+   draws `[]`. The phantom arity was never visible in the diagnostic sequence,
+   before or after.
+3. *Observable (a) cannot move either.* It could only differ if a body read a
+   phantom parameter's binding, and the phantom names are `|` and `null` —
+   neither is a referenceable `Ident`. `grammar.md:143` requires each `FnParam`
+   to be an `Ident ":" Type` pair; `|` is the type-union operator of `:94` and
+   `null` is a keyword. The pre-fix signature is therefore not behaviour GOV-15
+   was written to preserve.
+4. *The empirical carve-out, re-verified at this HEAD.* Three sweeps, each
+   returning no match (ripgrep exit 1): `}` followed by `|` over every
+   `.theta` / `.thetalib` in the tree; the same pattern over `docs/examples/`;
+   and `|` followed by `{` for the second mover below. Corroborated by the corpus
+   oracle's 0-rows-differing result over 35 files in both directions. No
+   committed or documented theta exhibits the shape, so no shipped example moves.
+
+This is the disposition-by-argument shape bug 0031 recorded and bug 0084 reused
+narrowly, applied to a different clause: 0031 and 0084 engaged the
+[diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out),
+whose covered effect is that previously clean-loading inputs **gain** an emission.
+This fix engages no carve-out, because no in-set input's (a), (b) or (c) moves at
+all; the argument is that the divergence is confined to a third-bucket observable.
+
+**A second member of the same class, found in review and dispositioned
+identically.** `fn f(): integer | { 1 }` — a `{` straight after a depth-0 `|` in
+the return slot, with no arm text after it — draws `[]` on both sides of the fix
+while its program shape moves: return type `"integer|"` with the block as the
+body and a document tail, becoming return type `"integer|{1}"` with the following
+statements absorbed and no document tail. §Fix's GOV-15 paragraph dispositions
+only the parameter-arity family, so this one is recorded here and pinned as cell
+3f, on the same four grounds: the pre-fix capture `"integer|"` is not
+spec-describable either (`grammar.md:94` requires a `Type` after a depth-0 `|`,
+and `:109` admits `ObjectType` there, so the `{` **is** an arm start), and the
+`|`-then-`{` sweep over the corpus is empty. Its arm-order mirror
+`fn f(): integer | {a: integer} { 1 }` — three diagnostics today, `[]` after, the
+sharpest two-`{` competition in the language — is pinned as cell 3g.
+
+**Test witness.** `tests/brace-rooted-union-arm-capture.test.ts` — new, 37 cells
+in seven groups, offline / provider-free / deterministic, every cell asserting
+the **whole ordered diagnostic list AND the parsed shape** (field names and type
+sources, the `let` annotation and initialiser presence, the parameter list,
+`returnType`, the body's statement kinds, `doc.body.tail`). The parsed shape is
+not decoration: cells 3a and 3b move an AST with the diagnostic list identical on
+both sides (the single `'{}'` line, and `[]`, respectively), so they red on
+`params` arity alone. Groups: (1) element 1's eight fixtures plus the
+two-declaration recovery; (2) element 2 plus its control; (3) element 3 plus
+3f / 3g; (4) the must-not-move controls; (5) the three conformant capture sites;
+(6) the inherited 0096 cell, its parity control and a still-nested bound; (7) the
+seam table. Messages are read from the registry through `parseRegistry` /
+`registryMessage` with row presence and placeholder asserted before filling
+(DIAG-4); no prose is copied.
+
+**The landed pins, rewritten in place.**
+
+- `tests/inline-empty-object-type.test.ts` — cell **e5** inverts:
+  `schema S { f: {} | null }` now renders the inline `'{}'` line with the field
+  retained, and its comment states the rule instead of the exclusion. The file's
+  **three bounding comments** are rewritten: their stated reason — that the
+  union-arm cells sit at the alias position because the schema-field spelling is
+  unusable — has expired. Cells **a2** and **c1** gained schema-field twins
+  **a2b** and **c1b**, so the rule is now asserted at the position it governs as
+  well as at the alias position. Nothing else in the file moved.
+- `tests/union-generic-arm-lowering.test.ts` — cell **i3** becomes the
+  four-position parity assertion its own comment said it could not be:
+  `schema S { a: {a: integer} | array<integer> }` loads clean and lowers the same
+  hoisted `anyOf` that i1 pins at the alias and annotation positions. One hunk.
+
+**One pin the report does not list.**
+`tests/discriminator-field-classifier-brace-group.test.ts` (bug 0096's witness)
+also moves, and §Fix's pin list omits it. That file's own comments hand the move
+here — "That is the cell §Fix's witness item 4 rewrites, in whichever change
+carries bug 0095's widened capture" and "That is bug 0095 element 1, unchanged
+here" — as do this report's coordination note and 0096's fix record, which states
+that item 3 "pins that cell's before-bytes … so its carrier has the disposition
+it is moving". The edit is bounded to that: the ten brace-rooted-plus-`|` rows'
+expected values (eight in item 3's first table, the two union rows of its second),
+the two comments whose stated reason expired, one registry-sourced helper needed
+to express the one row whose new disposition is the comma-missing recovery rather
+than `empty-schema-body`, and the two constants the moved rows orphaned. Every
+other row is byte-identical, no row was deleted or reordered, items 1 and 2 are
+untouched, and every changed expected value is **stronger** than the one it
+replaces — full field lists in place of the discard shape. Recorded as a scope
+extension rather than a pre-authorised pin.
+
+**0096's inherited witness item 4 is discharged, and carries the end-to-end live
+witness with it.** Cell **6a** asserts that
+`Cat { kind: {a: integer} | {b: string}, name: string }` under
+`schema Animal by kind = Cat | Dog` loads with **no** diagnostics — no
+`empty-schema-body`, and no false `theta/parse/nested-discriminator`, the wrong
+line this widening would have produced before 0096 landed. Cell 6b is the
+`kind: "a" | "b"` parity control and 6c bounds it, pinning that a single
+enclosing group still reports nested. The live half is an additive H8a cell in
+`tests/live/live-production-acceptance.test.ts` (the 0089 precedent):
+registration-only, zero tokens, a same-workspace precondition control theta, and
+the `theta-system-note` channel read off the settled in-memory `SessionManager`
+rather than off events or on `prompt()` resolving. Proven in both directions — it
+reds with the capture neutralised, naming the registration that did not happen,
+and the precondition control registers in both states.
+
+**Gates.** Witness 37/37; the four moved test files 166/166; **`npm test` 266
+files / 3905 tests passed** (baseline 265 / 3866); `npx tsc -p tsconfig.json
+--noEmit` clean; `npm run lint` clean. Witness run RED under a targeted
+neutralisation restored byte-exact (blob
+`edd2a5ee1b74c0eaa0b219b1ecaafed8d2b3025a`, verified): **24 red / 142 green**
+across the four files — 1a–1i, 2a, 2b, 3a–3d, 3f, 3g, 6a, plus e5 / a2b / c1b, i3
+and both discriminator item-3 tables; every control stayed green. Live, run for
+real: H8a `live-production-acceptance` **17/17**, H9a `tests/live/acceptance/`
+**11/11**, both green in one pass, no stochastic stall.
+`tests/fixtures/h7a/permitted-codes.json` is unchanged at
+`a4a8da04209f90e13d815edd92c1fc682e2a2236` — decided by the real H9a run, not by
+assumption: both codes this fix redistributes were already registered, and both
+are parse-phase codes that un-register the caller rather than reaching the
+shipped-extension stderr surface the empty-capture gate polices. `git stash` was
+never used at any point, by any worker.
+
+**Residuals.** (i) `theta/parse/let-rhs-type-mismatch`'s disposition against an
+object union is now **reached for the first time** rather than altered:
+`let x: {} | null = 1` records its initialiser and the check declines to fire,
+because the row is scoped to a statically resolvable right-hand-side type.
+§Non-goals declines to settle whether that silence is right; pinned as measured,
+surfaced not filed. (ii) The tolerant recoveries are untouched as §Non-goals
+requires, and whether discarding an already-captured field list is the right
+recovery for input that is genuinely mis-shaped remains unsettled — this fix
+stops feeding that arm well-formed input, nothing more. (iii)
+`fn f(): integer | { 1 }` and its mirror are the second GOV-15-class movers,
+dispositioned above and pinned as 3f / 3g. (iv) An in-document `fn` call is not
+arity-checked at the parse seam, at any arity — measured while dispositioning
+GOV-15, independent of this fix, and the reason §Fix's argument-binding premise
+does not bite. (v) Pre-existing position-only citation drift in
+`tests/annotation-root-brace-union-lowering.test.ts`,
+`tests/ctor-unresolved-schema-name.test.ts` and
+`tests/import-export-from-clause-required.test.ts`: each cites a
+`theta-document.ts` line that had already drifted by hundreds of lines before
+this change, neither caused nor worsened here. (vi) The two untracked sibling
+reports being written in this tree, 0128 and 0129, cite line ranges into
+`tests/discriminator-field-classifier-brace-group.test.ts`, which this fix grew;
+their authors will need to re-derive those anchors. 0128 explicitly anticipates
+this fix landing first.

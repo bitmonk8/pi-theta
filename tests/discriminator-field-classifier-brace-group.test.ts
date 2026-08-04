@@ -168,6 +168,23 @@ function emptySchemaBodyLine(subject: string): string {
   return line(code, messageTemplate(code).replace("<X>", subject));
 }
 
+/**
+ * `theta/parse/unsupported-feature` rendered for the `<construct>` tail
+ * `schema fields must be comma-separated` (code-registry-parse.md:27) — the
+ * boundary `parseSchemaObjectBody` raises when a captured field type is
+ * directly followed by the start of another field with no intervening `,`.
+ * Item 3's one comma-missing row draws this instead of `empty-schema-body`:
+ * neither arm of its brace-rooted union is itself an empty inline object, so
+ * 0045's rule has no subject on that row.
+ */
+function commaSeparatedFieldsLine(): string {
+  const code = "theta/parse/unsupported-feature";
+  return line(
+    code,
+    messageTemplate(code).replace("<construct>", "schema fields must be comma-separated"),
+  );
+}
+
 // ===========================================================================
 // Item 1 — the predicate pair, and the classification the guarded arm selects.
 // ===========================================================================
@@ -620,24 +637,17 @@ function catDogAnimal(catKind: string): readonly CapturedSchema[] {
   ];
 }
 
-/** `Cat` reduced to a named declaration whose field list was discarded. */
-const CAT_DISCARDED: readonly CapturedSchema[] = [{ name: "Cat", fields: [] }];
-
-/** The same discard beside the `Dog` and `Animal` declarations of table D. */
-const CAT_DISCARDED_DOG_ANIMAL: readonly CapturedSchema[] = [
-  { name: "Cat", fields: [] },
-  DOG_CAPTURED,
-  ANIMAL_CAPTURED,
-];
-
 describe("bug 0096 item 3 — the schema-field position's dispositions are byte-invariant", () => {
   it("every brace-adjacent field-type spelling keeps its diagnostics and its capture", () => {
     // §Reproduction tables B, G and C row 2. The five union spellings and the
-    // two `| null` spellings never yield a field list at all: the residue past
-    // the first balanced group is not a field name, the recovery discards the
-    // list, and `empty-schema-body` names the declaration. That is bug 0095
-    // element 1, unchanged here — this file's fix cannot reach a field the
-    // classifier is never handed.
+    // two `| null` spellings now keep their field list: `parseType`'s
+    // arm-start `{` branch (bug 0095 §Fix) consumes the whole
+    // `Type ("|" Type)*` extent instead of stopping at the first balanced
+    // group, so the residue that used to defeat the field-name test never
+    // forms. The one row with no comma before `name` draws
+    // `schema fields must be comma-separated` instead of `empty-schema-body`:
+    // neither arm of its union is itself an empty inline object, so 0045's
+    // rule has no subject on that row.
     const observed: readonly LoadRow[] = [
       catOnly("B row 1 — two brace-group arms", "{a: integer} | {b: string}"),
       loadRow(
@@ -678,43 +688,107 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     expect(observed).toEqual([
       {
         label: "B row 1 — two brace-group arms",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "name", typeSource: "string" },
+            ],
+          },
+        ],
       },
       {
         label: "B row 1 — the multi-line spelling",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "name", typeSource: "string" },
+            ],
+          },
+        ],
       },
       {
         label: "B row 1 — no comma before `name`",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [commaSeparatedFieldsLine()],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "name", typeSource: "string" },
+            ],
+          },
+        ],
       },
       {
         label: "B row 1 — the union field written last",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "name", typeSource: "string" },
+              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+            ],
+          },
+        ],
       },
       {
         label: "B row 1 — wire-renamed",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "name", typeSource: "string" },
+            ],
+          },
+        ],
       },
       {
         label: "B row 1 — the same declaration in a .thetalib, no frontmatter",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "name", typeSource: "string" },
+            ],
+          },
+        ],
       },
       {
         label: "G row 2 — a trailing `| null` arm",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "kind", typeSource: "{a:integer}|null" },
+              { name: "name", typeSource: "string" },
+            ],
+          },
+        ],
       },
       {
         label: "G row 3 — a leading `null |` arm",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED,
+        diagnostics: [],
+        schemas: [
+          {
+            name: "Cat",
+            fields: [
+              { name: "kind", typeSource: "null|{a:integer}" },
+              { name: "name", typeSource: "string" },
+            ],
+          },
+        ],
       },
       {
         label: "B — a single enclosing group",
@@ -816,12 +890,16 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
   });
 
   it("the end-to-end load under `by kind` and under implicit detection is byte-invariant", () => {
-    // §Reproduction table D, both dispatch arms. The union row is the defect's
-    // input and it never reaches the classifier: `Cat`'s field list is
-    // discarded, so `objectFields` carries no `Cat` and
-    // `buildUnionVariantSchemas` declines the whole union before any field is
-    // classified. That is the cell §Fix's witness item 4 rewrites, in whichever
-    // change carries bug 0095's widened capture.
+    // §Reproduction table D, both dispatch arms. The union row now reaches
+    // the classifier: bug 0095 §Fix keeps `Cat`'s field list, so
+    // `objectFields` carries `Cat` and `buildUnionVariantSchemas` resolves the
+    // union. `classifyDiscriminatorFieldType` classifies
+    // `{a:integer}|{b:string}` as `{}` (0096's structural predicate declines
+    // to call two brace ARMS one nested object), so `by kind` loads clean and
+    // implicit detection falls through to `missing-discriminator` the same
+    // way the literal-union row below it already does. These two rows are the
+    // first that genuinely feed `classifyDiscriminatorFieldType` a
+    // brace-rooted union — §Fix's witness item 4, inherited from bug 0096.
     const observed: readonly LoadRow[] = [
       animalDoc("D — union arms, by kind", "{a: integer} | {b: string}", true),
       animalDoc("D — union arms, implicit", "{a: integer} | {b: string}", false),
@@ -838,13 +916,13 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     expect(observed).toEqual([
       {
         label: "D — union arms, by kind",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED_DOG_ANIMAL,
+        diagnostics: [],
+        schemas: catDogAnimal("{a:integer}|{b:string}"),
       },
       {
         label: "D — union arms, implicit",
-        diagnostics: [emptySchemaBodyLine("Cat")],
-        schemas: CAT_DISCARDED_DOG_ANIMAL,
+        diagnostics: [missingDiscriminatorLine("Animal")],
+        schemas: catDogAnimal("{a:integer}|{b:string}"),
       },
       {
         label: "D — single group, by kind",

@@ -2911,8 +2911,25 @@ class BodyParser {
   }
 
   /**
-   * Consume a type expression, joining its tokens until a delimiter. When
-   * `stopAtFieldBoundary` is set (schema-object-body field types), the scan also
+   * Consume a type expression, joining its tokens until a delimiter. At an
+   * arm start — the scan's first token, or the token straight after a
+   * depth-0 `|` (`atArmStart`) — a `{` opens an inline `ObjectType` arm:
+   * consumed as a balanced group (`consumeInlineObjectType`) and then
+   * CONTINUED past, so `{ a: string } | Cat` captures as one two-arm `Type`.
+   * `ObjectType` is a `Type` in any `Type` position (grammar.md §"Type
+   * grammar", §"Inline object types"; type-system.md, which states the same
+   * grammar applies at every type-annotation position), so the rule is
+   * POSITION-GENERAL: a schema field, a `let` annotation, an `fn` parameter
+   * or return type, and the `schema X = …` / `schema X by f = …` right-hand
+   * side all consume the same `Type ("|" Type)*` extent. A `{` that reaches
+   * the scan with `atArmStart` false has a COMPLETED, non-unioned arm
+   * already behind it, so it is not a further arm: it falls through to the
+   * depth-0 stop set below (`,` `)` `{` `}` `=`) the same way any other
+   * post-arm `{` does, which is what still ends an `fn` return-type capture
+   * at its `FnBody` block (`fn f(): {a: integer} { 1 }`) rather than
+   * swallowing the body as one more arm.
+   *
+   * When `stopAtFieldBoundary` is set (schema-object-body field types), the scan also
    * stops at a depth-0 field boundary: a value-ish token (ident/keyword/string/
    * number) that directly follows a completed type atom with no intervening `|`
    * union operator marks the start of the next `Field`, so the current field's
@@ -2922,25 +2939,26 @@ class BodyParser {
    * annotations and schema-field types are untouched), the scan also stops at a
    * depth-0 `with` ident — the contextual keyword opening a `WithClause`
    * (grammar.md §"Contextual keywords", §"`fn` declarations"; bug 0005 (a)).
+   *
    * When `aliasArmBoundary` is set (the `schema X = …` / `schema X by f = …`
-   * right-hand side only), the scan additionally recognises the ARM-TOKEN
-   * BOUNDARIES of `AliasRhs ::= Type ("|" Type)*`: before the first arm and
-   * straight after a depth-0 `|`, an `ALIAS_ARM_STOP_KEYWORDS` head ENDS the
-   * capture (the declaration ended on the previous logical line and the lexer's
-   * trailing-`=` / `>` continuation swallowed the newline), and a `{` opens an
-   * inline `ObjectType` arm — consumed as a balanced group and then CONTINUED
-   * past, because `ObjectType` is a `Type` in any `Type` position (grammar.md
-   * §"Inline object types"), so `{ a: string } | Cat` is one two-arm right-hand
-   * side rather than an arm plus residue. At the same arm-start boundaries AND
-   * straight after a COMPLETED arm, an `ALIAS_ARM_STOP_PUNCT` head ends the
-   * capture too: every member of that set is a punct-led statement head that
-   * no `Type` can start or continue with, so meeting one proves the same
-   * swallowed boundary newline the keyword stop proves. `-` ends the capture at
-   * the COMPLETED-arm boundary alone; at an arm start it is captured — no
-   * `Type` begins with `-`, so the arm is ill-formed either way, and the
-   * captured `"-"` is what `finishAliasSchema` checks a malformed-right-hand-
-   * side disposition against once this scan returns (bug 0042 §Fix), from the
-   * declaration's own extent rather than from this capture.
+   * right-hand side only), the scan additionally recognises three ARM-TOKEN
+   * BOUNDARIES of `AliasRhs ::= Type ("|" Type)*` that no other caller needs,
+   * because only this caller's `Type` slot is delimiter-less at the end: a
+   * declaration's trailing `=` / `>` continuation can swallow the newline
+   * that ends its logical line, where every other caller's slot is bounded by
+   * its own delimiter (`)`, `,`, `}`, `=`, or the return slot's `with` /
+   * body-block stop) instead. Before the first arm and straight after a
+   * depth-0 `|`, an `ALIAS_ARM_STOP_KEYWORDS` head ENDS the capture. At the
+   * same arm-start boundaries AND straight after a COMPLETED arm, an
+   * `ALIAS_ARM_STOP_PUNCT` head ends the capture too: every member of that
+   * set is a punct-led statement head that no `Type` can start or continue
+   * with, so meeting one proves the same swallowed boundary newline the
+   * keyword stop proves. `-` ends the capture at the COMPLETED-arm boundary
+   * alone; at an arm start it is captured — no `Type` begins with `-`, so
+   * the arm is ill-formed either way, and the captured `"-"` is what
+   * `finishAliasSchema` checks a malformed-right-hand-side disposition
+   * against once this scan returns (bug 0042 §Fix), from the declaration's
+   * own extent rather than from this capture.
    */
   private parseType(
     stopAtFieldBoundary = false,
@@ -2953,17 +2971,6 @@ class BodyParser {
     // `ALIAS_ARM_STOP_PUNCT` head begins the next STATEMENT rather than
     // continuing this arm. Only consulted in `aliasArmBoundary` mode.
     let armComplete = false;
-    // A leading `{` introduces an inline object type (`let x: { a: T, … }`):
-    // consume the balanced brace group verbatim so the annotation carries the
-    // whole object shape rather than terminating at the opening brace. Only a
-    // *leading* brace is treated this way, so a `fn` return type followed by a
-    // `{ body }` block is unaffected. In `aliasArmBoundary` mode the loop below
-    // consumes the same group instead and keeps scanning for the `|` and the
-    // arms after it.
-    if (!aliasArmBoundary && this.peek().kind === "punct" && this.peek().text === "{") {
-      this.consumeInlineObjectType(parts);
-      return parts.join("");
-    }
     while (!this.atEnd()) {
       const t = this.peek();
       if (t.kind === "stmt-sep") {
@@ -2999,8 +3006,8 @@ class BodyParser {
       ) {
         break;
       }
-      if (aliasArmBoundary && depth === 0 && atArmStart) {
-        if (t.kind === "keyword" && ALIAS_ARM_STOP_KEYWORDS.has(t.text)) {
+      if (depth === 0 && atArmStart) {
+        if (aliasArmBoundary && t.kind === "keyword" && ALIAS_ARM_STOP_KEYWORDS.has(t.text)) {
           break;
         }
         if (t.kind === "punct" && t.text === "{") {

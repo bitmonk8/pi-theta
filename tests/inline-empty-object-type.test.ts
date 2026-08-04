@@ -77,9 +77,16 @@ import { parseDoc } from "./helpers/e2e-s1";
 // rule — every one of the sixteen matrix rows, the `.thetalib` spelling and all
 // twenty-one seam cells produce `[]`. The declaration controls fire as the doc
 // records: `schema S { }`, headless `schema S` and the mis-shaped
-// `schema X { "a": string }` each render one `'S'` / `'X'` line, and
-// `schema S { f: {} | null }` renders the same single `'S'` line through the
-// union-arm capture defect §Non-goals excludes.
+// `schema X { "a": string }` each render one `'S'` / `'X'` line.
+//
+// THE UNION-ARM CELLS ARE WRITTEN AT BOTH POSITIONS. A `Type` position consumes
+// the whole `Type ("|" Type)*` extent wherever it appears — the alias
+// right-hand side of `grammar.md:175` and a schema field type of `:105` are one
+// grammar (type-system.md:15) — so `schema X = {} | null` and
+// `schema S { f: {} | null }` render the SAME single inline line, and each arm
+// order is asserted at each position (a2 / a2b, c1 / c1b). e5 guards the
+// absence a schema field adds to that claim: a declaration that declares a
+// field is not field-less, so no `'S'` declaration line may join the arm's.
 //
 // WHAT IS RED HERE: groups (a), (b), (c), (d), (g) and (h)'s h1/h2 — every cell
 // asserting the prescribed diagnostic. Groups (0), (e), (f), (i) and (h)'s h3
@@ -318,16 +325,31 @@ describe("bug 0045 (a) — every `Type` position refuses an empty inline object"
   });
 
   it("RED a2 (alias arm in a union): `schema X = {} | null`", () => {
-    // §Non-goals bounds the union-arm cells to the ALIAS position: the
-    // schema-FIELD spelling loses its whole field list to an unrelated capture
-    // defect (group (e), e5). Here the capture is correct — `arms` is
-    // `["{}", "null"]` — so exactly the empty arm is refused and the `null` arm
-    // contributes nothing.
+    // The alias right-hand side captures `arms: ["{}", "null"]`, so exactly the
+    // empty arm is refused and the `null` arm contributes nothing. Its
+    // schema-field twin a2b asserts the same single line one position along:
+    // `Type ("|" Type)*` is one grammar in every position (grammar.md:105,
+    // type-system.md:15), so the two spellings cannot disagree.
     expectList(
       body("schema X = {} | null"),
       [inlineLine()],
       "a2 — grammar.md:105 names a union arm a bare-`Type` position, and the walk already " +
         "descends union arms, so one arm's emptiness is one diagnostic",
+    );
+  });
+
+  it("RED a2b (union arm at the schema-FIELD position): `schema S { f: {} | null }`", () => {
+    // a2 one position along. The field IS captured — `fields: [{name:"f",
+    // typeSource:"{}|null"}]` — so the declaration is not field-less and the
+    // `'S'` declaration rendering must NOT appear; the empty ARM alone is
+    // refused, with the inline subject. e5 pins the same fixture's whole list
+    // from the declaration-control side.
+    expectList(
+      body("schema S { f: {} | null }"),
+      [inlineLine()],
+      "a2b — schemas.md:17 makes `T | null` the only spelling for an optional field and " +
+        "grammar.md:109 admits `ObjectType` in any `Type` position, so this is a2's spelling at " +
+        "the position an author writing an optional inline-object field must use",
     );
   });
 
@@ -522,10 +544,10 @@ describe("bug 0045 (b) — a `.thetalib` module refuses the same two bytes", () 
 // (c) DEPTH AND ARM POSITION beyond the matrix rows — the arm on the other
 // side of the `|`, an empty object one level inside an alias arm, a generic
 // argument at the alias position, and a doubly-nested generic element type.
-// The union-arm cells sit at the ALIAS position: §Non-goals excludes the
-// schema-FIELD union-arm spelling, which loses its field list to an unrelated
-// capture defect (pinned as e5).
-// RED at HEAD: all four `[]`.
+// Each union-arm cell is written at the ALIAS position and again at the
+// schema-FIELD position (c1, c1b), because `Type ("|" Type)*` is one grammar in
+// every position (grammar.md:105) and the two spellings must answer alike.
+// RED at HEAD: all five `[]`.
 // ===========================================================================
 
 describe("bug 0045 (c) — the rule is unqualified by depth or arm position", () => {
@@ -537,6 +559,19 @@ describe("bug 0045 (c) — the rule is unqualified by depth or arm position", ()
       [inlineLine()],
       "c1 — the walk descends every arm, so the diagnostic does not depend on which side of " +
         "the `|` the empty object is written",
+    );
+  });
+
+  it("RED c1b: `schema S { f: null | {} }` — the empty arm SECOND, at the schema-FIELD position", () => {
+    // c1 one position along, and the pair that pins arm-order independence of
+    // the CAPTURE as well as of the walk: the captured field type is
+    // `null|{}`, so a capture that only reached a LEADING brace group would
+    // pass a2b and red here.
+    expectList(
+      body("schema S { f: null | {} }"),
+      [inlineLine()],
+      "c1b — the arm start is the token straight after a depth-0 `|` as well as the scan's " +
+        "first token, so the field's whole union reaches the walk either way",
     );
   });
 
@@ -701,19 +736,21 @@ describe("bug 0045 (e) — the declaration positions keep their name and their b
     );
   });
 
-  it("CONTROL e5: `schema S { f: {} | null }` keeps the single `'S'` line it has today", () => {
-    // §Non-goals: a brace-rooted type in a union arm at the schema-FIELD
-    // position destroys the field list, and the resulting diagnostic is
-    // misattributed to the declaration — which does declare a field. Non-empty
-    // inline objects fail identically, so this is a capture defect, not an
-    // emptiness one, and it is unchanged here. The field never reaches
-    // `parseTypeExpression`, so no inline line joins it.
+  it("CONTROL e5: `schema S { f: {} | null }` renders the INLINE `'{}'` line, not the `'S'` one", () => {
+    // The rule in force: a schema-field type consumes the whole `Type ("|"
+    // Type)*` extent, so this declaration captures one field `f` and is not
+    // field-less. `checkObjectSchema`'s zero-field arm therefore has no subject,
+    // and the only occurrence is the empty ARM — which renders the inline
+    // subject. This cell sits in the declaration-control group because what it
+    // guards is the ABSENCE of the `'S'` rendering: a fix that reintroduced a
+    // declaration-subject line for a declaration that declares a field would
+    // red here while a2b still passed.
     expectList(
       body("schema S { f: {} | null }"),
-      [declLine("S")],
-      "e5 — the union-arm capture defect is out of scope (§Non-goals) and is what bounds the " +
-        "union-arm cells to the alias position (a2, c1); this cell pins that the fix neither " +
-        "repairs nor worsens it",
+      [inlineLine()],
+      "e5 — code-registry-parse.md:86's declaration clauses describe a body that yields no " +
+        "usable content; `{} | null` is a `Type` (grammar.md:94), so the body DOES begin with a " +
+        "plain `ident: Type` field and no declaration clause applies — only the inline one",
     );
   });
 });
