@@ -297,17 +297,29 @@ interface RawCandidate {
 }
 
 /** Enumerate one directory: collect byte-exact `*.theta` candidates and emit
- *  per-directory `non-canonical-extension` warnings (DISC-3). */
+ *  per-directory `non-canonical-extension` warnings (DISC-3). A root
+ *  `classifyPath` already accepted as a directory whose enumeration then
+ *  fails is an unreadable (or, on a clean `ENOENT` ancestor chain, missing)
+ *  source, not silence (discovery-sources.md:66-67) — the calling source's
+ *  descriptor and severities are threaded through so the failure emits from
+ *  the one place the rejection is observed. */
 async function enumerateDirectory(
   fs: FileSystem,
   dir: string,
+  descriptor: string,
+  modes: FailureModes,
   diagnostics: Diagnostic[],
 ): Promise<RawCandidate[]> {
   const entries = await fs.readdir(dir).then(
     (names) => ({ ok: true as const, names }),
-    () => ({ ok: false as const }),
+    (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
   );
   if (!entries.ok) {
+    if (entries.code === "ENOENT" && (await ancestorsClean(fs, dir))) {
+      emitSourceFailure(modes.missing, MISSING_SOURCE, descriptor, dir, diagnostics, "missing");
+    } else {
+      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, descriptor, dir, diagnostics, "unreadable");
+    }
     return [];
   }
   const candidates: RawCandidate[] = [];
@@ -385,7 +397,7 @@ async function resolveEntry(
   const resolved = classifyForSource(await classifyPath(fs, path), path, explicitFile);
   switch (resolved.kind) {
     case "dir":
-      return enumerateDirectory(fs, path, diagnostics);
+      return enumerateDirectory(fs, path, descriptor, modes, diagnostics);
     case "file":
       // A single `.theta` file entry contributes itself directly.
       return [{ path: normalizePath(path), stem: splitExtension(basename(path)).stem }];
@@ -646,8 +658,8 @@ async function resolveSettingsSource(
     return tree;
   };
 
-  const addDir = async (dir: string): Promise<void> => {
-    for (const cand of await enumerateDirectory(fs, dir, diagnostics)) {
+  const addDir = async (dir: string, descriptor: string): Promise<void> => {
+    for (const cand of await enumerateDirectory(fs, dir, descriptor, SETTINGS_MODES, diagnostics)) {
       selected.set(cand.path, cand);
     }
   };
@@ -673,7 +685,7 @@ async function resolveSettingsSource(
     const descriptor = `settings entry index ${entry.index}`;
     switch (cls.kind) {
       case "dir":
-        await addDir(entry.abs);
+        await addDir(entry.abs, descriptor);
         return;
       case "file":
         addFile(entry.abs, entry.index);
@@ -697,7 +709,7 @@ async function resolveSettingsSource(
     for (const universeEntry of tree) {
       if (!globMatches(universeEntry, entry.abs)) continue;
       if (universeEntry.isDir) {
-        await addDir(universeEntry.abs);
+        await addDir(universeEntry.abs, `settings entry index ${entry.index}`);
       } else if (universeEntry.isFile) {
         addFile(universeEntry.abs, entry.index);
       }

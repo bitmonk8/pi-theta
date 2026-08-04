@@ -26,7 +26,7 @@
 // diagnostics/code-registry-load.md.
 
 import { minimatch } from "minimatch";
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { Diagnostic, Severity } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import type { Clock, TimerHandle } from "../seams/clock";
 import type { ThetaSettings } from "./settings";
@@ -72,6 +72,8 @@ const MANIFEST_INVALID = "theta/load/manifest-invalid";
 const MANIFEST_ESCAPES_PACKAGE = "theta/load/manifest-escapes-package";
 const DISCOVERY_SLOW = "theta/load/discovery-slow";
 const PACKAGE_READ_TIMEOUT = "theta/load/package-read-timeout";
+const MISSING_SOURCE = "theta/load/missing-source";
+const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 
 // --------------------------------------------------------------------------
 // Path helpers — POSIX forward-slash form (the `FileSystem` seam reports
@@ -429,7 +431,13 @@ async function resolvePiThetas(
     if (entry.isFile && splitExtension(entry.base).ext === "theta") {
       thetas.set(entry.abs, splitExtension(entry.base).stem);
     } else if (entry.isDir) {
-      for (const [abs, stem] of await thetasInDirectory(fs, entry.abs)) {
+      for (const [abs, stem] of await thetasInDirectory(
+        fs,
+        entry.abs,
+        `package \`${pkgName}\` (pi.theta)`,
+        "error",
+        diagnostics,
+      )) {
         thetas.set(abs, stem);
       }
     }
@@ -438,11 +446,58 @@ async function resolvePiThetas(
   return thetas;
 }
 
-/** Non-recursive `*.theta` scan of a directory (byte-exact `.theta` extension). */
-async function thetasInDirectory(fs: FileSystem, dir: string): Promise<Map<string, string>> {
+/** Non-recursive `*.theta` scan of a directory (byte-exact `.theta` extension).
+ *  This one enumeration serves two DISC-2 rows whose *Missing path* cells
+ *  disagree, so the caller supplies its own: `missing` is `null` for the
+ *  conventional `theta/` fallback, because a package need not ship a `theta/`
+ *  directory at all (package-and-settings.md:32), and `"error"` for a directory
+ *  a `pi.theta` entry named, because the manifest authored that path
+ *  (discovery-sources.md:54). Any other rejection code is a genuinely
+ *  unreadable source, a warning under both rows (:53-54).
+ *
+ *  An `ENOENT` here needs no discovery-sources.md:66 ancestor walk: both call
+ *  sites have already proven every ancestor enterable — the `theta/` fallback is
+ *  reached only after `<pkg>/package.json` was read successfully, and a
+ *  `pi.theta`-contributed directory comes out of the tree walk that `readdir`ed
+ *  its parent — so the walk could only ever answer "clean". A directory that
+ *  vanishes between that walk's `lstat` and this `readdir` is therefore *missing*
+ *  (:66) rather than *unreadable* (:67): that is the disposition
+ *  `enumerateDirectory` applies to a root `classifyPath` accepted and `readdir`
+ *  then reported `ENOENT` for, so the two enumeration sites classify one
+ *  rejection class identically. */
+async function thetasInDirectory(
+  fs: FileSystem,
+  dir: string,
+  descriptor: string,
+  missing: Severity | null,
+  diagnostics: Diagnostic[],
+): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  const names = (await readdirOr(fs, dir)) ?? [];
-  for (const name of names) {
+  const entries = await fs.readdir(dir).then(
+    (names) => ({ ok: true as const, names }),
+    (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
+  );
+  if (!entries.ok) {
+    if (entries.code === "ENOENT") {
+      if (missing !== null) {
+        diagnostics.push({
+          severity: missing,
+          code: MISSING_SOURCE,
+          file: dir,
+          message: `discovery source path does not exist: ${descriptor}`,
+        });
+      }
+    } else {
+      diagnostics.push({
+        severity: "warning",
+        code: UNREADABLE_SOURCE,
+        file: dir,
+        message: `discovery source is unreadable: ${descriptor}`,
+      });
+    }
+    return out;
+  }
+  for (const name of entries.names) {
     const { stem, ext } = splitExtension(name);
     if (ext !== "theta") continue;
     const abs = joinPosix(dir, name);
@@ -498,7 +553,13 @@ async function resolvePackage(
   const field = readPiThetasField(parsed.value);
   if (field.kind === "absent") {
     // Fallback: the conventional `theta/` directory, scanned non-recursively.
-    return thetasInDirectory(fs, joinPosix(candidate.dir, "theta"));
+    return thetasInDirectory(
+      fs,
+      joinPosix(candidate.dir, "theta"),
+      `package \`${candidate.name}\` theta/ directory`,
+      null,
+      diagnostics,
+    );
   }
   if (!isStringArray(field.value)) {
     diagnostics.push({

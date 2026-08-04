@@ -6,6 +6,49 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-08-04
+
+### Fixed
+
+- **A discovery root that existed but could not be enumerated contributed zero
+  thetas and zero diagnostics** (bug 0076).
+  `docs/spec_topics/discovery/discovery-sources.md` gives that state a column and
+  a severity per source in the DISC-2 failure-modes table, and its implementation
+  note forbids silence in terms — "a symlink loop or other traversal failure
+  *inside* a discovery root that does exist is an unreadable-source warning, not
+  silence". The walk decided "is this root a directory" and "can this root be
+  enumerated" with two different calls, and only the first reported its failures:
+  `enumerateDirectory` mapped every `readdir` rejection to a bare empty list
+  without capturing the rejection's `.code`, so a root whose ACL or mode denied
+  enumeration while still permitting `lstat` — the Windows parent-ACL case the
+  spec cites, a link cycle inside a settings root, an `ENOTDIR` from a racing
+  replacement — lost every theta under it and told the operator nothing. The
+  `--theta` cell was the sharpest: the operator named the path on the command
+  line, DISC-2 makes every failure mode of that source an error, and the walk
+  answered with nothing at all. The package walker repeated the swallow for a
+  package's conventional `theta/` directory and for each directory a `pi.theta`
+  entry contributed.
+
+  Both enumeration sites now capture the rejection code and emit at the calling
+  source's severity. `enumerateDirectory` receives the descriptor and
+  failure-mode severities its caller already holds and reports through the same
+  helper the entry-classification path uses, so the diagnostic's `file` is the
+  enumerated root and its message carries the source descriptor: a warning for
+  the global, project, package and settings rows, an error for `--theta`. An
+  `ENOENT` whose ancestor chain `lstat`s clean stays the *missing* case the table
+  prescribes — silent for the conventional roots, an error for the explicit
+  references — so a genuinely empty directory and an absent conventional root are
+  both still silent, and one bad root still does not abort the pass. The package
+  walker's directory scan carries its caller's *Missing* severity too, silent for
+  the `theta/` fallback a package need not ship and an error for a directory the
+  manifest named.
+
+  Deferred by adjudication, not by omission: the glob-universe walk's own
+  swallow, where a denied subtree under a glob's static prefix shrinks the set of
+  paths a pattern is matched against. No spec sentence prescribes a disposition
+  for that sub-case and it carries no source descriptor of its own, so it is a
+  spec gap to be pinned before it is coded.
+
 ## [0.66.0] - 2026-08-04
 
 ### Fixed
