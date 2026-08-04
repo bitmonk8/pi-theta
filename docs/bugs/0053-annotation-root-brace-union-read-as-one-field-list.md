@@ -828,3 +828,30 @@ for one fragment triad where its sibling file labels all three.
   over both fragments, and the seven-row `collectUnresolvedNamedTypes` table
   with its load-path counterparts at both emitting positions. Run on the
   outputs quoted above, then deleted per scratch policy.
+
+### Discharge note — bug 0096 (0.73.0)
+
+§Fix (0.58.0) *Residuals* (i) is **discharged** by the 0096 fix
+(`docs/bugs/0096-discriminator-field-classifier-naive-brace-test.md` §Fix
+(0.73.0)). That entry recorded `classifyDiscriminatorFieldType`
+(`src/parser/theta-document.ts`) as carrying a third copy of the naive
+prefix/suffix brace test, ordered ahead of its own top-level `|` split, and
+scoped it out as "a classifier, not a lowering". The classifier now guards its
+nested-object arm with `isSingleEnclosingBraceGroup` — the predicate this fix
+exported — so the third copy is gone and `{a: X} | {b: Y}` classifies as a union
+of arms there. The guard still runs ahead of the `|` split, so
+`{ type: "x" | "y" }` still reports nested.
+
+Two consequences for the record above. The **closing paragraph of
+`isSingleEnclosingBraceGroup`'s doc comment** — which this fix wrote, scoping the
+naive form's remaining reach to `params.ts:766` "among the type-lowering
+dispatches this predicate serves" — is rewritten by 0096, because the classifier
+becomes a caller that is not such a dispatch. The scoping clause was true when
+written and would have become a false record; it now states that the predicate
+serves callers beyond the lowering dispatches and that `params.ts:766` is the one
+**remaining** copy. The review-round-1 finding this record names (a first attempt
+at that paragraph rejected as categorically false because it omitted this
+classifier) is what made the rewrite obligatory rather than optional.
+*Residuals* (ii) — the `params:` position keeping its own naive test and its
+bytes by bug 0039 §Fix's freeze — **stands unchanged**, and is now the only copy
+of the naive form in `src/`.

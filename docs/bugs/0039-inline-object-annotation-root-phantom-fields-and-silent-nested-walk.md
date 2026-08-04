@@ -762,3 +762,16 @@ Residual (iv) (the name-keyed first-wins merges in `hoistNestedDefs` and
 0040's fix did close is the instance where residual (iv) composed with 0040's
 own mechanism: an imported reserved-form binding no longer reaches the merge,
 so a `schema` body field's hoisted fragment keeps its enforcement.
+
+### Note — bug 0096 (0.73.0)
+
+Note only; nothing here is discharged.
+[0096](./0096-discriminator-field-classifier-naive-brace-test.md) routed
+`classifyDiscriminatorFieldType` (`src/parser/theta-document.ts`) through
+`isSingleEnclosingBraceGroup`, and **§Fix's freeze on the `params:` position is
+intact**: `src/parser/params.ts` is byte-unchanged by that fix (`git diff` on it
+empty), so `lowerParamsFieldType` keeps its own naive prefix/suffix brace test
+and `p: "{a: integer} | {b: integer}"` keeps hoisting the one fragment it hoists
+today. That copy is now the only occurrence of the naive form in `src/` outside
+`isSingleEnclosingBraceGroup`'s own first statement, which is what the
+predicate's re-derived closing paragraph records.

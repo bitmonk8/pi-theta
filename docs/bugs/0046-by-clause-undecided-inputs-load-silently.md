@@ -748,3 +748,27 @@ that a rule names.
   (`let A = 1`, `fn F()`, `fn f(P: string)`, `schema Cat { Kind: … }`,
   `schema cat { … }`). Run on the outputs quoted above, then deleted per
   scratch policy.
+
+### Note — bug 0096 (0.73.0)
+
+Note only; nothing here is discharged and nothing here is settled by
+[0096](./0096-discriminator-field-classifier-naive-brace-test.md). Two touch
+points, both left open.
+
+**The adjacent silence stays unsettled.** 0096 corrected the SHAPE a resolved
+`by` field reports: a field typed `{a: X} | {b: Y}` is a union of arms, not one
+nested object. Once
+[0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) widens the
+schema-field capture, such a field under an explicit `by` will load clean — the
+disposition `kind: "a" | "b"` already receives. Whether that silence is the right
+end state for a `by` field that resolves but is not a literal in every variant is
+a spec question about `schemas.md:99–121`; 0096 §Non-goals declines to settle it
+and records it as a residual. It is adjacent to, but not inside, this report's
+two classes (an explicit `by` naming a field no variant declares, and a `by` over
+a ≥2-arm union whose arms are not all object schemas).
+
+**§Fix constraint 2 is untouched.** The `.some`/`.every` asymmetry in
+`evaluateOccurrences` (`src/parser/schema-declarations.ts`) — `anyNested` a
+`.some` while `allLiteral` is conjoined with `presentInAll` — is unchanged by
+0096, which altered what `nested` is set to, not how absent occurrences are
+folded.

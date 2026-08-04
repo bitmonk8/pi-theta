@@ -198,12 +198,12 @@ export function lowerInlineObject(
  * field list. Exporting the one predicate is what keeps a root position and
  * an arm position from answering that question two different ways.
  *
- * `lowerParamsFieldType`'s own brace check (params.ts:766) is the one copy of
- * the naive form among the type-lowering dispatches this predicate serves:
- * bug 0039 §Fix freezes the `params:` position's lowered bytes byte-for-byte,
- * so `p: "{a: integer} | {b: integer}"` keeps hoisting the one fragment
- * `{"a": {"anyOf": [{}, {}]}}` it hoists today. That is the naive test's
- * whole remaining reach among those dispatches.
+ * The predicate serves callers beyond the type-lowering dispatches: the
+ * discriminator-field classifier in `theta-document.ts` asks it for the same
+ * reason at a non-lowering position (bug 0096 §Fix). `lowerParamsFieldType`'s
+ * own brace check (params.ts:766) is the one remaining copy of the naive form,
+ * kept with its bytes by bug 0039 §Fix's freeze on the `params:` position's
+ * lowered output.
  */
 export function isSingleEnclosingBraceGroup(s: string): boolean {
   if (!(s.startsWith("{") && s.endsWith("}"))) {

@@ -694,3 +694,36 @@ registry row (DIAG-4), as `tests/inline-empty-object-type.test.ts` already does.
   fixtures, the seven element-3 fixtures, the seven conformant-capture fixtures
   and the fifteen seam cells — run on the outputs quoted above, then deleted per
   scratch policy.
+
+### Coordination note — bug 0096 (0.73.0)
+
+[0096](./0096-discriminator-field-classifier-naive-brace-test.md) landed first,
+at 0.73.0, as its §Fix ordering clause permits ("lands with or before 0095's").
+Two consequences for this report.
+
+**This report's blast radius no longer includes a false
+`theta/parse/nested-discriminator`.** Widening the schema-field capture feeds
+`classifyDiscriminatorFieldType` the source `{a:integer}|{b:string}`. Under the
+naive prefix/suffix brace test that classifier applied before 0096, that source
+classified `{ nested: true }`, and `Cat { kind: {a: integer} | {b: string}, … }`
+under `schema Animal by kind = Cat | Dog` would have been refused with
+`discriminator field 'kind' must be at the top level of each variant of Animal`,
+naming a nesting the source does not contain — the `empty-schema-body` line this
+fix removes replaced by a different wrong line. The classifier now answers `{}`
+for that source, so element 1's stated outcome (a clean load) is what the widened
+capture actually produces. 0096's fix record carries the offline proof: with this
+report's capture widening applied as a temporary probe, the fixture loads with no
+diagnostics under the corrected guard.
+
+**This report inherits 0096 §Fix witness item 4.** That item — a `parseDoc` cell
+for `Cat { kind: {a: integer} | {b: string}, … }` plus
+`schema Animal by kind = Cat | Dog` asserting the clean load, with
+`kind: "a" | "b"` beside it as the parity control — is assigned by 0096 §Fix to
+"whichever of the two changes carries 0095's widened capture", because that
+capture is what makes the input reachable through `parseDoc`. 0096 does not carry
+it. **This fix owes it**, and it is also where the end-to-end live witness for
+the corrected classification belongs: 0096 could only run its live suites as a
+no-regression check, since the input was unreachable.
+`tests/discriminator-field-classifier-brace-group.test.ts` item 3 pins that
+cell's before-bytes (`empty-schema-body` naming `Cat`), so this fix has the
+disposition it is moving.

@@ -1,9 +1,10 @@
 # Bug 0096 — `classifyDiscriminatorFieldType` carries a third copy of the naive prefix/suffix brace test ahead of its own top-level `|` split, so a field type `{a: X} | {b: Y}` classifies as ONE nested object instead of a union of two arms; the wrong answer is masked at both ends — the schema-field capture destroys the input before the classifier sees it (bug 0095), and implicit detection discards `nested` — so it becomes an observable false `theta/parse/nested-discriminator` on the explicit `by <field>` path the moment 0095's capture is fixed
 
-- **Status:** open. Latent: the classifier's answer is wrong at HEAD and no
-  input reaches it. §Fix must land with or before
-  [0095](./0095-brace-rooted-union-arm-capture-destroys-context.md)'s, which is
-  what makes the input reachable.
+- **Status:** fixed (0.73.0). Landed BEFORE
+  [0095](./0095-brace-rooted-union-arm-capture-destroys-context.md)'s, as §Fix's
+  ordering clause permits, so it changed no present observable and removed the
+  false `theta/parse/nested-discriminator` from 0095's blast radius. §Fix witness
+  item 4 is 0095's inherited obligation — see §Fix (0.73.0).
 - **Kind:** defect, one predicate. `classifyDiscriminatorFieldType`
   (`src/parser/theta-document.ts:5818–5847`) tests
   `s.startsWith("{") && s.endsWith("}")` at `:5822` and returns
@@ -663,3 +664,202 @@ where none is owed — and must not red any control cell.
   `checkDiscriminatedUnion` seam rows of table E, the seven post-0095 chain
   rows of table F, and the three rows of table G — run on the outputs quoted
   above, then deleted per scratch policy.
+
+## Fix (0.73.0)
+
+The settled §Fix, implemented against a tree fourteen releases past the one it
+was written at. One import, one call, two doc comments. Citations below are
+symbols, not line anchors — the report's anchors had drifted (see *Baseline
+drift*).
+
+**Baseline drift: citations only, observables none.** The report's evidence is at
+`8258e547` (0.58.0); the fix baseline is `a3b30ed3` (0.72.0), with 0071, 0072,
+0079, 0084 and 0089 having grown `src/parser/theta-document.ts` in between.
+`classifyDiscriminatorFieldType` had moved `:5818`→`:5948` (its naive test
+`:5822`→`:5952`, its `|` split `:5825`→`:5955`, its doc comment
+`:5795–5817`→`:5925–5947`), `discriminatorCandidateFields` `:5785`→`:5915`,
+`buildUnionVariantSchemas` `:5756`→`:5886`, `objectFields.set` `:5610`→`:5740`,
+the gated `checkDiscriminatedUnion` call `:5690`→`:5820`, `parseType`'s
+leading-brace early return `:2936–2939`→`:2963–2966`, `consumeInlineObjectType`
+`:3047`→`:3074`, the field's `parseType(true)` `:2573`→`:2581`.
+`src/parser/body-type-lowering.ts` had not moved at all —
+`isSingleEnclosingBraceGroup` is still `:208`, its own naive first statement
+`:209`, its scoping paragraph `:201–206` — nor had `src/parser/params.ts:766`.
+A scratch probe at the fix baseline re-derived **every row of tables A, B, C, D,
+E, F and G**, and every one was **byte-identical** to the recorded 0.58.0
+output, including table C's truncated capture `{a:integerleta=1a`. Two
+additions the report's tables do not carry: a `{}` field type draws bug 0045's
+`theta/parse/empty-schema-body` naming `'{}'` **in addition to** the
+discriminator outcome (`schema Cat { kind: {}, … }` under `by kind` renders
+`empty-schema-body` then `nested-discriminator`), and `{}|{}` plus
+`{a:string|null}|{b:Cat}` were confirmed by measurement as crossing-set members.
+Probes written, run, deleted.
+
+**What shipped.**
+
+- `src/parser/theta-document.ts` — `classifyDiscriminatorFieldType`'s
+  nested-object arm is guarded by `isSingleEnclosingBraceGroup(s)` in place of
+  `s.startsWith("{") && s.endsWith("}")`; the predicate is added to the existing
+  `./body-type-lowering` import. **The guard still runs FIRST**, ahead of the
+  `splitTopLevel(s, "|")` split, so a single enclosing group whose interior
+  carries a union (`{ type: "x" | "y" }`) still reports nested. No other arm,
+  order or statement moved.
+- `src/parser/theta-document.ts` — the classifier's doc comment re-derived: its
+  opening enumeration now names the nested class by the criterion the arm
+  applies (an inline-object type that is a single enclosing brace group, not
+  merely one that leads with `{`), and a new paragraph records **why the guard
+  must be structural** — the two-ended form is positional, so a top-level union
+  whose first and last arms are brace groups satisfies it too, and
+  `{a: X} | {b: Y}` would report as one nested object when it is a
+  `Type "|" Type` over two `ObjectType` arms (`grammar.md:94`, `:101`) and so no
+  candidate at all. The ordering rationale is retained verbatim beside it.
+- `src/parser/body-type-lowering.ts` — comment only.
+  `isSingleEnclosingBraceGroup`'s closing paragraph no longer scopes the naive
+  form's remaining reach to `params.ts:766` "among the type-lowering dispatches
+  this predicate serves". It now records that the predicate serves callers
+  beyond those dispatches — the discriminator-field classifier asks it for the
+  same reason at a non-lowering position — and that `params.ts:766` is the one
+  **remaining** copy, kept with its bytes by bug 0039 §Fix's freeze. The claim
+  is unscoped and true, verified by a whole-`src/` grep for every spelling of
+  the two-ended form after the substitution: the only occurrences are the
+  predicate's own first statement and `params.ts:766`. This is the ground bug
+  0053's review round 1 rejected an unscoped claim on — it was false then
+  because this classifier carried a third copy; the substitution removes that
+  copy, so the same shape of claim is now true.
+
+**The crossing set, measured rather than assumed.** Exactly the sources that
+satisfy the naive test and are not one enclosing brace group — a top-level union
+whose FIRST and LAST arms are both brace groups. Measured members:
+`{a: integer} | {b: string}`, `{a: integer}|{b: string}`, `{}|{}`,
+`{a:string|null}|{b:Cat}`, and a union of three or more arms bounded by brace
+groups. Each moves `{ nested: true }` → `{}`. Byte-unchanged, verified as no-op
+cells: the single-group controls `{ type: "x" }`, `{ type: "x" | "y" }`,
+`{a: integer}`, `{a: {b: integer}}`, `{a: "}"}` and `{}` all keep
+`{ nested: true }`; `"a" | "b"`, `"cat"`, `{a: integer} | {b: string} | integer`
+and `integer | {b: string}` keep their present classification. The substitution
+is a conservative refinement — the predicate's own first statement IS the naive
+test, so it implies it and no source that already reached the `|` split changed
+route.
+
+**Observably neutral at HEAD, by design — and that premise was measured, not
+assumed.** §Fix requires every present observable to be unchanged, because no
+input reachable through `parseDoc` hands the classifier a divergent source. That
+is table C's claim, and it is the load-bearing premise of "latent". Re-measured
+at the fix baseline two ways: 13 declarations covering every brace-adjacent
+capture shape, and a fuzz over 18 brace-adjacent field-type spellings × 6 schema
+shells × 4 file tails plus the `.thetalib` spellings — **199 captured
+`typeSource`s, zero on which the two predicates disagree.** The cause is
+upstream: `parseType`'s leading-brace early return ends a schema-body field
+capture at the first balanced group, so a `{`-prefixed capture is either exactly
+one enclosing group or does not end with `}` at all. Consequently the whole
+default gate is byte-identical (265 files / 3866 tests before and after, the
+`+1 file / +9 tests` being this fix's own witness), table G's
+`empty-schema-body` dispositions are byte-identical, and the implicit path is
+byte-identical at every input because it never reads `nested`.
+
+**No spec, registry or `docs/reference/` edit.** `git diff --stat -- docs/` is
+empty. No code, row or trigger widened, so DIAG-2's closure is untouched; one
+code (`theta/parse/nested-discriminator`) stops being reachable from an input
+its row's *Trigger* never described. Under GOV-15 no input moves into the
+refused set, and the one that would move out — `by kind` over a two-brace-arm
+field, once 0095 lands — moves from refused to clean.
+`tests/fixtures/h7a/permitted-codes.json` is byte-unchanged
+(`a4a8da04209f90e13d815edd92c1fc682e2a2236`); it carries no `theta/parse/*` code
+at all, and this fix makes a code less reachable, so H9a's empty-capture stderr
+gate cannot newly fire. `src/parser/params.ts` is byte-unchanged (`git diff` on
+it is empty), and the classifier stays module-private — no test-only export was
+added.
+
+**Offline lock.** `tests/discriminator-field-classifier-brace-group.test.ts`, 9
+tests in three groups, carrying §Fix witness items 1–3.
+(1) The predicate table over 13 sources — table A's nine plus four further
+crossing-set and control members — asserting in one `toEqual` the naive answer,
+`isSingleEnclosingBraceGroup`'s answer, and **both** classifications as JSON
+bytes, plus the refinement implication (`isSEBG(s)` ⇒ naive(s)), the crossing
+set's exact membership, and the ordering requirement
+(`splitTopLevel('{ type: "x" | "y" }', "|")` is two segments, so the brace guard
+must be asked first). Because the classifier is module-private, the two
+classification columns are composed from the two exported production units the
+fix wires together — `isSingleEnclosingBraceGroup` and `splitTopLevel` —
+through one guard-parameterised helper, so swapping a single argument is exactly
+the substitution and nothing else can differ between the columns; the helper's
+doc comment states that it is not production.
+(2) The seam over the exported `checkDiscriminatedUnion`, both directions:
+`{ nested: true }` under `by kind` raises `nested-discriminator`, `{}` raises
+nothing, and the two implicit-path rows are asserted **equal to each other** as
+well as to their expected bytes, pinning the downstream mask so a later change
+to the implicit path cannot silently widen the defect's reach. Expected messages
+are read from the registry via `parseRegistry` / `registryMessage` (DIAG-4),
+never copied prose.
+(3) `parseDoc` byte-invariance over 15 rows of tables B/G/C and 10 rows of
+table D, each carrying the rendered diagnostic list **and** every captured
+field's `name` / `typeSource`.
+
+**Verified in both directions — in two stages, because one stage cannot suffice
+for a latent fix.** Reverting the guard alone reds nothing, since the divergent
+input is unreachable; that is the fix's design, not a weak witness.
+(A) The witness's own divergence is live: flipping the four crossing rows'
+`structuralClassification` expectations to the naive answer reds exactly those
+four rows with observed `{}` against expected `{"nested":true}`, and no control
+row moves. (B) The composed neutralisation, which is the real proof: with bug
+0095's capture widening applied as a **temporary** probe — the leading-brace
+early return disabled and the arm-start brace branch made unconditional in
+`parseType`, confirmed by probe to capture `typeSource` `{a:integer}|{b:string}`
+— the fixture `Cat { kind: {a: integer} | {b: string}, name: string }`,
+`Dog { kind: "dog", name: string }`, `schema Animal by kind = Cat | Dog` loads
+with **no diagnostics** under the shipped guard, and reverting the guard alone
+yields exactly `error theta/parse/nested-discriminator: discriminator field
+'kind' must be at the top level of each variant of Animal` — this report's own
+symptom, where none is owed. The parity control `kind: "a" | "b"` is clean in
+**both** states, so the effect is specific to the brace-rooted union
+classification. All temporary edits were targeted byte edits restored byte-exact
+and blob-hash verified; no `git stash` was used at any point; 0095's fix was
+**not** adopted. Full gate 265 files / 3866 tests; typecheck and lint clean.
+
+**Live.** H8a `live-production-acceptance` 16/16 and H9a `acceptance/` 11/11
+green — a **no-regression** result, and honestly not more than that. No live
+cell, existing or added, can witness this change end to end: the input that
+would show it is unreachable until 0095 widens the capture, which stage B above
+demonstrated offline. No additive live cell was fabricated. The end-to-end live
+witness travels with §Fix witness item 4 (below).
+
+**Witness item 4 is 0095's inherited obligation.** §Fix assigns its fourth
+witness — the `parseDoc` cell for `Cat { kind: {a: integer} | {b: string}, … }`
+plus `schema Animal by kind = Cat | Dog` asserting a clean load, with
+`kind: "a" | "b"` beside it as the parity control — to "whichever of the two
+changes carries 0095's widened capture", because that capture is what makes the
+input reachable through `parseDoc`. This fix landed first and does not carry it.
+**0095's fix owes it.** Item 3 of this fix's witness pins that cell's
+before-bytes (`empty-schema-body` naming `Cat`) so its carrier has the
+disposition it is moving, and stage B above is the evidence that the cell will
+be green once the capture widens.
+
+**Residuals.** (i) The disposition of a resolved but non-literal `by` field is
+unsettled by any spec sentence. After this fix, `by kind` over a field typed
+`{a: X} | {b: Y}` will load clean once 0095 lands — the disposition
+`kind: "a" | "b"` already receives (table D row 4, re-measured `[]`). Whether
+that silence is the right end state is a spec question about
+`schemas.md:99–121`, adjacent to but not inside bug 0046's two classes.
+Deliberately pinned, not filed as a defect. (ii) `{}` as a field type draws bug
+0045's `theta/parse/empty-schema-body` naming `'{}'` alongside the discriminator
+outcome, so `schema Cat { kind: {}, … }` under an explicit `by` renders two
+diagnostics. Pre-existing, independent of this fix (`{}` is a single enclosing
+group under both predicates), and pinned as-is in the witness. (iii) The
+`.some`/`.every` asymmetry in `evaluateOccurrences` is untouched, as §Non-goals
+requires; it is bug 0046 §Fix constraint 2's subject. (iv)
+`tests/annotation-root-brace-union-lowering.test.ts` cites
+`theta-document.ts:6375` and `:5676`; both were already stale before this change
+and are position-only drift, neither caused nor worsened here.
+
+### Discharge note — bug 0096 (0.73.0)
+
+Recorded against bug **0053** §Fix (0.58.0) *Residuals* (i): **discharged.**
+That entry read "`classifyDiscriminatorFieldType`
+(`src/parser/theta-document.ts:5822`) carries a third copy of the naive
+prefix/suffix test, ordered ahead of its own top-level `|` split, so
+`{a: X} | {b: Y}` classifies as one nested object there; it is a classifier, not
+a lowering, and is outside this report's settled two-copy scope." The third copy
+is gone: the classifier now calls the predicate 0053 exported. 0053's *Residuals*
+(ii) — the `params:` position keeping its own naive test and its bytes — stands
+unchanged and is now the **only** copy, which is what
+`isSingleEnclosingBraceGroup`'s re-derived closing paragraph records.

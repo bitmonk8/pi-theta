@@ -88,6 +88,7 @@ import { resolveQuerySchemas } from "./query-schema-resolve";
 import {
   buildBodyTypeSchemas,
   collectUnresolvedNamedTypes,
+  isSingleEnclosingBraceGroup,
   type SchemaSlugCollision,
 } from "./body-type-lowering";
 import { splitTopLevel, splitTopLevelSegments } from "./params";
@@ -5925,13 +5926,25 @@ function discriminatorCandidateFields(
 /**
  * Classify a field's captured type source for discriminator detection: a
  * quoted string / integer / number / boolean / `null` SINGLE literal (the
- * `const` shape a discriminator value must be), a leading-`{` inline-object
- * type (a nested discriminator value, `theta/parse/nested-discriminator`), or
- * neither (a non-literal type — never a discriminator candidate). Operates on
- * the already-captured source text (`SchemaFieldSource.typeSource`), the only
- * representation a field retains past parsing — mirrors `parseLiteralArm`
+ * `const` shape a discriminator value must be), an inline-object type that is a
+ * single enclosing brace group (a nested discriminator value,
+ * `theta/parse/nested-discriminator`), or neither (a non-literal type — never a
+ * discriminator candidate). Operates on the already-captured source text
+ * (`SchemaFieldSource.typeSource`), the only representation a field retains
+ * past parsing — mirrors `parseLiteralArm`
  * (body-type-lowering.ts) at that same source-text level rather than
  * re-deriving from a live token.
+ *
+ * The nested-object arm's guard is `isSingleEnclosingBraceGroup`
+ * (body-type-lowering.ts:208), not a two-ended `startsWith("{") &&
+ * endsWith("}")` test. The two-ended form is POSITIONAL: a top-level union
+ * whose FIRST and LAST arms are brace groups satisfies it too, since the first
+ * arm opens the source and the last arm closes it. Under it, `{a: X} | {b: Y}`
+ * would report as one nested object, when it is a `Type "|" Type` over two
+ * `ObjectType` arms (grammar.md:94, :101) and so no discriminator candidate at
+ * all (bug 0096 §Fix). The substitution is a conservative refinement — the
+ * predicate's own first statement IS the naive test, so it implies it, and no
+ * source that already reached the `|` split below changes route.
  *
  * A LITERAL UNION is not a literal. schemas.md §Discriminated unions,
  * detection rule 2, requires the field to "be a single string literal type in
@@ -5949,7 +5962,7 @@ function classifyDiscriminatorFieldType(
   typeSource: string,
 ): Pick<DiscriminatorCandidateField, "literal" | "nested"> {
   const s = typeSource.trim();
-  if (s.startsWith("{") && s.endsWith("}")) {
+  if (isSingleEnclosingBraceGroup(s)) {
     return { nested: true };
   }
   if (splitTopLevel(s, "|").length > 1) {

@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-08-04
+
+### Fixed
+
+- **`classifyDiscriminatorFieldType` carried a third copy of the naive
+  prefix/suffix brace test ahead of its own top-level `|` split, so a schema
+  field typed `{a: X} | {b: Y}` classified as ONE nested object instead of a
+  union of two arms** (bug 0096). The test was positional, not structural: every
+  top-level union whose first and last arms are brace groups satisfies it,
+  because the first arm's opening brace and the last arm's closing brace are the
+  source's endpoints. The classifier's nested-object arm is now guarded by the
+  exported structural predicate `isSingleEnclosingBraceGroup` — one import, one
+  call, at the one site. The guard still runs ahead of the `|` split, so a single
+  enclosing group whose interior carries a union (`{ type: "x" | "y" }`) still
+  reports nested; every other single-group control (`{a: integer}`,
+  `{a: {b: integer}}`, `{a: "}"}`, `{}`) is byte-unchanged.
+
+  **This change is observably neutral at this release.** No input reachable
+  through the shipped load path hands the classifier a source on which the two
+  predicates disagree — the schema-field capture ends at the first balanced brace
+  group, so a `{`-prefixed capture is either exactly one enclosing group or does
+  not end with `}` at all (measured over 199 captured type sources across 18
+  field-type spellings, 6 schema shells and 4 file tails). The wrong answer was
+  latent, and the whole default gate is byte-identical. What the fix removes is a
+  false `theta/parse/nested-discriminator` that would otherwise become live the
+  moment bug 0095 widens that capture: `schema Animal by kind = Cat | Dog` over
+  `Cat { kind: {a: integer} | {b: string} }` would have been refused, naming a
+  nesting the source does not contain. A union of object types has no single
+  value to sit at any level, so it is outside that code's registry trigger; the
+  corrected classification loads clean, matching the disposition the equivalent
+  literal-union spelling (`kind: "a" | "b"`) already receives. No diagnostic
+  code, row or trigger changed.
+
+  Two in-tree records are re-derived in the same change:
+  `classifyDiscriminatorFieldType`'s doc comment now states why its brace test
+  must be structural as well as why it must run first, and
+  `isSingleEnclosingBraceGroup`'s closing paragraph no longer scopes the naive
+  form's remaining reach to the type-lowering dispatches — the classifier is a
+  caller that is not such a dispatch, and `src/parser/params.ts`'s frozen copy is
+  now the only remaining one. Discharges bug 0053's §Fix (0.58.0) residual (i).
+  Locked by `tests/discriminator-field-classifier-brace-group.test.ts` (9 tests:
+  the predicate table over 13 sources with both classifications as bytes, the
+  `checkDiscriminatedUnion` seam in both directions including the
+  implicit-path mask, and 25 rows of load-path byte-invariance).
+
 ## [0.72.0] - 2026-08-04
 
 ### Fixed
