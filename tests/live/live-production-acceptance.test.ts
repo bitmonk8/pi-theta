@@ -30,7 +30,7 @@
 // live-host acceptance pair exception). Narrative spec references:
 // extension-bootstrap-and-per-theta.md, registration-steps.md, discovery.md.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1098,6 +1098,86 @@ describe("H8a-T — bug 0110: an out-of-root .theta tools: entry escapes contain
       await handle.dispose();
       workspace.dispose();
       rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ===========================================================================
+// Bug 0077 — the settings `thetaPaths` glob matcher (`globMatches`,
+// src/discovery/discovery-walk.ts) matched a universe entry's basename against
+// the PATTERN'S OWN basename (`basename(absPattern)`) instead of against the
+// whole pattern, so `thetas/*.theta` reached every `.theta` file recursively
+// under `thetas/`, contradicting the non-recursion rule
+// (docs/spec_topics/discovery/discovery-sources.md, opening rule: "Discovery
+// is **non-recursive** and matches only `*.theta`"; DISC-5,
+// docs/spec_topics/discovery/package-and-settings.md, anchor `#disc-5`). The
+// fix attempts DISC-5's three comparison strings — the entry's absolute path,
+// its basename, and its settings-base-relative path — against the whole
+// pattern, matching the package walker's `matchesGlob`
+// (src/discovery/package-discovery.ts).
+//
+// No shipped live test exercised a `thetaPaths` glob before this cell:
+// `plantThetaWorkspace` plants only the conventional `project` / `cli`
+// discovery sources and writes no settings file. This cell writes
+// `<cwd>/.pi/settings.json` itself, after `plantThetaWorkspace` returns and
+// before `bootShippedExtension` — whose `session.bindExtensions({})` call
+// fires `session_start`, which runs the discovery walk and reads settings
+// fresh off disk (`loadSettings`, src/discovery/settings.ts). The project
+// settings file's `thetaPaths` array replaces the global array wholesale
+// (DISC-7) and its base dir is `<cwd>/.pi`, so the pattern below resolves
+// against the planted tree with no dependence on the operator's ambient
+// global settings.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the discovery→registration
+// and bug 0070/0071/0110 cells above.
+// ===========================================================================
+
+describe("H8a-T — bug 0077: a settings thetaPaths glob reaches only its own directory level (Convention: live-host acceptance)", () => {
+  it("registers the level-matching stem a thetaPaths glob names and does not register a nested-directory stem the non-recursion rule excludes, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([]);
+    const globDir = join(workspace.cwd, ".pi", "thetas");
+    const nestedDir = join(globDir, "sub");
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(join(globDir, "b77liveglobtop.theta"), subagentTheta(), "utf8");
+    writeFileSync(join(nestedDir, "b77liveglobdeep.theta"), subagentTheta(), "utf8");
+    writeFileSync(
+      join(workspace.cwd, ".pi", "settings.json"),
+      JSON.stringify({ thetaPaths: ["thetas/*.theta"] }),
+      "utf8",
+    );
+
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the level-matching stem must register before the nested
+      // stem's absence can be attributed to the non-recursion rule instead of
+      // an unread settings file or a broken workspace.
+      expect(
+        handle.command("b77liveglobtop"),
+        "the level-matching `thetas/*.theta` stem did not register — " +
+          "precondition unmet (settings file unread, or the glob resolved to " +
+          "nothing). Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline scratch harness the bug doc used), the nested stem
+      // under `thetas/sub/` matches none of DISC-5's three comparison strings
+      // against `thetas/*.theta` and does not register.
+      expect(
+        handle.command("b77liveglobdeep"),
+        "the nested-directory stem registered anyway through the live " +
+          "discovery/session_start path — the settings glob matcher reached " +
+          "past its own directory level. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b77liveglobdeep");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
     }
   });
 });

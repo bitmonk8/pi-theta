@@ -215,3 +215,34 @@ today it lets an operator infer glob support from `:7` and get an error.
 - Spec: `docs/spec_topics/discovery/discovery-sources.md:7`, `:31–39`, `:83`;
   `docs/spec_topics/discovery/package-and-settings.md:88`;
   `docs/reference/discovery-cli.md:14–24`, `:40–59`.
+
+## Coordination note — bug 0077 landed (0.68.0)
+
+This report's §Related first bullet cites the settings side of the same DISC-5
+override grammar as the place where that grammar "*is* implemented and diverges
+in the matcher". **That divergence is discharged by bug
+[0077](./0077-settings-glob-matches-pattern-basename.md)'s fix (0.68.0):** the
+settings matcher now attempts DISC-5's three comparison strings with the whole
+pattern each time, so it agrees with the package walker's `matchesGlob` on one
+pattern text. The settings source is therefore no longer a divergent reference
+point — it is a conformant one.
+
+This changes nothing about this report's own defect or its recommended
+resolution. The CLI source still applies *none* of the entry schema, which is the
+subject here; 0077 touched only `resolveSettingsSource` and the predicate it
+calls, never the CLI arm of `discoverThetas` nor `collectFromEntries` /
+`resolveEntry` / `classifyPath`. Two consequences worth recording for whichever
+route is taken:
+
+- If Route A (implement the schema for the CLI source) is ever taken over the
+  recommended Route B (amend the CLI row to state the exclusion), it now inherits
+  a conformant matcher rather than a divergent one — the shared predicate is
+  `globMatches`, and the settings source's base-dir-relative comparison string is
+  supplied by `relativeToBase`. A CLI component has no settings-file directory to
+  resolve against, so Route A would have to state which root its relative
+  comparison uses; that question is new and is not answered by 0077.
+- The §Affected line citations above were taken at `d06daae3` and have drifted
+  further: `resolveSettingsSource` is now `src/discovery/discovery-walk.ts:678`,
+  `ParsedSettingsEntry` `:644`, the prefix parse inside `resolveSettingsSource`'s
+  `entries.map`, glob detection at `isGlobPattern` (`:216`), and the four ordered
+  steps run from `:774` to the end of that function. Cite the symbols.

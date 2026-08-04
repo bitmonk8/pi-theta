@@ -211,6 +211,24 @@ function dirnameOf(path: string): string {
   return idx <= 0 ? "/" : norm.slice(0, idx);
 }
 
+/** The `baseDir`-relative POSIX path of `abs`, or `undefined` when `baseDir` is
+ *  absent or `abs` does not lie under it. A candidate outside the base dir has
+ *  no root-relative comparison string to offer the DISC-5 matcher — the
+ *  package walker's root-relative string is unconditional only because its
+ *  universe is rooted at the package root itself, a guarantee this
+ *  independently-resolved settings base dir does not carry. Byte-exact
+ *  comparison: DISC-5 pins `nocase: false`. */
+function relativeToBase(baseDir: string | undefined, abs: string): string | undefined {
+  if (baseDir === undefined) {
+    return undefined;
+  }
+  const norm = normalizePath(baseDir);
+  const root = norm.endsWith("/") ? norm.slice(0, -1) : norm;
+  const prefix = root === "" ? "/" : `${root}/`;
+  const normAbs = normalizePath(abs);
+  return normAbs.startsWith(prefix) ? normAbs.slice(prefix.length) : undefined;
+}
+
 /** True when an operand carries a minimatch glob metacharacter. The `!`/`+`/`-`
  *  override prefix is stripped by the caller before this test. */
 function isGlobPattern(operand: string): boolean {
@@ -579,22 +597,56 @@ function staticPrefixRoot(absPattern: string): string {
   return joined === "" ? "/" : joined;
 }
 
-/** Match a universe entry against a resolved absolute glob pattern (matches the
- *  entry's absolute path and its basename, `nocase` off — DISC-5 matching). */
-function globMatches(entry: TreeEntry, absPattern: string): boolean {
+/** Match a universe entry against a settings `thetaPaths` glob entry,
+ *  attempting DISC-5's three comparison strings — "the candidate's
+ *  package-root-relative path, its basename, and its POSIX-normalised
+ *  absolute path" — with `nocase: false` throughout. `entry.abs` and
+ *  `entry.base` are matched against `absPattern` (the resolved, absolute
+ *  pattern); the root-relative comparison is matched against `rawPattern`
+ *  (the un-resolved operand text) instead, because the settings source's root
+ *  is the settings-file directory rather than a package root — `absPattern`
+ *  has already absorbed that directory and can only ever match the
+ *  absolute-path comparison, never a root-relative one. Mirrors
+ *  `matchesGlob` (package-discovery.ts), the DISC-5 sibling for `pi.theta`. */
+function globMatches(
+  entry: TreeEntry,
+  absPattern: string,
+  rawPattern: string,
+  baseDir: string | undefined,
+): boolean {
+  const rel = relativeToBase(baseDir, entry.abs);
   return (
     minimatch(entry.abs, absPattern, { nocase: false }) ||
-    minimatch(entry.base, basename(absPattern), { nocase: false })
+    minimatch(entry.base, absPattern, { nocase: false }) ||
+    (rel !== undefined && minimatch(rel, rawPattern, { nocase: false }))
   );
 }
 
-/** One parsed `thetaPaths` entry: its array index, override prefix, and the
- *  operand resolved to an absolute POSIX path. */
+/** Reconstruct a `TreeEntry` view of a `selected`-map key so the `!` step
+ *  (in `resolveSettingsSource`) can call `globMatches` instead of re-inlining
+ *  its comparisons. `isDir`/`isFile` are hard-coded because the predicate
+ *  reads only `abs`/`base`, which the absolute-path key alone carries.
+ *  `selected` admits a key by its `.theta` name, not its file type —
+ *  `enumerateDirectory` classifies by extension with no `lstat` — so a
+ *  non-regular entry so named is admitted here and rejected only later, at
+ *  `validateAndRead`; the type flags are therefore not guaranteed by the map
+ *  and are deliberately unread at this call site. */
+function fileEntryOf(abs: string): TreeEntry {
+  return { abs, base: basename(abs), isDir: false, isFile: true };
+}
+
+/** One parsed `thetaPaths` entry: its array index, override prefix, the
+ *  operand resolved to an absolute POSIX path, and the operand's un-resolved
+ *  text. The root-relative comparison in `globMatches` needs the pattern
+ *  exactly as written in `operand` — the resolved `abs` form has already
+ *  absorbed the settings-base directory and can only ever match an absolute
+ *  path. */
 interface ParsedSettingsEntry {
   readonly index: number;
   readonly prefix: "" | "!" | "+" | "-";
   readonly abs: string;
   readonly glob: boolean;
+  readonly operand: string;
 }
 
 /** Resolve one raw operand to an absolute POSIX path: a bare `~` / `~/…`
@@ -643,6 +695,7 @@ async function resolveSettingsSource(
       prefix,
       abs: resolveSettingsOperand(operand, baseDir, fs),
       glob: isGlobPattern(operand),
+      operand,
     };
   });
 
@@ -707,7 +760,7 @@ async function resolveSettingsSource(
   const addGlob = async (entry: ParsedSettingsEntry): Promise<void> => {
     const tree = await treeFor(staticPrefixRoot(entry.abs));
     for (const universeEntry of tree) {
-      if (!globMatches(universeEntry, entry.abs)) continue;
+      if (!globMatches(universeEntry, entry.abs, entry.operand, baseDir)) continue;
       if (universeEntry.isDir) {
         await addDir(universeEntry.abs, `settings entry index ${entry.index}`);
       } else if (universeEntry.isFile) {
@@ -728,8 +781,7 @@ async function resolveSettingsSource(
     if (entry.prefix !== "!") continue;
     for (const key of [...selected.keys()]) {
       const drop = entry.glob
-        ? minimatch(key, entry.abs, { nocase: false }) ||
-          minimatch(basename(key), basename(entry.abs), { nocase: false })
+        ? globMatches(fileEntryOf(key), entry.abs, entry.operand, baseDir)
         : key === entry.abs || dirnameOf(key) === entry.abs;
       if (drop) selected.delete(key);
     }

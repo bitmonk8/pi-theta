@@ -850,3 +850,49 @@ file already does.
   deleted. No file in the tree was written
   by the probe and no ACL was modified. `src/`, `tests/`, `docs/bugs/README.md`
   and every other bug document are unmodified by this filing.
+
+## Coordination note — bug 0077 landed (0.68.0)
+
+The **binding ordering dependency** this report's §Status and §Fix (d) record —
+"either 0077 lands first or this fix re-derives its universe against 0077's" — is
+**discharged by 0077's fix (0.68.0): 0077 landed first.** This report's
+disposition is still owed a re-derivation, and here is exactly what changed
+beneath it. Cite symbols; every `discovery-walk.ts:N` above was taken at
+`3e198ba1` and 0077's fix inserted lines above the middle of the file.
+
+- `globMatches` (now `src/discovery/discovery-walk.ts:611`, was `:584–589`) takes
+  four arguments — `(entry, absPattern, rawPattern, baseDir)` — and attempts
+  DISC-5's three comparison strings: `entry.abs` and `entry.base` against the
+  resolved `absPattern`, and the entry's settings-base-relative path against the
+  un-resolved `rawPattern`. The `basename(absPattern)` reduction is gone. New
+  helpers beside it: `relativeToBase` (`:221`) and `fileEntryOf` (`:634`).
+  `ParsedSettingsEntry` (`:644`) gained `operand`.
+- **This report's measured input class survives, as §Fix (d) predicted.** The
+  first disjunct `minimatch(entry.abs, absPattern)` is what selects
+  `/project/.pi/g/sub/s.theta` for `thetaPaths: ["g/*"]` with base dir
+  `/project/.pi`, and 0077 kept it. The rel disjunct matches it a second way
+  (`g/sub` against `g/*`); neither route changes the universe→selected map for
+  that input. `tests/discovery-root-enumeration-failure.test.ts`'s RED 6 cell,
+  which drives exactly that input, held green through 0077's fix.
+- **The `!` step's iteration domain did NOT narrow.** 0077 routed the `!` pass
+  (`:781`) through the same predicate but left its domain as the whole `selected`
+  map: bounding it to the entry's own subtree is not settled by DISC-5, and under
+  a conformant matcher the global domain stops being hazardous. So the number of
+  paths reaching `addDir` (`:714`) / `addFile` changes only through the matcher,
+  never through the domain.
+- **What narrowed:** a glob no longer reaches candidates below its own directory
+  level, so a denied subtree *deeper* than the pattern's level now shrinks a
+  universe whose entries the pattern would not have selected anyway. That
+  strictly reduces the input classes in which this report's silence is
+  *observable*, and it does not reduce the classes in which it is *reachable* —
+  `listTree` (`:565`) is untouched and still swallows every `readdir` rejection,
+  including on the static-prefix root itself, where the loss is total regardless
+  of the matcher. This report's §Expected behaviour argument and its DIAG-2
+  disposition question are unaffected.
+- `listTree` and `treeFor` were not touched by 0077, so the adjacency §Fix (d)
+  flags (0077 rebasing across `addDir` inside `addGlob`, four lines from the
+  `treeFor` call) has already been absorbed: `addGlob` is now `:760` and its
+  `treeFor` call is its first statement.
+
+0077's fix record documents the change from its own side, including the route it
+took for the `TreeEntry`-shaped view the `!` step needs.

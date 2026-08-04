@@ -6,6 +6,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-08-04
+
+### Fixed
+
+- **A settings `thetaPaths` glob matched an entry's basename against the
+  *pattern's* basename instead of against the pattern** (bug 0077).
+  DISC-5 (`docs/spec_topics/discovery/package-and-settings.md`, anchor
+  `#disc-5`) states which three strings a glob is attempted against — "the
+  candidate's package-root-relative path, its basename, and its POSIX-normalised
+  absolute path" — and the `thetaPaths` entry schema's *Glob patterns and
+  exclusions* bullet binds the settings array to that same contract. The
+  settings matcher offered a fourth comparison the sentence does not license: it
+  reduced the pattern to its last path segment before matching, so
+  `thetas/*.theta` became `*.theta` and matched every `.theta` basename in the
+  recursively-enumerated universe under `thetas/`. Files in subdirectories
+  registered as slash commands, contradicting the non-recursion rule three pages
+  state, and each additionally entered collision detection where it could drop
+  an intended same-named theta. The `!` step repeated the reduction inline and
+  iterated the whole accumulated selection, so one `!thetas/*.theta` dropped
+  every theta the array had selected — including those contributed by unrelated
+  entries pointing at unrelated directories. Both directions were silent: zero
+  diagnostics in every measured case, and `thetaPaths` has no other surface
+  reporting what it resolved to. The package walker's `matchesGlob`, implementing
+  the same DISC-5 sentence for `package.json` `pi.theta`, was already conformant,
+  so one pattern text meant two different things depending on which file it was
+  written in — the one place the spec says the two follow one contract. The
+  settings matcher now attempts the three DISC-5 strings with the whole pattern
+  each time, taking the candidate's path relative to the settings-file directory
+  against the operand as written, and the `!` step calls that one predicate
+  instead of re-inlining a reduction. No new diagnostic code and no spec change:
+  the implementation now conforms to prose that was already there.
+
 ## [0.67.0] - 2026-08-04
 
 ### Fixed
