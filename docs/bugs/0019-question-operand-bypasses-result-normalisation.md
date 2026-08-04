@@ -179,6 +179,16 @@ constructor (`Mystery { r: Ok(1) }`) parses clean and runs —
 schema. Surfaced while probing the member-route control; a static-gate gap
 family distinct from ERR-18.
 
+**Coordination with bug 0079** (added at that report's fix). This fix left the
+`Result`-shaped static gate partial by design on the `?` operand, and the sibling
+position it does not cover — the QRY-18 interpolation render — had no gate at
+all. [0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md)
+closed that position in 0.69.0 with the same asymmetry this report pins: the
+type layer emits only where provenance is certain, and an unprovable
+interpolation falls to a runtime panic rather than a false load refusal.
+`questionOperandKind` and this report's `evalTry` brand guard are untouched by
+it.
+
 ## Summary
 
 Applying `?` to an operand that is a member access, an index read, or a bare

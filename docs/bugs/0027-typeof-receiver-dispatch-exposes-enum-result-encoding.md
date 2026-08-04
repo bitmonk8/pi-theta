@@ -211,7 +211,17 @@ keys (`obj["my-key"]` → `missing object key: "my-key"`); pre-existing and
 unfiled at fix time, since filed as
 [0036](./0036-missing-object-key-bare-key-rendering.md) and discharged by
 its fix (0.41.0) — the new row deliberately pins its own bare-always rule
-instead of citing §5.
+instead of citing §5. (iv) The §Affected bullet above lists the QRY-18
+interpolation render among the "surfaces that do NOT leak, on any receiver".
+That holds for the axis this fix gates — receiver dispatch — but not for the
+value position: a `Result` interpolated directly took the render's `object` arm
+and serialised the carrier onto the wire. Filed as
+[0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md) (the
+fifth site, with its own mechanism) and discharged by its fix (0.69.0): the
+render classifies a `Result` by its brand and raises
+`theta/parse/interpolated-result` as a panic, and a type-layer gate refuses the
+load for the statically provable forms. This fix's four read entry points are
+untouched by that one.
 
 ## Summary
 

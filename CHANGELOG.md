@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-08-04
+
+### Fixed
+
+- **A `Result`-valued `${…}` interpolation rendered the interpreter-private
+  `{"ok":…,"value":…}` encoding into the prompt text sent to the model** (bug
+  0079). QRY-18
+  (`docs/spec_topics/query/query-escapes-stringification.md`) gives
+  `Result<T, E>` one disposition in the interpolation table — the parse error
+  `theta/parse/interpolated-result`, with the runtime renderer raising the same
+  code as a panic when the type is statically unresolvable. Neither fired at any
+  input: the code was registered, its renderer arm existed, and no production
+  caller could select it, so the value took the `object` arm and
+  `JSON.stringify` emitted the brand's carrier shape onto the wire — the encoding
+  `docs/spec_topics/runtime-value-model.md` declares unreachable and free to
+  change without a spec revision. Both halves now fire. The render classifies a
+  `Result` by its interpreter-private brand (never by an `ok` key, so an ordinary
+  object carrying a boolean `ok` field still renders as compact JSON) and aborts
+  the theta with a runtime panic carrying the registered code, on the same closed
+  routing as the other runtime panics, so QRY-21 continues to hold and a discard
+  cannot swallow it. Ahead of that, a type-layer check over each interpolation
+  refuses the load for the forms the parser can prove `Result`-valued — an
+  `Ok`/`Err` constructor, a call to a `fn` whose written return annotation names a
+  `Result`, a binding of either, a written `Result<…>` annotation, an annotated
+  `fn` parameter, and a `par for` element — classifying by provenance rather than
+  by type name, so an enum variant named `Ok`, a field sharing a name with a
+  `Result`-returning `fn`, and a `?`-unwrapped operand are all left alone. No
+  registry row was added and no Trigger widened: the closed-registry row already
+  described both dispositions and is now satisfiable.
+
 ## [0.68.0] - 2026-08-04
 
 ### Fixed

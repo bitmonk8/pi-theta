@@ -52,6 +52,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { INTERPOLATED_RESULT_CODE } from "../../src/render/query-render";
 
 /** A minimal prompt-mode `.theta` whose single untyped query names a deterministic sentinel. */
 function promptTheta(sentinel: string): string {
@@ -1175,6 +1176,207 @@ describe("H8a-T — bug 0077: a settings thetaPaths glob reaches only its own di
         handle.registeredNames(),
         "Registered: " + JSON.stringify(handle.registeredNames()),
       ).not.toContain("b77liveglobdeep");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Bug 0079 — `theta/parse/interpolated-result` had no emitter: a
+// `Result`-valued `${…}` interpolation rendered the interpreter-private
+// `{"ok":…,"value":…}` encoding into the prompt text sent to the model
+// instead of refusing the load (half (a), statically provable cases) or
+// panicking (half (b), the runtime fallback for cases the static gate cannot
+// prove). No shipped live fixture interpolates a `Result` (the bug doc's own
+// observation), so neither half had live reach before this addition.
+//
+// Two halves, one cell each, mirroring the bug 0070/0071/0110/0077
+// registration-only precedent above — including for HALF (b): the panic
+// fires INSIDE `renderQueryText` (`stringifyInterpolation`,
+// src/extension/production-theta-producer.ts), strictly BEFORE any provider
+// dispatch (the QRY-6 comment at the render call site: the bare rendered
+// template is "evaluated … before any provider turn is issued"), so this
+// cell too spends ZERO tokens — the drive never reaches
+// `pi.sendUserMessage`.
+//
+// HALF (a): `let r = Ok(1)` behind an untyped `${r}` interpolation is a
+// `Result` the static gate PROVES (an `Ok` constructor by construction,
+// `isCertainResultNode`, src/parser/type-layer-checks.ts); the row fires at
+// TYPE-phase parse, `hasLoadParseError`
+// (src/extension/production-composition.ts) un-registers on any
+// `theta/parse/*` error-severity diagnostic, so the caller never registers —
+// the SAME registration-absence observable the bug 0070/0071/0110/0077 cells
+// assert, applied to this bug's own static gate.
+//
+// HALF (b): `fn mk() { Ok(1) }` / `let r = mk()` LAUNDERS the binding past the
+// static gate (an unannotated `fn`'s return type is invisible to
+// `collectFnReturnAnnotations` — `type-layer-checks.ts`'s own §Fix (a)
+// doc-comment: "a call types as its callee's bare NAME"), so this fixture
+// registers cleanly. Driving its slash command reaches `renderQueryText` →
+// `stringifyInterpolation`, which raises `InterpolatedResultPanic`
+// (src/render/query-render.ts) instead of `JSON.stringify`ing the carrier;
+// `composeThetaFixture.run`'s top-level outer catch
+// (theta-composition-producer.ts) frames it as `theta /<name> aborted:
+// <message>` on the `theta-system-note` channel (AGENTS.md §"Assert on real
+// observables") and the drive never reaches `pi.sendUserMessage` —
+// `turn.userTexts` stays empty, which is runtime-value-model.md's own
+// wire-leak invariant ("a `Result` value never crosses the wire") read off
+// the real production composition instead of the offline drive double
+// (tests/interpolated-result-gate.test.ts).
+// ===========================================================================
+
+/** `theta/parse/interpolated-result`'s registered Message — DIAG-4, read not copied. */
+const INTERPOLATED_RESULT_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * The panic-framing `theta-system-note` text `composeThetaFixture.run`'s
+ * outer catch composes for a bare `ThetaPanic` (`theta /<name> aborted:
+ * <message>`, theta-composition-producer.ts) — the message half is the
+ * registry row, read not copied (DIAG-4), mirroring this file's existing
+ * `invokePathEscapeFragment` helper for the bug 0110 cell above.
+ */
+function interpolatedResultAbortedNote(slashName: string): string {
+  const message = registryMessage(
+    INTERPOLATED_RESULT_REGISTRY,
+    INTERPOLATED_RESULT_CODE,
+  ) as string | undefined;
+  expect(
+    message,
+    `${INTERPOLATED_RESULT_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  return `theta /${slashName} aborted: ${message as string}`;
+}
+
+/** Half (a) — a `Result` the static gate PROVES: an `Ok` constructor, interpolated directly. */
+function interpolatedResultRefusedTheta(): string {
+  return ["---", "mode: prompt", "---", "let r = Ok(1)", "@`x${r}`", ""].join("\n");
+}
+
+/**
+ * Half (b) — the SAME shape laundered past the static gate through an
+ * UNANNOTATED `fn` return (the `tests/interpolated-result-gate.test.ts`
+ * `LAUNDERED` fixture, mirrored here for the live composition): the
+ * binding's static type is the callee NAME, not a `Result`, so the static
+ * gate cannot prove it and this theta registers; the runtime value is a
+ * genuine branded `Result`, so the render panics.
+ */
+function interpolatedResultLaunderedTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "fn mk() {",
+    "  Ok(1)",
+    "}",
+    "let r = mk()",
+    "@`x${r}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0079 (a): a Result-typed interpolation the static gate can prove refuses to register (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose untyped `${…}` interpolates a directly-constructed `Ok(1)`, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // refused theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the static gate.
+      { source: "project", stem: "b79livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b79liverefused", text: interpolatedResultRefusedTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b79livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the static gate, would explain the refused theta's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the unit witness uses),
+      // a `Result`-typed interpolation the static gate can prove refuses to
+      // register — `theta/parse/interpolated-result` un-registers it at the
+      // SAME `hasLoadParseError` site the bug 0070/0071/0110/0077 cells above
+      // exercise for their own codes.
+      expect(
+        handle.command("b79liverefused"),
+        "the caller whose `${…}` interpolates a directly-constructed `Ok(1)` " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/parse/interpolated-result did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b79liverefused");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+describe("H8a-T — bug 0079 (b): a laundered Result interpolation panics instead of sending the carrier (Convention: live-host acceptance)", () => {
+  it("registers a caller whose `${…}` interpolates a Result laundered through an unannotated fn, then aborts the drive with the registered panic before any turn is sent", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b79livepanic", text: interpolatedResultLaunderedTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the static gate cannot see this laundered shape (an
+      // unannotated `fn`'s return type never reaches `collectFnReturnAnnotations`),
+      // so the theta must register before the drive below can exercise the
+      // runtime fallback.
+      expect(
+        handle.command("b79livepanic"),
+        "the laundered-Result caller did not register — either the static " +
+          "gate over-fired on a shape it should defer (a regression this cell " +
+          "does not intend to test) or discovery/registration itself " +
+          "regressed. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: `stringifyInterpolation` raises
+      // `InterpolatedResultPanic` INSIDE `renderQueryText`, strictly before any
+      // provider dispatch (the render happens before the model is even built —
+      // see the QRY-6 comment at the call site), so this drive spends ZERO
+      // tokens regardless of the fix: no `pi.sendUserMessage` call is ever
+      // reached on the fixed path. `driveSlashCaptureTurn`'s `prompt()` still
+      // RESOLVES (AGENTS.md §"Assert on real observables" — a fail-closed
+      // drive resolves; failures surface as notes, not throws), so the
+      // deterministic observables are `turn.userTexts` (must stay empty — the
+      // wire-leak invariant) and `turn.systemNotes` (must carry the panic
+      // framing), never `prompt()` merely settling.
+      const turn = await driveSlashCaptureTurn(handle, "/b79livepanic");
+      expect(
+        turn.userTexts,
+        "DIRECTION 2 (runtime-value-model.md: \"a Result value never crosses " +
+          "the wire\"): no user turn may be sent once the render panics. " +
+          "Sent: " + JSON.stringify(turn.userTexts),
+      ).toEqual([]);
+      expect(
+        turn.systemNotes,
+        "PRIMARY (bug 0079 §Fix (b)): the panic must be framed on the " +
+          "theta-system-note channel with the registered code's message " +
+          "(DIAG-4, read from code-registry-parse.md, never copied prose). " +
+          "System notes: " + JSON.stringify(turn.systemNotes),
+      ).toEqual([interpolatedResultAbortedNote("b79livepanic")]);
     } finally {
       await handle.dispose();
       workspace.dispose();

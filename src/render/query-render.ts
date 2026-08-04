@@ -31,6 +31,7 @@
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type ValidationError } from "../runtime/query-error";
 import { type ThetaValue } from "../runtime/value";
+import { ThetaPanic } from "../runtime/runtime-panics";
 import { renderCanonicalNumber } from "./canonical-number";
 import {
   translateOutbound,
@@ -93,6 +94,26 @@ export const EMPTY_TEMPLATE_MESSAGE =
 /** Registry Message for `theta/parse/interpolated-result`. */
 export const INTERPOLATED_RESULT_MESSAGE =
   "Result value cannot be interpolated; unwrap with ? or match first";
+
+/**
+ * The QRY-18 runtime fallback for a `Result`-valued `${expr}` interpolation
+ * whose static type the type-layer gate (`src/parser/type-layer-checks.ts`)
+ * could not resolve ahead of load (e.g. an inferred binding that widens past
+ * the parser's static view). Carries the same registered
+ * `theta/parse/interpolated-result` code the static gate emits — QRY-18's
+ * "static where possible, runtime where not" posture. A `ThetaPanic`
+ * subclass, not a plain thrown `Error`, so `isThetaPanic` classifies it and
+ * QRY-21 (a panic during interpolation is never caught by `let _ =`) holds
+ * for it, exactly as it already does for `MissingObjectKeyPanic` /
+ * `NullMemberAccessPanic` (`../runtime/runtime-panics.ts`).
+ */
+export class InterpolatedResultPanic extends ThetaPanic {
+  readonly code = INTERPOLATED_RESULT_CODE;
+  constructor(message: string) {
+    super(message);
+    this.name = "InterpolatedResultPanic";
+  }
+}
 
 /**
  * The `ValidationError.message` the runtime short-circuit carries (QRY-6). The

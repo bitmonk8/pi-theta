@@ -50,6 +50,12 @@ import type {
   ThetaBody,
   Stmt,
 } from "./theta-document";
+import { parseExpressionSource } from "./theta-document";
+import {
+  INTERPOLATED_RESULT_CODE,
+  INTERPOLATED_RESULT_MESSAGE,
+  lexQueryTemplate,
+} from "../render/query-render";
 import {
   checkCompatible,
   checkCommonType,
@@ -218,10 +224,11 @@ interface WalkCtx {
 export function checkTypeLayer(body: ThetaBody, file: string): Diagnostic[] {
   const pass = new StaticTypeInferencePass({ checkCompatible });
   const env = collectTypeEnv(body.statements);
+  const fnReturns = collectFnReturnAnnotations(body.statements);
   // Run the `V20b` read-only whole-program pass in production: it types every
   // statement-level node and validates the substrate composes with the parse.
   pass.infer(body, env);
-  const checker = new TypeLayerWalk(pass, env, file);
+  const checker = new TypeLayerWalk(pass, env, file, fnReturns);
   checker.walkBlock(body, new Map(), { returnScope: { kind: "inferred" } });
   return checker.diagnostics;
 }
@@ -321,6 +328,26 @@ export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
     }
   }
   return env;
+}
+
+/**
+ * The declared return-type annotation of every top-level `fn` that wrote one,
+ * keyed by name (bug 0079 §Fix (a)). This is the static gate's only source for
+ * a callee's declared `Result`-ness: `TypeEnv` (type-compat.ts) holds `schema`
+ * declarations only, and a `call` node's inferred type is its callee's bare
+ * NAME (static-type-inference.ts), never its declared return type — so an
+ * annotated `fn`'s `Result<…>` return is otherwise invisible past the call
+ * site. Top-level only, mirroring `collectFns` (query-schema-resolve.ts): a
+ * nested `fn`'s return annotation is not this gate's concern.
+ */
+function collectFnReturnAnnotations(statements: readonly Stmt[]): ReadonlyMap<string, string> {
+  const fnReturns = new Map<string, string>();
+  for (const stmt of statements) {
+    if (stmt.kind === "fn" && stmt.returnType !== null) {
+      fnReturns.set(stmt.name, stmt.returnType);
+    }
+  }
+  return fnReturns;
 }
 
 /**
@@ -507,6 +534,19 @@ function isResultAnnotation(src: string): boolean {
 }
 
 /**
+ * Whether a type NAME spells the GENERIC `Result<…>` form. Deliberately
+ * narrower than `isResultAnnotation` above, which reads an author's WRITTEN
+ * annotation: this predicate reads a name `static-type-inference.ts` minted,
+ * and that mint draws on author-controlled identifiers (an enum variant, an
+ * object field, a callee, a schema). `<` cannot occur in an identifier, so
+ * demanding it makes the acceptance unambiguous by construction, where the bare
+ * `Result` that `isResultAnnotation`'s `\b` admits would not be.
+ */
+function isResultGenericTypeName(name: string): boolean {
+  return /^Result</.test(name.trim());
+}
+
+/**
  * A per-parse walk feeding the wired `type`-phase checkers. Holds only per-parse
  * state (the injected pass, the type env, the file, the accumulated diagnostics)
  * — no module-level mutable state.
@@ -514,10 +554,19 @@ function isResultAnnotation(src: string): boolean {
 class TypeLayerWalk {
   public readonly diagnostics: Diagnostic[] = [];
 
+  /**
+   * The type objects recorded for `let` bindings whose initialiser is a
+   * `Result` by construction — the bug-0079 §Fix (a) ident provenance channel,
+   * keyed by OBJECT IDENTITY (the WHY is at the `let` arm that populates it).
+   * Per-parse instance state, like `diagnostics`.
+   */
+  private readonly resultBindings = new Set<CompatType>();
+
   public constructor(
     private readonly pass: StaticTypeInferencePass,
     private readonly env: TypeEnv,
     private readonly file: string,
+    private readonly fnReturns: ReadonlyMap<string, string>,
   ) {}
 
   /** The static type the `V20b` pass assigns `expr` under the in-scope bindings. */
@@ -592,6 +641,24 @@ class TypeLayerWalk {
             stmt.name,
             annotation === undefined ? rhsType : unfoldAlias(annotation, this.env),
           );
+          if (annotation === undefined && this.isCertainResultNode(stmt.init)) {
+            // Bug 0079 §Fix (a) — remember this binding's `Result`-ness by the
+            // IDENTITY of the type object recorded above, never by its name.
+            // `CompatType` has no `Result` shape, so a `Result` binding records
+            // a `named` reference whose name (`Ok` / `Err` / a callee) an enum
+            // variant, a field, or a plain `fn` can spell equally well; the
+            // object `#typeExpr` minted for THIS initialiser is unique to it.
+            // `#typeExpr`'s `ident` arm returns the very object `bindings`
+            // holds, and each nested scope's `new Map(bindings)` copies the
+            // same references, so shadowing and scope exit come out right with
+            // no name-keyed side table — which would misread the `r` of
+            // `let r = 5` / `if c { let r = Ok(1) }` / `${r}` as a `Result`.
+            // An annotated binding is excluded because the annotation IS its
+            // recorded type: a written `Result<…>` is caught by the generic-name
+            // acceptance instead, and any other annotation is the author
+            // declaring a non-`Result`.
+            this.resultBindings.add(rhsType);
+          }
         }
         return;
       }
@@ -1121,8 +1188,11 @@ class TypeLayerWalk {
         this.walkBlock(e.body, inner, flow);
         return;
       }
+      case "query":
+        this.checkQueryInterpolationResults(e, bindings);
+        return;
       default:
-        // ident / number / string / bool / null / query — no nested checks.
+        // ident / number / string / bool / null — no nested checks.
         return;
     }
   }
@@ -1185,6 +1255,130 @@ class TypeLayerWalk {
       default:
         return undefined;
     }
+  }
+
+  /**
+   * Bug 0079 §Fix (a) — the QRY-18 `Result<T, E>` interpolation row: a
+   * `${…}` interpolation this walk can PROVE `Result`-valued (see
+   * {@link interpolationIsResult}) draws `theta/parse/interpolated-result`,
+   * located at the enclosing `@`-query's whole range. `QueryTemplatePart`
+   * carries no per-interpolation offsets and `QueryExpr` carries only `template` plus
+   * the whole `range`, so the enclosing query's range is the only locatable
+   * site — the same choice `checkQueryTemplateInterpolations`
+   * (theta-document.ts) makes, for the same reason: the verbatim template
+   * carries no per-interpolation token span.
+   */
+  private checkQueryInterpolationResults(
+    e: Expr & { kind: "query" },
+    bindings: ReadonlyMap<string, CompatType>,
+  ): void {
+    for (const part of lexQueryTemplate(e.template).parts) {
+      if (part.kind !== "interp") {
+        continue;
+      }
+      const parsed = parseExpressionSource(part.exprSource);
+      if (parsed === null || parsed.kind === "try") {
+        // No parse ⇒ no static type to classify. `?` UNWRAPS, so `${…?}` is
+        // never itself the `Result` it consumes — stated here rather than left
+        // to the classifier because `static-type-inference.ts`'s `try` arm
+        // propagates the operand's type verbatim, making the unwrap invisible
+        // to any type read.
+        continue;
+      }
+      if (this.interpolationIsResult(parsed, bindings)) {
+        this.diagnostics.push({
+          severity: "error",
+          code: INTERPOLATED_RESULT_CODE,
+          file: this.file,
+          range: e.range,
+          message: INTERPOLATED_RESULT_MESSAGE,
+        });
+      }
+    }
+  }
+
+  /**
+   * Whether the interpolated expression `parsed` is a `Result` the static layer
+   * can PROVE, classified by where the `Result`-ness comes from rather than by a
+   * type name. `CompatType` has no `Result` shape, so a `Result` arrives as a
+   * `named` reference — but `static-type-inference.ts` mints `named` references
+   * out of author-controlled identifiers too (a member access is `named
+   * <field>`, an `Ok`/`Err` constructor is `named "Ok"`/`"Err"`, a call is
+   * `named <callee>`), so matching those names reads `Result` meaning into an
+   * unrelated namespace: `enum Status { Ok, Bad }` / `${Status.Ok}` is QRY-18's
+   * ENUM row, and a `string` field sharing a name with a `Result`-returning `fn`
+   * is its object row. Hence three provenances, each unambiguous:
+   *
+   *   1. the node is a `Result` by construction — an `Ok`/`Err` constructor, or
+   *      a call to a `fn` whose written return annotation names one;
+   *   2. an identifier whose recorded binding type carries (1)'s provenance
+   *      (`resultBindings`, keyed by object identity);
+   *   3. a type named in the generic `Result<…>` form — a written annotation, an
+   *      annotated `fn` parameter, or a `par for` element (CTRL-3). `<` bars any
+   *      identifier from colliding with it.
+   *
+   * Everything else is left to §Fix (b)'s runtime panic. The asymmetry is the
+   * point: an unprovable interpolation degrades to the runtime fallback, whereas
+   * a wrong emission refuses a valid theta at load, which is what this module's
+   * header and the adjacent `questionOperandKind` (bug 0019) both forbid.
+   */
+  private interpolationIsResult(
+    parsed: Expr,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): boolean {
+    switch (parsed.kind) {
+      case "result-ctor":
+      case "call":
+        return this.isCertainResultNode(parsed);
+      case "ident": {
+        const type = this.typeOf(parsed, bindings);
+        return this.resultBindings.has(type) || this.isResultGenericType(type);
+      }
+      case "index":
+        // CTRL-3 makes a `par for`'s value `array<Result<U, QueryError>>`, so an
+        // element read is the one composite whose type names the generic form.
+        return this.isResultGenericType(this.typeOf(parsed, bindings));
+      default:
+        // `binary` / `ternary` / `match` narrow through `#commonType`
+        // (static-type-inference.ts), which lets an unresolvable operand type
+        // stand in for the whole expression — so a type read on them proves
+        // nothing about the expression's own type. Every remaining kind types as
+        // a `named` reference built from an author-chosen identifier, which
+        // cannot spell the generic form.
+        return false;
+    }
+  }
+
+  /**
+   * Whether `e`'s node kind alone makes it a `Result`: an `Ok`/`Err`
+   * constructor, or a call to a `fn` whose own WRITTEN return annotation names a
+   * `Result`. `this.fnReturns` is the only source for the latter — `TypeEnv`
+   * carries schema declarations only, and a `call` types as its callee's bare
+   * NAME, so an annotated `Result` return is invisible past the call site.
+   */
+  private isCertainResultNode(e: Expr): boolean {
+    if (e.kind === "result-ctor") {
+      return true;
+    }
+    if (e.kind !== "call") {
+      return false;
+    }
+    const declaredReturn = this.fnReturns.get(e.callee);
+    return declaredReturn !== undefined && isResultAnnotation(declaredReturn);
+  }
+
+  /**
+   * Whether `type` is an unresolvable `named` reference spelling the generic
+   * `Result<…>` form. A name `this.env` resolves is a declared schema / enum /
+   * alias and is rejected first, so an author's own `Result`-named declaration
+   * keeps its own meaning.
+   */
+  private isResultGenericType(type: CompatType): boolean {
+    return (
+      type.kind === "named" &&
+      resolveNamed(this.env, type.name) === undefined &&
+      isResultGenericTypeName(type.name)
+    );
   }
 
   /** The indexed-access receiver / object-index checks (owned V3a / V3h). */

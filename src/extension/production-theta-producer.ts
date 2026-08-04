@@ -250,6 +250,7 @@ import {
   registerToolInCache,
 } from "../runtime/tool-registration";
 import {
+  InterpolatedResultPanic,
   lexQueryTemplate,
   renderEmptyShortCircuit,
   renderTemplateText,
@@ -5617,7 +5618,10 @@ function splitParamDefaultSource(raw: string): string | undefined {
  * runtime value by the QRY-18 rule, and apply the QRY-7 newline-trim → dedent
  * normalisation. An interpolation whose source does not parse, or that has no
  * pure runtime value (an effectful `fn` body / tool-call), yields the inert
- * `null` render (the expressions.md safety net), never a throw.
+ * `null` render (the expressions.md safety net) rather than a throw; a
+ * `Result`-valued interpolation the static type-layer gate could not prove
+ * instead aborts the theta with QRY-18's runtime-fallback panic (see
+ * `stringifyInterpolation`).
  */
 function renderQueryText(expr: QueryExpr, env: LexicalEnvironment): string {
   const lexed = lexQueryTemplate(expr.template);
@@ -5641,9 +5645,14 @@ function renderQueryText(expr: QueryExpr, env: LexicalEnvironment): string {
  * from the resulting runtime `ThetaValue` — numbers route through the canonical
  * decimal renderer (so `Infinity`/`NaN` render as `Infinity`/`NaN`, not
  * `null`), an enum renders its bare unquoted wire value, and arrays/objects
- * render as compact JSON. A `Result` value is not statically rejectable here
- * (this is the runtime render, not a parse) — it renders as compact JSON,
- * preserving the prior non-crashing behaviour rather than emitting a diagnostic.
+ * render as compact JSON. A `Result` value reaching this render is one the
+ * static type-layer gate (`src/parser/type-layer-checks.ts`) left unproven: it
+ * refuses the load only where the expression's `Result`-ness is certain from its
+ * provenance, and defers every other shape — a binding laundered through an
+ * unannotated `fn`, a `Result` reached through an operand the inference layer
+ * narrows, a `Result` held inside a container. Those shapes arrive here, so this
+ * render raises `INTERPOLATED_RESULT_CODE` as a panic (QRY-18's runtime
+ * fallback) instead of serialising the interpreter-private carrier (bug 0079).
  */
 function stringifyInterpolation(source: string, env: LexicalEnvironment): string {
   const parsed = parseExpressionSource(source);
@@ -5664,10 +5673,13 @@ function stringifyInterpolation(source: string, env: LexicalEnvironment): string
     return JSON.stringify(translateInterpolationOutbound(value, env));
   }
   const rendered = stringifyInterpolatedValue(value, type);
-  // `stringifyInterpolatedValue` only reports `ok: false` for the static
-  // `result` arm, which `interpolationTypeOf` never selects, so the value branch
-  // always holds; the JSON fallback keeps this total without a throw.
-  return rendered.ok ? rendered.text : JSON.stringify(value);
+  if (!rendered.ok) {
+    // QRY-18's runtime fallback (bug 0079): a `Result` reaching this render is
+    // one the static gate left unproven, so it aborts the theta with the same
+    // registered code rather than rendering the carrier.
+    throw new InterpolatedResultPanic(rendered.diagnostic.message);
+  }
+  return rendered.text;
 }
 
 /**
@@ -5739,9 +5751,11 @@ function arrayElementTypeSource(source: string): string | undefined {
  * Derive the QRY-18 `InterpolationType` discriminator from a runtime
  * `ThetaValue`. A number uses the `number` rule (canonical decimal, no trailing
  * `.0`, `Infinity`/`NaN` verbatim); an enum uses the bare-wire `enum` rule; a
- * `Result` is rendered as compact JSON via the `object` arm, preserving the
- * prior non-crashing render (the static `result`-rejection arm is a parse-time
- * concern, not reachable on this runtime render path).
+ * `Result` is classified by its interpreter-private brand — never by key
+ * presence, so an ordinary object carrying a boolean `ok` field still takes
+ * the `object` arm below (bug 0017) — ahead of the `object` fall-through, so
+ * `stringifyInterpolation` can raise QRY-18's runtime fallback for it instead
+ * of serialising the carrier (bug 0079).
  */
 function interpolationTypeOf(value: ThetaValue): InterpolationType {
   if (typeof value === "string") {
@@ -5762,9 +5776,10 @@ function interpolationTypeOf(value: ThetaValue): InterpolationType {
   if (Array.isArray(value)) {
     return { kind: "array" };
   }
-  // A plain object schema value or a `Result` — compact JSON (a `Result`
-  // serialises through its `ok`/`value`/`error` shape, preserving the prior
-  // non-crashing behaviour).
+  if (isResultValue(value)) {
+    return { kind: "result" };
+  }
+  // A plain object schema value — compact JSON.
   return { kind: "object" };
 }
 

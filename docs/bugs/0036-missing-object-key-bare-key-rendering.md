@@ -111,6 +111,15 @@ and `o["absent"]` will render identically when it lands.
 **Residuals.** None. Bug 0027 §Fix (0.39.0) residual (iii) — this exact
 divergence, then unfiled — is discharged by this fix.
 
+**Coordination with bug 0079** (added at that report's fix). This report is the
+precedent for the class it names: a conformant renderer in-tree, pinned green by
+a unit test, with no production caller.
+[0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md) was a
+second instance — `stringifyInterpolatedValue`'s `case "result"` arm, reachable
+only from a hand-supplied discriminator — and its fix (0.69.0) closed it the same
+way: give the existing arm a production caller rather than change the arm, and
+leave the registry row untouched.
+
 ## Summary
 
 Placeholder-rendering §5 defines `<key>` as quoted-when-not-identifier-shaped

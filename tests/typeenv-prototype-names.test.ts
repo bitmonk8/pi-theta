@@ -33,7 +33,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // declaration ever puts in. The eight reads are the whole consumer surface:
 // `unfoldAlias` (src/parser/type-compat.ts:149), `decide`'s three TYPE-10 arms
 // (:238, :242, :252), `classifyIndexReceiver` (:365), `classifyOperand`
-// (src/parser/type-layer-checks.ts:129), `classifyReceiver` (:172), and
+// (src/parser/type-layer-checks.ts:135), `classifyReceiver` (:178), and
 // `declaredFieldsOf` (:906, the one read already shape-guarded).
 //
 // TWO SYMPTOMS, ONE MECHANISM.
@@ -503,7 +503,7 @@ describe("bug 0038 (b) — the w1 shape over every `Object.prototype` own proper
 
 describe("bug 0038 (c) — the parse reports; it does not throw", () => {
   it("RED t1: `let r = 1 + constructor` reports unknown-identifier and loads", () => {
-    // The route through `classifyOperand` (type-layer-checks.ts:129) via
+    // The route through `classifyOperand` (type-layer-checks.ts:135) via
     // `checkPlusOperands` (:1256–1257). The identifier checker already resolves
     // `constructor` correctly — control c10 (`let r = constructor`, bare) proves
     // it — so the throw is contributed by the type layer's own resolution and
@@ -1004,7 +1004,7 @@ describe("bug 0038 (f) — the three exported entry points answer `unknown` for 
 
 // ===========================================================================
 // (g) The construction site — the exported `collectTypeEnv`
-// (src/parser/type-layer-checks.ts:295) driven directly.
+// (src/parser/type-layer-checks.ts:302) driven directly.
 //
 // WHY THIS GROUP EXISTS. Groups (a)–(f) observe the record through a READ, and
 // the read half of §Fix satisfies every one of them on its own: with
@@ -1025,7 +1025,7 @@ describe("bug 0038 (f) — the three exported entry points answer `unknown` for 
 // contextual LEXER diagnostic (src/lexer/lexer.ts:833), not a parse refusal:
 // the `SchemaDecl` still reaches `doc.body.statements`, and `checkTypeLayer`
 // runs over it with no gate on prior diagnostics
-// (src/parser/theta-document.ts:843 → type-layer-checks.ts:220), so
+// (src/parser/theta-document.ts:843 → type-layer-checks.ts:226), so
 // `collectTypeEnv` performs the write on author source text. Group (h) drives
 // that route end to end. The list below is built by hand to isolate the
 // construction site from the parser, so a red here names `collectTypeEnv` and
@@ -1133,7 +1133,7 @@ describe("bug 0038 (g) — the construction site: `collectTypeEnv` returns a rec
 // is a contextual lexer diagnostic (src/lexer/lexer.ts:833) rather than a parse
 // refusal, the `SchemaDecl` lands in `doc.body.statements`, and
 // `checkTypeLayer` runs with no gate on prior diagnostics
-// (src/parser/theta-document.ts:843 → type-layer-checks.ts:220). On a plain
+// (src/parser/theta-document.ts:843 → type-layer-checks.ts:226). On a plain
 // `{}` the object-form write is swallowed by the `Object.prototype.__proto__`
 // setter, which replaces the record's prototype with the `NamedDecl` itself.
 // Two consequences, both observable from source text: the declaration object's

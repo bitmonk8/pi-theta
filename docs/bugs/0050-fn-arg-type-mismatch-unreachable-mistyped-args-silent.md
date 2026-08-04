@@ -40,6 +40,14 @@
   [0033](./0033-body-level-schema-alias-unsupported.md) — the precedent for the
   unwired-checker shape: three exported V5b checkers owning seven registry codes
   had no caller in `src/` until 0.45.0.
+  [0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md) —
+  the same family, fixed in 0.69.0 by the wire-the-caller disposition with no
+  registry change: `theta/parse/interpolated-result` was registered with a
+  Trigger nothing satisfied, and the fix added one emission site at the
+  type-layer walk's `query` arm plus the runtime fallback the row's own Trigger
+  already described. Recorded here as a route, not as a decision: that row's
+  Trigger already covered both dispositions, whereas this report's two options
+  (wire the caller, or retire the row under DIAG-2) remain open and unchosen.
 - **Affected** (every citation verified at HEAD `b34aaa52`, 0.48.0):
   - **The sole emitter** — `checkFnArgCompat`, `src/parser/type-compat.ts:452–480`:
     doc comment `:444–451` ("TYPE-9 — a plain top-level `fn` argument slot"),
