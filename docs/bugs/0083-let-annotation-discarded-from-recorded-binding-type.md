@@ -285,3 +285,37 @@ shifted were corrected.
 - Existing reports read in full for duplicate separation: 0038, 0050.
 - Observations: throwaway vitest parse probe at `d06daae3`, deleted after the
   run.
+
+## Coordination note (0.72.0)
+
+§Fix *Residuals* item (ii) — the `fn`-parameter twin of the alias regression,
+left pre-existing and untouched by this report — is discharged by bug
+[0089](./0089-fn-param-alias-not-unfolded-iterand-join.md)'s fix (0.72.0):
+`checkForIterand` (`src/parser/control-flow.ts`) takes a `TypeEnv` and unfolds
+its iterand, `checkMethodCall`'s `array.join` gate unfolds both the receiver and
+the element it hands `checkArrayJoin`, and the `par for` element derivation
+unfolds in both `src/parser/type-layer-checks.ts` and
+`src/parser/static-type-inference.ts`. `schema L = array<string>` with
+`fn f(xs: L) { for x in xs { … } }` now loads, and the join element gate now
+reports on an alias-typed parameter. The two gates are no longer the two of six
+classifiers that decline TYPE-11.
+
+That fix **composes** with this one rather than replacing it. This report
+changed what the `let` arm **records** (`unfoldAlias(annotation, this.env)`);
+0089 changed what the gates **read**. The record here is untouched, and
+`tests/let-annotation-recorded-binding-type.test.ts` is byte-unchanged and green
+at 19/19 under 0089's fix, which additionally re-asserts the `let` route from
+the `fn`-parameter side.
+
+One pre-existing spelling this report's own reproduction did not separate is
+also healed by 0089's element-level unfold: `schema E = string` with
+`schema L = array<E>` and `let e: L = ["a"]` then `e.join(",")` drew a false
+`theta/parse/non-string-array-join`, because `checkArrayJoin`'s element test
+reads the element's `kind`. Under TYPE-11 `array<E>`'s element type **is**
+`string`, so that emission sat outside the trigger
+`docs/spec_topics/diagnostics/code-registry-parse.md` registers.
+
+This report's group (d) comment on the two gates states that `checkForIterand`
+"is handed no `TypeEnv` to unfold with". 0089's fix makes that false. The line
+is left as found: this file is the `let`-route witness and is held
+byte-unchanged across that fix.

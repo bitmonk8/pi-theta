@@ -24,7 +24,7 @@
 // implementation leaf fills every check in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
-import { type CompatType, displayType } from "./type-compat";
+import { type CompatType, displayType, unfoldAlias, type TypeEnv } from "./type-compat";
 
 /** A located site at which a control-flow form is checked. */
 export interface ControlFlowSite {
@@ -34,7 +34,10 @@ export interface ControlFlowSite {
 
 /**
  * The iterand of a `for x in <iterand>` loop. `type` is the resolved static
- * type of the expression after `in`; only `array<T>` is admissible.
+ * type of the expression after `in`, as recorded by the caller —
+ * `checkForIterand` applies TYPE-11 transparency to it against the
+ * `TypeEnv` it is given, so an alias of `array<T>` is admissible wherever
+ * `array<T>` itself would be.
  */
 export interface ForIterand {
   readonly type: CompatType;
@@ -46,13 +49,25 @@ export interface ForIterand {
  * (iterating a string, object, or number). Returns `undefined` for an
  * `array<T>` iterand (control-flow.md §`for` / `in`).
  *
+ * `env` unfolds `iterand.type` through TYPE-11 before the `kind` test: a
+ * type-alias schema (`schema L = array<string>`) IS `array<string>` under
+ * `⊑`, so an alias must pass this gate exactly as the concrete array type
+ * does. TYPE-10 bounds the unfolding — an object-schema `named` stays
+ * nominal — and an unresolvable `named` stays intact, so both keep
+ * rejecting. The rejection message renders the SAME unfolded value the
+ * `kind` test decided on: the registry *Message* template is `got <type>`,
+ * and under TYPE-11 the alias's right-hand side IS the type, so rendering
+ * anything else would name a type this check no longer sees.
+ *
  * V3c-T stubs this inert (always `undefined`); the paired V3c leaf fills it in.
  */
 export function checkForIterand(
   iterand: ForIterand,
   site: ControlFlowSite,
+  env: TypeEnv,
 ): Diagnostic | undefined {
-  if (iterand.type.kind === "array") {
+  const type = unfoldAlias(iterand.type, env);
+  if (type.kind === "array") {
     return undefined;
   }
   // Message from diagnostics/code-registry-parse.md.
@@ -61,7 +76,7 @@ export function checkForIterand(
     code: "theta/parse/non-array-iterand",
     file: site.file,
     range: site.range,
-    message: `'for' expects array<T> after 'in'; got ${displayType(iterand.type)}`,
+    message: `'for' expects array<T> after 'in'; got ${displayType(type)}`,
   };
 }
 

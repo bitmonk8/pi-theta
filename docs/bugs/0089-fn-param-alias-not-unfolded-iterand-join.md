@@ -1,7 +1,7 @@
 # Bug 0089 — An alias-typed `fn` parameter stays opaque to the two structural gates that never unfold it: `schema L = array<string>` + `fn f(xs: L) { for x in xs { … } }` draws a false `theta/parse/non-array-iterand`, and `schema L = array<integer>` + `xs.join(",")` loses its `theta/parse/non-string-array-join`
 
-- **Status:** open. §Fix is settled — unfold both gates' input through the
-  exported `unfoldAlias` before the `kind` test.
+- **Status:** fixed (0.72.0). §Fix was settled — unfold both gates' input
+  through the exported `unfoldAlias` before the `kind` test.
 - **Kind:** defect. Six type classifiers read a static type at a checking
   boundary. Four resolve a `named` type through the `TypeEnv` and continue on
   the alias right-hand side (TYPE-11); two test `type.kind` on the raw type and
@@ -364,6 +364,189 @@ No spec, registry or `docs/reference/` edit follows.
 code, no new row, no widened trigger. The fix narrows
 `theta/parse/non-array-iterand` back to its registered trigger and restores
 `theta/parse/non-string-array-join` at a receiver the registry already covers.
+
+## Fix (0.72.0)
+
+The settled §Fix implemented as written, at **four** unfolding sites across
+three files — the three §Fix names, plus one the receiver unfold exposed. Two
+review rounds, two fixer rounds, one verification round. Every citation below
+is re-derived at the fix commit; the §Affected anchors above were taken at
+`2eafbf10` (0.55.0) and several had drifted by position, substance intact.
+
+**What shipped.**
+
+- `src/parser/control-flow.ts` — **gate 1.** `checkForIterand` takes a third
+  parameter `env: TypeEnv` and unfolds `iterand.type` through `unfoldAlias`
+  before the `kind === "array"` test, using the same unfolded value for the
+  `displayType` render. The parameter was chosen over §Fix's alternative of a
+  second `ForIterand` field: a trailing `env` parameter is the module-wide
+  convention (`unfoldAlias`, `classifyReceiver`, `classifyIndexReceiver`,
+  `checkCompatible`), and `ForIterand` models the iterand, not the checking
+  environment. Unfolding inside the function covers both call sites.
+- `src/parser/type-layer-checks.ts` — **gate 2 and element derivation 3a.**
+  `walkStmt`'s `case "for"` and `walkExpr`'s `case "par-for"` pass `this.env`
+  to `checkForIterand`. `checkMethodCall` computes
+  `unfoldAlias(targetType, this.env)` once into one local, tests its `kind` in
+  the `join` guard, and reuses it for `classifyReceiver` — which unfolds
+  internally and is unaffected by a pre-unfolded input. `pushUnknownMethod`
+  deliberately keeps the raw `targetType`, so `unknown method '…' on type L`
+  still names the declared type. `walkExpr`'s `par-for` arm unfolds the iterand
+  again at its own site for the loop-variable element binding, independently of
+  the gate.
+- `src/parser/static-type-inference.ts` — **element derivation 3b.**
+  `#typeExpr`'s `par-for` arm unfolds the iterand before its own
+  `kind === "array"` test, so a legal alias iterand supplies the CTRL-3 value's
+  element payload instead of `named "unknown"`.
+- **The fourth site, found by review round 1 and adjudicated into scope.**
+  Unfolding only the receiver exposed `checkArrayJoin`'s own raw element test:
+  `schema E = string` / `schema L = array<E>` / `fn f(xs: L): string { xs.join(",") }`
+  flipped from `[]` at `36540b09` to a **false** error-severity
+  `theta/parse/non-string-array-join`, so a spec-legal theta that loaded would
+  have stopped registering. The `checkArrayJoin` call therefore passes
+  `unfoldAlias(unfoldedTarget.element, this.env)`. This is inside the settled
+  §Fix on the 0083 precedent, whose own review round 1 found the literal §Fix
+  "regressed two spec-legal dispositions through an alias" and resolved it by
+  applying TYPE-11 transparency. It is also DIAG-2-required: the registered
+  trigger (`code-registry-parse.md:43`) is "an array whose element type is not
+  `string`", and under TYPE-11 `array<E>` with `schema E = string` **has**
+  element type `string`, so the emission sat outside its own registered
+  trigger — the identical fault this report prosecutes gate 1 for.
+  `checkArrayJoin` is a pure element predicate holding no `TypeEnv`, and has
+  exactly one caller, so the transparency belongs at the call site. Because
+  that one line serves every spelling of its input, the concrete-receiver
+  (`array<E>`) and `let`-route spellings of the same element defect are healed
+  with it — a consequence of putting the check inside its registered trigger,
+  not a separate feature.
+
+**How it composes with 0083 rather than duplicating it.** 0083 (0.55.0) closed
+the `let` route by changing what is **recorded** — `walkStmt`'s `case "let"`
+records `unfoldAlias(annotation, this.env)` — and deliberately left both gates
+unmodified, because unfolding inside them would also have changed the
+`fn`-parameter route it did not own. This fix changes what the gates **read**,
+and leaves the `let` record untouched. Both routes now reach the same answer by
+different means, and the `let`-route controls are green in both witnesses:
+`tests/let-annotation-recorded-binding-type.test.ts` is byte-unchanged at
+19/19, and rows a3, b3, b7 and d3 of the new witness re-assert the `let` route
+from the `fn`-parameter side. §Fix's rejected route — unfolding at `walkFn`'s
+parameter record — is untouched: recording the declared type raw is correct,
+and the four classifiers that already resolve it (group (c)) prove the record
+is not the fault.
+
+**The re-derived pre-fix baseline.** Every row of §Reproduction groups (a),
+(b), (c), (d) and (e) was re-measured at `36540b09` through the production
+`parseThetaDocument`, sixteen versions after the `2eafbf10` observation.
+**No drift**: all twenty-three rows reproduced their recorded codes and
+messages exactly, including group (e) row 5's
+`["theta/parse/type-alias-cycle", "theta/parse/non-array-iterand"]`. Three
+observables the report did not record were measured and are now pinned: group
+(e) row 4's message was `got Q`; group (c) row 1's was
+`unknown method 'frobnicate' on type L`; and the §Non-goals plain-`for`
+body-scope gap reports `[]` even for a concrete `array<string>` parameter.
+
+**Deliberate observable changes, all pinned.** Group (e) row 3 moves from
+`got S` to `got string` and row 4 from `got Q` to `got P`: gate 1 renders the
+same value it tested, which is what `code-registry-parse.md:64`'s `got <type>`
+template names under TYPE-11. The join gate's message likewise renders the
+unfolded element (`got array<integer>` for `schema E = integer`), identically
+across both receiver spellings. Group (e) row 5 is **unchanged** at `got A`: a
+type-alias-cycle participant is omitted from the `TypeEnv` by `collectTypeEnv`,
+so `unfoldAlias` leaves it intact and it behaves as an unresolvable name. The
+corpus sweep `rg -n "expects array<T> after" tests/ docs/` was re-run at
+`36540b09` and confirms no committed fixture asserts an alias-name form: one
+assertion (`tests/control-flow.test.ts`, `got string` for a concrete `string`,
+invariant here), two registry rows, two comments, and one RFC prose line.
+
+**Bounds asserted, not assumed.** An object-schema `named` and an alias of one
+stay non-iterable (TYPE-10). An unresolvable `named` keeps its asymmetric
+disposition — reject at gate 1, defer at gate 2. The registered trigger
+populations keep rejecting: a `string` iterand, an object-schema iterand, an
+alias of a `string`, a concrete `array<integer>` join receiver. At the element
+level the same three bounds hold: `array<P>` over an object schema,
+`array<Nope>` over an undeclared name, and `array<A>` over a cycle participant
+all keep emitting with their own rendered names.
+
+**Gates.** Witness
+`npx vitest run tests/fn-param-alias-unfolded-at-gates.test.ts` →
+`Tests 36 passed (36)`. Full default suite `npm test` →
+`Test Files 264 passed (264) / Tests 3857 passed (3857)`, against a
+`9fe13534` baseline of 263 / 3821. `npx tsc -p tsconfig.json --noEmit` → exit
+0, no output. `npm run lint` → exit 0, no output.
+`tests/committed-fixture-parse-gate.test.ts` → 34/34, and identical under a
+combined revert of all five neutralisations, so no shipped `.theta` fixture's
+disposition moved; the two `.thetalib` files declare no type-alias schema and
+neither `for`-iterates nor joins an aliased parameter.
+
+**Five independent neutralisation proofs.** §Fix mandates three, because the
+sites are independent `kind === "array"` tests; the fourth site added a fourth,
+and gate 2 splits into receiver and element. Each was a targeted byte edit,
+run, then restored byte-exact and hash-verified (`git stash` was never used).
+Gate 1 alone → `a1`, `a4`, `a5` full, the message halves of `e3`/`e4`, **plus**
+`d1` and `s1` full, because sites 3a/3b are observable only once gate 1 admits
+the iterand. Gate 2's receiver alone → `b1` and `b9`, both full. Gate 2's
+element alone → `b5`–`b8` full plus the message halves of `b9`/`b10`. Site 3a
+alone → `d1` only. Site 3b alone → `s1`'s message half only, its code list
+holding because an `array`-kind receiver has no `frobnicate` member whatever
+the payload name says. A **combined** revert is demonstrably insufficient
+evidence: under it `b5` passes for the wrong reason, the receiver guard bailing
+out before the element predicate is reached.
+
+**Tests.** `tests/fn-param-alias-unfolded-at-gates.test.ts` — 36 rows, offline,
+through the production `parseThetaDocument` over the shared `parseDoc` harness.
+Groups (a), (b), (c), (d) and (e) replay §Reproduction; `b5`–`b13` are the
+element-level rows and their three bounds; group (s) is the sole witness for
+site 3b, reached through the `par for` value's `Result<U, QueryError>` payload
+render; `n1` pins the §Non-goals plain-`for` gap as staying `[]`, so a fix that
+widened into it would red. Every row asserts the exact aggregated code list
+with `toEqual`, never a containment matcher, and every asserted message carries
+a registry citation (DIAG-4). `tests/control-flow.test.ts` — the four direct
+`checkForIterand` seam calls gained the third argument, which §Fix
+pre-authorized ("a signature change updates those four calls"); no assertion
+was weakened, reworded, reordered or deleted, and the file is otherwise
+byte-identical. **Live:** an additive registration-only H8a cell in
+`tests/live/live-production-acceptance.test.ts` (+172/−0, zero tokens, the
+0084 precedent) plants `schema L = array<string>` with
+`fn f(xs: L) { for x in xs { … } }` in a real workspace beside a precondition
+control, boots the shipped extension, and asserts the alias-typed caller
+**registers** and that the `theta-system-note` channel read off the settled
+`SessionManager` carries no `non-array-iterand` rejection. Both directions
+proved: with gate 1 neutralised the control registers and the alias caller does
+not; restored, it does. `tests/live/live-production-acceptance.test.ts` → 16/16
+and `tests/live/acceptance/` → 11/11 on real runs.
+`tests/fixtures/h7a/permitted-codes.json` is byte-unchanged
+(`a4a8da04209f90e13d815edd92c1fc682e2a2236`) — this fix only removes emissions,
+so it cannot add to H9a's empty-capture stderr gate, and the real runs confirm
+it.
+
+**No spec, registry or `docs/reference/` edit.** DIAG-2 held throughout: no new
+code, no new row, no widened trigger. Both changes narrow an emission back
+inside a trigger the registry already carries.
+
+**Residuals.** (i) `#typeExpr`'s **index**-element derivation
+(`static-type-inference.ts`, the `target.kind === "array" ? target.element :
+named "index"` shape) has the identical TYPE-11 opacity at a site §Fix does not
+name, and is unchanged here: `schema L = array<string>` with
+`fn f(xs: L) { let y = xs[0]  y.frobnicate() }` reports `[]`, where the
+concrete-parameter control reports `unknown method 'frobnicate' on type
+string`. Pre-existing and out of the settled scope. (ii) The §Non-goals
+plain-`for` body-scope gap is confirmed, not closed: `walkStmt`'s `case "for"`
+binds no loop variable at all, so
+`fn f(xs: array<string>) { for x in xs { x.frobnicate() } }` reports `[]` even
+with a concrete array parameter. Row `n1` pins it as a tripwire.
+(iii) `tests/let-annotation-recorded-binding-type.test.ts`'s group (d) comment
+states that `checkForIterand` "is handed no `TypeEnv` to unfold with", which
+this fix makes false. That file is 0083's witness and is held byte-unchanged,
+so the comment is left as found. (iv) `rg` of the corpus for citations into the
+three edited files found none staled by this fix's line shifts; the pre-existing
+drift 0083 residual (iii) records is left as found.
+
+**Discharge notes appended:** 0083 (its §Fix residual (ii) named this route as
+out of scope and is now discharged), 0050 (same `fn` boundary, disjoint check —
+note only), 0033 (the classification `unfoldAlias` reads).
+
+**Pinned dispositions / non-goals.** The unresolvable-`named` asymmetry —
+reject at gate 1, defer at gate 2 — is preserved deliberately, not
+incidentally. `walkFn`'s parameter record stays raw. `checkFnArgCompat` still
+has no `src/` caller, so 0050 is untouched in both directions.
 
 ## Provenance
 

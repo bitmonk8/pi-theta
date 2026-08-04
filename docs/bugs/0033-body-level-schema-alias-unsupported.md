@@ -686,3 +686,24 @@ union.
   the `params:` reach; constructors on an alias name and on a body-less head;
   the body-less and non-`ident`-body heads; and two controls), run on the
   outputs quoted above, then deleted per scratch policy.
+
+## Coordination note (0.72.0)
+
+The three-way `TypeEnv` classification this report established — `object-schema`
+(nominal, TYPE-10), `alias` (transparent, TYPE-11), and a head-only declaration
+omitted from the env — is what bug
+[0089](./0089-fn-param-alias-not-unfolded-iterand-join.md) consumes in 0.72.0 at
+four sites that previously tested a static type's `kind` without reading it: the
+`for` / `par for` iterand gate, the `array.join` receiver and element gates, and
+the `par for` loop-variable element derivation in both the type-layer walk and
+the whole-program typing pass. Nothing in this report's own surface changed; the
+classification and `collectTypeEnv`'s cycle-participant omission were read, not
+modified.
+
+That omission carries more weight after 0.72.0 than it did before, and is worth
+recording as a load-bearing invariant: `unfoldAlias` terminates **because** a
+cycle-participating declaration is absent from the env, so a cycle participant
+unfolds to itself and behaves as an unresolvable name. 0089 pins that
+disposition explicitly — `schema A = B` / `schema B = A` with `A` as an iterand
+still reports `theta/parse/type-alias-cycle` alongside
+`theta/parse/non-array-iterand`, and still renders the participant's own name.

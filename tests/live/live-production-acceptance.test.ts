@@ -1638,3 +1638,175 @@ describe("H8a-T — bug 0084: `--` in a while body draws theta/parse/increment-d
     }
   });
 });
+
+// ===========================================================================
+// Bug 0089 — an alias-typed `fn` parameter stayed opaque to `checkForIterand`
+// (src/parser/control-flow.ts): the gate tested `iterand.type.kind` directly,
+// so a type-alias schema over `array<T>` (`schema L = array<string>`) never
+// read as `array<T>` there, even though TYPE-11 (type-system.md:54) makes `L`
+// and `array<string>` the SAME type — "on whichever side of a `T₁ ⊑ T₂`
+// check it appears, it is replaced by its right-hand side". `schema L =
+// array<string>` with `fn f(xs: L) { for x in xs { … } }` therefore drew a
+// FALSE `theta/parse/non-array-iterand` (control-flow.md:13 admits any
+// `array<T>` iterand, alias or not; docs/bugs/0089-fn-param-alias-not-
+// unfolded-iterand-join.md §Reproduction (a) row 1). The fix unfolds
+// `iterand.type` through the exported `unfoldAlias` (type-compat.ts:155)
+// before the `kind` test (§Fix item 1), given `env` as a new third parameter
+// both call sites already hold (`this.env`).
+//
+// The check fires at TYPE phase, INSIDE `parseThetaDocument`'s own
+// `document.diagnostics` (an `error`-severity `theta/parse/*` diagnostic), so
+// `hasLoadParseError` (production-composition.ts) un-registers the caller at
+// the SAME site the bug 0070/0071/0077/0079(a)/0110/0084 cells above exercise
+// for their own codes — but in the OPPOSITE direction: those fixes ADD a
+// missing rejection (a caller that wrongly registered now correctly does
+// not); this fix REMOVES a wrong one (a caller that wrongly failed to
+// register now correctly does). Pre-fix the alias-typed caller below fails to
+// register; post-fix it registers, which is what this cell asserts — the
+// registered, not the refused, direction.
+//
+// No shipped live fixture (H8a, H9a, or the hardening probes) declares a
+// type-alias schema (`schema X = R`) anywhere before this cell — confirmed
+// statically (`rg -n "^schema \w+ = " tests/live/ docs/examples/` matches
+// nothing before this addition) — so no existing live fixture had reach over
+// this gate's alias route, mirroring the bug 0084 cell's own "no existing
+// live fixture reaches this arm" finding for its own construct.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the bug 0070/0071/0077/
+// 0079(a)/0110/0084 cells above. ADDITIVE ONLY: no existing cell in this file
+// is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** `theta/parse/non-array-iterand`'s registered code and registry page. */
+const NON_ARRAY_ITERAND_CODE = "theta/parse/non-array-iterand";
+const NON_ARRAY_ITERAND_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/non-array-iterand: 'for' expects array<T> after 'in'; got
+ * <type>` with `<type>` substituted — DIAG-4: the message half is read from
+ * the registry row, not copied, mirroring this file's existing
+ * `incrementDecrementFragment` / `invokePathEscapeFragment` helpers. Used
+ * only for the ABSENCE assertion below: post-fix, no note carrying this
+ * fragment for the fixed caller's own declared type may appear.
+ */
+function nonArrayIterandFragment(type: string): string {
+  const template = registryMessage(
+    NON_ARRAY_ITERAND_REGISTRY,
+    NON_ARRAY_ITERAND_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${NON_ARRAY_ITERAND_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<type>", type);
+  expect(
+    message,
+    `${NON_ARRAY_ITERAND_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${NON_ARRAY_ITERAND_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own §Reproduction (a) row 1 — "the reported direction": a
+ * type-alias schema over `array<string>`, an `fn` parameter declared with it,
+ * and a `for` loop over that parameter
+ * (docs/bugs/0089-fn-param-alias-not-unfolded-iterand-join.md §Reproduction
+ * (a) row 1 / `tests/fn-param-alias-unfolded-at-gates.test.ts` row a1's
+ * production-parser shape, replayed here through the real
+ * discovery→registration path instead of the offline harness). The trailing
+ * `1` supplies the theta's final value, matching the bug doc's own `ITER`
+ * template — no `@`-query is needed for a prompt-mode theta to register (the
+ * bug 0084 cell's own `incDecWhileBodyTheta` above registers a bare final
+ * identifier the same way).
+ */
+function aliasIterandTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema L = array<string>",
+    "fn f(xs: L) {",
+    "  for x in xs {",
+    "    x",
+    "  }",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0089: an alias-typed fn parameter iterated in a `for` registers, live (Convention: live-host acceptance)", () => {
+  it("registers a caller whose fn parameter is a type-alias of array<string>, iterated in a for loop, and the theta-system-note channel carries no non-array-iterand rejection, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, a
+      // regressed fix (the alias caller failing to register) could be
+      // (wrongly) attributed to a broken workspace instead of the gate under
+      // test.
+      { source: "project", stem: "b89livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b89livealias", text: aliasIterandTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b89livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gate under test, would explain the alias caller's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // for-iterated alias-of-array fn parameter registers — `unfoldAlias`
+      // (type-compat.ts) makes `checkForIterand` see `L` as `array<string>`,
+      // so `hasLoadParseError` no longer un-registers this caller the way it
+      // did pre-fix.
+      expect(
+        handle.command("b89livealias"),
+        "the caller whose fn parameter is a type-alias of array<string>, " +
+          "iterated in a for loop, failed to register — theta/parse/non-array-" +
+          "iterand fired on a program TYPE-11 admits. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toContain("b89livealias");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"): the diagnostic, when it fires, fires at LOAD time,
+      // before any drive, so the full entry list is the delta (mirrors the
+      // bug 0110 / bug 0084 cells above). Post-fix there is nothing to reject
+      // for this caller's own declared type, so this fragment's ABSENCE is
+      // the success signal — mirroring AGENTS.md's subagent-mode absence
+      // convention, applied here to a load-time note instead of a drive's.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const regressionFragment = nonArrayIterandFragment("L");
+      expect(
+        notes.some((note) => note.includes(regressionFragment)),
+        "a theta-system-note entry named the non-array-iterand rejection for " +
+          "the alias-typed caller — the gate 1 unfold regressed. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(false);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

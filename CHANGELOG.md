@@ -6,6 +6,61 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-08-04
+
+### Fixed
+
+- **An alias-typed `fn` parameter stayed opaque to the two structural gates
+  that never unfolded it, so `schema L = array<string>` +
+  `fn f(xs: L) { for x in xs { … } }` drew a false
+  `theta/parse/non-array-iterand` and `schema L = array<integer>` +
+  `xs.join(",")` lost its `theta/parse/non-string-array-join`** (bug 0089).
+  A `fn` parameter's declared type is recorded raw, so a type-alias schema
+  arrives at the body's checkers as an opaque `named L`. Four of the six
+  classifiers that read it resolve the name through the `TypeEnv` and continue
+  on the alias right-hand side; the `for` / `par for` iterand gate and the
+  `array.join` element gate tested `type.kind` directly and took `named L` as
+  final. TYPE-11 (`docs/spec_topics/type-system.md`) makes `L` and
+  `array<string>` the same type, so both gates reached the wrong answer, in
+  opposite directions: a gate that admits only `kind === "array"` **rejects**
+  an unrecognised shape, so a legal iterand was refused; a gate that checks
+  only for `kind === "array"` **defers** on one, so an illegal join was
+  admitted. The rejection was a load failure, not a warning —
+  `theta/parse/non-array-iterand` is `E` severity and `parseDiscoveredTheta`
+  drops any theta carrying an error-severity `theta/parse/*` diagnostic, so the
+  slash command never registered and the author's only repair was to stop using
+  the alias the language defines. The lost rejection removed the only check on
+  the input: `docs/spec_topics/expressions.md`'s `array<T>` `join` row forbids a
+  non-`string` element type because theta 1.0 performs no implicit conversion,
+  and the runtime joins unconditionally on the stated assumption that the
+  parse-time precondition already held.
+
+  The fix unfolds the type at the gates rather than at the record, through the
+  `unfoldAlias` the `⊑` engine already applies, so every route that reaches
+  them is covered at once — `checkForIterand` (`src/parser/control-flow.ts`)
+  takes the `TypeEnv` and unfolds before its `kind` test, using the unfolded
+  value for the rendered message too; `checkMethodCall`
+  (`src/parser/type-layer-checks.ts`) unfolds the `join` receiver once and
+  reuses it for the receiver classifier; and the `par for` loop-variable element
+  derivation unfolds in both `src/parser/type-layer-checks.ts` and
+  `src/parser/static-type-inference.ts`, so a legal alias iterand binds the
+  variable to the element type instead of an unresolvable name. Unfolding the
+  receiver exposed the same raw `kind` test one level down in the element
+  predicate, so the element is unfolded at that call site as well; that also
+  removes a false `theta/parse/non-string-array-join` on `array<E>` where
+  `schema E = string`, at every spelling of the receiver.
+
+  Two rendered messages change deliberately, both toward the registry's own
+  `got <type>` template: a correctly-rejected alias of a `string` now reads
+  `got string` rather than the alias name, and an alias of an object schema
+  names the nominal it unfolds to. Bounds are unmoved: an object-schema `named`
+  and an alias of one stay non-iterable (TYPE-10), an unresolvable `named` keeps
+  its asymmetric disposition — reject at the iterand gate, defer at the join
+  gate — and a type-alias-cycle participant, which the `TypeEnv` omits, still
+  behaves as an unresolvable name. No spec, registry or `docs/reference/` edit
+  follows: both changes narrow an emission back inside a trigger the registry
+  already carries.
+
 ## [0.71.0] - 2026-08-04
 
 ### Fixed

@@ -5,7 +5,7 @@ import {
   checkForIterand,
 } from "../src/parser/control-flow";
 import { evaluateForLoop, type ForLoopHost } from "../src/runtime/control-flow";
-import type { CompatType } from "../src/parser/type-compat";
+import type { CompatType, TypeEnv } from "../src/parser/type-compat";
 import type { ThetaValue } from "../src/runtime/value";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 
@@ -47,6 +47,13 @@ function span(): SourceRange {
 function site(): { file: string; range: SourceRange } {
   return { file: "test.theta", range: span() };
 }
+
+/**
+ * The `TypeEnv` the iterand checks resolve `named` types through (TYPE-11
+ * unfolding). Every iterand below is a concrete type carrying no name, so an
+ * empty env resolves nothing and the checks decide structurally.
+ */
+const EMPTY_TYPE_ENV: TypeEnv = {};
 
 // --- control-flow.md CTRL-1 — `for ... in` snapshot semantics --------------
 
@@ -133,7 +140,7 @@ describe("V3c-T — `for ... in` iterand snapshot (CTRL-1)", () => {
 describe("V3c-T — non-array iterand (theta/parse/non-array-iterand)", () => {
   it("theta/parse/non-array-iterand: `for x in <string>` fires (type phase)", () => {
     const stringType: CompatType = { kind: "prim", name: "string" };
-    const d = checkForIterand({ type: stringType }, site());
+    const d = checkForIterand({ type: stringType }, site(), EMPTY_TYPE_ENV);
     expect(
       d,
       "theta/parse/non-array-iterand for a string iterand",
@@ -145,7 +152,7 @@ describe("V3c-T — non-array iterand (theta/parse/non-array-iterand)", () => {
 
   it("theta/parse/non-array-iterand: `for x in <number>` fires (type phase)", () => {
     const numberType: CompatType = { kind: "prim", name: "number" };
-    const d = checkForIterand({ type: numberType }, site());
+    const d = checkForIterand({ type: numberType }, site(), EMPTY_TYPE_ENV);
     expect(
       d,
       "theta/parse/non-array-iterand for a number iterand",
@@ -155,7 +162,7 @@ describe("V3c-T — non-array iterand (theta/parse/non-array-iterand)", () => {
 
   it("theta/parse/non-array-iterand: `for x in <object>` fires (type phase)", () => {
     const objectType: CompatType = { kind: "object", fields: [] };
-    const d = checkForIterand({ type: objectType }, site());
+    const d = checkForIterand({ type: objectType }, site(), EMPTY_TYPE_ENV);
     expect(
       d,
       "theta/parse/non-array-iterand for an object iterand",
@@ -168,7 +175,7 @@ describe("V3c-T — non-array iterand (theta/parse/non-array-iterand)", () => {
       kind: "array",
       element: { kind: "prim", name: "string" },
     };
-    const d = checkForIterand({ type: arrayType }, site());
+    const d = checkForIterand({ type: arrayType }, site(), EMPTY_TYPE_ENV);
     expect(
       d,
       "an `array<T>` iterand is the legal `for ... in` form",

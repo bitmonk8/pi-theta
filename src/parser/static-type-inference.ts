@@ -27,7 +27,7 @@
 // functions.md. Closes no new spec REQ-ID.
 
 import type { Block, Expr, IfStmt, ThetaBody, Stmt } from "./theta-document";
-import { displayType, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
+import { displayType, unfoldAlias, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
 
 /**
  * The `V2b` type-compatibility engine (`⊑`) as an injectable seam: the directed
@@ -266,7 +266,13 @@ export class StaticTypeInferencePass {
         // dedicated `Result` shape, so the element is rendered as a nominal
         // reference naming `Result<U, QueryError>`; the outer `array` is the
         // stable, representation-independent surface the checkers consume.
-        const iterandType = this.#typeExpr(node.iterand, env, bindings);
+        //
+        // TYPE-11: the iterand is unfolded before this `kind` test, so a
+        // type-alias-schema iterand supplies `U` exactly as the concrete
+        // array type it is transparent with — this pass's own test, distinct
+        // from the type-layer walk's body-scope element derivation and from
+        // the iterand-admissibility gate (`checkForIterand`).
+        const iterandType = unfoldAlias(this.#typeExpr(node.iterand, env, bindings), env);
         const elementType: CompatType =
           iterandType.kind === "array"
             ? iterandType.element

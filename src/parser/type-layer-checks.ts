@@ -680,6 +680,7 @@ class TypeLayerWalk {
         const diag = checkForIterand(
           { type: this.typeOf(stmt.iterand, bindings) },
           { file: this.file, range: stmt.iterand.range },
+          this.env,
         );
         if (diag !== undefined) {
           this.diagnostics.push(diag);
@@ -1151,6 +1152,7 @@ class TypeLayerWalk {
         const iterDiag = checkForIterand(
           { type: this.typeOf(e.iterand, bindings) },
           { file: this.file, range: e.iterand.range },
+          this.env,
         );
         if (iterDiag !== undefined) {
           this.diagnostics.push(iterDiag);
@@ -1176,8 +1178,12 @@ class TypeLayerWalk {
           this.walkExpr(e.max, bindings, flow);
         }
         // Bind the fresh immutable loop variable to the iterand element type so
-        // body checks resolve it, then walk the body.
-        const iterandType = this.typeOf(e.iterand, bindings);
+        // body checks resolve it, then walk the body. TYPE-11: an alias of
+        // `array<T>` supplies the same element as `array<T>` itself, so the
+        // iterand is unfolded again here, independently of the admissibility
+        // gate above — this is its own `kind === "array"` test, over the
+        // element rather than the whole iterand.
+        const iterandType = unfoldAlias(this.typeOf(e.iterand, bindings), this.env);
         const inner = new Map(bindings);
         inner.set(
           e.variable,
@@ -1413,8 +1419,22 @@ class TypeLayerWalk {
     bindings: ReadonlyMap<string, CompatType>,
   ): void {
     const targetType = this.typeOf(e.target, bindings);
-    if (e.method === "join" && targetType.kind === "array") {
-      const diag = checkArrayJoin(targetType.element, {
+    // TYPE-11: an alias of `array<T>` IS `array<T>`, so the `join` element
+    // precondition (expressions.md §"array<T>" `join` row) must see it that
+    // way. One construction point: `classifyReceiver` below unfolds
+    // internally on whatever it is handed, so it is unaffected by receiving
+    // this already-unfolded value.
+    const unfoldedTarget = unfoldAlias(targetType, this.env);
+    if (e.method === "join" && unfoldedTarget.kind === "array") {
+      // The ELEMENT is unfolded too, and for the same reason one level down:
+      // TYPE-11 makes an alias element the type it names, so the registered
+      // trigger — an element type that is not `string` — is a question about
+      // the unfolded element, not about the name the author wrote for it.
+      // `checkArrayJoin` is a pure element predicate and holds no `TypeEnv`,
+      // so applying the transparency is the caller's job. TYPE-10 bounds it:
+      // an object-schema `named` element comes back unchanged and stays
+      // non-string, as does an unresolvable one.
+      const diag = checkArrayJoin(unfoldAlias(unfoldedTarget.element, this.env), {
         file: this.file,
         range: e.range,
       });
@@ -1425,11 +1445,15 @@ class TypeLayerWalk {
     // A2 — a method call on a concrete built-in receiver whose name the theta
     // 1.0 stdlib does not expose. A statically-unresolvable receiver defers to
     // the runtime safety net (no diagnostic).
-    const kind = classifyReceiver(targetType, this.env);
+    const kind = classifyReceiver(unfoldedTarget, this.env);
     if (kind === "unknown") {
       return;
     }
     if (!builtinMembers(kind).has(e.method)) {
+      // The RAW `targetType`, not the unfolded copy above: the message names
+      // the receiver's declared type, and an alias the author wrote must
+      // still read back as itself here, whatever it unfolds to for the
+      // checks above.
       this.pushUnknownMethod(e.method, targetType, e.range);
     }
   }

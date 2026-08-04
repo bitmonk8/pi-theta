@@ -553,3 +553,24 @@ statement-position-only coverage would leave its `fn`-body row silent; hooking
 otherwise untouched: 0.71.0 changed nothing in the argument-typing path, its
 registered row, or its emitter, and settles nothing about the choice between
 this report's two dispositions.
+
+## Coordination note (0.72.0)
+
+Bug [0089](./0089-fn-param-alias-not-unfolded-iterand-join.md) shipped in 0.72.0
+and settles nothing here. It is the **body** side of the same `fn` boundary: an
+alias-typed parameter's recorded type was misread by the `for` / `par for`
+iterand gate and the `array.join` element gate, and its fix unfolds that type
+through `unfoldAlias` at those gates. This report is the **caller** side.
+`checkFnArgCompat` (`src/parser/type-compat.ts`) still has no `src/` caller
+after 0.72.0 — verified by `rg` at that fix commit, which returns only its own
+export — so an argument's static type is still never checked against the
+declared parameter type, and this report's two dispositions remain unchosen.
+
+The two fixes are disjoint in both directions, as this report's §Related
+predicted: 0089's reproductions are unchanged by wiring `checkFnArgCompat`, and
+`theta/parse/fn-arg-type-mismatch` is still unemitted after 0089. The one
+transferable observation is that the parameter **record** — `walkFn`'s
+`fnScope.set(p.name, annotationToCompatType(p.type) ?? …)` — was re-examined
+during 0089 and deliberately left recording the declared type raw. Any fix here
+reads that record, and it is TYPE-11-opaque by design, so a caller-side check
+must apply the transparency itself.
