@@ -159,7 +159,18 @@ inert stubs, which is false of the module as it stands; `valuesEqual`'s
 docstring (`:352`) carries the banned word `simply`; two docstrings end on a
 dangling ` *` line (`:353`, `:436`). (ii) The QRY-22 lowering still marks a declared
 `__thetaSchema` field required and the schema closed — correct, and now
-consistent with the render, which carries the field.
+consistent with the render, which carries the field. (iii) The constraint this
+fix established — the brand install must target a value whose *string* keys are
+exactly the declared theta-side names, so a field literally named
+`__thetaSchema` survives — is now carried by a single shared construction
+point, `buildObjectSchemaValue` (`src/runtime/value.ts`), introduced by
+[0080](./0080-keys-values-construction-order-not-declaration-order.md) and
+discharged by its fix (0.70.0): that function brands a freshly rebuilt record
+rather than the constructor's own, at unchanged key set and key count, and two
+cells of `tests/ctor-declaration-order.test.ts` pin this report's shape against
+it — the `__thetaSchema`-named field takes its declared position like any other
+field, and the reordered record still recovers its declaring schema through
+`schemaTagOf` with exactly one own symbol whose descriptor is non-enumerable.
 
 ## Summary
 

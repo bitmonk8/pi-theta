@@ -221,7 +221,16 @@ fifth site, with its own mechanism) and discharged by its fix (0.69.0): the
 render classifies a `Result` by its brand and raises
 `theta/parse/interpolated-result` as a panic, and a type-layer gate refuses the
 load for the statically provable forms. This fix's four read entry points are
-untouched by that one.
+untouched by that one. (v) The lockstep discipline this fix established over
+four READ entry points is now applied to the two WRITE (construction) sites by
+[0080](./0080-keys-values-construction-order-not-declaration-order.md) and
+discharged by its fix (0.70.0), which unified them into one function,
+`buildObjectSchemaValue` (`src/runtime/value.ts`). Consequence for the surface
+this report owns: the key order `evaluateObjectMember`'s `keys()` / `values()`
+report is established at construction and is the declaring schema's declaration
+order for a named schema, not the constructor's source order. The read arms
+themselves are unchanged, and this report's receiver gating ahead of them is
+untouched.
 
 ## Summary
 

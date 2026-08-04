@@ -190,7 +190,7 @@ import { guardQueryProviderPromise } from "../runtime/query-swallowing-handler";
 import { guardInvokeExecutionPromise } from "../runtime/invoke-swallowing-handler";
 import type { CheckpointSite } from "../seams/checkpoint";
 import {
-  brandSchemaValue,
+  buildObjectSchemaValue,
   isEnumValue,
   isObjectValue,
   isResultValue,
@@ -5809,18 +5809,18 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
     case "object": {
       // An object-literal / schema-constructor value (expressions.md §"Object
       // construction"): the runtime value is the plain field object keyed by
-      // theta-side names. When the constructor names a declared `schema`, brand
-      // the value (non-enumerably, so no theta-visible surface changes) with that
-      // schema name so the QRY-18 interpolation render path can recover the
-      // schema and apply outbound wire-name translation recursively.
+      // theta-side names, reordered into the declaring schema's DECLARATION
+      // order (bug 0080 §Fix) and branded (non-enumerably, so no
+      // theta-visible surface changes) with that schema name, so the QRY-18
+      // interpolation render path can recover the schema and apply outbound
+      // wire-name translation recursively — identical to the executor's
+      // `case "object"` arm (statement-executor.ts), the lockstep obligation
+      // bug 0027 records for its four read entry points.
       const obj: Record<string, ThetaValue> = {};
       for (const field of expr.fields) {
         obj[field.name] = evaluatePureExpression(field.value, env);
       }
-      if (expr.typeName !== null && env.resolveSchema(expr.typeName) !== undefined) {
-        return brandSchemaValue(obj, expr.typeName);
-      }
-      return obj;
+      return buildObjectSchemaValue(obj, expr.typeName, (name) => env.resolveSchema(name));
     }
     case "member": {
       // `Enum.Variant` access: a member on an identifier that names a registered

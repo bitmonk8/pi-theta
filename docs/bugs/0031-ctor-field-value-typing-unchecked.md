@@ -173,6 +173,13 @@ reads own-key-guarded through one exported `resolveNamed`. That fix also
 measured the recorded shield weaker than stated — `schema-case-mismatch` is a
 lexer diagnostic whose `E` severity denies registration rather than a grammar
 refusal, and it never covered the read side, where both of 0038's symptoms lived.
+(iii) [0080](./0080-keys-values-construction-order-not-declaration-order.md)
+records, in its fix (0.70.0), that its own §Related mis-stated where this check
+lives: it is in the parse / type layer (`collectSchemaFields` /
+`checkObjectFieldCompat`) over a null-prototyped `Record<string, CompatType>`
+that discards field order, not at the runtime constructor evaluation sites, so
+it could supply no declaration order for that report to reuse. Those sites
+resolve `env.resolveSchema` independently. This check is untouched by that fix.
 
 ## Summary
 

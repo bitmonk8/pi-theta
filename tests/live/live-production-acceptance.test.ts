@@ -1383,3 +1383,103 @@ describe("H8a-T — bug 0079 (b): a laundered Result interpolation panics instea
     }
   });
 });
+
+// ===========================================================================
+// Bug 0080 — `keys()` / `values()` on a named-schema value, and the QRY-18
+// outbound JSON built from the same record, followed the CONSTRUCTOR's field
+// order instead of the schema's DECLARATION order (bug 0080 §Fix, "Order at
+// construction", the settled route). Both constructor evaluation sites now
+// delegate to one shared function (`buildObjectSchemaValue`,
+// src/runtime/value.ts) that reorders the already-evaluated field record into
+// the declaring schema's field order before branding.
+//
+// No shipped live fixture constructs an out-of-declaration-order schema value
+// before this addition (every planted `.theta` above either constructs no
+// named schema or writes its fields in declaration order already), so
+// neither construction site had live reach over this ordering rule. The
+// closer mirror is the bug 0020 QRY-18-enum-render cell near the top of this
+// file: `driveSlashCaptureTurn`, asserting on the deterministic
+// `turn.userTexts` channel, never on `assistantText` or on `prompt()` merely
+// resolving. One query drives BOTH construction sites so one turn witnesses
+// both (token-bounded):
+//   - SITE 1 — `evalExpr`'s `if (expr.kind === "object")` arm
+//     (src/runtime/statement-executor.ts): the `let`-bound value `p`.
+//   - SITE 2 — `evaluatePureExpression`'s `case "object"` arm
+//     (src/extension/production-theta-producer.ts), reached only when a
+//     constructor is written INLINE inside a `${…}` interpolation: the same
+//     shape constructed a second time, directly in the query template.
+// A fix landed at only one site leaves the other site's marker rendering the
+// pre-fix order — the lockstep obligation bug 0027 records for its four read
+// entry points, applied here to bug 0080's two WRITE sites.
+// ===========================================================================
+
+/**
+ * Schema `P` declares `b` before `a`; both interpolations construct it with
+ * the fields reversed — an order expressions.md §"Object construction" calls
+ * irrelevant. `SITE1=`/`SITE2=`/`|END` mark the two rendered segments so the
+ * assertion below reads exactly the bytes each construction site produced;
+ * the trailing instruction keeps the model's reply short (the reply itself is
+ * unchecked — the observable is the outbound render, not the reply).
+ */
+function ctorDeclarationOrderTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { b: integer, a: string }",
+    'let p = P { a: "x", b: 1 }',
+    '@`SITE1=J${p}|SITE2=J${P { a: "x", b: 1 }}|END reply with exactly: OK`',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0080: constructor field order follows the schema's DECLARATION order, live (Convention: live-host acceptance)", () => {
+  it("renders both construction sites' out-of-order fields in the schema's declared order in the real outbound query text", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work independently of the
+      // fixture under test.
+      { source: "project", stem: "b80livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b80liveorder", text: ctorDeclarationOrderTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b80livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the fixture under test, would explain the ordering fixture's " +
+          "absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b80liveorder"),
+        "no bug-0080 ordering command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b80liveorder");
+      // PRIMARY: the exact outbound text both construction sites rendered.
+      // `p` (SITE 1) and the inline `P { a: "x", b: 1 }` (SITE 2) are the SAME
+      // shape constructed twice; declaration order (`b` before `a`) must win
+      // at both, byte for byte — pre-fix each site rendered J{"a":"x","b":1}
+      // (the constructor's own order).
+      expect(
+        turn.userTexts,
+        "the outbound query text must carry both construction sites' fields " +
+          "in the schema's DECLARATION order. Outbound user texts: " +
+          JSON.stringify(turn.userTexts),
+      ).toEqual(['SITE1=J{"b":1,"a":"x"}|SITE2=J{"b":1,"a":"x"}|END reply with exactly: OK']);
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b80liveorder (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the ordering drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -6,6 +6,34 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-08-04
+
+### Fixed
+
+- **`keys()` / `values()` on a named-schema value returned the constructor's
+  field order, not the schema's declaration order, and the same key order
+  reached the model through the QRY-18 outbound JSON** (bug 0080).
+  `docs/spec_topics/expressions.md`'s stdlib `object` table fixes `keys()` as
+  the theta-side field names "in schema declaration order for named schemas"
+  and `values()` as "in the same order as `keys()`" — mirrored at
+  `docs/reference/grammar.md` — while the same page's §"Object construction"
+  tells the author that "field order is irrelevant" at the call site. Both
+  constructor evaluation sites built the runtime record by walking the
+  constructor's own field list, so the order an author wrote at the call site
+  silently determined every downstream order: `schema P { b: integer, a: string }`
+  constructed as `P { a: "x", b: 1 }` answered `keys() == ["a","b"]`,
+  `values() == ["x",1]`, and rendered `{"a":"x","b":1}` through a `@`-query
+  interpolation. Both sites now delegate to one shared construction point,
+  `buildObjectSchemaValue` (`src/runtime/value.ts`), which reorders the
+  already-evaluated field record into the declaring schema's field order before
+  installing the declaring-schema brand; `keys()`, `values()`, the QRY-18
+  outbound walk and `JSON.stringify` then all report declaration order, nested
+  constructors included. A constructor naming no schema or an unresolvable one
+  still passes through unbranded in insertion order, equality stays
+  order-insensitive, and the brand still targets a record whose string keys are
+  exactly the declared theta-side names. No new diagnostic code and no spec
+  change — the implementation now conforms to prose already shipped.
+
 ## [0.69.0] - 2026-08-04
 
 ### Fixed

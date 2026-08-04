@@ -303,6 +303,115 @@ export function schemaTagOf(value: ThetaValue): string | undefined {
 }
 
 /**
+ * Structural view of a declaring `schema`'s object-form field list — the
+ * shape {@link buildObjectSchemaValue} needs from a resolved schema
+ * declaration. Declared structurally rather than by importing `SchemaDecl`
+ * from `../parser/theta-document`, so this leaf module stays import-free
+ * (bug 0079 landed a reviewed two-node runtime cycle between
+ * `type-layer-checks.ts` and `theta-document.ts`; this module does not add a
+ * second one). `LexicalEnvironment.resolveSchema`'s return type, `SchemaDecl
+ * | undefined`, is structurally assignable here: its `fields?: readonly
+ * SchemaFieldSource[]` and `SchemaFieldSource.name: string` satisfy the shape
+ * below without either module referencing the other.
+ */
+export interface SchemaFieldOrder {
+  readonly fields?: readonly { readonly name: string }[];
+}
+
+/**
+ * Build the runtime value for an object/schema-constructor expression
+ * (expressions.md §"Object construction"), reordering the already-evaluated
+ * field record into the declaring schema's DECLARATION order before branding
+ * (bug 0080 §Fix, "Order at construction"). The one construction point both
+ * constructor evaluation sites call — `evalExpr`'s `case "object"` arm in
+ * statement-executor.ts and `evaluatePureExpression`'s `case "object"` in
+ * production-theta-producer.ts — so the two sites cannot drift on the
+ * ordering rule (the lockstep obligation bug 0027 records for its four read
+ * entry points). Every downstream consumer of the returned record —
+ * `evaluateObjectMember`'s `keys()` / `values()` (stdlib-object.ts), the
+ * QRY-18 outbound `Object.entries` walk (`translateInterpolationOutbound`,
+ * production-theta-producer.ts), and `JSON.stringify` — then observes
+ * declaration order with no further change: theta field names are
+ * identifiers (`[A-Za-z_][A-Za-z0-9_]*`), never integer-like, so JS own-key
+ * order for them is exactly insertion order, with none of `Object.keys`'s
+ * numeric-key reordering in play.
+ *
+ * `constructedFields` is the field record already built, keyed by
+ * theta-side field name, in the constructor's OWN source order — each
+ * field's value is already evaluated; only the resulting record's key order
+ * is decided here. `typeName` is the constructor's schema name, or `null`
+ * for a bare `{ … }` object literal. `resolveSchema` looks up a declared
+ * schema's field list structurally (`env.resolveSchema`), so this module
+ * never imports `SchemaDecl`.
+ *
+ * Four cases, on what `typeName` names and what it resolves to:
+ *
+ *   - `typeName === null` (a bare object literal names no schema): returns
+ *     `constructedFields` unchanged and unbranded. Anonymous objects keep
+ *     INSERTION order — an explicit non-goal (expressions.md: "insertion
+ *     order otherwise").
+ *   - `resolveSchema(typeName)` answers `undefined` (an unresolved
+ *     constructor name): returns `constructedFields` unchanged and
+ *     unbranded — bug 0025's unresolved-schema-name passthrough, preserved
+ *     byte-for-byte.
+ *   - the resolved decl's `fields` is `undefined` (the alias / `by … = …` /
+ *     head-only three-way shape bug 0033 landed): no declared field list
+ *     exists to order by, so `constructedFields` is branded AS-IS, in its
+ *     existing order.
+ *   - the resolved decl declares `fields`: builds a FRESH record — every
+ *     declared field name PRESENT in `constructedFields`, in DECLARED
+ *     order, then every remaining constructed key in its existing relative
+ *     order (the defensive fallback for a name the schema does not
+ *     declare; already rejected at parse as
+ *     `theta/parse/extra-object-field`, so this branch is unreached in
+ *     practice) — then brands the fresh record.
+ *
+ * Every read of `constructedFields` by an author-written field name is
+ * OWN-KEY-guarded (`Object.prototype.hasOwnProperty.call`), never
+ * truthiness: a declared field name the constructor did not supply (e.g. a
+ * schema declaring `toString` whose constructor omits it) must not be
+ * filled in from `Object.prototype`. The returned record's key SET and key
+ * COUNT are therefore always identical to `constructedFields`'s — no
+ * declared name is invented and no constructed key is dropped or
+ * duplicated (bug 0026's `__thetaSchema`-named-field case: the brand
+ * install still targets a value whose STRING keys are exactly the declared
+ * theta-side names). A field literally named `__proto__` is never an own
+ * key of `constructedFields` — the inherited `__proto__` setter drops a
+ * non-object assignment before this function ever sees it, a pre-existing
+ * defect out of this fix's scope — so the own-key guard skips it exactly as
+ * it would skip any other genuinely-absent declared field, with no special
+ * case needed.
+ */
+export function buildObjectSchemaValue(
+  constructedFields: Record<string, ThetaValue>,
+  typeName: string | null,
+  resolveSchema: (name: string) => SchemaFieldOrder | undefined,
+): { readonly [key: string]: ThetaValue } {
+  if (typeName === null) {
+    return constructedFields;
+  }
+  const decl = resolveSchema(typeName);
+  if (decl === undefined) {
+    return constructedFields;
+  }
+  if (decl.fields === undefined) {
+    return brandSchemaValue(constructedFields, typeName);
+  }
+  const ordered: Record<string, ThetaValue> = {};
+  for (const field of decl.fields) {
+    if (Object.prototype.hasOwnProperty.call(constructedFields, field.name)) {
+      ordered[field.name] = constructedFields[field.name] as ThetaValue;
+    }
+  }
+  for (const key of Object.keys(constructedFields)) {
+    if (!Object.prototype.hasOwnProperty.call(ordered, key)) {
+      ordered[key] = constructedFields[key] as ThetaValue;
+    }
+  }
+  return brandSchemaValue(ordered, typeName);
+}
+
+/**
  * Whether `value` is an enum runtime value (carries the declaring-enum tag). A
  * consumer that must stringify by the QRY-18 rule keys off this to render the
  * bare wire value rather than JSON-quoting the boxed-string representation

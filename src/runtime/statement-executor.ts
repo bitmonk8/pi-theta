@@ -75,7 +75,7 @@ import {
   type DrivenConversationMode,
 } from "./terminal-outcomes";
 import {
-  brandSchemaValue,
+  buildObjectSchemaValue,
   isObjectValue,
   isResultValue,
   makeErr,
@@ -665,13 +665,13 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
       }
       obj[field.name] = evaluated.value;
     }
-    // Brand a schema-constructor value so QRY-18 interpolation can recover the
-    // schema for outbound wire-name translation (mirrors the pure host's
-    // `case "object"`).
-    const value =
-      expr.typeName !== null && env.resolveSchema(expr.typeName) !== undefined
-        ? brandSchemaValue(obj, expr.typeName)
-        : obj;
+    // Reorder into the declaring schema's DECLARATION order and brand, so
+    // QRY-18 interpolation can recover the schema for outbound wire-name
+    // translation and every downstream key-order consumer (`keys()`,
+    // `values()`, `JSON.stringify`) agrees with the schema rather than with
+    // this constructor's own field order (bug 0080 §Fix; mirrors the pure
+    // host's `case "object"`).
+    const value = buildObjectSchemaValue(obj, expr.typeName, (name) => env.resolveSchema(name));
     return { flow: "value", value };
   }
   // A pure OPERATOR node (`index` / `member` / `binary` / `ternary` /

@@ -203,6 +203,17 @@ name-collision precedence is undefined and lands on opposite sides here: a
 local object-form `schema` shadowing an import runs the field-set checks, while
 a local `enum` shadowing an import defers. Neither behaviour changes with this
 fix, and no spec text or diagnostic covers duplicate declaration names.
+(vi) The unresolved-schema-name passthrough this fix pinned — a constructor
+naming an unresolvable schema evaluates, through the same executor arm a
+declared constructor uses, to a plain unbranded object in constructor order —
+is now one arm of a single shared construction point,
+`buildObjectSchemaValue` (`src/runtime/value.ts`), introduced by
+[0080](./0080-keys-values-construction-order-not-declaration-order.md) and
+discharged by its fix (0.70.0): a resolvable constructor now lands its fields
+in the declaring schema's declaration order, and the passthrough arm is
+byte-equivalent to what this fix shipped — the same two conditions, the same
+unbranded record, the same key order. Whoever next edits either constructor
+evaluation site edits that one function.
 
 ## Summary
 
