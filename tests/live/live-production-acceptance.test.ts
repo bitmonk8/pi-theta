@@ -1977,3 +1977,204 @@ describe("H8a-T — bug 0095: a schema field carrying a brace-rooted union arm r
     }
   });
 });
+
+// ===========================================================================
+// Bug 0102 — a raw line terminator inside a STRING LITERAL on a `params:`
+// default RHS was admitted with zero diagnostics: `checkLiteralSublanguage`'s
+// own tokeniser treats the break as string content, so `p: string = "a<LF>b"`
+// loaded clean and registered, while the identical bytes in a body `let` draw
+// `theta/parse/literal-newline-in-string`
+// (docs/bugs/0102-params-default-string-literal-raw-newline-admitted.md). The
+// fix adds `hasRawNewlineInStringLiteral` (src/parser/literal-sublanguage.ts),
+// a READ-ONLY scan of the shared `tokeniseExpr`'s own `str` tokens, called
+// from the `parseParams` per-field default loop (src/parser/params.ts)
+// alongside the existing `checkLiteralSublanguage` call, ranged on
+// `field.range` — the same range the sibling `default-not-literal` diagnostic
+// already uses.
+//
+// The refusal fires at PARSE phase, inside `parseThetaDocument`'s own
+// `document.diagnostics` (an `error`-severity `theta/parse/*` diagnostic), so
+// `hasLoadParseError` (production-composition.ts) un-registers the caller at
+// the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095 cells above
+// exercise for their own codes.
+//
+// No shipped live fixture (H8a, H9a, or the hardening probes) declares a
+// `params:` default whose string literal carries a raw newline — confirmed
+// statically (the corpus census: 34 committed `.theta`/`.thetalib` files, 17
+// declaring `params:`, 19 fields, exactly ONE default —
+// `tests/live/acceptance/fixtures/acc-params-binder.theta:6`,
+// `count: number = 3`, a bare integer carrying no string literal at all) — so
+// the new check had NO live reach before this cell, mirroring the bug 0084 /
+// 0089 / 0095 cells' own "no existing live fixture reaches this arm" finding.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the bug 0070/0071/0077/
+// 0079(a)/0110/0084/0089/0095 cells above. A `bind_model:` pin
+// (`anthropic/claude-haiku-4-5`, the same pin the committed
+// `acc-params-binder.theta` fixture and the bug 0071 cell's `b71livecallee`
+// use) is carried by every `params:`-declaring theta below: a DEFAULTED
+// `params:` field is never `single-string-bypass`-eligible
+// (`classifyBinderBypass`, src/binder/binder-envelope.ts, requires NO
+// default), so it always routes to `binder` kind and would otherwise depend on
+// this ephemeral workspace's absent ambient settings for a resolvable model —
+// a LOAD-TIME, static registry lookup only (no dispatched turn, so still zero
+// tokens), exactly as bug 0071's `b71livecallee` already relies on. ADDITIVE
+// ONLY: no existing cell in this file is weakened, reworded, reordered or
+// deleted.
+// ===========================================================================
+
+/** `theta/parse/literal-newline-in-string`'s registered code and registry page (bug 0102 reuses the lexer's existing code; see docs/bugs/0102-…). */
+const LITERAL_NEWLINE_IN_STRING_CODE = "theta/parse/literal-newline-in-string";
+const LITERAL_NEWLINE_IN_STRING_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/literal-newline-in-string: literal newline in string literal` —
+ * DIAG-4: the message half is read from the registry row, not copied,
+ * mirroring this file's existing `incrementDecrementFragment` /
+ * `nonArrayIterandFragment` / `emptySchemaBodyFragment` helpers. This code's
+ * *Message* carries no `<placeholder>` (bug 0102 §Fix constraint 3 — the
+ * *Message* column is unchanged, DIAG-4), so no substitution runs.
+ */
+function literalNewlineInStringFragment(): string {
+  const template = registryMessage(
+    LITERAL_NEWLINE_IN_STRING_REGISTRY,
+    LITERAL_NEWLINE_IN_STRING_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${LITERAL_NEWLINE_IN_STRING_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  return `${LITERAL_NEWLINE_IN_STRING_CODE}: ${template as string}`;
+}
+
+/**
+ * A `params:` theta with ONE declared `string` field whose default RHS is
+ * `defaultRhs`, a resolvable `bind_model:` (a default disqualifies the
+ * `single-string-bypass` shape — see the file-header note above — so the
+ * field always routes to `binder` kind), and a pure-literal final value (no
+ * query: registration is the only observable this cell reads, matching the
+ * committed `acc-params-binder.theta` fixture's own bare `"ok"` body).
+ */
+function paramsDefaultTheta(defaultRhs: string): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    `  p: ${defaultRhs}`,
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+/**
+ * The bug doc's own R3c spelling — a YAML block scalar whose physical break
+ * lands inside the default's double-quoted string literal, recording the
+ * default source `"a\nb"` (a raw LF between the quotes). Same `params:` /
+ * `bind_model:` shape as `paramsDefaultTheta` above, so the only variable
+ * between the broken theta and its `b102livegood` sibling is this break.
+ */
+function brokenParamsDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  p: |",
+    '    string = "a',
+    '    b"',
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0102: a params: default's string literal carrying a raw newline does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose params: default string literal carries a raw newline, while its same-shape sibling with a break-free default registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // refused theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the check under test.
+      { source: "project", stem: "b102livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: identical params:/bind_model: shape, a STRING
+      // default carrying NO raw break — must still register, isolating the
+      // refusal to the specific string-literal-newline predicate rather than
+      // to "a defaulted params: field never registers in this harness".
+      {
+        source: "project",
+        stem: "b102livegood",
+        text: paramsDefaultTheta('string = "ok"'),
+      },
+      // The load-bearing caller: the SAME shape, but the default's string
+      // literal carries a raw line break (the bug doc's R3c spelling).
+      { source: "project", stem: "b102livebroken", text: brokenParamsDefaultTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b102livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the check under test, would explain the refused theta's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b102livegood"),
+        "the same-shape sibling with a break-free string default did not " +
+          "register — precondition unmet (a defaulted params: field cannot " +
+          "register in this harness at all, independent of this bug). " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // params: default whose string literal carries a raw line break does not
+      // register — theta/parse/literal-newline-in-string fires from the
+      // parseParams per-field default loop at the SAME hasLoadParseError site
+      // the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095 cells above exercise
+      // for their own codes.
+      expect(
+        handle.command("b102livebroken"),
+        "the caller whose params: default string literal carries a raw line " +
+          "break registered anyway through the live discovery/session_start " +
+          "path — theta/parse/literal-newline-in-string did not fire. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b102livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110 /
+      // 0084 / 0089 / 0095 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = literalNewlineInStringFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the literal-newline-in-string " +
+          "rejection for the broken params: default. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

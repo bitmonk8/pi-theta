@@ -599,3 +599,22 @@ trigger plus one call — not design.
   `docs/reference/grammar.md:328`.
 - **Tests read, none changed:** `tests/bindings.test.ts:4`, `:26`, `:153`,
   `:161`; `tests/helpers/e2e-s1.ts:39`.
+
+## Discharge note — bug 0102 (0.75.0)
+
+Appended by the bug 0102 fix; nothing above is altered. Precedent citation only
+— this report gains no obligation and loses none.
+
+[0102](./0102-params-default-string-literal-raw-newline-admitted.md) reused this
+report's narrower reading of the **GOV-15 diagnostic-registry carve-out**
+(`source-language-stability.md:25`), alongside bug 0031's: a DIAG-2 *trigger*
+change that brings previously clean-loading inputs into an existing code's
+emission set is in scope as an *addition* within a theta 1.x minor, provided the
+code's identity, effective severity and rendered content are untouched.
+`theta/parse/literal-newline-in-string` kept its namespace, its `E` severity and
+its *Message*; only *Phase* (`lex` → `lex, parse`), *Trigger* and *Hint* moved,
+and *Hint* is not one of DIAG-2's three columns. No code was added or removed.
+The committed-corpus sweep found **zero** affected inputs (34 files, 17
+declaring `params:`, 19 fields, one default), and the permitted-codes fixture
+`tests/fixtures/h7a/permitted-codes.json` needed no append — decided by the real
+H9a run, whose captured stdout+stderr carry no occurrence of the code.

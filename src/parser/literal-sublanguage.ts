@@ -560,3 +560,48 @@ export function checkObjectLiteralFields(
   }
   return diagnostics;
 }
+
+/**
+ * Whether `source` — a `params:` default RHS — carries a raw `\n` inside a
+ * string-literal SPAN (single- or double-quoted), the predicate
+ * `theta/parse/literal-newline-in-string` refuses in body code: the lexer's
+ * own string scan (`../lexer/lexer.ts`) terminates a quoted span on the same
+ * byte (`text[i] !== "\n"`), because a regular string is single-line only
+ * (lexical.md §String literals). Bug 0102 — the `params:` default RHS is a
+ * strict subset of the same expression grammar, so this position refuses what
+ * body code refuses.
+ *
+ * The subject is `tokeniseExpr`'s own `str` tokens, read only, because that
+ * tokeniser already decides where a string span begins and ends at this
+ * position and two answers cannot disagree:
+ *
+ *   - A `str` token's `text` is the raw source slice over the whole span, so a
+ *     break ANYWHERE inside it is present — including one sitting immediately
+ *     after a backslash. lexical.md §String literals gives the escape table
+ *     and makes a backslash before any other character
+ *     `theta/parse/illegal-escape`, so a backslash before a line terminator
+ *     forms no escape unit and the terminator is raw.
+ *   - Backtick templates, `@`...`` query templates and bare `${...}`
+ *     interpolations are single opaque tokens there, so a quote inside one
+ *     opens no span. Each of those forms is outside the literal sublanguage on
+ *     its own terms and draws `theta/parse/default-not-literal`
+ *     (frontmatter-fields-a.md §Defaults); a break inside one is not a literal
+ *     newline in a string literal, and asserting one would put this code's
+ *     emission set past its registry Trigger.
+ *
+ * The predicate is the SPAN, not the presence of a break anywhere in `source`:
+ * a break that is inter-token whitespace inside an `ArrayLit` or an object
+ * literal, or the two-character `\n` escape, is untouched, which is what keeps
+ * a grammar-admitted multi-line form (bug 0041's round-1 adjudication) out of
+ * the refused set. `source` is otherwise unconstrained —
+ * this is a diagnostic predicate, not a parse, so a malformed span (an opening
+ * quote with no match) still terminates: `tokeniseExpr` runs such a span to
+ * end of text and pushes it as one `str` token.
+ *
+ * `tokeniseExpr` is CALLED, never edited: it is shared with
+ * `isBareObjectLiteral`, whose only caller (`../runtime/tool-call.ts`) reads a
+ * verdict on an unrelated position and needs the scanner byte-stable.
+ */
+export function hasRawNewlineInStringLiteral(source: string): boolean {
+  return tokeniseExpr(source).some((token) => token.kind === "str" && token.text.includes("\n"));
+}

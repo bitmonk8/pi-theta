@@ -34,7 +34,7 @@
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { reservedKeywords } from "../lexer/lexer";
 import { type LoweredSchema } from "../seams/schema-validator";
-import { checkLiteralSublanguage } from "./literal-sublanguage";
+import { checkLiteralSublanguage, hasRawNewlineInStringLiteral } from "./literal-sublanguage";
 import { isReservedSynthesisedName } from "./synthesised-names";
 import {
   canonicalForm,
@@ -251,10 +251,28 @@ export function parseParams(
   }
 
   // Each default RHS must be a Theta literal-sublanguage form; the is-literal
-  // check (V2a) names the offending sub-expression in its diagnostic.
+  // check (V2a) names the offending sub-expression in its diagnostic. A raw
+  // line terminator inside a string-literal SPAN is refused separately, under
+  // the same code the lexer already raises for the identical bytes in body
+  // code (bug 0102): the is-literal check's own tokeniser treats such a break
+  // as string content, so without this second test the position would
+  // silently bind a value shorter than the one its recorded source and the
+  // rendered binder prompt both denote. One diagnostic per offending FIELD,
+  // not per string literal and not per break; the predicate is the span, so a
+  // break that is inter-token whitespace (an `ArrayLit` spanning lines) or the
+  // two-character `\n` escape is untouched.
   for (const field of fields) {
     if (field.defaultSource === undefined) {
       continue;
+    }
+    if (hasRawNewlineInStringLiteral(field.defaultSource)) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/literal-newline-in-string",
+        file: site.file,
+        range: field.range,
+        message: "literal newline in string literal",
+      });
     }
     diagnostics.push(
       ...checkLiteralSublanguage(field.defaultSource, "default", {

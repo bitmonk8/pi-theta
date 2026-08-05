@@ -644,3 +644,22 @@ silent one.
   does not contend for it.
   [0033](./0033-body-level-schema-alias-unsupported.md) — keeps alias-typed
   schema fields unreachable from a `.theta` body.
+
+## Discharge note — bug 0102 (0.75.0)
+
+Appended by the bug 0102 fix; nothing above is altered. Precedent citation only
+— this report gains no obligation and loses none.
+
+[0102](./0102-params-default-string-literal-raw-newline-admitted.md) reused this
+report's **GOV-15 diagnostic-registry carve-out** disposition
+(`source-language-stability.md:25`) for a DIAG-2 *trigger* change, in the
+narrower shape bug 0084 also took: `theta/parse/literal-newline-in-string`'s
+*Trigger* was widened to name the `params:` default RHS as a second emission
+site and its *Phase* cell became `lex, parse`, bringing a set of previously
+clean-loading inputs into the code's emission set. In scope as an *addition*,
+with no code added or removed — so `tests/code-registry.test.ts`'s closed-set
+reconciliation gained no new asserting-test obligation and stays byte-unchanged.
+The *Message* cell is unchanged (DIAG-4). The committed-corpus sweep was re-run
+and re-verified behaviourally against the fixed parser: 34 `.theta` /
+`.thetalib` files, 17 declaring `params:`, 19 fields, one default, **zero** in
+the refused set.

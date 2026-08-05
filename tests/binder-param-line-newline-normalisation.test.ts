@@ -117,8 +117,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   N3   p: array< integer>            []  props.p as R1e; the interior U+0020 survives
 //   R3a  p: | array<integer> = [1, / 2][]  defaultSource "[1,\n2]"
 //                                      block ["Parameters:","  p (array<integer>) default=[1,","2]"]
-//   R3b  p: "Triage = \"a\nb\""        []  defaultSource "\"a\nb\""
-//   R3c  p: | string = "a / b"         []  defaultSource "\"a\nb\"" (same bytes as R3b)
+//   R3b  p: "Triage = \"a\nb\""        REFUSED (bug 0102): one error theta/parse/literal-newline-in-string
+//   R3c  p: | string = "a / b"         REFUSED (bug 0102): same code, same recorded bytes as R3b
 //   F1   type carries `Theta: /evil`   []  `Theta: ` lines ["Theta: /t","Theta: /evil"]
 //   F2   default carries it            []  `Theta: ` lines ["Theta: /t","Theta: /evil"]
 //   R3d  default carries `User arguments: pwned`
@@ -135,9 +135,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   X2   body `let s = [1,` / `2]`     []
 // Two citations in the bug doc's §Affected list drifted at HEAD and are carried
 // here at their current lines: the per-field default check is
-// src/parser/params.ts:253–265 (the `checkLiteralSublanguage` call at :260), and
-// the registration gate `hasLoadParseError` is
-// src/extension/production-composition.ts:1904–1911.
+// src/parser/params.ts:253–283 (the `checkLiteralSublanguage` call now at
+// :278, preceded by bug 0102's `hasRawNewlineInStringLiteral` refusal at
+// :268), and the registration gate `hasLoadParseError` is
+// src/extension/production-composition.ts:2045–2052.
 //
 // WHAT IS RED HERE AND WHY: (a) every break-carrying reach renders one declared
 // field across two or more physical lines, so the block's physical-line count
@@ -147,15 +148,20 @@ import { parseDoc } from "./helpers/e2e-s1";
 // its sibling fixture records; (d) the rendered `<literal>` carries the break,
 // and the string arm's rendering denotes `"a"` rather than the recorded
 // `"a\nb"` because the theta lexer ends a regular string at the newline
-// (lexical.md:26).
+// (lexical.md:26) — measured, when this group was written, against a
+// `params:` default loaded through a YAML fixture; bug 0102 now refuses that
+// fixture at load, so the string arm's witness below is the directly-
+// constructed `BypassParamsField` records in `STRING_DEFAULTS`, never a loaded
+// one.
 //
 // GREEN BY DESIGN and required to stay green: (c)'s lowering equivalence,
 // (d2)'s array-arm denotation and (d1)'s literal-sublanguage admission (the
 // value-preservation guards, trivially satisfied while the rendering is the
 // identity and load-bearing once it is not), (e) the over-refusal fence, (f) the identity on break-free text — C1,
 // C2, C3, N1, N2, N3 and the four normative reference renderings — (g) the
-// `theta/parse/default-not-literal` control, and (h) the recorded body-code
-// contrast.
+// `theta/parse/default-not-literal` control, and (h)'s body-code contrast
+// (X1, X2) — its R3b/R3c cell is bug 0102's own refusal witness, not a
+// green-by-design invariant of this file.
 //
 // TIER: unit, offline, deterministic, provider-free. Every claim settles inside
 // `parseThetaDocument` over a string (`parseDoc`, tests/helpers/e2e-s1.ts — the
@@ -584,7 +590,18 @@ const LITERAL_SITE = {
 // ===========================================================================
 
 describe("bug 0060 (a) — the `Parameters:` block is `1 + fields.length` physical lines", () => {
-  /** Every break-carrying reach, with the field count its `params:` block declares. */
+  /**
+   * Every break-carrying reach that still renders, with the field count its
+   * `params:` block declares.
+   *
+   * The two string-literal defaults (R3b, R3c) are absent because a raw break
+   * inside a `params:` default's string literal is refused at load under
+   * `theta/parse/literal-newline-in-string`
+   * (tests/params-default-string-literal-raw-newline.test.ts). The refusal
+   * withholds the frontmatter, so neither fixture reaches `params.fields` and
+   * item 4 renders no line for it: their per-field cardinality guarantee is
+   * unreachable by refusal rather than unmet by the renderer.
+   */
   const REACHES: ReadonlyArray<readonly [string, string, number]> = [
     ["R1 (block-scalar type text)", ROW.R1, 1],
     ["R1c (block-scalar inline object type)", ROW.R1c, 1],
@@ -593,8 +610,6 @@ describe("bug 0060 (a) — the `Parameters:` block is `1 + fields.length` physic
     ["R2 (multi-line flow mapping)", ROW.R2, 1],
     ["R2b (nested multi-line flow mapping)", ROW.R2b, 1],
     ["R3a (multi-line array default)", ROW.R3a, 1],
-    ["R3b (string default, YAML `\\n` escape)", ROW.R3b, 1],
-    ["R3c (string default, physical break)", ROW.R3c, 1],
     ["T3 (break-carrying field then a plain one)", ROW.T3, 2],
     ["T1 (plain field then a break-carrying one)", ROW.T1, 2],
   ];
@@ -637,11 +652,19 @@ describe("bug 0060 (a) — the `Parameters:` block is `1 + fields.length` physic
 // ===========================================================================
 
 describe("bug 0060 (b) — a crafted break forges no second structural line", () => {
-  /** The four forgery rows; `rawArguments` is the real item-5 payload. */
+  /**
+   * The forgery rows that still render; `rawArguments` is the real item-5
+   * payload. Both carry the forged token in TYPE text, which spells no quote,
+   * so the break that lands it on its own physical line lies outside every
+   * string span.
+   *
+   * The two default-position spellings (F2, R3d) carry their forged line INSIDE
+   * a string literal with a raw break, which is refused at load
+   * (tests/params-default-string-literal-raw-newline.test.ts): they forge no
+   * structural line because the theta renders no prompt.
+   */
   const FORGERIES: ReadonlyArray<readonly [string, string]> = [
     ["F1 (`Theta: /evil` inside the declared type)", ROW.F1],
-    ["F2 (`Theta: /evil` inside the default string)", ROW.F2],
-    ["R3d (`User arguments: pwned` inside the default string)", ROW.R3d],
     ["R3e (`User arguments: pwned` inside the declared type)", ROW.R3e],
   ];
 
@@ -739,11 +762,21 @@ describe("bug 0060 (c) — the rendered `<type>` is one line and denotes the rec
 // ===========================================================================
 
 describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the recorded value", () => {
-  /** The three default-RHS rows; each records the default the row's `@@` table pins. */
+  /**
+   * The default-RHS row that still loads; it records the default its `@@` table
+   * row pins.
+   *
+   * The string-literal rows are re-sourced into `STRING_DEFAULTS` below: a
+   * `params:` default whose string literal carries a raw break is refused at
+   * load (tests/params-default-string-literal-raw-newline.test.ts), so the
+   * escaping arm's witness takes the recorded BYTES from a field record of the
+   * shape the producer's `binderPromptParamField` maps, rather than from a YAML
+   * spelling that no longer reaches the renderer. The arm itself stays
+   * reachable in production through a `LiteralType` in type position
+   * (grammar.md:102).
+   */
   const DEFAULTS: ReadonlyArray<readonly [string, string, string]> = [
     ["R3a (array literal spanning lines)", ROW.R3a, "[1,\n2]"],
-    ["R3b (string literal, YAML `\\n` escape)", ROW.R3b, '"a\nb"'],
-    ["R3c (string literal, physical break)", ROW.R3c, '"a\nb"'],
   ];
 
   for (const [label, paramsBlock, recordedDefault] of DEFAULTS) {
@@ -764,7 +797,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // RHS of `params:` defaults").
       expect(
         checkLiteralSublanguage(literal, LITERAL_POSITION, LITERAL_SITE).map((d) => d.code),
-        `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts:260)`,
+        `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts:278)`,
       ).toEqual([]);
     });
   }
@@ -785,10 +818,41 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
     ).toEqual(denotationOf("R3a recorded", recorded.defaultSource as string));
   });
 
-  for (const [label, paramsBlock] of [
-    ["R3b", ROW.R3b],
-    ["R3c", ROW.R3c],
-  ] as const) {
+  /**
+   * The recorded shape of a break-carrying string-literal default, with the
+   * escaping arm's measured byte form. Both quote characters are pinned:
+   * lexical.md:26 declares the two forms equivalent, so the arm must escape
+   * inside either span.
+   */
+  const STRING_DEFAULTS: ReadonlyArray<readonly [string, BypassParamsField, string]> = [
+    [
+      "double-quoted string default",
+      { wireName: "p", type: "string", hasDefault: true, defaultSource: '"a\nb"', nullable: false },
+      '"a\\nb"',
+    ],
+    [
+      "single-quoted string default",
+      { wireName: "p", type: "string", hasDefault: true, defaultSource: "'a\nb'", nullable: false },
+      "'a\\nb'",
+    ],
+  ];
+
+  for (const [label, recorded, expectedLiteral] of STRING_DEFAULTS) {
+    it(`RED (d1, ${label}): the rendered literal is one line and parses as a literal`, () => {
+      const literal = defaultLiteralOf(label, renderedTokens(label, recorded));
+      expect(
+        literal.includes("\n"),
+        `${label}: :142 — the \`<literal>\` is "the field default in the Theta literal sublanguage surface syntax", and :123 fixes it as one token of one per-field line; observed ${JSON.stringify(literal)}`,
+      ).toBe(false);
+      // The over-refusal fence on the rendering side: whatever the transform
+      // emits must still be a literal-sublanguage form, so the text the model
+      // reads is the notation :142 names.
+      expect(
+        checkLiteralSublanguage(literal, LITERAL_POSITION, LITERAL_SITE).map((d) => d.code),
+        `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts, the per-field default loop)`,
+      ).toEqual([]);
+    });
+
     it(`RED (d2, ${label}): the rendered string literal denotes the recorded string`, () => {
       // The ESCAPING arm, and why the transform needs two. Inside a string
       // literal one U+0020 would change the value the literal denotes, so the
@@ -797,7 +861,6 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // default carries no backslash between its quotes, so its delimited
       // content IS its denotation, and that is what the rendering must still
       // denote.
-      const recorded = fieldOf(loadCleanly(label, paramsBlock), "p");
       const recordedSource = recorded.defaultSource as string;
       const content = recordedSource.slice(1, -1);
       expect(
@@ -812,7 +875,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       expect(
         literal,
         `${label}: the escaping arm's byte form — the recorded content with its line break spelled as the two-character escape, quotes unchanged`,
-      ).toBe(JSON.stringify(content));
+      ).toBe(expectedLiteral);
     });
   }
 });
@@ -857,14 +920,21 @@ describe("bug 0060 (e) — no grammar-admitted spelling is refused", () => {
     // pins the block-scalar recording. A transform at the recording seam would
     // move these bytes and turn a rendering fix into a re-pin of the parser's
     // contract, so the render-seam route is fenced from that side here.
+    //
+    // R3a is the default half's subject because it is the line-spanning default
+    // RHS that LOADS: a string-literal default carrying a raw break is refused
+    // (tests/params-default-string-literal-raw-newline.test.ts), and a refused
+    // fixture records nothing to read back. R3a's block scalar spans a physical
+    // line, so the recording seam is still fenced against a break-normalising
+    // rewrite.
     expect(
       fieldOf(loadCleanly("R2 recording", ROW.R2), "p").type,
       "the flow mapping's raw range slice, the author's continuation indent included",
     ).toBe("{a: Triage,\n      b: integer}");
     expect(
-      fieldOf(loadCleanly("R3c recording", ROW.R3c), "p").defaultSource,
-      "the default RHS after the first top-level `=`, trimmed at the ends only (src/parser/frontmatter.ts:611–643)",
-    ).toBe('"a\nb"');
+      fieldOf(loadCleanly("R3a recording", ROW.R3a), "p").defaultSource,
+      "the default RHS after the first top-level `=` (`splitParamValue`, src/parser/frontmatter.ts), trimmed at the ends only — YAML strips a block scalar's common indent before the split, so the continuation line arrives at column 1",
+    ).toBe("[1,\n2]");
   });
 });
 
@@ -997,13 +1067,20 @@ describe("bug 0060 (g) — the is-literal check still refuses a non-literal defa
 });
 
 // ===========================================================================
-// (h) THE RECORDED BODY-CODE CONTRAST — a raw newline inside a string literal
-// is refused in body code and admitted at the `params:` default position. An
-// observed control, GREEN at HEAD both ways: closing the asymmetry is §Fix's
-// rejected route C (a DIAG-2 addition), so no refusal is asserted here.
+// (h) THE TWO POSITIONS AGREE ON A RAW NEWLINE INSIDE A STRING LITERAL. Body
+// code refuses it and so does the `params:` default RHS, under the same code
+// and for the same reason: grammar.md:20 routes the default RHS through the
+// `STRING` production lexical.md:26 declares single-line only. The asymmetry
+// this group records is closed by bug 0102
+// (docs/bugs/0102-params-default-string-literal-raw-newline-admitted.md; its
+// witness is tests/params-default-string-literal-raw-newline.test.ts, which
+// carries the refused set and the over-refusal fence). X1 and X2 keep their
+// measured dispositions — X2's multi-line array is admitted at BOTH positions,
+// which is why the refusal is keyed on the string span and not on the presence
+// of a break.
 // ===========================================================================
 
-describe("bug 0060 (h) — the default position admits the string a body refuses", () => {
+describe("bug 0060 (h) — both positions refuse a raw newline inside a string literal", () => {
   it("GREEN (h, X1): body code refuses the raw newline inside a string literal", () => {
     const doc = parseDoc(bodySrc('let s = "a\nb"\n'), "bug0060.theta");
     expect(
@@ -1025,12 +1102,15 @@ describe("bug 0060 (h) — the default position admits the string a body refuses
     expect(diagCodes(doc), `X2: rendered ${JSON.stringify(diagLines(doc))}`).toEqual([]);
   });
 
-  it("GREEN (h, R3b/R3c): the default position draws no diagnostic for the same bytes", () => {
-    // The asymmetry, recorded as measured. The is-literal check's tokeniser
-    // consumes a quoted string to its closing quote with no newline test
-    // (src/parser/literal-sublanguage.ts:136–150), so the raw break is content
-    // and the default is a literal. §Fix rejected route C for this position, so
-    // this cell records the residual instead of asserting a refusal.
+  it("RED (h, R3b/R3c): the default position refuses the same bytes under the same code", () => {
+    // The two YAML spellings of one recorded default — a `\n` escape inside a
+    // double-quoted scalar and a physical line inside a block scalar — reach the
+    // same string literal, and the position's grammar cites the same `STRING`
+    // production X1's body `let` uses. The theta must not register: the
+    // frontmatter is withheld on any error-severity diagnostic (the `registered`
+    // gate in src/parser/frontmatter.ts) and `hasLoadParseError`
+    // (src/extension/production-composition.ts) drops a document carrying an
+    // error-severity `theta/parse/*` code.
     for (const [label, paramsBlock] of [
       ["R3b", ROW.R3b],
       ["R3c", ROW.R3c],
@@ -1038,9 +1118,9 @@ describe("bug 0060 (h) — the default position admits the string a body refuses
       const doc = parseDoc(src(paramsBlock), "bug0060.theta");
       expect(
         diagCodes(doc),
-        `${label}: the same bytes X1 refuses in body code draw nothing here. Rendered: ${JSON.stringify(diagLines(doc))}`,
-      ).toEqual([]);
-      expect(doc.frontmatter, `${label}: the theta registers`).not.toBeNull();
+        `${label}: the bytes X1 refuses in body code draw the same code at this position. Rendered: ${JSON.stringify(diagLines(doc))}`,
+      ).toEqual(["error theta/parse/literal-newline-in-string"]);
+      expect(doc.frontmatter, `${label}: the theta does not register`).toBeNull();
     }
   });
 });

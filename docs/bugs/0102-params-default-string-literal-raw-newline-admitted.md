@@ -1,6 +1,6 @@
 # Bug 0102 — A raw newline inside a string literal is refused in theta body code and admitted at the `params:` default RHS: `p: string = "a<LF>b"` loads with zero diagnostics and registers, because `checkLiteralSublanguage` tokenises the default with its own scanner whose quoted-string loop carries no newline test where the lexer's loop terminates on one — and the three readers of the recorded `defaultSource` then disagree about what it denotes: the is-literal check treats the break as string content, the binder renders it as the `\n` escape that *Default-literal rendering* says preserves the value the source denotes, and the invocation-time default recovery re-lexes the same bytes and truncates the value to `a`; where the string sits inside an `ArrayLit` or an object literal the recovery also fabricates an element and a field the author never wrote
 
-- **Status:** open. §Fix is settled on one approach — refuse the raw break at
+- **Status:** fixed (0.75.0). §Fix was settled on one approach — refuse the raw break at
   the default RHS under the existing code `theta/parse/literal-newline-in-string`,
   emitted from the `parseParams` per-field default loop, with the registry row's
   *Trigger* and *Phase* reconciled in the same commit. No ordering dependency:
@@ -784,6 +784,230 @@ Constraints on the implementation:
    loader already refused. `src/binder/binder-system-prompt.ts:205`'s hard
    citation to `src/parser/literal-sublanguage.ts:136–150` (0060's residual (v))
    is re-derived if the fix moves those lines.
+
+## Fix (0.75.0)
+
+- **What shipped:**
+  - `src/parser/literal-sublanguage.ts` — new exported
+    `hasRawNewlineInStringLiteral(source)`: a **read-only** call to the existing
+    `tokeniseExpr`, true iff any `str` token's raw text carries a `\n`. §Fix
+    constraint 2 — `tokeniseExpr` itself is byte-unchanged (`cmp` over lines
+    121–235 against the baseline), the module diff is a pure end-of-file append,
+    and `src/binder/binder-system-prompt.ts`'s hard citation to
+    `literal-sublanguage.ts:136–150` (0060's residual (v)) did not drift and
+    needed no re-derivation.
+  - `src/parser/params.ts` — the `parseParams` per-field default loop emits
+    `theta/parse/literal-newline-in-string` at `error` severity, ranged on
+    `field.range`, one diagnostic per offending **field**, immediately before the
+    existing `checkLiteralSublanguage` call. No short-circuit: both checks run
+    every iteration, so the refusal co-emits with the loop's other per-field
+    diagnostics and shares their range.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the
+    `theta/parse/literal-newline-in-string` row: *Phase* `lex` → `lex, parse`;
+    *Trigger* widened to name the `params:` default RHS as a second emission
+    site; *Hint* gained the position-scoped remedy. *Sev*, *Spec rule* and
+    *Message* unchanged (DIAG-4).
+  - `docs/reference/diagnostics.md` — the mirror row, ***Phase* cell only**
+    (that table carries no *Trigger* and no *Hint* column).
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md` §Defaults — the
+    refused-set enumeration gains the string literal's raw line break, the second
+    code, and the remedy; mirrored into `docs/reference/frontmatter.md` §Defaults
+    in the same commit. `docs/spec_topics/lexical.md`,
+    `docs/spec_topics/grammar.md` and `docs/reference/grammar.md` are unedited —
+    the first is the rule this fix enforces, and `STRING` already carries the
+    constraint into the other two through `grammar.md:5`.
+  - Tests — new `tests/params-default-string-literal-raw-newline.test.ts` (48);
+    the four pre-authorized groups of
+    `tests/binder-param-line-newline-normalisation.test.ts` re-derived (48 → 44);
+    an additive H8a cell in `tests/live/live-production-acceptance.test.ts`
+    (+201 lines, 0 deletions).
+
+- **Gates** (each re-run by the orchestrator, not taken on report):
+  - Witness run: `npx vitest run tests/params-default-string-literal-raw-newline.test.ts tests/binder-param-line-newline-normalisation.test.ts`
+    → `Test Files  2 passed (2)` / `Tests  92 passed (92)`. Pre-fix the same two
+    files were `Tests  21 failed | 66 passed (87)`, every failure naming the
+    missing `theta/parse/literal-newline-in-string`.
+  - Full default suite: `npm test` → `Test Files  267 passed (267)` /
+    `Tests  3949 passed (3949)` (baseline 266 / 3905).
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → exit 0, no output.
+  - Lint: `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    → exit 0, no output.
+
+- **Review:** 2 rounds.
+  - Round 1 (deep) — **2 defects.** (i) *correctness*: the first implementation's
+    hand-written span walk had an escape branch that consumed any character after
+    a backslash, so a raw break immediately after one (`"a\<LF>b"`) was skipped
+    untested and still loaded clean and registered — this report's own S1
+    symptom, unfixed. (ii) *spec*: the same walk had no template / query /
+    `${...}` arm, so a quote inside an `@`...`` query template opened a span and
+    drew a spurious `literal-newline-in-string` on source containing no string
+    literal, putting the code's emission set past its DIAG-2 *Trigger* — the
+    over-refusal class 0041 adjudicated against. One seam closed both: the
+    predicate was re-sourced onto `tokeniseExpr`'s own `str` tokens, which
+    already resolve span extent (so a post-backslash break is inside the token's
+    raw text) and already emit templates and queries as single opaque tokens (so
+    a quote inside one opens no span). Five cells added; red-ability proven by
+    reinstalling the pre-repair body.
+  - Round 2 (fast) — **CLEAN**, one non-blocking *prose* residual: the doc
+    comment carried an inapplicable "union/generic split" clause copied from
+    `normaliseParamLineBreaks`, naming a `Type`-grammar shape unreachable from
+    this function's single caller. Polished comment-only; the polish diff touches
+    no executable line and the gate re-run is green, so per the post-polish rule
+    the confirmation round was skipped.
+
+- **Verification:** VERIFIED.
+  - *Red-able.* Two neutralisations, each a targeted byte edit restored
+    byte-exact and `git hash-object`-verified back to
+    `5f42b270d73f7d22a264dda9ce2244626949498b`. (a) `return false` → 22 cells
+    red, every message naming the missing
+    `theta/parse/literal-newline-in-string`, 70 green. (b) the pre-repair
+    hand-walk reconstructed → exactly 5 red (BSLF missed; QRY / TPL / INTP
+    over-fired), 43 green — the two round-1 defect classes stay locked.
+    `git stash` was never used.
+  - *Full suite.* Independently re-run: 267 files / 3949 tests passed.
+  - *Live.* Both mandated commands run for real. H8a
+    `tests/live/live-production-acceptance.test.ts` → `Tests  18 passed (18)`,
+    including the new cell. H9a `tests/live/acceptance/` → `Tests  11 passed (11)`
+    on a clean full re-run. The new H8a cell is registration-only and
+    zero-token: a control theta and a break-free defaulted sibling must
+    register, and the R3c spelling must not, read off the settled in-memory
+    `SessionManager` — no drive is issued, so nothing turns on `prompt()`
+    resolving. Both directions proven: neutralised →
+    `Registered: ["b102livebroken","b102livectl","b102livegood"]`; restored →
+    green.
+  - *Lint and typecheck.* Both clean, run as `package.json` defines them.
+
+- **Residuals:**
+  1. **Three citations into `src/parser/params.ts` were shifted by this diff and
+     are left stale**, because each lives in a file outside this fix's scope
+     fence. The `parseParams` default loop grew by 18 lines, moving everything
+     from old line 266 onward. (a) `src/parser/body-type-lowering.ts` —
+     `lowerParamsFieldType`'s brace check cited as `params.ts:766`, now `:784`.
+     (b) `tests/annotation-root-brace-union-lowering.test.ts` `CONTROL (a6)` —
+     the same site cited as `params.ts:766`, now `:784`; this file is bug
+     **0053**'s witness. (c)
+     `tests/discriminator-field-classifier-brace-group.test.ts:70` —
+     `splitTopLevel` cited as `params.ts:932`, now `:950`; this file is bug
+     **0096**'s protected offline-lock witness. The implementer had corrected (a)
+     and (b); the orchestrator reverted both, because (c) cannot be corrected
+     under the fence and a partial sweep is worse than a documented one. All
+     three are *shift-induced*, not pre-existing drift, so they fall outside the
+     do-not-file class. **For the parent to file.**
+  2. **§Fix constraint 7's line range for group (e) overshot.** It says group (e)
+     (`:827–869`) "stays green unchanged", but group (e)'s second test,
+     `GREEN (e, recording)`, reads
+     `fieldOf(loadCleanly("R3c recording", ROW.R3c), "p").defaultSource` — and
+     R3c is in the refused set, so that assertion could not survive. The group
+     header itself scopes the over-refusal fence to "Six grammar-admitted
+     spellings", i.e. the six-row `ADMITTED` matrix, which **is** byte-unchanged.
+     Only the R3c half of the separate recording assertion moved, onto R3a, whose
+     recorded `defaultSource` also spans a physical line (measured `[1,\n2]` —
+     the block scalar strips the common indent, unlike R2's flow-mapping slice).
+     The assertion keeps its subject exactly: it is 0060's route-B
+     recording-seam fence, not an over-refusal assertion. **Orchestrator
+     correction, flagged for ratification.**
+  3. **A lone `\r` inside a string span is not refused.** The predicate tests
+     `\n` only, mirroring the lexer's own scan (`text[i] !== "\n"`), and
+     `decodeSource` folds `\r\n` and `\r` to `\n` before `splitFrontmatter`
+     runs, so the case is unreachable at this position. Deliberate symmetry with
+     body code; measured, not a defect.
+  4. **`tests/fixtures/h7a/permitted-codes.json` is unchanged**, git blob hash
+     `a4a8da04209f90e13d815edd92c1fc682e2a2236` before and after. Decided by the
+     real H9a run, not by assumption: `grep -n "literal-newline-in-string"` over
+     the captured stdout+stderr of all four live transcripts returned no match,
+     the suite's own `assertCodesSubsetOfPermitted` and empty-capture
+     `assertStderrClean` gates stayed green, and the static sweep found no
+     committed file in the refused set. The code is not reachable from H9a.
+  5. **One H9a area red once, then passed on isolation and on a clean full
+     re-run.** `H9a-T (b)` (typed query with a named schema) failed its sentinel
+     match at 22.5 s — not the ~180 s stochastic stall. Its fixture
+     `acc-typed-named.theta` declares no `params:` block at all, so `parseParams`
+     never runs for it; the signature matches neither bug 0064 (binder
+     temperature 400) nor bug 0065 (overflow status gate). Area (d)
+     (`params-binder`, the haiku-pinned binder fixture 0064 concerns) passed in
+     both directory runs. Attributed to model stochasticity, recorded rather than
+     dismissed.
+  6. **`checkLiteralSublanguage`'s six direct answers are measured but not
+     pinned.** Pinning `checkLiteralSublanguage('"a<LF>b"') → []` would red a
+     legitimate future placement of the span scan inside that function.
+     `isBareObjectLiteral`'s four answers are pinned instead — the fence §Fix
+     constraint 2 actually names.
+
+- **Discharge notes appended:**
+  [0060](./0060-binder-parameters-line-shape-violable-by-embedded-newlines.md),
+  [0041](./0041-params-block-mapping-rhs-silent-permissive.md),
+  [0031](./0031-ctor-field-value-typing-unchecked.md),
+  [0084](./0084-increment-decrement-check-dead.md).
+
+- **Pinned dispositions / non-goals** (all re-confirmed at this baseline, none
+  reopened): `parseExpressionSource`'s discard of `lex.diagnostics`;
+  `theta/parse/unterminated-string` at this position; the multi-line `ArrayLit`;
+  the type side of the `params:` field (0056 / 0059); whether a recovered
+  default's value is type-checked against its declared type; the
+  `— <description>` slot and items 2 / 3 of the binder prompt (0060's residuals
+  (ii) / (iii)). §Fix constraint 8 is honoured: no assert, throw or defensive
+  branch was added at `renderBinderParamLine`, `#recoverDeclaredDefaults`,
+  `splitParamDefaultSource` or `parseExpressionSource`, and 0060's shipped
+  two-arm transform and both of its spec paragraphs are byte-unchanged — the
+  string-literal escape arm stays reachable through a `LiteralType` in *type*
+  position, which the new witness's `LIT` row pins.
+
+### The *Hint* presentation choice
+
+§Fix constraint 3 left one choice to the run: whether the *Hint* cell gains a
+position-scoped second remedy or the widened *Trigger* carries it. **The *Hint*
+cell gained it.** *Trigger* is defined by the column legend
+(`diagnostic-shape.md:80`) as "the canonical condition", so a remedy is a
+category error there, while *Hint* is defined on the same line as "the normative
+author-facing hint"; and *Hint* is not one of DIAG-2's three columns (`:72` names
+namespace, severity, trigger), so widening it is not itself a spec-change
+trigger. Leaving it unchanged would have shipped a normative hint naming two
+remedies — a query template and `+` concatenation — that are **both** outside the
+literal sublanguage and so unavailable at one of the code's two emission sites.
+The two body-code remedies are retained; the position-scoped remedy is the `\n`
+escape (the CTL spelling), or moving the value into body code.
+
+### The refused and admitted sets, as re-measured at this baseline
+
+Behavioural drift from §Reproduction: **zero** — every recorded value reproduced
+byte-for-byte. Citation drift: tabulated by the test writer and re-derived to
+symbols (`lexer.ts:434` → `:440`, `:520–527` → `:525–532`; `theta-document.ts:763`
+/ `:779` / `:821` → `:771` / `:787` / `:829`; `production-composition.ts:1904–1911`
+→ `:2045–2052`; `tool-call.ts:226` → `:227`; the `params.ts` and
+`literal-sublanguage.ts` citations were exact).
+
+- *Refused* — R3b, R3c, SQ, ARR, OBJ (both quote characters, both YAML spellings
+  of the break, at top level and nested inside an `ArrayLit` or an object
+  literal); F2 and R3d (whose forged lines sit inside a string literal with a raw
+  break); BSLF (the break immediately after a backslash, found in review round
+  1); and the cardinality rows TWO_FIELDS (2 offending fields → 2 diagnostics, in
+  declaration order) and TWO_BREAKS (2 offending literals in one default → **1**
+  diagnostic).
+- *Admitted, silent* — R3a, CTL, LIT (a `LiteralType` string-with-break in
+  **type** position, which is what keeps 0060's escape arm reachable), R1, R1b,
+  R1c, R1d, R1e, R2, R2b, F1, R3e, and the QRY / TPL / INTP fences (a break
+  inside an `@`...`` query template, a backtick template, or a bare `${...}`,
+  each drawing `theta/parse/default-not-literal` **alone**).
+- *`isBareObjectLiteral`, pinned* (§Fix constraint 2's fence) —
+  `{ path: "a",<LF>mode: "b" }` → `true`; `{ path: "a" }` → `true`;
+  `{ path: "a<LF>b" }` → `true`; `args` → `false`.
+
+### GOV-15 discharge
+
+Every refused row loaded cleanly at the baseline, so all sit inside GOV-15's
+loads-cleanly set (`source-language-stability.md:9`) and the change is covered by
+the diagnostic-registry carve-out (`:25`), which dispositions a DIAG-2 *trigger*
+change "in-scope as an addition for inputs newly brought into the code's emission
+set" — the disposition bugs 0031 and 0084 already took. No code was added or
+removed, so `tests/code-registry.test.ts`'s closed-set reconciliation gains no new
+asserting-test obligation and stays byte-unchanged, and the existing lexer-side
+witness (`tests/lexer-parser-diagnostics-production.test.ts`) stays valid and
+green. Corpus sweep re-verified twice independently, the second time
+behaviourally against the fixed parser rather than by inspection:
+`git ls-files -- '*.theta' '*.thetalib'` → **34** files, **17** declaring
+`params:`, **19** fields, **1** default
+(`tests/live/acceptance/fixtures/acc-params-binder.theta:6`, `count: number = 3`
+— a bare integer, no string literal), **0** in the refused set.
 
 ## Provenance
 

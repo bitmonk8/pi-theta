@@ -91,7 +91,9 @@ anchors, and prose ("binder model").
   on numerics), `null`, arrays, bare-key object literals (declared type supplies
   the schema), `Enum.Variant`, variant-schema construction (`Cat { ... }`).
   Operators, calls, non-`Enum.Variant` identifier references, `${...}`, `@`...``
-  are not admitted (`theta/parse/default-not-literal`). When a slash-command
+  are not admitted (`theta/parse/default-not-literal`). A raw line break
+  inside a string literal is refused too (`theta/parse/literal-newline-in-string`);
+  use the `\n` escape, or move the value into body code. When a slash-command
   invocation omits the positional argument, the default fills in before AJV
   validation. The default's static type must be compatible with the declared type.
   No non-defaulted field may follow a defaulted field

@@ -654,3 +654,32 @@ Obligations either way:
   `system:` typing probe, and the `LiteralType` traffic), plus direct inspection
   of `yaml`'s value nodes (`flow`, `range`) at the production `parseDocument`
   call shape; run on those signatures, then deleted per scratch policy.
+
+## Discharge note — bug 0102 (0.75.0)
+
+Appended by the bug 0102 fix; nothing above is altered. Coordination only — this
+report gains no obligation and loses none.
+
+This report's **round-1 adjudication** — which removed a first implementation's
+refusal of any recovered text carrying a line break, because it refused a
+grammar-admitted multi-line flow mapping "with a message asserting it is not a
+type expression" and "did not close the reach anyway" — is the governing
+precedent for
+[0102](./0102-params-default-string-literal-raw-newline-admitted.md), and it was
+honoured.
+
+0102 refuses a line terminator inside a **string span**, never one merely
+present in the text. The distinction is enforced in two places. In the
+implementation, the predicate reads `tokeniseExpr`'s own `str` tokens, so a break
+that is inter-token whitespace is structurally invisible to it. In the tests, an
+over-refusal fence pins that R3a (`[1,<LF>2]`), the two-character `\n` escape,
+every break-carrying *type* spelling this report's family covers (R1, R1b, R1c,
+R1d, R1e, R2, R2b, F1, R3e), and a break inside an `@`...`` query template, a
+backtick template or a bare `${...}` all stay **silent** — the last three drawing
+`theta/parse/default-not-literal` alone.
+
+The fence is not decorative: 0102's review round 1 caught its first
+implementation over-firing on exactly the query-template case, i.e. reproducing
+this report's adjudicated failure mode, and the finding was fixed before ship.
+The multi-line flow mapping this report protected is measured admitted and
+unchanged.

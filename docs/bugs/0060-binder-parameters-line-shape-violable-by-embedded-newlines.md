@@ -910,3 +910,63 @@ fixtures. Bug
 [0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md) is
 unaffected for the same reason — R1's `{}` lowering of non-type scalar text is
 its subject and a §Non-goal here.
+
+## Discharge note — bug 0102 (0.75.0)
+
+Appended by the bug 0102 fix; nothing above is altered.
+
+§Fix's **route C** — assessed here, rejected as a substitute for this report's
+rendering transform, and recommended for separate filing — has now shipped on
+its own terms as
+[0102](./0102-params-default-string-literal-raw-newline-admitted.md). A raw line
+terminator inside a string literal on a `params:` default RHS is refused at
+error severity under `theta/parse/literal-newline-in-string`, emitted from the
+`parseParams` per-field default loop and ranged on the field; the theta does not
+register. §Fix (0.61.0) *Residuals* item (i), which recorded the asymmetry as
+confirmed-and-not-closed and unfiled, is thereby closed.
+
+**This report's transform is untouched.** `normaliseParamLineBreaks` and
+`renderBinderParamLine` (`src/binder/binder-system-prompt.ts`) are
+byte-unchanged, as are both spec paragraphs
+(`binder-bypass-and-envelope.md:129` *Type display*, `:142` *Default-literal
+rendering*) and the four normative reference renderings. The string-literal
+escape arm does **not** become dead: it stays reachable through a `LiteralType`
+in *type* position, and 0102's new witness pins that reachability with a `LIT`
+row. What changed is only that the arm is no longer reachable from a `params:`
+**default**. Residual (v) — the transform's hard line range for `tokeniseExpr`'s
+string-token loop (`src/parser/literal-sublanguage.ts:136–150`) — was re-checked
+and did **not** drift: 0102's module edit is a pure end-of-file append and
+`cmp` confirms lines 121–235 byte-identical, so the citation stays accurate and
+stays ungated.
+
+**What moved in this report's witness**
+(`tests/binder-param-line-newline-normalisation.test.ts`, 48 → 44 tests), within
+0102 §Fix constraint 7's pre-authorization:
+
+- **(a)** R3b / R3c left the physical-line matrix — a refused fixture has no
+  `params.fields` to render — and their item-4 guarantee is restated as
+  unreachable-by-refusal. The remaining nine rows keep the matrix.
+- **(b)** F2 and R3d moved to 0102's refusal witness (their forged lines sit
+  inside a string literal with a raw break); F1 and R3e carry no quote, stay
+  admitted, and keep the forgery assertion's subject.
+- **(d)** the string arm of the value-preservation assertion — the one that
+  discriminates escape from collapse — was re-sourced from the refused fixtures
+  onto direct `SystemPromptParamField` / `BypassParamsField` records driven
+  through the same `binderParams` mapper, both quote forms, so the transform
+  keeps a red-able witness. Test count unchanged at 6.
+- **(h)** the cell asserting `diagCodes` `[]` and a non-null frontmatter for
+  R3b / R3c became the refusal assertion; X1 and X2 are unchanged; the group
+  header, which recorded the asymmetry as this report's rejected route C, now
+  records it as closed.
+- **(e)** the six-row `ADMITTED` over-refusal matrix is **byte-unchanged**. One
+  half of the separate `GREEN (e, recording)` test moved: it read R3c's recorded
+  `defaultSource`, and R3c is in 0102's refused set, so that half was re-sourced
+  onto R3a, whose recorded default also spans a physical line. Its subject —
+  this report's route-B recording-seam fence — is preserved. 0102's §Fix
+  constraint 7 had described group (e) as wholly byte-unchanged; that line range
+  overshot, and the correction is recorded as a residual on 0102 for
+  ratification.
+
+Residuals (ii) and (iii) — the `— <description>` slot and items 2 / 3 of the
+binder prompt — are unaffected and remain open. Residual (iv) is likewise
+untouched.

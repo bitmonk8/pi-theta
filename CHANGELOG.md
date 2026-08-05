@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-08-05
+
+### Fixed
+
+- **A raw line terminator inside a string literal was refused in theta body code
+  and admitted on a `params:` default right-hand side, so
+  `p: string = "a<LF>b"` loaded with zero diagnostics and registered** (bug
+  0102). `lexical.md:26` makes a regular string literal single-line only and
+  `grammar.md:9` / `:20` route the default RHS through that same `STRING`
+  production, but the lexer that enforces the rule is handed the body text
+  alone, and the is-literal check the position does run tokenises with a scanner
+  whose quoted-string loop closes on the matching quote and on nothing else. The
+  three readers of the recorded `defaultSource` then disagreed about what it
+  denotes: the is-literal check read the break as string content, the binder
+  rendered it as the `
+` escape that *Default-literal rendering* says
+  preserves the value the source denotes, and the invocation-time default
+  recovery re-lexed the same bytes and bound `a`. Nested inside an
+  `ArrayLit` or an object literal, the recovery also fabricated an element and
+  a field the author never wrote.
+
+  The position now refuses the input under the code the registry already
+  carries, `theta/parse/literal-newline-in-string`, emitted from the
+  `parseParams` per-field default loop and ranged on the field, one diagnostic
+  per offending field; the theta does not register. The predicate is a line
+  terminator inside a *string span*, not one anywhere in the text — the
+  distinction bug 0041's round-1 adjudication settled — so a multi-line
+  `ArrayLit`, the two-character `
+` escape, a break inside a query or
+  template form, and every break-carrying *type* spelling stay admitted.
+
+  The shared expression tokeniser is called, never edited: it also answers
+  `isBareObjectLiteral` for the Pi-tool argument guard, whose verdict on a
+  legal multi-line argument is unchanged and pinned.
+
+  Registry reconciled in the same commit:
+  `theta/parse/literal-newline-in-string`'s *Phase* becomes `lex, parse` and
+  its *Trigger* names the `params:` default RHS as a second emission site, with
+  a position-scoped *Hint* remedy; the *Message* is unchanged (DIAG-4). The
+  frontmatter §Defaults enumeration gains the refusal and the second code, each
+  mirrored into `docs/reference/`. A DIAG-2 trigger change, in scope as an
+  addition under the GOV-15 diagnostic-registry carve-out: 34 committed
+  `.theta` / `.thetalib` files, 17 declaring `params:`, 19 fields, one
+  default (`count: number = 3`), **zero** in the refused set.
+
 ## [0.74.0] - 2026-08-05
 
 ### Fixed
