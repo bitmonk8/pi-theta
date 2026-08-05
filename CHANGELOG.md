@@ -6,6 +6,44 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.78.0] - 2026-08-05
+
+### Fixed
+
+- **`theta/parse/invoke-arg-type-mismatch` had no emission path — a literal
+  `invoke(...)` call's argument was never checked against the callee's declared
+  `params:` type** (bug 0137), the invoke-row twin of bug 0050. The registered
+  `E`-severity row's sole emitter `checkInvokeArgTypes` was reached only from
+  `checkInvokeCall`, which had no caller in `src/`: the invoke-literal loop of
+  `checkInvokeStaticResolution` resolved the callee, called `checkInvokeArity`
+  directly and moved on. So `invoke("./callee.theta", 1)` against a
+  `params: x: string` callee loaded clean and registered, while the identical
+  mistype through a `.theta`-callable call or a same-file `fn` call was refused
+  at load — enforcement of a declared parameter type depended on which of three
+  call spellings the author chose. `invocation.md` §"Argument binding" assigns
+  the resolvable case to parse time and TYPE-10 refuses the deferral by name.
+
+  That loop now calls `checkInvokeCall` in place of `checkInvokeArity`, so
+  arity still runs exactly once per site and the emitter's own early return IS
+  the mandated arity-before-type order (a double-defect site still reports
+  arity alone). The per-slot input reuses the adjacent `.theta`-callable arm's
+  soundness mechanisms unchanged: the expected side is the callee's verbatim
+  `params:` type source through `annotationToCompatType`, judged under an EMPTY
+  null-prototype callee-annotation `TypeEnv` so a caller-local homonym cannot
+  decide a verdict about the callee's contract; the actual side is
+  `collectProvableArgTypes`' whole value-type set; and a diagnostic fires only
+  where EVERY value the argument can take is provably incompatible, so an
+  `integer`-narrowing slot, a mixed composite, and any expression past the
+  parser's static view all defer to the callee's runtime AJV load.
+  `CalleeArityField` gained the param name the row's `<param>` placeholder
+  needs (no second callee read), and `InvokeArgSlot` now admits an absent
+  verdict rather than a fabricated type. An unresolvable callee still registers
+  with a `theta/load/callee-has-errors` warning and no parse error. Locked by a
+  40-cell offline witness (`tests/invoke-arg-type-mismatch-wired.test.ts`) and
+  an additive live H8a registration-denial cell, both proven red with the
+  wiring neutralised; the registry row and its mirror are byte-unchanged (the
+  wiring lands at the Trigger's full letter, so DIAG-2 is not engaged).
+
 ## [0.77.0] - 2026-08-05
 
 ### Fixed

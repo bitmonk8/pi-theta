@@ -8,6 +8,13 @@
 //     entry) against the statically-resolved callee's `params:` counts
 //     (`theta/parse/invoke-arity-too-many` / `-too-few`; tool-calls.md
 //     §"Argument shape" binds both call surfaces to these codes by name).
+//   - bug 0137 — `theta/parse/invoke-arg-type-mismatch`, via `checkInvokeCall`
+//     over the SAME `invoke("./x.theta", …)` site, immediately after (and
+//     replacing the direct call to) its arity check: arity runs exactly once
+//     and, only when it raised no diagnostic, a per-slot check compares each
+//     positional argument against the callee's corresponding `params:` field
+//     (invocation.md §Argument binding). Shares this loop's resolved `arity`
+//     and the same soundness mechanisms as the bug 0072 check below.
 //   - bug 0072 — `theta/parse/tool-arg-type-mismatch`, folded into the SAME
 //     `.theta`-callable call-site loop immediately after its arity check, and
 //     only when arity raised no diagnostic (arity before type; invocation.md
@@ -47,7 +54,12 @@ import type {
   Stmt,
 } from "../parser/theta-document";
 import type { CallableSetSnapshot } from "../parser/callable-set";
-import { checkInvokeArity, checkCalleeHasErrors } from "../parser/invoke-diagnostics";
+import {
+  checkInvokeArity,
+  checkInvokeCall,
+  checkCalleeHasErrors,
+  type InvokeArgSlot,
+} from "../parser/invoke-diagnostics";
 import {
   detectInvocationCycle,
   type InvokeGraph,
@@ -352,12 +364,20 @@ export function buildInvokeGraph(inputs: readonly ThetaCompositionInput[]): Invo
   return { edges, unresolvable: new Set<string>() };
 }
 
-/** One `.theta`-callable callee's `params:` field, as the type-mismatch check
- * (`theta/parse/tool-arg-type-mismatch`, bug 0072) consumes it: positional
- * order, verbatim declared type source. */
+/** One `.theta`-callable / `invoke(...)` callee's `params:` field, as the
+ * per-argument type-mismatch checks (`theta/parse/tool-arg-type-mismatch`, bug
+ * 0072; `theta/parse/invoke-arg-type-mismatch`, bug 0137) consume it:
+ * positional order, verbatim declared type source and field name. */
 export interface CalleeArityField {
   /** The field's verbatim declared type source (`params: { x: <this> }`). */
   readonly typeSource: string;
+  /**
+   * The field's verbatim `params:` name (`params: { <this>: string }`). Bug
+   * 0137's invoke-literal arm reports this as `<param>`; the
+   * `.theta`-callable arm's own *Message* carries no `<param>` (bug 0072 never
+   * needed this field), so that arm does not read it.
+   */
+  readonly name: string;
 }
 
 /** The callee shape the arity check consults, resolved once per site. */
@@ -367,10 +387,11 @@ export interface CalleeArity {
   /** Total `params:` field count. */
   readonly totalCount: number;
   /**
-   * The callee's WHOLE `params:` list, in declaration order (bug 0072): slot
-   * `i` of a `.theta`-callable call binds to `fields[i]`, the same positional
-   * correspondence `checkInvokeArity`'s counts already assume
-   * (invocation.md §"Argument binding").
+   * The callee's WHOLE `params:` list, in declaration order (bug 0072; bug
+   * 0137): slot `i` of a `.theta`-callable call OR an `invoke(...)` call
+   * binds to `fields[i]`, the same positional correspondence
+   * `checkInvokeArity`'s counts already assume (invocation.md §"Argument
+   * binding").
    */
   readonly fields: readonly CalleeArityField[];
 }
@@ -607,6 +628,104 @@ function renderCollectedTypes(types: readonly CompatType[]): string {
 }
 
 /**
+ * Build one `invoke(...)` positional argument slot (bug 0137), reusing the
+ * `.theta`-callable arm's per-slot mechanisms unchanged: the expected side
+ * from the callee's verbatim `params:` field type (`annotationToCompatType`),
+ * the actual side from the SET of types the argument can evaluate to
+ * (`collectProvableArgTypes`), both judged under `emptyCalleeAnnotationEnv` so
+ * a caller-local homonym cannot decide a verdict about the callee's contract.
+ *
+ * Returns a WITHHELD slot (`paramType` / `argType` both `undefined`) whenever
+ * any input is absent or the every-member-incompatible test does not hold:
+ * `field` absent is the too-many case (arity already fails on this site, so
+ * `checkInvokeCall` never reaches the per-argument check, and no field name is
+ * available to report); `argExpr` absent cannot arise given how the caller
+ * derives its loop bound from the same `invoke.args`, kept as a defensive
+ * withhold rather than an unchecked index read; `annotationToCompatType`
+ * returning `undefined` and `collectProvableArgTypes` returning `undefined`
+ * both mean the same thing `type-system.md` §"Unresolvable operands" already
+ * names — a side past the parser's static view defers to the callee's runtime
+ * AJV load. `checkInvokeArgTypes` skips a withheld slot before it calls
+ * `checkCompatible`.
+ *
+ * Never fabricates a `CompatType` for a withheld slot: `decide`
+ * (`../parser/type-compat.ts`) tests `sup.kind === "array"` / `"object"`
+ * before its `sub.kind === "named"` branch, so a sentinel unresolvable
+ * `named` argument type would answer `"incompatible"` at an `array<…>` or
+ * inline-object param — a false `E` against a well-typed program.
+ */
+function buildInvokeArgSlot(
+  argExpr: Expr | undefined,
+  field: CalleeArityField | undefined,
+  typeEnv: TypeEnv,
+  typePass: StaticTypeInferencePass,
+  emptyCalleeAnnotationEnv: TypeEnv,
+): InvokeArgSlot {
+  const withheld = (paramName: string): InvokeArgSlot => ({
+    paramName,
+    paramType: undefined,
+    argType: undefined,
+  });
+  if (field === undefined) {
+    return withheld("");
+  }
+  if (argExpr === undefined) {
+    return withheld(field.name);
+  }
+  const expectedType = annotationToCompatType(field.typeSource);
+  if (expectedType === undefined) {
+    return withheld(field.name);
+  }
+  const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
+  if (argTypes === undefined) {
+    return withheld(field.name);
+  }
+  const everyMemberIncompatible = argTypes.every(
+    (argType) =>
+      checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) === "incompatible",
+  );
+  if (!everyMemberIncompatible) {
+    // One arm the `params:` field accepts — or answers `"unknown"` /
+    // `"integer-narrowing"` for — means a runtime value may well type-check,
+    // so the slot defers to the runtime AJV net.
+    return withheld(field.name);
+  }
+  return {
+    paramName: field.name,
+    paramType: expectedType,
+    argType: dedupeArgType(argTypes),
+  };
+}
+
+/**
+ * Reduce a collected value-type set (`collectProvableArgTypes`) to the single
+ * `CompatType` `checkInvokeArgTypes` re-decides against (`buildInvokeArgSlot`):
+ * one member per distinct `displayType` rendering — the same de-duplication
+ * `renderCollectedTypes` applies for the message string — collapsed to that
+ * member alone when only one rendering survives, else a `union` over the
+ * survivors so `displayType` reproduces the identical `" | "`-joined spelling.
+ * Every returned member is drawn from `types` itself, never invented: the
+ * every-member-incompatible verdict is decided by `buildInvokeArgSlot` BEFORE
+ * this function runs, so `checkCompatible`'s union-sub rule (`decide`,
+ * type-compat.ts, TYPE-6 — which returns `"incompatible"` on the FIRST
+ * mismatching arm) only RE-DERIVES that verdict when `checkInvokeArgTypes`
+ * re-runs it, rather than deciding it here. That rule is unsound as a
+ * discriminator over a mixed set, and sound only because every arm already
+ * agrees by construction.
+ */
+function dedupeArgType(types: readonly CompatType[]): CompatType {
+  const byDisplay = new Map<string, CompatType>();
+  for (const type of types) {
+    const key = displayType(type);
+    if (!byDisplay.has(key)) {
+      byDisplay.set(key, type);
+    }
+  }
+  const arms = [...byDisplay.values()];
+  return arms.length === 1 ? (arms[0] as CompatType) : { kind: "union", arms };
+}
+
+/**
  * Run the load-time invoke static checks for one discovered theta, returning
  * every diagnostic (error-severity entries un-register the theta):
  *
@@ -671,6 +790,14 @@ export async function checkInvokeStaticResolution(
     // construction, so neither can be reached by a walk the other misses.
     const callSites = collectCallSites(input.body);
 
+    // Bug 0072 / bug 0137: all three static tool/invoke-argument TYPE checks —
+    // this loop's own per-argument check below, the `.theta`-callable
+    // per-argument check, and the Pi-tool schema-conflict check — share ONE
+    // `StaticTypeInferencePass` instance and whole-file `TypeEnv`, derived once
+    // per theta from `input.body` — never per call site.
+    const typeEnv = collectTypeEnv(input.body.statements);
+    const typePass = new StaticTypeInferencePass({ checkCompatible });
+
     for (const invoke of callSites.invokeExprs) {
       // A dynamic path (empty literal) or a non-`.theta` extension already
       // produced its own parse error; skip to avoid a confusing second report.
@@ -728,24 +855,55 @@ export async function checkInvokeStaticResolution(
       const providedCount = Math.max(0, invoke.args.length - 1);
       const arity = await deps.resolveCalleeArity(resolvedPath);
       if (arity !== undefined) {
+        // Bug 0137 — `checkInvokeCall`, not a direct `checkInvokeArity` call:
+        // it runs arity FIRST and returns its diagnostics ALONE when arity
+        // fails, so this one call keeps arity running EXACTLY ONCE per site —
+        // the `arityDiags.length > 0` gate inside it IS invocation.md
+        // §"Argument arity"'s ordering (a double-defect site reports arity
+        // alone), not a convention re-implemented here. `checkInvokeCall`
+        // derives `providedCount` from `args.length`, so `argSlots` below
+        // always has exactly `providedCount` entries — the same wired arity
+        // behaviour as before.
+        //
+        // This arm's OWN empty callee-annotation env, judged separately from
+        // the `.theta`-callable arm's `emptyCalleeAnnotationEnv` below (same
+        // rationale — see that arm's own comment for why the EXPECTED side
+        // must be judged in the callee's namespace, not the caller's).
+        const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
+        const argSlots: InvokeArgSlot[] = [];
+        for (let i = 0; i < providedCount; i++) {
+          // Slot `i` binds `invoke.args[i + 1]` — the path literal occupies
+          // `args[0]` — so the reported index counts PARAM slots, not raw
+          // call arguments (invocation.md §"Argument binding"; the reading is
+          // author-visible in every emitted message).
+          argSlots.push(
+            buildInvokeArgSlot(
+              invoke.args[i + 1],
+              arity.fields[i],
+              typeEnv,
+              typePass,
+              emptyCalleeAnnotationEnv,
+            ),
+          );
+        }
+        // `checkInvokeArgTypes` (run by `checkInvokeCall` once arity passes)
+        // emits one diagnostic per mismatched slot, with no `break` — unlike
+        // the `.theta`-callable arm below, which stops at its first mismatch
+        // because it reuses `checkToolCallArguments` per call. This row's own
+        // registered emitter, unchanged by this wiring.
         diagnostics.push(
-          ...checkInvokeArity({
+          ...checkInvokeCall({
             callee: invoke.path,
             staticallyResolvable: true,
             requiredCount: arity.requiredCount,
             totalCount: arity.totalCount,
-            providedCount,
+            args: argSlots,
+            env: emptyCalleeAnnotationEnv,
             site,
           }),
         );
       }
     }
-
-    // Bug 0072: both static tool-argument TYPE checks share ONE
-    // `StaticTypeInferencePass` instance and whole-file `TypeEnv`, derived once
-    // per theta from `input.body` — never per call site.
-    const typeEnv = collectTypeEnv(input.body.statements);
-    const typePass = new StaticTypeInferencePass({ checkCompatible });
 
     // INV-3 over the `.theta`-callable call surface (tool-calls.md §"Argument
     // shape"; bug 0071): reached only for a `tools:` entry that already

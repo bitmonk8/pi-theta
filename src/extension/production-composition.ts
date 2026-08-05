@@ -1336,12 +1336,14 @@ async function resolveCalleeArity(
   return {
     requiredCount,
     totalCount: fields.length,
-    // Bug 0072: the `.theta`-callable per-argument type-mismatch check
-    // (`theta/parse/tool-arg-type-mismatch`, tool-calls.md §"Argument shape")
-    // needs each `params:` field's verbatim declared type, positionally —
-    // `field.type` IS that verbatim source (frontmatter.ts's `splitParamValue`
-    // sets it unchanged).
-    fields: fields.map((field) => ({ typeSource: field.type })),
+    // Bug 0072 / bug 0137: both per-argument type-mismatch checks
+    // (`theta/parse/tool-arg-type-mismatch`, `theta/parse/invoke-arg-type-mismatch`;
+    // tool-calls.md §"Argument shape", invocation.md §"Argument binding") need
+    // each `params:` field's verbatim declared type AND name, positionally —
+    // `field.type` / `field.wireName` ARE that verbatim source
+    // (frontmatter.ts's `splitParamValue` sets `type` unchanged; `wireName` is
+    // the `params:` YAML key exactly as written, `BypassParamsField`).
+    fields: fields.map((field) => ({ typeSource: field.type, name: field.wireName })),
   };
 }
 

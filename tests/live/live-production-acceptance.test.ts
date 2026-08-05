@@ -2591,3 +2591,230 @@ describe("H8a-T — bug 0050: a plain fn call's provably mistyped argument does 
   });
 });
 
+// ===========================================================================
+// Bug 0137 — `theta/parse/invoke-arg-type-mismatch` was registered with a
+// Trigger no literal `invoke(...)` input could satisfy: its sole emitter,
+// `checkInvokeArgTypes`, is reached only from `checkInvokeCall`, and
+// `checkInvokeCall` had no caller anywhere in `src/` — the invoke-literal arm
+// of `checkInvokeStaticResolution` called `checkInvokeArity` directly and
+// moved to the next call site, never reaching the per-argument type check
+// (docs/bugs/0137-invoke-arg-type-mismatch-unreachable.md). This is the
+// invoke-row twin of the fix immediately above: bug 0050 wired the sibling
+// `fn`-call row and deliberately left `invoke` split out by name.
+//
+// The fix wires `checkInvokeCall` itself (arity first, early return on an
+// arity diagnostic, then the per-argument type check) onto the
+// invoke-literal loop's already-resolved callee shape, reusing the adjacent
+// `.theta`-callable arm's soundness mechanisms unchanged: the callee's
+// verbatim `params:` type source, an EMPTY callee-annotation `TypeEnv` so a
+// caller-local homonym cannot decide a verdict about the callee's contract,
+// and `collectProvableArgTypes` with emission gated on every value the
+// argument can take being provably incompatible (invocation.md §"Argument
+// binding"; type-system.md TYPE-10). The 40-cell offline witness
+// (tests/invoke-arg-type-mismatch-wired.test.ts) proves the mechanism at the
+// `discoverAndComposeFixtures` boundary; this cell proves the SAME registered
+// code denies REGISTRATION end to end through the real production
+// composition root (session_start → resources_discover →
+// composeExtensionInstance → checkInvokeStaticResolution) — the fixed path
+// had zero live coverage before this addition, mirroring the bug 0050 cell
+// immediately above for the sibling row.
+//
+// The illegal caller is a literal `invoke("./<callee>.theta", 1)` against a
+// `mode: subagent` callee declaring `params: x: string` — the bug doc's
+// §Reproduction row a1 verbatim. The `string` param keeps the callee on
+// `classifyBinderBypass`'s `single-string-bypass` arm, so the callee loads
+// and registers on its own merits, independent of either caller's argument;
+// a non-`string` param would route it through the binder instead and
+// confound the cell with `theta/load/binder-model-unresolved`.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0050 cell immediately
+// above claims). ADDITIVE ONLY: no existing cell in this file is weakened,
+// reworded, reordered or deleted.
+// ===========================================================================
+
+const INVOKE_ARG_TYPE_MISMATCH_CODE = "theta/parse/invoke-arg-type-mismatch";
+
+/** The sharded registry page carrying `theta/parse/invoke-arg-type-mismatch`'s row. */
+const INVOKE_ARG_TYPE_MISMATCH_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/invoke-arg-type-mismatch: invoke argument <i> ('<param>') type
+ * mismatch: expected <expected>, got <actual>` with every `<…>` substituted —
+ * DIAG-4: the message half is read from the registry row, not copied,
+ * mirroring this file's `fnArgTypeMismatchFragment` immediately above. Unlike
+ * the `fn` and `tool` sibling rows, this row's Message carries no `<name>` —
+ * it names neither caller nor callee. Used for the PRESENCE assertion below:
+ * the illegal caller's refusal must name this fragment on the
+ * theta-system-note channel.
+ */
+function invokeArgTypeMismatchFragment(
+  index: number,
+  paramName: string,
+  expected: string,
+  actual: string,
+): string {
+  const template = registryMessage(
+    INVOKE_ARG_TYPE_MISMATCH_REGISTRY,
+    INVOKE_ARG_TYPE_MISMATCH_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${INVOKE_ARG_TYPE_MISMATCH_CODE} has no registry row — the code this ` +
+      "cell asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string)
+    .replaceAll("<i>", String(index))
+    .replaceAll("<param>", paramName)
+    .replaceAll("<expected>", expected)
+    .replaceAll("<actual>", actual);
+  expect(
+    message,
+    `${INVOKE_ARG_TYPE_MISMATCH_CODE}: an unsubstituted <…> placeholder ` +
+      "remains — the registry row's Message template changed shape and " +
+      "this cell's substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${INVOKE_ARG_TYPE_MISMATCH_CODE}: ${message}`;
+}
+
+/**
+ * The `mode: subagent` callee both callers below name in a literal
+ * `invoke(...)`: one declared `params:` field of type `string`, which keeps
+ * `classifyBinderBypass` on the `single-string-bypass` arm, so registering it
+ * needs no binder model resolution and is independent of either caller's
+ * argument.
+ */
+function invokeArgCalleeTheta(): string {
+  return ["---", "mode: subagent", "params:", "  x: string", "---", "@`hi`", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The bug doc's §Reproduction row a1 verbatim: a literal `invoke(...)` against
+ * the callee above, passing an integer literal at slot 0 where the callee's
+ * sole `params:` field declares `string`.
+ */
+function illegalInvokeArgTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "---",
+    'invoke("./b137livecallee.theta", 1)?',
+    "@`hi`",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with a compatible argument — must register both
+ * before and after the fix, isolating the illegal caller's refusal to the
+ * `integer`-under-`string` mismatch rather than to "a literal `invoke(...)`
+ * call never registers in this harness".
+ */
+function legalInvokeArgTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "---",
+    'invoke("./b137livecallee.theta", "ok")?',
+    "@`hi`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0137: a literal invoke(...) call's provably mistyped argument does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose literal invoke(...) call passes a provably mistyped argument, while its compatible-argument sibling and its callee both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // illegal caller's absence could be (wrongly) attributed to a broken
+      // workspace instead of the gate under test.
+      { source: "project", stem: "b137livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The resolvable callee: single-string-bypass, so it registers on its
+      // own merits regardless of either caller's argument.
+      { source: "project", stem: "b137livecallee", text: invokeArgCalleeTheta() },
+      // The same-shape sibling: identical literal `invoke(...)` call at the
+      // same callee, but a compatible argument — must still register,
+      // isolating the illegal caller's refusal to the mistype rather than to
+      // "a literal invoke(...) call never registers in this harness".
+      { source: "project", stem: "b137livegood", text: legalInvokeArgTheta() },
+      // The load-bearing illegal caller: the SAME callee, but an integer
+      // argument at a declared `string` param (the bug doc's §Reproduction
+      // row a1 spelling).
+      { source: "project", stem: "b137livebroken", text: illegalInvokeArgTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b137livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gate under test, would explain the illegal caller's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b137livecallee"),
+        "the callee did not register — a single-string-bypass params: field " +
+          "should need no binder model resolution. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b137livegood"),
+        "the same-shape sibling with a compatible argument did not register — " +
+          "a literal invoke(...) call cannot register in this harness at all, " +
+          "independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline `discoverAndComposeFixtures` harness the unit
+      // witness uses), a literal `invoke(...)` call whose argument is provably
+      // incompatible with the callee's declared parameter type does NOT
+      // register — `checkInvokeStaticResolution`'s invoke-literal arm fires
+      // `theta/parse/invoke-arg-type-mismatch`, and `hasLoadParseError`
+      // un-registers this caller at the SAME site the bug 0070/0071/0077/
+      // 0079(a)/0110/0084/0089/0095/0102/0125/0050 cells above exercise for
+      // their own codes.
+      expect(
+        handle.command("b137livebroken"),
+        "the caller whose literal invoke(...) call passes a provably mistyped " +
+          "argument registered anyway through the live discovery/session_start " +
+          "path — theta/parse/invoke-arg-type-mismatch did not fire. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b137livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = invokeArgTypeMismatchFragment(0, "x", "string", "integer");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the invoke-arg-type-mismatch " +
+          "rejection for the illegal caller. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+

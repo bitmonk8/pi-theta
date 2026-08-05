@@ -812,3 +812,24 @@ inside one parse plus one import pass.
   `tests/committed-fixture-parse-gate.test.ts` (the corpus gate, `.theta`-only —
   bug 0132). **No committed test measures the imported route in the emitting
   direction**, because no input produces one.
+
+## Discharge note — bug 0137 (0.78.0)
+
+Appended by the bug 0137 fix; nothing above is altered. Accuracy correction to
+one non-goal's premise — this report gains no obligation and loses none.
+
+§Non-goals' *The `invoke` argument row* says
+`theta/parse/invoke-arg-type-mismatch` has "its own unwired emitter".
+[0137](./0137-invoke-arg-type-mismatch-unreachable.md) shipped that wiring in
+0.78.0: the invoke-literal loop of `checkInvokeStaticResolution` now calls
+`checkInvokeCall`, which reaches `checkInvokeArgTypes` once arity passes. The
+emitter is no longer unwired. Everything else in that item holds — the row is
+still a separate row with a separate *Trigger*, 0050's split of the `invoke`
+label out of `walkExpr`'s `call` arm is unchanged, and the wiring is at a
+different pass in a different file, so this report's subject is untouched.
+
+§Fix's coordination item likewise stays correct as written: 0137 remains
+disjoint by *Trigger* and by emitter, with no ordering constraint either
+direction. The invoke arm resolves its callee by opening the callee file during
+the caller's load pass and never consults the caller's import graph, so it
+neither widens nor narrows this report's imported-`.thetalib` callee set.

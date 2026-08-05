@@ -1,8 +1,8 @@
 # Bug 0137 — `theta/parse/invoke-arg-type-mismatch` is a registered `E`-severity row whose sole emitter `checkInvokeArgTypes` (`invoke-diagnostics.ts:205`) is reached only from `checkInvokeCall` (`:398`), and `checkInvokeCall` has no caller anywhere in `src/`: `invoke("./callee.theta", 1)` at a `params: x: string` callee loads clean and registers, where the identical mistype through the `.theta`-callable form draws `theta/parse/tool-arg-type-mismatch` and through a plain `fn` call draws `theta/parse/fn-arg-type-mismatch` — the invoke-row twin of bug 0050's defect, split out of its fix by name
 
-- **Status:** open. The disposition is the family's settled one (wire the
-  caller); four sub-questions inside it are not settled and are enumerated in
-  §Fix, one of them a data-shape widening the sibling arm did not need.
+- **Status:** fixed (0.78.0). The family's disposition taken — the caller
+  wired at the invoke-literal arm through `checkInvokeCall`. All four §Fix
+  sub-questions settled in the run and recorded in §Fix (0.78.0).
 - **Sev/Diff estimate:** S1/D2 — a declared `params:` constraint is unenforced
   at the position `invocation.md:38`, `type-system.md:52` and
   `docs/reference/discovery-cli.md:240–241` all put it: four measured mistyped
@@ -738,3 +738,136 @@ pass.
   `resolveThetaCallableCallSites` (`:285–301`) and carries no such call.
   Position drift of bug 0134's class; every other fact in that item verified
   correct.
+
+## Fix (0.78.0)
+
+- What shipped — the family's disposition, the caller wired, no registry edit:
+  - `src/extension/invoke-static-checks.ts` (+174/−16) — the invoke-literal
+    loop's arity block calls `checkInvokeCall` in place of its direct
+    `checkInvokeArity` call, so arity still runs exactly once per site and
+    `checkInvokeCall`'s own `arityDiags.length > 0` early return IS
+    invocation.md §"Argument arity"'s ordering rather than a convention
+    restated at the new sink. Two module helpers build its input:
+    `buildInvokeArgSlot` (per param slot — expected side from the callee's
+    verbatim `params:` type source through `annotationToCompatType`, actual
+    side from `collectProvableArgTypes`, both judged under this arm's own
+    EMPTY null-prototype callee-annotation `TypeEnv`, emission gated on EVERY
+    member of the collected set answering `"incompatible"`) and
+    `dedupeArgType` (one member per distinct `displayType` rendering, a
+    `union` over the survivors when more than one remains, so `<actual>`
+    carries the same `" | "`-joined spelling `renderCollectedTypes` produces
+    on the sibling arm). `collectTypeEnv` / `StaticTypeInferencePass` moved
+    above the invoke loop — a pure move keeping them once per theta for all
+    three checks (bug 0072's constraint); the `.theta`-callable and Pi-tool
+    loops are otherwise byte-unchanged.
+  - `src/parser/invoke-diagnostics.ts` (+24/−11) — `InvokeArgSlot`'s
+    `paramType` / `argType` widened to admit `undefined`, meaning the caller
+    withheld a verdict for that slot, and `checkInvokeArgTypes` skips such a
+    slot before `checkCompatible` runs. Additive: both existing unit cells
+    pass concrete types and are unmodified. One subsumed doc-comment paragraph
+    removed.
+  - `src/extension/production-composition.ts` (+8/−6) — `resolveCalleeArity`'s
+    existing `fields.map` also carries `name`, from `BypassParamsField`'s
+    `wireName`. No second callee read.
+  - `tests/invoke-arg-type-mismatch-wired.test.ts` — new, 1087 lines, 40 cells
+    at the `discoverAndComposeFixtures` boundary over one planted `.pi/theta/`
+    workspace; every expected message read from the registry through
+    `registryMessage` (DIAG-4); every absence cell gated on
+    `assertRowSurfaceLive`, a live positive control on two channels, so none
+    can pass while measuring nothing.
+  - `tests/live/live-production-acceptance.test.ts` (+227/−0) — one additive
+    H8a cell modelled on the bug 0050 cell above it: the §Reproduction a1
+    caller denies registration end-to-end through the real composition root
+    while its compatible-argument sibling and the shared callee both register.
+  - Byte-unchanged, verified: `tests/fixtures/h7a/permitted-codes.json` (the
+    real H9a run decided it — the row is not reachable from the acceptance
+    fixtures, whose one tracked `invoke` site passes zero arguments against a
+    param-less callee), the registry row and its `docs/reference/diagnostics.md`
+    mirror (the wiring lands at the *Trigger*'s full letter, so DIAG-2 is not
+    engaged and the DIAG-4 *Message* is unchanged),
+    `src/parser/type-layer-checks.ts` (the type layer never opens a callee
+    file; §Fix rejects that position and its boundary comments still hold).
+  - The four sub-questions, settled: **(1) param name** — `CalleeArityField`
+    widened with `name`, the doc-named smallest route; the `.theta`-callable
+    arm does not read it because its *Message* carries no `<param>`, and that
+    is stated at the field. **(2) `<i>`'s base** — the reported index counts
+    PARAM slots, not raw call arguments: slot `i` binds `invoke.args[i + 1]`,
+    the path literal occupying `args[0]`. Pinned by witness cell a7 (`invoke
+    argument 1 ('y')`). **(3) which emitter** — `checkInvokeCall`, REPLACING
+    the direct `checkInvokeArity` call rather than being added beside it, which
+    dissolves §Fix's stated objection (no arity is re-run), wires both
+    callerless exports at once, and leaves `tests/invoke-diagnostics.test.ts`'s
+    arity-before-type cell live and meaningful. The doc's pre-authorised
+    removal of that cell was therefore NOT taken and no existing test changed.
+    **(4) GOV-15** — re-measured, not cited: 34 tracked `.theta` / `.thetalib`
+    files carry exactly one `invoke` site
+    (`tests/live/acceptance/fixtures/acc-imports-invoke.theta`, zero arguments
+    against a param-less callee), so the addition direction's blast radius is
+    nil; `tests/theta-callable-call-arity.test.ts`'s four invoke callers pass
+    `string` arguments to `string` params and stay green, as does the
+    committed-fixture parse gate.
+  - Withheld-slot encoding, and the route rejected: a fabricated sentinel
+    `CompatType` for a withheld slot was rejected as UNSOUND — `decide`
+    (`type-compat.ts`) tests `sup.kind === "array"` and `sup.kind === "object"`
+    before its `sub.kind === "named"` branch, so a sentinel unresolvable
+    `named` argument type at an `array<…>` or inline-object param answers
+    `"incompatible"` and produces a false `E`. The widened `undefined`
+    encoding makes the withheld case first-class instead.
+- Gates: witness 40/40; `npm test` 271 files / 4129 tests (baseline at the
+  pre-fix HEAD was 270 / 4089); `npx tsc -p tsconfig.json --noEmit` clean;
+  `npm run lint` clean; H8a live 21/21 including the new cell; H9a acceptance
+  11/11, no stochastic red in the shipping run; committed-corpus sweep clean.
+- Review: 2 rounds. r1 (deep): one `prose` finding — a subsumed duplicate
+  paragraph in `checkInvokeArgTypes`'s doc-comment; `correctness`, `fidelity`,
+  `spec`, `house-rule` and `test` each returned CLEAN with the reasoning
+  quoted, including a walk of `decide`'s branch order against every
+  `collectProvableArgTypes` arm and an adversarial input list. r2:
+  comment-only polish applying that one finding; the round's diff touched no
+  executable line, so polish was verified by gate-diff and the confirmation
+  round skipped.
+- Verification: SOLID. The witness genuinely witnesses — the invoke arm's call
+  reverted to the pre-fix `checkInvokeArity` shape reds 28 of 40 cells with the
+  row absent and the mistyped caller registering, restored byte-exact by blob
+  hash (`5caf3f3852439933acb06bde6d0b8acc8bfaaaa3` before and after, compared
+  against the pre-neutralisation snapshot rather than the pre-fix `HEAD` blob),
+  green 40/40 after. Full default suite green. The additive H8a cell proven
+  both directions live: RED with the wiring neutralised (the mistyped caller
+  registers), GREEN restored. Lint and typecheck clean. `git stash` was not
+  used at any point.
+- Residuals:
+  1. **§Expected behaviour's a3/a4 sentence is wrong and was not applied.** The
+     doc says "a1–a5 should report", but §Fix's binding soundness constraint
+     routes emission through `collectProvableArgTypes`, whose `array` and
+     `ident` arms both return `undefined`. a3 (`invoke("./cc.theta", ["a"])`)
+     and a4 (a typed-`let` read) therefore DEFER and stay silent; the witness
+     pins them as silence cells with the reason named. Confirmed empirically on
+     the already-wired sibling arm before being encoded. §Fix governs; the two
+     sentences cannot both hold.
+  2. **Withheld true positives on the invoke arm** — an array literal, an
+     `ident`, and the `index` / `par-for` shapes are provably mistyped at a
+     primitive param yet defer, because `collectProvableArgTypes` bails on them
+     for the sibling arm's own reasons. Flip condition: any widening of that
+     function's arms lands emissions here automatically, since this arm reads
+     it unchanged.
+  3. **A site with two mistyped slots draws two diagnostics** on the invoke
+     surface and one on the `.theta`-callable surface, because
+     `checkInvokeArgTypes` has no first-mismatch `break` while the sibling arm
+     stops at its first (it reuses `checkToolCallArguments` per call). The row
+     is `E` either way, so registration is denied identically; the divergence
+     is noted at the call site.
+  4. **`buildInvokeArgSlot`'s `argExpr === undefined` arm is unwitnessed** —
+     the caller derives its loop bound from the same `invoke.args`, so it
+     cannot fire; kept as a withhold rather than an unchecked index read.
+- Discharge notes appended: 0138, 0144.
+- Pinned dispositions / non-goals: retiring the row stays rejected (the
+  operator's 0050 decision). Inferring a param type from the callee body stays
+  out. `src/parser/type-layer-checks.ts`'s `walkExpr` invoke arm stays the
+  wrong position and is untouched. `checkInvokeExtension`'s dead body stays out
+  (§Non-goals, bounded not filed). The runtime cross-mode disposition
+  (`intakeChildParams`) stays unmeasured and out. Arity at any position stays
+  out (wired here; bug 0131 owns the in-document `fn` call). d1 unchanged: an
+  unresolvable callee still registers with a `theta/load/callee-has-errors`
+  warning and no parse error, `staticallyResolvable: true` being passed only
+  where a resolved `arity` was reached. c3 unchanged: a double-defect site
+  reports arity alone. Induced position-only citation drift in files this fix
+  shifted is bug 0134's adjudicated do-not-fix class and was not chased.

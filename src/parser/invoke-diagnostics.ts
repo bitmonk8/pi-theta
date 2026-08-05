@@ -169,10 +169,17 @@ export const CALLEE_HAS_ERRORS_HINT = "Open the callee and fix the listed errors
 export interface InvokeArgSlot {
   /** The callee `params:` field name this positional slot binds to. */
   readonly paramName: string;
-  /** The param's declared schema type. */
-  readonly paramType: CompatType;
-  /** The argument expression's static type. */
-  readonly argType: CompatType;
+  /**
+   * The param's declared schema type, or `undefined` when the caller could
+   * not prove a verdict for this slot — the slot defers to the callee's
+   * runtime AJV load (`type-system.md` §"Unresolvable operands").
+   */
+  readonly paramType: CompatType | undefined;
+  /**
+   * The argument expression's static type, or `undefined` for the same
+   * reason as `paramType` (the two are always absent or present together).
+   */
+  readonly argType: CompatType | undefined;
 }
 
 /** Inputs to the per-argument type check. */
@@ -197,10 +204,9 @@ export interface InvokeArgTypeInput {
  * statically resolvable the check is skipped entirely (runtime AJV net);
  * otherwise a static mismatch on slot `i` fires
  * `theta/parse/invoke-arg-type-mismatch`. A statically-unresolvable operand
- * within a slot (`checkCompatible` → `"unknown"`) is likewise deferred.
- *
- * A statically-unresolvable operand within a slot (`checkCompatible` →
- * `"unknown"`) is likewise deferred to the runtime AJV net.
+ * within a slot (`checkCompatible` → `"unknown"`) is likewise deferred, and so
+ * is a slot whose `paramType` / `argType` is absent — the caller could not
+ * prove a verdict for it, so it is skipped before `checkCompatible` runs.
  */
 export function checkInvokeArgTypes(input: InvokeArgTypeInput): Diagnostic[] {
   const { staticallyResolvable, args, env, site } = input;
@@ -212,7 +218,14 @@ export function checkInvokeArgTypes(input: InvokeArgTypeInput): Diagnostic[] {
   const diags: Diagnostic[] = [];
   for (let i = 0; i < args.length; i++) {
     const slot = args[i] as InvokeArgSlot;
-    const r = checkCompatible(slot.argType, slot.paramType, env);
+    const { paramType, argType } = slot;
+    // Either side absent means the caller could not prove a verdict for this
+    // slot (bug 0137) — defer to the callee's runtime AJV load rather than
+    // call `checkCompatible` on a manufactured type.
+    if (paramType === undefined || argType === undefined) {
+      continue;
+    }
+    const r = checkCompatible(argType, paramType, env);
     if (r === "compatible" || r === "unknown") {
       continue;
     }
@@ -224,8 +237,8 @@ export function checkInvokeArgTypes(input: InvokeArgTypeInput): Diagnostic[] {
       message: invokeArgTypeMismatchMessage(
         i,
         slot.paramName,
-        displayType(slot.paramType),
-        displayType(slot.argType),
+        displayType(paramType),
+        displayType(argType),
       ),
     });
   }

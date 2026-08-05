@@ -930,3 +930,32 @@ this path crosses a provider, and every observable is determined inside one pars
   `docs/spec_topics/diagnostics/diagnostic-shape.md:72`, `:74`;
   `docs/spec_topics/governance/source-language-stability.md:5`, `:9`, `:25`;
   `docs/reference/diagnostics.md:100`, `:110`, `:139`, `:165`.
+
+## Discharge note — bug 0137 (0.78.0)
+
+Appended by the bug 0137 fix; nothing above is altered. One premise is now
+stale and its conclusion is strengthened — this report gains no obligation and
+loses none.
+
+§Related's 0137 item says "the `invoke` argument row is unreachable at HEAD, so
+the third TYPE-9-adjacent argument sink cannot exhibit this disposition yet",
+and forecasts that wiring it "lands this question at a fourth position".
+[0137](./0137-invoke-arg-type-mismatch-unreachable.md) shipped the wiring in
+0.78.0. The premise is stale; the forecast does not come true, for a reason that
+outlives it.
+
+The invoke arm's ACTUAL side is `collectProvableArgTypes`, which withholds every
+expression shape that types as a `named` reference — `ident`, `member`, `call`,
+`invoke`, `query`, `object`, `result-ctor`, `method-call`, `index`, `par-for`
+and the `array` literal all return `undefined`, and `collectArmUnion`
+propagates that withholding out of any composite containing one. A withheld
+slot is passed to `checkInvokeArgTypes` with both sides absent and is skipped
+before `checkCompatible` runs. So a `named` sub can never reach `decide` from
+this sink, and the `named ⊑ array<…>` arm-order asymmetry this report measures
+is structurally unreachable through `invoke(...)` — not merely unreached.
+
+§Reproduction row b12's measurement (`let r = invoke<integer>("./c.theta", v)`
+→ `[]`) is therefore unchanged at 0.78.0, but its bracketed reason is no longer
+"the row is unreachable": the row now fires on this surface, and b12 is silent
+because `v` is an `ident` whose value-type set the arm withholds. §Fix (e)'s
+ordering item may drop `invoke` from the positions a route here must reconcile.
