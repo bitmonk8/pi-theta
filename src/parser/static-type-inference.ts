@@ -243,9 +243,9 @@ export class StaticTypeInferencePass {
         // A field / enum-variant access: nominal reference to the field name.
         return { kind: "named", name: node.field };
       case "index": {
-        // An element read narrows to the target's element type when the target
-        // is statically an array; otherwise it is an unresolved reference.
-        const target = this.#typeExpr(node.target, env, bindings);
+        // TYPE-11: unfolding first makes an alias of `array<T>` narrow to `T`;
+        // TYPE-10 object-schema and unresolvable names unfold to themselves.
+        const target = unfoldAlias(this.#typeExpr(node.target, env, bindings), env);
         return target.kind === "array" ? target.element : { kind: "named", name: "index" };
       }
       case "call":

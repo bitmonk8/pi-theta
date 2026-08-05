@@ -319,3 +319,34 @@ This report's group (d) comment on the two gates states that `checkForIterand`
 "is handed no `TypeEnv` to unfold with". 0089's fix makes that false. The line
 is left as found: this file is the `let`-route witness and is held
 byte-unchanged across that fix.
+
+## Discharge note — bug 0125 (0.76.0)
+
+Appended by the bug 0125 fix; nothing above is altered.
+
+**The `unfoldAlias` export this report created is reused, not duplicated.** Bug
+0125 closes the index-element derivation
+(`src/parser/static-type-inference.ts`, `#typeExpr`'s `case "index"` arm) by
+calling the same exported helper this report introduced at
+`src/parser/type-compat.ts`. TYPE-11 still has one implementation; no second
+unfolding helper exists. The helper's two documented bounds carry the fix
+unchanged: an object-schema `named` stays nominal (TYPE-10), so an alias of an
+object schema keeps falling to the arm's `named "index"` sentinel, and an
+unresolvable `named` stays `named`, so the deferral posture
+`type-system.md:48` requires is preserved.
+
+**The `let` route this report closed is untouched and is re-asserted from the
+other side.** `walkStmt`'s `case "let"` still records
+`unfoldAlias(annotation, this.env)`; bug 0125 changes what a *consumer* reads,
+not what is recorded, exactly as bug 0089 did at the two gates. Measured from
+0125's side, the two routes reach the same answer by different means:
+`schema L = array<string>` + `let e: L = ["a"]` + `let y = e[0]` +
+`y.frobnicate()` reports `unknown method 'frobnicate' on type string` before and
+after (0125 §Reproduction rows a3 and g1, both pinned in its witness).
+
+**This report's witness is byte-unchanged and green.**
+`tests/let-annotation-recorded-binding-type.test.ts` → 19/19 at the 0125 fix
+commit. Its group (d) comment stating that `checkForIterand` "is handed no
+`TypeEnv` to unfold with" — which bug 0089 already made false — is still left
+as found, for the same reason: this file is the `let`-route witness and is held
+byte-unchanged.

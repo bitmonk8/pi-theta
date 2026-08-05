@@ -6,6 +6,60 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-08-05
+
+### Fixed
+
+- **An index read on an alias-typed array lost its element type, so six
+  error-severity codes stopped firing and an illegal theta registered and
+  reached the runtime** (bug 0125). `#typeExpr`'s `case "index"` arm narrowed an
+  element read to the target's element type only when the target's raw
+  `CompatType` had `kind === "array"`. Under TYPE-11
+  (`type-system.md:54`) a type-alias schema `schema L = array<string>` **is**
+  `array<string>`, but a `fn` parameter records it as the raw `named L`, so the
+  test failed and the read typed as the sentinel `{ kind: "named", name:
+  "index"}` — a name no `TypeEnv` resolves, which every downstream check defers
+  on by design (`type-system.md:48`). The receiver check did not make the same
+  mistake: `classifyIndexReceiver` already resolved the alias, so the expression
+  passed admissibility and then lost its type.
+
+  Measured, `theta/parse/unknown-method`, `integer-narrowing`,
+  `let-rhs-type-mismatch`, `non-string-array-join`, `mixed-plus-operands` and
+  `non-boolean-condition` all stopped firing on the element, each against a
+  concrete-parameter control that emits it. All six are error severity, so the
+  theta registered: `xs[0].frobnicate()` on an alias-typed `array<string>`
+  parsed clean and aborted at runtime with `theta/runtime/internal-error`, the
+  outcome `expressions.md:122` says this input does not get;
+  `array<integer>.join(",")` returned `"1,2"` by JS coercion, which
+  `expressions.md:108` says theta 1.0 does not perform; and a `number` emerged
+  from an `integer`-annotated binding as `1.5`. In the other direction a legal
+  `par for` over an alias-typed array's element was refused, because the iterand
+  gate admits only `array<T>` and the sentinel is not one.
+
+  The arm now unfolds its target through the exported `unfoldAlias` before the
+  `kind` test — bug 0089's route, applied at a fourth site it did not name, with
+  the same helper reused and no registry row moving. This completes the
+  alias-unfolding narrowing family: all six `CompatType` narrowing tests on
+  `kind === "array"` now read an unfolded operand.
+
+  Bounds preserved and asserted: TYPE-10 holds, so an object schema and an alias
+  of one keep their present dispositions; an unresolvable name and a
+  type-alias-cycle participant keep deferring; nested alias chains unfold; and
+  the element is not unfolded here, so `unknown method '…' on type E` still names
+  the declared element. The `named "index"` sentinel is kept, and its arm stays
+  reachable for an unresolvable or object receiver — so `got index` remains
+  reachable there, with no alias involved.
+
+### Changed
+
+- **The expression sublanguage now states the static result type of an array
+  index.** `docs/spec_topics/expressions.md` stated it for the object receiver
+  (`obj[k]`) and was silent for `arr[i]`; the *Indexed access* bullet now states
+  that the result type is `T` for a receiver `array<T>`, read through a
+  type-alias receiver's right-hand side per TYPE-11.
+  `docs/reference/grammar.md` mirrors the clause in the same commit. No
+  diagnostic code, severity or trigger moves, so DIAG-2 is not engaged.
+
 ## [0.75.0] - 2026-08-05
 
 ### Fixed

@@ -2178,3 +2178,216 @@ describe("H8a-T — bug 0102: a params: default's string literal carrying a raw 
     }
   });
 });
+
+// ===========================================================================
+// Bug 0125 — `#typeExpr`'s `case "index"` arm
+// (src/parser/static-type-inference.ts:245–250) narrowed an index read to the
+// target's element type only when the target's RAW `CompatType` had
+// `kind === "array"`, so a type-alias schema `schema L = array<string>` —
+// whose `fn`-parameter record is the raw `named L` (`walkFn`,
+// type-layer-checks.ts:739) — fell to the sentinel `{ kind: "named", name:
+// "index" }`, an unresolvable name every downstream check defers on
+// (type-system.md:48). `theta/parse/unknown-method` (E-severity) is one of
+// six registered codes measured absent on the sentinel; `hasLoadParseError`
+// (production-composition.ts:2045–2052, applied at :2092) had nothing to act
+// on, so the illegal caller REGISTERED
+// (docs/bugs/0125-index-element-narrowing-not-alias-unfolded.md §Reproduction
+// (a) row 1 / (e) row 1; unit witness `tests/index-element-alias-unfolded.test.ts`
+// cell a1).
+//
+// THE DIRECTION IS THE INVERSE OF THE BUG 0089 CELL ABOVE. 0089's fix made a
+// LEGAL theta (an alias-typed `for` iterand) stop being wrongly REFUSED —
+// success there is registration. This fix makes an ILLEGAL theta (an
+// alias-typed array's element, called past the stdlib's exposed surface) stop
+// being wrongly ADMITTED — success here is NON-registration, with the erased
+// `unknown-method` rejection reappearing on the theta-system-note channel
+// instead of the illegal caller registering. This is also the polarity bug
+// 0102's cell above exercises (a caller that must NOT register), mirrored here
+// for this fix's own code route.
+//
+// No shipped live fixture (H8a, H9a, or the hardening probes) declares a
+// type-alias schema over `array<T>` and indexes it on a `fn` parameter —
+// confirmed statically over the whole tree (`rg -n '^schema \w+ = array<'
+// tests/live/ docs/examples/` matches nothing before this addition) — so no
+// existing live fixture had reach over this defect's route, mirroring the bug
+// 0084/0089/0095 cells' own "no existing live fixture reaches this arm"
+// findings.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the bug 0070/0071/0077/
+// 0079(a)/0110/0084/0089/0095/0102 cells above. ADDITIVE ONLY: no existing
+// cell in this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** `theta/parse/unknown-method`'s registered code and registry page. */
+const UNKNOWN_METHOD_CODE = "theta/parse/unknown-method";
+const UNKNOWN_METHOD_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/unknown-method: unknown method '<method>' on type <type>` with
+ * `<method>` and `<type>` substituted — DIAG-4: the message half is read from
+ * the registry row, not copied, mirroring this file's existing
+ * `nonArrayIterandFragment` / `literalNewlineInStringFragment` helpers. Used
+ * for the PRESENCE assertion below: post-fix, the illegal caller's refusal
+ * must name this fragment on the theta-system-note channel.
+ */
+function unknownMethodFragment(method: string, type: string): string {
+  const template = registryMessage(
+    UNKNOWN_METHOD_REGISTRY,
+    UNKNOWN_METHOD_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${UNKNOWN_METHOD_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string)
+    .replaceAll("<method>", method)
+    .replaceAll("<type>", type);
+  expect(
+    message,
+    `${UNKNOWN_METHOD_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${UNKNOWN_METHOD_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's §Reproduction (a) row 1 — the load-bearing illegal caller: a
+ * type-alias schema over `array<string>`, an `fn` parameter declared with it,
+ * an index read bound to a `let`, and a method call the theta 1.0 stdlib does
+ * not expose on the unfolded element type `string`
+ * (docs/bugs/0125-index-element-narrowing-not-alias-unfolded.md §Reproduction
+ * (a) row 1 / `tests/index-element-alias-unfolded.test.ts` cell a1's
+ * production-parser shape, replayed here through the real
+ * discovery→registration path instead of the offline harness). The trailing
+ * `1` supplies the theta's final value — no `@`-query is needed for a
+ * prompt-mode theta to register, matching the bug 0089 cell's own
+ * `aliasIterandTheta` above.
+ */
+function illegalAliasIndexTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema L = array<string>",
+    "fn f(xs: L) {",
+    "  let y = xs[0]",
+    "  y.frobnicate()",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with a legal body — the bug doc's §Fix's own
+ * anti-over-rejection bound, and the unit witness's `x2` control
+ * (tests/index-element-alias-runtime-disposition.test.ts): the same
+ * alias-typed `array<string>` `fn` parameter, the same index read, but no
+ * call on the element — so this caller must register both before and after
+ * the fix. Isolates the illegal caller's refusal to the `.frobnicate()`
+ * misuse rather than to "an alias-typed array `fn` parameter never registers
+ * in this harness".
+ */
+function legalAliasIndexTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema L = array<string>",
+    "fn f(xs: L): string {",
+    "  xs[0]",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0125: an alias-typed array's element, called past the stdlib surface, does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose alias-typed array fn parameter calls an unexposed method on its element, while its same-shape defect-free sibling registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // illegal caller's absence could be (wrongly) attributed to a broken
+      // workspace instead of the gate under test.
+      { source: "project", stem: "b125livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: identical alias-typed array `fn` parameter and
+      // index read, but a LEGAL body — must still register, isolating the
+      // refusal to the unexposed-method call rather than to "an alias-typed
+      // array `fn` parameter never registers in this harness".
+      { source: "project", stem: "b125livegood", text: legalAliasIndexTheta() },
+      // The load-bearing illegal caller: the SAME alias-typed array parameter,
+      // but the index read's element calls a method the theta 1.0 stdlib does
+      // not expose (the bug doc's §Reproduction (a) row 1 spelling).
+      { source: "project", stem: "b125livebroken", text: illegalAliasIndexTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b125livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gate under test, would explain the illegal caller's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b125livegood"),
+        "the same-shape sibling with a legal body did not register — an " +
+          "alias-typed array fn parameter cannot register in this harness at " +
+          "all, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), an
+      // alias-typed array `fn` parameter whose element calls an unexposed
+      // stdlib method does NOT register — `unfoldAlias` (type-compat.ts) makes
+      // `#typeExpr`'s `case "index"` arm see `L` as `array<string>`, so the
+      // element narrows to `string` and `theta/parse/unknown-method` fires,
+      // and `hasLoadParseError` un-registers this caller at the SAME site the
+      // bug 0070/0071/0077/0079(a)/0110/0084/0089/0095/0102 cells above
+      // exercise for their own codes.
+      expect(
+        handle.command("b125livebroken"),
+        "the caller whose alias-typed array element calls an unexposed stdlib " +
+          "method registered anyway through the live discovery/session_start " +
+          "path — theta/parse/unknown-method did not fire on the unfolded " +
+          "element type. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b125livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110 /
+      // 0084 / 0089 / 0095 / 0102 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = unknownMethodFragment("frobnicate", "string");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the unknown-method rejection for the " +
+          "illegal alias-typed caller's element. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

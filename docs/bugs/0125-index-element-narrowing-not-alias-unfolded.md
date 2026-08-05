@@ -1,11 +1,10 @@
 # Bug 0125 — `#typeExpr`'s index-element derivation tests the raw target type, so an alias-typed array is admitted as an index receiver and then narrows to the sentinel `named "index"`: `schema L = array<string>` + `fn f(xs: L) { let y = xs[0]  y.frobnicate() }` reports nothing where the concrete-parameter control reports `unknown method 'frobnicate' on type string`, six registered error-severity codes stop firing on the element, and the erased `unknown-method` rejection reappears at runtime as `theta/runtime/internal-error` — the fourth site of bug 0089's TYPE-11 opacity, at a site its §Fix did not name
 
-- **Status:** open. §Fix's code route is the one bug 0089 took at its three
-  sites — apply the exported `unfoldAlias` before the `kind` test — but it is
-  not settled here: no corpus sentence states the static result type of an
-  array index `xs[i]`, so what the derivation is *required* to produce, and
-  what becomes of the `named "index"` sentinel, are adjudications this report
-  pins first (§Fix (a), (b)). No ordering dependency on another open report.
+- **Status:** fixed (0.76.0). §Fix's code route is the one bug 0089 took at its
+  three sites — apply the exported `unfoldAlias` before the `kind` test — and
+  it shipped as written. §Fix (a) was adjudicated in run to disposition (1):
+  the corpus gained the array-index result-type sentence, with its
+  `docs/reference/grammar.md` mirror in the same commit. See §Fix (0.76.0).
 - **Sev/Diff estimate:** S1/D2 — six registered error-severity codes stop
   firing on an alias-typed array's element, the theta registers, and measured
   at runtime a `number` reaches an `integer`-annotated binding (`1.5`) and
@@ -1024,6 +1023,321 @@ reverting the unfold reds (a) rows 1, 4, 5, every alias row of (c), and d9's
 message and d11's code list, while leaving (b), (d) 1–6 and (f) green. A fix
 whose neutralisation does not red (b) confirms the receiver path was never
 touched.
+
+## Fix (0.76.0)
+
+- **What shipped:**
+  - `src/parser/static-type-inference.ts` — §Fix's code route, verbatim.
+    `#typeExpr`'s `case "index"` arm binds
+    `unfoldAlias(this.#typeExpr(node.target, env, bindings), env)` and tests the
+    **unfolded** value's `kind`, returning its `element`. One line, one file,
+    the already-imported `unfoldAlias` reused not forked, no new export, no new
+    helper, no registry row. The arm's two-line comment states the TYPE-11
+    reason and the TYPE-10 bound; the file is 372 lines before and after, so no
+    citation into it is staled.
+  - `docs/spec_topics/expressions.md` — §Fix (a) **disposition (1)**, the
+    adjudication this report assigned the fixer. The *Indexed access* bullet
+    gained one sentence beside the `obj[k]` sentence: the static result type of
+    `arr[i]` is `T` when the receiver is `array<T>`, and a type-alias-schema
+    receiver is read through its right-hand side, linking
+    [TYPE-11](../spec_topics/type-system.md#type-11) rather than restating it.
+    **Why (1) over (2):** the sentence that *is* written derives the object
+    result type from the receiver's declared shape, so reading the neighbouring
+    array silence as licence for a fabricated type makes that sentence an
+    exception rather than an instance — the ground bug 0113's Reading A rested
+    on. It also gives every row of §Reproduction (a) and (c) a rule-page
+    citation instead of resting on the registry triggers alone. The sentence
+    states the array clause **only**: `expressions.md:10`'s object result type
+    is a *specified* obligation the implementation does not meet (d1, d2
+    measure it), and that is the separate report §Non-goals names.
+  - `docs/reference/grammar.md` — the user-facing mirror, same commit (the
+    same-commit rule for spec edits; DIAG-2 is **not** engaged — no code,
+    severity or *Trigger* moves). The *Expression sublanguage* indexed-access
+    parenthetical gained `array result type is `T`` between the receiver-kind
+    and object-index clauses, folded into the existing line 339. The file is
+    610 lines before and after.
+  - `tests/index-element-alias-unfolded.test.ts` — **new**, 51 rows.
+  - `tests/index-element-alias-runtime-disposition.test.ts` — **new**, 5 rows.
+  - `tests/live/live-production-acceptance.test.ts` — **new H8a cell, +213/−0**,
+    additive only.
+
+- **§Fix (b) — the sentinel's disposition, and what stays reachable.** The
+  `named "index"` sentinel is **kept unchanged**, and the else arm stays
+  reachable. Unfolding removes only the alias input class from it. All three
+  §Fix (b) constraints hold: an unresolvable receiver keeps **deferring**
+  (`type-system.md:48`; rows d3, d14, d16 pin it, d4 pins the cycle
+  participant); the sentinel is not a name an author can declare, because it is
+  not renamed at all, so the d13/d15 collision is exactly as measured before
+  and neither theta registers; and — stated explicitly, as §Fix (b)
+  requires — **`got index` remains reachable**. Rows d7 (unresolvable receiver)
+  and d8 (object-schema receiver) reach it with no alias involved and are
+  pinned green in both directions, so the DIAG-4 render leak against
+  `placeholder-rendering-a.md:19` read with `lexical.md:15` **survives this
+  fix**. Fixing the render was neither required nor forbidden by this report;
+  it is not done here, and residual 1 below carries it.
+
+- **§Fix (c) — the object-receiver arm did not move.** `unfoldAlias` returns an
+  object-schema `named` unchanged (TYPE-10), so an alias of an object schema
+  still fails the `kind === "array"` test and still falls to the else arm.
+  `classifyIndexReceiver`'s three-way answer was **not** reached for — the
+  separate object-result-type report is not pulled into scope. Pins d1, d2, d5,
+  d6 are green in both directions.
+
+- **§Fix (d) — the three sink-routing siblings are untouched.**
+  `src/parser/type-layer-checks.ts` is not in the diff. Group (f)'s eight rows
+  pin `:620`, `:958` and `:1050`'s **present, diverging** behaviour — including
+  f1's *false* `E`-severity rejection of a spec-legal binding — as tripwires, so
+  a later fix that widens into them reds rather than passing silently.
+
+- **The re-derived pre-fix baseline: zero drift.** Every row of §Reproduction
+  (a), (b), (c), (d), (f) and (g) — 51 parse rows — and (e1), (e3), (e5) was
+  re-measured at `1451eb79` through the production `parseThetaDocument` and the
+  production executor, four commits after the `552b4ace` observation. All 54
+  reproduced their recorded codes and messages **exactly**, including the two
+  runtime observables this report's S1 rating turns on: e5 delivered `1.5` from
+  an `integer`-annotated binding (`result={"present":true,"value":1.5}`) and e3
+  returned `"1,2"` from `array<integer>.join(",")`
+  (`result={"present":true,"value":"1,2"}`), the JS coercion `expressions.md:108`
+  and `stdlib-array.ts:63–65` both say cannot happen. e1 threw
+  `theta/runtime/internal-error: internal error: unknown string stdlib member:
+  frobnicate` through `surfaceUnexpectedThrow`. Post-fix all three stop at
+  parse and the theta does not register, so both runtime outcomes are removed
+  rather than merely diagnosed.
+
+- **The `kind === "array"` sweep, re-run — the family claim.** At the fix commit
+  `rg -n 'kind === "array"' src/` returns **14** hits, the same count bug 0089's
+  round 2 and this report's §Reproduction (f) recorded. Six are `CompatType`
+  **narrowing** tests and **all six now test an unfolded operand**:
+  `control-flow.ts:70` (0089 gate 1), `type-layer-checks.ts:1428` (gate 2),
+  `:1190` (site 3a), `static-type-inference.ts:277` (site 3b),
+  `type-compat.ts:212` (unfolded upstream by `checkCompatible` at `:144`), and
+  `static-type-inference.ts:249` — **this fix**. Three are raw-`CompatType`
+  **sink-routing** tests (`type-layer-checks.ts:620`, `:958`, `:1050`),
+  untouched and separately reported. The rest are `Expr`-AST kinds
+  (`:620`/`:956`/`:1050`'s other conjunct, `statement-executor.ts:648`, `:978`),
+  an `InterpolationType` (`production-theta-producer.ts:5666`), and one comment
+  (`type-layer-checks.ts:1184`). `rg -n 'kind !== "array"' src/` → 3, none a
+  narrowing site. `rg -n 'unfoldAlias\(' src/` → **14**, one more than the 13
+  this report measured; the increment is this fix's own call.
+  **Conclusion: the alias-unfolding narrowing family is complete.** Bug 0089's
+  round-2 conclusion that this line was the only remaining `CompatType` sibling
+  was, as this report states, *correct for narrowing and wrong as stated* — and
+  the narrowing half of it is now discharged.
+
+- **GOV-15 discharge — the committed-corpus sweep.** Programs that load cleanly
+  today could start refusing, so the whole shipped corpus was swept both
+  directions. `tests/committed-fixture-parse-gate.test.ts` filters `.theta`
+  only and cannot witness a `.thetalib` (bug 0132, open — **not** fixed here),
+  so the walk was extended in a scratch probe (the 0079/0095 method) to every
+  committed `.theta` **and** `.thetalib`, each run through the real `lexTheta`
+  → `parseThetaDocument`. **35 files** (34 tracked plus the gitignored
+  `.pi/theta/smoke.theta`). Pre-fix and post-fix row sets are **byte-identical**:
+  every file yields `[]` except the seeded-invalid
+  `tests/fixtures/h7b-invalid/malformed.theta`, whose six-code list is
+  unchanged. No shipped `.theta` or `.thetalib` declares a type-alias schema
+  over `array<T>` and indexes it, so the blast radius against GOV-15 is
+  **zero** and no carve-out is owed. Probe deleted.
+
+- **The H9a permitted-codes decision, taken by the real run.**
+  `tests/fixtures/h7a/permitted-codes.json` is **byte-unchanged** at
+  `a4a8da04209f90e13d815edd92c1fc682e2a2236`. Six codes become reachable from a
+  new position, so the question was decided by the REAL H9a run and a transcript
+  grep, never by assumption (the 0079/0084/0102 method): the required
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/acceptance/` run passed **11/11**, and
+  `assertCodesSubsetOfPermitted` — a hard `.toEqual([])` gate — held at all ten
+  real `pi -p` spawn sites; a supplementary scratch probe re-drove all nine
+  areas and grepped the raw captured stdout+stderr, finding **zero** occurrences
+  of any of the six codes (area (a) captured its exact 17-byte
+  `ACC SENTINEL OK` sentinel, so the captures are genuine, not empty).
+  Statically, no H9a fixture declares an alias of `array<T>`. **No append is
+  owed.**
+
+- **Gates.** Witness
+  `npx vitest run tests/index-element-alias-unfolded.test.ts
+  tests/index-element-alias-runtime-disposition.test.ts` →
+  `Test Files 2 passed (2) / Tests 56 passed (56)`. Full default suite
+  `npm test` → `Test Files 269 passed (269) / Tests 4005 passed (4005)`,
+  against a `196e3082` baseline of 267 / 3949 (+2 files, +56 tests — exactly
+  the two new witnesses; no existing file moved).
+  `npx tsc -p tsconfig.json --noEmit` → exit 0, no output. `npm run lint` →
+  exit 0, no output. Live: `tests/live/live-production-acceptance.test.ts` →
+  **19/19** and `tests/live/acceptance/` → **11/11**, both on real runs; no
+  bug-0064, bug-0065, ~180 s stall or bug-0102 `H9a-T (b)` sentinel signature
+  appeared.
+
+- **Review.** Two rounds, two fixer rounds, one verification round.
+  Round 1 (deep) — FINDINGS, three, none `correctness`/`fidelity`/`spec`: F1
+  `house-rule`, pre-fix-anchored "at HEAD"/"today" claims in test comments and
+  failure labels that turn false on shipping; F2 `prose`, an `rg 'got index'`
+  sweep claim the file itself falsified; F3 `test`, 38 expected messages copied
+  as literals rather than read through the house `registryMessage` mechanism.
+  Round 2 (fast) — CLEAN, one non-blocking `prose` residual: the rewritten F2
+  sentence still misdescribed its match set. A `bug-fix-fixer-light` round
+  corrected it; the round's diff is comment-only, gates re-run green, so the
+  polish was verified by gate-diff and the confirmation round skipped.
+  An orchestrator-directed correction round preceded review round 1 and is the
+  reason the diff is line-count-neutral (see residual 4).
+
+- **Verification.** SOLID; seven obligations, all discharged with quoted
+  evidence. (1) A single targeted-byte-edit neutralisation reds **exactly**
+  {a1, a4, a5, c1, c3, c5, c7, c9, c11, c13, d9, d11, e1, e3, e5} — 15 of 56 —
+  and restores byte-exact (`f8e7f2bb…`); §Fix's "both directions" requirement is
+  met, and (b), (d)1–6, (f) and (g) stay green under it, confirming the receiver
+  path was never touched. (2) `npm test` 269/4005, no file moved. (3) The new
+  additive H8a cell proves both directions live. (4) typecheck and lint clean.
+  (5) GOV-15 sweep byte-identical across 35 files. (6) permitted-codes hash
+  unchanged, decided by the real run. (7) The family claim confirmed on the
+  re-run sweep. `git stash`, `git checkout` and `git restore` were used at no
+  point; every neutralisation was a targeted byte edit restored byte-exact and
+  blob-hash verified.
+
+- **Deliberate observable changes, all pinned.** d9's message moves from `got
+  index` to `got string` — `code-registry-parse.md:64`'s `got <type>` template
+  under TYPE-11, the same class of move bug 0089 shipped at gate 1. d11's code
+  list moves from `theta/parse/non-array-iterand` to
+  `theta/parse/unknown-method`, matching its d12 control: a legal `par for` over
+  an alias-typed array's element is no longer refused. c13 reports
+  `unknown method 'frobnicate' on type E` — the **declared** element name —
+  because the element is deliberately not unfolded here; unfolding it would move
+  c14, which is not this fix. `rg -n 'got index' tests/ docs/ src/` at the fix
+  commit matches only this fix's own d7/d8 rows and this report's measurements,
+  so no committed fixture asserted the sentinel form and the move reds nothing
+  else.
+
+- **Tests.** `tests/index-element-alias-unfolded.test.ts` — 51 rows, offline,
+  provider-free, through the production `parseThetaDocument` over the shared
+  `parseDoc` harness (`tests/helpers/e2e-s1.ts:39`). Groups (a), (b), (c) and
+  (d) replay §Reproduction with d9's and d11's post-fix values pinned and
+  d13–d16 as the collision record; group (f)'s eight rows are the sink-routing
+  tripwires; group (g) pins the closed `let` route and the out-of-reach
+  `fn`-return route. Every code assertion is an ordered whole-list `toEqual`,
+  never a containment matcher. **DIAG-4 is satisfied mechanically, not by
+  citation**: all 38 expected messages are read from the registry through
+  `parseRegistry` + `registryMessage` with a `msg(code, fills)` helper that
+  asserts row definedness and placeholder presence before substituting, so a
+  reworded template reds by naming
+  `docs/spec_topics/diagnostics/code-registry-parse.md` rather than by a bare
+  string mismatch — the `tests/brace-rooted-union-arm-capture.test.ts:110–152`
+  precedent. `tests/index-element-alias-runtime-disposition.test.ts` — 5 rows
+  through the production executor (`parseThetaDocument` →
+  `createProductionProducerDeps` → `bindPromptConversation` → `executeBody`),
+  the harness shape `tests/non-object-receiver-gate.test.ts:221–292`
+  establishes; e1/e3/e5 assert both halves — the exact code list and a local
+  mirror of `hasLoadParseError` (module-private at
+  `production-composition.ts:2045`, so it cannot be imported) — with x1/x2 as
+  anti-vacuity controls that still register and still execute. **Live:** an
+  additive registration-only H8a cell in
+  `tests/live/live-production-acceptance.test.ts` (+213/−0, zero tokens, the
+  0084/0089/0095/0102 precedent) plants an illegal alias-index caller beside a
+  plain control and a legal alias-index sibling in one real workspace, boots the
+  shipped extension, and asserts off the settled in-memory `SessionManager`'s
+  entries — never off racy events, never on `prompt()` resolving — that the
+  illegal caller does **not** register while both siblings do. Its direction is
+  the inverse of 0089's cell: success here is non-registration. Both directions
+  proved: neutralised, all three register; restored, the illegal one does not.
+  **No existing test was modified.** `tests/fn-param-alias-unfolded-at-gates.test.ts`
+  (36/36, rows `n1` and `b12` intact, which pin open bugs 0126 and 0127),
+  `tests/let-annotation-recorded-binding-type.test.ts` (19/19),
+  `tests/production-tools-load-resolution.test.ts`,
+  `tests/control-flow.test.ts`, `tests/committed-fixture-parse-gate.test.ts`
+  and the 0079/0080/0084/0095/0096/0102 witnesses are all byte-unchanged and
+  green.
+
+- **Residuals.**
+  1. **The `named "index"` render leak survives, by design.** `displayType`'s
+     `case "named"` returns `type.name` verbatim (`type-compat.ts:324–325`), so
+     the internal string `index` still reaches a DIAG-4 *Message* whenever the
+     else arm's value is rendered. Evidence: rows d7
+     (`fn f(p: Nope) { for y in p[0] { y } }`) and d8 (`schema P { xs:
+     array<string> }` + `for y in p["xs"] { y }`) both report
+     `'for' expects array<T> after 'in'; got index` at the fix commit, with no
+     alias involved, and are pinned green in both directions. `index` satisfies
+     neither `placeholder-rendering-a.md:19` (a `<type>` renders a named schema,
+     enum or alias by its theta-side identifier) nor `lexical.md:15` (which
+     fixes that identifier as uppercase-initial), so the rendered type names
+     something no conformant schema can be. §Fix (b) neither requires nor forbids
+     closing this; it is not closed here, and it belongs with the sentinel's
+     disposition or with the object-result-type report.
+  2. **The sentinel/schema-name collision is unchanged.** `schema index = …`
+     draws `theta/parse/schema-case-mismatch` yet still enters the `TypeEnv`, so
+     the fabricated name unfolds through the author's declaration: d13 draws
+     `non-string-array-join` where its d14 control draws nothing, and d15 draws
+     `let-rhs-type-mismatch: … got index` where d16 draws nothing. Both rows
+     also carry the `E`-severity `schema-case-mismatch`, so neither theta
+     registers — a diagnostic-correctness observation, not a load hazard. The
+     sentinel was not renamed, so the exposure is exactly as measured before.
+  3. **A member-access index read loses its type in *both* spellings.**
+     Measured while re-deriving §Reproduction: `schema L = array<string>` +
+     `schema P { xs: L }` + `fn f(p: P) { let y = p.xs[0]  y.frobnicate() }`
+     reports `[]`, **and so does its concrete control** `schema P { xs:
+     array<string> }` + the same body. Unchanged in both directions by this fix.
+     The cause is disjoint from this report: `#typeExpr`'s `case "member"`
+     (`static-type-inference.ts:243–244`) types a member access as
+     `{ kind: "named", name: node.field }` — the field *name*, not the field
+     *type* — so the alias is not what is lost, exactly as §Non-goals records for
+     the `fn`-return route (g2/g3). It is the same `named`-mint class bug 0038
+     enumerates. Not filed here.
+  4. **A bare schema name as an index receiver newly reports.** Measured: with
+     `schema L = array<string>`, the source `L[0].frobnicate()` reports `[]`
+     pre-fix and `["theta/parse/unknown-method"]` post-fix; likewise
+     `schema Variant = array<string>` + `enum E { Variant }` +
+     `E.Variant[0].frobnicate()`. `L` names a schema, not a value, so no legal
+     program is refused — the change is refuse-before-runtime on input that was
+     broken either way, and the identical mint collision already fires **today**
+     at untouched sites (`let m: integer = L` reports
+     `let-rhs-type-mismatch: … got L` through `checkCompatible`, which this fix
+     does not touch). Bounded exactly like d13/d15, bug 0038's class, no witness
+     row added.
+  5. **Bug 0132 (open) is confirmed, not closed.**
+     `tests/committed-fixture-parse-gate.test.ts`'s walk still filters `.theta`
+     only and still cannot witness either committed `.thetalib`
+     (`docs/examples/personas.thetalib`,
+     `tests/live/acceptance/fixtures/acc-lib.thetalib`), and its anti-vacuity
+     guard still depends on the gitignored `.pi/theta/smoke.theta`. This fix's
+     GOV-15 sweep worked around both in a scratch probe rather than fixing the
+     gate, as directed.
+  6. **Position-only citation drift, pre-existing, left as found.** This
+     report's §Reproduction (f) and §Provenance cite
+     `src/parser/theta-document.ts:1064` for the `Expr`-AST `kind !== "array"`
+     hit; at the fix commit it is `:1065`, shifted by the 0095 fix. This
+     report's own §Affected anchors are pinned to `552b4ace` by the repository's
+     convention. **This fix creates no shift-induced drift of its own**: see
+     residual 7.
+  7. **Zero line shift, deliberately.** The implementation's first pass grew the
+     `case "index"` arm's comment from 2 lines to 5 (+3 in
+     `static-type-inference.ts`) and rewrapped the `grammar.md` paragraph from 5
+     lines to 6 (+1). Measured, that would have staled
+     `docs/bugs/0126-plain-for-binds-no-loop-variable.md:813`'s citation of
+     `static-type-inference.ts:275` — an **open** report this fix may not edit —
+     and every citation into `docs/reference/grammar.md` at or beyond line 342,
+     which spans fourteen bug documents including the open 0062, 0090, 0115,
+     0119, 0120, 0121, 0123 and 0126, plus this report's own `:400–407`. Both
+     files were therefore made line-count-neutral (372 and 610 lines, before and
+     after), which also removed two unrelated test files from the diff whose
+     only change had been chasing the shift. No citation anywhere in the corpus
+     is staled by this fix.
+
+- **Discharge notes appended:** 0089 (its §Residuals item (i) is this report —
+  discharged; and its "only remaining `CompatType` sibling" claim adjudicated),
+  0083 (the `unfoldAlias` export and the `let` route, both reused not
+  duplicated), 0033 (the three-way `TypeEnv` classification `unfoldAlias`
+  reads — note only), 0126 and 0127 (note only — their pins in
+  `tests/fn-param-alias-unfolded-at-gates.test.ts` rows `n1` and `b12` are
+  byte-unchanged and green).
+
+- **Pinned dispositions / non-goals.** The `named "index"` sentinel keeps its
+  name and its arm. `got index` stays reachable at d7/d8. `walkFn`'s raw
+  parameter record (`type-layer-checks.ts:739`) stays raw — bug 0089 rejected
+  unfolding there in terms, and b3 proves the record resolves fine when a
+  consumer resolves it. The element is not unfolded at this line, so c14's
+  `on type E` render is invariant. The three sink-routing siblings keep their
+  measured divergence, tripwired by group (f). `expressions.md:10`'s object
+  result type remains unimplemented and out of scope. `theta/parse/non-array-iterand`
+  becomes *un*reachable for d11's input class, which is the point: its
+  registered trigger is "`for x in expr` where `expr` is not `array<T>`", and
+  under TYPE-11 that iterand **is** `array<T>`, so the emission sat outside its
+  own trigger — the same fault bug 0089 prosecuted at gate 1.
 
 ## Provenance
 

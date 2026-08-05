@@ -978,3 +978,23 @@ the iterand gate, not this one.
   Run on the outputs quoted above, then deleted. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug document are unmodified by this
   filing.
+
+## Coordination note — bug 0125 (0.76.0)
+
+Appended by the bug 0125 fix; nothing above is altered. **Note only — this
+report is untouched and stays open.**
+
+Bug [0125](./0125-index-element-narrowing-not-alias-unfolded.md) changed one
+line in `src/parser/static-type-inference.ts` and touched no file this report
+names. Its pin holds: `tests/fn-param-alias-unfolded-at-gates.test.ts` is
+byte-unchanged and green at 36/36, so bug 0089's row `b12` is intact.
+
+One interaction is worth recording, because 0125 makes this report's gate
+reachable from a new input class. 0125's row c3 —
+`schema L = array<array<integer>>` with `fn f(xs: L): string { xs[0].join(",") }`
+— now reaches `checkArrayJoin` at all, because the index read narrows to
+`array<integer>` instead of the sentinel `named "index"`, and reports
+`theta/parse/non-string-array-join`. That is the element gate firing on a
+*resolvable* element, which is inside its registered trigger and is not this
+report's subject. The unresolvable-element deferral this report prosecutes is
+unchanged in both directions.

@@ -707,3 +707,20 @@ unfolds to itself and behaves as an unresolvable name. 0089 pins that
 disposition explicitly — `schema A = B` / `schema B = A` with `A` as an iterand
 still reports `theta/parse/type-alias-cycle` alongside
 `theta/parse/non-array-iterand`, and still renders the participant's own name.
+
+## Discharge note — bug 0125 (0.76.0)
+
+Appended by the bug 0125 fix; nothing above is altered. **Note only — nothing
+in this report is discharged or reopened.**
+
+The three-way `TypeEnv` classification this report established
+(`object-schema`, `alias`, head-only) gained a fourth consumer. Bug
+[0125](./0125-index-element-narrowing-not-alias-unfolded.md) closes
+`#typeExpr`'s index-element derivation
+(`src/parser/static-type-inference.ts`, the `case "index"` arm) by routing the
+target through `unfoldAlias`, which reads that classification exactly as
+`classifyIndexReceiver` and bug 0089's four sites already do. No classification
+arm changed, no new arm was added, and `collectTypeEnv`'s omission of a
+cycle-participating declaration is what keeps the walk bounded and keeps a
+`theta/parse/type-alias-cycle` participant deferring — pinned by 0125's
+witness row d4.

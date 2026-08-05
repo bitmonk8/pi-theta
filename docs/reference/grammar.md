@@ -336,7 +336,7 @@ description.
 
 Supported forms: literals; identifiers; member access `a.b`; indexed access
 `a[k]` (receiver must be `array<T>` or object — otherwise
-`theta/parse/non-indexable-receiver`; object index must be `string` —
+`theta/parse/non-indexable-receiver`; array result type is `T`; object index must be `string` —
 `theta/parse/non-string-object-index`; the `[` must open on the same line as
 the receiver's end — a line-leading `[` begins a new statement); calls `f(x)`, `obj.method(x)`,
 `<name>(args)`; unary `!` / `-`; arithmetic `+ - * / %`; comparison

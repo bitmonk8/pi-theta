@@ -574,3 +574,49 @@ has no `src/` caller, so 0050 is untouched in both directions.
   `2eafbf10`, deleted after the run. The `61806a3a` (0.54.0) measurement
   establishing that both reproductions predate the 0.55.0 fix is quoted from
   bug 0083 §Fix *Residuals* item (ii) (`:263–268`); it was not re-run here.
+
+## Discharge note — bug 0125 (0.76.0)
+
+Appended by the bug 0125 fix; nothing above is altered.
+
+**§Fix (0.72.0) *Residuals* item (i) is discharged.** The index-element
+derivation it names — `#typeExpr`'s `case "index"` arm in
+`src/parser/static-type-inference.ts`, the
+`target.kind === "array" ? target.element : named "index"` shape — now binds
+`unfoldAlias(this.#typeExpr(node.target, env, bindings), env)` and tests the
+unfolded value's `kind`. This report's route applied a fourth time, one line,
+`unfoldAlias` reused not forked, no registry row. The measurement the residual
+recorded is closed: `schema L = array<string>` with
+`fn f(xs: L) { let y = xs[0]  y.frobnicate() }` now reports
+`unknown method 'frobnicate' on type string`, the same message its
+concrete-parameter control produces. Filed and prosecuted as
+[0125](./0125-index-element-narrowing-not-alias-unfolded.md).
+
+**This report's "only remaining `CompatType` sibling" claim, adjudicated.**
+Round 2's sweep concluded that `static-type-inference.ts:249` was the only
+remaining `CompatType` sibling of `kind === "array"`. Re-run at the 0125 fix
+commit, the sweep still returns 14 hits, and the conclusion is **correct for
+narrowing and wrong as stated**: three further raw-`CompatType` tests survive at
+`type-layer-checks.ts:620`, `:958` and `:1050`. They route an array literal to
+an element sink rather than narrowing anything, and they diverge under an alias
+annotation — 0125 §Reproduction (f) measures it, and one divergence (f1) is a
+*false* error-severity rejection of a spec-legal binding. They are a separate
+report and are untouched. With 0125 shipped, the alias-unfolding **narrowing**
+family is complete: all six `CompatType` narrowing tests on `kind === "array"`
+now read an unfolded operand — this report's four sites, `type-compat.ts:212`
+(unfolded upstream by `checkCompatible`), and 0125's.
+
+**This report's witness is byte-unchanged and green.**
+`tests/fn-param-alias-unfolded-at-gates.test.ts` → 36/36 at the 0125 fix commit,
+including cell c3 (the index receiver path, which 0125 does not touch) and the
+tripwire rows `n1` and `b12` that pin open bugs 0126 and 0127. 0125's own
+witness re-asserts the receiver path from its side (group (b)), so a fix that
+reached for `classifyIndexReceiver`'s three-way answer instead of `unfoldAlias`
+would have redded here rather than passing silently.
+
+**Residual (ii) is untouched.** The §Non-goals plain-`for` body-scope gap is
+still open and is now filed as
+[0126](./0126-plain-for-binds-no-loop-variable.md). Row `n1` still pins it.
+Residual (iii) is likewise untouched: this file stays byte-unchanged, so
+`tests/let-annotation-recorded-binding-type.test.ts`'s group (d) comment is
+still left as found.

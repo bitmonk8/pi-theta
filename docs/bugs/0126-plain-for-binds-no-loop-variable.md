@@ -1111,3 +1111,22 @@ hash-verified.
   (the H9a stderr gate), and
   [RFC 0008](../rfcs/0008-match-binding-type-inference.md) (draft, the same
   `named "<own spelling>"` fallback at the `match` binder).
+
+## Coordination note — bug 0125 (0.76.0)
+
+Appended by the bug 0125 fix; nothing above is altered. **Note only — this
+report is untouched and stays open.**
+
+Bug [0125](./0125-index-element-narrowing-not-alias-unfolded.md) changed one
+line in `src/parser/static-type-inference.ts` (`#typeExpr`'s `case "index"` arm
+now unfolds its target through `unfoldAlias` before the `kind === "array"`
+test). Two things this report depends on are unaffected:
+
+- **Its pin holds.** `tests/fn-param-alias-unfolded-at-gates.test.ts` is
+  byte-unchanged and green at 36/36, so bug 0089's row `n1` — the tripwire that
+  pins this report's gap as staying `[]` — is intact.
+- **Its citations are intact.** `src/parser/static-type-inference.ts` is 372
+  lines before and after the 0125 fix, deliberately, so this report's citation
+  of `static-type-inference.ts:275` (the `par for` element derivation) still
+  resolves. `docs/reference/grammar.md` is likewise 610 lines before and after,
+  so this report's `:455` / `:458` citations are unmoved.
