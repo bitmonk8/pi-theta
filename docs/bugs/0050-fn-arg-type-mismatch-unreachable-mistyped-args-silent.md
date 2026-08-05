@@ -1,9 +1,7 @@
 # Bug 0050 — `theta/parse/fn-arg-type-mismatch` is registered with a Trigger no input can satisfy: its sole emitter `checkFnArgCompat` (`type-compat.ts:452`) has no caller in `src/`, so `fn f(x: P): number { 1 }` + `f(3)` reports nothing at parse and binds the argument unchecked at runtime
 
-- **Status:** open. §Fix is constraint-pinned, not settled. Two dispositions
-  are stated with their constraints — wire the caller, or retire the row under
-  [DIAG-2](../spec_topics/diagnostics/diagnostic-shape.md#diag-2) — and a
-  recommendation; the choice is not made here.
+- **Status:** fixed (0.77.0). Disposition 1 taken — the caller is wired. See
+  §Fix (0.77.0).
 - **Kind:** defect — implementation, in two elements that carry different spec
   standing.
   1. **A promised parse-time check does not run.**
@@ -574,3 +572,101 @@ transferable observation is that the parameter **record** — `walkFn`'s
 during 0089 and deliberately left recording the declared type raw. Any fix here
 reads that record, and it is TYPE-11-opaque by design, so a caller-side check
 must apply the transparency itself.
+
+## Fix (0.77.0)
+
+- What shipped — disposition 1, the caller wired, exactly as recommended:
+  - `src/parser/type-layer-checks.ts` (+928/−45) — `theta/parse/fn-arg-type-mismatch`
+    gains its one emission site: `checkFnCallArgs`, called from
+    `TypeLayerWalk.walkExpr`'s `call` arm, split from the `invoke` label it
+    shared (the `invoke` row stays out — bug 0137). Callee resolution mirrors
+    the runtime's `resolveUserFn` in four named arms: local-shadow →
+    imported-symbol deferral → `fnDecls.get` → not-a-user-fn. Three module
+    collectors (`collectTopLevelFns`, `collectImportedSymbols`,
+    `collectLocalBinderNames`); the argument type is a PROVEN read
+    (`provableArgType` / `isProvenReduction` — bug 0072's soundness discipline
+    re-applied in-layer, since `collectProvableArgTypes` is extension-layer and
+    importing it would invert the dependency direction); the `let`-marking
+    guard evaluates initialiser provability PRE-set, in the scope the runtime
+    evaluates the initialiser in; `for` / `match`-pattern / unannotated-`fn`-
+    parameter binders are recorded in their body scopes as WITHHELD twins
+    (`recordWithheldBinders` / `matchArmScope`) spelled with the key-level
+    unspellable sentinel `"<withheld>"`, and `containsWithheldBinderType`
+    withholds the verdict at the six sibling sinks that judge structurally or
+    refuse unresolvables (typed-`let`, object-field, array-element/common-type,
+    subagent-return, both iterands, join-element/object-index-key).
+  - `src/parser/theta-document.ts` (+9/−2) — frontmatter `params:` field wire
+    names threaded into `checkTypeLayer` (explicit DI; same source
+    `checkLexicalCallSites` reads).
+  - `tests/fn-arg-type-mismatch-wired.test.ts` — new, 84 cells at the
+    `parseThetaDocument` boundary; every expected message read from the
+    registry via `registryMessage` (DIAG-4); loud `argRange`/`letRange`
+    preconditions so no absence cell can pass while measuring nothing.
+  - `tests/live/live-production-acceptance.test.ts` (+201/−1) — one additive
+    H8a cell (a provably mistyped same-file `fn` argument denies registration
+    end-to-end, compatible sibling registers) plus one comment citation.
+  - `tests/typeenv-prototype-names.test.ts` (+5/−5) — comment-only
+    shift-induced citation corrections.
+  - Scope questions §Fix assigned, decided: `subagent fn` calls are IN
+    (functions.md FN-6 binds its parameters positionally "as for `fn` and
+    `invoke`"; locked by cell s1); the imported-`.thetalib` route DEFERS by a
+    named arm with the flip condition stated (cell i1; filed as bug 0138).
+  - Byte-unchanged, verified by blob hash: `src/parser/type-compat.ts` (the
+    emitter's deferral was already correct), `tests/fixtures/h7a/permitted-codes.json`
+    (the code is not H9a-reachable), the registry row and both mirrors (the
+    wiring lands at the Trigger's full letter, so DIAG-2 is not engaged and
+    the DIAG-4 message is unchanged).
+- Gates: witness 84/84; `npm test` 270 files / 4089 tests (clean-tree baseline
+  was 269/4005); `npx tsc -p tsconfig.json --noEmit` clean; `npm run lint`
+  clean; H8a live 20/20 including the new cell; H9a acceptance 11/11, no
+  stochastic red in the shipping run; committed-corpus sweep clean.
+- Review: 8 deep rounds — 5 orchestrated, then 3 operator-granted override
+  rounds after the round-5 cap fired. 10 `correctness` findings, all one
+  species: an unsound static read at the new sink or its recording, each a
+  false `E` refusing a well-typed program. r1: `par for` marking +
+  member/method-call minted names. r2: `index`-arm laundering (4 routes) +
+  callee-name minting. r3: `ident`-arm spelling mint → resolve via
+  `bindings.get`, withhold on a miss. r4: `binary` negation/arithmetic
+  non-numeric claims (9 routes). r5 (cap): the `let`-marking guard judged
+  provability POST-set — a self-shadowing initialiser laundered an erased
+  outer binding. r6: the same species at the three binder classes the walk
+  did not record (`for` / `match` pattern / unannotated parameter shadowing a
+  proven outer). r7: the withheld twin's own spelling judged nominally by
+  sibling rows where it collided with a declared schema. r8: CLEAN (3
+  non-blocking residuals, all resolved in-tree or filed).
+- Verification: three-way neutralisation, each red set derived BEFORE the run
+  and matched exactly, each restore blob-hash-verified byte-exact — emission
+  wiring → 20 cells red; provability identity channel → 9; withheld-binder
+  recording → 13. Full suite green. The additive H8a cell proven both
+  directions live (RED with the wiring neutralised — the mistyped caller
+  registers; GREEN restored). Lint/typecheck clean.
+- Residuals: filed as bugs 0137–0145 (invoke row unreachable; imported-route
+  deferral; parameter-name case rule unenforced; bare schema reference at
+  value position; capitalised bare `match` pattern; `/`-produces-`number`
+  unimplemented; the `<withheld>` author-twin pinhole and render shapes; the
+  annotated-unresolvable structural refusal tension; the inference pass's
+  enclosing-scope arm typing). Recorded, not filed: the `shadowedNames`
+  over-approximation suppressing a self-shadow emission (deferral inside the
+  adjudicated conservative reading); the five sentinel render shapes (pinned
+  by cell u13r, verdicts byte-identical to HEAD's); the withheld true
+  positives u12e/u13me/u13e (pinned with named flip conditions — the plain
+  `for` element gap is bug 0126's, the marking-channel identity leak is bug
+  0145's root); pre-existing position-only citation drift (bug 0134's class).
+- Discharge notes appended: 0031, 0072, 0081, 0084, 0102, 0115, 0126, 0131,
+  0136.
+- Pinned dispositions / non-goals: disposition 2 (retire the row) rejected by
+  the operator. `checkFnArgCompat` unchanged — its `"unknown"` deferral is the
+  spec's. No `unfoldAlias` at this sink (`checkCompatible` unfolds both
+  operands itself; the two wired siblings pass their declared types raw).
+  Arity stays out (bug 0131; cell a1 pins the silence both directions). `+`'s
+  operand shapes stay out (bug 0072 owns `mixed-plus-operands`). The
+  substrate's minted names stay out (bug 0136). The common-type reduction
+  stays out (bug 0081 — the paired report; this sink WITHHOLDS wherever the
+  reduction is not exact, so 0081's defect is unobservable here and its fix
+  is a strict widening needing its own witness at `checkFnCallArgs`). The
+  GOV-15 diagnostic-registry carve-out is engaged as an ADDITION and
+  discharged by measurement (the three shipped example call sites all defer;
+  the corpus observes no change); the miss-class flip (HEAD's spelling-mint
+  false `E`s on unrecorded-binder reads now defer at every sink) is the
+  carve-out's PERMISSIVE direction — nothing that loaded is now refused —
+  pinned by cells u13m–u13mg with flip conditions named.

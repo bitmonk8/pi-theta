@@ -811,3 +811,14 @@ copied prose.
   which this document quotes rather than re-derives), and the runtime panic bug
   0079's half (b) raises for §Reproduction (f) rows 6–7. Every parse observable
   and the `writeBinding` result above are my own measurements at this HEAD.
+
+## Coordination note — bug 0050 landed (0.77.0)
+
+0050's fn-argument sink now READS the recorded binding type this report's
+defect corrupts: a type-changing `let mut` reassign leaves the record
+describing the ORIGINAL initialiser, so `let mut x = 1` / `x = "a"` /
+`g(x)` against `fn g(s: string)` emits `theta/parse/fn-arg-type-mismatch:
+… expected string, got integer` while the runtime passes `"a"` — the wired
+`let-rhs` sibling misjudges the identical read today (0050's fix record,
+residual 10). Whatever disposition this report's adjudication takes (ordered
+behind bug 0090), it now owes the fn-argument sink the same answer.

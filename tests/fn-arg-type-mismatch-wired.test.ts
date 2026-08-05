@@ -1,0 +1,2870 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+// @ts-expect-error — JS code-registry module, no type declarations.
+import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
+import { errors, parseDoc } from "./helpers/e2e-s1";
+
+// Bug 0050 — `theta/parse/fn-arg-type-mismatch` is a registered `E` row whose
+// sole emitter, `checkFnArgCompat` (src/parser/type-compat.ts:452), has no
+// caller in `src/`, so a plain top-level `fn` call binds a mistyped argument
+// with no parse-time judgement
+// (docs/bugs/0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md).
+//
+// THE ROUTE UNDER TEST — the bug's §Fix disposition 1, "wire the caller", and
+// not one step wider. One emission site is added at `TypeLayerWalk.walkExpr`'s
+// `call` arm (src/parser/type-layer-checks.ts:1986–1991), which at this HEAD
+// walks the argument expressions and relates none of them to the callee's
+// declared parameter types. `invoke` shares that arm's label and is deliberately NOT
+// swept in: it carries its own registry row and its own separately-unwired
+// emitter (cell x1).
+//
+// THE POST-FIX CONTRACT THIS FILE PINS, cell by cell:
+//
+//   r1–r6, s1   the code fires — exactly one diagnostic, severity `error`, the
+//               registry-sourced Message, ranged on the ARGUMENT node.
+//   c1–c3       the two wired sibling sinks and the unknown-callee arm keep
+//               their byte-identical verdicts and gain no new code.
+//   ok1, ok2    a compatible argument keeps loading with zero diagnostics.
+//   d1, d2      an unannotated parameter and an annotation naming nothing
+//               declared defer (type-system.md:48), emitting nothing.
+//   x1–x3       the three callee kinds the row's Trigger excludes — `invoke`, a
+//               `.theta` callable, a Pi tool — stay outside the check.
+//   i1          the imported-`.thetalib` route defers, documented as such.
+//   sh1–sh3     a local binder outranks the top-level `fn` at every call
+//               position (expressions.md:46), so the check withholds.
+//   u1–u5       a statically ERASED argument read is not a proof and must not
+//               be judged (bug 0072's soundness lesson).
+//   u6          a `named` type minted from a FIELD name is not a proof of the
+//               read value's type either, and must not be judged.
+//   u7, u7p     an index read carries its TARGET's erasure through the element
+//               narrowing, so the proof obligation belongs to the target; u7p
+//               is the positive differentiator — a PROVEN target still emits.
+//   u8, u8b,    a `named` type minted from a CALLEE name is not a proof of the
+//   u8p         call's value type; u8p is the positive differentiator — the
+//               same `named F` reached through the constructor form emits.
+//   u9, u9b,    a `named` type minted from an IDENTIFIER's OWN SPELLING is not
+//   u9c, u9d,   a proof either, over the four binder classes the walk's
+//   u9p         `bindings` map omits; u9p is the positive differentiator — a
+//               `par for` variable IS recorded, so it keeps emitting.
+//   u10, u10b,  an ARITHMETIC result read as a NON-NUMERIC type is not a proof
+//   u10c, u10d  of the value the operator produces, across unary `-` and binary
+//               `-`, `*`, `/`, `%`.
+//   u10p,       the differentiators for that group: a numeric negation over
+//   u10pb,      both numeric `CompatType` shapes, a numeric arithmetic
+//   u10pc       reduction, and `+`'s untouched both-`string` and numeric
+//               shapes — every one of them keeps emitting.
+//   u11, u11b,  a SELF-SHADOWING `let` initialiser reads the OUTER binding, as
+//   u11c        the runtime does, so an erased outer binding's unprovability
+//               reaches the shadowing binding across all three composite
+//               routes (ternary, arithmetic, array-through-index); u11p is the
+//               positive differentiator — a PROVEN outer binding keeps the
+//               shadowing binding proven and the emission stands.
+//   u12, u12b,  a binder that SHADOWS a same-named outer record — a `for`
+//   u12c, u12d  variable, a `match` pattern binding (both inside the arm body
+//               and through the argument-position reduction), an unannotated
+//               `fn` parameter — is resolved in the scope the runtime evaluates
+//               it in, so the outer record it hides is never read as the
+//               argument's type; u12e records the deferral that leaves the
+//               plain `for` element unrecorded.
+//   u12p,       the differentiators for that group: an outer PROVEN binding
+//   u12pb,      that is NOT shadowed stays visible inside a `for` body and
+//   u12pc,      inside a `match` arm, an ANNOTATED parameter's record still
+//   u12pd,      wins over a same-named outer binding (alone, and beside an
+//   u12pe       unannotated sibling parameter), and a `par for` variable's
+//               element record still wins over one.
+//   u13, u13b,  the SIBLING rows read the same withheld entry, so it is spelled
+//   u13c, u13d  with a name no declaration can share and the sinks whose
+//               verdict a withheld read can flip withhold it: a typed-`let`
+//               RHS, an object-field value and a `for` / `par for` iterand all
+//               draw nothing on one.
+//   u13m,       the MISS class — the same sinks with nothing shadowed, whose
+//   u13mb,      emissions this HEAD produced off the identifier's own spelling
+//   u13mc,      and which now defer as well (u13me's was TRUE, so it records a
+//   u13md,      withheld true positive of u12e's species); u13mf and u13mg are
+//   u13me,      the two stdlib preconditions that refuse an unresolvable type
+//   u13mf,      rather than deferring on it (`array.join`'s element, the
+//   u13mg       object-index key).
+//   u13p,       the differentiators for that group, one per withheld sink: a
+//   u13pb,      typed `let`, both iterand call sites, an object-field value, an
+//   u13pc,      array element, a `subagent fn` return annotation, a `join`
+//   u13pd,      element and an object-index key all keep reporting when the
+//   u13pe,      read they judge is not a withheld binder.
+//   u13pf,
+//   u13pg,
+//   u13ph
+//   u13e        the marking channel's identity leak (round-7 residual R1) — a
+//               withheld TRUE positive, pinned with its flip condition.
+//   u13r        the one place a user-visible message still renders the sentinel:
+//               a composite BUILT from a withheld read, at a row whose verdict
+//               its outer kind decides.
+//   e1          the three shipped example files keep loading clean (GOV-15).
+//   a1          argument COUNT stays unjudged at parse — bug 0131, open.
+//
+// RED / GREEN AT THIS HEAD (7c8833cd, offline, deterministic). r1–r6, s1 and
+// every positive-differentiator cell for the fn-arg code (u7p, u8p, u9p, u10p,
+// u10pb, u10pc, u11p, u12p, u12pb, u12pc, u12pd, u12pe) are RED: the code is
+// emitted nowhere, so each expects one diagnostic and gets none. The u13 group
+// is measured against the SIBLING rows, which this HEAD already emits, so its
+// colours differ: u13m – u13mg are RED (this HEAD judges those reads off the
+// identifier's own spelling) and so is u13r (this HEAD renders the binder's
+// spelling where the sentinel now stands), while u13 – u13d, the eight u13p*
+// differentiators and u13e are GREEN at this HEAD and required to stay so. Every
+// other cell is GREEN, and most of them are green VACUOUSLY —
+// they assert that a code absent from the whole tree is absent from one
+// fixture. Each becomes a real guard only once the emission site exists, which
+// is why every such cell states the condition that would make it red after the
+// fix rather than merely naming the code.
+//
+// TIER — unit, offline, provider-free, deterministic. The whole route is
+// witnessable at the `parseThetaDocument` boundary through the house driver
+// `parseDoc` (tests/helpers/e2e-s1.ts:39), the same entry point the sibling
+// sink's own witness uses (tests/ctor-field-type-check.test.ts, bug 0031).
+// Nothing on this path crosses a provider, a model, a child process or the
+// network, so neither an integration nor a live test reaches a seam a unit test
+// cannot.
+//
+// NO SILENT SKIPPING (CLAUDE.md). A missing registry row throws naming the
+// registry page, a fixture whose call node cannot be located throws naming the
+// fixture, and every negative cell pins an exact emission list rather than a
+// bare absence.
+//
+// SPEC ANCHORS (line numbers re-derived against the tree at this HEAD):
+//   - docs/spec_topics/diagnostics/code-registry-parse.md:116 — the row. Sev
+//     `E`, phase `type`. Its Trigger names "a plain top-level `fn` call
+//     `f(args)` — a same-file or imported `.thetalib` function call that is
+//     neither an `invoke(...)` nor a `.theta`-callable call", which is the
+//     source of the x1–x3 exclusions and of i1's route.
+//   - docs/spec_topics/type-system.md:27 — the enumeration of the positions the
+//     `⊑` relation governs, which includes "a function-argument slot"; :50
+//     TYPE-9, which names this code for that slot; :52 TYPE-10, which routes a
+//     cross-named-schema mismatch here rather than to a runtime AJV failure
+//     (cell r6); :48 §Unresolvable operands, the deferral the emitter already
+//     implements at src/parser/type-compat.ts:463–465 (cells d1, d2, i1).
+//   - docs/spec_topics/diagnostics/diagnostic-shape.md:74 — DIAG-4: the
+//     *Message* column is normative and a test MUST source the string from it.
+//     Every expected message below is read through `registryMessage`; :71
+//     DIAG-1 entitles this file to assert the specific code at the site.
+//   - docs/spec_topics/expressions.md:44–49 — identifier resolution in call
+//     position, first match wins: a local `let` binding or function parameter
+//     (:46) outranks a top-level `fn` (:47), an imported symbol (:48) and a
+//     callable-set entry (:49); :51 — "Local bindings (1) shadow everything
+//     else lexically". Cells sh1–sh3.
+//   - docs/spec_topics/functions.md:50 — a `subagent fn` "is identical to an
+//     ordinary `fn` in its parameter list, positional call form, and
+//     inferred-and-validated return type"; :58 FN-6 and :61 "Parameters bind
+//     positionally as for `fn` and `invoke`". Cell s1.
+//   - docs/spec_topics/governance/source-language-stability.md:5 GOV-15, :9 the
+//     loads-cleanly predicate (no diagnostic of effective severity `E`), :25
+//     the diagnostic-registry carve-out that admits this addition inside a
+//     theta 1.x minor. Cell e1 is the blast-radius half of that carve-out.
+
+// ===========================================================================
+// DIAG-4 — every expected Message is read from the registry, never copied.
+// ===========================================================================
+
+const CODE = "theta/parse/fn-arg-type-mismatch";
+const LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
+const OBJECT_FIELD_CODE = "theta/parse/object-field-type-mismatch";
+const UNKNOWN_IDENT_CODE = "theta/parse/unknown-identifier";
+const ARITY_TOO_FEW_CODE = "theta/parse/invoke-arity-too-few";
+const ARITY_TOO_MANY_CODE = "theta/parse/invoke-arity-too-many";
+// The sibling rows the u13 group measures: each reads a type straight out of
+// the walk's scope map, so each is a consumer of the WITHHELD binder entry.
+const NON_ARRAY_ITERAND_CODE = "theta/parse/non-array-iterand";
+const ARRAY_ELEMENT_CODE = "theta/parse/array-element-type-mismatch";
+const NON_BOOLEAN_CODE = "theta/parse/non-boolean-condition";
+const INVOKE_RETURN_CODE = "theta/parse/invoke-return-type-mismatch";
+const ARRAY_JOIN_CODE = "theta/parse/non-string-array-join";
+const OBJECT_INDEX_CODE = "theta/parse/non-string-object-index";
+
+interface RegistryRow {
+  readonly code: string;
+  readonly severity: string;
+  readonly phase: string;
+  readonly trigger: string;
+  readonly message: string;
+}
+
+/** The live `theta/parse/*` registry page — the DIAG-4 oracle for this file. */
+const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
+
+const REGISTRY = parseRegistry(
+  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
+) as RegistryRow[];
+
+/**
+ * A registered code's normative *Message* template. Throws naming the registry
+ * page when the row is absent, so a registry drift can never degrade an
+ * assertion below into a comparison against `undefined`.
+ */
+function registered(code: string): string {
+  const template = registryMessage(REGISTRY, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: ${REGISTRY_PAGE} carries no Message row for ${code} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
+    );
+  }
+  return template;
+}
+
+/**
+ * Interpolate a registered template's `<…>` placeholders from `subs`, in one
+ * pass so a substituted value is never re-scanned — `<expected>` legitimately
+ * expands to text containing angle brackets (`array<number>`, cell r4).
+ *
+ * The placeholder set is derived from the TEMPLATE, not assumed: an unsupplied
+ * placeholder and an unused substitution both throw, so a registry row that
+ * changes shape fails loudly here instead of quietly producing a string no
+ * emission can equal.
+ */
+function fill(code: string, subs: ReadonlyMap<string, string>): string {
+  const template = registered(code);
+  const used = new Set<string>();
+  const message = template.replace(/<[a-z]+>/g, (token) => {
+    const value = subs.get(token);
+    if (value === undefined) {
+      throw new Error(
+        `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
+      );
+    }
+    used.add(token);
+    return value;
+  });
+  for (const token of subs.keys()) {
+    if (!used.has(token)) {
+      throw new Error(
+        `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
+      );
+    }
+  }
+  return message;
+}
+
+/** `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`. */
+function fnArgMessage(
+  fnName: string,
+  index: number,
+  paramName: string,
+  expected: string,
+  actual: string,
+): string {
+  return fill(
+    CODE,
+    new Map([
+      ["<name>", fnName],
+      ["<i>", String(index)],
+      ["<param>", paramName],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>`. */
+function letRhsMessage(name: string, expected: string, actual: string): string {
+  return fill(
+    LET_RHS_CODE,
+    new Map([
+      ["<name>", name],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>`. */
+function objectFieldMessage(
+  field: string,
+  schema: string,
+  expected: string,
+  actual: string,
+): string {
+  return fill(
+    OBJECT_FIELD_CODE,
+    new Map([
+      ["<field>", field],
+      ["<schema>", schema],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `unknown identifier '<name>'`. */
+function unknownIdentifierMessage(name: string): string {
+  return fill(UNKNOWN_IDENT_CODE, new Map([["<name>", name]]));
+}
+
+/** `'for' expects array<T> after 'in'; got <type>`. */
+function nonArrayIterandMessage(type: string): string {
+  return fill(NON_ARRAY_ITERAND_CODE, new Map([["<type>", type]]));
+}
+
+/** `array element type mismatch at index <i>: expected <expected>, got <actual>`. */
+function arrayElementMessage(index: number, expected: string, actual: string): string {
+  return fill(
+    ARRAY_ELEMENT_CODE,
+    new Map([
+      ["<i>", String(index)],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `condition must be boolean; got <type>`. */
+function nonBooleanMessage(type: string): string {
+  return fill(NON_BOOLEAN_CODE, new Map([["<type>", type]]));
+}
+
+/** `invoke<Schema> annotation incompatible with callee '<callee>' return type <actual>`. */
+function invokeReturnMessage(callee: string, actual: string): string {
+  return fill(
+    INVOKE_RETURN_CODE,
+    new Map([
+      ["<callee>", callee],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `array.join requires a string element type; got array<<element>>`. */
+function arrayJoinMessage(element: string): string {
+  return fill(ARRAY_JOIN_CODE, new Map([["<element>", element]]));
+}
+
+/** `object index must be string; got <type>`. */
+function objectIndexMessage(type: string): string {
+  return fill(OBJECT_INDEX_CODE, new Map([["<type>", type]]));
+}
+
+// ===========================================================================
+// Parse harness.
+// ===========================================================================
+
+const FILE = "bug0050.theta";
+
+/** Frontmatter for the plain fixtures — occupies lines 1–3, body starts at 4. */
+const FM = "---\nmode: prompt\n---\n";
+
+/** Frontmatter declaring the Pi tool `read` — lines 1–5, body starts at 6. */
+const FM_PI_TOOL = "---\nmode: prompt\ntools:\n  - read\n---\n";
+
+/** Frontmatter declaring a `.theta` callable renamed with `as` — body at 6. */
+const FM_THETA_CALLABLE = "---\nmode: prompt\ntools:\n  - ./child.theta as child\n---\n";
+
+/**
+ * The same shape under a SCHEMA-CASED alias — body at 6. Cell u8b needs the
+ * alias to collide with a local `schema F`, and lexical.md:15 forces a schema
+ * name uppercase-first, so the collision is only reachable through an alias an
+ * author spells uppercase-first as well.
+ */
+const FM_THETA_CALLABLE_F = "---\nmode: prompt\ntools:\n  - ./child.theta as F\n---\n";
+
+function parse(src: string): ThetaDocument {
+  return parseDoc(src, FILE);
+}
+
+/** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
+function render(doc: ThetaDocument): string {
+  return JSON.stringify(
+    doc.diagnostics.map((d: Diagnostic) => {
+      const r = d.range;
+      const at = r === undefined ? "-" : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+      return `${d.severity} ${d.code} @${at}: ${d.message}`;
+    }),
+  );
+}
+
+/** One diagnostic of `code`, rendered as one comparable `severity message @range` string. */
+function locatedHits(doc: ThetaDocument, code: string): string[] {
+  return doc.diagnostics
+    .filter((d: Diagnostic) => d.code === code)
+    .map((d: Diagnostic) => {
+      const r = d.range;
+      const at = r === undefined ? "-" : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+      return `${d.severity} ${d.message} @${at}`;
+    })
+    .sort();
+}
+
+/** A 1-indexed, end-exclusive-column source range literal. */
+function range(
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): SourceRange {
+  return {
+    start: { line: startLine, column: startColumn },
+    end: { line: endLine, column: endColumn },
+  };
+}
+
+function at(r: SourceRange): string {
+  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+}
+
+interface CallSite {
+  readonly callee: string;
+  readonly args: readonly SourceRange[];
+}
+
+/**
+ * Every call-shaped node of `doc` in source order, with each argument's range.
+ *
+ * An `invoke(...)` is recorded under the reserved label `"invoke"` — an
+ * `InvokeExpr` carries a literal callee `path`, not a callee identifier, so the
+ * label is this harness's handle on the node and never an author-written name.
+ * The walk covers the node kinds this file's fixtures use; a fixture whose call
+ * it cannot reach fails the loud precondition in `argRange` rather than passing
+ * an absence assertion vacuously.
+ */
+function collectCalls(doc: ThetaDocument): CallSite[] {
+  const out: CallSite[] = [];
+  const walkExpr = (e: Expr): void => {
+    switch (e.kind) {
+      case "call":
+        out.push({ callee: e.callee, args: e.args.map((a) => a.range) });
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "invoke":
+        out.push({ callee: "invoke", args: e.args.map((a) => a.range) });
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "method-call":
+        walkExpr(e.target);
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "try":
+        walkExpr(e.operand);
+        return;
+      case "array":
+        for (const el of e.elements) walkExpr(el);
+        return;
+      case "object":
+        for (const f of e.fields) walkExpr(f.value);
+        return;
+      case "ternary":
+        walkExpr(e.condition);
+        walkExpr(e.consequent);
+        walkExpr(e.alternate);
+        return;
+      case "binary":
+        walkExpr(e.left);
+        walkExpr(e.right);
+        return;
+      case "member":
+        walkExpr(e.target);
+        return;
+      case "index":
+        walkExpr(e.target);
+        walkExpr(e.index);
+        return;
+      case "match":
+        walkExpr(e.scrutinee);
+        for (const arm of e.arms) walkExpr(arm.body);
+        return;
+      case "result-ctor":
+        walkExpr(e.arg);
+        return;
+      case "par-for":
+        walkExpr(e.iterand);
+        if (e.max !== null) walkExpr(e.max);
+        walkBlock(e.body);
+        return;
+      default:
+        return;
+    }
+  };
+  const walkBlock = (b: Block): void => {
+    for (const s of b.statements) walkStmt(s);
+    if (b.tail !== null) walkExpr(b.tail);
+  };
+  const walkStmt = (s: Stmt): void => {
+    switch (s.kind) {
+      case "let":
+        if (s.init !== null) walkExpr(s.init);
+        return;
+      case "reassign":
+        walkExpr(s.value);
+        return;
+      case "expr":
+        walkExpr(s.expr);
+        return;
+      case "tool-call":
+        walkExpr(s.call);
+        return;
+      case "invoke":
+        walkExpr(s.invoke);
+        return;
+      case "return":
+        if (s.operand !== null) walkExpr(s.operand);
+        return;
+      case "fn":
+        walkBlock(s.body);
+        return;
+      case "for":
+        walkExpr(s.iterand);
+        walkBlock(s.body);
+        return;
+      case "while":
+        walkExpr(s.condition);
+        walkBlock(s.body);
+        return;
+      case "if":
+        walkExpr(s.condition);
+        walkBlock(s.then);
+        return;
+      default:
+        return;
+    }
+  };
+  const body = doc.body;
+  if (body === null) {
+    throw new Error(
+      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than the call site. Diagnostics: ${render(doc)}`,
+    );
+  }
+  walkBlock(body);
+  return out;
+}
+
+/**
+ * The range of argument `index` of the fixture's sole call of `callee`.
+ *
+ * This is the loud precondition every cell runs first: without it, a fixture
+ * whose layout drifted (or which stopped parsing at all) would let an
+ * "emits no `fn-arg-type-mismatch`" assertion pass while measuring nothing.
+ */
+function argRange(doc: ThetaDocument, callee: string, index: number): SourceRange {
+  const calls = collectCalls(doc).filter((c) => c.callee === callee);
+  expect(
+    calls,
+    `PRECONDITION: the fixture must hold exactly one call of '${callee}'; the parse found ${calls.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  const args = calls[0]!.args;
+  expect(
+    args.length,
+    `PRECONDITION: the call of '${callee}' must carry an argument at index ${index}; it carries ${args.length}. Diagnostics: ${render(doc)}`,
+  ).toBeGreaterThan(index);
+  return args[index]!;
+}
+
+interface LetSite {
+  readonly name: string;
+  readonly range: SourceRange;
+}
+
+/**
+ * Every `let` statement of `doc` in source order, with the statement's own
+ * range — the range the sibling relation sinks anchor their diagnostics on
+ * (`checkLetRhsCompat` is handed `site: { range: stmt.range }`).
+ *
+ * The walk descends into the blocks the u13 fixtures nest their sinks in: `fn`
+ * bodies, `for` / `while` / `if` bodies, and a `par for` body reached through a
+ * `let` initialiser.
+ */
+function collectLets(doc: ThetaDocument): LetSite[] {
+  const out: LetSite[] = [];
+  const walkBlock = (b: Block): void => {
+    for (const s of b.statements) walkStmt(s);
+  };
+  const walkInit = (e: Expr): void => {
+    if (e.kind === "par-for") {
+      walkBlock(e.body);
+    }
+  };
+  const walkStmt = (s: Stmt): void => {
+    switch (s.kind) {
+      case "let":
+        out.push({ name: s.name, range: s.range });
+        if (s.init !== null) walkInit(s.init);
+        return;
+      case "fn":
+        walkBlock(s.body);
+        return;
+      case "for":
+      case "while":
+        walkBlock(s.body);
+        return;
+      case "if":
+        walkBlock(s.then);
+        return;
+      default:
+        return;
+    }
+  };
+  const body = doc.body;
+  if (body === null) {
+    throw new Error(
+      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than the sink under test. Diagnostics: ${render(doc)}`,
+    );
+  }
+  walkBlock(body);
+  return out;
+}
+
+/**
+ * The range of the fixture's sole `let` binding named `name`.
+ *
+ * The call-less counterpart of `argRange`, and the same loud precondition: the
+ * u13 group's sinks are typed `let`s, object-field values and `for` iterands,
+ * and several of its fixtures carry no `fn` call at all — without an anchor a
+ * fixture whose layout drifted (or which stopped parsing) would let an
+ * "emits nothing" assertion pass while measuring nothing.
+ */
+function letRange(doc: ThetaDocument, name: string): SourceRange {
+  const hits = collectLets(doc).filter((l) => l.name === name);
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one \`let ${name}\`; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  return hits[0]!.range;
+}
+
+/**
+ * `doc` carries exactly one `fn-arg-type-mismatch`, severity `error`, with the
+ * registry-sourced `message`, ranged on `argument`.
+ *
+ * The range is the ARGUMENT rather than the whole call because the mistake is
+ * the value written at that position and the repair is local to it — the same
+ * disposition the two wired sibling sinks take (`checkLetRhsCompat` ranges on
+ * the initialiser, `checkObjectFieldCompat` on the field value), and what the
+ * bug's §Fix specifies: `site: { file, range: arg.range }`.
+ */
+function expectOneFnArgMismatch(
+  doc: ThetaDocument,
+  message: string,
+  argument: SourceRange,
+  why: string,
+): void {
+  expect(
+    locatedHits(doc, CODE),
+    `${why}\n  ${CODE} has no emission site in src/ at this HEAD, so this list is empty until the §Fix wires one.\n  actual diagnostics: ${render(doc)}`,
+  ).toEqual([`error ${message} @${at(argument)}`]);
+}
+
+/** `doc` carries no `fn-arg-type-mismatch` at all. */
+function expectNoFnArgMismatch(doc: ThetaDocument, why: string): void {
+  expect(
+    locatedHits(doc, CODE),
+    `${why}\n  actual diagnostics: ${render(doc)}`,
+  ).toEqual([]);
+}
+
+// ===========================================================================
+// Fixtures — the bug doc's §Reproduction rows verbatim, plus the scope rows the
+// §Fix's two settled scope questions and its deferral rule name.
+// ===========================================================================
+
+const R1 = FM + "schema P { a: number }\nfn f(x: P): number { 1 }\nlet r = f(3)\nr\n";
+const R2 = FM + 'fn g(n: number): number { 1 }\nlet r = g("s")\nr\n';
+const R3 = FM + 'fn g(s: string): number { 1 }\nlet r = g(3)\nr\n';
+const R4 = FM + 'fn g(xs: array<number>): number { 1 }\nlet r = g(["a"])\nr\n';
+const R5 = FM + "fn g(n: integer): number { 1 }\nlet r = g(1.5)\nr\n";
+const R6 =
+  FM +
+  'schema P { a: number }\nschema Q { b: string }\nfn f(x: P): number { 1 }\nlet v = Q { b: "s" }\nlet r = f(v)\nr\n';
+
+const C1 = FM + "schema P { a: number }\nlet v: P = 3\nv\n";
+const C2 = FM + 'schema P { a: number }\nlet v = P { a: "s" }\nv\n';
+const C3 = FM + "let r = q(3)\nr\n";
+
+const OK1 = FM + "fn g(n: number): number { 1 }\nlet r = g(3)\nr\n";
+const OK2 =
+  FM + "schema P { a: number }\nfn f(x: P): number { 1 }\nlet v = P { a: 1 }\nlet r = f(v)\nr\n";
+
+const D1 = FM + 'fn g(n): number { 1 }\nlet r = g("s")\nr\n';
+const D2 = FM + 'fn g(n: Nope): number { 1 }\nlet r = g("s")\nr\n';
+
+const X1 = FM + 'invoke("./child.theta", 3)\n"t"\n';
+const X2 = FM_THETA_CALLABLE + 'let r = child("s")\nr\n';
+const X3 = FM_PI_TOOL + 'read({ path: 3 })?\n"t"\n';
+
+const S1 = FM + 'subagent fn h(n: number): number { 1 }\nlet r = h("s")\nr\n';
+
+const I1 =
+  FM + 'import { rate_strictness } from "./personas.thetalib"\nlet r = rate_strictness(3)\nr\n';
+
+const SH1 = FM + 'fn g(n: number): number { 1 }\nfor g in ["a"] { g("s") }\n"t"\n';
+const SH2 = FM + 'fn g(n: number): number { 1 }\nfn h(g): number { g("s") }\nlet r = h(1)\nr\n';
+const SH3 = FM + 'fn g(n: number): number { 1 }\nlet g = "x"\nlet r = g("s")\nr\n';
+
+const U1 = FM + 'fn g(s: string): number { 1 }\nlet flag = true\nlet r = g(flag ? 1 : "a")\nr\n';
+const U2 =
+  FM + 'fn g(s: string): number { 1 }\nlet flag = true\nlet x = flag ? 1 : "a"\nlet r = g(x)\nr\n';
+const U3 = FM + 'fn g(xs: array<number>): number { 1 }\nlet r = g([1, "a"])\nr\n';
+const U4 = FM + 'fn g(xs: array<number>): number { 1 }\nlet r = g(["a", null])\nr\n';
+const U5 = FM + 'fn g(s: string): number { 1 }\npar for x in [false ? 1 : "a"] { g(x) }\n';
+const U6 =
+  FM +
+  "schema P { a: number }\nschema W { P: number }\nfn f(n: number): number { 1 }\nlet v = W { P: 3 }\nlet r = f(v.P)\nr\n";
+
+const U7_DIRECT =
+  FM + 'fn f(s: string): number { 1 }\nlet xs = [false ? 1 : "a"]\nlet r = f(xs[0])\nr\n';
+const U7_LAUNDERED =
+  FM +
+  'fn f(s: string): number { 1 }\nlet xs = [false ? 1 : "a"]\nlet e = xs[0]\nlet r = f(e)\nr\n';
+const U7P_DIRECT =
+  FM + "fn f(s: string): number { 1 }\nlet xs: array<integer> = [1, 2]\nlet r = f(xs[0])\nr\n";
+const U7P_LAUNDERED =
+  FM +
+  "fn f(s: string): number { 1 }\nlet xs: array<integer> = [1, 2]\nlet e = xs[0]\nlet r = f(e)\nr\n";
+
+const U8_SCHEMA_CALLEE =
+  FM + "schema F { a: number }\nfn g(n: number): number { 1 }\nlet r = g(F(3))\nr\n";
+const U8_ALIAS_CALLEE =
+  FM_THETA_CALLABLE_F +
+  "schema F { a: number }\nfn g(n: number): number { 1 }\nlet r = g(F(1)?)\nr\n";
+const U8P_CTOR =
+  FM + "schema F { a: number }\nfn g(n: number): number { 1 }\nlet r = g(F { a: 3 })\nr\n";
+
+/**
+ * The u9 family's shared prelude — body lines 4–6, so every u9 call site sits
+ * on body line 7. `schema P` is the collision the minted name resolves in and
+ * `x: Q` is the declared parameter it would be judged against, so a fabricated
+ * `named P` reads as `expected Q, got P` and a PROVEN read reads `got integer`.
+ */
+const U9_PRELUDE = "schema P { a: number }\nschema Q { b: string }\nfn g(x: Q): number { 1 }\n";
+
+const U9_FOR_VARIABLE = FM + U9_PRELUDE + 'for P in [1, 2] { let z = g(P) }\n"t"\n';
+const U9_MATCH_BINDER = FM + U9_PRELUDE + "let out = match 3 { P => g(P) }\nout\n";
+const U9_FN_PARAM = FM + U9_PRELUDE + "fn h(P): number { g(P) }\nlet r = h(3)\nr\n";
+const U9_BARE_SCHEMA_REF = FM + U9_PRELUDE + "let out = g(P)\nout\n";
+const U9P_PAR_FOR = FM + U9_PRELUDE + "let ys = par for P in [1, 2] { g(P) }\nys\n";
+
+const U10_NEG_STRING = FM + 'fn g(n: number): number { 1 }\nlet r = g(-"5")\nr\n';
+const U10_NEG_STRING_LAUNDERED =
+  FM + 'fn g(n: number): number { 1 }\nlet x = -"5"\nlet r = g(x)\nr\n';
+const U10_NEG_BOOL = FM + "fn g(n: number): number { 1 }\nlet r = g(-true)\nr\n";
+const U10_MINUS_STRINGS = FM + 'fn g(n: number): number { 1 }\nlet r = g("a" - "b")\nr\n';
+const U10_DIV_STRINGS = FM + 'fn g(n: number): number { 1 }\nlet r = g("6" / "2")\nr\n';
+const U10_MOD_STRINGS = FM + 'fn g(n: number): number { 1 }\nlet r = g("6" % "2")\nr\n';
+const U10_MUL_STRINGS = FM + 'fn g(n: number): number { 1 }\nlet r = g("a" * "b")\nr\n';
+
+const U10P_NEG_LITERAL = FM + "fn g(n: integer): number { 1 }\nlet r = g(-1.5)\nr\n";
+const U10P_NEG_ANNOTATED =
+  FM + "fn g(s: string): number { 1 }\nlet m: number = 2\nlet r = g(-m)\nr\n";
+const U10PB_ARITH = FM + "fn g(s: string): number { 1 }\nlet r = g(1 - 2)\nr\n";
+const U10PC_PLUS_NUMERIC = FM + "fn g(s: string): number { 1 }\nlet r = g(1 + 2)\nr\n";
+const U10PC_PLUS_STRINGS = FM + 'fn g(n: number): number { 1 }\nlet r = g("a" + "b")\nr\n';
+
+/**
+ * The u11 family's three self-shadowing initialisers, each over an ERASED
+ * outer binding, and the proven-outer differentiator. Body lines 4–9, so every
+ * u11 call site sits on body line 8 and u11p's on body line 7.
+ *
+ * `let x = flag ? 1 : "a"` records the erased `integer`; the second `let x`
+ * then reads the OUTER `x` in its own initialiser, which is what the runtime
+ * does too, so the erasure must reach the second binding as well.
+ */
+const U11_SELF_TERNARY =
+  FM +
+  'fn g(s: string): number { 1 }\nlet flag = false\nlet x = flag ? 1 : "a"\nlet x = flag ? 1 : x\nlet r = g(x)\nr\n';
+const U11_SELF_ARITH =
+  FM +
+  'fn g(s: string): number { 1 }\nlet flag = false\nlet x = flag ? 1 : "a"\nlet x = 1 + x\nlet r = g(x)\nr\n';
+const U11_SELF_INDEX =
+  FM +
+  'fn g(s: string): number { 1 }\nlet flag = false\nlet x = [flag ? 1 : "a"]\nlet x = [1, x[0]]\nlet r = g(x[1])\nr\n';
+const U11P_PROVEN_OUTER =
+  FM + "fn g(s: string): number { 1 }\nlet x = 1\nlet x = 1 + x\nlet r = g(x)\nr\n";
+
+/**
+ * The u12 family's four SHADOWING binders — one per binder class the walk's
+ * `bindings` map did not record. `let x = 1` records a PROVEN `integer`, and
+ * each fixture then binds `x` again in the inner scope the runtime evaluates
+ * the call in, so the argument's runtime value is the `string` the inner binder
+ * holds and the outer `integer` names nothing the position ever carries.
+ */
+const U12_FOR_SHADOW =
+  FM + 'fn g(s: string): number { 1 }\nlet x = 1\nfor x in ["a"] { let r = g(x) }\n"t"\n';
+const U12_MATCH_ARM_SHADOW =
+  FM + 'fn g(s: string): number { 1 }\nlet x = 1\nlet m = match "hi" { x => g(x) }\nm\n';
+const U12_MATCH_ARG_SHADOW =
+  FM + 'fn g(s: string): number { 1 }\nlet x = 1\nlet r = g(match "hi" { x => x })\nr\n';
+const U12_FN_PARAM_SHADOW =
+  FM +
+  'fn g(s: string): number { 1 }\nlet x = 1\nfn h(x): number { g(x) }\nlet r = h("a")\nr\n';
+
+/** The plain-`for` element deferral this fix keeps, stated as its own cell. */
+const U12E_FOR_PROVEN_ITERAND =
+  FM + 'fn g(s: string): number { 1 }\nfor x in [3] { let r = g(x) }\n"t"\n';
+
+/**
+ * The five differentiators. The first two keep a PROVEN outer binding readable
+ * inside each construct (nothing shadows it, so the runtime reads it there
+ * too); the last three keep the two RECORDED binder classes winning over a
+ * same-named outer binding.
+ */
+const U12P_FOR_OUTER_VISIBLE =
+  FM + 'fn g(s: string): number { 1 }\nlet x = 1\nfor y in ["a"] { let r = g(x) }\n"t"\n';
+const U12PB_MATCH_OUTER_VISIBLE =
+  FM + 'fn g(s: string): number { 1 }\nlet x = 1\nlet m = match "hi" { y => g(x) }\nm\n';
+const U12PC_ANNOTATED_PARAM_SHADOW =
+  FM +
+  'fn g(s: string): number { 1 }\nlet p = "a"\nfn h(p: integer): number { g(p) }\nlet r = h(3)\nr\n';
+const U12PD_ANNOTATED_BESIDE_UNANNOTATED =
+  FM +
+  "fn g(s: string): number { 1 }\nfn h(p: integer, q): number { g(p) }\nlet r = h(3, 4)\nr\n";
+const U12PE_PAR_FOR_SHADOW =
+  FM +
+  'fn g(s: string): number { 1 }\nlet x = "a"\nlet ys = par for x in [3] { g(x) }\nys\n';
+
+/**
+ * The u13 family. Every fixture below reaches a SIBLING row — a typed-`let`
+ * RHS, an object-field value, an array element, a `for` iterand, a `subagent fn`
+ * return annotation, an `if` condition — through a read of a binder the walk
+ * records WITHHELD, and each one's runtime value is well typed.
+ *
+ * The four shadowing fixtures collide the binder's spelling with a declared
+ * `schema P`, which is legal source: lexical.md:16 scopes the lowercase-first
+ * rule to `let` / `let mut` bindings, function parameters, function names and
+ * schema field names, so a `for` / `par for` variable and a `match` pattern
+ * binder are outside it, and a parameter's case is unenforced at this HEAD
+ * (cell u9c's own note).
+ */
+const U13_PAR_FOR_NESTED_SHADOW =
+  FM +
+  "schema P { a: number }\nlet ys = par for P in [3] { for P in [5] { let s: integer = P }\n1 }\nys\n";
+const U13_FOR_IN_PARAM_SHADOW =
+  FM +
+  'schema P { a: number }\nfn h(P: string): number { for P in ["ok"] { let s: string = P }\n1 }\nlet r = h("z")\nr\n';
+const U13_ARM_OBJECT_FIELD_SHADOW =
+  FM +
+  'schema P { a: number }\nschema Q { b: string }\nfn h(P: string): number { let m = match "hi" { P => Q { b: P } }\n1 }\nlet r = h("z")\nr\n';
+const U13_ARM_ITERAND_SHADOW =
+  FM +
+  'schema P { a: number }\nfn h(P: array<integer>): number { let m = match "hi" { P => par for i in P { 1 } }\n1 }\nlet r = h([1])\nr\n';
+
+/**
+ * The MISS class — the same sinks with no outer record to shadow, which is what
+ * this HEAD judged off the binder's own spelling. Their disposition is the
+ * decided half of the withhold: every one of them defers.
+ */
+const U13M_FOR_MISS = FM + 'schema P { a: number }\nfor P in [5] { let s: integer = P }\n"t"\n';
+const U13MB_ARM_FIELD_MISS =
+  FM +
+  'schema P { a: number }\nschema Q { b: string }\nlet m = match "hi" { P => Q { b: P } }\nm\n';
+const U13MC_ARM_ITERAND_MISS = FM + 'let m = match "hi" { P => par for i in P { 1 } }\nm\n';
+const U13MD_NESTED_FOR_ITERAND = FM + 'for x in [[1]] { for i in x { let r = 1 } }\n"t"\n';
+const U13ME_STRUCTURAL_SUP = FM + "for x in [3] { let s: array<integer> = x }\n\"t\"\n";
+
+/**
+ * The six differentiators — one per sink the withhold gate touches. Each read is
+ * a PROVEN or a declared type rather than a withheld binder, so each emission
+ * must stand: a gate that skipped its sink whenever the sink sits inside a
+ * `for` body, a `match` arm or an unannotated-parameter `fn` body reds all six.
+ */
+const U13P_LET_ANNOT_IN_FOR = FM + 'schema P { a: number }\nfor q in [1] { let v: P = 3 }\n"t"\n';
+const U13PB_FOR_ITERAND_STRING =
+  FM + 'let s = "a"\nfor q in [1] { for i in s { let r = 1 } }\n"t"\n';
+const U13PC_PAR_FOR_ITERAND_STRING =
+  FM + 'let s = "a"\nfor q in [1] { let ys = par for i in s { 1 } }\n"t"\n';
+const U13PD_OBJECT_FIELD_IN_FOR =
+  FM + 'schema Q { b: string }\nfor q in [1] { let m = Q { b: 3 } }\n"t"\n';
+const U13PE_ARRAY_ELEMENT_IN_FOR = FM + 'for q in [1] { let a: array<integer> = ["s"] }\n"t"\n';
+const U13PF_SUBAGENT_RETURN_ANNOTATED =
+  FM + 'subagent fn h(q: string): array<integer> { return q }\nlet r = h("a")\nr\n';
+
+/**
+ * The two stdlib preconditions that refuse an unresolvable type instead of
+ * deferring on it, each with its own differentiator: `array.join`'s element
+ * type and the object-index key.
+ */
+const U13MF_JOIN_WITHHELD_ELEMENT = FM + 'for x in ["a"] { let s = [x].join(",") }\n"t"\n';
+const U13PG_JOIN_PROVEN_ELEMENT =
+  FM + 'let x = 1\nfor q in ["a"] { let s = [x].join(",") }\n"t"\n';
+const U13MG_OBJECT_INDEX_WITHHELD_KEY =
+  FM +
+  'schema Q { b: string }\nlet q: Q = Q { b: "s" }\nfor x in ["b"] { let v = q[x] }\n"t"\n';
+const U13PH_OBJECT_INDEX_PROVEN_KEY =
+  FM +
+  'schema Q { b: string }\nlet q: Q = Q { b: "s" }\nlet k = 3\nfor w in [1] { let v = q[k] }\n"t"\n';
+
+/** The marking-channel deferral (round-7 residual R1) and the render residual. */
+const U13E_ARM_IDENTITY_MARKING =
+  FM +
+  'fn g(s: string): number { 1 }\nlet x = 1\nlet m = match "hi" { x => x }\nlet r = g(x)\nr\n';
+const U13R_NESTED_RENDER = FM + "for x in [3] { if [x] { let r = 1 } }\n\"t\"\n";
+
+const A1_TOO_FEW = FM + "fn g(n: number): number { 1 }\nlet r = g()\nr\n";
+const A1_TOO_MANY = FM + "fn g(n: number): number { 1 }\nlet r = g(3, 4)\nr\n";
+
+// ===========================================================================
+// r1–r6 — the expected-emission rows. RED at this HEAD: each parses with the
+// verdict the bug doc's §Reproduction table records ("none — loads").
+// ===========================================================================
+
+describe("bug 0050 — a mistyped argument at a plain top-level `fn` call reports fn-arg-type-mismatch", () => {
+  it("r1: `fn f(x: P)` called `f(3)` fires once, on the argument", () => {
+    // The headline fixture. Both operands are inside the parser's static view —
+    // an integer literal and a declared object schema — so type-system.md:48
+    // licenses no deferral, and control c1 decides the identical pair one
+    // position over.
+    const doc = parse(R1);
+    const argument = argRange(doc, "f", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `3` sits on the third body line; a drifted layout must fail here, not silently mis-pin the assertion below",
+    ).toEqual(range(6, 11, 6, 12));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("f", 0, "x", "P", "integer"),
+      argument,
+      "r1 — the row's Trigger names this input in every particular: a plain top-level `fn` call, an `integer` argument, a `P`-declared parameter, both operands statically resolvable",
+    );
+  });
+
+  it("r2: `fn g(n: number)` called `g(\"s\")` fires once, on the argument", () => {
+    const doc = parse(R2);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `\"s\"` sits on the second body line, columns 11–13 inclusive",
+    ).toEqual(range(5, 11, 5, 14));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "n", "number", "string"),
+      argument,
+      "r2 — a `string` under a declared `number` parameter, the simplest instance of the Trigger",
+    );
+  });
+
+  it("r3: `fn g(s: string)` called `g(3)` fires once, on the argument", () => {
+    const doc = parse(R3);
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "r3 — the reverse direction of r2; `⊑` is not symmetric and both directions must be judged",
+    );
+  });
+
+  it("r4: `fn g(xs: array<number>)` called `g([\"a\"])` fires once, on the argument", () => {
+    // `["a"]` reads as `array<string>` and `array<number>` is the declared
+    // parameter type, so the mismatch is decided by `⊑` on the array types
+    // themselves. Only the `fn-arg-type-mismatch` set is pinned here.
+    // docs/spec_topics/grammar.md:216 declares the `array<T>` literal
+    // type-sink set exhaustive and :219 lists "A function parameter type at a
+    // call site" in it, so this position is also an element sink and may
+    // additionally report `theta/parse/array-element-type-mismatch` — an
+    // already-registered code whose wiring the §Fix's one-call disposition
+    // does not describe either way. Pinning it would make this cell red for a
+    // second, unstated reason.
+    const doc = parse(R4);
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "xs", "array<number>", "array<string>"),
+      argument,
+      "r4 — an `array<string>` under a declared `array<number>` parameter",
+    );
+  });
+
+  it("r5: `fn g(n: integer)` called `g(1.5)` fires once, through THIS code and not integer-narrowing", () => {
+    // The routing pin. `checkFnArgCompat` (src/parser/type-compat.ts:463–472)
+    // returns for `"compatible"` and `"unknown"` only, so a
+    // `number → integer` narrowing outcome falls through to this code — unlike
+    // the two sibling sinks, which route that outcome to
+    // `theta/parse/integer-narrowing`. TYPE-9 (type-system.md:50) names one
+    // code for this slot, and the emitter already implements it that way.
+    const doc = parse(R5);
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "n", "integer", "number"),
+      argument,
+      "r5 — TYPE-2's one-way widening fails at this slot through the fn-arg row, which is what the emitter's fall-through already decides",
+    );
+  });
+
+  it("r6: a `Q`-constructed value under a declared `P` parameter fires once, on the argument", () => {
+    // The case TYPE-10 (type-system.md:52) names explicitly and the one no AJV
+    // net could recover even in principle: `Q { b: "s" }` does not validate
+    // against `P`'s lowering, and named schemas are incompatible by name
+    // identity regardless of field shape.
+    const doc = parse(R6);
+    const argument = argRange(doc, "f", 0);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("f", 0, "x", "P", "Q"),
+      argument,
+      "r6 — two distinct nominal schemas; TYPE-10 requires the parse-time report at this site rather than a deferral",
+    );
+  });
+
+  it("s1: a same-file `subagent fn h(n: number)` called `h(\"s\")` fires — scope question (a)", () => {
+    // functions.md:50 makes a `subagent fn` "identical to an ordinary `fn` in
+    // its parameter list, positional call form, and inferred-and-validated
+    // return type", and FN-6's arguments bullet (:61) binds its parameters
+    // "positionally as for `fn` and `invoke`". Such a call is therefore inside
+    // the Trigger's letter, and no other check covers its arguments —
+    // src/extension/subagent-fn-static-checks.ts covers cycles and
+    // callee-has-errors only.
+    const doc = parse(S1);
+    const argument = argRange(doc, "h", 0);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("h", 0, "n", "number", "string"),
+      argument,
+      "s1 — the `subagent` modifier changes where the body runs, not how the parameter list binds, so the argument slot is judged identically",
+    );
+  });
+});
+
+// ===========================================================================
+// c1–c3 — the controls. Byte-identical verdicts to the bug doc's §Reproduction:
+// the two wired sibling sinks and the unknown-callee arm. GREEN at this HEAD
+// and after; a fix that disturbs any of them has changed the engine rather than
+// added one call.
+// ===========================================================================
+
+describe("bug 0050 — the wired sibling sinks and the unknown-callee arm keep their verdicts", () => {
+  it("c1: `let v: P = 3` keeps reporting let-rhs-type-mismatch alone", () => {
+    const doc = parse(C1);
+    expect(
+      locatedHits(doc, LET_RHS_CODE).map((h) => h.replace(/ @.*$/, "")),
+      `c1 — the typed-\`let\` sink shares the relation, the TypeEnv and the walk with the fn slot; what differs there is the absent call, not the engine. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${letRhsMessage("v", "P", "integer")}`]);
+    expectNoFnArgMismatch(
+      doc,
+      "c1 — no `fn` call is written here, so wiring the fn slot must add nothing to this fixture",
+    );
+  });
+
+  it("c2: `let v = P { a: \"s\" }` keeps reporting object-field-type-mismatch alone", () => {
+    const doc = parse(C2);
+    expect(
+      locatedHits(doc, OBJECT_FIELD_CODE).map((h) => h.replace(/ @.*$/, "")),
+      `c2 — the constructor-field sink (bug 0031, the same class fixed one position over) is the second wired sibling. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${objectFieldMessage("a", "P", "number", "string")}`]);
+    expectNoFnArgMismatch(
+      doc,
+      "c2 — a schema constructor is not a `fn` call; the new emission site must not confuse the two `CallExpr`-adjacent forms",
+    );
+  });
+
+  it("c3: `let r = q(3)` keeps reporting unknown-identifier alone", () => {
+    // Callee-name resolution is not affected by this defect: an undeclared
+    // callee already reports. The pin is that the new check does not ALSO fire
+    // on a callee it cannot resolve — an unresolved callee has no parameter
+    // list, so there is nothing to judge the argument against.
+    const doc = parse(C3);
+    expect(
+      locatedHits(doc, UNKNOWN_IDENT_CODE).map((h) => h.replace(/ @.*$/, "")),
+      `c3 — the silence this bug reports is confined to the argument-type judgement. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${unknownIdentifierMessage("q")}`]);
+    expectNoFnArgMismatch(
+      doc,
+      "c3 — an unresolved callee carries no declared parameter type, so the check has no operand and must stay silent",
+    );
+  });
+});
+
+// ===========================================================================
+// ok1 / ok2 — the rows an over-broad wiring breaks first. GREEN at this HEAD
+// and after, and NOT vacuous: they assert the whole diagnostic list is empty.
+// ===========================================================================
+
+describe("bug 0050 — a compatible argument keeps loading clean", () => {
+  it("ok1: `fn g(n: number)` called `g(3)` draws nothing", () => {
+    // `integer ⊑ number` is TYPE-2's one-way widening in the admitted
+    // direction, so this is the compatible answer, not a deferral.
+    const doc = parse(OK1);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument node must be reachable, or the empty diagnostic list below measures nothing",
+    ).toEqual(range(5, 11, 5, 12));
+    expect(
+      doc.diagnostics,
+      `ok1 — a well-typed argument must keep loading with zero diagnostics. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("ok2: a `P`-constructed value under a declared `P` parameter draws nothing", () => {
+    // TYPE-1 reflexivity against the same named schema — the arm r6 fails.
+    const doc = parse(OK2);
+    expect(
+      argRange(doc, "f", 0),
+      "PRECONDITION: the argument node must be reachable, or the empty diagnostic list below measures nothing",
+    ).toEqual(range(7, 11, 7, 12));
+    expect(
+      doc.diagnostics,
+      `ok2 — a nominally matching argument must keep loading with zero diagnostics. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// d1 / d2 — the deferral arms the emitter already implements
+// (src/parser/type-compat.ts:463–465, type-system.md:48). GREEN at this HEAD
+// vacuously; after the fix they are the pin that no wiring widens the check
+// past a statically resolvable parameter type.
+// ===========================================================================
+
+describe("bug 0050 — an unresolvable parameter type defers", () => {
+  it("d1: an UNANNOTATED parameter `fn g(n)` called `g(\"s\")` emits nothing", () => {
+    // `FnParam.type` is the empty string, `annotationToCompatType`
+    // (src/parser/type-layer-checks.ts:810) yields no type, and
+    // `checkCompatible` answers `"unknown"`. Inferring a parameter type from
+    // the body or from call sites is a §Non-goal of both dispositions.
+    const doc = parse(D1);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "d1 — an unannotated parameter is past the parser's static view; the deferral is the emitter's existing `\"unknown\"` arm, not a gap",
+    );
+  });
+
+  it("d2: an annotation naming nothing declared `fn g(n: Nope)` called `g(\"s\")` emits nothing", () => {
+    // `Nope` resolves to no `schema` / `enum` / alias in the file, so the
+    // parameter side is unresolvable and the same deferral applies. Which
+    // annotation TEXTS reach the engine at all is bug 0051's question and is
+    // unchanged by either disposition here.
+    const doc = parse(D2);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "d2 — an unresolved named type is not a proof of incompatibility; type-system.md:48 skips the check rather than guessing",
+    );
+  });
+});
+
+// ===========================================================================
+// x1–x3 — the three callee kinds the Trigger excludes. GREEN at this HEAD
+// vacuously; after the fix each reds if the emission site is attached to the
+// shared `call`/`invoke` switch label or resolves a callee it should not.
+// Only the ABSENCE of this code is pinned — whatever else these fixtures draw
+// belongs to their own rows and is not this route's business.
+// ===========================================================================
+
+describe("bug 0050 — the excluded callee kinds stay outside the check", () => {
+  it("x1: `invoke(\"./child.theta\", 3)` draws no fn-arg-type-mismatch", () => {
+    // `invoke` shares the switch label with `call` at
+    // src/parser/type-layer-checks.ts:1986, :1992 and must not be swept in: it
+    // carries its own registry row (`theta/parse/invoke-arg-type-mismatch`)
+    // and its own separately-unwired emitter, which is a distinct defect this
+    // route does not fix.
+    const doc = parse(X1);
+    argRange(doc, "invoke", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "x1 — an `invoke(...)` argument is judged by the invoke row, so this code appearing here would mean the new call site was hung on the shared switch label",
+    );
+  });
+
+  it("x2: a `.theta`-callable call `child(\"s\")` draws no fn-arg-type-mismatch", () => {
+    // A `.theta` callable is a `CallExpr` too. The Trigger excludes it by name,
+    // and its arguments are governed by `theta/parse/tool-arg-type-mismatch`
+    // against the callee's `params:` — a different row, a different operand
+    // source, and a check that needs the callee file.
+    const doc = parse(X2);
+    argRange(doc, "child", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "x2 — the callee resolves through the frozen callable set, not through this file's top-level `fn` declarations, so the fn slot has no parameter list to read",
+    );
+  });
+
+  it("x3: a Pi-tool call `read({ path: 3 })` draws no fn-arg-type-mismatch", () => {
+    // Also a `CallExpr`, also excluded by the Trigger. A Pi-tool argument is
+    // judged against the tool's registered input schema by the tool rows, with
+    // the runtime AJV check as the net.
+    const doc = parse(X3);
+    argRange(doc, "read", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "x3 — a Pi tool is not a `.theta` file and declares no theta parameter list; the fn slot must not claim its argument",
+    );
+  });
+});
+
+// ===========================================================================
+// i1 — the imported-`.thetalib` route. GREEN at this HEAD vacuously, and
+// DELIBERATELY green after the fix.
+// ===========================================================================
+
+describe("bug 0050 — the imported-`.thetalib` route defers on an unresolved signature", () => {
+  it("i1: `rate_strictness(3)` on an imported symbol draws no fn-arg-type-mismatch", () => {
+    // WHY this cell expects silence even though the Trigger names the route.
+    // The check needs the imported `fn`'s signature and the declaring file's
+    // declarations; a single-file parse carries neither — `collectTypeEnv`
+    // (src/parser/type-layer-checks.ts) does not cross files. Deferring on an
+    // unresolved imported signature is admissible under type-system.md:48
+    // §Unresolvable operands, which is why the §Fix leaves the Trigger prose in
+    // place rather than narrowing it.
+    //
+    // This cell is therefore a DEFERRAL pin, not a correctness pin: a later
+    // change that resolves imported signatures SHOULD red it, and the right
+    // response then is to flip it to an expected emission
+    // (`fn 'rate_strictness' argument 0 ('a') type mismatch: expected Author,
+    // got integer` against docs/examples/personas.thetalib:7), not to weaken it.
+    const doc = parse(I1);
+    argRange(doc, "rate_strictness", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "i1 — the imported signature is outside the single-file parse's static view; silence here is the documented deferral, not the defect this bug reports",
+    );
+  });
+});
+
+// ===========================================================================
+// sh1–sh3 — a local binder outranks the top-level `fn` (expressions.md:46,
+// :51). GREEN at this HEAD vacuously; after the fix each reds if the callee
+// resolution reads the `fn` table without asking whether the name is bound
+// locally. Withholding the check can only suppress a diagnostic, never invent
+// one, which is why the §Fix takes the whole-file conservative reading.
+// ===========================================================================
+
+describe("bug 0050 — a local binder shadowing a top-level `fn` suppresses the check", () => {
+  it("sh1: a `for` variable shadowing `fn g` draws no fn-arg-type-mismatch", () => {
+    // Inside the loop body `g` is the iteration variable, so `g("s")` does not
+    // reach the top-level `fn` at all.
+    const doc = parse(SH1);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "sh1 — resolution arm 1 (a local binding) wins over arm 2 (a top-level `fn`), so the declared parameter type of `fn g` is not the operand at this call",
+    );
+  });
+
+  it("sh2: an UNANNOTATED `fn` parameter shadowing `fn g` draws no fn-arg-type-mismatch", () => {
+    // A function parameter is arm 1 alongside `let`. The parameter is
+    // deliberately unannotated: an annotated one would raise a second question
+    // (what the annotation says about callability) that this route does not
+    // settle.
+    const doc = parse(SH2);
+    const calls = collectCalls(doc).filter((c) => c.callee === "g");
+    expect(
+      calls,
+      `PRECONDITION: the fixture holds one call of the shadowed name inside \`h\`'s body. Diagnostics: ${render(doc)}`,
+    ).toHaveLength(1);
+    expectNoFnArgMismatch(
+      doc,
+      "sh2 — a function parameter shadows the top-level `fn` inside that function's body, and `h`'s own call `h(1)` has an unannotated parameter that defers",
+    );
+  });
+
+  it("sh3: a `let` shadowing `fn g` draws no fn-arg-type-mismatch", () => {
+    const doc = parse(SH3);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "sh3 — the `let` binding is arm 1; expressions.md:51 states that local bindings shadow everything else lexically",
+    );
+  });
+});
+
+// ===========================================================================
+// u1–u5 — the erased-read guard. GREEN at this HEAD vacuously; after the fix
+// each reds if the argument type is taken from a static read that is not a
+// proof. Bug 0072 closed exactly this soundness hole one argument position
+// over: `StaticTypeInferencePass.#commonType`
+// (src/parser/static-type-inference.ts:341–352) reduces sibling arms to ONE
+// type by unknown-blessing and by the `common ?? candidates[0]` fallback, both
+// of which discard an arm the runtime can still produce. Its answer was
+// `collectProvableArgTypes` (src/extension/invoke-static-checks.ts:484), which
+// returns the SET of arm types instead. A wiring here that calls `typeOf` on
+// the argument and trusts the answer inherits the hole.
+// ===========================================================================
+
+describe("bug 0050 — a statically ERASED argument read is not a proof and is not judged", () => {
+  it("u1: `g(flag ? 1 : \"a\")` against `s: string` draws no fn-arg-type-mismatch", () => {
+    // `typeOf` reads this ternary as `integer` — the `candidates[0]` fallback,
+    // with the `string` arm discarded. Judging that reading against `string`
+    // would reject a program whose runtime value can be a `string`.
+    const doc = parse(U1);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u1 — the erased read names one arm of a two-arm expression; rejecting on it would reject a value the declared parameter type accepts",
+    );
+  });
+
+  it("u2: the laundered form `let x = flag ? 1 : \"a\"` then `g(x)` draws no fn-arg-type-mismatch", () => {
+    // The same erasure one binding removed: an unannotated `let` records the
+    // erased type, so a check that reads the binding's recorded type rather
+    // than the ternary is equally unsound. The two cells together bound the
+    // route the erasure travels.
+    const doc = parse(U2);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u2 — an unannotated `let` carries the erased reading forward, so a binding-typed argument is no more provable than the expression that produced it",
+    );
+  });
+
+  it("u3: `g([1, \"a\"])` against `xs: array<number>` draws no fn-arg-type-mismatch", () => {
+    // `typeOf` reads `array<integer>` here, again by discarding an arm. This
+    // fixture also draws `theta/parse/array-no-common-type` today, from the
+    // array literal's own gate; that emission belongs to its own row and is
+    // deliberately not pinned by this cell.
+    const doc = parse(U3);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u3 — the element reading is erased, so the array type it produces is not a proof about the argument",
+    );
+  });
+
+  it("u4: `g([\"a\", null])` against `xs: array<number>` draws no fn-arg-type-mismatch", () => {
+    // Read as `array<string>` with the `null` arm discarded. Pinned alongside
+    // u3 because the two erase through different arms — a mixed-primitive pair
+    // and a `null` arm — and a fix could plausibly close one and not the other.
+    const doc = parse(U4);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u4 — a discarded `null` arm erases exactly as a discarded primitive arm does",
+    );
+  });
+
+  it('u5: `par for x in [false ? 1 : "a"] { g(x) }` against `s: string` draws no fn-arg-type-mismatch', () => {
+    // The third route the erasure travels, after u1's direct read and u2's
+    // `let`: the `par for` arm binds the loop variable to the iterand's
+    // ELEMENT type, so `[false ? 1 : "a"]` — read `array<integer>` once
+    // `#commonType` has discarded the `string` arm — binds `x` to `integer`.
+    // The sole iteration binds `"a"`, which satisfies `s: string`, so an
+    // emission here refuses a program every execution of which is well-typed.
+    const doc = parse(U5);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u5 — a `par for` loop variable carries the iterand's erased element reading, so it is no more provable than the iterand that produced it",
+    );
+  });
+});
+
+// ===========================================================================
+// u6 — the fabricated-name guard. `StaticTypeInferencePass`'s `member` arm
+// (src/parser/static-type-inference.ts:242) types `v.P` as `named "P"` — the
+// author-chosen FIELD NAME, not the field's declared type — and its
+// `method-call` arm (:261) does the same with the method name. Where such a
+// minted name collides with a declared schema, `checkCompatible` does not
+// defer to `"unknown"`: it judges nominally (TYPE-10) against a declaration
+// the read has nothing to do with. The neighbouring `interpolationIsResult`
+// (src/parser/type-layer-checks.ts) already refuses minted member names for
+// this reason, and the argument sink refuses them on the same rule.
+// ===========================================================================
+
+describe("bug 0050 — a FABRICATED field-name argument read is not a proof and is not judged", () => {
+  it("u6: `f(v.P)` where `P` names both a field and a declared schema draws no fn-arg-type-mismatch", () => {
+    // `v.P` evaluates to `3` — exactly the `number` the parameter declares —
+    // while its static read is `named "P"`, resolving to the unrelated
+    // `schema P { a: number }`. Judging that reading rejects a program whose
+    // argument value the declared parameter type accepts.
+    const doc = parse(U6);
+    argRange(doc, "f", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u6 — the static read names the field, not the field's type; the collision with `schema P` is what turns an already-sound deferral into a false judgement",
+    );
+  });
+});
+
+// ===========================================================================
+// u7 / u7p — the index-read guard, and the positive differentiator that keeps
+// it from going vacuous.
+//
+// `StaticTypeInferencePass`'s `index` arm
+// (src/parser/static-type-inference.ts:245–250) narrows an index read to the
+// TARGET's ELEMENT type. That element object is NOT the object the two
+// recording arms mark in `unprovableBindings` — the array type is — so an
+// erased target laundered its erasure through the narrowing, past the identity
+// channel `provableArgType`'s `ident` arm reads
+// (src/parser/type-layer-checks.ts:1802). The guard puts the proof obligation
+// on the target (:1855–1865), mirroring the `try` arm's recursion, and keeps
+// the element narrowing from `typeOf`.
+//
+// u7 pins the two ends of that route: the direct read, and the one binding
+// removed, where the `let`-marking guard calls `provableArgType` on the
+// initialiser (:1019–1020) and marks from that verdict (:1043–1052), inheriting
+// whatever the `index` arm answers. u7p is the same pair over a target the annotation PROVES, and it is
+// what stops u7 from passing for the wrong reason: revert the target recursion
+// and u7 reds; withhold on every index read and u7p reds.
+// ===========================================================================
+
+describe("bug 0050 — an index read off an ERASED target is not a proof and is not judged", () => {
+  it('u7: `let xs = [false ? 1 : "a"]` then `f(xs[0])` draws no fn-arg-type-mismatch', () => {
+    // `xs` reads `array<integer>` once `#commonType` has discarded the `string`
+    // arm, so `xs[0]` reads `integer` while the sole element evaluates to
+    // `"a"` — a value `s: string` accepts. An emission here refuses a program
+    // whose every execution is well-typed.
+    const doc = parse(U7_DIRECT);
+    expect(
+      argRange(doc, "f", 0),
+      "PRECONDITION: the argument `xs[0]` sits on the third body line; a drifted layout must fail here rather than let the absence assertion below measure nothing",
+    ).toEqual(range(6, 11, 6, 16));
+    expectNoFnArgMismatch(
+      doc,
+      "u7 — the element reading inherits the array literal's erasure, so the index read is no more provable than the target that produced it",
+    );
+  });
+
+  it('u7 (laundered): `let e = xs[0]` then `f(e)` draws no fn-arg-type-mismatch', () => {
+    // The guard-inheritance path. `walkStmt`'s unannotated-`let` arm marks the
+    // binding unprovable exactly when `provableArgType(stmt.init)` withholds,
+    // so an `index` arm that answered DEFINED here would record `e` as a proof
+    // and this cell would red one call site later — the same laundering u2
+    // pins for a ternary initialiser.
+    const doc = parse(U7_LAUNDERED);
+    expect(
+      argRange(doc, "f", 0),
+      "PRECONDITION: the argument `e` sits on the fourth body line",
+    ).toEqual(range(7, 11, 7, 12));
+    expectNoFnArgMismatch(
+      doc,
+      "u7 (laundered) — a binding whose initialiser is an unproven index read carries that erasure forward; the marking guard and the argument sink must agree on one answer",
+    );
+  });
+
+  it("u7p: an index read off an ANNOTATED `array<integer>` binding still fires", () => {
+    // The positive differentiator. `let xs: array<integer>` is a declared type,
+    // which the `ident` arm treats as a proof, so `xs[0]` narrows to a proven
+    // `integer` and the `string` parameter is a genuine mismatch. TYPE-9 owns
+    // this emission; withholding it would trade N1's false positive for a
+    // false negative.
+    const doc = parse(U7P_DIRECT);
+    const argument = argRange(doc, "f", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `xs[0]` sits on the third body line, at the same columns as u7's",
+    ).toEqual(range(6, 11, 6, 16));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("f", 0, "s", "string", "integer"),
+      argument,
+      "u7p — the target's annotation proves the element type, so the index read is judged; this is the emission u7's guard must leave intact",
+    );
+  });
+
+  it("u7p (laundered): a binding off a PROVEN index read still fires", () => {
+    // The differentiator for u7's second half: the marking guard must record
+    // this initialiser as a proof, so the emission survives the extra binding.
+    const doc = parse(U7P_LAUNDERED);
+    const argument = argRange(doc, "f", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `e` sits on the fourth body line, at the same columns as u7 (laundered)'s",
+    ).toEqual(range(7, 11, 7, 12));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("f", 0, "s", "string", "integer"),
+      argument,
+      "u7p (laundered) — the `let` arm marks a binding unprovable only when its initialiser is unproven, so a proven index read keeps the sink live one binding on",
+    );
+  });
+});
+
+// ===========================================================================
+// u8 / u8b / u8p — the minted-CALLEE-name guard, and its positive
+// differentiator.
+//
+// `StaticTypeInferencePass`'s `call` arm
+// (src/parser/static-type-inference.ts:251) types `F(3)` as `named "F"` — the
+// author-chosen CALLEE name, not the type of the value the call returns —
+// exactly as its `member` arm mints a field name (cell u6). Where that name
+// collides with a declared schema, `checkCompatible` judges nominally
+// (TYPE-10) against a declaration the call has nothing to do with, so the
+// argument sink withholds on the whole arm (src/parser/type-layer-checks.ts
+// :1820–1844) under the rule the `member` / `method-call` arm beside it
+// already carries.
+//
+// The withholding loses no sound emission. A user `fn` name is lowercase-first
+// (`theta/parse/binding-case-mismatch`, lexical.md:16, :18) and every entry of
+// the schema-only `TypeEnv` `collectTypeEnv` builds is uppercase-first
+// (`theta/parse/schema-case-mismatch`, lexical.md:15), so a callee name that
+// RESOLVES is never the `fn` being called — it is a schema sharing a spelling
+// with something else. The `invoke` label rides along: its minted `path`
+// either ends in `.theta`, which no schema name can spell, or draws
+// `theta/parse/invoke-non-theta-extension`.
+// ===========================================================================
+
+describe("bug 0050 — a FABRICATED callee-name argument read is not a proof and is not judged", () => {
+  it("u8: `g(F(3))` where `F` names a declared schema draws no fn-arg-type-mismatch", () => {
+    // `named "F"` resolves to `schema F { a: number }`, so the sink read
+    // `expected number, got F` off a name the author chose for a callee. The
+    // fixture carries no `unknown-identifier` either, so the whole input loads
+    // clean without this guard's withholding — a GOV-15 addition on an input
+    // the row's Trigger never described.
+    const doc = parse(U8_SCHEMA_CALLEE);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `F(3)` sits on the third body line; without a reachable call node the absence assertion below measures nothing",
+    ).toEqual(range(6, 11, 6, 15));
+    expectNoFnArgMismatch(
+      doc,
+      "u8 — the static read names the callee, not the callee's return type; the collision with `schema F` is what turns a deferral into a false judgement",
+    );
+  });
+
+  it("u8b: a `.theta`-callable alias colliding with a local schema draws no fn-arg-type-mismatch", () => {
+    // The route with a VALID runtime execution, and the one the registry
+    // Trigger excludes by name: `F` is the frontmatter alias of
+    // `./child.theta`, so `F(1)?` evaluates to the child's Ok payload, and a
+    // child ending in a number tail hands `g` the `number` it declares. Cell
+    // x2 pins the same exclusion at the OUTER callee position; this cell pins
+    // it at an argument position, where the alias smuggled a `.theta`-callable
+    // call in under a schema-shaped name.
+    const doc = parse(U8_ALIAS_CALLEE);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u8b — a `.theta`-callable call is outside the row's Trigger wherever it is written, and its Ok payload type is not the alias name",
+    );
+  });
+
+  it("u8p: `g(F { a: 3 })` — the same `named F` reached through the CONSTRUCTOR form still fires", () => {
+    // The positive differentiator. `#typeExpr`'s `object` arm mints `named "F"`
+    // from the constructor's own type name, and a `F { … }` constructor does
+    // produce an `F`, so that read IS a proof and TYPE-10 makes it
+    // incompatible with `n: number`. Identical argType, identical parameter,
+    // identical position — the withholding above is scoped to how the name was
+    // minted, and this cell reds if it is widened to the whole `named` shape.
+    const doc = parse(U8P_CTOR);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `F { a: 3 }` sits on the third body line",
+    ).toEqual(range(6, 11, 6, 21));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "n", "number", "F"),
+      argument,
+      "u8p — a constructed value's nominal type is a proof; this is the emission the callee-name withholding must leave intact",
+    );
+  });
+});
+
+// ===========================================================================
+// u9 / u9b / u9c / u9d / u9p — the minted-IDENTIFIER-name guard, and its
+// positive differentiator.
+//
+// `StaticTypeInferencePass`'s `ident` arm
+// (src/parser/static-type-inference.ts:211–216) answers
+// `bindings.get(name) ?? { kind: "named", name }`, so for any identifier the
+// walk's `bindings` map does not hold, the "type" is MINTED FROM THE
+// IDENTIFIER'S OWN SPELLING — the same fabrication cells u6 and u8 refuse over
+// the field and callee namespaces, one namespace over. A minted name that
+// resolves to nothing declared defers at `checkCompatible` (`"unknown"`); one
+// that collides with a declared schema is judged nominally under TYPE-10
+// against a declaration the read has nothing to do with.
+//
+// `bindings` holds no JUDGED type for any of the four routes below.
+// `collectLocalBinderNames`'s doc comment
+// (src/parser/type-layer-checks.ts:494–498) names the two ways that happens: a
+// frontmatter `params:` field never reaches the map at all, and the binder
+// classes this layer cannot type — a loop variable, a match-arm binding, an
+// unannotated `fn` parameter — are recorded as WITHHELD entries
+// (`recordWithheldBinders`, group u12), which the `ident` arm's identity
+// channel refuses exactly as it refuses a miss. u9d's bare schema reference is
+// the remaining miss, and it is the only route in this group whose read still
+// carries the identifier's own spelling: no `TypeEnv` key can equal a
+// WITHHELD entry's name, so the nominal judgement described above is
+// unreachable through it and the sibling rows defer on it as well (group
+// u13). The asymmetry that makes the group real is the `par for` arm, which
+// records a JUDGED element type (`inner.set(e.variable, elementType)`,
+// :2052): u9p rides that record and MUST keep emitting.
+//
+// Every u9 fixture shares one prelude, so each differs only in how `P` reaches
+// the argument position, and none of them draws any other diagnostic at this
+// HEAD — each loaded cleanly before the guard, which is what makes the four
+// cells GOV-15 measurements rather than error-list reshuffles.
+// ===========================================================================
+
+describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof and is not judged", () => {
+  it("u9: a `for` variable spelled like a declared schema draws no fn-arg-type-mismatch", () => {
+    // The route that is a LEGAL program rather than a broken one, so the
+    // fabricated emission refuses source text the language admits.
+    // lexical.md:16 scopes the lowercase-first rule to `let` / `let mut`
+    // bindings, function parameters, function names and schema field names, and
+    // :15 scopes uppercase-first to type-like bindings — a `for` variable is in
+    // neither list, so `for P in …` violates no case rule. expressions.md:53
+    // classifies it as a local binder alongside `let` and a `params:` field,
+    // and the runtime binds it unconditionally
+    // (src/runtime/statement-executor.ts:1664,
+    // `env.bindIterationVariable(stmt.variable, element)`). Each iteration
+    // therefore hands `g` the integer `1` then `2`, never a `P`.
+    const doc = parse(U9_FOR_VARIABLE);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `P` sits inside the loop body on body line 7; a drifted layout must fail here rather than let the absence assertion below measure nothing",
+    ).toEqual(range(7, 29, 7, 30));
+    expectNoFnArgMismatch(
+      doc,
+      "u9 — `walkStmt`'s `for` arm records no judged type for the loop variable, so the read is a name the author chose; judging it rejects a program whose every iteration passes an integer",
+    );
+  });
+
+  it("u9b: a `match`-arm binder spelled like a declared schema draws no fn-arg-type-mismatch", () => {
+    // `parsePattern` (src/parser/theta-document.ts:3935) answers
+    // `{ kind: "identifier", name }` for a bare pattern whatever its case, and
+    // both runtime matchers bind it unconditionally
+    // (src/runtime/match-result.ts:177–179;
+    // src/runtime/statement-executor.ts:1126,
+    // `armEnv.defineLocal(name, value, false)`), so this arm hands `g` the
+    // scrutinee `3`. Whether expressions.md:174's disambiguation ("lowercase
+    // identifiers bind, capitalised identifiers refer to constructors or schema
+    // names") should reject a capitalised bare pattern is a separate question
+    // this route does not answer: under either reading the argument's runtime
+    // value is not a `P`, so the type judgement is fabricated either way.
+    const doc = parse(U9_MATCH_BINDER);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `P` sits in the sole match arm's body on body line 7",
+    ).toEqual(range(7, 28, 7, 29));
+    expectNoFnArgMismatch(
+      doc,
+      "u9b — a match-arm binding is one of the classes the walk records WITHHELD rather than judged, so the read is a spelling and not a proven type",
+    );
+  });
+
+  it("u9c: an UNANNOTATED `fn` parameter spelled like a declared schema draws no fn-arg-type-mismatch", () => {
+    // `walkFn` seeds its body scope with a JUDGED type for the ANNOTATED
+    // parameters only (src/parser/type-layer-checks.ts:1218–1229, gated on
+    // `p.type.length > 0`); an unannotated one is recorded WITHHELD (group u12),
+    // so no proof of its type exists inside the body. The runtime
+    // binds it positionally regardless
+    // (src/runtime/statement-executor.ts:416,
+    // `scope.defineLocal(fn.params[i].name, arg.value, false)`), so `h(3)`
+    // hands `g` the integer `3`. lexical.md:16 requires a lowercase-first
+    // parameter name and no case diagnostic is emitted for this one at this
+    // HEAD; that gap belongs to its own adjudication and is not what this cell
+    // pins — the pin is that a name minted from the parameter's spelling is
+    // never the argument's type. `h`'s own call defers on the same unannotated
+    // parameter (cell d1's arm).
+    const doc = parse(U9_FN_PARAM);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `P` sits inside `h`'s body on body line 7",
+    ).toEqual(range(7, 21, 7, 22));
+    expectNoFnArgMismatch(
+      doc,
+      "u9c — an unannotated parameter has no judged type inside the body, and the minted name resolves to the unrelated `schema P`",
+    );
+  });
+
+  it("u9d: a bare declared-schema reference at an argument position draws no fn-arg-type-mismatch", () => {
+    // The route with no binder at all. `checkUnknownIdentifiers`
+    // (src/parser/theta-document.ts:4680) folds every declared `schema` name
+    // into its root scope, so a bare `P` at a value position draws no
+    // `theta/parse/unknown-identifier` — measured: this fixture's only
+    // diagnostic before the guard was the fn-arg code itself. Whether such a
+    // reference should draw a diagnostic of its own is bug 0051's territory;
+    // what this cell forbids is answering it with a TYPE MISMATCH, which
+    // asserts the argument IS a `P` value — something no phase established,
+    // since the type layer holds no recorded type for the name at all.
+    const doc = parse(U9_BARE_SCHEMA_REF);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `P` sits on body line 7",
+    ).toEqual(range(7, 13, 7, 14));
+    expectNoFnArgMismatch(
+      doc,
+      "u9d — a schema name at a value position is not a value of that schema; the minted read is the identifier's spelling and proves nothing about what the position holds",
+    );
+  });
+
+  it("u9p: a `par for` variable spelled like a declared schema still fires, on the PROVEN element type", () => {
+    // The positive differentiator, and the asymmetry that makes the four cells
+    // above real rather than a blanket withholding. `walkExpr`'s `par for` arm
+    // DOES record the loop variable (src/parser/type-layer-checks.ts:2052),
+    // and `[1, 2]` is a proven `array<integer>`, so `P` carries a recorded
+    // `integer` and `x: Q` is a genuine TYPE-10 mismatch — note the message
+    // says `got integer`, not `got P`: the recorded type wins over the
+    // spelling exactly where one exists. Withhold on every `ident` and this
+    // cell reds alongside r1's whole family.
+    const doc = parse(U9P_PAR_FOR);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `P` sits inside the `par for` body on body line 7",
+    ).toEqual(range(7, 34, 7, 35));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "x", "Q", "integer"),
+      argument,
+      "u9p — a recorded loop-variable type is a proof; this is the emission the minted-name withholding must leave intact, and the channel that decides it is the map entry, never the identifier's case or spelling",
+    );
+  });
+});
+
+// ===========================================================================
+// u10 / u10b / u10c / u10d — the arithmetic-result guard, and u10p / u10pb /
+// u10pc, the three differentiators that keep it from swallowing sound
+// emissions.
+//
+// `StaticTypeInferencePass`'s `#typeBinary`
+// (src/parser/static-type-inference.ts:298–335) answers a negation with its
+// OPERAND's type (`#typeExpr(right)`) and any other non-boolean operator with
+// the `#commonType` reduction of its two operands. Neither answer is the
+// OPERATOR's result type, and for `-`, `*`, `/`, `%` and unary `-` the spec
+// fixes that result: expressions.md §"Other arithmetic" gives binary `-`, `*`,
+// `%` `integer` on two `integer` operands widening to `number`, `/` always
+// `number`, and unary `-` the same rule on its single operand — with `NaN` a
+// `number` too. No spec sentence assigns any of the five a `string`, `boolean`
+// or `null` result, and the runtime reaches the numeric result by COERCION:
+// `applyBinaryScalar` casts both operands (src/runtime/statement-executor.ts
+// :892–899) and the negation path computes `-(right.value as number)` (:839).
+//
+// The exactness test the arithmetic arm shares with `ternary` / `match` /
+// `array` does not catch this: `isProvenReduction`
+// (src/parser/type-layer-checks.ts) asks whether the reduction is EXACT over
+// the operand reads, and a same-typed pair of proven non-numeric operands is
+// exact — `"a" - "b"` reduces to a proven `string`. Operator ADMISSIBILITY is a
+// different question, and the one that decides the result type, so the arm
+// withholds outside the numeric shapes (`classifyOperand`, this module's one
+// numeric test, shared with the A5 `+` and A6 ordering operand checks).
+//
+// Each u10 fixture's SOLE diagnostic before the guard was this code — measured;
+// no registry row covers a non-numeric arithmetic OPERAND and none is checked,
+// so these inputs loaded cleanly — which makes the four cells GOV-15
+// measurements rather than error-list reshuffles. Supplying such a row is a
+// separate filing and is NOT done here.
+//
+// `+` is outside the family and untouched (cell u10pc): expressions.md
+// §"`+` operator" makes a both-`string` pair concatenation, so there the
+// reduction IS the result type, and every pairing that is neither both-numeric
+// nor both-`string` already fails to load on
+// `theta/parse/mixed-plus-operands`.
+// ===========================================================================
+
+describe("bug 0050 — an arithmetic result read as a NON-NUMERIC type is not a proof and is not judged", () => {
+  it('u10: `g(-"5")` against `n: number` draws no fn-arg-type-mismatch', () => {
+    // The operand's proof is a `string`, and the sink read it as the
+    // negation's type: `expected number, got string` on an expression whose
+    // value is the number `-5`. Refusing that input rejects a program whose
+    // argument the declared parameter type accepts.
+    const doc = parse(U10_NEG_STRING);
+    expect(
+      argRange(doc, "g", 0),
+      'PRECONDITION: the argument `-"5"` sits on the second body line; a drifted layout must fail here rather than let the absence assertion below measure nothing',
+    ).toEqual(range(5, 11, 5, 15));
+    expectNoFnArgMismatch(
+      doc,
+      "u10 — unary `-` produces a number whatever it is applied to, so the operand's own type is not a proof of the negation's value type",
+    );
+  });
+
+  it('u10 (laundered): `let x = -"5"` then `g(x)` draws no fn-arg-type-mismatch', () => {
+    // The guard-inheritance path, as u7 (laundered) pins for an index read:
+    // `walkStmt`'s unannotated-`let` arm marks the binding unprovable exactly
+    // when `provableArgType(stmt.init)` withholds, so a negation arm that
+    // answered DEFINED here would record `x` as a proof and this cell would
+    // red one call site later.
+    const doc = parse(U10_NEG_STRING_LAUNDERED);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits on the third body line",
+    ).toEqual(range(6, 11, 6, 12));
+    expectNoFnArgMismatch(
+      doc,
+      "u10 (laundered) — a binding whose initialiser is an unproven negation carries that unprovability forward; the marking guard and the argument sink must agree on one answer",
+    );
+  });
+
+  it("u10b: `g(-true)` against `n: number` draws no fn-arg-type-mismatch", () => {
+    // The second operand shape, pinned separately from u10 because a fix could
+    // plausibly special-case `string` and leave the rest: `-true` evaluates to
+    // the number `-1` (`-(right.value as number)`,
+    // src/runtime/statement-executor.ts:839) while the read claims `boolean`.
+    const doc = parse(U10_NEG_BOOL);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `-true` sits on the second body line",
+    ).toEqual(range(5, 11, 5, 16));
+    expectNoFnArgMismatch(
+      doc,
+      "u10b — a `boolean` operand negates to a number exactly as a `string` one does; the withholding is keyed to the operator, not to which non-numeric operand it was handed",
+    );
+  });
+
+  it('u10c: `g("a" - "b")` against `n: number` draws no fn-arg-type-mismatch', () => {
+    // The BINARY half, and the one `isProvenReduction` cannot catch: both
+    // operands are proven `string` literals, so the reduction is exact and the
+    // arm trusted it. The value is `NaN` — a `number` by
+    // expressions.md §"Other arithmetic" — which `n: number` accepts.
+    const doc = parse(U10_MINUS_STRINGS);
+    expect(
+      argRange(doc, "g", 0),
+      'PRECONDITION: the argument `"a" - "b"` sits on the second body line',
+    ).toEqual(range(5, 11, 5, 20));
+    expectNoFnArgMismatch(
+      doc,
+      "u10c — an exact reduction over two `string` operands is still not a proof of a subtraction's value type, because `-`'s result type is the operator's",
+    );
+  });
+
+  it("u10d: the same shape under `/`, `%` and `*` draws no fn-arg-type-mismatch", () => {
+    // The remaining three operators of the family. `"6" / "2"` evaluates to the
+    // number `3` and `"6" % "2"` to `0` — both through
+    // `applyBinaryScalar`'s casts (src/runtime/statement-executor.ts:896, :898)
+    // — while `"a" * "b"` is `NaN`; all three read `string` before the guard.
+    // One cell over three fixtures, because a partial operator set is the
+    // plausible slip and each fixture differs only in the operator token.
+    for (const [label, src, argument] of [
+      ["/", U10_DIV_STRINGS, range(5, 11, 5, 20)],
+      ["%", U10_MOD_STRINGS, range(5, 11, 5, 20)],
+      ["*", U10_MUL_STRINGS, range(5, 11, 5, 20)],
+    ] as const) {
+      const doc = parse(src);
+      expect(
+        argRange(doc, "g", 0),
+        `PRECONDITION: the \`${label}\` fixture's argument sits on the second body line`,
+      ).toEqual(argument);
+      expectNoFnArgMismatch(
+        doc,
+        `u10d (${label}) — expressions.md §"Other arithmetic" fixes this operator's result to \`integer\` / \`number\` as it does \`-\`'s, so the operand reading is no more a proof here`,
+      );
+    }
+  });
+
+  it("u10p: a numeric negation still fires, over both numeric `CompatType` shapes", () => {
+    // The first differentiator, and the reason the guard tests the operand's
+    // proof rather than withholding on every negation. `-1.5` is a `literal`
+    // typing as `number` (`#typeExpr`'s `number` arm) and `let m: number` is a
+    // `prim` `number` (`annotationToCompatType`); both are numeric, unary `-`
+    // preserves the operand's numeric type per
+    // expressions.md §"Other arithmetic", and the parameter is a genuine
+    // TYPE-9 mismatch in each case. Withhold on every negation and both halves
+    // red.
+    const literalDoc = parse(U10P_NEG_LITERAL);
+    const literalArg = argRange(literalDoc, "g", 0);
+    expect(
+      literalArg,
+      "PRECONDITION: the argument `-1.5` sits on the second body line",
+    ).toEqual(range(5, 11, 5, 15));
+    expectOneFnArgMismatch(
+      literalDoc,
+      fnArgMessage("g", 0, "n", "integer", "number"),
+      literalArg,
+      "u10p (literal) — `-1.5` is a `number`, and TYPE-2's widening is one-way, so the `integer` parameter is the mismatch the guard must leave intact",
+    );
+
+    const annotatedDoc = parse(U10P_NEG_ANNOTATED);
+    const annotatedArg = argRange(annotatedDoc, "g", 0);
+    expect(
+      annotatedArg,
+      "PRECONDITION: the argument `-m` sits on the third body line",
+    ).toEqual(range(6, 11, 6, 13));
+    expectOneFnArgMismatch(
+      annotatedDoc,
+      fnArgMessage("g", 0, "s", "string", "number"),
+      annotatedArg,
+      "u10p (annotated) — an annotated numeric binding reaches the guard as a `prim`, not a `literal`; a numeric test covering only one of the two shapes reds here",
+    );
+  });
+
+  it("u10pb: a numeric arithmetic reduction still fires", () => {
+    // The second differentiator. `1 - 2` reduces to a proven `integer`, which
+    // IS the operator's result type for two `integer` operands, so the
+    // `string` parameter is a genuine mismatch. Withhold on every arithmetic
+    // binary and this cell reds.
+    const doc = parse(U10PB_ARITH);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `1 - 2` sits on the second body line",
+    ).toEqual(range(5, 11, 5, 16));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u10pb — a numeric reduction agrees with the operator's own result type, so it is a proof and the emission stands",
+    );
+  });
+
+  it("u10pc: `+` keeps its both-`string` and numeric verdicts", () => {
+    // The scope lock. `+` is not in the family: on two `string` operands it
+    // CONCATENATES, so the `string` reduction is the result type and
+    // `expected number, got string` is true of `"a" + "b"`; on two `integer`
+    // operands it adds, so `expected string, got integer` is true of `1 + 2`.
+    // A guard widened to every non-boolean binary reds both halves, which is
+    // what keeps the withholding off `+`'s shapes.
+    const numericDoc = parse(U10PC_PLUS_NUMERIC);
+    const numericArg = argRange(numericDoc, "g", 0);
+    expect(
+      numericArg,
+      "PRECONDITION: the argument `1 + 2` sits on the second body line",
+    ).toEqual(range(5, 11, 5, 16));
+    expectOneFnArgMismatch(
+      numericDoc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      numericArg,
+      "u10pc (numeric) — addition on two `integer` operands produces an `integer`, so the reduction is the result type and the `string` parameter is a real mismatch",
+    );
+
+    const stringDoc = parse(U10PC_PLUS_STRINGS);
+    const stringArg = argRange(stringDoc, "g", 0);
+    expect(
+      stringArg,
+      'PRECONDITION: the argument `"a" + "b"` sits on the second body line',
+    ).toEqual(range(5, 11, 5, 20));
+    expectOneFnArgMismatch(
+      stringDoc,
+      fnArgMessage("g", 0, "n", "number", "string"),
+      stringArg,
+      "u10pc (string) — `+` on two `string` operands is concatenation, so the `string` claim is TRUE here and withholding it would trade a false positive for a false negative",
+    );
+  });
+});
+
+// ===========================================================================
+// u11 / u11b / u11c — the SELF-SHADOWING initialiser, and u11p, the
+// proven-outer differentiator that keeps the three from passing vacuously.
+//
+// `walkStmt`'s unannotated-`let` arm marks a binding unprovable when
+// `provableArgType(stmt.init)` withholds, and that verdict has to be reached
+// in the scope the initialiser is EVALUATED in. The runtime evaluates the
+// initialiser and only then defines the binding (`evalExpr(stmt.init, env)`
+// then `env.defineLocal`, src/runtime/statement-executor.ts), so a
+// self-reference inside the initialiser of a shadowing `let` resolves to the
+// OUTER binding — the one whose erasure `unprovableBindings` records by
+// object identity. A verdict reached after the new binding is recorded instead
+// resolves the self-reference to a type object the arm is in the middle of
+// recording, which no marking has reached, so an erased outer binding launders
+// into a proven record and the call one line on would be judged against a type its
+// argument never holds.
+//
+// Each of the three fixtures loads with the false emission as its SOLE
+// diagnostic, so these cells assert the WHOLE diagnostic list is empty rather
+// than the code's absence alone — non-vacuous in the same way ok1 / ok2 are.
+//
+// The self-reference's ORIENTATION is why the family needs its own cells:
+// `#commonType`'s fallback returns `candidates[0]`
+// (src/parser/static-type-inference.ts), so `let x = x + 1` reduces to the
+// outer binding's OWN already-marked type object and identity carries the
+// erasure forward by accident. `let x = 1 + x` reduces to the freshly minted
+// literal type instead, and nothing marks that. u11b is the second
+// orientation for exactly that reason.
+// ===========================================================================
+
+describe("bug 0050 — a SELF-SHADOWING initialiser over an erased binding stays unproven", () => {
+  it('u11: `let x = flag ? 1 : "a"` then `let x = flag ? 1 : x` then `g(x)` draws nothing', () => {
+    // The ternary orientation. Both `let x` statements read `integer` after
+    // `#commonType` discards the `string` arm, and the second one's `x` arm is
+    // the outer binding, which is marked — so the second binding is unproven
+    // too. At runtime the outer `x` is `"a"` and `flag` is `false`, so the
+    // second `x` is `"a"` as well and `s: string` accepts it: an emission here
+    // refuses a program whose every execution is well-typed.
+    const doc = parse(U11_SELF_TERNARY);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits on the fifth body line; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(8, 11, 8, 12));
+    expect(
+      doc.diagnostics,
+      `u11 — the marking guard must resolve the initialiser's self-reference to the OUTER binding, as the runtime does, so the erasure reaches the shadowing binding. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it('u11b: the RIGHT-hand orientation `let x = 1 + x` over an erased outer `x` draws nothing', () => {
+    // The orientation `#commonType`'s `candidates[0]` fallback does not rescue:
+    // the reduction of `1 + x` is the literal `1`'s freshly minted type, not
+    // the outer binding's marked object, so identity carries nothing here and
+    // the verdict has to come from resolving `x` against the outer binding.
+    // At runtime the outer `x` is `"a"`, so `1 + x` is the string `"1a"` and
+    // `s: string` accepts it — while the erased read calls it `integer`.
+    const doc = parse(U11_SELF_ARITH);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits on the fifth body line, at the same columns as u11's",
+    ).toEqual(range(8, 11, 8, 12));
+    expect(
+      doc.diagnostics,
+      `u11b — a self-reference on the RIGHT of an arithmetic operator gets no identity rescue, so this is the orientation that measures the guard's scope. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u11c: a self-shadowing ARRAY initialiser reading its outer binding through an index draws nothing", () => {
+    // The composite route, one narrowing deeper: `let x = [flag ? 1 : "a"]`
+    // records an erased `array<integer>`, and the shadowing `[1, x[0]]` reads
+    // the outer array through the `index` arm, whose proof obligation is the
+    // TARGET (cell u7). A post-set verdict resolves that target to the new
+    // array object, unmarked, and `g(x[1])` is then judged on the element
+    // narrowing. At runtime the outer `x[0]` is `"a"`, so the second `x` is
+    // `[1, "a"]` and `x[1]` is the `"a"` that `s: string` accepts.
+    const doc = parse(U11_SELF_INDEX);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x[1]` sits on the fifth body line",
+    ).toEqual(range(8, 11, 8, 15));
+    expect(
+      doc.diagnostics,
+      `u11c — the erasure must travel the array literal and the element narrowing together; a proven-looking record here reinstates the laundering u7 closes one binding over. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u11p: a self-shadowing initialiser over a PROVEN outer binding still fires", () => {
+    // The differentiator, and the reason the three cells above cannot be
+    // satisfied by withholding on every self-shadowing initialiser. `let x = 1`
+    // is a proven `integer`, so `1 + x` is a proven `integer` reduction — which
+    // IS `+`'s result type on two `integer` operands (cell u10pc) — and the
+    // runtime binds the `integer` 2, which `s: string` genuinely refuses.
+    // TYPE-9 owns this emission; withhold on the shape rather than on the
+    // outer binding's provability and this cell reds.
+    const doc = parse(U11P_PROVEN_OUTER);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `x` sits on the fourth body line",
+    ).toEqual(range(7, 11, 7, 12));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u11p — a self-reference resolved to a PROVEN outer binding keeps the whole initialiser proven, so the mismatch stands and the u11 guard must leave it intact",
+    );
+  });
+});
+
+// ===========================================================================
+// u12 / u12b / u12c / u12d — a binder that SHADOWS a same-named outer record,
+// one cell per binder class the walk's `bindings` map did not record; u12e the
+// deferral the `for` variable keeps; u12p … u12pe the five differentiators.
+//
+// The species is the u11 group's, one scope out: a provability verdict has to
+// be taken in the scope the runtime EVALUATES the expression in. The `ident`
+// arm withholds on a `bindings.get` MISS (the u9 group), which covers a binder
+// the map does not record — until that binder SHADOWS a same-named outer
+// record, when the lookup HITS the outer record and proves a binding the
+// runtime never reads at that position.
+//
+// The runtime installs all four binders in an inner scope, unconditionally:
+//   - a `for` variable — `executeFor` (src/runtime/statement-executor.ts:1664,
+//     `env.bindIterationVariable(stmt.variable, element)`); control-flow.md:13
+//     binds it "as a fresh immutable local per iteration".
+//   - a `match` pattern binding — `evalMatch`
+//     (src/runtime/statement-executor.ts:1124–1127, `env.child()` then
+//     `armEnv.defineLocal`), with an identifier pattern binding the scrutinee
+//     whatever its value (src/runtime/match-result.ts:177–179).
+//   - a `fn` parameter, annotated or not — `evalUserFnCall`
+//     (src/runtime/statement-executor.ts:410–416, `env.childFnActivation()`
+//     then per-parameter `defineLocal`). theta 1.0 has no closures, so a
+//     caller-frame local is not visible inside the body at all.
+// expressions.md:51 makes local bindings "shadow everything else lexically",
+// and :53 enumerates the same classes as locals — a `for` / `par for`
+// variable, a `match` pattern binding, a function parameter.
+//
+// THE SHAPE OF THE RECORD, and which rows it moves: each binder goes into the
+// INNER scope only (the walk's `new Map(bindings)` idiom), bound to a type
+// object whose name is the unspellable `WITHHELD_BINDER_TYPE_NAME`
+// (src/parser/type-layer-checks.ts:387) and marked in `unprovableBindings`. The
+// identity channel the `ident` arm reads turns the hit into a withhold, which
+// is what these four cells measure. The SIBLING rows — every other consumer of
+// `typeOf` — move too, and only in the DEFERRAL direction: an in-scope read of
+// one of these binders no longer resolves to a same-named outer record, and
+// where the map used to miss, the spelling `#typeExpr` minted was judged
+// nominally wherever it collided with a declaration. Group u13 below owns that
+// half, both directions and both classes. `provableArgType`'s own `match` arm
+// resolves each arm body in that arm's scope as well, so the reduction proof
+// and the walk cannot disagree about which binding an arm body reads — that
+// disagreement IS this species.
+//
+// The plain `for` variable takes the withhold channel rather than the `par for`
+// arm's ELEMENT record, and cell u12e pins the resulting deferral: two shipped
+// cells forbid the element record here. Cell u9 above holds
+// `for P in [1, 2] { g(P) }` silent, and bug 0089's own tripwire
+// (tests/fn-param-alias-unfolded-at-gates.test.ts:865–879) states it outright —
+// "it reds if a fix widens beyond the unfolding sites and starts binding the
+// plain `for` variable, which would be an unrequested behaviour change".
+// Measured at this tree: the element record reds exactly those two cells.
+// Withholding a true positive is the admissible direction; a false `E` denies
+// registration and is not.
+//
+// Each of the four absence fixtures loads with the false emission as its SOLE
+// diagnostic, so those cells assert the WHOLE diagnostic list is empty rather
+// than the code's absence alone — non-vacuous in the same way ok1 / ok2 are.
+// ===========================================================================
+
+describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in the runtime's own scope", () => {
+  it('u12: `let x = 1` then `for x in ["a"] { let r = g(x) }` draws nothing', () => {
+    // The `for` variable class. `walkStmt`'s `for` arm
+    // (src/parser/type-layer-checks.ts:1071–1105) copies `bindings` for the body
+    // and recorded nothing for `stmt.variable`, so `g(x)` resolved `x` to the
+    // outer `let x = 1`. The runtime's only iteration binds the element `"a"`,
+    // so the argument's runtime value is that string and `s: string` accepts
+    // it: an emission here refuses a program every execution of which is
+    // well-typed, and its `got integer` names a value the position never holds.
+    const doc = parse(U12_FOR_SHADOW);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits inside the loop body on body line 6; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(6, 28, 6, 29));
+    expect(
+      doc.diagnostics,
+      `u12 — the loop variable must be resolved in the body scope the runtime binds it into, not in the enclosing scope it hides. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it('u12b: `let x = 1` then `let m = match "hi" { x => g(x) }` draws nothing', () => {
+    // The `match` pattern-binding class, reached through the WALK: the arm body
+    // is walked, and `walkExpr`'s `match` arm
+    // (src/parser/type-layer-checks.ts:1958–1974) walked it with the outer map.
+    // The arm's `x` is the scrutinee `"hi"` at runtime, so `g` receives that
+    // string.
+    const doc = parse(U12_MATCH_ARM_SHADOW);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits in the sole match arm's body on body line 6",
+    ).toEqual(range(6, 29, 6, 30));
+    expect(
+      doc.diagnostics,
+      `u12b — an arm body is evaluated with that arm's pattern bindings installed, so a same-named outer record is not what the body reads. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it('u12c: `let x = 1` then `let r = g(match "hi" { x => x })` draws nothing', () => {
+    // The same binder class reached through the REDUCTION instead: the `match`
+    // sits at the argument position, so `provableArgType`'s own `match` arm
+    // (src/parser/type-layer-checks.ts:1671–1690) proves the composite over its
+    // arm bodies. Proving those bodies in the outer scope while the walk
+    // resolves them in the arm scope is the scope disagreement this group
+    // closes. The match's runtime value is the scrutinee `"hi"`, which
+    // `s: string` accepts.
+    const doc = parse(U12_MATCH_ARG_SHADOW);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the whole `match` expression is the argument, on body line 6",
+    ).toEqual(range(6, 11, 6, 32));
+    expect(
+      doc.diagnostics,
+      `u12c — the reduction proof over arm bodies must read each body in that arm's own scope, the same scope the walk uses. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it('u12d: `let x = 1` then `fn h(x): number { g(x) }` called `h("a")` draws nothing', () => {
+    // The unannotated-parameter class. `walkFn`
+    // (src/parser/type-layer-checks.ts:1216–1229) recorded ANNOTATED parameters
+    // only, so an unannotated one left the same-named outer `let` visible
+    // inside the body — a binding the runtime does not even provide there,
+    // since a `fn` activation is a scope boundary and theta 1.0 has no
+    // closures. `h("a")` binds the parameter to the string `"a"`, so that is
+    // what `g` receives. The declaration ORDER matters and is the finding's:
+    // the outer `let` precedes the `fn`, so the walk holds a record for `x`
+    // when it reaches the body.
+    const doc = parse(U12_FN_PARAM_SHADOW);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits inside `h`'s body on body line 6",
+    ).toEqual(range(6, 21, 6, 22));
+    expect(
+      doc.diagnostics,
+      `u12d — an unannotated parameter still BINDS its name in the activation scope, so the outer record it hides is not the argument's type. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u12e: `for x in [3] { g(x) }` over a PROVEN iterand defers, and the deferral is deliberate", () => {
+    // The choice this group makes visible. The `par for` arm records the
+    // iterand's ELEMENT type (src/parser/type-layer-checks.ts:2052, the record
+    // cell u9p rides), and mirroring it here would make this fixture emit a
+    // TRUE `expected string, got integer` — the runtime hands `g` the integer
+    // `3`. It is withheld anyway, because the element record reds two shipped
+    // cells: u9 above, and bug 0089's pinned non-goal
+    // (tests/fn-param-alias-unfolded-at-gates.test.ts:865–879, which reds "if a
+    // fix widens beyond the unfolding sites and starts binding the plain `for`
+    // variable"). So the plain `for` variable is recorded through the withhold
+    // channel: bound in the body scope, marked unprovable, never a proof.
+    //
+    // This cell reds the day the plain `for` arm starts carrying the element
+    // type, which is the day bug 0089's non-goal is lifted and u9's contract is
+    // re-adjudicated — the flip condition is named here so the withheld true
+    // positive is a recorded decision rather than an unexamined gap.
+    const doc = parse(U12E_FOR_PROVEN_ITERAND);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits inside the loop body on body line 5",
+    ).toEqual(range(5, 26, 5, 27));
+    expect(
+      doc.diagnostics,
+      `u12e — the plain \`for\` arm binds no element type, so the loop variable is never a proof of the element's type. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it('u12p: an outer PROVEN binding that nothing shadows stays visible inside a `for` body', () => {
+    // The first differentiator: the loop variable is `y`, so `x` is the outer
+    // `let x = 1` in the parse AND at runtime — a `for` body scope chains to
+    // the enclosing environment (`executeFor`, iteration scope built by
+    // `env.bindIterationVariable`), so the body reads the integer `1` and
+    // `s: string` genuinely refuses it. Withhold on every identifier inside a
+    // `for` body and this cell reds.
+    const doc = parse(U12P_FOR_OUTER_VISIBLE);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `x` sits inside the loop body on body line 6",
+    ).toEqual(range(6, 28, 6, 29));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u12p — only the SHADOWING name is withheld; an unshadowed outer record is the binding the runtime reads, so its emission stands",
+    );
+  });
+
+  it('u12pb: an outer PROVEN binding that nothing shadows stays visible inside a `match` arm', () => {
+    // The same differentiator one construct over: the arm binds `y`, so the
+    // arm body's `x` is the outer `let x = 1`. `evalMatch` builds the arm scope
+    // with `env.child()`, which chains to the enclosing environment, so the
+    // runtime argument is the integer `1`.
+    const doc = parse(U12PB_MATCH_OUTER_VISIBLE);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `x` sits in the sole match arm's body on body line 6",
+    ).toEqual(range(6, 29, 6, 30));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u12pb — an arm scope adds the arm's OWN binders and hides nothing else, so an unshadowed outer record keeps its proof",
+    );
+  });
+
+  it("u12pc: an ANNOTATED parameter's record still wins over a same-named outer binding", () => {
+    // The recorded-binder differentiator F1's own `Required:` names. The outer
+    // `let p = "a"` is a proven `string` and `h`'s parameter is annotated
+    // `integer`, so the two disagree and the emission's `got integer` shows
+    // WHICH one the check read. The runtime call `h(3)` binds the parameter to
+    // the integer `3`, so the annotation is the truthful one. Resolve the body's
+    // `p` to the outer record instead and the argument reads `string`, which
+    // `s: string` accepts — no emission, and this cell reds. Mark annotated
+    // parameters unprovable as well and it reds too.
+    const doc = parse(U12PC_ANNOTATED_PARAM_SHADOW);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `p` sits inside `h`'s body on body line 6",
+    ).toEqual(range(6, 30, 6, 31));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u12pc — an annotated parameter IS a judged record (`walkFn`'s own `fnScope.set`), so it stays a proof and it outranks the outer binding it shadows",
+    );
+  });
+
+  it("u12pd: an UNANNOTATED sibling parameter does not withhold the whole body", () => {
+    // The withholding must be per-NAME, not per-body: `h` carries an annotated
+    // `p: integer` beside an unannotated `q`, and the emission is about `p`.
+    // The runtime call `h(3, 4)` binds `p` to the integer `3`. Withhold
+    // everything inside a body that has any unannotated parameter and this cell
+    // reds. `h`'s own call site stays clean on the `q` argument through the
+    // unannotated-parameter deferral cell d1 pins.
+    const doc = parse(U12PD_ANNOTATED_BESIDE_UNANNOTATED);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `p` sits inside `h`'s body on body line 5",
+    ).toEqual(range(5, 33, 5, 34));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u12pd — the record is per binder name, so an unannotated parameter withholds itself and nothing else",
+    );
+  });
+
+  it("u12pe: a `par for` variable's ELEMENT record still wins over a same-named outer binding", () => {
+    // The second recorded-binder differentiator, over the arm this fix does not
+    // touch (src/parser/type-layer-checks.ts:2052). The outer `let x = "a"` is a
+    // proven `string`; the iterand `[3]` is a proven `array<integer>`, so the
+    // recorded element type is `integer` and the runtime hands `g` the integer
+    // `3`. Resolve the body's `x` to the outer record and the argument reads
+    // `string`, which `s: string` accepts — no emission, and this cell reds.
+    const doc = parse(U12PE_PAR_FOR_SHADOW);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `x` sits inside the `par for` body on body line 6",
+    ).toEqual(range(6, 31, 6, 32));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u12pe — a recorded element type is a proof and outranks the outer binding the loop variable shadows; the u12 withholding must leave it intact",
+    );
+  });
+});
+
+// ===========================================================================
+// u13 — the WITHHELD binder entry as the SIBLING rows read it.
+//
+// The u12 group binds each unjudgeable binder in the inner scope so a shadowed
+// read stops there instead of resolving to the outer record. Every other row of
+// this walk reads that entry too, because they all read types out of the same
+// map: the typed-`let` RHS, the object-field value, the array-element sink, the
+// `for` / `par for` iterand, the `subagent fn` return annotation, the `+` and
+// ordering operands, the method receiver, the index receiver, the `if` /
+// `while` condition, the `match`-arm common type. What the entry IS therefore
+// decides what those rows say, and two properties are needed of it.
+//
+// (1) IT MUST NOT BE JUDGEABLE NOMINALLY. An entry minted from the binder's own
+// spelling resolves through `resolveNamed` wherever an author declared a schema
+// of that name, and TYPE-10 judges the read against a declaration the value
+// never touches. Measured over this fixture set, one route per row: a let-rhs
+// `expected integer, got P`, an object-field `expected string, got P`, a
+// `mixed-plus-operands` `P and integer`, a `non-orderable-operands`, an
+// `unknown-method 'frobnicate' on type P`, a `non-string-object-index`, a
+// `match-arm-type-mismatch`. So the entry carries a SENTINEL name
+// (`WITHHELD_BINDER_TYPE_NAME`, src/parser/type-layer-checks.ts:387) that no
+// `.theta` text can declare: a `TypeEnv` key is exactly one token's text
+// (`parseSchema` takes the declaration name with a single `advance().text`,
+// src/parser/theta-document.ts:2336, and `collectTypeEnv` keys the env by it,
+// src/parser/type-layer-checks.ts:345, :350), and no token text equals a
+// ten-character run that starts with `<` — an `ident` / `keyword` is
+// `[A-Za-z_][A-Za-z0-9_]*` (src/lexer/lexer.ts:666–682), a `punct` is one
+// character or a two-character operator from a fixed table (:704–714), a
+// `number` is digits and `.`, a `string`'s text is the RAW source slice and so
+// begins with its own quote (:544–549), `stmt-sep` is `\n`
+// and `eof` is empty. A casing
+// convention would not do the same work: lexical.md:16 scopes lowercase-first
+// to `let` / `let mut`, parameters, `fn` names and schema field names, so a
+// `for` / `par for` variable and a `match` binder are outside it and a
+// parameter's case is unenforced at this HEAD.
+//
+// (2) A ROW WHOSE VERDICT RESTS ON THE WITHHELD PART MUST NOT REPORT. Two
+// mechanisms defeat an unresolvable name's ordinary deferral:
+//   - `checkForIterand` (src/parser/control-flow.ts:64–81) rejects EVERY
+//     non-`array<T>` iterand, resolvable or not, so there an unresolvable name
+//     is a rejection rather than a deferral (measured: the SR4 route emits with
+//     no `schema P` declared at all);
+//   - `decide` answers `named ⊑ array<…>` and `named ⊑ { … }` STRUCTURALLY,
+//     before it tests whether the name resolves (TYPE-7 / TYPE-8,
+//     src/parser/type-compat.ts:210–248, precede the `resolveNamed` arms at
+//     :249–268), so an array- or
+//     inline-object-typed sink judges a withheld read incompatible, and TYPE-7
+//     recursion carries that into a composite BUILT from a withheld read
+//     (`[x]` against `array<array<integer>>` rests entirely on `x`).
+// The walk therefore withholds the verdict at those sinks
+// (`containsWithheldBinderType`, src/parser/type-layer-checks.ts:409–423) —
+// the discipline the fn-arg row already applies through `provableArgType`'s
+// identity channel, at the four relation sinks and the two iterand sites that
+// read the map raw. The rows left alone defer by construction: their verdict on
+// a bare withheld read is `"unknown"` (`classifyOperand`, `classifyReceiver`,
+// `classifyIndexReceiver`, `checkBooleanPosition`, `leastUpperBound`), and on a
+// COMPOSITE their verdict rests on its outer kind, which the withheld part
+// never determines.
+//
+// EVERY MOVEMENT IS IN THE DEFERRAL DIRECTION. A withheld entry can only remove
+// a sibling row's emission, never add one: nominal resolution is gone and the
+// six gated sinks report nothing on it. Cells u13–u13d pin the four shadowing
+// routes; u13m–u13me pin the MISS class, whose emissions this HEAD produced off
+// the same spelling-mint and which now defer as well — a permissive-direction
+// change (GOV-15 admits it: a program that loaded keeps loading) that is
+// decided here rather than left implicit. u13me's own emission was TRUE at this
+// HEAD (the loop variable holds the integer `3`, which is no `array<integer>`),
+// so it is a withheld true positive of u12e's species, and it reds the day the
+// plain `for` variable carries the iterand's element type.
+//
+// WHAT STILL RENDERS THE SENTINEL (cell u13r): a composite BUILT from a
+// withheld read, at a row whose verdict its outer kind decides — `if [x]` is
+// not boolean whatever `x` is, so `non-boolean-condition` fires and renders
+// `array<<withheld>>`. This HEAD renders `array<x>` there, the same code at the
+// same range, so the row's verdict is unchanged and the rendering is what
+// moves. Withholding it as well would drop a true emission, which is why the
+// gate stops at the sinks whose verdict the withheld part can flip.
+// ===========================================================================
+
+describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling rows either", () => {
+  it("u13: a `for` binder shadowing a `par for` binder of the same declared-schema spelling draws nothing", () => {
+    // The route with no `fn` call anywhere: the sink is a typed `let` inside a
+    // `for` body inside a `par for` body, and the outer record it hides is the
+    // par-for arm's own ELEMENT record (a proven `integer`). Every execution
+    // binds the inner `P` to the integer `5`
+    // (`env.bindIterationVariable`, src/runtime/statement-executor.ts:1664;
+    // control-flow.md:13 — "a fresh immutable local per iteration"), so
+    // `s: integer = 5` holds always and an `expected integer, got P` names a
+    // schema the position never carries.
+    const doc = parse(U13_PAR_FOR_NESTED_SHADOW);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the typed `let s` sink sits inside the inner `for` body on body line 5; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(5, 44, 5, 62));
+    expect(
+      doc.diagnostics,
+      `u13 — a withheld binder entry must not be judged against a declaration that shares the binder's spelling. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13b: a `for` binder shadowing an ANNOTATED parameter of the same spelling draws nothing", () => {
+    // The parameter class. `walkFn` records the annotated `P: string`, and the
+    // loop variable hides it; the runtime binds the element `"ok"` in the body,
+    // so `s: string` accepts it in every iteration.
+    const doc = parse(U13_FOR_IN_PARAM_SHADOW);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the typed `let s` sink sits inside the `for` body in `h`'s body on body line 5",
+    ).toEqual(range(5, 45, 5, 62));
+    expect(
+      doc.diagnostics,
+      `u13b — the loop variable's withheld entry is what the body reads, and it supports no verdict. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13c: a `match` binder read at an OBJECT-FIELD sink draws nothing", () => {
+    // The object-field row (bug 0031's sink) over an arm binder shadowing the
+    // annotated parameter. `matchPattern` binds an identifier pattern to the
+    // scrutinee unconditionally (src/runtime/match-result.ts:177–179), so the
+    // field value is the string `"hi"` and `b: string` accepts it.
+    const doc = parse(U13_ARM_OBJECT_FIELD_SHADOW);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `match` whose arm body constructs `Q` sits in `h`'s body on body line 6",
+    ).toEqual(range(6, 27, 6, 65));
+    expect(
+      doc.diagnostics,
+      `u13c — the object-field row reads the arm binder's withheld entry, so it has no operand to judge. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13d: a `match` binder read as a `par for` ITERAND draws nothing", () => {
+    // The iterand row, and the route that is not about the spelling at all:
+    // `checkForIterand` rejects every non-array iterand, so this fixture emits
+    // with no `schema P` declared as well. What the withhold gate supplies is
+    // the deferral the row cannot reach by itself.
+    const doc = parse(U13_ARM_ITERAND_SHADOW);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `match` whose arm body is a `par for` sits in `h`'s body on body line 5",
+    ).toEqual(range(5, 35, 5, 83));
+    expect(
+      doc.diagnostics,
+      `u13d — an iterand read out of a withheld binder entry supports no verdict, so the row defers. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13m: the MISS class at the typed-`let` sink defers", () => {
+    // The same sink with nothing shadowed: at this HEAD the read missed the map
+    // and `#typeExpr` minted `named P` from the loop variable's own spelling,
+    // which resolved and was judged (`expected integer, got P`) although every
+    // iteration binds the integer `5`. The withheld entry defers instead. This
+    // is the permissive half of the change and it is decided, not incidental.
+    const doc = parse(U13M_FOR_MISS);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the typed `let s` sink sits inside the `for` body on body line 5",
+    ).toEqual(range(5, 16, 5, 34));
+    expect(
+      doc.diagnostics,
+      `u13m — a name minted from a binder's spelling is not a type; the entry that replaces it is unresolvable by construction. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mb: the MISS class at the object-field sink defers", () => {
+    // Same flip, one sink over: the arm binder `P` shadows nothing, so at this
+    // HEAD the field value read `named P` and drew `expected string, got P`
+    // while the runtime hands the field the scrutinee `"hi"`.
+    const doc = parse(U13MB_ARM_FIELD_MISS);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `match` whose arm body constructs `Q` sits on body line 6",
+    ).toEqual(range(6, 1, 6, 39));
+    expect(
+      doc.diagnostics,
+      `u13mb — the object-field row defers on the withheld entry exactly as it defers on any unresolvable value type. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mc: the MISS class at the `par for` iterand defers, with NO declaration in the file", () => {
+    // The iterand row's own flip, and the cell that shows it is not a spelling
+    // question: this fixture declares no schema, so the minted `named P` was
+    // unresolvable at this HEAD and the row rejected it anyway. The runtime
+    // binds `P` to the scrutinee `"hi"`, so an iteration of a string is what a
+    // sound row would report — a judgement this layer cannot make from the
+    // arm's text, hence the deferral.
+    const doc = parse(U13MC_ARM_ITERAND_MISS);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `match` whose arm body is a `par for` sits on body line 4",
+    ).toEqual(range(4, 1, 4, 49));
+    expect(
+      doc.diagnostics,
+      `u13mc — the iterand row's rejection of an unresolvable name is not a verdict about a withheld binder. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13md: a `for` iterand read out of an enclosing `for` variable defers", () => {
+    // The plain-`for` call site of the same row, over a lowercase binder: the
+    // outer loop variable holds the element `[1]`, so the inner `for i in x`
+    // iterates an array and the fixture is well typed, while this HEAD drew
+    // `'for' expects array<T> after 'in'; got x` off the minted spelling.
+    const doc = parse(U13MD_NESTED_FOR_ITERAND);
+    expect(
+      letRange(doc, "r"),
+      "PRECONDITION: the inner `for` body's `let r` sits on body line 4",
+    ).toEqual(range(4, 31, 4, 40));
+    expect(
+      doc.diagnostics,
+      `u13md — both iterand call sites take the same withhold discipline. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13me: a STRUCTURAL sink over a withheld read defers, and the deferral is deliberate", () => {
+    // The structural short-circuit: `decide` answers `named ⊑ array<integer>`
+    // incompatible without consulting `resolveNamed`, so the sentinel alone
+    // would not silence this sink. Unlike u13–u13md this HEAD's emission was
+    // TRUE — the loop variable holds the integer `3`, which is no
+    // `array<integer>` — so this cell records a WITHHELD TRUE POSITIVE, the
+    // u12e species: the plain `for` arm binds no element type (bug 0089's
+    // pinned non-goal), so the layer holds nothing to judge the read against.
+    //
+    // It reds the day the plain `for` variable carries the iterand's element
+    // type, which is the day bug 0089's non-goal is lifted and cells u9 / u12e
+    // are re-adjudicated.
+    const doc = parse(U13ME_STRUCTURAL_SUP);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the typed `let s` sink sits inside the `for` body on body line 4",
+    ).toEqual(range(4, 16, 4, 41));
+    expect(
+      doc.diagnostics,
+      `u13me — a withheld read supports no verdict at a structural sink either; over-withholding is the admissible direction, a false \`E\` is not. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mf: the `array.join` element precondition over a withheld element defers", () => {
+    // The third row of the refuse-an-unresolvable-type family (`checkArrayJoin`,
+    // src/runtime/stdlib-array.ts:100–124, which admits a `string` element and
+    // nothing else): the receiver is an array BUILT from a withheld read, so the
+    // element carries the sentinel. The runtime element is the string `"a"`, so
+    // `join` is legal, and this HEAD refused it off the minted spelling
+    // (`got array<x>`).
+    const doc = parse(U13MF_JOIN_WITHHELD_ELEMENT);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the `join` call sits in the `let s` initialiser inside the `for` body on body line 4",
+    ).toEqual(range(4, 18, 4, 39));
+    expect(
+      doc.diagnostics,
+      `u13mf — a stdlib precondition over a withheld element is not decidable at this layer. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mg: the object-index key check over a withheld key defers", () => {
+    // The fourth: `checkObjectIndex` (src/runtime/stdlib-object.ts) admits a
+    // `string` key and refuses everything else, an unresolvable name included.
+    // The runtime key is the string `"b"`, so the access is legal, and this HEAD
+    // refused it off the minted spelling (`got x`).
+    const doc = parse(U13MG_OBJECT_INDEX_WITHHELD_KEY);
+    expect(
+      letRange(doc, "v"),
+      "PRECONDITION: the indexed access sits in the `let v` initialiser inside the `for` body on body line 6",
+    ).toEqual(range(6, 18, 6, 30));
+    expect(
+      doc.diagnostics,
+      `u13mg — a key read out of a withheld binder supports no verdict about the key's type. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13p: a typed `let` inside a `for` body still reports its own mismatch", () => {
+    // The first differentiator: the RHS is the literal `3` and the annotation is
+    // the declared `schema P`, neither of them a withheld read, so the row's
+    // verdict stands inside a withheld scope. A gate keyed on the SCOPE rather
+    // than on the READ reds here.
+    const doc = parse(U13P_LET_ANNOT_IN_FOR);
+    const site = letRange(doc, "v");
+    expect(site, "PRECONDITION: the typed `let v` sink sits inside the `for` body on body line 5").toEqual(
+      range(5, 16, 5, 28),
+    );
+    expect(
+      locatedHits(doc, LET_RHS_CODE),
+      `u13p — only a read of a withheld binder withholds a verdict; every other operand is judged as before. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${letRhsMessage("v", "P", "integer")} @${at(site)}`]);
+  });
+
+  it("u13pb: a `for` iterand read out of a PROVEN outer binding still reports", () => {
+    // The iterand row's plain-`for` differentiator: `s` is a proven `string`
+    // recorded by an unshadowed outer `let`, and the enclosing `for q` body
+    // hides nothing, so the row keeps rejecting a string iterand.
+    const doc = parse(U13PB_FOR_ITERAND_STRING);
+    expect(
+      letRange(doc, "r"),
+      "PRECONDITION: the inner `for` body's `let r` sits on body line 5",
+    ).toEqual(range(5, 29, 5, 38));
+    expect(
+      locatedHits(doc, NON_ARRAY_ITERAND_CODE),
+      `u13pb — the iterand gate keys on the withheld entry, not on the construct. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${nonArrayIterandMessage("string")} @${at(range(5, 25, 5, 26))}`]);
+  });
+
+  it("u13pc: a `par for` iterand read out of a PROVEN outer binding still reports", () => {
+    // The same differentiator at the second call site of the row.
+    const doc = parse(U13PC_PAR_FOR_ITERAND_STRING);
+    expect(
+      letRange(doc, "ys"),
+      "PRECONDITION: the `par for` sits in the `let ys` initialiser on body line 5",
+    ).toEqual(range(5, 16, 5, 45));
+    expect(
+      locatedHits(doc, NON_ARRAY_ITERAND_CODE),
+      `u13pc — the \`par for\` iterand gate is the same one-line test and covers the same class. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${nonArrayIterandMessage("string")} @${at(range(5, 38, 5, 39))}`]);
+  });
+
+  it("u13pd: an object-field value inside a `for` body still reports its own mismatch", () => {
+    // The object-field sink's differentiator: the field value is the literal
+    // `3` against a declared `b: string`.
+    const doc = parse(U13PD_OBJECT_FIELD_IN_FOR);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `Q { b: 3 }` constructor sits inside the `for` body on body line 5",
+    ).toEqual(range(5, 16, 5, 34));
+    expect(
+      locatedHits(doc, OBJECT_FIELD_CODE),
+      `u13pd — the object-field gate keys on the value's own type. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      `error ${objectFieldMessage("b", "Q", "string", "integer")} @${at(range(5, 31, 5, 32))}`,
+    ]);
+  });
+
+  it("u13pe: an array-element sink inside a `for` body still reports its own mismatch", () => {
+    // The array-element differentiator (`checkCommonType` with a sink): the
+    // element is the literal `"s"` against the annotation's `integer` element.
+    // The typed-`let` row reports the same fixture from its own operand pair
+    // (`array<string>` against `array<integer>`), which the assertion below
+    // leaves alone by naming the array-element code.
+    const doc = parse(U13PE_ARRAY_ELEMENT_IN_FOR);
+    expect(
+      letRange(doc, "a"),
+      "PRECONDITION: the typed `let a` sink sits inside the `for` body on body line 4",
+    ).toEqual(range(4, 16, 4, 45));
+    expect(
+      locatedHits(doc, ARRAY_ELEMENT_CODE),
+      `u13pe — the branch gate keys on each branch's own type. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      `error ${arrayElementMessage(0, "integer", "string")} @${at(range(4, 40, 4, 45))}`,
+    ]);
+  });
+
+  it("u13pf: a `subagent fn` return annotation over an ANNOTATED parameter still reports", () => {
+    // The return-annotation sink's differentiator (`checkInvokeReturnType`, the
+    // FN-6 boundary payload check): `q: string` is annotated, so the body's
+    // return contribution is a judged `string` and the declared
+    // `array<integer>` genuinely refuses it. Withhold this sink whenever the
+    // body holds any unannotated parameter and this cell reds.
+    const doc = parse(U13PF_SUBAGENT_RETURN_ANNOTATED);
+    expect(
+      letRange(doc, "r"),
+      "PRECONDITION: the call of `h` sits on body line 5",
+    ).toEqual(range(5, 1, 5, 15));
+    expect(
+      locatedHits(doc, INVOKE_RETURN_CODE),
+      `u13pf — the payload gate keys on the inferred payload's own type. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${invokeReturnMessage("h", "string")} @${at(range(4, 10, 4, 54))}`]);
+  });
+
+  it("u13pg: the `array.join` precondition over a PROVEN element still reports", () => {
+    // The join row's differentiator: the element is the outer `let x = 1`, an
+    // unshadowed proven `integer`, so the precondition keeps refusing it.
+    const doc = parse(U13PG_JOIN_PROVEN_ELEMENT);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the `join` call sits in the `let s` initialiser inside the `for` body on body line 5",
+    ).toEqual(range(5, 18, 5, 39));
+    expect(
+      locatedHits(doc, ARRAY_JOIN_CODE),
+      `u13pg — the join gate keys on the element's own type. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${arrayJoinMessage("integer")} @${at(range(5, 26, 5, 39))}`]);
+  });
+
+  it("u13ph: the object-index key check over a PROVEN key still reports", () => {
+    // The object-index row's differentiator: the key is the outer `let k = 3`,
+    // an unshadowed proven `integer`, so the check keeps refusing it.
+    const doc = parse(U13PH_OBJECT_INDEX_PROVEN_KEY);
+    expect(
+      letRange(doc, "v"),
+      "PRECONDITION: the indexed access sits in the `let v` initialiser inside the `for` body on body line 7",
+    ).toEqual(range(7, 16, 7, 28));
+    expect(
+      locatedHits(doc, OBJECT_INDEX_CODE),
+      `u13ph — the key gate keys on the key's own type. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${objectIndexMessage("integer")} @${at(range(7, 24, 7, 28))}`]);
+  });
+
+  it("u13e: an arm body that IS its binder leaves the outer binding unjudged (round-7 residual R1)", () => {
+    // The marking channel, pinned as its own deferral. The inference pass types
+    // an arm body in the ENCLOSING scope (it has no arm-scope concept,
+    // src/parser/static-type-inference.ts:237–241), so `typeOf(match)` returns
+    // the outer `x`'s recorded object BY IDENTITY through `#commonType`'s
+    // single-candidate return (:341–352) and the `ident` arm's own identity
+    // return (:214–216). The arm-scoped reduction correctly withholds, so the
+    // `let`-marking guard adds that SHARED object to `unprovableBindings`
+    // (src/parser/type-layer-checks.ts:1019–1020, :1052) and the outer `x` reads
+    // unprovable for the rest of the walk — hence no emission on `g(x)`, where
+    // one would be true (`x` is the integer `1`).
+    //
+    // Withheld true positive, not a false `E`: `unprovableBindings` has exactly
+    // one read site (`provableArgType`'s `ident` arm), whose only effect is
+    // hit-becomes-withhold, so the channel can only turn a proof into a
+    // deferral. Scope-map containment is unaffected — cells u12p / u12pb and
+    // the `for` shape (`let x = 1` then `for x in ["a"] { … }` then `g(x)`,
+    // which still emits) show the record itself does not leak outward; what
+    // leaks is the MARKING. It flips the day the inference pass types arm
+    // bodies in an arm scope, or the day the marking guard keys on something
+    // other than the rhs type object's identity.
+    const doc = parse(U13E_ARM_IDENTITY_MARKING);
+    expect(
+      argRange(doc, "g", 0),
+      "PRECONDITION: the argument `x` sits at the top-level call on body line 7",
+    ).toEqual(range(7, 11, 7, 12));
+    expect(
+      doc.diagnostics,
+      `u13e — the marking channel's identity sharing withholds the outer binding as well; deferral is the admissible direction. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13r: a COMPOSITE built from a withheld read keeps its verdict, and renders the sentinel", () => {
+    // The disclosed render residual. `if [x]` is not boolean whatever `x` holds,
+    // so the row's verdict rests on the array kind and not on the withheld part
+    // — `checkBooleanPosition` keeps reporting, and `displayType` renders the
+    // sentinel nested inside the composite. This HEAD renders `array<x>` at the
+    // same code and range, so the verdict is unchanged and the rendering is what
+    // moves; withholding here would drop a true emission.
+    //
+    // The complete set of shapes a WITHHELD BINDER READ can render, swept over
+    // every row that interpolates a type into its Message: this one,
+    // `mixed-plus-operands` and `non-orderable-operands` (`[x] + 1`, `[x] < 1`),
+    // `unknown-method` (`[x].frobnicate()`), and a typed `let` over a `par for`
+    // whose CTRL-3 value name embeds the tail type's rendering
+    // (`Result<<withheld>, QueryError>`, src/parser/static-type-inference.ts:290
+    // — the one route where the sentinel sits inside a synthesised NAME rather
+    // than inside a composite). Every one of them emits at this HEAD too, with
+    // the binder's own spelling nested in the same position. Outside a
+    // withheld-binder read, an author-spelled twin in a direct annotation
+    // (`let v: <withheld> = …`) reaches a sixth rendering — `got <withheld>` at
+    // the fn-arg row, through the annotation-is-a-proof channel — the same
+    // deferral-only disposition, by a different route.
+    //
+    // This cell reds if the sentinel's spelling changes, which is the point:
+    // the one place a user-visible message can carry it is pinned rather than
+    // discovered.
+    const doc = parse(U13R_NESTED_RENDER);
+    expect(
+      letRange(doc, "r"),
+      "PRECONDITION: the `if` body's `let r` sits on body line 4",
+    ).toEqual(range(4, 25, 4, 34));
+    expect(
+      locatedHits(doc, NON_BOOLEAN_CODE),
+      `u13r — the rows whose verdict an outer kind decides are left alone, and the sentinel is what they render. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${nonBooleanMessage("array<<withheld>>")} @${at(range(4, 19, 4, 22))}`]);
+  });
+});
+
+// ===========================================================================
+// e1 — the GOV-15 blast-radius lock. GREEN at this HEAD and required to stay
+// green: every plain `fn` call whose callee declares a parameter type starts
+// being judged, and an `E` denies registration. The three files are the ones
+// the §Fix's blast-radius paragraph measures — the only shipped examples that
+// call a `fn` with an annotated parameter.
+//
+// The repo-wide committed-fixture parse gate
+// (tests/committed-fixture-parse-gate.test.ts) walks every `.theta` and demands
+// zero diagnostics; this cell is narrower on purpose. It names the three call
+// sites this route touches and applies GOV-15's own loads-cleanly predicate
+// (source-language-stability.md:9 — no diagnostic of effective severity `E`),
+// so a failure here reads as "the fix changed observable (b) on an in-scope
+// input" rather than as an unattributed corpus red.
+// ===========================================================================
+
+describe("bug 0050 — the shipped example corpus keeps loading clean", () => {
+  it("e1: the three shipped examples with annotated-parameter `fn` call sites parse with zero error-severity diagnostics", () => {
+    // docs/examples/import-thetalib.theta:9 — an imported `.thetalib` call
+    //   (`rate_strictness(reviewer)`, cell i1's route: the callee signature is
+    //   outside the single-file parse, so the check defers).
+    // docs/examples/ralph-inline.theta:39 — a same-file `subagent fn` call
+    //   (`step(objective)`, cell s1's route, so the callee IS resolved). Its
+    //   argument is the frontmatter `params:` field `objective`, whose static
+    //   type the type layer does not resolve — measured at this HEAD through
+    //   the typed-`let` sink, which draws nothing from `let w: boolean =
+    //   objective` — so the argument side defers.
+    // docs/examples/refine-inline.theta:30 — a same-file `subagent fn` call
+    //   (`reviewer(draft)`). `draft` is a `?`-unwrapped untyped query result,
+    //   likewise unresolved at the same sink, so the argument side defers.
+    //
+    // Both `subagent fn` sites therefore stay clean by the deferral rule rather
+    // than by passing a judgement, which is the measurement the §Fix's
+    // blast-radius paragraph asks for before landing.
+    const examples = [
+      "docs/examples/import-thetalib.theta",
+      "docs/examples/ralph-inline.theta",
+      "docs/examples/refine-inline.theta",
+    ];
+    const verdicts = examples.map((path) => {
+      const src = readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), "utf8");
+      const doc = parseDoc(src, path);
+      if (doc.body === null) {
+        throw new Error(
+          `e1 — ${path} produced no parsed body, so its clean verdict would measure a parse failure rather than the call sites: ${render(doc)}`,
+        );
+      }
+      const errs = errors(doc.diagnostics).map(
+        (d: Diagnostic) => `${d.code}: ${d.message}`,
+      );
+      return `${path} -> ${errs.length === 0 ? "clean" : errs.join(" | ")}`;
+    });
+    expect(
+      verdicts,
+      "e1 — GOV-15's diagnostic-registry carve-out admits the addition for inputs newly brought into the code's emission set; a shipped example acquiring an `E` is a corpus break the fix must repair in the same commit, not accept",
+    ).toEqual(examples.map((path) => `${path} -> clean`));
+  });
+});
+
+// ===========================================================================
+// a1 — argument COUNT is a different question and stays unjudged at parse.
+// GREEN at this HEAD and after. Bug 0131 owns the arity position and is OPEN;
+// it is NOT fixed here. Its ordering note records that arity must be decided
+// before per-argument type, so whichever lands second inherits the other's
+// suppression channel — this cell is the marker that this route landed first
+// and changed nothing about the count.
+// ===========================================================================
+
+describe("bug 0050 — argument arity at a plain `fn` call is untouched", () => {
+  it("a1: `g()` and `g(3, 4)` against a one-parameter `fn` draw neither fn-arg-type-mismatch nor an arity code", () => {
+    // Too few: there is no argument to judge. Too many: index 0 is compatible
+    // (`integer ⊑ number`) and index 1 sits past the end of the parameter list,
+    // so the check has no declared type for it and skips it — the extra
+    // argument is an arity fault, and no registry row covers a plain `fn`
+    // call's argument count. The runtime still throws `ThetaFnArityError`
+    // (src/runtime/statement-executor.ts:364, :402).
+    const tooFew = parse(A1_TOO_FEW);
+    const tooFewCalls = collectCalls(tooFew).filter((c) => c.callee === "g");
+    expect(
+      tooFewCalls.map((c) => c.args.length),
+      `PRECONDITION: the zero-argument call must parse as a call node. Diagnostics: ${render(tooFew)}`,
+    ).toEqual([0]);
+    expectNoFnArgMismatch(
+      tooFew,
+      "a1 (too few) — an absent argument has no static type, so the type check has no operand",
+    );
+
+    const tooMany = parse(A1_TOO_MANY);
+    expect(
+      argRange(tooMany, "g", 1),
+      "PRECONDITION: the second argument node must be reachable, or the absence assertions below measure nothing",
+    ).toEqual(range(5, 14, 5, 15));
+    expectNoFnArgMismatch(
+      tooMany,
+      "a1 (too many) — the surplus argument sits at an index the parameter list does not cover, so it carries no declared type to be judged against",
+    );
+
+    for (const [label, doc] of [
+      ["too few", tooFew],
+      ["too many", tooMany],
+    ] as const) {
+      expect(
+        [...locatedHits(doc, ARITY_TOO_FEW_CODE), ...locatedHits(doc, ARITY_TOO_MANY_CODE)],
+        `a1 (${label}) — the two registered arity rows are scoped to \`invoke\` / \`.theta\`-callable callees; bug 0131 is open and this route does not answer it. Diagnostics: ${render(doc)}`,
+      ).toEqual([]);
+    }
+  });
+});

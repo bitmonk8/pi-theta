@@ -663,3 +663,12 @@ The *Message* cell is unchanged (DIAG-4). The committed-corpus sweep was re-run
 and re-verified behaviourally against the fixed parser: 34 `.theta` /
 `.thetalib` files, 17 declaring `params:`, 19 fields, one default, **zero** in
 the refused set.
+
+## Coordination note (0.77.0)
+
+Bug 0050 (fixed 0.77.0) reused this report's GOV-15 diagnostic-registry
+carve-out disposition a fourth time (after 0084 and 0102): the fn-argument
+wiring engages the carve-out as an ADDITION for inputs newly brought into
+`theta/parse/fn-arg-type-mismatch`'s emission set, discharged by measuring the
+three shipped example call sites rather than predicting them (all three defer;
+the corpus observes no change).

@@ -197,3 +197,20 @@ first-branch mis-typing without touching the sink resolution.
 - Existing reports read in full for duplicate separation: 0043, 0050.
 - Observations: throwaway vitest parse probe at `d06daae3`, deleted after the
   run.
+
+## Coordination note — bug 0050 landed (0.77.0)
+
+0050's fix adds a second consumer of the common-type reduction at argument
+positions and deliberately WITHHOLDS wherever the reduction is not exact, so
+this report's defect is NOT observable at the new sink and nothing about the
+common-type rule is settled there. Measured at the 0050 fix commit:
+`[1, "a"]` reads `array<integer>` and `["a", null]` reads `array<string>`
+(both erased, both already drawing `theta/parse/array-no-common-type`
+today); `true ? 1 : "a"` reads `integer` via the `?? candidates[0]` fallback
+and draws nothing. Five of 0050's eight orchestrated-round review findings
+trace to that erasure (the `par for` marking, the `index` arm, the `ident`
+arm, the `let`-marking guard, the laundered `let`). This report's fix is a
+strict WIDENING of what the fn-argument sink may judge and needs its own
+witness cells at `checkFnCallArgs` (`src/parser/type-layer-checks.ts`);
+cells u1–u4 of `tests/fn-arg-type-mismatch-wired.test.ts` pin the current
+withholding in both directions.

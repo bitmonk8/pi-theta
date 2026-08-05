@@ -1135,3 +1135,10 @@ behaviourally against the fixed parser rather than by inspection:
   `.theta` / `.thetalib` files. Run on the outputs quoted above, then deleted
   per scratch policy. No file in the tree was written by the probes; `src/`,
   `tests/` and every other bug doc are unmodified by this filing.
+
+## Coordination note (0.77.0)
+
+Bug 0050 (fixed 0.77.0) reused the GOV-15 diagnostic-registry carve-out
+disposition a fourth time (after 0031, 0084 and this report): engaged as an
+ADDITION, discharged by measurement of the shipped corpus — the three example
+call sites all defer, and no committed fixture draws the newly wired code.

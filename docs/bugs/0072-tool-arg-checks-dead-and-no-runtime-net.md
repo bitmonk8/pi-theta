@@ -650,3 +650,16 @@ loud at `E`, under codes that name neither the operator nor its repair. Pattern
 position is not an expression position, so 0084's hooks do not reach it, and
 `parsePattern`'s one-token wildcard recovery behaved equivalently on the pre-fix
 `-`,`-` token pair. Recorded here, not fixed there.
+
+## Coordination note (0.77.0)
+
+Bug 0050's fix (0.77.0) reused this report's soundness lesson at the
+fn-argument sink. `collectProvableArgTypes` could NOT be imported directly —
+it is extension-layer, and a `src/parser/**` import of `src/extension/**`
+would invert the dependency direction — so its discipline was re-applied
+in-layer as an exactness test (`provableArgType` / `isProvenReduction`,
+`src/parser/type-layer-checks.ts`), preserving `checkFnArgCompat`'s
+single-`argType` signature. Both erasure mechanisms this report named
+(`#commonType`'s unknown-blessing and its `?? candidates[0]` fallback) were
+measured live at an argument position before wiring: `true ? 1 : "a"` reads
+`integer` and `["a", null]` reads `array<string>`.

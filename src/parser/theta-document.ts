@@ -880,8 +880,15 @@ export function parseThetaDocument(
   // per-expression static-type substrate so they fire in production
   // (non-boolean condition, non-array iterand, `?` misuse, array/return LUB,
   // integer narrowing, match-arm mismatch, non-indexable / object-index /
-  // array-join).
-  const typeLayerDiags = checkTypeLayer({ statements, tail: resolvedTail }, file);
+  // array-join, and — bug 0050 — a plain `fn` call's argument types). The
+  // `params:` field wire names are the same whole-file local-binder source
+  // `checkLexicalCallSites` above reads, so a frontmatter parameter shadows a
+  // same-named top-level `fn` exactly as a `let` binding does.
+  const typeLayerDiags = checkTypeLayer(
+    { statements, tail: resolvedTail },
+    file,
+    (frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+  );
 
   // imports.md §"`.thetalib` file rules": a `.thetalib` top level may contain only
   // `import` / `export` / `schema` / `enum` / `fn` declarations; a bare

@@ -6,6 +6,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.77.0] - 2026-08-05
+
+### Fixed
+
+- **`theta/parse/fn-arg-type-mismatch` had no emission path — a plain `fn`
+  call's argument was never checked against the declared parameter type, at
+  parse or at runtime** (bug 0050). The registered `E`-severity row's sole
+  emitter `checkFnArgCompat` had no caller in `src/`, so
+  `fn f(x: P): number { 1 }` + `let r = f(3)` loaded with zero diagnostics and
+  the runtime bound the argument unchecked — the row itself states no AJV net
+  applies at that position. TYPE-9 names the site; TYPE-10 routes the
+  cross-schema case to it.
+
+  The type-layer walk's `call` arm (split from `invoke`, whose own row stays
+  unwired — bug 0137) now resolves the callee the way the runtime's
+  `resolveUserFn` does and calls the emitter with a PROVEN argument type:
+  `provableArgType` / `isProvenReduction` re-apply bug 0072's soundness
+  discipline in-layer, withholding wherever the static read is not a proof of
+  the runtime value's type — erased common-type reductions, laundered `let`s
+  (provability judged PRE-set, in the scope the runtime evaluates the
+  initialiser in), spelling-minted names, and every `for` / `match`-pattern /
+  unannotated-parameter binder, which the walk now records in its body scope
+  as a key-level-unspellable `"<withheld>"` twin whose reads defer at every
+  judgement sink (`containsWithheldBinderType` gates the six sinks that judge
+  structurally or refuse unresolvables). `subagent fn` calls are in scope
+  (FN-6); the imported-`.thetalib` route defers by a named arm (bug 0138).
+  Locked by an 84-cell offline witness
+  (`tests/fn-arg-type-mismatch-wired.test.ts`) and an additive live H8a
+  registration-denial cell; `src/parser/type-compat.ts`, the registry row and
+  both mirrors are byte-unchanged (the wiring lands at the Trigger's full
+  letter, so DIAG-2 is not engaged). Follow-ups filed as bugs 0137–0145.
+
 ## [0.76.0] - 2026-08-05
 
 ### Fixed

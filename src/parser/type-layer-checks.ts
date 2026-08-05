@@ -42,10 +42,13 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import type {
   ArrayExpr,
   Block,
+  CallExpr,
   Expr,
   FnDecl,
+  FnParam,
   IfStmt,
   ObjectFieldNode,
+  PatternNode,
   SchemaFieldSource,
   ThetaBody,
   Stmt,
@@ -59,6 +62,7 @@ import {
 import {
   checkCompatible,
   checkCommonType,
+  checkFnArgCompat,
   checkLetRhsCompat,
   checkObjectFieldCompat,
   displayType,
@@ -69,7 +73,7 @@ import {
   type PrimitiveName,
   type TypeEnv,
 } from "./type-compat";
-import { StaticTypeInferencePass } from "./static-type-inference";
+import { BOOLEAN_BINARY_OPS, StaticTypeInferencePass } from "./static-type-inference";
 import {
   checkBooleanPosition,
   checkIndexReceiver,
@@ -220,15 +224,37 @@ interface WalkCtx {
  * Run the wired `type`-phase checkers over a parsed `V19a` body, returning the
  * aggregated (unsorted; the caller sorts through `assembleDiagnostics`) type-
  * layer diagnostics. Consumes the `V20b` per-expression static-type lookup.
+ *
+ * `paramsFieldNames` is the frontmatter `params:` field wire names —
+ * `checkLexicalCallSites`'s own root-locals source (`./theta-document.ts`:
+ * `frontmatter?.params?.fields ?? []`, field `wireName`), threaded in by
+ * explicit dependency injection so a frontmatter parameter counts as a local
+ * binder too (bug 0050 §Fix). Defaults to `[]` so an existing two-argument
+ * caller keeps compiling.
  */
-export function checkTypeLayer(body: ThetaBody, file: string): Diagnostic[] {
+export function checkTypeLayer(
+  body: ThetaBody,
+  file: string,
+  paramsFieldNames: readonly string[] = [],
+): Diagnostic[] {
   const pass = new StaticTypeInferencePass({ checkCompatible });
   const env = collectTypeEnv(body.statements);
   const fnReturns = collectFnReturnAnnotations(body.statements);
+  const fnDecls = collectTopLevelFns(body.statements);
+  const importedSymbols = collectImportedSymbols(body.statements);
+  const shadowedNames = collectLocalBinderNames(body, paramsFieldNames);
   // Run the `V20b` read-only whole-program pass in production: it types every
   // statement-level node and validates the substrate composes with the parse.
   pass.infer(body, env);
-  const checker = new TypeLayerWalk(pass, env, file, fnReturns);
+  const checker = new TypeLayerWalk(
+    pass,
+    env,
+    file,
+    fnReturns,
+    fnDecls,
+    importedSymbols,
+    shadowedNames,
+  );
   checker.walkBlock(body, new Map(), { returnScope: { kind: "inferred" } });
   return checker.diagnostics;
 }
@@ -331,6 +357,72 @@ export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
 }
 
 /**
+ * The `name` the WITHHELD binder entry carries (`recordWithheldBinders`, the one
+ * site that mints it): a spelling no `.theta` source can declare, so a read of a
+ * binder this layer cannot type is never judged against a declaration that
+ * happens to share the binder's own name.
+ *
+ * UNSPELLABLE AS A KEY by the grammar, not by convention. A `TypeEnv` key is
+ * exactly ONE token's text — `parseSchema` takes the declaration's name with a
+ * single `this.advance().text` (./theta-document.ts) and `collectTypeEnv` below
+ * keys the env by it — and no token text can equal a ten-character run
+ * beginning with `<`: an `ident` / `keyword` is `[A-Za-z_][A-Za-z0-9_]*`, a
+ * `punct` is one character or a two-character operator from a fixed table, a
+ * `number` is digits and `.`, a `string` token's text is the RAW source slice
+ * and therefore begins with its own quote, a `newline` / `stmt-sep` is `\n` and
+ * `eof` is empty (../lexer/lexer.ts). `resolveNamed` (./type-compat.ts) consults
+ * the env with `Object.hasOwn`, so no prototype name answers for it either, and
+ * every `⊑` question about it reaches the unresolvable-name arms. The KEY claim
+ * does not cover every NAME: an alias's right-hand side or a direct annotation
+ * is a source-text slice, not a token, so it CAN carry this text — harmlessly,
+ * since that name still fails every `resolveNamed` lookup and only ever defers.
+ *
+ * A casing rule would not do this job: lexical.md §"Identifiers" scopes
+ * lowercase-first to `let` / `let mut` bindings, function parameters, function
+ * names and schema field names, which leaves a `for` / `par for` variable and a
+ * `match` pattern binder outside it — and an uppercase binder colliding with a
+ * declared schema is exactly how the binder's own spelling was judged
+ * nominally.
+ */
+const WITHHELD_BINDER_TYPE_NAME = "<withheld>";
+
+/**
+ * Whether `type` was read, in whole or in part, out of a WITHHELD binder entry —
+ * the marker for "this position holds a value this layer cannot type".
+ *
+ * The judgement sinks that consume a raw scope-map read use it to withhold a
+ * verdict, which is the discipline `provableArgType`'s identity channel gives
+ * the fn-arg row. Two mechanisms make the sentinel's unresolvability
+ * insufficient on its own: `checkForIterand` (./control-flow.ts) rejects EVERY
+ * non-`array<T>` iterand, resolvable or not; and `decide` (./type-compat.ts)
+ * answers `named ⊑ array<…>` and `named ⊑ { … }` structurally under TYPE-7 /
+ * TYPE-8 BEFORE it tests whether the name resolves.
+ *
+ * Recursive because that structural decision recurses: `[x]` against
+ * `array<array<integer>>` rests entirely on `x`. Terminating without an `env`,
+ * because no alias is unfolded here: the walk is over the finite type tree the
+ * inference pass built, never over the alias graph. A declared alias's
+ * right-hand side CAN carry this name — it is a source-text slice, not a
+ * token — and leaving it unresolved stays sound regardless, because a twin
+ * reached through an alias only ever defers, never trips a false verdict.
+ */
+function containsWithheldBinderType(type: CompatType): boolean {
+  switch (type.kind) {
+    case "named":
+      return type.name === WITHHELD_BINDER_TYPE_NAME;
+    case "array":
+      return containsWithheldBinderType(type.element);
+    case "union":
+      return type.arms.some((arm) => containsWithheldBinderType(arm));
+    case "object":
+      return type.fields.some((field) => containsWithheldBinderType(field.type));
+    case "prim":
+    case "literal":
+      return false;
+  }
+}
+
+/**
  * The declared return-type annotation of every top-level `fn` that wrote one,
  * keyed by name (bug 0079 §Fix (a)). This is the static gate's only source for
  * a callee's declared `Result`-ness: `TypeEnv` (type-compat.ts) holds `schema`
@@ -348,6 +440,242 @@ function collectFnReturnAnnotations(statements: readonly Stmt[]): ReadonlyMap<st
     }
   }
   return fnReturns;
+}
+
+/**
+ * Every top-level `fn` declaration — ordinary and `subagent fn` alike — keyed
+ * by name: the callee-resolution table `TypeLayerWalk`'s `checkFnCallArgs`
+ * consults, the parse-time counterpart of the runtime's `resolveUserFn`
+ * (`../runtime/statement-executor.ts`) hoisted-`fn` arm. A `Map`, read with
+ * `Map.get` and an explicit `!== undefined` test — a callee is
+ * author-controlled source text, the 0031/0038 null-prototype hazard class,
+ * never a plain object and never a truthiness test.
+ */
+function collectTopLevelFns(statements: readonly Stmt[]): ReadonlyMap<string, FnDecl> {
+  const fns = new Map<string, FnDecl>();
+  for (const stmt of statements) {
+    if (stmt.kind === "fn") {
+      fns.set(stmt.name, stmt);
+    }
+  }
+  return fns;
+}
+
+/**
+ * The LOCAL binding names of every `import` declaration: the `as`-alias where
+ * one is written, else the source name — `ImportDecl.symbols` already
+ * resolves this. An `export … from` specifier binds no local name
+ * (imports.md §"Re-exports") and is excluded, mirroring `collectIdentRoots`'s
+ * and `checkLexicalCallSites`'s own import-arm-only reading of
+ * expressions.md §"Identifier resolution" arm (3).
+ */
+function collectImportedSymbols(statements: readonly Stmt[]): ReadonlySet<string> {
+  const symbols = new Set<string>();
+  for (const stmt of statements) {
+    if (stmt.kind === "import") {
+      for (const sym of stmt.symbols) {
+        symbols.add(sym);
+      }
+    }
+  }
+  return symbols;
+}
+
+/**
+ * A whole-file over-approximation of every name a LOCAL binder can bind,
+ * anywhere in `body`: the frontmatter `params:` field wire names
+ * (`paramsFieldNames`), every `let` name, every `for` / `par for` loop
+ * variable, every `match`-arm pattern binding, and every `fn` parameter name —
+ * including an UNANNOTATED one. Recursive over every statement, block and
+ * expression the grammar admits, a nested `fn` body included.
+ *
+ * expressions.md §"Identifier resolution" ranks `local > fn > import >
+ * callable`, so a call of a locally bound name is not a user-`fn` call; but
+ * `TypeLayerWalk`'s own `bindings` map is not a complete local view — it never
+ * sees a frontmatter `params:` field, and it holds the binder classes this
+ * layer cannot type (a loop variable, a match-arm binding, an unannotated `fn`
+ * parameter) as WITHHELD entries rather than as judged types
+ * (`recordWithheldBinders`) — so resolution is withheld for any name bound as
+ * a local ANYWHERE in the file. Withholding can only suppress an emission,
+ * never produce one, which is the asymmetry this module's header already
+ * states.
+ */
+function collectLocalBinderNames(
+  body: ThetaBody,
+  paramsFieldNames: readonly string[],
+): ReadonlySet<string> {
+  const names = new Set<string>(paramsFieldNames);
+  walkBlockForLocalBinders(body, names);
+  return names;
+}
+
+function walkBlockForLocalBinders(block: Block, names: Set<string>): void {
+  for (const stmt of block.statements) {
+    walkStmtForLocalBinders(stmt, names);
+  }
+  if (block.tail !== null) {
+    walkExprForLocalBinders(block.tail, names);
+  }
+}
+
+function walkStmtForLocalBinders(stmt: Stmt, names: Set<string>): void {
+  switch (stmt.kind) {
+    case "let":
+      names.add(stmt.name);
+      if (stmt.init !== null) {
+        walkExprForLocalBinders(stmt.init, names);
+      }
+      return;
+    case "reassign":
+      walkExprForLocalBinders(stmt.value, names);
+      return;
+    case "if":
+      walkExprForLocalBinders(stmt.condition, names);
+      walkBlockForLocalBinders(stmt.then, names);
+      if (stmt.otherwise !== null) {
+        if ("statements" in stmt.otherwise) {
+          walkBlockForLocalBinders(stmt.otherwise, names);
+        } else {
+          walkStmtForLocalBinders(stmt.otherwise, names);
+        }
+      }
+      return;
+    case "while":
+      walkExprForLocalBinders(stmt.condition, names);
+      walkBlockForLocalBinders(stmt.body, names);
+      return;
+    case "for":
+      names.add(stmt.variable);
+      walkExprForLocalBinders(stmt.iterand, names);
+      walkBlockForLocalBinders(stmt.body, names);
+      return;
+    case "fn":
+      for (const p of stmt.params) {
+        names.add(p.name);
+      }
+      walkBlockForLocalBinders(stmt.body, names);
+      return;
+    case "return":
+      if (stmt.operand !== null) {
+        walkExprForLocalBinders(stmt.operand, names);
+      }
+      return;
+    case "query":
+      walkExprForLocalBinders(stmt.query, names);
+      return;
+    case "tool-call":
+      walkExprForLocalBinders(stmt.call, names);
+      return;
+    case "invoke":
+      walkExprForLocalBinders(stmt.invoke, names);
+      return;
+    case "expr":
+      walkExprForLocalBinders(stmt.expr, names);
+      return;
+    default:
+      // break / continue / schema / enum / import / export / doc-comment —
+      // no local binder, no nested expression.
+      return;
+  }
+}
+
+function walkExprForLocalBinders(expr: Expr, names: Set<string>): void {
+  switch (expr.kind) {
+    case "ternary":
+      walkExprForLocalBinders(expr.condition, names);
+      walkExprForLocalBinders(expr.consequent, names);
+      walkExprForLocalBinders(expr.alternate, names);
+      return;
+    case "binary":
+      walkExprForLocalBinders(expr.left, names);
+      walkExprForLocalBinders(expr.right, names);
+      return;
+    case "try":
+      walkExprForLocalBinders(expr.operand, names);
+      return;
+    case "array":
+      for (const el of expr.elements) {
+        walkExprForLocalBinders(el, names);
+      }
+      return;
+    case "index":
+      walkExprForLocalBinders(expr.target, names);
+      walkExprForLocalBinders(expr.index, names);
+      return;
+    case "member":
+      walkExprForLocalBinders(expr.target, names);
+      return;
+    case "object":
+      for (const field of expr.fields) {
+        walkExprForLocalBinders(field.value, names);
+      }
+      return;
+    case "match":
+      walkExprForLocalBinders(expr.scrutinee, names);
+      for (const arm of expr.arms) {
+        collectPatternBinderNames(arm.pattern, names);
+        walkExprForLocalBinders(arm.body, names);
+      }
+      return;
+    case "result-ctor":
+      walkExprForLocalBinders(expr.arg, names);
+      return;
+    case "method-call":
+      walkExprForLocalBinders(expr.target, names);
+      for (const arg of expr.args) {
+        walkExprForLocalBinders(arg, names);
+      }
+      return;
+    case "call":
+    case "invoke":
+      for (const arg of expr.args) {
+        walkExprForLocalBinders(arg, names);
+      }
+      return;
+    case "par-for":
+      names.add(expr.variable);
+      walkExprForLocalBinders(expr.iterand, names);
+      if (expr.max !== null) {
+        walkExprForLocalBinders(expr.max, names);
+      }
+      walkBlockForLocalBinders(expr.body, names);
+      return;
+    default:
+      // ident / number / string / bool / null — no local binder, no nested
+      // expression.
+      return;
+  }
+}
+
+/**
+ * Every name a `match` pattern binds, recursively through the constructor /
+ * object / array pattern forms. Kept independent of `theta-document.ts`'s own
+ * (unexported) `collectPatternBindings`: this fix touches `theta-document.ts`
+ * only at the `checkTypeLayer` call site, so that function is not exported to
+ * be shared here.
+ */
+function collectPatternBinderNames(pattern: PatternNode, names: Set<string>): void {
+  switch (pattern.kind) {
+    case "identifier":
+      names.add(pattern.name);
+      return;
+    case "constructor":
+      collectPatternBinderNames(pattern.inner, names);
+      return;
+    case "object":
+      for (const f of pattern.fields) {
+        collectPatternBinderNames(f.pattern, names);
+      }
+      return;
+    case "array":
+      for (const el of pattern.elements) {
+        collectPatternBinderNames(el, names);
+      }
+      return;
+    default:
+      // wildcard / literal bind nothing.
+      return;
+  }
 }
 
 /**
@@ -548,8 +876,8 @@ function isResultGenericTypeName(name: string): boolean {
 
 /**
  * A per-parse walk feeding the wired `type`-phase checkers. Holds only per-parse
- * state (the injected pass, the type env, the file, the accumulated diagnostics)
- * — no module-level mutable state.
+ * state (the injected pass, the type env, the file, the callee-resolution
+ * tables, the accumulated diagnostics) — no module-level mutable state.
  */
 class TypeLayerWalk {
   public readonly diagnostics: Diagnostic[] = [];
@@ -562,11 +890,35 @@ class TypeLayerWalk {
    */
   private readonly resultBindings = new Set<CompatType>();
 
+  /**
+   * The type objects recorded for a binding whose recorded type is an ERASED
+   * read rather than a declared one — the bug-0050 §Fix laundered-binding
+   * channel, fed by the two arms that record an INFERRED type: `walkStmt`'s
+   * unannotated `let` (the initialiser's own read) and `walkExpr`'s `par for`
+   * (the iterand's element read). Keyed by OBJECT IDENTITY for the same reason
+   * `resultBindings` above is: `bindings.get(name)` returns the exact object
+   * the recording arm stored, so identity is the channel back to an erasure a
+   * name lookup alone cannot see. `walkFn`'s parameter scope feeds nothing
+   * here — an author-written annotation IS a declared type, so it is a proof. `provableArgType`'s `ident` arm withholds on a hit; a false
+   * identity hit only withholds, never fabricates an emission. Per-parse
+   * instance state, like `diagnostics`.
+   */
+  private readonly unprovableBindings = new Set<CompatType>();
+
+  /**
+   * `fnDecls`, `importedSymbols` and `shadowedNames` are `checkFnCallArgs`'s
+   * (bug 0050 §Fix) callee-resolution tables — computed once per parse by
+   * `checkTypeLayer` and passed in here, the same explicit-injection shape as
+   * the four dependencies above them.
+   */
   public constructor(
     private readonly pass: StaticTypeInferencePass,
     private readonly env: TypeEnv,
     private readonly file: string,
     private readonly fnReturns: ReadonlyMap<string, string>,
+    private readonly fnDecls: ReadonlyMap<string, FnDecl>,
+    private readonly importedSymbols: ReadonlySet<string>,
+    private readonly shadowedNames: ReadonlySet<string>,
   ) {}
 
   /** The static type the `V20b` pass assigns `expr` under the in-scope bindings. */
@@ -602,7 +954,16 @@ class TypeLayerWalk {
             stmt.annotation !== null && stmt.annotation.length > 0
               ? annotationToCompatType(stmt.annotation)
               : undefined;
-          if (annotation !== undefined) {
+          // A read carrying a WITHHELD binder anywhere inside it supports no
+          // verdict here: an annotation of `array<T>` or of an inline object
+          // type is decided STRUCTURALLY by `decide` (TYPE-7 / TYPE-8, before
+          // its `resolveNamed` arms), so the deferral an unresolvable name earns
+          // against a primitive annotation is unavailable against a structural
+          // one, and the withheld part can be the whole basis of the answer.
+          // The declared type is still RECORDED below — an annotation is the
+          // author's own claim about the position, and the runtime AJV net is
+          // what judges the value that arrives.
+          if (annotation !== undefined && !containsWithheldBinderType(rhsType)) {
             // The typed-binding RHS narrowing / mismatch check (surfaces
             // `theta/parse/integer-narrowing` for a `number → integer` RHS).
             this.diagnostics.push(
@@ -637,6 +998,26 @@ class TypeLayerWalk {
           // directly rather than through the alias-unfolding `⊑` engine.
           // `unfoldAlias` leaves an object-schema `named` nominal (TYPE-10)
           // and an unresolvable `named` intact.
+          //
+          // Whether the initialiser is a PROVEN read of the value type it
+          // produces is decided FIRST, while `bindings` still holds the OUTER
+          // binding for `stmt.name`: that is the scope the initialiser is
+          // evaluated in. The runtime evaluates it and only then defines the
+          // binding (`evalExpr(stmt.init, env)` then `env.defineLocal`,
+          // ../runtime/statement-executor.ts), so a self-reference inside a
+          // shadowing `let`'s initialiser reads the OUTER value — marked in
+          // `unprovableBindings` when that outer binding was itself laundered,
+          // and a proof when it was not. Deciding it after the `bindings.set`
+          // instead would resolve that self-reference to the type object this
+          // arm is in the middle of recording, which no marking has reached, and an
+          // erased outer binding would launder into a proven record (`let x =
+          // 1 + x` over an erased `x`).
+          //
+          // Only an unannotated `let` is ever marked — the reason is at the
+          // marking site below — and `&&` short-circuits, so an annotated one
+          // reaches no proof obligation at all.
+          const initUnprovable =
+            annotation === undefined && this.provableArgType(stmt.init, bindings) === undefined;
           bindings.set(
             stmt.name,
             annotation === undefined ? rhsType : unfoldAlias(annotation, this.env),
@@ -659,6 +1040,17 @@ class TypeLayerWalk {
             // declaring a non-`Result`.
             this.resultBindings.add(rhsType);
           }
+          if (initUnprovable) {
+            // The laundered-binding hole (bug 0050 §Fix): `rhsType`, already
+            // bound to `stmt.name` above, is the initialiser's own ERASED
+            // read when the initialiser itself is unprovable (an unannotated
+            // `let x = flag ? 1 : "a"` records `integer` after discarding the
+            // `string` arm). A later `g(x)` must not read that recorded type
+            // as a proof it never was. An ANNOTATED `let` is excluded because
+            // the annotation IS the recorded type and `checkLetRhsCompat`
+            // above already judges its initialiser, so it stays a proof.
+            this.unprovableBindings.add(rhsType);
+          }
         }
         return;
       }
@@ -677,16 +1069,37 @@ class TypeLayerWalk {
         this.walkBlock(stmt.body, new Map(bindings), flow);
         return;
       case "for": {
-        const diag = checkForIterand(
-          { type: this.typeOf(stmt.iterand, bindings) },
-          { file: this.file, range: stmt.iterand.range },
-          this.env,
-        );
+        // `checkForIterand` refuses every non-`array<T>` iterand, an
+        // unresolvable `named` included (../parser/control-flow.ts), so it is
+        // the one row that cannot defer on a withheld read by itself: the
+        // verdict is withheld here instead. A `for` body inside another binder's
+        // scope reaches this with the enclosing binder's withheld entry.
+        const iterandType = this.typeOf(stmt.iterand, bindings);
+        const diag = containsWithheldBinderType(iterandType)
+          ? undefined
+          : checkForIterand(
+              { type: iterandType },
+              { file: this.file, range: stmt.iterand.range },
+              this.env,
+            );
         if (diag !== undefined) {
           this.diagnostics.push(diag);
         }
         this.walkExpr(stmt.iterand, bindings, flow);
         const inner = new Map(bindings);
+        // control-flow.md §`for` … `in` binds the iteration variable "as a fresh
+        // immutable local per iteration", and `executeFor` binds it whatever the
+        // element holds (`env.bindIterationVariable`,
+        // ../runtime/statement-executor.ts), so the name is recorded in the BODY
+        // scope here: leaving it unrecorded lets a body read resolve to a
+        // same-named enclosing binding the runtime does not read at that
+        // position. Recorded WITHHELD, not with the iterand's element type the
+        // `par for` arm records: binding a type to the plain `for` variable is a
+        // pinned non-goal of bug 0089 (group (n) of
+        // ../../tests/fn-param-alias-unfolded-at-gates.test.ts reds on it), and
+        // a withheld entry can only remove an emission — both channels of
+        // `recordWithheldBinders` are refusals to answer, never a new verdict.
+        this.recordWithheldBinders(inner, [stmt.variable]);
         this.walkBlock(stmt.body, inner, flow);
         return;
       }
@@ -732,11 +1145,86 @@ class TypeLayerWalk {
     }
   }
 
+  /**
+   * Bind `names` in `scope` as WITHHELD locals — the binder classes this layer
+   * cannot type, recorded so a body read STOPS at the scope the runtime binds
+   * them in.
+   *
+   * The runtime installs a `for` variable, a `match` pattern binding and a `fn`
+   * parameter in an inner scope unconditionally (`bindIterationVariable`,
+   * `evalMatch`'s `armEnv.defineLocal`, `evalUserFnCall`'s `childFnActivation`
+   * + per-parameter `defineLocal`, ../runtime/statement-executor.ts), and
+   * expressions.md §"Identifier resolution" makes a local shadow everything
+   * else lexically. A same-named OUTER record must therefore not stay visible
+   * inside the body: judging a read against it judges a binding the position
+   * never holds. The name is recorded even though its TYPE is past this layer's
+   * static view — a `match` arm's per-arm narrowing and a parameter's
+   * cross-call argument are not decidable from this file's text.
+   *
+   * TWO channels carry the withhold, because two kinds of consumer read this
+   * map. The IDENTITY channel is `unprovableBindings`: `provableArgType`'s
+   * `ident` arm withholds on the hit instead of proving the record the binder
+   * hides, which is the fn-arg row's own discipline. The VALUE channel is the
+   * name minted here — `WITHHELD_BINDER_TYPE_NAME`, which no declaration can
+   * spell, so every sibling row that reads a type out of this map by VALUE
+   * reaches its unresolvable-name arm rather than judging the read against a
+   * schema that happens to share the binder's spelling.
+   *
+   * The sibling rows DO move, in the deferral direction: an in-scope read of
+   * one of these binders no longer resolves to a same-named outer record, and
+   * where the map previously missed, the minted spelling was judged nominally.
+   * Both dispositions become deferrals. The rows whose verdict a withheld read
+   * can flip without reaching an unresolvable-name arm withhold it explicitly
+   * (`containsWithheldBinderType`); the emission direction is closed — no
+   * sibling row reports on a withheld read.
+   */
+  private recordWithheldBinders(scope: Map<string, CompatType>, names: Iterable<string>): void {
+    for (const name of names) {
+      const withheld: CompatType = { kind: "named", name: WITHHELD_BINDER_TYPE_NAME };
+      scope.set(name, withheld);
+      this.unprovableBindings.add(withheld);
+    }
+  }
+
+  /**
+   * The scope a `match` arm's body is evaluated in: `bindings` plus that arm's
+   * own pattern bindings, withheld. `evalMatch` evaluates the selected body in
+   * `env.child()` with every pattern binding defined
+   * (../runtime/statement-executor.ts; an identifier pattern binds the
+   * scrutinee whatever its value, ../runtime/match-result.ts), so the walk of
+   * an arm body and `provableArgType`'s reduction over arm bodies both resolve
+   * it through here — the two disagreeing about which binding an arm body reads
+   * is the scope mismatch this exists to close.
+   *
+   * A pattern binding nothing (a literal or a wildcard) yields `bindings`
+   * unchanged, so the common arm copies no map.
+   */
+  private matchArmScope(
+    pattern: PatternNode,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): ReadonlyMap<string, CompatType> {
+    const names = new Set<string>();
+    collectPatternBinderNames(pattern, names);
+    if (names.size === 0) {
+      return bindings;
+    }
+    const scope = new Map(bindings);
+    this.recordWithheldBinders(scope, names);
+    return scope;
+  }
+
   private walkFn(fn: FnDecl, bindings: Map<string, CompatType>): void {
     const fnScope = new Map(bindings);
     for (const p of fn.params) {
       if (p.type.length > 0) {
         fnScope.set(p.name, annotationToCompatType(p.type) ?? { kind: "named", name: p.type });
+      } else {
+        // An unannotated parameter carries no declared type, and it still BINDS
+        // its name in the activation scope the body executes in
+        // (`evalUserFnCall`). theta 1.0 has no closures, so a same-named
+        // enclosing binding is not readable inside the body at all — recording
+        // the parameter withheld keeps a body read from resolving to it.
+        this.recordWithheldBinders(fnScope, [p.name]);
       }
     }
     // FN-6 (bug 0005 (c)) — a `subagent fn` body is a subagent session whose
@@ -806,6 +1294,13 @@ class TypeLayerWalk {
       site: { file: this.file, range: fn.range },
     });
     if (resolved.kind !== "inferred") {
+      return;
+    }
+    // A payload inferred from a WITHHELD read is not a payload this layer knows:
+    // the boundary check is the same structural relation as the typed-`let`
+    // sink's, so the same withhold applies (an unannotated parameter returned
+    // from the body is the reachable shape).
+    if (containsWithheldBinderType(resolved.inferred.payload)) {
       return;
     }
     this.diagnostics.push(
@@ -933,9 +1428,18 @@ class TypeLayerWalk {
     sink: CompatType | undefined,
     bindings: ReadonlyMap<string, CompatType>,
   ): void {
+    const branches = array.elements.map((e) => this.typeOf(e, bindings));
+    // One branch read out of a WITHHELD binder withholds the whole check: the
+    // element sink decides each branch through the same structural TYPE-7 arm
+    // that cannot defer on an unresolvable name, and the row reports the FIRST
+    // failing branch by index, so there is no per-branch skip to hand the
+    // byte-frozen checker instead.
+    if (branches.some((branch) => containsWithheldBinderType(branch))) {
+      return;
+    }
     this.diagnostics.push(
       ...checkCommonType({
-        branches: array.elements.map((e) => this.typeOf(e, bindings)),
+        branches,
         sink,
         env: this.env,
         site: { file: this.file, range: array.range },
@@ -1036,22 +1540,364 @@ class TypeLayerWalk {
   ): Expr | null {
     const value = field.value;
     const valueType = this.typeOf(value, bindings);
-    this.diagnostics.push(
-      ...checkObjectFieldCompat({
-        schema,
-        field: field.name,
-        declared,
-        value: valueType,
-        env: this.env,
-        site: { file: this.file, range: value.range },
-        forceIncompatible: value.kind === "result-ctor",
-      }),
-    );
+    // Same withhold discipline as the typed-`let` sink: a field value read out
+    // of a WITHHELD binder supports no verdict, and a declared `array<T>` or
+    // inline-object field type would be decided structurally.
+    if (!containsWithheldBinderType(valueType)) {
+      this.diagnostics.push(
+        ...checkObjectFieldCompat({
+          schema,
+          field: field.name,
+          declared,
+          value: valueType,
+          env: this.env,
+          site: { file: this.file, range: value.range },
+          forceIncompatible: value.kind === "result-ctor",
+        }),
+      );
+    }
     if (value.kind === "array" && declared.kind === "array") {
       this.checkArrayLiteral(value, declared.element, bindings);
       return value;
     }
     return null;
+  }
+
+  /**
+   * The parse-time counterpart of the runtime's `resolveUserFn`
+   * (`../runtime/statement-executor.ts`): decide whether `e`'s callee is a
+   * user `fn` this file can judge, and when it is, check each argument the
+   * callee declares a parameter type for (TYPE-9,
+   * `theta/parse/fn-arg-type-mismatch`). Every arm below either resolves the
+   * question and returns, or falls through to the next — never both, so the
+   * resolution is total over `e.callee` with no silent fall-through.
+   */
+  private checkFnCallArgs(e: CallExpr, bindings: ReadonlyMap<string, CompatType>): void {
+    if (this.shadowedNames.has(e.callee)) {
+      // expressions.md §"Identifier resolution": a local binding (arm 1)
+      // outranks a top-level `fn` (arm 2), so a call of a locally-bound name
+      // is never a user-`fn` call at this site.
+      return;
+    }
+    if (this.importedSymbols.has(e.callee)) {
+      // A documented deferral, not a dropped route: the registry Trigger
+      // names a same-file OR imported `.thetalib` function call, but a
+      // single-file parse carries no imported `fn`'s parameter types.
+      // type-system.md §"Unresolvable operands" defers a check whose operand
+      // is past the parser's static view.
+      return;
+    }
+    const fn = this.fnDecls.get(e.callee);
+    if (fn === undefined) {
+      // A `.theta`-callable call, a Pi-tool call, or an unresolved name —
+      // none is a user `fn`, and each has its own owning diagnostic
+      // (`tool-arg-type-mismatch`, `invoke-arg-type-mismatch`, or
+      // `unknown-identifier`).
+      return;
+    }
+    const matchedCount = Math.min(e.args.length, fn.params.length);
+    for (let i = 0; i < matchedCount; i += 1) {
+      const p = fn.params[i] as FnParam;
+      const paramType = annotationToCompatType(p.type);
+      if (paramType === undefined) {
+        // An unannotated parameter (`p.type` is the empty string) has no
+        // declared type to judge the argument against.
+        continue;
+      }
+      const arg = e.args[i] as Expr;
+      const argType = this.provableArgType(arg, bindings);
+      if (argType === undefined) {
+        // Not a proof of the argument's runtime value type
+        // (`provableArgType`) — withholding here can only suppress an
+        // emission.
+        continue;
+      }
+      this.diagnostics.push(
+        ...checkFnArgCompat({
+          fnName: fn.name,
+          index: i,
+          paramName: p.name,
+          paramType,
+          argType,
+          env: this.env,
+          site: { file: this.file, range: arg.range },
+        }),
+      );
+    }
+  }
+
+  /**
+   * Whether `this.typeOf(expr, bindings)` is a PROOF of `expr`'s runtime value
+   * type — `undefined` withholds `checkFnCallArgs`'s judgement rather than
+   * trusting an unproven read.
+   *
+   * `StaticTypeInferencePass.#commonType` reduces a candidate set to one type
+   * by two lossy mechanisms: a statically unresolvable candidate never blocks
+   * another candidate ("unknown-blessing"), and a set with no common upper
+   * bound falls back to `candidates[0]`. Both are reachable at an argument
+   * position — measured at this HEAD, `true ? 1 : "a"` reads `integer` and
+   * `["a", null]` reads `array<string>` — and both erase a sibling arm the
+   * runtime can still produce. Emitting on an erased read would refuse a
+   * theta whose runtime value the emission misdescribes: bug 0072's landed
+   * soundness lesson at the `.theta`-callable argument sink
+   * (`collectProvableArgTypes`, `../extension/invoke-static-checks.ts`)
+   * applied here at a new sink. That function is an extension-layer answer
+   * over the SET of types an expression can take and cannot be imported into
+   * this parser-layer module without inverting the dependency direction, so
+   * the same discipline is applied in-layer as an EXACTNESS test instead
+   * (`isProvenReduction` below).
+   *
+   * Exhaustive `switch` over the `Expr` union with no `default` arm, so a kind
+   * added to the union without an arm here is a compile error rather than a
+   * silent verdict.
+   */
+  private provableArgType(
+    expr: Expr,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): CompatType | undefined {
+    switch (expr.kind) {
+      case "number":
+      case "string":
+      case "bool":
+      case "null":
+        // A literal's read IS its value's type.
+        return this.typeOf(expr, bindings);
+      case "ternary": {
+        const reduced = this.typeOf(expr, bindings);
+        return this.isProvenReduction([expr.consequent, expr.alternate], reduced, bindings)
+          ? reduced
+          : undefined;
+      }
+      case "match": {
+        const reduced = this.typeOf(expr, bindings);
+        // Each arm body is proven in THAT ARM's scope, the one the walk uses
+        // (`matchArmScope`): a proof taken in the enclosing scope would prove a
+        // binding the arm body does not read, which is the false-`E` shape this
+        // whole predicate exists to refuse. The reduction itself is read in the
+        // enclosing scope, which is sound because every arm shape this function
+        // PROVES is either scope-independent (a literal, a boolean-valued
+        // operator, a nominal naming the construct that produced the value) or
+        // recurses through the `ident` arm, where a read of a withheld binder
+        // withholds the whole composite.
+        return this.isProvenReduction(
+          expr.arms.map((arm) => arm.body),
+          reduced,
+          bindings,
+          expr.arms.map((arm) => this.matchArmScope(arm.pattern, bindings)),
+        )
+          ? reduced
+          : undefined;
+      }
+      case "array": {
+        const reduced = this.typeOf(expr, bindings);
+        if (reduced.kind !== "array") {
+          // `#typeExpr`'s own `"array"` arm always answers `kind: "array"`;
+          // this is the narrowing `reduced.element` below needs, not a
+          // reachable branch.
+          return undefined;
+        }
+        // An empty element list satisfies `isProvenReduction`'s `every`
+        // vacuously without proving anything about a runtime value.
+        return this.isProvenReduction(expr.elements, reduced.element, bindings)
+          ? reduced
+          : undefined;
+      }
+      case "binary": {
+        // `parseUnary` (./theta-document.ts) models unary `!` / `-` as a
+        // binary carrying a synthetic `null` left operand; dispatch in
+        // `#typeBinary`'s own order so the two never disagree on shape.
+        if (expr.left.kind === "null" && expr.op === "-") {
+          // A negation's value type is the OPERATOR's, not the operand's:
+          // expressions.md §"Other arithmetic" gives unary `-` `integer` for an
+          // `integer` operand and `number` for a `number` one and admits no
+          // other result, and the runtime reaches that result by coercion
+          // (`evalBinary`: `-(right.value as number)`,
+          // ../runtime/statement-executor.ts), so `-"5"` evaluates to the
+          // number `-5` while the operand's own proof says `string`. The
+          // operand's proof is therefore a proof of the negation only inside
+          // the numeric shapes; outside them it names a type the value cannot
+          // have, and withholding can only suppress an emission.
+          //
+          // `classifyOperand` is this module's one numeric test, shared with
+          // the A5 `+` and A6 ordering operand checks over the same operator
+          // family, so the two cannot drift on which `CompatType` shapes count
+          // as numeric — a `prim` `integer` / `number` from an annotation
+          // (`annotationToCompatType`), a `literal` typing as either from a
+          // numeric literal (`#typeExpr`), or a transparent alias (TYPE-11)
+          // unfolding to one of those.
+          const operand = this.provableArgType(expr.right, bindings);
+          if (operand === undefined || classifyOperand(operand, this.env) !== "numeric") {
+            return undefined;
+          }
+          return operand;
+        }
+        if ((expr.left.kind === "null" && expr.op === "!") || BOOLEAN_BINARY_OPS.has(expr.op)) {
+          // Result-fixed: the value is a boolean whatever the operands
+          // evaluate to, so the read is exact even where an operand is not.
+          return this.typeOf(expr, bindings);
+        }
+        // Arithmetic narrows the operands through `#commonType`, the same
+        // erasure risk as `ternary` / `match` above.
+        const reduced = this.typeOf(expr, bindings);
+        if (!this.isProvenReduction([expr.left, expr.right], reduced, bindings)) {
+          return undefined;
+        }
+        // `isProvenReduction` tests the reduction's EXACTNESS, not the
+        // operator's ADMISSIBILITY, so a same-typed pair of proven non-numeric
+        // operands passes it — and for `-`, `*`, `/`, `%` the result type is
+        // fixed by the operator: expressions.md §"Other arithmetic" gives
+        // those four `integer` or `number` for every input (NaN included, which
+        // is a `number`), and the runtime casts both operands to reach it
+        // (`applyBinaryScalar`, ../runtime/statement-executor.ts), so
+        // `"a" - "b"` is the number NaN rather than the `string` the reduction
+        // names. An operand's own type is not a proof of the expression's value
+        // type outside the numeric shapes, and withholding can only suppress an
+        // emission.
+        //
+        // `+` keeps the reduction, because there the reduction IS the result
+        // type: expressions.md §"`+` operator" makes a both-`string` pair
+        // concatenation and a both-numeric pair addition, and every other
+        // pairing fails to load on `theta/parse/mixed-plus-operands`.
+        return expr.op === "+" || classifyOperand(reduced, this.env) === "numeric"
+          ? reduced
+          : undefined;
+      }
+      case "try":
+        // `operand?` propagates the operand's success type: a proof of the
+        // operand is a proof of the `try` expression.
+        return this.provableArgType(expr.operand, bindings);
+      case "ident": {
+        // The RECORDED type is the only channel that carries a JUDGED type, so
+        // it is read here directly rather than through `typeOf`: `#typeExpr`'s
+        // own `ident` arm (./static-type-inference.ts) falls back to
+        // `{ kind: "named", name }` MINTED FROM THE IDENTIFIER'S OWN SPELLING
+        // for any name the map does not hold, and a name an author chose for a
+        // value proves nothing about that value's type — where the spelling
+        // collides with a declared schema it resolves and is judged nominally
+        // (TYPE-10) against a declaration the read has nothing to do with,
+        // which is the false-judgement shape the `member` / `method-call` and
+        // `call` / `invoke` arms below refuse over the field and callee
+        // namespaces. `bindings` is still not a complete local view — a
+        // frontmatter `params:` field never reaches it — so a MISS means "not
+        // recorded", never "no such binding", and the only sound answer is to
+        // withhold. The binder classes this layer cannot type are recorded as
+        // WITHHELD entries instead of being left to miss
+        // (`recordWithheldBinders`), so where an inner binder hides a same-named
+        // outer record the hit is that binder's own withheld entry, never the
+        // record the runtime does not read there. That entry's own name is
+        // unspellable (`WITHHELD_BINDER_TYPE_NAME`), which keeps the nominal
+        // collision described above out of the sibling rows that read this map
+        // by value rather than by identity. `Map.get` against an explicit
+        // `undefined` rather than a truthiness test, because the key is
+        // author-controlled source text.
+        const recorded = bindings.get(expr.name);
+        if (recorded === undefined) {
+          return undefined;
+        }
+        // The laundered-binding hole: an unannotated `let` can record an
+        // unprovable initialiser read as the binding's type (`walkStmt`'s
+        // `let` arm), and `bindings.get(name)` returns that EXACT object, so
+        // identity is the channel back to the erasure a name read alone
+        // cannot see.
+        return this.unprovableBindings.has(recorded) ? undefined : recorded;
+      }
+      case "member":
+      case "method-call":
+        // A read that mints a `named` type out of an author-chosen FIELD or
+        // METHOD name is not a proof of the value's type: `#typeExpr` answers
+        // `named <field>` for `v.P` and `named <method>` for `xs.length()`,
+        // neither of which is the type of the value the read produces. The
+        // adjacent `interpolationIsResult` refuses the same minted names for
+        // the same reason — a name an author chose for a field or a method
+        // collides freely with a declared schema's name, so reading meaning
+        // out of it judges an unrelated namespace.
+        //
+        // No sound emission is lost by withholding here. A minted name that
+        // resolves to nothing declared already defers at `checkCompatible`
+        // (`"unknown"`), and one that DOES resolve is judging the declaration
+        // that happens to share the spelling rather than the read value.
+        return undefined;
+      case "call":
+      case "invoke":
+        // A `named` type minted from an author-chosen CALLEE is not a proof of
+        // the call's value type, for the reason the `member` / `method-call`
+        // arm above already states at the field namespace: `#typeExpr` answers
+        // `named <callee>` for `f(x)` and `named <path>` for an `invoke`, and
+        // neither names the type of the value the call produces. The operand a
+        // sound judgement needs is the callee's declared RETURN type, which
+        // the substrate does not carry to this position.
+        //
+        // No sound emission is lost by withholding. A minted name resolving to
+        // nothing declared already defers at `checkCompatible` (`"unknown"`),
+        // and the only env a name CAN resolve in here is the schema-only
+        // `TypeEnv` (`collectTypeEnv` — `schema` declarations, object form and
+        // alias form; enums excluded), whose every entry is uppercase-first by
+        // `theta/parse/schema-case-mismatch` while a user `fn` name is
+        // lowercase-first by `theta/parse/binding-case-mismatch`. A callee
+        // name that resolves is therefore never the callee's own type: it is a
+        // schema that merely shares the spelling with a schema-cased callee —
+        // a `.thetalib` import, a `.theta`-callable `as` alias, or a name the
+        // callable set never had. An `invoke` shares the arm because its
+        // minted path is a `.theta` path literal, which either ends in
+        // `.theta` (unspellable as a schema name) or draws
+        // `theta/parse/invoke-non-theta-extension` — one rule instead of two.
+        return undefined;
+      case "query":
+      case "object":
+      case "result-ctor":
+      case "par-for":
+        // Each is a nominal `named` reference naming the construct that
+        // produced the value — a query's `as` schema, a constructed schema, a
+        // `Result` constructor, a `par for`'s CTRL-3 element — so
+        // `checkCompatible` either resolves the name it was given or answers
+        // `"unknown"` and defers.
+        return this.typeOf(expr, bindings);
+      case "index":
+        // `#typeExpr` narrows an index read to the TARGET's ELEMENT type, and
+        // that element object is not the object the two recording arms put in
+        // `unprovableBindings` — the array type is — so an erased target would
+        // launder its erasure through the narrowing, past the identity channel
+        // the `ident` arm reads. The proof obligation belongs to the target:
+        // recur on it the way the `try` arm recurs on its operand, and take
+        // the element narrowing from `typeOf` only once the target is proven.
+        return this.provableArgType(expr.target, bindings) === undefined
+          ? undefined
+          : this.typeOf(expr, bindings);
+    }
+  }
+
+  /**
+   * The exactness test every composite `provableArgType` arm
+   * (`ternary` / `match` / `array` / arithmetic `binary`) shares: every member
+   * of `arms` must itself be a proven read (`provableArgType` defined) AND
+   * relate to `reduced` — the pass's own narrowed answer for the composite —
+   * by `checkCompatible(armType, reduced, env) === "compatible"`. An undefined
+   * arm, or an `"unknown"` / `"incompatible"` relation, withholds the whole
+   * composite: `"unknown"` must withhold rather than pass, because trusting it
+   * would be the unknown-blessing mechanism this test exists to refuse. An
+   * empty `arms` satisfies `every` vacuously without proving anything about a
+   * runtime value, so it withholds too, never trusts.
+   *
+   * `armScopes`, when supplied, gives arm `i` its OWN scope: a `match` arm's
+   * body is evaluated with that arm's pattern bindings installed, so the proof
+   * of that body has to be taken there. Every other composite's arms are
+   * evaluated in the one enclosing scope and omit it.
+   */
+  private isProvenReduction(
+    arms: readonly Expr[],
+    reduced: CompatType,
+    bindings: ReadonlyMap<string, CompatType>,
+    armScopes?: readonly ReadonlyMap<string, CompatType>[],
+  ): boolean {
+    if (arms.length === 0) {
+      return false;
+    }
+    return arms.every((arm, index) => {
+      const armType = this.provableArgType(arm, armScopes?.[index] ?? bindings);
+      return (
+        armType !== undefined && checkCompatible(armType, reduced, this.env) === "compatible"
+      );
+    });
   }
 
   private walkExpr(
@@ -1120,7 +1966,10 @@ class TypeLayerWalk {
         );
         this.walkExpr(e.scrutinee, bindings, flow);
         for (const arm of e.arms) {
-          this.walkExpr(arm.body, bindings, flow);
+          // Each body is walked in ITS OWN arm scope: the runtime installs that
+          // arm's pattern bindings before the body runs, so a same-named
+          // enclosing record is not what the body reads.
+          this.walkExpr(arm.body, this.matchArmScope(arm.pattern, bindings), flow);
         }
         return;
       case "method-call":
@@ -1135,7 +1984,16 @@ class TypeLayerWalk {
         this.walkExpr(e.target, bindings, flow);
         return;
       case "call":
+        this.checkFnCallArgs(e, bindings);
+        for (const arg of e.args) {
+          this.walkExpr(arg, bindings, flow);
+        }
+        return;
       case "invoke":
+        // `invoke` shares this arm's label with `call` in the grammar but not
+        // in the registry: it carries its own row
+        // (`theta/parse/invoke-arg-type-mismatch`) and its own, separately
+        // unwired emitter — a different open defect this walk does not fix.
         for (const arg of e.args) {
           this.walkExpr(arg, bindings, flow);
         }
@@ -1149,11 +2007,15 @@ class TypeLayerWalk {
       case "par-for": {
         // CTRL-2 / grammar.md: the iterand reuses the `for` contract — a
         // non-`array<T>` iterand is `theta/parse/non-array-iterand`.
-        const iterDiag = checkForIterand(
-          { type: this.typeOf(e.iterand, bindings) },
-          { file: this.file, range: e.iterand.range },
-          this.env,
-        );
+        // The `for` arm's withhold, at this row's second call site.
+        const rawIterandType = this.typeOf(e.iterand, bindings);
+        const iterDiag = containsWithheldBinderType(rawIterandType)
+          ? undefined
+          : checkForIterand(
+              { type: rawIterandType },
+              { file: this.file, range: e.iterand.range },
+              this.env,
+            );
         if (iterDiag !== undefined) {
           this.diagnostics.push(iterDiag);
         }
@@ -1185,12 +2047,20 @@ class TypeLayerWalk {
         // element rather than the whole iterand.
         const iterandType = unfoldAlias(this.typeOf(e.iterand, bindings), this.env);
         const inner = new Map(bindings);
-        inner.set(
-          e.variable,
-          iterandType.kind === "array"
-            ? iterandType.element
-            : { kind: "named", name: "unknown" },
-        );
+        const elementType: CompatType =
+          iterandType.kind === "array" ? iterandType.element : { kind: "named", name: "unknown" };
+        inner.set(e.variable, elementType);
+        if (this.provableArgType(e.iterand, bindings) === undefined) {
+          // The loop variable inherits the iterand's erasure: an unprovable
+          // iterand (`[flag ? 1 : "a"]` reads `array<integer>` after
+          // `#commonType` discards the `string` arm) hands `elementType` a
+          // reading no runtime iteration need produce, so a body `g(x)` must
+          // not treat it as a proof. Same channel as the `let` arm's own
+          // record: `inner.set` stores the exact object `#typeExpr`'s `ident`
+          // arm returns for `e.variable`, so object identity carries the
+          // erasure a name lookup alone cannot see.
+          this.unprovableBindings.add(elementType);
+        }
         this.walkBlock(e.body, inner, flow);
         return;
       }
@@ -1398,12 +2268,15 @@ class TypeLayerWalk {
     if (receiverDiag !== undefined) {
       this.diagnostics.push(receiverDiag);
     }
-    const objectDiag = checkObjectIndex({
-      receiverType,
-      indexType: this.typeOf(e.index, bindings),
-      env: this.env,
-      site,
-    });
+    // The KEY read is judged by `checkObjectIndex`, which requires a `string`
+    // and refuses everything else, an unresolvable `named` included
+    // (../runtime/stdlib-object.ts) — the `checkForIterand` shape. A key read
+    // out of a WITHHELD binder therefore withholds the verdict here: the
+    // runtime key may well be the string the receiver wants.
+    const indexType = this.typeOf(e.index, bindings);
+    const objectDiag = containsWithheldBinderType(indexType)
+      ? undefined
+      : checkObjectIndex({ receiverType, indexType, env: this.env, site });
     if (objectDiag !== undefined) {
       this.diagnostics.push(objectDiag);
     }
@@ -1434,10 +2307,20 @@ class TypeLayerWalk {
       // so applying the transparency is the caller's job. TYPE-10 bounds it:
       // an object-schema `named` element comes back unchanged and stays
       // non-string, as does an unresolvable one.
-      const diag = checkArrayJoin(unfoldAlias(unfoldedTarget.element, this.env), {
-        file: this.file,
-        range: e.range,
-      });
+      //
+      // An element read out of a WITHHELD binder withholds this verdict, for
+      // the same reason as the iterand and object-key rows: the predicate
+      // refuses every non-`string` element including an unresolvable one, so it
+      // cannot defer on a withheld read by itself, and the runtime element may
+      // be the string the method requires (`[x].join(",")` inside
+      // `for x in ["a"] { … }`).
+      const joinElement = unfoldAlias(unfoldedTarget.element, this.env);
+      const diag = containsWithheldBinderType(joinElement)
+        ? undefined
+        : checkArrayJoin(joinElement, {
+            file: this.file,
+            range: e.range,
+          });
       if (diag !== undefined) {
         this.diagnostics.push(diag);
       }

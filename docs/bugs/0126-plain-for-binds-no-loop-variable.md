@@ -1130,3 +1130,18 @@ test). Two things this report depends on are unaffected:
   of `static-type-inference.ts:275` (the `par for` element derivation) still
   resolves. `docs/reference/grammar.md` is likewise 610 lines before and after,
   so this report's `:455` / `:458` citations are unmoved.
+
+## Coordination note — bug 0050 landed (0.77.0)
+
+0050's fix binds the plain `for` variable in the body scope to a WITHHELD
+sentinel twin (`recordWithheldBinders`, `src/parser/type-layer-checks.ts`) —
+deliberately NOT the judged element type, which stays this report's territory
+(and bug 0089's pinned non-goal; the n1 tripwire held byte-unchanged and
+green through the fix). Two of this report's cited false-emission
+observables are closed by that recording: the spec-legal nested `for` no
+longer draws `theta/parse/non-array-iterand` falsely, and a schema sharing
+the variable's spelling is no longer silently adopted (cells u13md / u13,
+`tests/fn-arg-type-mismatch-wired.test.ts`). The core gap — the type-layer
+codes still cannot fire on the loop variable — REMAINS: a withheld read
+defers at every judgement sink. Cells u12e / u13me pin that deferral with
+this report named as the flip condition.

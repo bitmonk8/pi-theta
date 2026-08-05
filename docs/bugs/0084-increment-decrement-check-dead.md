@@ -618,3 +618,12 @@ The committed-corpus sweep found **zero** affected inputs (34 files, 17
 declaring `params:`, 19 fields, one default), and the permitted-codes fixture
 `tests/fixtures/h7a/permitted-codes.json` needed no append — decided by the real
 H9a run, whose captured stdout+stderr carry no occurrence of the code.
+
+## Coordination note (0.77.0)
+
+Bug 0050 (fixed 0.77.0) is the next member of the dead-enforcement class this
+report's fix template anticipated: its disposition 1 wired `checkFnArgCompat`'s
+caller at the type-layer walk's `call` arm — the expression walk, where every
+position that accepts a call funnels through — and reused the
+GOV-15 carve-out-as-addition disposition this report shares with 0031 and
+0102, discharged by measuring the shipped call sites.

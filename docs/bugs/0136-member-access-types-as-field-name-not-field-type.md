@@ -1393,3 +1393,15 @@ so each is a distinguishable failure.
   (`assertCodesSubsetOfPermitted`); `tests/fixtures/h7a/permitted-codes.json`
   (11 codes, blob `a4a8da04209f90e13d815edd92c1fc682e2a2236`, no `theta/parse/*`
   entry). **No committed test drives a member read in a checked position.**
+
+## Coordination note — bug 0050 landed (0.77.0)
+
+Two of 0050's eight orchestrated-round review findings are this report's
+substrate defect surfacing at the new fn-argument sink: the `member` /
+`method-call` arms trusting a `named` type minted from a FIELD/METHOD name,
+and the `call` arm trusting one minted from a CALLEE name. Both were closed
+at the sink by WITHHOLDING (`provableArgType` refuses spelling-mints;
+`tests/fn-arg-type-mismatch-wired.test.ts` cells u6–u8p), not by touching the
+substrate — `classifyReceiver`, `checkMemberAccess` and
+`StaticTypeInferencePass` are byte-unchanged by the 0050 fix. The substrate's
+mints remain this report's to fix.

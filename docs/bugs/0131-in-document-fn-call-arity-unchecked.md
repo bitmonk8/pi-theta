@@ -1202,3 +1202,13 @@ loudly) is the shape.
   in the tree was written by either probe, no provider was contacted, and `src/`,
   `tests/`, `docs/bugs/README.md` and every other bug document are unmodified by
   this filing.
+
+## Coordination note — bug 0050 landed (0.77.0)
+
+The arity half now sits one line from checkable: `checkFnCallArgs`
+(`src/parser/type-layer-checks.ts`) holds the resolved `FnDecl` and the
+argument list, and deliberately iterates only the `Math.min(args, params)`
+prefix. Cell a1 of `tests/fn-arg-type-mismatch-wired.test.ts` pins the
+current silence in both directions (`g()` and `g(3, 4)` draw neither the
+fn-arg code nor any arity code). Per this report, the registry question
+comes first — no row covers a plain `fn` call's argument count.

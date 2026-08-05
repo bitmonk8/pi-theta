@@ -2185,7 +2185,7 @@ describe("H8a-T — bug 0102: a params: default's string literal carrying a raw 
 // target's element type only when the target's RAW `CompatType` had
 // `kind === "array"`, so a type-alias schema `schema L = array<string>` —
 // whose `fn`-parameter record is the raw `named L` (`walkFn`,
-// type-layer-checks.ts:739) — fell to the sentinel `{ kind: "named", name:
+// type-layer-checks.ts:1220) — fell to the sentinel `{ kind: "named", name:
 // "index" }`, an unresolvable name every downstream check defers on
 // (type-system.md:48). `theta/parse/unknown-method` (E-severity) is one of
 // six registered codes measured absent on the sentinel; `hasLoadParseError`
@@ -2391,3 +2391,203 @@ describe("H8a-T — bug 0125: an alias-typed array's element, called past the st
     }
   });
 });
+
+// ===========================================================================
+// Bug 0050 — `theta/parse/fn-arg-type-mismatch` was registered with a Trigger
+// no input could satisfy: its sole emitter, `checkFnArgCompat`
+// (src/parser/type-compat.ts:452), had no caller in `src/`, so a plain
+// top-level `fn` call bound a mistyped argument with no parse-time judgement
+// (docs/bugs/0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md).
+// The fix (disposition 1) wires one call at `TypeLayerWalk.walkExpr`'s `call`
+// arm (src/parser/type-layer-checks.ts), split from the `invoke` label it
+// previously shared, with an in-layer soundness discipline
+// (`provableArgType` / `isProvenReduction`) and a withheld-binder channel
+// (`recordWithheldBinders` / `containsWithheldBinderType`) so a statically
+// ERASED or otherwise unjudgeable read is never trusted. The 84-cell unit
+// witness (tests/fn-arg-type-mismatch-wired.test.ts) proves the mechanism
+// offline at the `parseThetaDocument` boundary; this cell proves the same
+// registered code denies REGISTRATION end to end through the real production
+// composition root (session_start → resources_discover →
+// composeExtensionInstance → checkTypeLayer) — the fixed path had zero live
+// coverage before this addition.
+//
+// The mistyped caller mirrors the bug doc's §Reproduction row r3 and the unit
+// witness's cell r3 verbatim (`fn g(s: string): number { 1 }` +
+// `let r = g(3)`): a same-file plain `fn` call, both operands statically
+// resolvable, an `integer` argument at a declared `string` parameter — the
+// simplest input the row's Trigger names. `theta/parse/fn-arg-type-mismatch`
+// is severity `E`, so `hasLoadParseError`
+// (production-composition.ts:2045–2052, applied at :2092) un-registers the
+// caller at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095/
+// 0102/0125 cells above exercise for their own codes.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the file header claims for
+// the discovery→registration cells above). ADDITIVE ONLY: no existing cell in
+// this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const FN_ARG_TYPE_MISMATCH_CODE = "theta/parse/fn-arg-type-mismatch";
+
+/** The sharded registry page carrying `theta/parse/fn-arg-type-mismatch`'s row (`:116`). */
+const FN_ARG_TYPE_MISMATCH_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/fn-arg-type-mismatch: fn '<name>' argument <i> ('<param>') type
+ * mismatch: expected <expected>, got <actual>` with every `<…>` substituted —
+ * DIAG-4: the message half is read from the registry row, not copied,
+ * mirroring this file's existing `unknownMethodFragment` /
+ * `nonArrayIterandFragment` helpers. Used for the PRESENCE assertion below:
+ * the illegal caller's refusal must name this fragment on the
+ * theta-system-note channel.
+ */
+function fnArgTypeMismatchFragment(
+  fnName: string,
+  index: number,
+  paramName: string,
+  expected: string,
+  actual: string,
+): string {
+  const template = registryMessage(
+    FN_ARG_TYPE_MISMATCH_REGISTRY,
+    FN_ARG_TYPE_MISMATCH_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${FN_ARG_TYPE_MISMATCH_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string)
+    .replaceAll("<name>", fnName)
+    .replaceAll("<i>", String(index))
+    .replaceAll("<param>", paramName)
+    .replaceAll("<expected>", expected)
+    .replaceAll("<actual>", actual);
+  expect(
+    message,
+    `${FN_ARG_TYPE_MISMATCH_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${FN_ARG_TYPE_MISMATCH_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's §Reproduction row r3 / the unit witness's cell r3 — the
+ * load-bearing illegal caller: a same-file plain top-level `fn` declaring a
+ * `string` parameter, called with an `integer` literal — both operands
+ * statically resolvable, so type-system.md:48 licenses no deferral. The
+ * trailing `r` supplies the theta's final value; no `@`-query is needed for a
+ * prompt-mode theta to register (mirrors bug 0125's `illegalAliasIndexTheta`
+ * above).
+ */
+function illegalFnArgTheta(): string {
+  return ["---", "mode: prompt", "---", "fn g(s: string): number { 1 }", "let r = g(3)", "r", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The same-shape SIBLING with a compatible argument — must register both
+ * before and after the fix, isolating the illegal caller's refusal to the
+ * `integer`-under-`string` mismatch rather than to "a plain `fn` call with an
+ * annotated parameter never registers in this harness".
+ */
+function legalFnArgTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "fn g(s: string): number { 1 }",
+    'let r = g("ok")',
+    "r",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0050: a plain fn call's provably mistyped argument does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose same-file fn call passes a provably mistyped argument, while its compatible-argument sibling registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // illegal caller's absence could be (wrongly) attributed to a broken
+      // workspace instead of the gate under test.
+      { source: "project", stem: "b50livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: identical annotated-parameter `fn` and call
+      // shape, but a compatible argument — must still register, isolating the
+      // refusal to the type mismatch rather than to "a plain `fn` call with an
+      // annotated parameter never registers in this harness".
+      { source: "project", stem: "b50livegood", text: legalFnArgTheta() },
+      // The load-bearing illegal caller: the SAME annotated parameter, but an
+      // argument whose static type the parser can prove incompatible (the bug
+      // doc's §Reproduction row r3 / unit witness cell r3 spelling).
+      { source: "project", stem: "b50livebroken", text: illegalFnArgTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b50livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gate under test, would explain the illegal caller's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b50livegood"),
+        "the same-shape sibling with a compatible argument did not register — " +
+          "a plain fn call with an annotated parameter cannot register in this " +
+          "harness at all, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the unit witness uses),
+      // a same-file plain `fn` call whose argument is provably incompatible
+      // with the declared parameter type does NOT register —
+      // `checkFnCallArgs` (type-layer-checks.ts) fires
+      // `theta/parse/fn-arg-type-mismatch`, and `hasLoadParseError`
+      // un-registers this caller at the SAME site the bug 0070/0071/0077/
+      // 0079(a)/0110/0084/0089/0095/0102/0125 cells above exercise for their
+      // own codes.
+      expect(
+        handle.command("b50livebroken"),
+        "the caller whose fn call passes a provably mistyped argument " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/parse/fn-arg-type-mismatch did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b50livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = fnArgTypeMismatchFragment("g", 0, "s", "string", "integer");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the fn-arg-type-mismatch rejection " +
+          "for the illegal caller. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
