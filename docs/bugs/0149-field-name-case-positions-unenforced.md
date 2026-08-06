@@ -1,10 +1,11 @@
 # Bug 0149 — `docs/spec_topics/lexical.md:16` requires a lowercase-first schema field name and `code-registry-parse.md:19` registers `theta/parse/binding-case-mismatch` for the "field-name position", but bug 0139's fix closed the `fn` parameter only, so `schema S { Xs: string }`, a `params:` field `Topic: string` and an inline object type `{ Ys: string }` each load with zero diagnostics and register, while `let P = 1`, `fn h(P: string)` and `fn H()` on the same HEAD each draw the code
 
-- **Status:** open. §Fix pins the site, the predicate and the range for the
-  `schema X { … }` face; two route questions are left to the run — which
-  emitter the `params:` frontmatter face uses, and whether the inline
-  object-type face is inside the sentence's "schema field names". Ordering:
-  nothing blocks this report. It collides at the code site with open
+- **Status:** fixed (0.82.0). Both route questions are settled in
+  §Fix (0.82.0): the `params:` frontmatter face is closed through its own
+  emitter in `extractParsedParams`, and the inline object-type face is read as
+  inside the *Trigger* but left unimplemented for want of a token range. The
+  `schema X { … }` face is closed at `parseSchemaObjectBody` as §Fix pinned.
+  Ordering: nothing blocked this report. It collides at the code site with open
   [0133](./0133-field-list-discard-recovery-unsettled.md), whose Status bullet
   claims "No open report edits `parseSchemaObjectBody` … or
   `skipBraceRemainder`" — that claim is false once this is filed, the two
@@ -1077,3 +1078,305 @@ it spends zero tokens.
   (the offline parse-then-execute harness the `r*` rows model).
   No test asserts a schema field name's case, a `params:` field name's case, or
   an inline object type field name's case, in either direction.
+
+## Fix (0.82.0)
+
+- **What shipped** — one predicate added at each of two parser leaves, plus its
+  witnesses. No registry edit, no spec edit, no mirror edit, no
+  `src/lexer/lexer.ts` edit:
+  - `src/parser/theta-document.ts` (+34/−0) — **§Fix (a), face 1**,
+    `parseSchemaObjectBody`'s field loop. Guarded on `nameTok.kind === "ident"`
+    and `checkName`'s own two-comparison predicate
+    (`const first = nameTok.text[0] ?? ""; first >= "A" && first <= "Z"`), it
+    pushes `theta/parse/binding-case-mismatch`, severity `error`, the registry
+    *Message* byte-exact, ranged on `nameTok.range`. §Fix (a) admitted the
+    emission "before **or at** the push"; the pre-measurement settled it AT the
+    push — see the placement sub-question below.
+  - `src/parser/frontmatter.ts` (+45/−0) — **§Fix (b), face 2**,
+    `extractParsedParams`'s YAML item loop, its own emitter. Guarded on the
+    file-local `isIdentifierShaped` and on non-membership of the lexer's own
+    `reservedKeywords()` set, with the same case predicate, ranged on
+    `rangeOf(item.key, …)` — the key node, not the value node the surrounding
+    per-field `range` carries. `fieldInputs.push`, `bypassFields` and the
+    `parseParams` lowering are untouched, so the field set `parseParams` and the
+    `system:` interpolation seam see is unchanged (bug 0041's "the refusal stays
+    one diagnostic").
+  - `tests/schema-field-name-case.test.ts` — new, 46 cells, offline and
+    provider-free, on `tests/fn-param-name-case.test.ts`'s shape: whole-list
+    ordered `toEqual` over unfiltered `doc.diagnostics` on every row, every
+    expected *Message* read through `parseRegistry` / `registryMessage`
+    (DIAG-4), `parseDoc` from `tests/helpers/e2e-s1.ts`. §Fix (e)'s required row
+    set in full, plus the face-2 rows §Fix (e) makes conditional on that face
+    being scoped in.
+  - `tests/live/live-production-acceptance.test.ts` (+200/−0) — one additive
+    H8a registration-denial cell on the bug 0148 cell's shape,
+    registration-only and zero-token: `b149liveschemabroken`
+    (`schema S { Xs: string }`) and `b149liveparamsbroken` (a `params:` key
+    `Topic: string`) are each denied registration end to end through the real
+    production composition root, while their lowercase-first siblings
+    `b149liveschemagood` / `b149liveparamsgood` and the `b149livectl` control
+    all register. It reuses this file's existing `bindingCaseMismatchFragment`
+    reader (bug 0139's addition) rather than adding a second, and reads the
+    `theta-system-note` channel off the settled in-memory `SessionManager`,
+    telling the two notes apart by the broken theta's own file path rather than
+    by the message text.
+
+- **The face-set decision, and every face's disposition.** §Fix (b) left the
+  reading of the *Trigger*'s "field-name position" to the run. It is read as
+  covering every field declaration carrying a theta-side identifier the author
+  writes — which by `grammar.md:203` ("`ObjectType` fields reuse the
+  object-schema `Field` form") includes all three faces. Two are closed; the
+  third is left unimplemented for a stated engineering reason, not read out of
+  the *Trigger*:
+  - **Face 1, `schema X { … }` — IN.** §Fix (a) settled it. Witness rows e1
+    (the pin, ranged @4:12–4:14), e3, f1 (both fields, each at its own range),
+    f2 (the second field only, @4:23–4:25), f4 (the theta-side half of an `as`
+    rename), f9 (the `.thetalib` route, @1:12–1:14), f10, f12, f13, w1.
+  - **Face 2, the `params:` frontmatter key — IN.** Both blockers §Fix (b)
+    named are dischargeable from material already in `frontmatter.ts`, which is
+    why the face is in scope rather than deferred: the key's range is
+    `rangeOf(item.key, lineCounter, lineOffset)`, the same call the function
+    already makes one line earlier on `(item.value ?? item.key)`; and the
+    identifier-shape guard §Fix (b) says the face "needs … of its own" already
+    exists as the file-local `isIdentifierShaped`
+    (`/^[A-Za-z_][A-Za-z0-9_]*$/`), so no third spelling is minted. It routes
+    through **its own emitter**, not face 1's — forced, not chosen:
+    `ParamFieldInput.range` is the VALUE node's range (row q1, `@5:5–5:8`), so
+    nothing downstream in `params.ts` can range a diagnostic on the key, and
+    `item.key` is in scope only in `extractParsedParams`. Witness rows e5 (the
+    pin, ranged on the key @4:3–4:8), p1, p6, b1, b3, b4, q1, q3, q4.
+  - **Face 3, the inline object type — OUT.** `parseObject`
+    (`type-grammar.ts`) mints `TypeToken` as `{ kind, text }` with no range and
+    every diagnostic on that path is ranged at the caller's `site.range`, so a
+    field-name-precise range needs a structural change — the D3 risk §Fix (b)
+    names as "where the D2 estimate breaks", whose admissible answer "exclude
+    it and say so" is taken. Rows i1–i4 and p2 stay `[]`. Following bug 0139's
+    precedent (`tests/fn-param-name-case.test.ts:72–76`), the excluded face is
+    NAMED in the witness header and deliberately **unrowed** — a row asserting
+    `[]` there would red permanently against a later fix that closes it. The one
+    exception is row f7, which §Fix (e) required be rowed:
+    `schema S by Kind = { … } | { … }` reaches the ALIAS right-hand side, whose
+    inline arms are parsed by `parseObject`, so f7 stays `[]` and its comment
+    records that a later face-3 fix legitimately re-pins it.
+
+- **The range-sourcing choice for the face whose parser drops the token.** Only
+  face 2 needed one, and it needed a range rather than a token: the YAML
+  `Scalar` key node already carries `range`, so `rangeOf(item.key, …)` supplies
+  it with no structural change, and the emission falls back to the surrounding
+  per-field `range` on an unranged key node, mirroring that field's own `??`
+  discipline. Face 1 needed nothing — `nameTok` is the whole token and stays in
+  scope across the loop body. Face 3 is the face whose parser genuinely drops
+  the token, and that is exactly why it is out.
+
+- **The emission site inside face 1 — settled by measurement, not preference.**
+  §Fix (a) admitted "after the `kind` guard … and before **or at** the push".
+  The binding pre-measurement ran the full default suite under both:
+  - BEFORE the push (right after the name token is consumed, ahead of the
+    optional `as "WireName"`): **1 RED** —
+    `tests/schema-alias-rhs-malformed.test.ts:1210` (bug 0042 (e) e2, fixture
+    `F1D = schema S { f: Cat Cat }`). The comma-recovery arm re-enters the loop
+    and reads the *type* token `Cat` as the next field's name; no `:` follows,
+    so that field is discarded and `Cat` is never declared. A genuine
+    over-reach onto bug 0133's recovery arms.
+  - AT the push (past the last recovery arm — after the required `:` is
+    consumed, before `parseType`): **0 REDS**.
+
+  AT the push shipped. It satisfies §Fix (c)'s "Bug 0133's rows do not move" by
+  construction rather than by measurement, and confines the emission to a field
+  name no earlier arm of its own iteration discarded.
+
+- **The predicate — one spelling, not a third.** Both sites carry `checkName`'s
+  two-comparison form (`src/lexer/lexer.ts`), the same one bug 0139 reused at
+  `parseFn`'s parameter. `isLowercaseFirstIdentifier` (`callable-set.ts`) is not
+  reached: §Fix (a) records it as module-private and a whole-name regex rather
+  than a case test. `src/lexer/lexer.ts` is byte-unmodified, so open bugs 0051
+  (`lexer.ts:873–874`) and 0135 (`lexer.ts:842–849`) take zero citation drift,
+  as §Fix (a) required.
+
+- **The reserved-keyword arm is NOT closed, and the two faces agree on it.**
+  §Fix (a) required this be stated. Face 1 excludes reserved spellings
+  structurally (`nameTok.kind === "ident"`; the lexer's
+  `reserved.has(value) ? "keyword" : "ident"` makes the kind exactly set
+  membership). Face 2 excludes them by set membership against the lexer's own
+  exported `reservedKeywords()`, imported the way `src/parser/params.ts`
+  already imports it. This was a defect on first implementation and was caught
+  in the review loop: face 2's guard was `isIdentifierShaped` alone, so the
+  three uppercase-first reserved spellings drew the WRONG registered code —
+  `params: Ok: string` → `binding-case-mismatch @4:3–4:5`,
+  `params: Err: string` → `@4:3–4:6`, `params: Result: string` → `@4:3–4:9` —
+  while `schema S { Ok: string }` was silent and `let Ok = 1` / `fn Ok()` /
+  `fn h(Ok: string)` / `schema Ok = string` all drew
+  `reserved-keyword-as-identifier`. Every position where this rule is enforced
+  gives the keyword arm precedence and the case arm never sees a reserved
+  spelling (`checkName` pushes and `return`s before its first-letter test; bug
+  0148's `parseFn` arm tests keyword-kind ahead of the case arm), so the
+  divergence was a fresh instance of the very disease this report exists to
+  remove. Rows f6, f14, p4, p7, p8 pin both faces silent on a reserved spelling
+  and k6 pins which arm owns the input on a path this fix does not touch.
+  `schema S { let: string }` and `params: Ok: string` therefore still load
+  clean; that input class is unclaimed here (§Non-goals) and unmoved.
+
+- **The binding blast-radius pre-measurement**, run before the witness was
+  written:
+  - **Corpus** — `git ls-files -- '*.theta' '*.thetalib'` = 34 files, both
+    committed `.thetalib` files walked explicitly because
+    `tests/committed-fixture-parse-gate.test.ts` filters `.theta` only (open
+    bug 0132). **Zero** uppercase-first schema field names and **zero**
+    uppercase-first `params:` keys. The three regex hits
+    (`docs/examples/refine-inline.theta:18`, `docs/examples/reviewer.theta:13`,
+    `docs/examples/summarise-doc.theta:24`) are prose inside `@`…`` query
+    templates, not field positions. §Reproduction (h)'s count is re-measured,
+    not trusted. The operator's untracked `.pi/theta/smoke.theta` declares no
+    schema and no `params:`.
+  - **Test corpus** — exactly ONE uppercase-first schema field,
+    `tests/fn-arg-type-mismatch-wired.test.ts:710` (`schema W { P: number }`),
+    used once at `:1371` through the code-filtered `expectNoFnArgMismatch`;
+    **zero** uppercase-first `params:` keys anywhere in `tests/`, `docs/` or
+    `src/`.
+  - **Prototype suite run** — 0 existing reds at the shipped placement. §Fix
+    (c)'s instruction to verify bug 0050's `U6` cell "with a whole-suite run
+    rather than by reading" is discharged that way.
+
+- **Gates** (verbatim, re-run by the orchestrator independently of every nested
+  worker):
+  - Witness, before the fix: `npx vitest run tests/schema-field-name-case.test.ts`
+    → `Tests 18 failed | 23 passed (41)`, every red a missing
+    `theta/parse/binding-case-mismatch`. After: `Tests 46 passed (46)`.
+  - Full default suite: `npm test` → `Test Files 276 passed (276)` /
+    `Tests 4285 passed (4285)`. The pre-fix HEAD baseline was 275 files / 4239
+    tests; the delta is exactly this change's one witness file.
+  - Typecheck: `npx tsc --noEmit -p tsconfig.json` → exit 0.
+  - Lint: `npm run lint` → exit 0.
+  - H8a live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Tests 25 passed (25)`
+    (24 before this cell), the new cell 375 ms — the zero-token
+    registration-only profile.
+  - H9a live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/` → `Tests 11 passed (11)`, including area (d), which
+    drives `tests/live/acceptance/fixtures/acc-params-binder.theta` (`topic`,
+    `count` — both lowercase-first, so clean).
+  - `tests/fixtures/h7a/permitted-codes.json` — decided by the real H9a run,
+    not by reading: byte-unchanged, blob `a4a8da04`. The acceptance fixtures'
+    only schema is `schema Reply { status: string, summary: string }` and their
+    only `params:` block is `topic` / `count`, all lowercase-first, so
+    `binding-case-mismatch` cannot fire on any committed H9a fixture and the
+    EMPTY-CAPTURE stderr gate needs no new entry.
+
+- **Review** — 3 rounds plus one polish round:
+  - Round 1 (`bug-fix-reviewer`) — CLEAN. Three non-blocking residuals: a
+    face-1 comment overclaim, the registry *Message*'s fourth inline copy in
+    `src/`, and comment length (judged proportionate).
+  - Polish (`bug-fix-fixer-light`) — the comment overclaim corrected and one
+    WHAT-aside cut, both comment-only in `src/`; witness row q4 added.
+  - Round 2 (`bug-fix-reviewer-fast`) — CLEAN, and surfaced face 2's missing
+    reserved-keyword awareness as a scope note. The orchestrator measured it
+    and elevated it to a `correctness` finding.
+  - Fixer (`bug-fix-fixer`) — the reserved-keyword exclusion added by reuse of
+    `reservedKeywords()`; four additive witness rows (k6, f14, p7, p8). It
+    measured a third affected spelling (`Err`) the finding had not enumerated,
+    which the set-based exclusion covers.
+  - Round 3 (`bug-fix-reviewer`) — CLEAN, zero findings. It confirmed the
+    reserved set's uppercase-first members are exactly `Ok`, `Err`, `Result`
+    and byte-equal to `lexical.md:20`'s list; that no conformant key lost its
+    diagnostic (`Topic`, `Other`, `"Topic"`, `OK`, `Okay`, `Results` all still
+    fire); that the LOWERCASE namespace is not narrowed anywhere, so open bug
+    0135's admission premise for `index` is unmoved; and that all four
+    `binding-case-mismatch` emitters in `src/` now exclude reserved spellings.
+
+- **Verification** — SOLID, every obligation with quoted evidence, each
+  neutralisation restored and proven restored by blob hash against a
+  pre-neutralisation snapshot (never `git stash`, never `git checkout`):
+  - Witness reds for the right reason, per face. N1 (face 1 neutralised) →
+    exactly e1, e3, f1, f2, f4, f9, f10, f12, f13, w1 red, every face-2 cell
+    green. N2 (face 2 neutralised) → exactly e5, p1, p6, b1, b3, b4, q1, q3, q4
+    red, every face-1 cell green. N3 (the reserved-keyword exclusion dropped) →
+    exactly p7 and p8 red, proving that clause load-bearing.
+  - Full default suite green: 276 files / 4285 tests.
+  - Live end-to-end coverage of the fixed path, run for real, both directions
+    proven on the new H8a cell: neutralised → the cell reds with both broken
+    thetas present in `Registered:`; restored (blob-hash verified) → green.
+  - Lint and typecheck: exit 0 each.
+  - No stochastic red fired; every live run passed first attempt.
+
+- **Residuals**:
+  1. **Face 3, the inline object type, stays unenforced.** Rows i1–i4
+     (`fn h(p: { Ys: string })`, `schema S { a: { Ys: string } }`,
+     `fn h(): { Ys: string }`), p2 (a `params:` right-hand side) and f7 all
+     still load clean and register. Cause: `TypeToken` (`type-grammar.ts`) is
+     `{ kind, text }` with no range, and every diagnostic on that path is
+     ranged at the caller's `site.range`. Closing it means adding ranges to
+     `TypeToken` or accepting a declaration-ranged diagnostic. Measured this
+     run; deliberately unrowed so no witness reds permanently against the fix
+     that closes it.
+  2. **The registry *Message* has four inline copies in `src/`** — `lexer.ts`'s
+     `checkName`, `parseFn`'s parameter arm (bug 0139), `parseSchemaObjectBody`
+     and `extractParsedParams`. De-duplicating needs either an edit to
+     `src/lexer/lexer.ts` (which §Fix (a) forbids, to keep open bugs 0051 and
+     0135 drift-free) or a fifth authority covering two of the four sites.
+     Drift is caught rather than prevented: the witness pins all four emission
+     paths against the registry-sourced template (k2/k4/k5 → the lexer, k3 →
+     `parseFn`, e1 → face 1, e5 → face 2), so any one copy drifting reds the
+     suite. Non-behavioural; belongs to whichever change legitimately opens
+     `lexer.ts`.
+  3. **A YAML-normalised `params:` key is unwitnessed in either direction.** A
+     plain key `True` parses as a YAML boolean and stringifies to `"true"`, a
+     reserved spelling, so it draws nothing (`params: True:` → `[]`,
+     `params: Null:` → `[]`). Unchanged by this fix in either direction — the
+     normalised first letter is lowercase, so the case arm never saw it before
+     either. On the merits the author wrote a YAML boolean rather than an
+     identifier in a field-name position, so the class sits with the
+     reserved-spelling family rather than here.
+  4. **Induced citation drift, disclosed and not chased** (bug 0134's class,
+     the disposition bug 0139's fix took for its own insertion):
+     `src/parser/theta-document.ts` citations at old line ≥ 2637 shift **+34**;
+     `src/parser/frontmatter.ts` citations at old line ≥ 718 shift **+45**.
+     Only `//`-comment and bug-document citations are affected — no assertion,
+     type or runtime behaviour reads a line number. Affected open bug documents
+     include 0014, 0025, 0026, 0028, 0031, 0033, 0035, 0038, 0039, 0041, 0042,
+     0044, 0045, 0046, 0050, 0051, 0052, 0053, 0056, 0058, 0059, 0060, 0061,
+     0063, 0069, 0071, 0072, 0082, 0093, 0095, 0096, 0097 and 0100–0107;
+     pre-existing drift in those documents is not this fix's and was not
+     touched.
+  5. **Bug 0133's Status-bullet claim is now stale in the stronger sense.** It
+     reads "No open report edits `parseSchemaObjectBody` … or
+     `skipBraceRemainder`"; this report's filing made that false and this fix
+     has now landed in that loop, so 0133 rebases against the shipped emission
+     rather than against an open report. No 0133 row moves — its twelve
+     reaching token classes at the field-name position are all non-`ident`, the
+     `ident` guard keeps them out, and the whole-suite run confirms it. 0133's
+     document is another open report's and was not edited.
+
+- **Discharge notes appended**:
+  - `docs/bugs/0046-by-clause-undecided-inputs-load-silently.md`, §Non-goals
+    "Field-name casing enforcement" — its "loads clean at HEAD" premise moved
+    for the two closed faces, and its own example `schema Cat { Kind: "cat" }`
+    is now refused. Appended, nothing deleted; what remains load-bearing (the
+    gap's orthogonality to the `by`-clause subject, and cell i2's lowercase
+    fixture) is restated as still accurate, and face 3's survival is named so
+    the bullet's reachability argument keeps a live route.
+  - `docs/bugs/0135-index-sentinel-leaks-into-messages-and-typeenv.md` — **no
+    note owed, premise verified unmoved.** Its rows b2/b3 declare
+    `schema P { index: array<string> }`; `index` is lowercase-first, measured
+    `[]` after the fix, and the LOWERCASE namespace is narrowed nowhere. Its
+    `lexer.ts:842–849` citation takes no drift — that file is byte-unmodified.
+  - `docs/bugs/0143-…` and the four render-family documents — **no note owed.**
+    They cite `src/parser/type-compat.ts` arms; that file is byte-unmodified
+    (blob `c565a6a4`, identical to HEAD).
+  - `docs/bugs/0153-reserved-keyword-remaining-identifier-positions.md` — **no
+    note owed.** It claims the KEYWORD rule at sibling positions: a different
+    registered code, a different spec sentence (`lexical.md:20` against `:16`)
+    and a disjoint input set. This fix leaves every reserved spelling silent at
+    both closed faces, so 0153's class is handed to it untouched.
+
+- **Pinned dispositions / non-goals** — unchanged and re-measured after the
+  fix: the `enum` variant name stays silent (row g2, `lexical.md:15`'s bullet
+  and the other code); the `for` / `par for` variable and the `match` pattern
+  binder stay silent (rows o4, o5 — `lexical.md:16`'s list contains neither and
+  `type-layer-checks.ts` depends on the exclusion); the wire-name half stays
+  free (row f4 draws the code for its theta-side `Xs` and nothing about
+  `"wire"`; row f5's `xs as "Xs"` draws nothing; a reserved spelling as a wire
+  string draws nothing); `_`-leading stays admitted (rows f3, p3, and
+  `__proto__` measured clean, so bug 0119's reading is intact); a `params:` key
+  that is not identifier-shaped stays outside the *Trigger* (row q2); and
+  `theta/parse/reserved-keyword-as-identifier` at either field position stays
+  unclaimed (rows f6, f14, p4, p7, p8).

@@ -3368,3 +3368,203 @@ describe("H8a-T — bug 0148: a reserved keyword as an fn parameter name draws r
     }
   });
 });
+
+// ===========================================================================
+// Bug 0149 — `docs/spec_topics/lexical.md:16` requires a lowercase-first
+// SCHEMA FIELD NAME and a lowercase-first `params:` FRONTMATTER KEY, and
+// `code-registry-parse.md:19`'s Trigger already names the field-name position
+// (bug 0139's fix above closed the sibling `fn`-parameter position only), but
+// `parseSchemaObjectBody` (src/parser/theta-document.ts) and
+// `extractParsedParams` (src/parser/frontmatter.ts) each captured their
+// field-name token / YAML key with no case test
+// (docs/bugs/0149-field-name-case-positions-unenforced.md). `schema S { Xs:
+// string }` and a `params:` key `Topic: string` each loaded with zero
+// diagnostics and registered.
+//
+// The fix closes BOTH faces at their own parser leaf, each reusing
+// `checkName`'s own two-comparison predicate (src/lexer/lexer.ts) and pushing
+// `theta/parse/binding-case-mismatch` (severity `error`) ranged on the
+// field-name token (face 1) or the YAML key node (face 2). Face 2 additionally
+// excludes a non-identifier-shaped key and a reserved keyword; face 1 gets the
+// same two exclusions structurally, from the lexer's own keyword/ident token
+// classification. The 46-cell unit witness (tests/schema-field-name-case.test.ts)
+// proves the mechanism offline at the `parseThetaDocument` boundary. This cell
+// proves the SAME registered code denies REGISTRATION end to end through the
+// real production composition root (session_start → resources_discover →
+// composeExtensionInstance), which the offline harness cannot reach.
+//
+// The two broken callers mirror the bug doc's own §Reproduction rows e1 (face
+// 1) and e5 (face 2) verbatim. `theta/parse/binding-case-mismatch` is severity
+// `E`, so `hasLoadParseError` (production-composition.ts:2047–2054, applied at
+// `:2094`) un-registers each broken theta at the SAME site the bug 0070/0071/
+// 0077/0079(a)/0110/0084/0089/0095/0102/0125/0050/0137/0139/0142/0148 cells
+// above exercise for their own codes.
+//
+// The face-2 sibling's shape is the `classifyBinderBypass` (src/binder/
+// binder-envelope.ts) SINGLE-STRING-BYPASS shape — exactly one `params:`
+// field, type `string`, no default, not optional, not nullable — chosen and
+// MEASURED against `production-composition.ts`'s own binder-model-resolution
+// step, whose comment states: "Bypass-eligible thetas (no-params /
+// single-string) skip resolution entirely (they never call the binder)". A
+// bypass-eligible theta therefore needs no `bind_model:` and no
+// `.pi/settings.json` `theta.binderModel` to register — unlike `b71livecallee`
+// above (two typed `params:` fields, NOT bypass-eligible, so it carries its own
+// `bind_model:` for exactly this reason). This cell's own `b149liveparamsgood`
+// precondition assertion below is the live measurement: it registers with
+// neither `bind_model:` nor a settings-file binder model, confirming the
+// shape was correctly chosen rather than assumed.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the file header claims for the
+// discovery→registration cells above). ADDITIVE ONLY: no existing cell in this
+// file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * The bug doc's own §Reproduction row e1
+ * (docs/bugs/0149-field-name-case-positions-unenforced.md) verbatim: a
+ * top-level `schema` whose sole field is spelled uppercase-first. FACE 1.
+ */
+function illegalSchemaFieldCaseTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { Xs: string }", ""].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with the SAME schema, the field spelled lowercase —
+ * must still register, isolating the broken theta's refusal to the uppercase
+ * spelling rather than to "a theta declaring this schema shape never
+ * registers here". The bug doc's own control row e2.
+ */
+function conformantSchemaFieldCaseTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { xs: string }", ""].join("\n");
+}
+
+/**
+ * The bug doc's own §Reproduction row e5 verbatim: a `params:` key spelled
+ * uppercase-first. FACE 2. Exactly one field, type `string`, no default — the
+ * `classifyBinderBypass` single-string-bypass shape, so registration needs no
+ * `bind_model:` (file header note above).
+ */
+function illegalParamsKeyCaseTheta(): string {
+  return ["---", "mode: prompt", "params:", "  Topic: string", "---", "1", ""].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with the SAME single-string `params:` field, the key
+ * spelled lowercase — must still register. The bug doc's own control row e6.
+ */
+function conformantParamsKeyCaseTheta(): string {
+  return ["---", "mode: prompt", "params:", "  topic: string", "---", "1", ""].join("\n");
+}
+
+describe("H8a-T — bug 0149: an uppercase-first schema field name or params: key draws binding-case-mismatch and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose schema field name or params: key starts uppercase, while their lowercase-first siblings and an unrelated control all register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // broken theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the case rule under test.
+      { source: "project", stem: "b149livectl", text: promptTheta("THETA-LIVE-OK") },
+      // FACE 1 same-shape sibling and broken theta (the schema field name).
+      { source: "project", stem: "b149liveschemagood", text: conformantSchemaFieldCaseTheta() },
+      { source: "project", stem: "b149liveschemabroken", text: illegalSchemaFieldCaseTheta() },
+      // FACE 2 same-shape sibling and broken theta (the params: key).
+      { source: "project", stem: "b149liveparamsgood", text: conformantParamsKeyCaseTheta() },
+      { source: "project", stem: "b149liveparamsbroken", text: illegalParamsKeyCaseTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b149livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the case rule under test, would explain either broken theta's " +
+          "absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b149liveschemagood"),
+        "the same schema with a lowercase-first field did not register — a " +
+          "theta declaring this schema shape cannot register in this harness " +
+          "at all, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b149liveparamsgood"),
+        "the same single-string params: field spelled lowercase did not " +
+          "register — measured against `classifyBinderBypass`'s single-" +
+          "string-bypass shape (src/binder/binder-envelope.ts), this theta " +
+          "needs no `bind_model:` and no resolvable binder model to register, " +
+          "so its absence cannot be attributed to that. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // FACE 1 fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta declaring an uppercase-first schema field name does NOT
+      // register — parseSchemaObjectBody's field loop
+      // (src/parser/theta-document.ts) fires theta/parse/binding-case-
+      // mismatch, and hasLoadParseError un-registers this theta at the SAME
+      // site the cells above exercise for their own codes.
+      expect(
+        handle.command("b149liveschemabroken"),
+        "the theta whose schema field name starts uppercase registered " +
+          "anyway through the live discovery/session_start path — " +
+          "theta/parse/binding-case-mismatch did not fire at the schema " +
+          "field-name position. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b149liveschemabroken");
+
+      // FACE 2 fixed observable: the same registration-denial mechanism, at
+      // extractParsedParams's key walk (src/parser/frontmatter.ts) instead.
+      expect(
+        handle.command("b149liveparamsbroken"),
+        "the theta whose params: key starts uppercase registered anyway " +
+          "through the live discovery/session_start path — " +
+          "theta/parse/binding-case-mismatch did not fire at the params: key " +
+          "position. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b149liveparamsbroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148 cells above). Reuses
+      // this file's existing `bindingCaseMismatchFragment` reader (bug 0139's
+      // addition) rather than a second one — both faces push the SAME
+      // registered code with the SAME unplaceholdered Message, so the two
+      // notes are told apart by which broken theta's own file path
+      // `renderDiagnosticLine` (src/diagnostics/diagnostic.ts) prefixes onto
+      // the rendered line, not by the message text.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = bindingCaseMismatchFragment();
+      const schemaNote = notes.some(
+        (note) => note.includes(expectedFragment) && note.includes("b149liveschemabroken"),
+      );
+      const paramsNote = notes.some(
+        (note) => note.includes(expectedFragment) && note.includes("b149liveparamsbroken"),
+      );
+      expect(
+        schemaNote,
+        "no theta-system-note entry named the binding-case-mismatch rejection " +
+          "for the FACE 1 (schema field) broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+      expect(
+        paramsNote,
+        "no theta-system-note entry named the binding-case-mismatch rejection " +
+          "for the FACE 2 (params: key) broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

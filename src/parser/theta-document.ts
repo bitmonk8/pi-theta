@@ -2634,6 +2634,40 @@ class BodyParser {
         return null;
       }
       this.advance(); // `:`
+      // lexical.md §Identifiers requires lowercase-first for a schema field
+      // name, and code-registry-parse.md's binding-case-mismatch row already
+      // names the field-name position in its Trigger, so this brings the
+      // implementation onto a set the registry already claims rather than
+      // widening it. Past the last recovery arm on purpose: every earlier arm
+      // in this loop returns `null` and discards the field outright, so the
+      // diagnostic belongs to a field name THIS iteration is about to push —
+      // one no earlier arm of THIS iteration discarded.
+      // Any earlier placement lets the comma-recovery arm below re-enter the
+      // loop and read a discarded TYPE token as the next field's name,
+      // drawing the code on a field that is never declared. Those recovery
+      // arms are bug 0133's subject and none of its rows move: the guard
+      // below runs only on a field name that reaches the push, never on one
+      // an earlier arm discards. Guarded on `ident`, not on `isFieldName`
+      // above: a `keyword` token is deliberately admitted as a field name,
+      // and a keyword-shaped one is a different registered code under a
+      // different spec sentence (lexical.md §Reserved words), not closed
+      // here. The predicate mirrors `checkName`'s own two-comparison form
+      // (lexer.ts) — the same one the `fn` parameter check (bug 0139)
+      // already reuses — so the rule keeps one spelling across every
+      // position it is enforced at.
+      if (nameTok.kind === "ident") {
+        const first = nameTok.text[0] ?? "";
+        const isUpper = first >= "A" && first <= "Z";
+        if (isUpper) {
+          this.diagnostics.push({
+            severity: "error",
+            code: "theta/parse/binding-case-mismatch",
+            file: this.file,
+            range: nameTok.range,
+            message: "binding name must start with a lowercase letter or _",
+          });
+        }
+      }
       const typeSource = this.parseType(true);
       fields.push({
         name: nameTok.text,

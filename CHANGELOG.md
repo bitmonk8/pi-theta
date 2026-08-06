@@ -6,6 +6,74 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.82.0] - 2026-08-06
+
+### Fixed
+
+- **An uppercase-first schema field name and an uppercase-first `params:`
+  frontmatter key each drew no diagnostic, so a spelling the spec refuses
+  loaded, registered and ran** (bug 0149). `lexical.md` §Identifiers requires
+  lowercase-first — a lowercase letter, or `_` — for four positions: "`let` and
+  `let mut` bindings, function parameters, function names, and schema field
+  names", and states the consequence without qualification: "Violating either
+  rule is a parse error: … `theta/parse/binding-case-mismatch`". `schemas.md`
+  repeats it on the page that owns the position ("the lowercase-first rule still
+  applies to it") and names the `as "WireName"` rename clause as "the only
+  mechanism" for a property name that is not theta-identifier-compatible,
+  PascalCase among them. The registered *Trigger* names the position outright:
+  "Identifier in a binding / parameter / fn-name / **field-name** position does
+  not start with a lowercase letter or `_`." Three of the four positions were
+  enforced — `let` / `let mut` and the `fn` name by the lexer's keyword scan,
+  the `fn` parameter at the parser leaf since bug 0139 — and the field name was
+  the fourth. It was silent for the reason the lexer's shape predicts: the scan
+  inspects the identifier following a keyword token, and a field name follows
+  `{`, `,` or a YAML `params:` indent, so no adjacency reached it, and neither
+  parser leaf that held the token carried a case test. Measured:
+  `schema S { Xs: string }` reported `[]` and registered, as did a two-field
+  body, a second-field-only violation, an `as "WireName"` rename on an
+  uppercase field, and the `.thetalib` route; a `params:` key `Topic: string`
+  reported `[]` and registered while `let Topic = 1` in the same file drew the
+  code, and it lowered to a JSON Schema property literally named `Topic`.
+
+  `parseSchemaObjectBody`'s field loop and `extractParsedParams`' YAML key walk
+  now each emit `theta/parse/binding-case-mismatch`, severity `error`, the
+  registry *Message* byte-exact, ranged on the field name itself rather than on
+  the declaration — the token's own range for a `schema` body field, the YAML
+  key node's range for a `params:` key, which is not the value-node range that
+  face's existing per-field diagnostic carries. Both reuse the lexer's own
+  two-comparison case predicate rather than minting a second spelling, and the
+  lexer is untouched. Each field of a body is checked, so a two-field violation
+  draws two diagnostics at their own ranges. Both faces exclude a reserved
+  keyword and a key that is not identifier-shaped, because the registered
+  *Trigger* covers an **Identifier** in a field-name position and a reserved
+  spelling is owned by `theta/parse/reserved-keyword-as-identifier` under a
+  different spec sentence — the same precedence the rule's other four positions
+  already apply. The field-name emission is confined to a field the parser
+  actually accepts, so the object body's recovery arms and every code they emit
+  are unchanged.
+
+  Nothing else moves, and each is pinned by a witness row: the conformant
+  spellings stay clean (`xs`, an `_` prefix, and the sanctioned
+  `xs as "Xs"` rename, whose wire half the rule leaves free); the `enum`
+  variant name, the `for` / `par for` variable and the `match` pattern binder
+  stay silent, being governed by the other bullet or by no bullet; the wire-name
+  rules keep their behaviour; the type layer's and the runtime's verdicts are
+  untouched, with the new code appended in source order where a declaration is
+  ill-cased. The inline object type's field name — the same `Field` production
+  in any `Type` position — remains unenforced: its type-grammar tokens carry no
+  range, so a field-name-precise diagnostic there needs a structural change.
+
+  **Input classes newly refused (GOV-15 addition under the diagnostic-registry
+  carve-out; no registry row, *Trigger*, *Message* or mirror is edited):** a
+  `.theta` or `.thetalib` file declaring a `schema X { … }` field name whose
+  first character is an uppercase letter `A`–`Z`, and a `.theta` file declaring
+  a `params:` frontmatter field name whose first character is an uppercase
+  letter `A`–`Z`. In both cases a reserved spelling (`Ok`, `Err`, `Result`) is
+  excluded and stays clean. Measured against the committed corpus: all 34
+  tracked `.theta` and `.thetalib` files, both `.thetalib` files walked
+  explicitly, contain zero instances at either position — so the addition
+  refuses no committed program.
+
 ## [0.81.0] - 2026-08-06
 
 ### Fixed

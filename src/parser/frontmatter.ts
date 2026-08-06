@@ -38,6 +38,7 @@ import {
   classifyBinderBypass,
   type BypassParamsField,
 } from "../binder/binder-envelope";
+import { reservedKeywords } from "../lexer/lexer";
 
 /** A theta 1.0 invocation mode (`frontmatter-fields-a.md` field contract). */
 export type ThetaMode = "prompt" | "subagent";
@@ -438,6 +439,19 @@ function extractToolsList(node: unknown, yamlSource: string): readonly string[] 
   return undefined;
 }
 
+/**
+ * The reserved-keyword spellings a `params:` key can carry (lexical.md
+ * §Reserved words), read from the lexer's own set (`reservedKeywords()`,
+ * lexer.ts) rather than restated here as a second source of truth — the same
+ * reuse `params.ts`'s `RESERVED_KEYWORDS` makes for its atom classification. A
+ * `Set`, not a plain object keyed by author text: a record keyed by arbitrary
+ * source spellings needs a null prototype and an own-key guard to be indexed
+ * safely by author input, which a `Set.has` call needs neither of. Immutable
+ * module-level data, not mutable cross-invocation state, matching
+ * `THETA_1_0_FIELDS` above.
+ */
+const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
+
 /** The identifier-shape predicate `<key>` / `<observed>` string rendering uses. */
 function isIdentifierShaped(s: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(s);
@@ -715,6 +729,37 @@ function extractParsedParams(
     const range =
       rangeOf((item.value ?? item.key) as Node, lineCounter, lineOffset) ??
       { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
+    // lexical.md §Identifiers requires lowercase-first for a schema field
+    // name, and code-registry-parse.md's binding-case-mismatch row already
+    // names the field-name position in its Trigger. A `params:` key is that
+    // position twice over: it lowers to an object schema's property
+    // (schemas.md), and frontmatter-fields-a.md's "exposed as typed variables
+    // in the theta body" makes it a body binding as well, so the rule applies
+    // on either reading. `range` above is the VALUE node's, not the key's, so
+    // a diagnostic naming the key needs a range of its own; on an unranged key
+    // node it falls back to `range`, the same `??` fallback `range` itself
+    // already uses. The predicate is `checkName`'s own two-comparison form
+    // (lexer.ts). Its two exclusions hold the guard to the Trigger's
+    // "Identifier in a … field-name position": a key spelling no theta
+    // identifier (a quoted phrase), and a reserved keyword. Wherever this rule
+    // IS enforced the keyword arm claims the spelling first — `checkName`
+    // returns before its first-letter test, and `parseFn`'s parameter arm
+    // tests the keyword kind ahead of the case arm — under a different
+    // registered code and spec sentence (lexical.md §Reserved words) this fix
+    // does not close, which face 1's `ident` guard already honours.
+    if (isIdentifierShaped(name) && !RESERVED_KEYWORDS.has(name)) {
+      const first = name[0] ?? "";
+      const isUpper = first >= "A" && first <= "Z";
+      if (isUpper) {
+        diagnostics.push({
+          severity: "error",
+          code: "theta/parse/binding-case-mismatch",
+          file,
+          range: rangeOf(item.key as Node, lineCounter, lineOffset) ?? range,
+          message: "binding name must start with a lowercase letter or _",
+        });
+      }
+    }
     // A value node outside `paramValueCanCarryType`'s set declares no type
     // expression: the only non-scalar YAML shape that spells a `Type` is the
     // flow mapping an inline object type parses as, and every other node

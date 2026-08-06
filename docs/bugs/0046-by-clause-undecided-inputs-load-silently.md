@@ -539,6 +539,22 @@ clean load.
   and orthogonal — it only bears on A2 in that a PascalCase theta-side field
   is currently reachable, so `by Kind` is a member of class 1 only where no
   variant declares such a field, which cell i2's fixture ensures.
+
+  **Discharge note (0.82.0).** The "loads clean at HEAD" premise of this bullet
+  no longer holds for the two faces
+  [0149](./0149-field-name-case-positions-unenforced.md) closed: an
+  uppercase-first field name in a `schema X { … }` body and an uppercase-first
+  `params:` frontmatter key each now draw
+  `theta/parse/binding-case-mismatch` at the field name and the theta does not
+  register. `schema Cat { Kind: "cat" }` — this bullet's own example — is
+  refused as of 0.82.0. Read the bullet's first three sentences as historical.
+  What is unchanged and still load-bearing here: the gap was pre-existing and
+  orthogonal to this report's `by`-clause subject, and cell i2's fixture keeps
+  the reachability of a PascalCase theta-side field from being load-bearing for
+  the class-1 membership claim — that fixture is lowercase and stays clean.
+  0149's third face, the inline object type (`{ Ys: string }` in any `Type`
+  position), remains unenforced and unclaimed, so a PascalCase theta-side field
+  is still reachable there.
 - **0033's other recorded residuals.** (i) is filed as
   [0042](./0042-schema-decl-same-line-residue-silent.md), (ii) as
   [0043](./0043-union-nonprimitive-arm-lowers-permissive.md), (iii) — the
