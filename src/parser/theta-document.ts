@@ -2181,13 +2181,32 @@ class BodyParser {
             this.diagnostics.push(diag);
           }
         }
-        const pName = this.advance().text;
+        const pTok = this.advance();
+        // lexical.md §Identifiers requires lowercase-first for a `fn`
+        // parameter name, and code-registry-parse.md's binding-case-mismatch
+        // row already names the parameter position in its Trigger. The
+        // predicate and the `ident` guard mirror `checkName`'s binding arm
+        // (lexer.ts) so the rule keeps one spelling across every position it
+        // is enforced at.
+        if (pTok.kind === "ident") {
+          const first = pTok.text[0] ?? "";
+          const isUpper = first >= "A" && first <= "Z";
+          if (isUpper) {
+            this.diagnostics.push({
+              severity: "error",
+              code: "theta/parse/binding-case-mismatch",
+              file: this.file,
+              range: pTok.range,
+              message: "binding name must start with a lowercase letter or _",
+            });
+          }
+        }
         let pType = "";
         if (this.isPunct(":")) {
           this.advance();
           pType = this.parseType();
         }
-        params.push({ name: pName, type: pType });
+        params.push({ name: pTok.text, type: pType });
         if (this.isPunct(",")) {
           this.advance();
         }

@@ -931,3 +931,41 @@ every observable is determined inside one parse and one `executeBody`.
   `:61`, `:75`; `docs/reference/diagnostics.md:65`, `:67`;
   `docs/spec_topics/diagnostics/diagnostic-shape.md:72`, `:74`;
   `docs/spec_topics/governance/source-language-stability.md:5`, `:9`, `:25`.
+
+## Coordination note — bug 0139 (0.79.0) moved three of the cells above
+
+Bug [0139](./0139-fn-parameter-name-case-rule-unenforced.md) shipped in
+0.79.0. It enforces `lexical.md:16`'s lowercase-first rule at the `fn`
+PARAMETER position, emitting `theta/parse/binding-case-mismatch` on the
+parameter-name token, and that reaches three of the five cells §Affected names
+as "cells that depend on it":
+
+- `u13b` (`U13_FOR_IN_PARAM_SHADOW`), `u13c` (`U13_ARM_OBJECT_FIELD_SHADOW`)
+  and `u13d` (`U13_ARM_ITERAND_SHADOW`) in
+  `tests/fn-arg-type-mismatch-wired.test.ts` each declare `fn h(P: …)`, so the
+  parameter's own spelling now draws the case code. Under operator
+  authorization each cell's `expect(doc.diagnostics).toEqual([])` became an
+  ORDERED WHOLE-LIST equality over exactly one fully-specified
+  `binding-case-mismatch` diagnostic — registry-sourced message per DIAG-4,
+  ranged on the parameter name token (u13b `range(5,6,5,7)`, u13c
+  `range(6,6,6,7)`, u13d `range(5,6,5,7)`).
+- The cells' original pin is unchanged in substance and STRENGTHENED in form:
+  each still proves no TYPE-LAYER verdict is produced, and now proves it by
+  naming precisely what the list contains rather than by emptiness, so any
+  verdict would be an extra element and red the cell.
+- `u9c` (`U9_MATCH_BINDER`, §Affected's fourth citation), `U13MB_ARM_FIELD_MISS`
+  and `U13MC_ARM_ITERAND_MISS` were NOT touched. Their assertions are
+  unchanged.
+
+**What this means for 0141's routes.** Any route here that re-pins those three
+cells' diagnostic lists must rebase on the post-0139 expectation rather than on
+`toEqual([])`. A route that adds a second registered code at the capitalised
+bare pattern will find u13b–u13d already carrying one diagnostic, and the list
+is order-sensitive: `assembleDiagnostics` sorts by (file, line, column) with a
+stable sort, and the parameter token precedes the arm binder in every one of
+the three fixtures.
+
+The fixtures themselves are untouched — `P` still binds, and the `schema P`
+collision each cell exercises is intact. Lowercasing the parameters was
+considered and rejected as a semantic weakening of the shadowing premise these
+cells exist to test.

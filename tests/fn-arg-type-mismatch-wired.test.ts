@@ -179,6 +179,11 @@ const NON_BOOLEAN_CODE = "theta/parse/non-boolean-condition";
 const INVOKE_RETURN_CODE = "theta/parse/invoke-return-type-mismatch";
 const ARRAY_JOIN_CODE = "theta/parse/non-string-array-join";
 const OBJECT_INDEX_CODE = "theta/parse/non-string-object-index";
+// bug 0139's parameter-position case rule: `fn h(P: …)`'s own spelling draws
+// this code independently of any WITHHELD-entry read, so it is not one of the
+// sibling rows above — cells u13b–u13d each draw it alongside their sibling
+// row.
+const BINDING_CASE_CODE = "theta/parse/binding-case-mismatch";
 
 interface RegistryRow {
   readonly code: string;
@@ -825,8 +830,12 @@ const U12PE_PAR_FOR_SHADOW =
  * `schema P`, which is legal source: lexical.md:16 scopes the lowercase-first
  * rule to `let` / `let mut` bindings, function parameters, function names and
  * schema field names, so a `for` / `par for` variable and a `match` pattern
- * binder are outside it, and a parameter's case is unenforced at this HEAD
- * (cell u9c's own note).
+ * binder are outside it. Three of the four — `U13_FOR_IN_PARAM_SHADOW`,
+ * `U13_ARM_OBJECT_FIELD_SHADOW`, `U13_ARM_ITERAND_SHADOW` — collide on a
+ * `fn h(P: …)` parameter, which sits inside the rule. Bug 0139's
+ * `binding-case-mismatch` fires on that parameter's own spelling in cells
+ * u13b–u13d, independently of the collision each cell's assertion below is
+ * about.
  */
 const U13_PAR_FOR_NESTED_SHADOW =
   FM +
@@ -1636,11 +1645,10 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
     // (src/runtime/statement-executor.ts:416,
     // `scope.defineLocal(fn.params[i].name, arg.value, false)`), so `h(3)`
     // hands `g` the integer `3`. lexical.md:16 requires a lowercase-first
-    // parameter name and no case diagnostic is emitted for this one at this
-    // HEAD; that gap belongs to its own adjudication and is not what this cell
-    // pins — the pin is that a name minted from the parameter's spelling is
-    // never the argument's type. `h`'s own call defers on the same unannotated
-    // parameter (cell d1's arm).
+    // parameter name, which `P` violates: bug 0139's `binding-case-mismatch`
+    // fires on it, and that is not what this cell pins — the pin is that a
+    // name minted from the parameter's spelling is never the argument's type.
+    // `h`'s own call defers on the same unannotated parameter (cell d1's arm).
     const doc = parse(U9_FN_PARAM);
     const argument = argRange(doc, "g", 0);
     expect(
@@ -2320,7 +2328,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // (`WITHHELD_BINDER_TYPE_NAME`, src/parser/type-layer-checks.ts:387) that no
 // `.theta` text can declare: a `TypeEnv` key is exactly one token's text
 // (`parseSchema` takes the declaration name with a single `advance().text`,
-// src/parser/theta-document.ts:2336, and `collectTypeEnv` keys the env by it,
+// src/parser/theta-document.ts:2355, and `collectTypeEnv` keys the env by it,
 // src/parser/type-layer-checks.ts:345, :350), and no token text equals a
 // ten-character run that starts with `<` — an `ident` / `keyword` is
 // `[A-Za-z_][A-Za-z0-9_]*` (src/lexer/lexer.ts:666–682), a `punct` is one
@@ -2330,8 +2338,10 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // and `eof` is empty. A casing
 // convention would not do the same work: lexical.md:16 scopes lowercase-first
 // to `let` / `let mut`, parameters, `fn` names and schema field names, so a
-// `for` / `par for` variable and a `match` binder are outside it and a
-// parameter's case is unenforced at this HEAD.
+// `for` / `par for` variable and a `match` binder are outside it — the two
+// binder classes a first-letter convention could never flag. A `fn`
+// parameter's uppercase spelling is bug 0139's `binding-case-mismatch`, a
+// parse error on the token itself and not a gap this sentinel must cover.
 //
 // (2) A ROW WHOSE VERDICT RESTS ON THE WITHHELD PART MUST NOT REPORT. Two
 // mechanisms defeat an unresolvable name's ordinary deferral:
@@ -2397,10 +2407,13 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual([]);
   });
 
-  it("u13b: a `for` binder shadowing an ANNOTATED parameter of the same spelling draws nothing", () => {
+  it("u13b: a `for` binder shadowing an ANNOTATED parameter draws no type verdict, and the parameter's own case does", () => {
     // The parameter class. `walkFn` records the annotated `P: string`, and the
     // loop variable hides it; the runtime binds the element `"ok"` in the body,
-    // so `s: string` accepts it in every iteration.
+    // so `s: string` accepts it in every iteration. `h`'s own parameter `P` is
+    // an uppercase binding name, so bug 0139's `binding-case-mismatch` fires on
+    // it — a lexical check on the token, independent of the type-layer read
+    // this cell pins.
     const doc = parse(U13_FOR_IN_PARAM_SHADOW);
     expect(
       letRange(doc, "s"),
@@ -2408,15 +2421,27 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(5, 45, 5, 62));
     expect(
       doc.diagnostics,
-      `u13b — the loop variable's withheld entry is what the body reads, and it supports no verdict. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `u13b — the loop variable's withheld entry supports no type verdict; the parameter's own spelling draws the lexical case code alone. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      {
+        severity: "error",
+        code: BINDING_CASE_CODE,
+        file: FILE,
+        range: range(5, 6, 5, 7),
+        message: registered(BINDING_CASE_CODE),
+      },
+    ]);
   });
 
-  it("u13c: a `match` binder read at an OBJECT-FIELD sink draws nothing", () => {
+  it("u13c: a `match` binder read at an OBJECT-FIELD sink draws no type verdict, and the shadowed parameter's own case does", () => {
     // The object-field row (bug 0031's sink) over an arm binder shadowing the
     // annotated parameter. `matchPattern` binds an identifier pattern to the
     // scrutinee unconditionally (src/runtime/match-result.ts:177–179), so the
-    // field value is the string `"hi"` and `b: string` accepts it.
+    // field value is the string `"hi"` and `b: string` accepts it. `h`'s own
+    // parameter `P` is the shadowed binder, and its uppercase spelling draws
+    // bug 0139's `binding-case-mismatch` — a lexical check on the parameter
+    // token, independent of the arm binder this cell's type-layer pin is
+    // about.
     const doc = parse(U13_ARM_OBJECT_FIELD_SHADOW);
     expect(
       letRange(doc, "m"),
@@ -2424,15 +2449,26 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(6, 27, 6, 65));
     expect(
       doc.diagnostics,
-      `u13c — the object-field row reads the arm binder's withheld entry, so it has no operand to judge. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `u13c — the object-field row reads the arm binder's withheld entry and has no operand to judge; the parameter's own spelling draws the lexical case code alone. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      {
+        severity: "error",
+        code: BINDING_CASE_CODE,
+        file: FILE,
+        range: range(6, 6, 6, 7),
+        message: registered(BINDING_CASE_CODE),
+      },
+    ]);
   });
 
-  it("u13d: a `match` binder read as a `par for` ITERAND draws nothing", () => {
+  it("u13d: a `match` binder read as a `par for` ITERAND draws no type verdict, and the shadowed parameter's own case does", () => {
     // The iterand row, and the route that is not about the spelling at all:
     // `checkForIterand` rejects every non-array iterand, so this fixture emits
     // with no `schema P` declared as well. What the withhold gate supplies is
-    // the deferral the row cannot reach by itself.
+    // the deferral the row cannot reach by itself. `h`'s own parameter `P` is
+    // the shadowed binder, and its uppercase spelling draws bug 0139's
+    // `binding-case-mismatch` on the parameter token, independent of the
+    // iterand read this cell's type-layer pin is about.
     const doc = parse(U13_ARM_ITERAND_SHADOW);
     expect(
       letRange(doc, "m"),
@@ -2440,8 +2476,16 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(5, 35, 5, 83));
     expect(
       doc.diagnostics,
-      `u13d — an iterand read out of a withheld binder entry supports no verdict, so the row defers. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `u13d — an iterand read out of a withheld binder entry supports no verdict and the row defers; the parameter's own spelling draws the lexical case code alone. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      {
+        severity: "error",
+        code: BINDING_CASE_CODE,
+        file: FILE,
+        range: range(5, 6, 5, 7),
+        message: registered(BINDING_CASE_CODE),
+      },
+    ]);
   });
 
   it("u13m: the MISS class at the typed-`let` sink defers", () => {

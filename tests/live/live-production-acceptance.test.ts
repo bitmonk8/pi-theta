@@ -2818,3 +2818,198 @@ describe("H8a-T — bug 0137: a literal invoke(...) call's provably mistyped arg
   });
 });
 
+// ===========================================================================
+// Bug 0139 — `docs/spec_topics/lexical.md:16` requires a lowercase-first `fn`
+// PARAMETER name and `code-registry-parse.md:19`'s Trigger already names the
+// parameter position, but the sole enforcer, `contextualDiagnostics`
+// (src/lexer/lexer.ts:810-851), reaches only the `let` / `let mut`, `fn`-NAME
+// and `schema`/`enum`-NAME positions through its keyword-adjacency dispatch
+// (`:876-886`) — a parameter name follows `(` or `,`, not a keyword, so no
+// call reaches it, and `parseFn`'s parameter loop
+// (src/parser/theta-document.ts:2151) took the name token and dropped
+// everything but its `.text`
+// (docs/bugs/0139-fn-parameter-name-case-rule-unenforced.md).
+// `fn h(P: string): number { 1 }` loaded with zero diagnostics and
+// registered.
+//
+// The fix captures the parameter-name TOKEN rather than its bare text and
+// tests its first character against the same `[A-Z]` predicate `checkName`'s
+// binding arm already uses, pushing `theta/parse/binding-case-mismatch`
+// (severity `error`, ranged on the parameter-name token) when it matches.
+// `hasLoadParseError` (production-composition.ts) then un-registers the
+// declaring theta at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/
+// 0089/0095/0102/0125/0050/0137 cells above exercise for their own codes.
+//
+// No shipped live fixture (H8a in this file, the H9a acceptance fixtures, or
+// the hardening probes) declares an uppercase-first `fn` parameter anywhere
+// before this cell — confirmed statically:
+// `grep -rnoE 'fn [A-Za-z_][A-Za-z0-9_]*\([^)]*\)' tests/live/` returns every
+// `fn` declaration under this directory (inline theta-source string literals
+// included) and each one's parameter is lowercase-first or the list is empty
+// (`ask()`, `mk()`, `tagline()`, `f(xs: L)`, `g(s: string)`,
+// `bump(n: integer)`, `work(n: integer)`) — so no existing live fixture had
+// reach over this gate at all, mirroring the bug 0084/0089 cells' own "no
+// existing live fixture reaches this arm" finding for their own constructs.
+//
+// Three thetas isolate the refusal to the CASE of the parameter specifically,
+// not to "a theta declaring a `fn` never registers here": `b139livectl` (an
+// ordinary query-only control, proving the workspace and discovery walk both
+// work), `b139livegood` (the SAME `fn`, parameter spelled lowercase — must
+// register), and `b139livebroken` (the bug doc's own §Reproduction row a1
+// spelling, `fn h(P: string): number { 1 }` — must NOT register). No call is
+// needed: the diagnostic fires on the DECLARATION's parameter-name token at
+// parse time, before any statement runs (bug 0139 §Reproduction (a3): "a call
+// site adds nothing").
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the bug 0084/0089/0102/
+// 0125/0050/0137 cells above. ADDITIVE ONLY: no existing cell in this file is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** `theta/parse/binding-case-mismatch`'s registered code and registry page. */
+const BINDING_CASE_MISMATCH_CODE = "theta/parse/binding-case-mismatch";
+const BINDING_CASE_MISMATCH_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/binding-case-mismatch: binding name must start with a
+ * lowercase letter or _` — DIAG-4: the message half is read from the
+ * registry row, not copied, mirroring this file's existing
+ * `incrementDecrementFragment` / `invokePathEscapeFragment` helpers; the code
+ * prefix mirrors `renderDiagnosticLine`'s `${code}: ${message}` join
+ * (src/diagnostics/diagnostic.ts), which is what the theta-system-note
+ * content this cell asserts against actually carries. Unlike this file's
+ * type-mismatch fragment helpers the row carries no `<…>` placeholder, so
+ * this helper substitutes nothing; the trailing assertion is a drift guard —
+ * a future reworded row that introduces a placeholder reds here — rather
+ * than a fill check.
+ */
+function bindingCaseMismatchFragment(): string {
+  const template = registryMessage(
+    BINDING_CASE_MISMATCH_REGISTRY,
+    BINDING_CASE_MISMATCH_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${BINDING_CASE_MISMATCH_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = template as string;
+  expect(
+    message,
+    `${BINDING_CASE_MISMATCH_CODE}: the registry row's Message template grew ` +
+      "an unsubstituted <…> placeholder this reader does not fill — the row " +
+      "changed shape",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${BINDING_CASE_MISMATCH_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own §Reproduction row a1
+ * (docs/bugs/0139-fn-parameter-name-case-rule-unenforced.md) verbatim: a
+ * top-level `fn` whose sole parameter is spelled uppercase-first. The
+ * trailing `1` supplies the theta's final value — FN-4 makes an empty tail
+ * legal on its own, but every other bare-`fn`-declaration fixture in this
+ * file supplies an explicit tail (mirrors bug 0089's `aliasIterandTheta`
+ * above).
+ */
+function illegalFnParamCaseTheta(): string {
+  return ["---", "mode: prompt", "---", "fn h(P: string): number { 1 }", "1", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The same-shape SIBLING with the SAME `fn`, differing only in the
+ * parameter's own case — must still register, isolating the broken theta's
+ * refusal to the uppercase spelling rather than to "a theta declaring a `fn`
+ * never registers in this harness at all".
+ */
+function legalFnParamCaseTheta(): string {
+  return ["---", "mode: prompt", "---", "fn h(p: string): number { 1 }", "1", ""].join(
+    "\n",
+  );
+}
+
+describe("H8a-T — bug 0139: an uppercase-first fn parameter name draws binding-case-mismatch and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose fn parameter name starts uppercase, while its lowercase-parameter sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // broken theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the case rule under test.
+      { source: "project", stem: "b139livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME fn declaration, parameter spelled
+      // lowercase — must still register, isolating the refusal to the case
+      // rule rather than to "a theta declaring a fn never registers here".
+      { source: "project", stem: "b139livegood", text: legalFnParamCaseTheta() },
+      // The load-bearing broken theta: the bug doc's own §Reproduction row a1
+      // spelling.
+      { source: "project", stem: "b139livebroken", text: illegalFnParamCaseTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b139livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the case rule under test, would explain the broken theta's absence " +
+          "too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b139livegood"),
+        "the same fn with a lowercase parameter did not register — a theta " +
+          "declaring a fn cannot register in this harness at all, independent " +
+          "of this bug. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta declaring an uppercase-first fn parameter does NOT register —
+      // parseFn's parameter loop (src/parser/theta-document.ts) fires
+      // theta/parse/binding-case-mismatch, and hasLoadParseError un-registers
+      // this theta at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/
+      // 0089/0095/0102/0125/0050/0137 cells above exercise for their own
+      // codes.
+      expect(
+        handle.command("b139livebroken"),
+        "the theta whose fn parameter name starts uppercase registered anyway " +
+          "through the live discovery/session_start path — " +
+          "theta/parse/binding-case-mismatch did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b139livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = bindingCaseMismatchFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the binding-case-mismatch rejection " +
+          "for the broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+

@@ -1,10 +1,11 @@
 # Bug 0139 — `docs/spec_topics/lexical.md:16` requires a lowercase-first `fn` parameter name and `code-registry-parse.md:19` registers `theta/parse/binding-case-mismatch` for the "parameter position", but the only enforcer is the lexer's `contextualDiagnostics` (`lexer.ts:810–851`), whose dispatch (`:876–886`) reaches three positions — the `let` / `let mut` name, the `fn` NAME and the `schema` / `enum` NAME — and never the parameter list, so `fn h(P: string): number { 1 }` loads with zero diagnostics and registers, while `let P = 1` on the same HEAD draws the code
 
-- **Status:** open. §Fix names one enforcement site and one settled emission;
-  three sub-questions stay for the run (which of the sentence's four positions
-  the fix closes, the GOV-15 discharge, and whether the check lands in the
-  parser or the lexer). No ordering dependency: nothing blocks this and it
-  blocks nothing.
+- **Status:** fixed (0.79.0). The emission lands at the parser leaf, in
+  `parseFn`'s parameter loop; all three sub-questions are settled and recorded
+  in §Fix (0.79.0). This bullet's original "no ordering dependency: nothing
+  blocks this and it blocks nothing" claim was measured FALSE in both
+  directions and is corrected there — the emission moves three cells of bug
+  0050's shipped witness that open bug 0141 also claims.
 - **Sev/Diff estimate:** S1/D2 — a declared constraint is unenforced on the
   ordinary load path, so a spelling the spec refuses is accepted with no
   diagnostic and the theta registers (S1's "inputs accepted that the spec
@@ -811,3 +812,232 @@ determined inside one parse.
   verdict) with `:824–829`, `:1638–1643`, `:2331–2334` (the three comment
   blocks recording the gap). No test asserts the parameter position's
   behaviour in either direction.
+
+## Fix (0.79.0)
+
+- What shipped — the parser leaf enforces the parameter position, no registry
+  edit:
+  - `src/parser/theta-document.ts` (+23/−1) — `parseFn`'s parameter loop
+    captures the parameter-name TOKEN (`const pTok = this.advance()`) instead
+    of its bare `.text`, and pushes `theta/parse/binding-case-mismatch`
+    (severity `error`, `file: this.file`, `range: pTok.range`, the registry
+    *Message* byte-exact) when the token's first character satisfies
+    `checkName`'s own `first >= "A" && first <= "Z"`. `params.push` takes
+    `pTok.text`, so the stored `FnParam` is unchanged and the loop's control
+    flow is untouched. The emission is guarded by `pTok.kind === "ident"`, and
+    that guard is load-bearing rather than decorative: the registered *Trigger*
+    covers "**Identifier** in a … parameter … position", so a non-identifier
+    token reaching the loop through error recovery must not emit. Measured:
+    `fn h(3: string)` → `[]`, `fn h(let: string)` → `[]`.
+  - `tests/fn-param-name-case.test.ts` — new, 536 lines, 19 rows through
+    `parseDoc`. Whole-list ordered `toEqual` over unfiltered `doc.diagnostics`
+    on every row, so neither an extra diagnostic nor one emitted at the wrong
+    position can hide inside a containment check; every expected message read
+    from the registry through `registryMessage` (DIAG-4). §Fix (e)'s required
+    set in full: a1 (the pin, range asserted on the parameter name token
+    @4:6–4:7), a2–a8, a12 (both codes, order pinned, both ranges asserted),
+    a9–a11 and a13 (the enforced-position controls), a14–a16 (the conformant
+    spellings, `_` prefix and `_` discard included), c1/c2 (the over-reach
+    tripwires), and (g) the `.thetalib` route. a6 pins the SECOND parameter's
+    own range @4:17–4:18, so a check that stopped at the first parameter or
+    ranged every violation on the declaration head reds.
+  - `tests/fn-arg-type-mismatch-wired.test.ts` (+88/−24) — the
+    operator-authorized append, quoted verbatim below, applied to exactly
+    three cells.
+  - `tests/live/live-production-acceptance.test.ts` (+195/−0) — one additive
+    H8a cell modelled on the bug 0137 cell above it: `b139livebroken`
+    (§Reproduction row a1's spelling) is denied registration end-to-end through
+    the real production composition root while `b139livegood` (the same `fn`,
+    parameter spelled lowercase) and the `b139livectl` control both register,
+    with the `theta-system-note` channel read off the settled in-memory
+    `SessionManager` naming the registry-sourced rejection.
+  - Byte-unchanged, verified: the registry row (`code-registry-parse.md:19`)
+    and its `docs/reference/diagnostics.md:65` mirror — the implementation
+    moves onto the registered *Trigger*, which already names the parameter
+    position, so DIAG-2 is not engaged and the DIAG-4 *Message* is unchanged
+    (`git diff docs/` empty); `tests/fixtures/h7a/permitted-codes.json`,
+    decided by the REAL H9a run (11/11 green, the code never surfaced — no
+    acceptance fixture declares an uppercase-first parameter), blob
+    `a4a8da04209f90e13d815edd92c1fc682e2a2236` identical to `HEAD`;
+    `src/lexer/lexer.ts`; `src/parser/type-layer-checks.ts` (bug 0050's
+    machinery, untouched); `src/parser/callable-set.ts`;
+    `src/runtime/statement-executor.ts`.
+- **Operator authorization, verbatim.** The emission mechanically adds one
+  diagnostic to three cells of bug 0050's shipped witness that assert
+  whole-list emptiness over fixtures declaring an uppercase annotated
+  parameter. A prior run STOPPED at that charter hard stop rather than change
+  them. The operator then granted, and this fix took, exactly this:
+
+  > The operator authorizes changing EXACTLY three assertion cells in
+  > `tests/fn-arg-type-mismatch-wired.test.ts` (bug 0050's shipped witness):
+  > u13b, u13c, u13d — each `expect(doc.diagnostics).toEqual([])` becomes an
+  > expectation of EXACTLY ONE diagnostic, the registry-sourced
+  > `theta/parse/binding-case-mismatch` (message read from the registry per
+  > DIAG-4, never copied prose; range on the parameter name token), and
+  > NOTHING else — each cell must still prove no type-layer verdict is
+  > produced (that is the cell's original purpose; it must remain pinned,
+  > strengthened not weakened). Update those three cells' comments
+  > accordingly, and the three stale comment blocks in the same file that say
+  > a parameter's case "is unenforced at this HEAD". ALSO authorized: append
+  > (never delete) a coordination note to open bug 0141's doc recording that
+  > u13b/c/d now carry the binding-case-mismatch expectation from 0139's fix
+  > and that 0141's routes re-pinning those cells must rebase on it. The
+  > authorization covers EXACTLY this surface.
+
+  Applied exactly: three `toEqual([])` became ordered whole-list equalities
+  over one fully-specified diagnostic object (`severity`, `code`, `file`,
+  `range`, `message` from the file's existing `registered()` registry oracle),
+  ranged on each fixture's own parameter token — u13b `range(5,6,5,7)`, u13c
+  `range(6,6,6,7)`, u13d `range(5,6,5,7)`, each derived from the fixture string
+  and confirmed by probe. Each cell's pin is STRENGTHENED, not weakened: a
+  type-layer verdict would now be an extra list element and red the cell, where
+  `toEqual([])` merely happened to exclude it. Every `letRange` PRECONDITION
+  assertion is untouched. Two judgment calls inside the bound, both prose: the
+  three cells' `it(...)` titles were updated (the old "draws nothing" is false
+  against the authorized expectation), and one citation embedded in an
+  authorized comment block was corrected from `theta-document.ts:2336` to
+  `:2355` (`parseSchema`'s name capture, shifted by this fix's own +19-line
+  insertion; verified by reading the file). Cell u9c is NOT in the authorized
+  set: only its comment clause was corrected, its assertions are untouched, and
+  it cannot move — `expectNoFnArgMismatch` filters by the fn-arg code alone.
+  Whole-suite blast radius held at exactly the three authorized cells; no
+  fourth test reds, so the authorization was never stretched.
+- **The three sub-questions, settled** (adopted from the stopped run's
+  analysis, with every fact re-verified at this HEAD before being pinned):
+  **(a) Site — the parser leaf.** The lexer's own scope note hands the
+  obligation there ("full identifier-position coverage … is a parser-leaf
+  obligation"); the `checkMutModifier` precedent sits twelve lines earlier in
+  the same loop and already carries `{ position: "fn-param" }`; the token and
+  its range are in hand at the point of consumption; and `subagent fn` is
+  reached for free because `parseFn` serves both (witness a8). The lexer
+  alternative needs an annotation-skipping walk over `<`, `,` and `|` that
+  duplicates the parser. The parser route also touches `src/lexer/lexer.ts` not
+  at all, so it induces ZERO citation drift in bug docs 0051
+  (`lexer.ts:873–874`) and 0135 (`lexer.ts:842–849`) — strictly better than
+  §Fix's own minimum, which anticipated a possible lexer edit.
+  **Predicate:** `checkName`'s formulation reused verbatim, no third spelling
+  minted; `isLowercaseFirstIdentifier` (`callable-set.ts`) is module-private
+  and is a whole-name regex, so it was not reached for.
+  **(a′) The reserved-keyword arm is NOT closed.** `fn h(let: string)` stays
+  silent — a different registered code under a different spec sentence
+  (`lexical.md:20`), and closing it would widen the GOV-15 sweep to a second
+  input class for no witness row. Measured `[]` after the fix → residual 1.
+  **(b) Positions closed — the `fn` parameter ONLY.** The schema-field-name and
+  `params:` frontmatter-field positions stay out; measured after the fix,
+  §Reproduction rows e1, e2, e3, e5 and e6 are all still `[]` (e4 fires, but
+  only on its own `fn h(P: S)` parameter, which is correct) → residual 2.
+  **(c) GOV-15 — re-measured at this HEAD, not cited.**
+  `git ls-files -- '*.theta' '*.thetalib'` → 34 files, walked explicitly
+  because open bug 0132 leaves `tests/committed-fixture-parse-gate.test.ts`
+  blind to `.thetalib`. Zero uppercase-first `fn` parameters. The corpus's four
+  `fn` declarations — `docs/examples/personas.thetalib:7`,
+  `docs/examples/ralph-inline.theta:21`,
+  `docs/examples/refine-inline.theta:16`, and the parameterless
+  `tests/live/acceptance/fixtures/acc-lib.thetalib:3` — are all
+  lowercase-first. The operator's untracked `.pi/theta/smoke.theta` declares no
+  `fn` and was not modified. `source-language-stability.md:25` dispositions the
+  change as a carve-out-covered ADDITION for inputs newly brought into the
+  code's emission set; the release notes name the input class.
+- **Two places this document was wrong**, both measured:
+  1. **§Affected under-counts the test obligation by three cells.** It states of
+     the four committed uppercase-parameter fixtures that "**none** asserts
+     anything about the case rule: each pins a fn-arg verdict". True but
+     incomplete — three of the four pin it *via whole-list*
+     `expect(doc.diagnostics).toEqual([])`, so the case rule's arrival breaks
+     them. §Fix (d)'s "no type-layer verdict moves … with the new code
+     appended" prescribes the right remedy but is scoped to this report's own
+     §Reproduction (b) rows, not to the committed 0050 witness. "No test
+     asserts this" is not the same claim as "no test reds on this".
+  2. **The Status bullet's "No ordering dependency: nothing blocks this and it
+     blocks nothing" is false in both directions.** 0139 cannot land without
+     disturbing cells that open, §Fix-unsettled bug 0141 claims — its §Affected
+     names `U13_ARM_OBJECT_FIELD_SHADOW` and `U13_ARM_ITERAND_SHADOW` among
+     "five cells that depend on it". The Status bullet is corrected above and a
+     coordination note is appended to 0141.
+- Gates: witness 19/19; `npm test` 272 files / 4148 tests passed, 0 failed
+  (baseline at the pre-fix HEAD `8669ca05` was 271 / 4129 — the delta is
+  exactly the new file's 19 rows); `npx tsc -p tsconfig.json --noEmit` exit 0;
+  `npm run lint` exit 0; H8a live 22/22 including the new cell; H9a acceptance
+  11/11, no stochastic red in the shipping run; committed-corpus sweep clean
+  (34 files, zero hits).
+- Review: 1 round plus one prose fixer. A pre-review CORRECTION round ran first
+  — comment and prose only, zero assertion and zero executable change, proven
+  by a comment-stripped digest that stayed byte-identical across it — retiring
+  the witness header's pre-fix framing and one line citation this fix's own
+  +19-line insertion had shifted; it is not a review round and the cap is
+  untouched. r1 (deep): **CLEAN** on `correctness`, `fidelity`, `spec`, `test`,
+  `house-rule` and `prose`, with the predicate walked against `checkName` side
+  by side, the three u13 ranges re-derived independently from the fixture
+  strings, the GOV-15 corpus re-measured, and the parser's recovery paths
+  probed; two non-blocking residuals raised (recorded as residuals 4 and 5
+  below; the round's one prose finding was fixed). That fixer round touched
+  only comment lines — the comment-stripped digest was unchanged — so polish
+  was verified by gate-diff and the confirmation round skipped.
+- Verification: SOLID. The witness genuinely witnesses — with the emission
+  neutralised by a targeted byte edit (never `git stash`), the new file reds
+  10/19 (a1–a8 and g because the code is absent; a12 because only
+  `mut-on-immutable-context` is present) and the three authorized u13 cells red
+  on `[]` against their new expectation; restored blob-hash-exact
+  (`1cf3310cfc9b5ca9c8277bb8d4ec471f02809931` before and after, compared
+  against the pre-neutralisation snapshot rather than the pre-fix `HEAD` blob);
+  green 19/19 and 84/84 after. Full default suite green. The additive H8a cell
+  proven BOTH directions live: RED with the emission neutralised
+  (`b139livebroken` registers), GREEN restored. Lint and typecheck exit 0.
+  `git stash` was not used at any point by any worker.
+- Residuals:
+  1. **The reserved keyword at the parameter position stays silent.**
+     `fn h(let: string): number { 1 }` → `[]`, measured both before and after
+     the fix, so it is a residual of the fix and not merely of the old HEAD.
+     Anchors: `docs/spec_topics/lexical.md:20` (reserves `let`; "Using one of
+     these in identifier position is
+     `theta/parse/reserved-keyword-as-identifier`"); that code's registered row
+     in `code-registry-parse.md` (*Trigger*: "Reserved keyword used in an
+     identifier position"); `checkName`'s keyword arm, which the parser site
+     does not reach. §Reproduction row d1.
+  2. **The other two positions of `lexical.md:16`'s four-entry list stay
+     silent** — the schema field name and the `params:` frontmatter field name.
+     Measured `[]` before and unchanged after: `schema S { Xs: string }` → `[]`;
+     a `params:` field `Topic: string` → `[]`. §Reproduction rows e1–e6. Prior
+     record: bug 0046's §Non-goals bullet, whose wording "pre-existing,
+     unfiled, and orthogonal" is verified STILL ACCURATE at this HEAD, so no
+     discharge note is owed there.
+  3. **The missing parameter-type annotation stays lenient.**
+     `FnParam ::= Ident ":" Type` (`docs/reference/grammar.md:254`,
+     `docs/spec_topics/grammar.md:143`) makes the annotation mandatory, yet both
+     `fn h(P)` and `fn h(p)` parse. Unchanged by this fix and disclosed in
+     §Non-goals; unfiled at this HEAD.
+  4. **An unclosed `fn` parameter list is accepted with no structural
+     diagnostic, and its recovery can duplicate the new code.** Measured:
+     `fn h(P: string { 1 }` draws one `binding-case-mismatch` and no structural
+     diagnostic at all (before this fix it drew nothing whatever and
+     registered). Because the lexer suppresses newlines while paren depth > 0,
+     `fn h(a: string,` followed by `let X = 1` swallows the following statement
+     and reports `binding-case-mismatch` TWICE at the same range — once from the
+     untouched lexer `let`-adjacency and once from the parser loop, which
+     classified the consumed token as a parameter before this fix as well. Not a
+     defect of this fix and not GOV-15-relevant: every duplicate-producing input
+     already carries an `E` (here `theta/parse/single-line-if` @4:1–4:3) and so
+     already failed to register, and the new code emits at most once per token
+     it sees. The root — the silent unclosed-list acceptance — predates this fix
+     and is unfiled.
+  5. **Those recovery paths carry no witness row.** Pinning them would mean
+     asserting recovery semantics this report does not claim, so they are
+     recorded rather than locked.
+- Discharge notes appended: 0141 (the coordination note the authorization
+  names). 0046 verified accurate at this HEAD, no edit owed. 0051 needs none —
+  the parser site induces no `lexer.ts` drift.
+- Pinned dispositions / non-goals: the lexer-site fourth branch stays rejected
+  (it duplicates the parser's annotation walk and would shift the citations
+  0051 and 0135 hold). Widening to a `for` / `par for` variable or a `match`
+  pattern binder stays rejected — `lexical.md:16`'s list excludes them, witness
+  rows c1/c2 are tripwires against it, and `WITHHELD_BINDER_TYPE_NAME`'s premise
+  depends on the exclusion. Folding in bug 0051's reference-position rule stays
+  out (different sentence, different *Trigger*, its deliverable is an
+  adjudication). Bug 0050's `checkFnArgCompat` / withheld-binder machinery stays
+  untouched, and every §Reproduction (b) verdict is unchanged with the new code
+  appended only where the parameter is uppercase. Lowercasing the u13 fixtures
+  stays rejected — the operator considered it and it destroys their shadowing
+  premise. Induced position-only citation drift in files this fix shifted
+  (`theta-document.ts` lines ≥2185, +19) is bug 0134's adjudicated do-not-fix
+  class: disclosed, not chased, including in this document's own §Affected and
+  §Provenance citations.

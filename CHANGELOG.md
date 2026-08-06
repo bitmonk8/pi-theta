@@ -6,6 +6,57 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-08-06
+
+### Fixed
+
+- **A `fn` parameter name's first-letter case was unenforced — the spec
+  requires lowercase-first at that position and nothing checked it** (bug
+  0139). `lexical.md` §Identifiers requires lowercase-first (a lowercase letter
+  or `_`) for "`let` and `let mut` bindings, function parameters, function
+  names, and schema field names", makes a violation a parse error, and
+  `theta/parse/binding-case-mismatch`'s registered *Trigger* names the
+  parameter position in so many words. The rule's only implementation was the
+  lexer's `contextualDiagnostics`, which works by keyword adjacency — it
+  inspects the identifier following `let` (past the `mut` skip), following
+  `fn`, and following `schema` / `enum`. A parameter name follows `(` or `,`,
+  so no call reached it: `fn h(P: string): number { 1 }` loaded with zero
+  diagnostics and registered, while `let P = 1` beside it drew the code. The
+  discriminator between a reported spelling and an accepted one was which
+  keyword preceded the identifier, which has no counterpart in the spec, and
+  `lexical.md` grounds `match`'s case-based pattern disambiguation on the same
+  first letter being enforced.
+
+  `parseFn`'s parameter loop now captures the parameter-name token rather than
+  its bare text and tests its first character against the same predicate the
+  lexer's `checkName` already applies, emitting the registered code ranged on
+  the parameter name itself — the position the lexer's own scope note assigns
+  to the parser leaf, and the same loop that already reports a `mut` modifier
+  at that modifier's range. The emission is guarded to identifier tokens, which
+  is exactly the registered *Trigger*'s input class. `subagent fn` and
+  `.thetalib` are covered by the same route; every parameter in a list is
+  checked, trailing comma included; `mut` on an uppercase parameter reports
+  both registered codes in column order. The scope is the `fn` parameter
+  position alone: a `for` / `par for` variable and a `match` pattern binder stay
+  outside the rule as the spec sentence's list requires, the reserved-keyword
+  arm and the schema-field-name / `params:`-field-name positions stay unclosed,
+  and no type-layer verdict moves. Locked by a 19-row offline witness
+  (`tests/fn-param-name-case.test.ts`) and an additive live H8a
+  registration-denial cell, both proven red with the emission neutralised; the
+  registry row and its `docs/reference/diagnostics.md` mirror are byte-unchanged
+  (the implementation moves onto the registered *Trigger*, so DIAG-2 is not
+  engaged and the DIAG-4 *Message* is unchanged).
+
+  **Source-language stability (GOV-15).** This is a carve-out-covered
+  ADDITION: it brings a new input class into an existing code's emission set
+  and changes no code any input already emits. The input class is **`.theta` /
+  `.thetalib` files declaring a `fn` parameter whose name begins with an
+  uppercase letter**; such a file now emits an `error`-severity diagnostic and
+  no longer registers. Measured blast radius against the committed corpus:
+  **zero** — all 34 tracked `.theta` and `.thetalib` files were walked
+  explicitly (the shipped parse gate is blind to `.thetalib`) and every
+  parameter in the corpus is lowercase-first.
+
 ## [0.78.0] - 2026-08-05
 
 ### Fixed
