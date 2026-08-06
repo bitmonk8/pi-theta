@@ -6,6 +6,60 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-08-06
+
+### Fixed
+
+- **`/` typed as its operands' common type instead of `number`, so `3 / 2` read
+  `integer` and every `integer`-annotated sink accepted a fractional value in
+  silence** (bug 0142). `expressions.md` §"Other arithmetic" fixes the result
+  type of `/` without qualification — "`/` always produces `number` (no
+  integer-division operator in theta 1.0)" — and states it twice in the same
+  paragraph, once positively and once by taking `/` out of the operand-common
+  widening it gives `-`, `*` and `%`. `#typeBinary` implemented the widening and
+  not the exception: after two operator tests it fell to one line that reduced
+  both operands to their common type, so `3 / 2`, `3 - 2`, `3 * 2` and `3 % 2`
+  all read `integer` and the static type of a quotient was the static type of
+  its left literal. The answer was concrete and resolvable rather than an inert
+  fallback, so nothing deferred and every consumer decided on it: a typed `let`,
+  a `fn` argument slot, a schema-constructor field, an `array<integer>` element
+  and a `par for … max` operand all fell silent where the same body with a `1.5`
+  literal fired, all five missed codes are `error` severity, and the affected
+  theta registered and ran while the runtime bound `1.5` — or `Infinity` for
+  `1 / 0` and `NaN` for `0 / 0`, both into `integer` bindings. The type layer
+  reported this as a PROOF rather than a deferral: `provableArgType`'s exactness
+  test is taken against the same inference rule that contradicted the spec, so
+  it certified the contradiction.
+
+  `#typeBinary` now carries a per-operator arm for `/` ahead of the common-type
+  reduction, returning `number` unconditionally — the rule is on the operator,
+  consults no operand, and has no exception for an exactly-divisible pair. The
+  extension-layer sibling `collectProvableArgTypes` mirrors it, keeping that
+  function's stated shape-for-shape invariant with the pass true rather than
+  adding `/` as an exception to it. Nothing else moves: `+` (whose result type
+  IS its operands' common type), the operand-common widening for `-`, `*` and
+  `%`, `%`-by-a-literal-zero, `fn`-return-annotation checking, the common-type
+  reduction itself and all three runtime `/` implementations are untouched and
+  pinned as such.
+
+  **Input class newly refused (GOV-15 addition under the diagnostic-registry
+  carve-out):** a `/` expression reaching a position whose declared type is not
+  `number` — an `integer`-annotated `let`, `fn` parameter, schema field,
+  `array<integer>` element or `par for … max` operand, and a `string`- or
+  `boolean`-annotated position reached by a non-numeric operand pair such as
+  `"a" / "b"`, whose runtime value is `NaN`. Measured against the committed
+  corpus: 34 tracked `.theta` / `.thetalib` files, **zero** containing a `/`
+  binary operator, so no shipped example, fixture or library changes disposition.
+  No registry row is added, removed or edited and no *Trigger* changes — every
+  code the fix emits is already registered, already `error`, and already emitted
+  from the same call site on the `1.5`-literal control — so DIAG-2 is not engaged
+  and the DIAG-4 *Message* strings are byte-identical, confirmed by blob hash on
+  the registry page and both `docs/reference/` mirrors. Locked by a 43-cell
+  offline witness (`tests/division-result-type-number.test.ts`), a 4-cell invoke
+  companion (`tests/division-result-type-number-invoke.test.ts`) and an additive
+  live H8a registration-denial cell, each proven red with the arm neutralised and
+  green after a hash-verified restore.
+
 ## [0.79.0] - 2026-08-06
 
 ### Fixed

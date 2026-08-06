@@ -1,6 +1,10 @@
 # Bug 0142 — `#typeBinary`'s arithmetic arm reduces the two operands to a common type with no per-operator rule, so `3 / 2` types as `integer` against `expressions.md:232`'s "`/` always produces `number`": `fn g(n: integer)` called as `g(3 / 2)`, `let n: integer = 3 / 2`, an `integer`-declared schema field, an `array<integer>` element and a `par for … max` all load with zero diagnostics while the runtime binds `1.5`, and bug 0050's `provableArgType` discipline certifies the wrong type as PROVEN because its exactness test is taken against the same contradicted inference rule
 
-- **Status:** open. No ordering dependency blocks it: bug
+- **Status:** fixed (0.80.0). The per-operator arm lands in `#typeBinary`
+  exactly as §Fix prescribes, and §Fix (c)'s open sub-decision is settled as
+  MIRROR — both recorded in §Fix (0.80.0), together with two places this
+  document's own §Fix (a) summary understates what flips. No ordering
+  dependency blocked it: bug
   [0050](./0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md) is
   **fixed (0.77.0)** and is this report's origin, not its prerequisite. §Fix
   names one coordination surface — 0050's witness
@@ -951,3 +955,272 @@ one offline execution.
   theta source, and `src/` carries no `*.test.ts`. Bug 0050's witness
   `tests/fn-arg-type-mismatch-wired.test.ts` exercises the `checkFnCallArgs`
   sink this defect passes through and contains no `/` cell.
+
+## Fix (0.80.0)
+
+- **What shipped** — one per-operator arm, mirrored once, and two witnesses. No
+  registry edit, no runtime edit, no `docs/reference/` edit:
+  - `src/parser/static-type-inference.ts` (+6/−0) — `#typeBinary` gains the arm
+    §Fix prescribes, byte-for-byte including its comment: after the
+    `BOOLEAN_BINARY_OPS` gate (`/` is not in that set) and before the
+    `#commonType` call,
+    `if (op === "/") { return { kind: "prim", name: "number" }; }`. The
+    synthetic-`null`-left unary block above it is unreachable for `/`, which has
+    no unary form. `op` is now read three times instead of twice; the reduction
+    below it is untouched, so `+`, `-`, `*` and `%` reach it exactly as before.
+  - `src/extension/invoke-static-checks.ts` (+21/−7) — **§Fix (c) is settled as
+    MIRROR.** `collectProvableArgTypes`'s `binary` arm gains the same rule in
+    `#typeBinary`'s own dispatch order — after the synthetic-`null` unary `-`
+    arm, after the `!` / `BOOLEAN_BINARY_OPS` arm, before the arithmetic
+    `collectArmUnion` — returning `[pass.typeOf(expr, env)]`, the shape the
+    result-fixed boolean arm one block above already uses. The arithmetic arm's
+    own comment is corrected in the same hunk (comment-only, no logic change):
+    it cited "a division's non-integral result" as the example of a safe
+    over-approximation, which is false about code division no longer reaches; it
+    now names `+` / `-` / `*` / `%` and ties the `kindsDisjoint` reconciliation
+    to `%`'s `NaN` widening, the operator that still relies on it.
+  - `tests/division-result-type-number.test.ts` — new, 43 cells, offline and
+    provider-free, on bug 0050's witness shape. Every expected *Message* read
+    through `registryMessage` (DIAG-4); a loud precondition per absence cell
+    (`expectDivisions` asserts the fixture actually contains the division whose
+    silence is being measured, so an absence cell cannot pass while measuring
+    nothing).
+  - `tests/division-result-type-number-invoke.test.ts` — new, 4 cells, the
+    companion that pins the MIRROR at the invoke sink through the shipped
+    composition root, using the fixture-load harness shape of
+    `tests/invoke-arg-type-mismatch-wired.test.ts` (read, never modified).
+  - `tests/live/live-production-acceptance.test.ts` (+173/−0) — one additive H8a
+    registration-denial cell on the bug 0139 cell's shape: `b142livebroken`
+    (`let n: integer = 3 / 2`) is denied registration end-to-end through the
+    real production composition root while `b142livegood`
+    (`let n: number = 3 / 2`) and the `b142livectl` control both register, with
+    the `theta-system-note` channel read off the settled in-memory
+    `SessionManager` naming the registry-sourced rejection.
+  - Byte-unchanged, blob-verified before and after:
+    `docs/spec_topics/diagnostics/code-registry-parse.md`
+    (`ea50c54e991e237cb6bd123ecd32ea5ce1cad00d`), `docs/reference/diagnostics.md`
+    (`e9d8d2b4…`), `docs/reference/grammar.md` (`2bb79a99…`),
+    `docs/reference/type-system.md` (`0d7aba1b…`),
+    `docs/reference/coverage-matrix.md` (`4deff331…`), and
+    `tests/fixtures/h7a/permitted-codes.json` (`a4a8da04…`, decided by the real
+    H9a run, not predicted). `src/parser/type-layer-checks.ts` is untouched, as
+    §Non-goals requires: `provableArgType`'s withholding of `"a" / "b"` moves
+    from the `classifyOperand` numeric test to `isProvenReduction` as a
+    CONSEQUENCE of the arm, and the observable is unchanged.
+
+- **Blast-radius pre-measurement, before any test was written** (the discipline
+  the stopped bug 0139 run established — "no test asserts this" is not "no test
+  reds on this"). Three measurements at HEAD `d11aef29`:
+  1. `git ls-files -- '*.theta' '*.thetalib'` → 34 files; an AST walk for
+     `{ kind: "binary", op: "/" }` through the real `parseThetaDocument` found
+     **zero**. The operator's untracked `.pi/theta/smoke.theta` carries `/` only
+     inside a frontmatter description STRING, not as an operator.
+  2. The whole default suite run WITH a prototype of both arms applied: **zero**
+     existing tests red.
+  3. Bug 0050's witness does contain `/` cells after all — cell `u10d` drives
+     `g("6" / "2")` — so this document's §Affected claim that "a scan of every
+     `tests/*.test.ts` for a `/` binary operator in a theta source returns zero
+     hits" is WRONG. The cell does not red (its parameter is `n: number`, and
+     the row is withheld before and after), which is why measurement 2 held; the
+     claim was still false when written.
+
+- **Gates**, each re-run by the orchestrator independently of every nested
+  report:
+  - Witness, RED before: `tests/division-result-type-number.test.ts`
+    `24 failed | 15 passed (39)` at HEAD, every failure naming the missed
+    emission or the wrong `typeOf` answer. GREEN after, at 43 cells:
+    `Test Files 1 passed (1) / Tests 43 passed (43)`; with the companion,
+    `Test Files 2 passed (2) / Tests 47 passed (47)`.
+  - Full default suite: `Test Files 274 passed (274) / Tests 4195 passed (4195)`.
+  - Protected files, explicit: `fn-arg-type-mismatch-wired` 84,
+    `invoke-arg-type-mismatch-wired` 40, `fn-param-name-case` 19 —
+    `Tests 143 passed (143)`, no assertion edited in any of them.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean, no output.
+  - `npm run lint` (`eslint … "src/**/*.ts"`) — clean, no output.
+  - Live H8a: `tests/live/live-production-acceptance.test.ts`
+    `Tests 23 passed (23)` (22 before this fix). Live H9a:
+    `tests/live/acceptance/` `Tests 11 passed (11)`.
+
+- **Review** — 2 rounds, closed CLEAN, plus one comment-only polish pass.
+  - Round 1 (deep): FINDINGS ×4, all category `test`; no `correctness`,
+    `fidelity` or `spec` finding. F1 the MIRROR was witnessed by zero tests
+    (reverting its hunk left the whole suite green); F2 cell `aStr` could not red
+    under the guard-drop it claimed to pin — at `n: number` a dropped
+    `isProvenReduction` still answers `[]`; F3 the non-numeric-operand flips at
+    the direct sinks were unwitnessed; F4 cell `b3` lacked the `expectDivisions`
+    precondition its own file header claims for every absence cell. All four
+    fixed: the 4-cell invoke companion, `aStr` re-parameterised to `n: integer`
+    with its comment corrected, four new L-cells with `-` controls, and the
+    missing precondition.
+  - Round 2 (fast): **CLEAN**, no escalation, no deep-review recommendation. Two
+    non-blocking residuals raised (below).
+  - Polish (comment-only): the witness's file-level manifest omitted the L group
+    from both its cell table and its RED/GREEN sentence. Folded in. Verified by
+    gate-diff — 43 `it(` cells unchanged, every edited line `//`-prefixed — so
+    no confirmation review round was dispatched.
+
+- **Verification** — verdict SOLID, four obligations:
+  1. The witnesses genuinely red, proven per arm. Removing the `#typeBinary` arm
+     → `28 failed | 15 passed (43)`, matching the file's own documented pre-fix
+     RED enumeration. Removing the collector arm → `2 failed | 2 passed (4)` in
+     the companion, `divint` stuck rendering `got integer` and `divstr` still
+     withheld, both `-` controls unmoved. Both restores blob-hash-verified
+     against `213ebc2d…` and `abe4c63e…`.
+  2. Full default suite green, 274/4195; protected files 84/40/19 unmoved.
+  3. A real end-to-end live test exercises the fixed path: the new H8a cell, run
+     for real, green (23/23), and proven RED with the `#typeBinary` arm
+     neutralised (the broken theta "registered anyway" alongside its sibling and
+     control) then green again after a hash-verified restore. H9a 11/11 — one
+     first-pass red in `ctor-unresolved-load-refusal.test.ts` was exit code
+     `3221225794` (`0xC0000142`, a Windows child-spawn failure, not an
+     application diagnostic) and cleared on an isolated re-run, so it is the
+     documented stochastic class and not this change.
+  4. `npm run typecheck` and `npm run lint` both clean.
+
+- **§Fix (c) — the sub-decision this document left to the run: MIRROR.**
+  Rationale, in order. (1) `collectProvableArgTypes`' own header states the
+  invariant at stake — it "mirrors `#typeExpr` / `#typeBinary` shape for shape,
+  so a collected member can never render differently from the type the pass
+  itself assigns" — and leaving the collector would have falsified that
+  invariant in the very commit that created the divergence, trading a clean
+  invariant for a documented exception. (2) The measured delta is bounded and is
+  the spec's own answer: at the invoke and `.theta`-callable sinks a `/`
+  argument's `<actual>` rendering moves `integer` → `number`, and a
+  non-numeric-operand division at a parameter matching the operands' type moves
+  withheld → fires. Both measured empirically in both directions, not predicted.
+  (3) That second class is **not introduced by the mirror** — the settled
+  `#typeBinary` arm alone already produces it at the direct parser sinks (rows
+  L1–L4 below), so leaving the collector would have made the two layers disagree
+  about the same program. (4) Neither delta touches bug 0146's pinned cells:
+  a3/a4 (array-literal and typed-`let`-ident withholds) and u1/u2/u3 (union
+  `<actual>` rendering) are disjoint from the `/` arm, and that witness stays
+  40/40. Bug 0146's own §Related anticipated this move and pre-stated its bound
+  ("that arm is not one of the four this report names, and narrowing it makes
+  disjointness *more* provable, so it can only add emissions").
+
+- **What flips that §Fix (a)'s summary list does not name**, all measured after
+  the fix and all witnessed:
+  - **a5 fires.** §Fix (a) reads "a4, a5 (as `number`) … stay clean", but
+    §Expected behaviour states the rule "has no exception for an
+    exactly-divisible pair (t8, h3)", and the settled code shape returns before
+    either operand is typed and cannot consult values. `g(4 / 2)` at
+    `n: integer` draws `fn-arg-type-mismatch: expected integer, got number`. The
+    code shape governs; §Fix (a)'s summary line is the imprecision.
+  - **h3's parse half moves with it.** §Reproduction (h) labels h3 a control and
+    records `parse :: []`. Its VALUE half is a genuine control (`2`,
+    `isInteger=true`, unchanged); its parse half now fires, for a5's reason.
+  - **a6, a9, a13 flip** and are absent from §Fix (a)'s list: a quotient
+    laundered through an unannotated `let` (the binding records the
+    initialiser's inferred type, so it is a proof), a nested quotient, and
+    `g(1 / 0)`.
+  - **a7 flips at a different position than group (a) suggests.**
+    `let q: integer = 3 / 2` then `g(q)` draws `integer-narrowing` on the
+    **`let`**, and the `g(q)` argument slot stays silent — the annotation makes
+    the recorded binding type `integer` by fiat, so the slot reads the author's
+    claim. The document's mechanism note for a7 is right; the diagnostic's
+    position is not where the group implies.
+  - **A whole class of non-numeric-operand divisions now refuses at the direct
+    sinks**, named nowhere in this document and now pinned as cells L1–L4 with
+    `-` controls: `let s: string = "a" / "b"` and
+    `let b: boolean = true / false` draw `let-rhs-type-mismatch`; a `string`
+    schema field drawn from `"a" / "b"` draws `object-field-type-mismatch`;
+    `let xs: array<string> = ["a" / "b"]` draws `let-rhs-type-mismatch` +
+    `array-element-type-mismatch`. Each is `[]` with the arm removed. All are
+    spec-correct — `"a" / "b"` evaluates to `NaN`, which is a `number` — and
+    every code is already registered and `E`, so no registry row moves.
+  - **`t5`'s raw `CompatType` shape moves**
+    `{"kind":"literal","typesAs":"number"}` → `{"kind":"prim","name":"number"}`
+    with no observable change: `displayType` is `number` either way and every
+    consumer verdict is identical. §Non-goals excludes the `literal`/`prim`
+    distinction, so the witness pins the projection (`displayType` plus the
+    `checkCompatible` verdict) rather than the raw object.
+
+- **GOV-15 (§Fix (d)) — discharged by measurement, not prediction.** The change
+  makes currently-clean programs refuse, so it is an ADDITION under the
+  diagnostic-registry carve-out (`source-language-stability.md:25`). The
+  committed-corpus sweep was re-run at this HEAD over
+  `git ls-files -- '*.theta' '*.thetalib'` — 34 files, **zero** carrying a `/`
+  binary operator — as witness cell `g1`, which asserts both globs contribute
+  (bug [0132](./0132-committed-fixture-parse-gate-blind-to-thetalib.md) leaves
+  the committed-fixture parse gate blind to `.thetalib`, so the sweep names them
+  explicitly rather than relying on that gate). No registry row is added,
+  removed or edited and no *Trigger* changes: every code the fix newly emits —
+  `integer-narrowing`, `array-element-type-mismatch`,
+  `object-field-type-mismatch`, `fn-arg-type-mismatch`, `let-rhs-type-mismatch`,
+  `invoke-arg-type-mismatch` — is already registered, already `E`, and already
+  emitted from the same call site on the `1.5`-literal control. DIAG-2 is not
+  engaged and DIAG-4's *Message* strings are unchanged, both confirmed by blob
+  hash. The release notes name the input class.
+
+- **Residuals** — for the parent to file; no bug document was created by this
+  run.
+  1. **The MIRROR reaches two further sinks that have no `/` witness.**
+     `collectProvableArgTypes` has three consumers; the new companion pins only
+     the `invoke` one. The `.theta`-callable arm
+     (`theta/parse/tool-arg-type-mismatch`) and the Pi-tool
+     provable-disjointness arm (`theta/parse/tool-arg-schema-conflict`) route
+     through the identical shared function, so the arm reaches them by
+     construction, but neither has a dedicated `/` cell —
+     `tests/tool-calls.test.ts`, `tests/tool-arg-schema-conflict.test.ts` and
+     `tests/tool-arg-shape-enforcement.test.ts` contain no `/` fixture. A
+     coverage gap in code reviewed as correctness-clean, not a wrong behaviour.
+     Natural home: bug
+     [0146](./0146-invoke-arg-provable-set-withholds-true-positives.md)'s
+     coverage pass, whichever route it takes.
+  2. **`tests/fn-arg-type-mismatch-wired.test.ts`'s cell `u10d` comment is now
+     stale for `/`.** It reads "all three read `string` before the guard";
+     post-fix the `/` fixture reads `number` before the guard and withholds at
+     `isProvenReduction` rather than at the numeric test. The ASSERTION is
+     unchanged and still correct (the cell passes, 84/84); only the explanation
+     is stale. The file is protected on this bug, so it was not touched.
+  3. **`src/parser/type-layer-checks.ts`'s `provableArgType` arithmetic-arm
+     comment is stale for `/`.** It reads "a same-typed pair of proven
+     non-numeric operands passes it [`isProvenReduction`] — and for `-`, `*`,
+     `/`, `%` the result type is fixed by the operator"; post-fix a same-typed
+     non-numeric pair under `/` no longer passes `isProvenReduction`, because
+     the reduction is `prim number`. §Non-goals keeps that file unedited, so this
+     is recorded rather than repaired.
+  4. **This document's §Affected "no committed test drives a `/` at all" claim
+     is false** (measurement 3 above, cell `u10d`), and §Fix (a)'s flip list is
+     incomplete in the five ways enumerated above. Both are corrected here
+     rather than by rewriting the settled sections.
+
+- **Discharge notes appended:**
+  [0146](./0146-invoke-arg-provable-set-withholds-true-positives.md) — its
+  §Related had 0142's §Fix (c) as an open disposition; it is now taken, and the
+  note records the shipped shape, that a3/a4/u1/u2/u3 were verified unflipped
+  (40/40), and that a route-2 fix there would supersede the mirror rather than
+  conflict with it. No note is owed to
+  [0081](./0081-array-ternary-common-type-never-unions.md) (it cites neither
+  `#typeBinary` nor this report, and the arm sits ahead of the `#commonType`
+  call it owns), nor to
+  [0147](./0147-arg-mismatch-diagnostic-count-diverges-by-surface.md) (none of
+  its measurements references the collector's `/` arm).
+
+- **Pinned dispositions / non-goals, each measured as NOT moved and witnessed:**
+  - **`%` by a literal zero does not move.** `1 % 0` still reads `integer` and
+    `let n: integer = 1 % 0` is still `[]` — cells `t9` and `b8`. §Non-goals'
+    reason is honoured: it is a different sentence whose static decidability
+    depends on the divisor's *value*, and this run developed no new evidence
+    changing its standing.
+  - **`fn`-return-annotation checking does not move.**
+    `fn g(): integer { 3 / 2 }` and its `fn g(): integer { 1.5 }` control are
+    both still silent — cells `c17`, `c18`, and the runtime companion `h5`.
+    Pinned as the unrelated silence they are, so this fix is not credited with
+    them.
+  - **`-`, `*` and `%` keep the operand-common widening** — cells `t2`, `t3`,
+    `t4`, `a10`–`a12`, `b4`, with `L1c`/`L2c`/`L3c`/`L4c` proving the L-class
+    flip is keyed to the operator and not to the operand kinds.
+  - **`+` is untouched** (bug 0072 owns it; `+`'s result type IS its operands'
+    common type by construction) — cells `t10`, `aPlus`, `b9`.
+  - **`#commonType` is untouched** (bug 0081) — the arm returns before the call.
+  - **The runtime is untouched.** All three `/` implementations already match
+    the spec; the witness pins the runtime VALUES (`1.5`, `2`, `Infinity`,
+    `NaN`) alongside the parse refusals precisely so a later removal of the
+    refusal cannot pass unnoticed.
+  - **`type-system.md:48`'s deferral survives** — no row here has an
+    unresolvable operand and the arm adds no `TypeEnv` read.
+  - **Position-only citation drift induced in other documents is deliberately
+    not repaired** (bug 0134's adjudicated class). The two edited source files
+    shift line numbers for citations in several open bug documents and in the
+    protected witness's comments; none was chased.

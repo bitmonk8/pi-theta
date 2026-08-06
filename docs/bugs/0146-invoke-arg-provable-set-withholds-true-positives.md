@@ -974,3 +974,70 @@ already covers the surface end-to-end.
   and not to a reachable emission per *Trigger* clause);
   `tools/code-registry/index.js` (`parseRegistry` / `registryMessage`, the
   DIAG-4 message source a witness uses).
+
+## Discharge note — bug 0142 (0.80.0)
+
+Appended by the bug 0142 fix; nothing above is altered. One §Related premise
+resolves from "open disposition" to "taken", and this report's pinned cells were
+verified unmoved. No obligation is added or removed here.
+
+§Related's 0142 item records that report's §Fix (c) as an open question — "asks
+'whether `collectProvableArgTypes` moves in the same commit' and offers
+mirroring the operator rule for `/` at the arithmetic arm as one disposition" —
+and pre-states the bound a fix there must respect: "that arm is not one of the
+four this report names, and narrowing it makes disjointness *more* provable, so
+it can only add emissions. A fix there must not flip witness cells a3/a4 without
+retaking this report's decision".
+
+**0142 took the MIRROR disposition, inside that bound.** The `binary` arm of
+`collectProvableArgTypes` now returns `[pass.typeOf(expr, env)]` for `/`, placed
+in `#typeBinary`'s own dispatch order (after the synthetic-`null` unary `-` arm
+and the `!` / `BOOLEAN_BINARY_OPS` arm, before the arithmetic `collectArmUnion`)
+— the shape the result-fixed boolean arm above it already uses. The reason of
+record is this function's own header invariant: it "mirrors `#typeExpr` /
+`#typeBinary` shape for shape, so a collected member can never render
+differently from the type the pass itself assigns", which leaving the arm alone
+would have falsified once `#typeBinary` began answering `number` for `/`.
+
+**The four arms this report names are untouched.** `array`, `ident`, `index` and
+`par-for` all still return `undefined`; only the `binary` arm's `/` case moved.
+Cells a3 and a4 (the array-literal and typed-`let`-ident withholds) and u1, u2,
+u3 (the union `<actual>` rendering and the mixed-set deferral) were measured
+after the change: `tests/invoke-arg-type-mismatch-wired.test.ts` stays 40/40,
+with no assertion in it edited. This report's decision therefore stands unretaken.
+
+**What did move at this sink**, measured in both directions and now witnessed by
+`tests/division-result-type-number-invoke.test.ts` (4 cells, on this report's own
+fixture-load harness shape):
+
+- a `/` argument's `<actual>` rendering at an incompatible parameter moves
+  `integer` → `number` (`invoke("./cstr.theta", 3 / 2)` at `x: string`), the `-`
+  control keeping `got integer`;
+- a NON-NUMERIC division at a parameter matching the operands' type moves
+  withheld → fires (`invoke("./cstr.theta", "a" / "b")` at `x: string`): the
+  collected set moves `{literal string, literal string}` — one member
+  compatible, so `buildInvokeArgSlot`'s `everyMemberIncompatible` test withheld —
+  to `[prim number]`, which is incompatible. The `-` control stays withheld.
+
+Both are additions, as this report's §Related predicted, and both are the
+answer `expressions.md` §"Other arithmetic" already gives (`"a" / "b"` evaluates
+to `NaN`, a `number`). Committed-corpus divisions: zero, re-measured.
+
+**Effect on this report's routes.** Route 1 is unaffected — the `binary` arm is
+not among the four it widens, and the `/` case is now settled independently of
+whichever of them lands. Route 2 (a parser-layer-sourced provable read at the
+invoke sink) would SUPERSEDE the mirror rather than conflict with it: a single
+`provableArgType`-shaped read already answers `prim number` for `/`, so the arm
+becomes redundant at that point and should be removed in the same commit rather
+than left as a second implementation. Route 3 (narrowing the *Trigger*) is
+unaffected. Whichever route lands, the 4-cell companion above is the existing
+`/` coverage to rebase on.
+
+One coverage gap is recorded against this surface rather than filed separately:
+the mirror also reaches `collectProvableArgTypes`' two other consumers — the
+`.theta`-callable arm (`theta/parse/tool-arg-type-mismatch`) and the Pi-tool
+provable-disjointness arm (`theta/parse/tool-arg-schema-conflict`) — by
+construction, and neither has a `/` fixture in
+`tests/tool-calls.test.ts`, `tests/tool-arg-schema-conflict.test.ts` or
+`tests/tool-arg-shape-enforcement.test.ts`. A coverage pass here is its natural
+home.

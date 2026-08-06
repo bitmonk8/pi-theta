@@ -320,6 +320,12 @@ export class StaticTypeInferencePass {
     if (BOOLEAN_BINARY_OPS.has(op)) {
       return { kind: "prim", name: "boolean" };
     }
+    // expressions.md §"Other arithmetic": `/` always produces `number`,
+    // whatever the operands — there is no integer-division operator in
+    // theta 1.0, and an exactly-divisible pair is not an exception.
+    if (op === "/") {
+      return { kind: "prim", name: "number" };
+    }
     // Arithmetic narrows the operands to their common type through the `⊑`
     // engine (e.g. `integer + number` narrows to `number`).
     return this.#commonType(

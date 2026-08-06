@@ -548,13 +548,27 @@ function collectProvableArgTypes(
         // restated so the two cannot drift.
         return [pass.typeOf(expr, env)];
       }
-      // Arithmetic: the value takes one operand's kind or the two widened
-      // together (`integer + number` is a number), all of which the union of the
-      // operand sets covers. Over-approximating is safe in the one direction
-      // that matters — a wider set only makes disjointness harder to prove, and
-      // `kindsDisjoint` (../runtime/tool-call.ts) already reconciles
-      // `integer`/`number` so a division's non-integral result cannot turn a
-      // withheld verdict into a fired one.
+      if (expr.op === "/") {
+        // `/`'s result type is fixed by the operator (expressions.md
+        // §"Other arithmetic": always `number`, whatever the operands) — the
+        // same result-fixed reasoning the arm above states, so the set is
+        // exact and the operand sets are not consulted. Reading
+        // `pass.typeOf(expr, env)` rather than unioning `expr.left` /
+        // `expr.right`, as the arithmetic arm below does for `+` / `-` / `*` /
+        // `%`, is what keeps this function's own invariant true — it "mirrors
+        // `#typeExpr` / `#typeBinary` shape for shape, so a collected member
+        // can never render differently from the type the pass itself assigns"
+        // — rather than adding `/` as an exception to it.
+        return [pass.typeOf(expr, env)];
+      }
+      // Arithmetic (`+`, `-`, `*`, `%`): the value takes one operand's kind or
+      // the two widened together (`integer + number` is a number), all of
+      // which the union of the operand sets covers. Over-approximating is safe
+      // in the one direction that matters — a wider set only makes
+      // disjointness harder to prove, and `kindsDisjoint`
+      // (../runtime/tool-call.ts) already reconciles `integer`/`number` so
+      // `%`'s `NaN` widening (an `integer % 0` divisor, expressions.md
+      // §"Other arithmetic") cannot turn a withheld verdict into a fired one.
       return collectArmUnion([expr.left, expr.right], env, pass);
     }
     case "array":

@@ -3013,3 +3013,176 @@ describe("H8a-T — bug 0139: an uppercase-first fn parameter name draws binding
   });
 });
 
+// ===========================================================================
+// Bug 0142 — `#typeBinary`'s arithmetic arm (src/parser/static-type-inference.ts)
+// reduced `/`'s two operands to their common type with no per-operator rule, so
+// a same-`integer` pair read `integer` against expressions.md §"Other
+// arithmetic" (`/` always produces `number`) (docs/bugs/0142-division-result-type-not-number.md).
+// The fix adds one per-operator arm ahead of the common-type reduction; the
+// 43-cell unit witness (tests/division-result-type-number.test.ts) proves the
+// mechanism offline at the `parseThetaDocument` boundary. This cell proves the
+// same registered code denies REGISTRATION end to end through the real
+// production composition root (session_start → resources_discover →
+// composeExtensionInstance → checkTypeLayer) — the fixed path had zero live
+// coverage before this addition.
+//
+// The broken caller mirrors the bug doc's own §Reproduction row b1 verbatim
+// (`let n: integer = 3 / 2`): a typed `let` narrowing a `/` quotient of two
+// `integer` literals to an `integer` annotation — both operands statically
+// resolvable, so type-system.md:48 licenses no deferral.
+// `theta/parse/integer-narrowing` is severity `E`, so `hasLoadParseError`
+// (production-composition.ts:2045–2052, applied at :2092) un-registers the
+// caller at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095/
+// 0102/0125/0050/0137/0139 cells above exercise for their own codes.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the file header claims for the
+// discovery→registration cells above). ADDITIVE ONLY: no existing cell in this
+// file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const INTEGER_NARROWING_CODE = "theta/parse/integer-narrowing";
+
+/** The sharded registry page carrying `theta/parse/integer-narrowing`'s row (`:24`). */
+const INTEGER_NARROWING_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/integer-narrowing: cannot narrow number to integer` — DIAG-4:
+ * the message half is read from the registry row, not copied, mirroring this
+ * file's `bindingCaseMismatchFragment`. The row carries no `<…>` placeholder,
+ * so this helper substitutes nothing; the trailing assertion is a drift
+ * guard — a future reworded row that introduces a placeholder reds here —
+ * rather than a fill check.
+ */
+function integerNarrowingFragment(): string {
+  const template = registryMessage(
+    INTEGER_NARROWING_REGISTRY,
+    INTEGER_NARROWING_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${INTEGER_NARROWING_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = template as string;
+  expect(
+    message,
+    `${INTEGER_NARROWING_CODE}: the registry row's Message template grew ` +
+      "an unsubstituted <…> placeholder this reader does not fill — the row " +
+      "changed shape",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${INTEGER_NARROWING_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own §Reproduction row b1
+ * (docs/bugs/0142-division-result-type-not-number.md) verbatim: a typed `let`
+ * binding a `/` quotient of two `integer` literals to an `integer`
+ * annotation. Before the fix `#typeBinary`'s arithmetic arm reduced the
+ * operands to their common type (`integer`), so `checkLetRhsCompat` read
+ * `compatible` and this theta loaded clean while the runtime bound `1.5`
+ * (§Reproduction (h), cell h2).
+ */
+function divisionIntegerNarrowingTheta(): string {
+  return ["---", "mode: prompt", "---", "let n: integer = 3 / 2", "n", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The same-shape SIBLING with the SAME `/` quotient, annotation spelled
+ * `number` — must still register, isolating the broken theta's refusal to
+ * the `integer` annotation rather than to "a theta binding a `/` result never
+ * registers here".
+ */
+function divisionNumberTheta(): string {
+  return ["---", "mode: prompt", "---", "let n: number = 3 / 2", "n", ""].join(
+    "\n",
+  );
+}
+
+describe("H8a-T — bug 0142: a `/` quotient bound to an `integer` annotation draws integer-narrowing and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose typed `let` narrows a `/` quotient to `integer`, while its `number`-annotated sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // broken theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the `/`-result-type rule under test.
+      { source: "project", stem: "b142livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME `/` quotient, annotation spelled
+      // `number` — must still register, isolating the refusal to the
+      // `integer` annotation rather than to "a theta binding a `/` result
+      // never registers here".
+      { source: "project", stem: "b142livegood", text: divisionNumberTheta() },
+      // The load-bearing broken theta: the bug doc's own §Reproduction row b1
+      // spelling.
+      { source: "project", stem: "b142livebroken", text: divisionIntegerNarrowingTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b142livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the `/`-result-type rule under test, would explain the broken " +
+          "theta's absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b142livegood"),
+        "the same `/` quotient under a `number` annotation did not register " +
+          "— a theta binding a `/` result cannot register in this harness at " +
+          "all, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta narrowing a `/` quotient to `integer` does NOT register —
+      // `#typeBinary`'s `/` arm (src/parser/static-type-inference.ts) now
+      // reads `number`, `checkLetRhsCompat` (src/parser/type-compat.ts) draws
+      // theta/parse/integer-narrowing, and hasLoadParseError un-registers
+      // this theta at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/
+      // 0089/0095/0102/0125/0050/0137/0139 cells above exercise for their own
+      // codes.
+      expect(
+        handle.command("b142livebroken"),
+        "the theta whose typed `let` narrows a `/` quotient to `integer` " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/parse/integer-narrowing did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b142livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137/0139 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = integerNarrowingFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the integer-narrowing rejection " +
+          "for the broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
