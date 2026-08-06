@@ -1437,3 +1437,55 @@ touched.
   executor. Run on the outputs quoted above, then
   deleted. No file in `src/`, `tests/`, `docs/bugs/README.md` or any other bug
   document is modified by this filing.
+
+## Discharge note — the group (f) tripwire fired, and was answered (bug 0081, 0.83.0)
+
+Appended by the bug 0081 fix; nothing above is altered. This report stays
+**fixed**; the note exists because two sentences in its §Fix record no longer
+hold, and because its recorded-not-filed sink-routing siblings are now half
+closed.
+
+§Fix (d) recorded: *"Group (f)'s eight rows pin `:620`, `:958` and `:1050`'s
+**present, diverging** behaviour — including f1's *false* `E`-severity rejection
+of a spec-legal binding — as tripwires, so a later fix that widens into them
+reds rather than passing silently."* The tripwire worked exactly as designed.
+Bug 0081's computed-LUB union arm reded five of the eight rows, they were
+re-pinned under explicit authorization (f1/f3/f5 by 0081's own §Reproduction
+Expected column; f4/f6 by an operator authorization recorded in 0081's fix
+record and disclosed to open bug 0129), and the new values are:
+
+| Row | Source | Pinned by 0125 | At 0.83.0 |
+| --- | --- | --- | --- |
+| f1 | `schema U = array<string \| integer>` + `let xs: U = ["a", 1]` | `["theta/parse/array-no-common-type"]` (a FALSE `E`) | `[]` — the false `E` is CLOSED |
+| f3 | `schema U = array<string>` + `let xs: U = ["a", 1]` | `["theta/parse/array-no-common-type"]` | `["theta/parse/let-rhs-type-mismatch"]` |
+| f4 | `let xs: array<string> = ["a", 1]` | `["theta/parse/array-element-type-mismatch"]` | `["theta/parse/let-rhs-type-mismatch", "theta/parse/array-element-type-mismatch"]` |
+| f5 | alias-typed schema FIELD twin of f3 | `["theta/parse/array-no-common-type"]` | `["theta/parse/object-field-type-mismatch"]` |
+| f6 | concrete-typed schema FIELD twin of f4 | `["theta/parse/array-element-type-mismatch"]` | `["theta/parse/object-field-type-mismatch", "theta/parse/array-element-type-mismatch"]` |
+
+f2, f7 and f8 are unmoved.
+
+**Two premises recorded here are now false, and this note is the correction.**
+
+1. §Fix (d)'s *"including f1's false `E`-severity rejection of a spec-legal
+   binding"* — that false `E` is gone. Bug 0081's union arm gives `["a", 1]` a
+   common type of its own (`string | integer`), so the sink-less path no longer
+   refuses it, and f1 now agrees with its control f2 at `[]`. This closes the
+   symptom §Fix (d) called *"a sharper symptom than this report's"* — as a side
+   effect of a narrowing fix, not by the routing fix §Fix (d) prescribes.
+2. §Residuals' *"The three sink-routing siblings keep their measured
+   divergence, tripwired by group (f)"* — sibling 1's f1/f2 pair no longer
+   diverges at all. The f3/f4 and f5/f6 pairs still diverge, but in a NEW shape:
+   the alias spelling reports the OUTER code where the concrete spelling reports
+   the outer code AND the element code. The divergence that remains is therefore
+   only about WHICH code the alias spelling loses, not about a spec-legal
+   binding being refused.
+
+**What the sink-routing siblings' eventual report must know.** The underlying
+routing defect is untouched — `type-layer-checks.ts` is not in bug 0081's diff,
+and the raw-`CompatType` `kind` tests that skip the element-sink call for an
+alias annotation are exactly as this report left them. What moved is only what
+the sink-less path answers once it is taken. So the siblings are half closed:
+the false-rejection half is gone, the wrong-code half remains. Whoever files
+them should re-derive §Reproduction (f) rather than reuse the values recorded
+here, and should expect a smaller, purely diagnostic-quality defect than this
+report measured.

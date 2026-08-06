@@ -338,12 +338,12 @@ function operandType(c: ReturnContribution): CompatType {
 }
 
 /**
- * The least upper bound of `types` under `⊑`: a member `C` of `types` such that
- * every type is `⊑ C` (the same common-type discipline `checkCommonType`
- * applies to array/ternary branches, narrowed by no sink here). Returns
- * `undefined` when no member dominates the rest. A statically-unresolvable
- * operand (`"unknown"`) does not block a candidate — the runtime AJV check is
- * the safety net.
+ * The least upper bound of `types` under `⊑`: a member `C` of `types` such
+ * that every type is `⊑ C`. Returns `undefined` when no member dominates the
+ * rest — unlike `commonType` (`./type-compat.ts`), this LUB has no union
+ * clause, so a non-dominated set here has no candidate rather than a computed
+ * union. A statically-unresolvable operand (`"unknown"`) does not block a
+ * candidate — the runtime AJV check is the safety net.
  */
 function computeLub(
   types: readonly CompatType[],

@@ -6,6 +6,64 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-08-06
+
+### Fixed
+
+- **The array/ternary common-type rule computed no least upper bound, so both of
+  `expressions.md`'s own worked vectors were refused at load and a heterogeneous
+  ternary silently typed as its first branch** (bug 0081, facets (a) and (c)).
+  `expressions.md` §"Array construction" states the rule in three numbered cases
+  and supplies two worked vectors; rule 2's third clause reads "otherwise the
+  element types are unioned via TYPE-5 and TYPE-6 (`["a", null]` →
+  `array<string | null>`; `[1, "a"]` → `array<number | string>`)", and
+  `docs/reference/type-system.md` mirrors it. The implementation searched only
+  for a branch that already dominated the others — exactly TYPE-1 and TYPE-2 —
+  which structurally cannot express a result type that is not one of its inputs.
+  The checker (`hasCommonType`) therefore collapsed rule 2's union case into
+  rule 3's rejection and refused every heterogeneous sink-less literal, while
+  the inference pass (`StaticTypeInferencePass.#commonType`) fell back to
+  `candidates[0]` and typed the expression as whichever branch was written
+  first. Measured: `let x = [1, "a"]` and `let x = ["a", null]` each drew
+  `theta/parse/array-no-common-type`; `true ? 1 : "a"` then `x.length` drew
+  `theta/parse/unknown-method` naming a member the receiver's real type has; and
+  reversing the branch order changed which diagnostic fired.
+
+  `hasCommonType` is replaced by one exported `commonType`
+  (`src/parser/type-compat.ts`) parameterised over the `⊑` relation, which
+  `checkCommonType` and `StaticTypeInferencePass.#commonType` now both call — so
+  the checker and the inference pass cannot disagree about a candidate set by
+  construction, which is the bug's §Fix constraint 3. It computes the LUB in the
+  spec's own clause order: a dominating branch (TYPE-1 collapse, TYPE-2
+  widening, an unresolvable branch non-blocking), else the union with arms
+  verbatim in receiver-first order, except that a set holding an object branch
+  with no dominating member has no common type — rule 3, which still draws
+  `theta/parse/array-no-common-type` and is gated on branch KINDS by a new
+  `isObjectBranch` (an alias-unfolded inline object, or a `named` resolving to
+  an object-schema declaration). The union shape and arm order are mirrored on,
+  not shared with, `concatElementType` (`src/runtime/stdlib-string.ts`), which
+  treats an unresolvable operand as disjoint where the common-type rule treats
+  it as non-blocking. No diagnostics-registry edit: the change narrows an
+  emission set onto its registered *Trigger*.
+
+  The computed spelling is `array<integer | string>` where the spec's worked
+  vector prints `array<number | string>` — arms verbatim, strictly tighter, `⊑`
+  the spec's spelling, and TYPE-2 is conditioned on mixing with `number`. Pinned
+  as a disposition by the witness. The bug's facet (b) (a ternary caller for
+  `checkCommonType`) and facet (d) (the `fn`-parameter sink at call sites) are
+  deferred and recorded as residuals; facet (b) is blocked on a corpus
+  self-disagreement about the registered *Trigger* that needs a DIAG-2
+  adjudication.
+
+  Locked by `tests/array-ternary-common-type-union.test.ts` (new, 21 cells,
+  offline, registry-sourced messages, a loud precondition per absence cell) and
+  by one additive H8a live cell in
+  `tests/live/live-production-acceptance.test.ts` — an ADMISSION cell, the first
+  in that file: a theta whose body holds `let x = [1, "a"]` must now register
+  through the real production composition root, with a rule-3 theta that must
+  still be refused as the control. Eighteen existing cells across five files
+  were re-pinned to the widened behaviour.
+
 ## [0.82.0] - 2026-08-06
 
 ### Fixed

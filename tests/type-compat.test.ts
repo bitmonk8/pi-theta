@@ -299,19 +299,22 @@ describe("V2b-T — TYPE-9 per-site mismatch codes", () => {
     );
   });
 
-  it("TYPE-9 (theta/parse/array-no-common-type): no sink and no common type fires", () => {
+  it("TYPE-9 (theta/parse/array-no-common-type): two unrelated primitive branches union instead (bug 0081)", () => {
+    // Bug 0081's rule 2 union arm: neither `string` nor `boolean` is an object
+    // branch (rule 3's gate), so a set with no dominating member unions them
+    // (`string | boolean`) rather than having no common type. Rule 3 itself is
+    // pinned separately, over two object schemas, by
+    // tests/array-ternary-common-type-union.test.ts r7.
     const diags = checkCommonType({
       branches: [prim("string"), prim("boolean")],
       sink: undefined,
       env: EMPTY_ENV,
       site: site(),
     });
-    const d = withCode(diags, "theta/parse/array-no-common-type");
-    expect(d, "theta/parse/array-no-common-type for two unrelated branches").toBeDefined();
-    // Message from code-registry-parse.md.
-    expect(d?.message).toBe(
-      "array elements have no common type; annotate the binding with array<A | B> or use a single schema",
-    );
+    expect(
+      withCode(diags, "theta/parse/array-no-common-type"),
+      "two primitive branches with no dominating member still union under rule 2, so no theta/parse/array-no-common-type fires",
+    ).toBeUndefined();
   });
 });
 

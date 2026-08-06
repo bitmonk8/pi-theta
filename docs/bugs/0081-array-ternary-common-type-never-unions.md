@@ -1,6 +1,6 @@
 # Bug 0081 — The array/ternary common-type rule is implemented as "one branch dominates", never the union LUB: both of expressions.md's own normative vectors (`[1, "a"]`, `["a", null]`) fail to load, a heterogeneous ternary silently types as its first branch, and the ternary half of the rule has no checker at all
 
-- **Status:** open.
+- **Status:** fixed (0.83.0).
 - **Kind:** defect (three facets, one shared root cause plus one missing sink).
 - **Related:**
   - [0043](../../../docs/bugs/0043-union-nonprimitive-arm-lowers-permissive.md)
@@ -214,3 +214,291 @@ strict WIDENING of what the fn-argument sink may judge and needs its own
 witness cells at `checkFnCallArgs` (`src/parser/type-layer-checks.ts`);
 cells u1–u4 of `tests/fn-arg-type-mismatch-wired.test.ts` pin the current
 withholding in both directions.
+
+## Fix (0.83.0)
+
+- **Route adopted** — the bug doc's own *interim option*, re-verified at this
+  HEAD and adopted verbatim: the computed-LUB union arm in ONE exported
+  `commonType` (`src/parser/type-compat.ts`), parameterised over the `⊑`
+  relation and called by BOTH `checkCommonType` (same module, over
+  `checkCompatible`) and `StaticTypeInferencePass.#commonType`
+  (`src/parser/static-type-inference.ts`, over its constructor-injected engine)
+  — facets (a) and (c). Facets (b) and (d) are DEFERRED, as residuals 1 and 2.
+  Rationale, measured rather than assumed: facet (b) cannot be closed without
+  widening `theta/parse/array-no-common-type`'s registered *Trigger*
+  (`code-registry-parse.md` — "**Array literal** whose elements have no common
+  type"), which DIAG-2's closed registry forbids, and about which the corpus
+  disagrees with itself (`docs/reference/type-system.md`'s TYPE-9 bullet and
+  `expressions.md:222`'s "(and ternary branches)" both prescribe the ternary
+  route); facet (d) is materially narrower than §Why it matters item 2 states,
+  because §Reproduction row 6 flips to `[]` under this route with NO parameter
+  sink supplied — the literal stops being sink-less-refused once it has a
+  common type of its own. Constraint 3 is met BY CONSTRUCTION, not by
+  coincidence: one function answers both callers, so checker and inferrer
+  cannot disagree about a candidate set.
+- **What shipped**
+  - `src/parser/type-compat.ts` (620 → 704) — new exported `CompatRelation` (the
+    `⊑` relation as a parameter, so the inference pass keeps its injected-engine
+    seam and the dependency stays one-way); new exported `commonType`, three
+    clauses in the spec's own order — a dominating branch IS the LUB (TYPE-1
+    collapse, TYPE-2 `integer`→`number`; an unresolvable branch does not block a
+    candidate, per `type-system.md` §"Unresolvable operands"), else
+    `{ kind: "union", arms }` receiver-first with arms VERBATIM (TYPE-5/TYPE-6),
+    EXCEPT an object branch present with no dominator ⇒ `undefined` (rule 3);
+    new `isObjectBranch` gating rule 3 on branch KINDS (alias-unfolded `object`
+    per TYPE-8, or `named` resolving to an `object-schema` decl per TYPE-10,
+    through the own-key-guarded `resolveNamed` bugs 0031/0038 require, with
+    TYPE-11 unfolding first); `hasCommonType` deleted as subsumed;
+    `checkCommonType`'s sink-less arm now tests
+    `commonType(branches, env, checkCompatible) !== undefined`. `commonType` is
+    TOTAL: an empty branch set answers `undefined` directly rather than falling
+    through clause 2 to an empty union.
+  - `src/parser/static-type-inference.ts` (378 → 378) — `#commonType` delegates
+    to the same `commonType` over `this.#checkCompatible`, keeping its empty-set
+    `named unknown` early return and its `?? candidates[0]` fallback for the
+    rule-3 sets the checker refuses (a refused array or ternary still needs a
+    type for the rest of the walk, and the refusal is already reported at the
+    literal).
+  - `src/parser/functions.ts` (427 → 427) and `src/parser/type-layer-checks.ts`
+    (2531 → 2531) — comment-only, line-count-neutral. Both carried doc comments
+    this change falsifies: `computeLub`'s claimed "the same common-type
+    discipline `checkCommonType` applies to array/ternary branches" (false now
+    — `computeLub` has no union clause), and `provableArgType`'s two worked
+    examples (`true ? 1 : "a"` reads `integer`, `["a", null]` reads
+    `array<string>` — both now exact). Corrected to currently-true, measured
+    examples; the "measured at this HEAD" framing dropped per CLAUDE.md.
+  - `tests/array-ternary-common-type-union.test.ts` — new, 21 cells, offline and
+    provider-free, on bug 0142's witness shape: every *Message* read through
+    `registryMessage` (DIAG-4), a loud precondition per absence cell so none can
+    pass while measuring nothing.
+  - `tests/live/live-production-acceptance.test.ts` (+213/−0) — one additive H8a
+    cell, and a NEW shape for this file: an ADMISSION cell. `b81livegood`
+    (`let x = [1, "a"]`, the spec's own worked vector) must now REGISTER through
+    the real production composition root, where every sibling cell proves a
+    denial; `b81livebroken` (`[A{…}, B{…}]`, rule 3) must still NOT register, so
+    the harness is proven able to detect a refusal and `b81livegood`'s
+    registration is not a vacuous pass; `b81livectl` is the plain control.
+  - Byte-unchanged, verified: `tests/fixtures/h7a/permitted-codes.json` (decided
+    by the REAL H9a run, 11/11, which drew no unpermitted code on the fixed
+    path), the diagnostics registry and both mirrors (no DIAG-2 engagement — the
+    change NARROWS an emission set onto its registered *Trigger*, the 0084/0139
+    posture), `src/runtime/stdlib-string.ts`.
+- **The eighteen re-pinned existing cells**, each with its bucket and the
+  sentence that authorizes it. Measured, not assumed: a full-suite run BEFORE
+  any test file was touched reded exactly these eighteen, in exactly these five
+  files, and no nineteenth anywhere in the 4305-test suite.
+  - *Bucket (i) — 10 cells, `tests/fn-arg-type-mismatch-wired.test.ts`*: u1, u2,
+    u3, u4, u5, u7, u7-laundered, u11, u11b, u11c. Each flips from withholding
+    to a TRUE-POSITIVE `theta/parse/fn-arg-type-mismatch` whose `<actual>` is
+    the exact union (u1: `fn 'g' argument 0 ('s') type mismatch: expected
+    string, got integer | string`). Authorized by this report's own coordination
+    note: *"This report's fix is a strict WIDENING of what the fn-argument sink
+    may judge … cells u1–u4 of `tests/fn-arg-type-mismatch-wired.test.ts` pin
+    the current withholding in both directions"*, and for the other six *"Five
+    of 0050's eight orchestrated-round review findings trace to that erasure
+    (the `par for` marking, the `index` arm, the `ident` arm, the `let`-marking
+    guard, the laundered `let`)"* — u5 is the `par for` marking, u7 the `index`
+    arm, u2/u7-laundered the laundered `let`, u11/u11b/u11c the `let`-marking
+    guard. Soundness re-audited cell by cell against `provableArgType` /
+    `isProvenReduction`, and independently re-audited by review round 1: every
+    arm is an independently proven read AND every arm is `⊑` the union (TYPE-5),
+    so the union is an EXACT description of the values the expression can take,
+    and `integer | string ⋢ string` is what TYPE-6 prescribes. u11 worked
+    explicitly: the shadowing initialiser resolves its self-reference to the
+    OUTER binding (the runtime's own evaluate-then-define order), whose value
+    set is `{integer, string}`; the inner candidate set `{integer, integer |
+    string}` collapses by clause-1 subsumption onto that same union object, so
+    the recorded type is exact, not laundered. This is NOT bugs 0050/0072's
+    false-`E` species: nothing misdescribes a value set.
+  - *Bucket (ii) — 6 cells*, all authorized by §Reproduction's Expected column
+    (row 1: `let x = [1, "a"]` → *"`[]` — `array<number | string>` (spec
+    vector)"*) and by §Expected behaviour: *"Rule 3 is the only sink-less
+    rejection the spec prescribes. Every other heterogeneous combination unions
+    and loads."*
+    - `tests/type-compat.test.ts` — the TYPE-9 no-sink row (two unrelated
+      primitive branches through `checkCommonType` directly) → no diagnostic.
+    - `tests/type-layer-diagnostics-production.test.ts` — "rejects an array
+      literal whose elements share no common type" (`let xs = [1, "a"]`) → `[]`.
+    - `tests/conformance/production-conformance.test.ts` — the V20g-T row, same
+      source → `[]`.
+    - `tests/index-element-alias-unfolded.test.ts` f1 → `[]`, f3 →
+      `["theta/parse/let-rhs-type-mismatch"]`, f5 →
+      `["theta/parse/object-field-type-mismatch"]`. f1's flip REMOVES a false
+      `E`-severity rejection of a spec-legal binding, which bug 0125 §Fix (d)
+      calls *"a sharper symptom than this report's"*.
+  - *Operator-authorized — 2 cells*, `tests/index-element-alias-unfolded.test.ts`
+    f4 and f6. The authorization, verbatim: *"The operator authorizes re-pinning
+    EXACTLY TWO further cells beyond the 16 doc-authorized flips: f4 and f6 of
+    `tests/index-element-alias-unfolded.test.ts` (bug 0125's group (f)) — f4
+    (`let xs: array<string> = ["a", 1]`) from
+    `["theta/parse/array-element-type-mismatch"]` to
+    `["theta/parse/let-rhs-type-mismatch", "theta/parse/array-element-type-mismatch"]`,
+    and f6 (the constructor-field twin) from
+    `["theta/parse/array-element-type-mismatch"]` to
+    `["theta/parse/object-field-type-mismatch", "theta/parse/array-element-type-mismatch"]`
+    — each with a comment recording that the second code is open bug 0129's
+    class (two `E`-severity diagnostics for one written mistake; no corpus
+    sentence governs the count) and that 0129's adjudication rules the class and
+    may re-pin these cells with its own authority. ALSO authorized: append
+    (never delete) a disclosure note to open bug 0129's doc recording this
+    shipped instance of its class (name the two cells, the codes, and that
+    0142's cell c4 already pinned the same two-code pattern at this sink family
+    before this fix). The authorization covers EXACTLY those two cells plus the
+    16 bucket-(i)/(ii) cells the stop report inventoried."* Both cells' comments
+    record 0129's class and its authority to re-pin them; the code ORDER was
+    read off the pre-edit failure output, not assumed. They flip because the
+    inferred type of `["a", 1]` becomes EXACT (`array<string | integer>`) and
+    `array<string | integer> ⋢ array<string>`, so `checkLetRhsCompat` /
+    `checkObjectFieldCompat` now fire alongside the element sink; the pre-fix
+    agreement was accidental — the `candidates[0]` erasure happened to answer
+    `array<string>`.
+- **Line-count neutrality** (operator-mandated; bug 0125 §Residuals item 7 is
+  the precedent). `src/parser/static-type-inference.ts` 378 → **378** exactly —
+  eleven open reports cite it by line (0019, 0090, 0115, 0126, 0130, 0136, 0140,
+  0142, 0145, 0146, 0152); the import stayed one line and `#commonType`'s
+  docstring was sized to the shortened body. `src/parser/functions.ts` 427 →
+  **427**; `src/parser/type-layer-checks.ts` 2531 → **2531**. For
+  `src/parser/type-compat.ts` the open-doc citation set was enumerated: the last
+  line cited by any open report other than this one is **582** (0152 `:573–582`,
+  0142 `:577`, 0114 `:570–572`); the first edited line is **592**, so lines
+  1–591 are byte-identical to HEAD (verified by `diff` at every round) and ALL
+  growth sits below the last cited line. The only citations into the changed
+  region are this report's own `:613` and `:541–626`, already 0.52.0-era drift
+  and left as found (bug 0134's class — citing docs were not chased).
+- **Gates** — witness `npx vitest run tests/array-ternary-common-type-union.test.ts`
+  → `Test Files 1 passed (1)` / `Tests 21 passed (21)`; full suite
+  `npx vitest run` → `Test Files 277 passed (277)` / `Tests 4306 passed (4306)`
+  (clean-tree baseline 276/4285); `npm run typecheck` (`tsc -p tsconfig.json
+  --noEmit`) clean, no output; `npm run lint` (`eslint --no-error-on-unmatched-pattern
+  "src/**/*.ts"`) clean, no output; H8a live
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts`
+  → `Test Files 1 passed (1)` / `Tests 26 passed (26)` including the new
+  admission cell (25 before); H9a acceptance
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance`
+  → `Test Files 2 passed (2)` / `Tests 11 passed (11)`, unchanged. No stochastic
+  red in the shipping run.
+- **Review** — 2 rounds, plus one pre-review citation-correction round that is
+  not a review round. Pre-review round: the Phase-2 header-comment rewrites in
+  the two large witness files were not line-count-neutral and shifted every
+  citation below them; re-flowed to net zero, which returned
+  `tests/index-element-alias-unfolded.test.ts` to ZERO staled citations and
+  confined `tests/fn-arg-type-mismatch-wired.test.ts`'s shift to below its first
+  re-pinned cell. r1 (deep): FINDINGS — no `correctness`, `fidelity` or `spec`
+  finding; two defects (`isObjectBranch`'s TYPE-11 unfold step had no witness
+  that could red, and its covering comment claimed a route inventory that
+  measured false; two doc comments outside the diff falsified by the behaviour
+  change) plus three observations. r2 (fast): CLEAN, one non-blocking `prose`
+  residual (a false coverage claim in new prose), fixed by a comment-only polish
+  round — polish verified by gate-diff, confirmation round skipped per the
+  charter's post-polish rule.
+- **Verification** — PASS. (1) The witness genuinely reds without the fix: with
+  clause 2 neutralised (`commonType` returning `undefined` instead of the
+  union), the derived-in-advance red set `{r1, r2, u3, uN, r6, r9, r10, s1–s5}`
+  matched the measured 12-of-21 exactly, every red carrying the 0081 signature
+  (`array-no-common-type` on the spec's own vectors; `array<integer>` where
+  `array<integer | string>` is expected); with `isObjectBranch` forced `false`,
+  the derived set `{r7, r7b}` matched exactly, proving rule 3's survival is
+  witnessed and not asserted. Every restore proven byte-exact by `git
+  hash-object` against the pre-neutralisation snapshot
+  (`27b209b586a1116db9c55202835e6e45f7995ac4`, three cycles). (2) Full default
+  suite green, and the three line invariants re-verified empty. (3) The new H8a
+  admission cell run FOR REAL and proven in BOTH directions: neutralised, only
+  `b81livectl` registers and the cell reds naming the refused spec vector;
+  restored blob-hash-verified, 26/26 green. (4) Lint and typecheck clean.
+- **Residuals** (evidence banked; no bug doc created by this fix)
+  1. **Facet (b) — the ternary `checkCommonType` caller, blocked on a corpus
+     self-disagreement.** `docs/reference/type-system.md`'s TYPE-9 bullet routes
+     a ternary through "the array/ternary common-type machinery", and
+     `expressions.md:222` scopes the rules to "array literals **(and ternary
+     branches)**" — but `code-registry-parse.md`'s *Trigger* for
+     `theta/parse/array-no-common-type` says "**Array literal** whose elements
+     have no common type". Wiring the caller emits outside the registered
+     *Trigger* (the fault bug 0125's fix record prosecutes at
+     `theta/parse/non-array-iterand`); not wiring it leaves TYPE-9's ternary half
+     unimplemented. Needs a DIAG-2 *Trigger* adjudication, not just code.
+     Evidence: §Reproduction row 8 (`true ? A{…} : B{…}` → `[]`) re-measured at
+     this HEAD and pinned as witness cell r8; `checkCommonType`'s single `src/`
+     caller re-confirmed to be `checkArrayLiteral`.
+  2. **Facet (d) — the `fn`-parameter sink at call sites, NARROWER than this
+     report frames it.** Now bounded to "elements with no LUB (rule 3) under a
+     union-typed parameter", e.g. `fn f(xs: array<A | B>)` + `f([A{…}, B{…}])`.
+     Evidence: §Reproduction row 6 flips to `[]` under this fix with no sink
+     supplied, pinned as witness cell r6. §Why it matters item 2 overstates the
+     remaining gap.
+  3. **Bug 0125's recorded-not-filed sink-routing siblings are HALF-CLOSED.**
+     f1's false `E` is gone and f3/f5 relabel to a correctly-triggered code; the
+     remaining divergence is only that the alias spelling reports the OUTER code
+     where the concrete spelling reports the ELEMENT code (f3 vs f4, f5 vs f6).
+     Whoever files the siblings' report must know 0125's §Reproduction (f)
+     baseline no longer holds. Discharge note appended to 0125.
+  4. **The inference pass now unions `match` arms while the checker still
+     refuses them.** `#typeExpr`'s `case "match"`
+     (`src/parser/static-type-inference.ts`) routes through `#commonType`, so a
+     heterogeneous `match` types as a union, while `checkMatchArmTypes` (via
+     `leastUpperBound`, `src/parser/match-result.ts`) and `computeLub`
+     (`src/parser/functions.ts`) remain dominating-member-only and still refuse.
+     No false `E` ships: the disagreement is observable only inside programs
+     those rows' own registered *Triggers* already refuse, and an admitted
+     program has a dominating arm, for which `commonType` returns exactly what it
+     returned before. But `docs/reference/type-system.md:96` — "`match` arms and
+     inferred theta/`fn` return types use the same LUB discipline" — now reads
+     false in a new direction, and both rows' *Triggers* are written to the
+     dominating semantics. Same adjudication class as residual 1.
+  5. **Self-inflicted line drift, bounded and disclosed** (bug 0134's class;
+     citing docs deliberately not chased). `tests/fn-arg-type-mismatch-wired.test.ts`
+     2914 → 2961; every line up to 1273 is byte-identical to HEAD, so only
+     citations at or after its first re-pinned cell move, in nine open reports:
+     0139 (`:1639`, `:2334`), 0140 (`:1546`, `:1656`), 0141 (`:1618`, `:2420`,
+     `:2436`, `:2468`), 0143 (`:2726`, `:2734`, `:2742`, `:2759`), 0144
+     (`:2342`), 0145 (`:2694`), 0146 (`:1427`, `:1855`), 0149 (`:1371`), 0150
+     (`:2154`, `:2169`). `tests/index-element-alias-unfolded.test.ts` 1204 →
+     1269 with ZERO staled citations: its lowest cited line is `:168` and its
+     highest is `:1003`, all inside the byte-identical 128–1031 window.
+- **Discharge notes appended:** 0129 (the operator-mandated disclosure of this
+  shipped instance of its class), 0125 (its §Fix (d) tripwire fired and was
+  answered under authorization; its "the three sink-routing siblings keep their
+  measured divergence" no longer holds for sibling 1). Bugs 0043, 0130, 0136,
+  0145, 0146 and 0152 were re-scanned and no premise of theirs moves — 0043's in
+  particular is structurally untouchable (`grep -c CompatType
+  src/parser/body-type-lowering.ts src/parser/schema-lowering.ts` → 0 and 0; a
+  minted union `CompatType` cannot reach `lowerTypeExpr`, which consumes
+  annotation source strings) — so no note is owed.
+- **Pinned dispositions / non-goals**
+  1. **The union spelling is `integer | string`, not the spec's
+     `number | string`.** `expressions.md:225` writes the worked vector as
+     `[1, "a"]` → `array<number | string>`; this fix computes
+     `array<integer | string>`, arms VERBATIM, as `concatElementType` already
+     does. The vector's normative observable — the source loads — is met either
+     way; `array<integer | string> ⊑ array<number | string>`, so the computed
+     type is strictly TIGHTER and satisfies any sink written to the spec's
+     spelling; and rule 2's TYPE-2 clause is conditioned on "`integer` widens to
+     `number` **when mixed with `number`**", which `[1, "a"]` is not. Pinned by
+     witness cell s1 with the argument in its comment, so a later "correction"
+     toward the spec's printed spelling is a decision and not an accident.
+  2. **Mirrored, not shared, with `concatElementType`** (`src/runtime/stdlib-string.ts`),
+     with the divergence reason recorded in `commonType`'s doc comment:
+     `concatElementType` treats an `"unknown"` relation as DISJOINT (it unions)
+     where the common-type rule treats an unresolvable branch as NON-BLOCKING
+     (it collapses onto the dominating branch, per `type-system.md`
+     §"Unresolvable operands"). Delegating would silently change
+     `array<T>.concat`'s behaviour on unresolvable element types. Union shape and
+     arm order are identical, which is what §Fix constraint 1 asks.
+  3. **A branch whose alias-unfolded kind is `union` is NOT an object branch**,
+     so a discriminated-union-alias-typed element (`schema Animal = Cat | Dog`)
+     takes rule 2's union clause rather than rule 3. Recorded as the disposition
+     in `isObjectBranch`'s doc comment: the author already declared the union,
+     TYPE-11 makes the alias transparent ahead of the test, and the route gates
+     on branch KIND, which `union` is not.
+  4. **GOV-15 removal direction.** Re-measured at this HEAD: 34 committed
+     `.theta`/`.thetalib` files, ZERO heterogeneous array literals; the only
+     multi-element bracket in the corpus is `docs/examples/ralph-inline.theta:22`
+     (`tools: [read, bash]`), a frontmatter tools list, not an expression-position
+     array literal. The change removes no diagnostic any committed theta draws
+     and admits sources the corpus does not yet contain. Disposition: NARROWING
+     an emission set onto its registered *Trigger* — the 0084/0139 posture — so
+     no registry edit is engaged for facets (a)/(c).
+  5. **§Non-goals stand**, with one correction to this report's own text: the
+     interim option's claim that it closes the spec vectors *"without touching
+     the sink resolution"* is FALSE as written — cells f4/f6 measure the sunk
+     arm's observable output changing, which is what made this fix need the
+     operator authorization recorded above.

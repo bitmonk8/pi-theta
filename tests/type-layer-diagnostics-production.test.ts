@@ -159,11 +159,15 @@ describe("V20c-T — question-outside-result-fn fires in production", () => {
 // theta/parse/array-no-common-type — (owned V3a), integration witness.
 // ===========================================================================
 
-describe("V20c-T — array-no-common-type fires in production", () => {
-  it("rejects an array literal whose elements share no common type", () => {
-    // theta/parse/array-no-common-type — `[integer, string]` with no sink.
+describe("V20c-T — array-no-common-type in production (bug 0081 closed this row's own input)", () => {
+  it("admits an array literal whose elements union under rule 2 (bug 0081)", () => {
+    // theta/parse/array-no-common-type — `[1, "a"]` is expressions.md:225's own
+    // worked vector for the union clause: `integer` and `string` are neither
+    // an object branch (rule 3's gate), so they union to `integer | string`
+    // and the literal loads clean. Rule 3's own refusal is pinned separately,
+    // over two object schemas, by tests/array-ternary-common-type-union.test.ts r7.
     const codes = codesOf('let xs = [1, "a"]');
-    expect(codes).toContain("theta/parse/array-no-common-type");
+    expect(codes).toEqual([]);
   });
 });
 

@@ -27,7 +27,7 @@
 // functions.md. Closes no new spec REQ-ID.
 
 import type { Block, Expr, IfStmt, ThetaBody, Stmt } from "./theta-document";
-import { displayType, unfoldAlias, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
+import { commonType, displayType, unfoldAlias, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
 
 /**
  * The `V2b` type-compatibility engine (`⊑`) as an injectable seam: the directed
@@ -338,23 +338,23 @@ export class StaticTypeInferencePass {
   }
 
   /**
-   * The common type of a set of candidate types: a candidate `C` such that every
-   * other type is `⊑ C` under the injected `V2b` engine (a statically
-   * unresolvable operand does not block a candidate, mirroring `V2b`'s
-   * `"unknown"` handling). Falls back to the first candidate when none narrows
-   * them all, and to a nominal `unknown` reference for an empty set.
+   * The common type of a set of candidate types — the least upper bound under
+   * `⊑`, delegated to the ONE `commonType` (./type-compat.ts) that
+   * `checkCommonType` also calls, so the checker and this inference pass
+   * cannot disagree about a candidate set: both decide it the same way, over
+   * this pass's injected `V2b` engine. `undefined` means rule 3 — an
+   * object-branch set with no dominating member — which the checker turns
+   * into `array-no-common-type` at the literal; this pass still owes the
+   * rest of the walk a type for that node, so it falls back to the first
+   * candidate rather than propagate the absence. An empty set has no
+   * candidate to fall back to, so it is answered directly, ahead of the
+   * delegation, with a nominal `unknown` reference.
    */
   #commonType(candidates: readonly CompatType[], env: TypeEnv): CompatType {
     if (candidates.length === 0) {
       return { kind: "named", name: "unknown" };
     }
-    const common = candidates.find((candidate) =>
-      candidates.every((other) => {
-        const r = this.#checkCompatible(other, candidate, env);
-        return r === "compatible" || r === "unknown";
-      }),
-    );
-    return common ?? (candidates[0] as CompatType);
+    return commonType(candidates, env, this.#checkCompatible) ?? (candidates[0] as CompatType);
   }
 }
 

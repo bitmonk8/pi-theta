@@ -589,7 +589,7 @@ export function checkCommonType(opts: {
   // Without a sink: the branches need a common type — a branch every other
   // branch is `⊑` (the array/ternary LUB). Fewer than two branches trivially
   // share one.
-  if (branches.length < 2 || hasCommonType(branches, env)) {
+  if (branches.length < 2 || commonType(branches, env, checkCompatible) !== undefined) {
     return [];
   }
   // Message from diagnostics/code-registry-parse.md.
@@ -606,15 +606,99 @@ export function checkCommonType(opts: {
 }
 
 /**
- * Whether the branch types share a common type that narrows them: some branch
- * `C` such that every branch is `⊑ C`. A statically-unresolvable branch is
- * treated as not blocking a candidate (deferred to the runtime AJV safety net).
+ * The `⊑` relation as a constructor-injected parameter: `commonType` below is
+ * called from this module's own `checkCommonType`, over `checkCompatible`, and
+ * from `StaticTypeInferencePass.#commonType` (`./static-type-inference.ts`),
+ * over that pass's injected `V2b` engine. Parameterising the relation, rather
+ * than importing `checkCompatible` into the inference pass or re-implementing
+ * the LUB there, is what makes the checker and the inference pass compute the
+ * same answer for the same candidate set — there is one decision procedure
+ * behind both calls, not two that could drift apart.
  */
-function hasCommonType(branches: readonly CompatType[], env: TypeEnv): boolean {
-  return branches.some((candidate) =>
+export type CompatRelation = (sub: CompatType, sup: CompatType, env: TypeEnv) => Compatibility;
+
+/**
+ * The array/ternary common type of `branches` under `relate` (the `⊑`
+ * relation) — their least upper bound, per expressions.md §"Array
+ * construction" rule 2 and type-system.md §"Common-type rules" rule 2.
+ * `undefined` means rule 3: no common type exists, the
+ * `theta/parse/array-no-common-type` case.
+ *
+ * Three clauses, in the order the spec states them:
+ *
+ *   1. a branch `C` that every branch is `⊑` IS the least upper bound —
+ *      TYPE-1 identical collapse and TYPE-2 `integer → number` widening. A
+ *      statically-unresolvable branch does not block a candidate, so a set
+ *      holding one collapses onto the dominating branch rather than being
+ *      treated as disjoint from it (type-system.md §"Unresolvable operands");
+ *   2. otherwise the branches union, arms VERBATIM in receiver-first (source)
+ *      order — the computed type is not a member of the input set (`["a",
+ *      null]` → `string | null`). `concatElementType`
+ *      (`../runtime/stdlib-string.ts`) computes the same union in the same
+ *      order for `array<T>.concat`, and the two are MIRRORED rather than
+ *      shared: `concatElementType` treats an `"unknown"` relation as
+ *      DISJOINT (it unions), where clause 1 above treats it as NON-BLOCKING
+ *      (it collapses onto the dominating branch). Sharing one function would
+ *      silently change `array<T>.concat`'s behaviour on an unresolvable
+ *      element type, which is out of this fix's scope;
+ *   3. EXCEPT — a branch set holding an object branch (an alias-unfolded
+ *      inline object, TYPE-8, or a `named` resolving to an object-schema
+ *      declaration, TYPE-10) has no common type unless one branch already
+ *      dominates: object schemas do not unify implicitly. The gate is on the
+ *      branch KINDS, never applied blanket, so a set of arrays, unions or
+ *      primitives that merely disagree still unions.
+ *
+ * An empty `branches` has no least upper bound to compute and answers
+ * `undefined` directly: the search below would find no dominating candidate
+ * and no object branch either, and fall through to an empty union, which is
+ * not a type this function may return.
+ */
+export function commonType(
+  branches: readonly CompatType[],
+  env: TypeEnv,
+  relate: CompatRelation,
+): CompatType | undefined {
+  if (branches.length === 0) {
+    return undefined;
+  }
+  const dominating = branches.find((candidate) =>
     branches.every((branch) => {
-      const r = checkCompatible(branch, candidate, env);
+      const r = relate(branch, candidate, env);
       return r === "compatible" || r === "unknown";
     }),
+  );
+  if (dominating !== undefined) {
+    return dominating;
+  }
+  if (branches.some((branch) => isObjectBranch(branch, env))) {
+    return undefined;
+  }
+  return { kind: "union", arms: branches };
+}
+
+/**
+ * Whether `branch` is one of the object shapes rule 3 excludes from implicit
+ * unification: an alias-unfolded inline object type (TYPE-8), or a `named`
+ * type resolving to an object-schema declaration (TYPE-10). Aliases are
+ * unfolded first (TYPE-11), so an alias of an object schema counts as the
+ * object schema it is transparent with. An unresolvable `named` is never an
+ * object branch — it is past the parser's static view, and a set holding one
+ * never reaches this gate anyway, because clause 1 above already treats an
+ * unresolvable branch as dominating whatever it is compared against.
+ *
+ * A branch whose alias-unfolded kind is `union` — a value statically typed
+ * through a discriminated-union alias (`schema Animal = Cat | Dog`) — is
+ * therefore never an object branch either: TYPE-11 already replaced it with the
+ * union its declaration names, and neither disjunct above tests a `union` kind.
+ * A set holding one takes rule 2's union clause, not this gate. Recorded as the
+ * disposition rather than an oversight: the author already declared the union,
+ * TYPE-11 makes the alias transparent ahead of this test, and the settled route
+ * gates on branch KIND, which `union` is not.
+ */
+function isObjectBranch(branch: CompatType, env: TypeEnv): boolean {
+  const unfolded = unfoldAlias(branch, env);
+  return (
+    unfolded.kind === "object" ||
+    (unfolded.kind === "named" && resolveNamed(env, unfolded.name)?.kind === "object-schema")
   );
 }

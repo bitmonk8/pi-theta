@@ -3568,3 +3568,216 @@ describe("H8a-T — bug 0149: an uppercase-first schema field name or params: ke
     }
   });
 });
+
+// ===========================================================================
+// Bug 0081 — the array/ternary common-type rule was decided by "one branch
+// dominates the others", so rule 2's union clause (expressions.md:225) was
+// unreachable: `[1, "a"]`, printed in expressions.md as a worked vector, drew
+// `theta/parse/array-no-common-type` and never loaded
+// (docs/bugs/0081-array-ternary-common-type-never-unions.md). The fix's ONE
+// exported `commonType(branches, env, relate)` (src/parser/type-compat.ts)
+// computes rule 2's least-upper-bound union when no branch dominates, called
+// by BOTH `checkCommonType` (the checker) and
+// `StaticTypeInferencePass.#commonType` (the inferrer) — the 21-cell unit
+// witness (tests/array-ternary-common-type-union.test.ts) proves the
+// mechanism offline at the `parseThetaDocument` boundary, cell r1 for the
+// admission and cell r7 for rule 3's survival. This cell proves the SAME
+// admission reaches REGISTRATION end to end through the real production
+// composition root (session_start → resources_discover →
+// composeExtensionInstance → checkTypeLayer) — the fixed path had zero live
+// coverage before this addition.
+//
+// THIS CELL IS AN ADMISSION CELL, NOT A DENIAL — NOTE THE INVERSION. Every
+// H8a-T cell above it proves a DENIAL: a theta the fix (or an already-shipped
+// rule) refuses must still fail to register. Bug 0081's fix instead ADMITS a
+// source that previously refused outright, so `b81livegood` is the cell whose
+// REGISTRATION is the fixed observable, not its absence:
+//   - `b81livegood` — expressions.md:225's own worked vector, `let x = [1,
+//     "a"]` (the unit witness's cell r1, verbatim). Pre-fix this drew
+//     `theta/parse/array-no-common-type` on a spec-legal source and never
+//     registered; post-fix `commonType`'s rule-2 union clause admits it and
+//     it MUST register.
+//   - `b81livebroken` — the rule-3 CONTROL (the unit witness's cell r7,
+//     verbatim): two distinct named object schemas in one array literal, no
+//     sink (`[A{…}, B{…}]`). Rule 3 (expressions.md:226) is the ONE
+//     sink-less refusal the spec still prescribes after the fix — gated on
+//     `isObjectBranch` (src/parser/type-compat.ts) — so this theta MUST NOT
+//     register. Without this control, `b81livegood` registering would be
+//     unfalsifiable: a harness (or a regressed fix) that admitted EVERY
+//     heterogeneous array would pass `b81livegood` for the wrong reason.
+//     This cell proves the harness — and the shipped rule-3 gate — still
+//     detects a genuine refusal, so the admission above is not vacuous.
+//   - `b81livectl` — the plain control on the siblings' own pattern
+//     (`promptTheta("THETA-LIVE-OK")`), proving the workspace and discovery
+//     walk both work independent of this bug.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the file header claims for
+// the discovery→registration cells above). ADDITIVE ONLY: no existing cell in
+// this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const ARRAY_NO_COMMON_TYPE_CODE = "theta/parse/array-no-common-type";
+
+/** The sharded registry page carrying `theta/parse/array-no-common-type`'s row (`:41`). */
+const ARRAY_NO_COMMON_TYPE_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/array-no-common-type: array elements have no common type; …`
+ * — DIAG-4: the message half is read from the registry row, not copied,
+ * mirroring this file's `integerNarrowingFragment` /
+ * `bindingCaseMismatchFragment` / `reservedKeywordFragment`. The row carries
+ * no `<…>` placeholder, so this helper substitutes nothing; the trailing
+ * assertion is a drift guard — a future reworded row that introduces a
+ * placeholder reds here — rather than a fill check.
+ */
+function arrayNoCommonTypeFragment(): string {
+  const template = registryMessage(
+    ARRAY_NO_COMMON_TYPE_REGISTRY,
+    ARRAY_NO_COMMON_TYPE_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${ARRAY_NO_COMMON_TYPE_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = template as string;
+  expect(
+    message,
+    `${ARRAY_NO_COMMON_TYPE_CODE}: the registry row's Message template grew ` +
+      "an unsubstituted <…> placeholder this reader does not fill — the row " +
+      "changed shape",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${ARRAY_NO_COMMON_TYPE_CODE}: ${message}`;
+}
+
+/**
+ * expressions.md:225's own worked vector — the bug doc's own §Reproduction
+ * row 1, and the unit witness's cell r1, verbatim: a `let` binding a
+ * heterogeneous array literal (`integer`, `string`) with no dominating
+ * branch and no sink. Pre-fix `hasCommonType` (src/parser/type-compat.ts)
+ * found no dominating branch and `checkCommonType` refused with
+ * `theta/parse/array-no-common-type`; post-fix `commonType`'s rule-2 union
+ * clause computes `array<integer | string>` and the literal loads clean.
+ */
+function heterogeneousArrayLiteralTheta(): string {
+  return ["---", "mode: prompt", "---", 'let x = [1, "a"]', ""].join("\n");
+}
+
+/**
+ * The rule-3 CONTROL — the bug doc's own §Reproduction row 7, and the unit
+ * witness's cell r7, verbatim: two distinct named object schemas in one
+ * array literal, no sink. `isObjectBranch` (src/parser/type-compat.ts) gates
+ * the union clause on branch KIND, so a set holding an object branch with no
+ * dominating branch still has no common type — this theta must NOT register,
+ * both before and after the fix.
+ */
+function noCommonTypeObjectBranchTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema A {",
+    "  a: integer",
+    "}",
+    "schema B {",
+    "  b: string",
+    "}",
+    'let x = [A { a: 1 }, B { b: "x" }]',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0081: the array/ternary common-type union admits a spec-legal heterogeneous array literal, live, with rule 3's refusal surviving as a control (Convention: live-host acceptance)", () => {
+  it("registers a theta whose array literal has no dominating branch but a computed union, while a distinct-named-object-schema array with no sink still does not register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // sibling's status could be (wrongly) attributed to a broken workspace
+      // instead of the common-type union rule under test.
+      { source: "project", stem: "b81livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The load-bearing ADMITTED theta: the bug doc's own §Reproduction row 1
+      // spelling, unit-witness cell r1 verbatim. THIS is the fixed observable
+      // — its REGISTRATION, not its absence.
+      { source: "project", stem: "b81livegood", text: heterogeneousArrayLiteralTheta() },
+      // The rule-3 CONTROL: unit-witness cell r7 verbatim. Must NOT register,
+      // proving the admission above is not "the harness registers everything".
+      { source: "project", stem: "b81livebroken", text: noCommonTypeObjectBranchTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b81livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the common-type union rule under test, would explain either " +
+          "sibling's status too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE — the admission. Through the REAL production
+      // composition root (not the offline parseThetaDocument harness the unit
+      // witness uses), a heterogeneous array literal with no dominating
+      // branch now computes a union and registers — `commonType`'s rule-2
+      // union clause (src/parser/type-compat.ts) admits it, and
+      // `hasLoadParseError` (production-composition.ts) sees no
+      // error-severity load-phase diagnostic to un-register on. Pre-fix this
+      // theta would NOT have registered (this is the one cell in this file
+      // whose registration, not its absence, is the fix's own proof).
+      expect(
+        handle.command("b81livegood"),
+        "expressions.md:225's own worked vector `[1, \"a\"]` did not register " +
+          "through the live discovery/session_start path — the common-type " +
+          "union clause did not admit it (theta/parse/array-no-common-type " +
+          "still fired on a spec-legal source). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE CONTROL — rule 3's refusal survives. Two distinct named object
+      // schemas with no sink still have no common type (`isObjectBranch`'s
+      // gate), so this theta must NOT register, proving the admission above
+      // is not a vacuous "everything registers now" pass.
+      expect(
+        handle.command("b81livebroken"),
+        "the rule-3 control (two distinct named object schemas, no sink) " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/parse/array-no-common-type did not fire, so the admission " +
+          "above would prove nothing (a harness or a regressed fix that admits " +
+          "every heterogeneous array would pass b81livegood the same way). " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b81livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = arrayNoCommonTypeFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the array-no-common-type rejection " +
+          "for the rule-3 control. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+

@@ -377,8 +377,13 @@ describe("V20g-T conformance — type-layer diagnostics (gap #2 V20c over the V2
     ).toContain("theta/parse/question-on-non-result");
   });
 
-  it("theta/parse/array-no-common-type: an array literal whose elements share no common type is rejected", () => {
-    expect(codesOf('let xs = [1, "a"]')).toContain("theta/parse/array-no-common-type");
+  it("theta/parse/array-no-common-type: an array literal whose elements union under rule 2 is admitted (bug 0081)", () => {
+    // `[1, "a"]` is expressions.md:225's own worked vector for rule 2's union
+    // clause: `integer` and `string` are neither an object branch, so they
+    // union to `integer | string` and the literal loads clean. Rule 3's own
+    // refusal (two distinct named object schemas, no sink) is pinned
+    // separately by tests/array-ternary-common-type-union.test.ts r7.
+    expect(codesOf('let xs = [1, "a"]')).toEqual([]);
   });
 
   it("theta/parse/non-indexable-receiver: indexing a `string` receiver is rejected", () => {

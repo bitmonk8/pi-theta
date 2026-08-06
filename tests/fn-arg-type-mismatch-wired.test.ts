@@ -35,13 +35,13 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //   i1          the imported-`.thetalib` route defers, documented as such.
 //   sh1–sh3     a local binder outranks the top-level `fn` at every call
 //               position (expressions.md:46), so the check withholds.
-//   u1–u5       a statically ERASED argument read is not a proof and must not
-//               be judged (bug 0072's soundness lesson).
+//   u1–u5       bug 0081's union arm closed this group's erasure: each read is
+//               now a proven union, and the argument sink judges it for real.
 //   u6          a `named` type minted from a FIELD name is not a proof of the
 //               read value's type either, and must not be judged.
-//   u7, u7p     an index read carries its TARGET's erasure through the element
-//               narrowing, so the proof obligation belongs to the target; u7p
-//               is the positive differentiator — a PROVEN target still emits.
+//   u7, u7p     an index read's proof obligation belongs to the target, not the
+//               element narrowing alone; bug 0081 makes u7's target a proof
+//               where it used to be an erasure, so both cells now emit.
 //   u8, u8b,    a `named` type minted from a CALLEE name is not a proof of the
 //   u8p         call's value type; u8p is the positive differentiator — the
 //               same `named F` reached through the constructor form emits.
@@ -57,11 +57,11 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //   u10pc       reduction, and `+`'s untouched both-`string` and numeric
 //               shapes — every one of them keeps emitting.
 //   u11, u11b,  a SELF-SHADOWING `let` initialiser reads the OUTER binding, as
-//   u11c        the runtime does, so an erased outer binding's unprovability
-//               reaches the shadowing binding across all three composite
-//               routes (ternary, arithmetic, array-through-index); u11p is the
-//               positive differentiator — a PROVEN outer binding keeps the
-//               shadowing binding proven and the emission stands.
+//   u11c        the runtime does; bug 0081 makes that outer binding a
+//               proof across all three composite routes (ternary,
+//               arithmetic, array-through-index), so all three now
+//               emit alongside u11p, the differentiator that was
+//               always positive.
 //   u12, u12b,  a binder that SHADOWS a same-named outer record — a `for`
 //   u12c, u12d  variable, a `match` pattern binding (both inside the arm body
 //               and through the argument-position reduction), an unannotated
@@ -1271,81 +1271,98 @@ describe("bug 0050 — a local binder shadowing a top-level `fn` suppresses the 
 });
 
 // ===========================================================================
-// u1–u5 — the erased-read guard. GREEN at this HEAD vacuously; after the fix
-// each reds if the argument type is taken from a static read that is not a
-// proof. Bug 0072 closed exactly this soundness hole one argument position
-// over: `StaticTypeInferencePass.#commonType`
-// (src/parser/static-type-inference.ts:341–352) reduces sibling arms to ONE
-// type by unknown-blessing and by the `common ?? candidates[0]` fallback, both
-// of which discard an arm the runtime can still produce. Its answer was
-// `collectProvableArgTypes` (src/extension/invoke-static-checks.ts:484), which
-// returns the SET of arm types instead. A wiring here that calls `typeOf` on
-// the argument and trusts the answer inherits the hole.
+// u1–u5 — bug 0081's union arm closes the erasure this group used to guard, for
+// this group's RULE-2 inputs. `StaticTypeInferencePass.#commonType` delegates
+// to `commonType` (src/parser/type-compat.ts): a rule-2 heterogeneous set (no
+// object branch, no dominating member) now reduces to the exact union rule 2
+// prescribes, not to an erased first candidate. Unknown-blessing (clause 1
+// treats an unresolvable branch as non-blocking) and the rule-3
+// `?? candidates[0]` fallback (an object-branch set with no dominating
+// member) are UNTOUCHED by this fix and stay withheld at this sink by
+// `isProvenReduction`. Each cell below now pins the resulting
+// `fn-arg-type-mismatch` on the union `<actual>`, with the per-cell soundness
+// argument for why the read is a genuine proof rather than the erasure bug 0072
+// (one argument position over) guards against.
 // ===========================================================================
 
-describe("bug 0050 — a statically ERASED argument read is not a proof and is not judged", () => {
-  it("u1: `g(flag ? 1 : \"a\")` against `s: string` draws no fn-arg-type-mismatch", () => {
-    // `typeOf` reads this ternary as `integer` — the `candidates[0]` fallback,
-    // with the `string` arm discarded. Judging that reading against `string`
-    // would reject a program whose runtime value can be a `string`.
+describe("bug 0050/0081 — a once-erased argument read is now a proven union and is judged", () => {
+  it('u1: `g(flag ? 1 : "a")` against `s: string` now fires fn-arg-type-mismatch on the union', () => {
+    // Bug 0081 closes the erasure this cell used to pin: `commonType`
+    // (src/parser/type-compat.ts) now unions the ternary's two arms instead of
+    // discarding one, so `typeOf` reads `integer | string`, not `integer`. Both
+    // arms are independently proven (each is a literal) and each is `⊑` the
+    // union (TYPE-5), so the union genuinely describes every value the
+    // expression can take — `isProvenReduction` now holds where it used to
+    // withhold. `integer | string ⊭ string` is exactly what TYPE-6 prescribes,
+    // so the parameter mismatch is a true positive, not the false-`E` species
+    // bugs 0050/0072 exist to refuse.
     const doc = parse(U1);
-    argRange(doc, "g", 0);
-    expectNoFnArgMismatch(
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
       doc,
-      "u1 — the erased read names one arm of a two-arm expression; rejecting on it would reject a value the declared parameter type accepts",
+      fnArgMessage("g", 0, "s", "string", "integer | string"),
+      argument,
+      "u1 — bug 0081's union arm makes the read a proof, so the mismatch it names is genuine",
     );
   });
 
-  it("u2: the laundered form `let x = flag ? 1 : \"a\"` then `g(x)` draws no fn-arg-type-mismatch", () => {
-    // The same erasure one binding removed: an unannotated `let` records the
-    // erased type, so a check that reads the binding's recorded type rather
-    // than the ternary is equally unsound. The two cells together bound the
-    // route the erasure travels.
+  it('u2: the laundered form `let x = flag ? 1 : "a"` then `g(x)` now fires fn-arg-type-mismatch on the union', () => {
+    // The same closure one binding removed: bug 0081's union arm makes the
+    // ternary a proof, so `let x = …`'s unannotated marking guard records `x`
+    // as proven too, and the binding-typed argument carries the same genuine
+    // `integer | string` forward.
     const doc = parse(U2);
-    argRange(doc, "g", 0);
-    expectNoFnArgMismatch(
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
       doc,
-      "u2 — an unannotated `let` carries the erased reading forward, so a binding-typed argument is no more provable than the expression that produced it",
+      fnArgMessage("g", 0, "s", "string", "integer | string"),
+      argument,
+      "u2 — a proven ternary makes the binding it initialises proven too, so the argument sink judges a genuine mismatch",
     );
   });
 
-  it("u3: `g([1, \"a\"])` against `xs: array<number>` draws no fn-arg-type-mismatch", () => {
-    // `typeOf` reads `array<integer>` here, again by discarding an arm. This
-    // fixture also draws `theta/parse/array-no-common-type` today, from the
-    // array literal's own gate; that emission belongs to its own row and is
-    // deliberately not pinned by this cell.
+  it('u3: `g([1, "a"])` against `xs: array<number>` now fires fn-arg-type-mismatch on the union element', () => {
+    // Bug 0081's union arm makes the array literal's own element type a proof
+    // (`array<integer | string>`) instead of discarding the `string` arm, so
+    // this fixture no longer draws `theta/parse/array-no-common-type` either —
+    // the array now has a common type of its own, a different row's concern.
     const doc = parse(U3);
-    argRange(doc, "g", 0);
-    expectNoFnArgMismatch(
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
       doc,
-      "u3 — the element reading is erased, so the array type it produces is not a proof about the argument",
+      fnArgMessage("g", 0, "xs", "array<number>", "array<integer | string>"),
+      argument,
+      "u3 — the element reading is now a proof, so `array<integer | string> ⊭ array<number>` is a genuine mismatch",
     );
   });
 
-  it("u4: `g([\"a\", null])` against `xs: array<number>` draws no fn-arg-type-mismatch", () => {
-    // Read as `array<string>` with the `null` arm discarded. Pinned alongside
-    // u3 because the two erase through different arms — a mixed-primitive pair
-    // and a `null` arm — and a fix could plausibly close one and not the other.
+  it('u4: `g(["a", null])` against `xs: array<number>` now fires fn-arg-type-mismatch on the union element', () => {
+    // Pinned alongside u3 because the two closed through the same mechanism
+    // over different arms — a mixed-primitive pair and a `null` arm — so both
+    // had to move together, not one of them alone.
     const doc = parse(U4);
-    argRange(doc, "g", 0);
-    expectNoFnArgMismatch(
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
       doc,
-      "u4 — a discarded `null` arm erases exactly as a discarded primitive arm does",
+      fnArgMessage("g", 0, "xs", "array<number>", "array<string | null>"),
+      argument,
+      "u4 — a `null` arm unions exactly as a primitive arm does, so the element read is a proof here too",
     );
   });
 
-  it('u5: `par for x in [false ? 1 : "a"] { g(x) }` against `s: string` draws no fn-arg-type-mismatch', () => {
-    // The third route the erasure travels, after u1's direct read and u2's
-    // `let`: the `par for` arm binds the loop variable to the iterand's
-    // ELEMENT type, so `[false ? 1 : "a"]` — read `array<integer>` once
-    // `#commonType` has discarded the `string` arm — binds `x` to `integer`.
-    // The sole iteration binds `"a"`, which satisfies `s: string`, so an
-    // emission here refuses a program every execution of which is well-typed.
+  it('u5: `par for x in [false ? 1 : "a"] { g(x) }` against `s: string` now fires fn-arg-type-mismatch on the union', () => {
+    // The third route bug 0081's union arm closes, after u1's direct read and
+    // u2's `let`: the `par for` arm binds the loop variable to the iterand's
+    // ELEMENT type, and `[false ? 1 : "a"]` now reads `array<integer | string>`
+    // — a proof, not a discarded arm — so `x` binds `integer | string` and the
+    // sink judges it against `s: string` for real.
     const doc = parse(U5);
-    argRange(doc, "g", 0);
-    expectNoFnArgMismatch(
+    const argument = argRange(doc, "g", 0);
+    expectOneFnArgMismatch(
       doc,
-      "u5 — a `par for` loop variable carries the iterand's erased element reading, so it is no more provable than the iterand that produced it",
+      fnArgMessage("g", 0, "s", "string", "integer | string"),
+      argument,
+      "u5 — the `par for` element inherits the iterand's union, which is now a proof, not an erasure",
     );
   });
 });
@@ -1394,42 +1411,47 @@ describe("bug 0050 — a FABRICATED field-name argument read is not a proof and 
 // u7 pins the two ends of that route: the direct read, and the one binding
 // removed, where the `let`-marking guard calls `provableArgType` on the
 // initialiser (:1019–1020) and marks from that verdict (:1043–1052), inheriting
-// whatever the `index` arm answers. u7p is the same pair over a target the annotation PROVES, and it is
-// what stops u7 from passing for the wrong reason: revert the target recursion
-// and u7 reds; withhold on every index read and u7p reds.
+// whatever the `index` arm answers. Bug 0081's union arm makes the target
+// (`xs`) a proof rather than an erasure, so both cells now fire on it. u7p is
+// the same pair over a target the ANNOTATION proves, and was always positive —
+// it is what stops u7 from passing for the wrong reason: revert the target
+// recursion and u7 reds; withhold on every index read and u7p reds.
 // ===========================================================================
 
-describe("bug 0050 — an index read off an ERASED target is not a proof and is not judged", () => {
-  it('u7: `let xs = [false ? 1 : "a"]` then `f(xs[0])` draws no fn-arg-type-mismatch', () => {
-    // `xs` reads `array<integer>` once `#commonType` has discarded the `string`
-    // arm, so `xs[0]` reads `integer` while the sole element evaluates to
-    // `"a"` — a value `s: string` accepts. An emission here refuses a program
-    // whose every execution is well-typed.
+describe("bug 0050/0081 — an index read off a now-proven target is judged", () => {
+  it('u7: `let xs = [false ? 1 : "a"]` then `f(xs[0])` now fires fn-arg-type-mismatch on the union element', () => {
+    // `xs` now reads `array<integer | string>` — bug 0081's union arm, not the
+    // `candidates[0]` fallback — so `xs[0]` narrows to the proven union, and
+    // the index read carries a genuine proof forward instead of an erasure.
     const doc = parse(U7_DIRECT);
+    const argument = argRange(doc, "f", 0);
     expect(
-      argRange(doc, "f", 0),
-      "PRECONDITION: the argument `xs[0]` sits on the third body line; a drifted layout must fail here rather than let the absence assertion below measure nothing",
+      argument,
+      "PRECONDITION: the argument `xs[0]` sits on the third body line; a drifted layout must fail here rather than let the mismatch assertion below measure the wrong site",
     ).toEqual(range(6, 11, 6, 16));
-    expectNoFnArgMismatch(
+    expectOneFnArgMismatch(
       doc,
-      "u7 — the element reading inherits the array literal's erasure, so the index read is no more provable than the target that produced it",
+      fnArgMessage("f", 0, "s", "string", "integer | string"),
+      argument,
+      "u7 — the element reading is now a proof, so the index read is judged on the same genuine union `xs` carries",
     );
   });
 
-  it('u7 (laundered): `let e = xs[0]` then `f(e)` draws no fn-arg-type-mismatch', () => {
-    // The guard-inheritance path. `walkStmt`'s unannotated-`let` arm marks the
-    // binding unprovable exactly when `provableArgType(stmt.init)` withholds,
-    // so an `index` arm that answered DEFINED here would record `e` as a proof
-    // and this cell would red one call site later — the same laundering u2
-    // pins for a ternary initialiser.
+  it('u7 (laundered): `let e = xs[0]` then `f(e)` now fires fn-arg-type-mismatch on the union element', () => {
+    // The guard-inheritance path, one binding past u7: `xs[0]` is now a proven
+    // read (u7), so `provableArgType(stmt.init)` for `let e = xs[0]` records
+    // `e` as proven too, and the argument sink judges the same union forward.
     const doc = parse(U7_LAUNDERED);
+    const argument = argRange(doc, "f", 0);
     expect(
-      argRange(doc, "f", 0),
+      argument,
       "PRECONDITION: the argument `e` sits on the fourth body line",
     ).toEqual(range(7, 11, 7, 12));
-    expectNoFnArgMismatch(
+    expectOneFnArgMismatch(
       doc,
-      "u7 (laundered) — a binding whose initialiser is an unproven index read carries that erasure forward; the marking guard and the argument sink must agree on one answer",
+      fnArgMessage("f", 0, "s", "string", "integer | string"),
+      argument,
+      "u7 (laundered) — the marking guard now records a proof, not an erasure, so the sink one binding on judges it too",
     );
   });
 
@@ -1937,80 +1959,104 @@ describe("bug 0050 — an arithmetic result read as a NON-NUMERIC type is not a 
 // initialiser and only then defines the binding (`evalExpr(stmt.init, env)`
 // then `env.defineLocal`, src/runtime/statement-executor.ts), so a
 // self-reference inside the initialiser of a shadowing `let` resolves to the
-// OUTER binding — the one whose erasure `unprovableBindings` records by
-// object identity. A verdict reached after the new binding is recorded instead
-// resolves the self-reference to a type object the arm is in the middle of
-// recording, which no marking has reached, so an erased outer binding launders
-// into a proven record and the call one line on would be judged against a type its
-// argument never holds.
+// OUTER binding — the one `unprovableBindings` would have recorded by object
+// identity had bug 0081's union arm not made it a proof instead. A verdict
+// reached after the new binding is recorded instead resolves the
+// self-reference to a type object the arm is in the middle of recording,
+// which no marking has reached, which is the laundering shape this family
+// still guards against for a future regression.
 //
-// Each of the three fixtures loads with the false emission as its SOLE
-// diagnostic, so these cells assert the WHOLE diagnostic list is empty rather
-// than the code's absence alone — non-vacuous in the same way ok1 / ok2 are.
+// Each of the three fixtures now loads with the genuine mismatch as its SOLE
+// diagnostic, so these cells assert the WHOLE diagnostic list rather than the
+// code's presence alone — non-vacuous in the same way ok1 / ok2 are.
 //
 // The self-reference's ORIENTATION is why the family needs its own cells:
-// `#commonType`'s fallback returns `candidates[0]`
-// (src/parser/static-type-inference.ts), so `let x = x + 1` reduces to the
-// outer binding's OWN already-marked type object and identity carries the
-// erasure forward by accident. `let x = 1 + x` reduces to the freshly minted
-// literal type instead, and nothing marks that. u11b is the second
-// orientation for exactly that reason.
+// `commonType`'s dominating search (src/parser/type-compat.ts) resolves
+// `1 + x` to the outer binding's OWN union object by subsumption (the union
+// dominates the bare literal `1`), so `let x = x + 1` and `let x = 1 + x`
+// reach the same proof from opposite sides. u11b is the orientation that
+// measures the guard's scope rather than an identity shortcut, and is worked
+// through on its own terms in its cell comment.
 // ===========================================================================
 
-describe("bug 0050 — a SELF-SHADOWING initialiser over an erased binding stays unproven", () => {
-  it('u11: `let x = flag ? 1 : "a"` then `let x = flag ? 1 : x` then `g(x)` draws nothing', () => {
-    // The ternary orientation. Both `let x` statements read `integer` after
-    // `#commonType` discards the `string` arm, and the second one's `x` arm is
-    // the outer binding, which is marked — so the second binding is unproven
-    // too. At runtime the outer `x` is `"a"` and `flag` is `false`, so the
-    // second `x` is `"a"` as well and `s: string` accepts it: an emission here
-    // refuses a program whose every execution is well-typed.
+describe("bug 0050/0081 — a SELF-SHADOWING initialiser over a now-proven binding is judged", () => {
+  it('u11: `let x = flag ? 1 : "a"` then `let x = flag ? 1 : x` then `g(x)` now fires fn-arg-type-mismatch', () => {
+    // The ternary orientation. Bug 0081's union arm makes the FIRST `x` a
+    // proof: `integer | string`, not the `candidates[0]` fallback, so the
+    // first binding is no longer marked unprovable. The second `let x`'s own
+    // initialiser reads the OUTER `x` (the runtime's own evaluate-then-define
+    // order, which the marking guard mirrors) — outer `x ∈ {1, "a"}`, so the
+    // second ternary's candidate set is `{1, outer x} = {integer, integer |
+    // string}`, which reduces to the SAME union by subsumption (clause 1: the
+    // union already dominates the bare `integer`). Both ternary arms
+    // (`1` and the self-reference) are independently proven and each is `⊑`
+    // that union (TYPE-5), so `isProvenReduction` holds for the second binding
+    // too — the recorded `integer | string` is exact, not laundered through an
+    // erased outer read. `integer | string ⊭ string` is TYPE-6, so the
+    // argument sink's mismatch is a true positive.
     const doc = parse(U11_SELF_TERNARY);
+    const argument = argRange(doc, "g", 0);
     expect(
-      argRange(doc, "g", 0),
-      "PRECONDITION: the argument `x` sits on the fifth body line; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+      argument,
+      "PRECONDITION: the argument `x` sits on the fifth body line; a drifted layout must fail here rather than let the mismatch assertion below measure the wrong site",
     ).toEqual(range(8, 11, 8, 12));
-    expect(
-      doc.diagnostics,
-      `u11 — the marking guard must resolve the initialiser's self-reference to the OUTER binding, as the runtime does, so the erasure reaches the shadowing binding. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer | string"),
+      argument,
+      "u11 — the marking guard resolves the self-reference to the OUTER binding, which is now proven, so the shadowing binding is proven too and the mismatch is genuine",
+    );
   });
 
-  it('u11b: the RIGHT-hand orientation `let x = 1 + x` over an erased outer `x` draws nothing', () => {
-    // The orientation `#commonType`'s `candidates[0]` fallback does not rescue:
-    // the reduction of `1 + x` is the literal `1`'s freshly minted type, not
-    // the outer binding's marked object, so identity carries nothing here and
-    // the verdict has to come from resolving `x` against the outer binding.
-    // At runtime the outer `x` is `"a"`, so `1 + x` is the string `"1a"` and
-    // `s: string` accepts it — while the erased read calls it `integer`.
+  it('u11b: the RIGHT-hand orientation `let x = 1 + x` over a now-proven outer `x` fires fn-arg-type-mismatch', () => {
+    // The orientation that measures the guard's scope, not its identity
+    // shortcut: `1 + x`'s reduction resolves through `commonType`'s dominating
+    // search to the outer binding's OWN union object (clause 1 — the union
+    // dominates the bare `integer` literal `1`), so this cell is proven by the
+    // same structural argument u11 works through, on `+` instead of a nested
+    // ternary. `+`'s own provability rule keeps the reduction whatever it
+    // classifies as (expressions.md §"`+` operator"), so a proven union
+    // reduction is a proven `+`.
+    //
+    // `1 + x` ALSO now draws `theta/parse/mixed-plus-operands` (r10's own
+    // shape, one binding over: a plain `integer` against a union classifies
+    // as neither both-numeric nor both-string). That code is asserted by its
+    // own row, not pinned again here; `expectOneFnArgMismatch` reads the
+    // `fn-arg-type-mismatch`-coded emission alone, which is this cell's
+    // subject and is unaffected by the sibling code's presence.
     const doc = parse(U11_SELF_ARITH);
+    const argument = argRange(doc, "g", 0);
     expect(
-      argRange(doc, "g", 0),
+      argument,
       "PRECONDITION: the argument `x` sits on the fifth body line, at the same columns as u11's",
     ).toEqual(range(8, 11, 8, 12));
-    expect(
-      doc.diagnostics,
-      `u11b — a self-reference on the RIGHT of an arithmetic operator gets no identity rescue, so this is the orientation that measures the guard's scope. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer | string"),
+      argument,
+      "u11b — the outer `x` is now proven, so `1 + x` reduces to a proof and the mismatch it names is genuine",
+    );
   });
 
-  it("u11c: a self-shadowing ARRAY initialiser reading its outer binding through an index draws nothing", () => {
+  it("u11c: a self-shadowing ARRAY initialiser reading its outer binding through an index now fires fn-arg-type-mismatch", () => {
     // The composite route, one narrowing deeper: `let x = [flag ? 1 : "a"]`
-    // records an erased `array<integer>`, and the shadowing `[1, x[0]]` reads
-    // the outer array through the `index` arm, whose proof obligation is the
-    // TARGET (cell u7). A post-set verdict resolves that target to the new
-    // array object, unmarked, and `g(x[1])` is then judged on the element
-    // narrowing. At runtime the outer `x[0]` is `"a"`, so the second `x` is
-    // `[1, "a"]` and `x[1]` is the `"a"` that `s: string` accepts.
+    // now records a PROVEN `array<integer | string>` (u7's own closure), and
+    // the shadowing `[1, x[0]]` reads the outer array through the `index`
+    // arm, whose proof obligation is the TARGET — proven, by u7's argument —
+    // so the element narrowing `x[0]` is proven too, and `g(x[1])` is judged
+    // on the same genuine union one narrowing further on.
     const doc = parse(U11_SELF_INDEX);
+    const argument = argRange(doc, "g", 0);
     expect(
-      argRange(doc, "g", 0),
+      argument,
       "PRECONDITION: the argument `x[1]` sits on the fifth body line",
     ).toEqual(range(8, 11, 8, 15));
-    expect(
-      doc.diagnostics,
-      `u11c — the erasure must travel the array literal and the element narrowing together; a proven-looking record here reinstates the laundering u7 closes one binding over. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer | string"),
+      argument,
+      "u11c — the array literal and the element narrowing now carry a proof together, so the argument sink judges a genuine mismatch",
+    );
   });
 
   it("u11p: a self-shadowing initialiser over a PROVEN outer binding still fires", () => {

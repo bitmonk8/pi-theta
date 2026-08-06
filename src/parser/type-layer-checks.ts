@@ -1635,17 +1635,17 @@ class TypeLayerWalk {
    * by two lossy mechanisms: a statically unresolvable candidate never blocks
    * another candidate ("unknown-blessing"), and a set with no common upper
    * bound falls back to `candidates[0]`. Both are reachable at an argument
-   * position — measured at this HEAD, `true ? 1 : "a"` reads `integer` and
-   * `["a", null]` reads `array<string>` — and both erase a sibling arm the
-   * runtime can still produce. Emitting on an erased read would refuse a
-   * theta whose runtime value the emission misdescribes: bug 0072's landed
-   * soundness lesson at the `.theta`-callable argument sink
-   * (`collectProvableArgTypes`, `../extension/invoke-static-checks.ts`)
-   * applied here at a new sink. That function is an extension-layer answer
-   * over the SET of types an expression can take and cannot be imported into
-   * this parser-layer module without inverting the dependency direction, so
-   * the same discipline is applied in-layer as an EXACTNESS test instead
-   * (`isProvenReduction` below).
+   * position: `true ? 1 : obj.field` reads `integer` (the unresolvable branch
+   * never blocks it), and `true ? A { a: 1 } : B { b: "x" }` reads `A`, rule
+   * 3's own fallback. Both erase a sibling arm the runtime can still produce.
+   * Emitting on an erased read would refuse a theta whose runtime value the
+   * emission misdescribes: bug 0072's landed soundness lesson at the
+   * `.theta`-callable argument sink (`collectProvableArgTypes`,
+   * `../extension/invoke-static-checks.ts`) applied here at a new sink. That
+   * function is an extension-layer answer over the SET of types an expression
+   * can take and cannot be imported into this parser-layer module without
+   * inverting the dependency direction, so the same discipline is applied
+   * in-layer as an EXACTNESS test instead (`isProvenReduction` below).
    *
    * Exhaustive `switch` over the `Expr` union with no `default` arm, so a kind
    * added to the union without an arm here is a compile error rather than a

@@ -1054,3 +1054,52 @@ an emission, by re-running the whole of bug 0096's item 3 unchanged.
   `checkDiscriminatedUnion` seam rows. Run on the outputs quoted above, then
   deleted. `src/`, `tests/`, `docs/bugs/README.md` and every other bug document
   are unmodified by this filing.
+
+## Disclosure note — a shipped instance of this report's class (bug 0081, 0.83.0)
+
+Appended by the bug 0081 fix; nothing above is altered. This report stays
+**open** and its §Fix stays unsettled — this note records an instance, it does
+not adjudicate the class, and 0129's eventual adjudication rules the class and
+may re-pin the two cells named below with its own authority.
+
+Bug 0081 replaced the array/ternary common-type reduction with a computed least
+upper bound, so a heterogeneous array literal now carries its exact union type
+instead of the erased first-element type its `candidates[0]` fallback used to
+answer. Two existing cells of `tests/index-element-alias-unfolded.test.ts` (bug
+0125's group (f)) consequently gained a **second `E`-severity diagnostic for one
+written mistake** — this report's subject shape at a different surface:
+
+| Cell | Source | Before 0.83.0 | At 0.83.0 |
+| --- | --- | --- | --- |
+| f4 | `let xs: array<string> = ["a", 1]` | `["theta/parse/array-element-type-mismatch"]` | `["theta/parse/let-rhs-type-mismatch", "theta/parse/array-element-type-mismatch"]` |
+| f6 | `schema P { xs: array<string> }` + `P { xs: ["a", 1] }` | `["theta/parse/array-element-type-mismatch"]` | `["theta/parse/object-field-type-mismatch", "theta/parse/array-element-type-mismatch"]` |
+
+The mechanism, so the instance is not mistaken for a routing accident: the
+inferred type of `["a", 1]` is now EXACT (`array<string | integer>`), and
+`array<string | integer> ⋢ array<string>`, so `checkLetRhsCompat` /
+`checkObjectFieldCompat` now disagree with the annotation alongside the element
+sink that was already firing. The pre-0.83.0 agreement was accidental — the
+erasure happened to answer `array<string>`. Both codes are individually
+correctly triggered; what no corpus sentence governs is the COUNT, which is
+this report's §Kind item 2 (`diagnostic-shape.md`'s two multiplicity paragraphs,
+`:65` *Multi-error reporting* and `:24` *Re-scan*, reach neither shape).
+
+**This is not the first such pair at this sink family.** Bug 0142's witness
+already pinned the same two-code pattern here before bug 0081 landed:
+`tests/division-result-type-number.test.ts` cell c3/c4 asserts that
+`let xs: array<integer> = [3 / 2]` — and its literal control `[1.5]`, which is
+what makes c4 a measurement rather than a guess — each draw BOTH
+`theta/parse/integer-narrowing` on the statement and
+`theta/parse/array-element-type-mismatch` on the literal. So the array-element
+sink and its enclosing typed-`let` / constructor-field check have been emitting
+as a pair at this position since 0.80.0, on an input this report did not
+consider; f4/f6 extend that established pattern to the mismatched-element
+spelling rather than introducing it.
+
+The re-pinning of f4 and f6 was **operator-authorized** for the 0081 fix,
+explicitly and narrowly, on the condition that each cell's comment record that
+the second code is this report's class, that no corpus sentence governs the
+count, and that this report's adjudication rules the class and may re-pin those
+cells with its own authority. Both comments do. The 0081 fix made no
+diagnostics-registry edit (DIAG-2 closed) and asserts no disposition on the
+multiplicity question.
