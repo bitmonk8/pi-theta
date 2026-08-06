@@ -6,6 +6,71 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.81.0] - 2026-08-06
+
+### Fixed
+
+- **A reserved keyword used as a `fn` parameter name drew no diagnostic, so a
+  spelling the spec refuses loaded, registered and ran** (bug 0148).
+  `lexical.md` §"Reserved keywords" lists 32 spellings and states the
+  consequence without a scope list — "Using one of these in identifier position
+  is `theta/parse/reserved-keyword-as-identifier`" — and the registered
+  *Trigger* is the same shape, "Reserved keyword used in an identifier
+  position", naming no position at all. A `fn` parameter name is an identifier
+  position by the grammar (`FnParam ::= Ident ":" Type`). The code's lexer
+  implementation is `checkName`'s keyword arm, reached through a keyword scan
+  with three branches — the identifier after `let` (past the `mut` skip), after
+  `fn`, and after `schema` / `enum` — and a parameter name follows `(` or `,`,
+  so the shape of the scan excluded it. Bug 0139's parser-leaf fix opened an
+  emission at that exact slot for the lowercase-first *case* rule and guarded it
+  on `pTok.kind === "ident"`, which is correct for that code, whose *Trigger*
+  says "**Identifier** in a … parameter … position" — and is also why the one
+  token kind the reserved-keyword code exists for was the one kind the guard
+  removed. Measured: `fn h(let: string): number { 1 }` reported `[]`, as did 31
+  of the 32 spellings at the same slot, across the unannotated, multi-parameter,
+  trailing-comma, `subagent fn`, `.thetalib` and call-site forms. The token
+  bound as the parameter name verbatim, the theta registered and ran, and the
+  reserved spelling was rendered back to the author inside another registered
+  code's message.
+
+  `parseFn`'s parameter loop now classifies the name token in `checkName`'s own
+  keyword-first order: a `keyword`-kind token draws
+  `theta/parse/reserved-keyword-as-identifier` with the registry *Message*
+  interpolated and ranged on that token, and the existing `ident` arm carrying
+  bug 0139's case emission follows unchanged in an `else if`. A token is never
+  both kinds, so the two arms are mutually exclusive by construction and bug
+  0139's emission keeps its code, message, range and ordering. The check reads
+  the lexer's own classification rather than minting a second reserved-word
+  list, which keeps the contextual keywords `subagent`, `with` and `par` silent
+  by construction. A loop-local guard keeps the new code off the `mut`
+  modifier's recovery artefact, so `fn h(mut: string)` still reports
+  `theta/parse/mut-on-immutable-context` alone. Nothing else moves: the three
+  lexer adjacencies, bug 0044's type-position emissions, the type layer's own
+  verdicts, and the six other identifier positions that remain silent by
+  decision — the `for` / `par for` variable, the schema field name, the
+  `params:` field name, the `enum` variant name and both `import` specifier
+  forms — are untouched and pinned as such.
+
+  **Input class newly refused (GOV-15 addition under the diagnostic-registry
+  carve-out):** a `.theta` or `.thetalib` file declaring a `fn` — or
+  `subagent fn` — parameter whose name is one of the 32 reserved spellings
+  `let`, `mut`, `fn`, `if`, `else`, `for`, `in`, `while`, `break`, `continue`,
+  `return`, `match`, `schema`, `enum`, `import`, `export`, `from`, `as`, `by`,
+  `invoke`, `true`, `false`, `null`, `Ok`, `Err`, `Result`, `string`, `number`,
+  `integer`, `boolean`, `array`, `void`. Measured against the committed corpus:
+  34 tracked `.theta` / `.thetalib` files walked including `.thetalib`, four
+  `fn` declarations carrying a parameter list, **zero** reserved-spelling
+  parameter names — so no shipped example, fixture or library changes
+  disposition. No registry row is added, removed or re-triggered: the code
+  exists, its *Trigger* already covers this position, and its *Message* is
+  rendered from the registry template, so DIAG-2 is not engaged and DIAG-4 is
+  satisfied; the registry page and both `docs/reference/` mirrors are confirmed
+  byte-identical by blob hash. Locked by a 44-cell offline witness
+  (`tests/fn-param-name-reserved-keyword.test.ts`), whose twelve over-reach
+  tripwire rows red if enforcement widens past the parameter name, and by an
+  additive live H8a registration-denial cell, both proven red with the arm
+  neutralised and green with it restored.
+
 ## [0.80.0] - 2026-08-06
 
 ### Fixed

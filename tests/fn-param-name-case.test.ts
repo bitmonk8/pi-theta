@@ -69,11 +69,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 // that reaches those binders contradicts the spec sentence and breaks that
 // premise.
 //
-// OUT OF SCOPE, deliberately unrowed. `fn h(let: string)` (the
-// reserved-keyword arm at the same position) and the schema-field-name /
+// OUT OF SCOPE, deliberately unrowed. The schema-field-name and
 // `params:`-field-name positions are measured silent in bug 0139
 // §Reproduction (d) and (e) and are named in its §Non-goals; rows for them
-// would red permanently against a fix scoped to the parameter.
+// would red permanently against a fix scoped to the parameter. The
+// reserved-keyword arm at this same slot (`fn h(let: string)`) is a
+// different registered code under a different spec sentence (lexical.md:20);
+// its witness is tests/fn-param-name-reserved-keyword.test.ts (bug 0148).
 //
 // DIAG-4 (docs/spec_topics/diagnostics/diagnostic-shape.md:74) — no asserted
 // message string is written out here. Each one is READ from the registry's

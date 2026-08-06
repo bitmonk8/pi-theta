@@ -3186,3 +3186,185 @@ describe("H8a-T — bug 0142: a `/` quotient bound to an `integer` annotation dr
   });
 });
 
+
+// ===========================================================================
+// Bug 0148 — `checkName`'s reserved-keyword arm (src/lexer/lexer.ts:819–828) is
+// reached through a three-branch keyword scan (`:876–886`) that no parameter
+// name enters, so a reserved spelling at a `fn` parameter name — a
+// `keyword`-kind token (src/lexer/lexer.ts:677) — is the parser leaf's to
+// classify: `parseFn`'s parameter loop draws the code on its keyword arm,
+// beside the `ident` guard (src/parser/theta-document.ts:2211) that carries bug
+// 0139's case code, as docs/spec_topics/lexical.md:20 and the position-free
+// *Trigger* at docs/spec_topics/diagnostics/code-registry-parse.md:21 require
+// (docs/bugs/0148-reserved-keyword-fn-parameter-position-silent.md). The fix
+// classifies the parameter-name token in `checkName`'s own keyword-first order
+// at that leaf; the 44-cell unit witness
+// (tests/fn-param-name-reserved-keyword.test.ts) proves the mechanism offline
+// at the `parseThetaDocument` boundary. This cell proves the same registered
+// code denies REGISTRATION end to end through the real production composition
+// root (session_start → resources_discover → composeExtensionInstance), which
+// the offline harness cannot reach.
+//
+// The broken caller mirrors the bug doc's own §Reproduction row a1 verbatim
+// (`fn h(let: string): number { 1 }`): a shape-conformant `FnParam` whose
+// `Ident` is one of lexical.md:20's 32 reserved spellings.
+// `theta/parse/reserved-keyword-as-identifier` is severity `E`, so
+// `hasLoadParseError` (production-composition.ts:2047–2054, applied at `:2094`)
+// un-registers the caller at the SAME site the bug 0070/0071/0077/0079(a)/0110/
+// 0084/0089/0095/0102/0125/0050/0137/0139/0142 cells above exercise for their
+// own codes.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and the
+// cell spends zero tokens (the same profile the file header claims for the
+// discovery→registration cells above). ADDITIVE ONLY: no existing cell in this
+// file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const RESERVED_KEYWORD_CODE = "theta/parse/reserved-keyword-as-identifier";
+
+/** The sharded registry page carrying `theta/parse/reserved-keyword-as-identifier`'s row (`:21`). */
+const RESERVED_KEYWORD_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/reserved-keyword-as-identifier: reserved keyword '<keyword>'
+ * cannot be used as an identifier` — DIAG-4: the message half is read from the
+ * registry row, not copied, mirroring this file's `bindingCaseMismatchFragment`
+ * / `integerNarrowingFragment`. Unlike those two rows this one CARRIES a
+ * `<keyword>` placeholder, so the presence assertion is a fill check rather
+ * than a drift guard, and the trailing assertion confirms no second placeholder
+ * is left unsubstituted.
+ */
+function reservedKeywordFragment(keyword: string): string {
+  const template = registryMessage(
+    RESERVED_KEYWORD_REGISTRY,
+    RESERVED_KEYWORD_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${RESERVED_KEYWORD_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const withSlot = template as string;
+  expect(
+    withSlot,
+    `${RESERVED_KEYWORD_CODE}: the registry row's Message template must carry ` +
+      "the <keyword> slot this cell fills — the row changed shape",
+  ).toContain("<keyword>");
+  const message = withSlot.replace("<keyword>", keyword);
+  expect(
+    message,
+    `${RESERVED_KEYWORD_CODE}: the registry row's Message template grew a ` +
+      "second unsubstituted placeholder this reader does not fill",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${RESERVED_KEYWORD_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own §Reproduction row a1
+ * (docs/bugs/0148-reserved-keyword-fn-parameter-position-silent.md) verbatim: a
+ * top-level `fn` whose sole parameter is named with a reserved spelling. The
+ * trailing `1` supplies the theta's final value, mirroring this file's
+ * `illegalFnParamCaseTheta` above.
+ */
+function reservedFnParamNameTheta(): string {
+  return ["---", "mode: prompt", "---", "fn h(let: string): number { 1 }", "1", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The same-shape SIBLING with the SAME `fn`, the parameter renamed to a
+ * spelling outside `reservedKeywords()` (src/lexer/lexer.ts:159–166) — must
+ * still register, isolating the broken theta's refusal to the reserved
+ * spelling rather than to "a theta declaring a `fn` never registers here".
+ */
+function conformantFnParamNameTheta(): string {
+  return ["---", "mode: prompt", "---", "fn h(x: string): number { 1 }", "1", ""].join(
+    "\n",
+  );
+}
+
+describe("H8a-T — bug 0148: a reserved keyword as an fn parameter name draws reserved-keyword-as-identifier and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose fn parameter name is a reserved keyword, while its conformant-parameter sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the broken
+      // theta's absence could be (wrongly) attributed to a broken workspace
+      // instead of the reserved-keyword rule under test.
+      { source: "project", stem: "b148livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME fn declaration, parameter named with a
+      // non-reserved spelling — must still register, isolating the refusal to
+      // the reserved spelling rather than to "a theta declaring a fn cannot
+      // register here".
+      { source: "project", stem: "b148livegood", text: conformantFnParamNameTheta() },
+      // The load-bearing broken theta: the bug doc's own §Reproduction row a1
+      // spelling.
+      { source: "project", stem: "b148livebroken", text: reservedFnParamNameTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b148livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the reserved-keyword rule under test, would explain the broken " +
+          "theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b148livegood"),
+        "the same fn with a non-reserved parameter name did not register — a " +
+          "theta declaring a fn cannot register in this harness at all, " +
+          "independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root (not
+      // the offline parseThetaDocument harness the unit witness uses), a theta
+      // declaring a reserved-keyword fn parameter name does NOT register —
+      // parseFn's parameter loop (src/parser/theta-document.ts:2180–2242) fires
+      // theta/parse/reserved-keyword-as-identifier, and hasLoadParseError
+      // un-registers this theta at the SAME site the bug 0070/0071/0077/
+      // 0079(a)/0110/0084/0089/0095/0102/0125/0050/0137/0139/0142 cells above
+      // exercise for their own codes.
+      expect(
+        handle.command("b148livebroken"),
+        "the theta whose fn parameter name is a reserved keyword registered " +
+          "anyway through the live discovery/session_start path — " +
+          "theta/parse/reserved-keyword-as-identifier did not fire. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b148livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/0084/
+      // 0089/0095/0102/0125/0050/0137/0139/0142 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = reservedKeywordFragment("let");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the reserved-keyword rejection for " +
+          "the broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

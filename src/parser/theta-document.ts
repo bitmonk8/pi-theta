@@ -2168,6 +2168,15 @@ class BodyParser {
     }
     if (this.isPunct("(")) {
       this.advance();
+      // `atParamStart` is true only where the author could have written a
+      // parameter name. `mut`'s modifier check below can leave the loop
+      // re-entering on a recovery artefact instead: consuming `mut` shifts
+      // the annotation `:` into the name slot, then the type token into the
+      // slot after that. The keyword-reserved check below must not fire on
+      // either shifted token, or `fn h(mut: string)` gains a second
+      // diagnostic and no longer keeps `mut-on-immutable-context` alone (bug
+      // 0148 §Fix (d)).
+      let atParamStart = true;
       while (!this.isPunct(")") && !this.atEnd()) {
         if (this.isKeyword("mut")) {
           // A `mut` modifier on a function parameter is an always-immutable
@@ -2182,13 +2191,30 @@ class BodyParser {
           }
         }
         const pTok = this.advance();
-        // lexical.md §Identifiers requires lowercase-first for a `fn`
-        // parameter name, and code-registry-parse.md's binding-case-mismatch
-        // row already names the parameter position in its Trigger. The
-        // predicate and the `ident` guard mirror `checkName`'s binding arm
-        // (lexer.ts) so the rule keeps one spelling across every position it
-        // is enforced at.
-        if (pTok.kind === "ident") {
+        // lexical.md's reserved-keyword rule carries no position list of its
+        // own — unlike the lowercase-first rule below — so a `fn` parameter
+        // name is inside its scope (bug 0148 §Fix). A reserved spelling
+        // already lexes as `kind: "keyword"` (lexer.ts, `reserved.has(value)
+        // ? "keyword" : "ident"`) — the same classification `checkName`'s
+        // keyword-first arm reads — so this check needs no second
+        // reserved-word list. Reading that classification directly is what
+        // keeps the contextual keywords `subagent` / `with` / `par` silent
+        // here: they lex as `ident` and fall to the case arm below.
+        if (pTok.kind === "keyword" && atParamStart) {
+          this.diagnostics.push({
+            severity: "error",
+            code: "theta/parse/reserved-keyword-as-identifier",
+            file: this.file,
+            range: pTok.range,
+            message: `reserved keyword '${pTok.text}' cannot be used as an identifier`,
+          });
+        } else if (pTok.kind === "ident") {
+          // lexical.md §Identifiers requires lowercase-first for a `fn`
+          // parameter name, and code-registry-parse.md's binding-case-mismatch
+          // row already names the parameter position in its Trigger. The
+          // predicate and the `ident` guard mirror `checkName`'s binding arm
+          // (lexer.ts) so the rule keeps one spelling across every position it
+          // is enforced at.
           const first = pTok.text[0] ?? "";
           const isUpper = first >= "A" && first <= "Z";
           if (isUpper) {
@@ -2209,6 +2235,9 @@ class BodyParser {
         params.push({ name: pTok.text, type: pType });
         if (this.isPunct(",")) {
           this.advance();
+          atParamStart = true;
+        } else {
+          atParamStart = false;
         }
       }
       if (this.isPunct(")")) {
