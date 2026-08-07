@@ -6510,8 +6510,8 @@ function walkExpr(
       // this position runs no other type-grammar pass and no name-resolution
       // pass today, so selecting the full walk would newly fire
       // `generic-arity-mismatch`, `void-in-non-return-position` and
-      // `result-in-schema-position` here — a different subject than the one
-      // rule this call wires (bug 0045 §Fix; §Non-goals).
+      // `result-in-schema-position` here — a different subject than the rules
+      // this call wires (bug 0045 §Fix; §Non-goals).
       if (e.returnSchema !== null && e.returnSchema.trim().length > 0) {
         out.push(
           ...parseTypeExpression(

@@ -14,6 +14,19 @@
   function; whichever lands second reuses or rebases the field-name retention
   the first builds. 0149 authorised exactly one witness row to be re-pinned by
   this fix — row f7 of `tests/schema-field-name-case.test.ts` — and no other.
+  0052 landed first (0.84.0) and built the retention this report rebases onto:
+  `TypeParser.parseObject` (`type-grammar.ts`) now records a `fieldNames:
+  string[]` on the `object` `TypeNode` — one entry per field-name position the
+  interior spells as an identifier followed by a colon, pushed before the
+  field's type parses, in source order, NOT index-aligned with `fieldTypes`,
+  and carrying NO source range, because 0052 read the range question as this
+  report's own adjudication and had no need of it. Two facts of that retention
+  bear on the route chosen here: the list stops for the remainder of a body
+  once a field's type carries an interior that never closes, and the rule
+  reading it is gated on the closing brace `ObjectType` spells (0052 §Fix
+  (0.84.0), *Residuals* item 1). A case rule keyed on the same list inherits
+  both boundaries; recovering a range means extending `tokeniseType`'s
+  `TypeToken`, which 0052 left untouched.
 - **Sev/Diff estimate:** S1/D3 — S1 on the letter bug 0149 was scored on: a
   declared constraint is unenforced on the ordinary load path, so a spelling
   the spec refuses loads with no diagnostic and the theta registers ("inputs

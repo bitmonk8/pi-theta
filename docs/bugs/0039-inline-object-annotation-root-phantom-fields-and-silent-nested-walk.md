@@ -265,7 +265,14 @@ report predicts), GREEN again on restore. Probe deleted.
 `required: ["a", "a"]` at the newly-hoisting positions — byte-identical to the
 frozen `params:` position's output for the same text, so deduping in the shared
 arm is not available; the phantom-induced duplicate (fixture F1) IS closed, and
-no duplicate-field diagnostic exists for an inline object body. (ii)
+no duplicate-field diagnostic exists for an inline object body. Discharged by
+[0052](./0052-inline-object-duplicate-field-names-silent-last-wins.md)'s fix
+(0.84.0): the repeat is refused at parse by the new
+`theta/parse/duplicate-inline-field-name`, before any body is lowered, so the
+lowered bytes this residual describes are never minted for a well-formed
+interior and the freeze on the `params:` position's output is untouched — 0052
+§Fix (0.84.0) *Residuals* item 1 carries what its parse-time key cannot reach.
+(ii)
 `lowerQueryResponseSchema`'s ROOT brace dispatch keeps its naive
 prefix/suffix test, so `@<{a: integer} | {b: integer}>` is still read as one
 field list and mints an enforcing fragment naming `a` (pinned as fixture G1);

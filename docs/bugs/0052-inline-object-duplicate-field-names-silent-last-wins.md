@@ -1,6 +1,6 @@
 # Bug 0052 — A repeated field name inside an inline object body is admitted at every `Type` position: `{a: integer, a: string}` loads with zero diagnostics and lowers a last-wins `properties.a` beside a two-item `required: ["a", "a"]`, where the same two fields written in a `schema` body are refused with `theta/parse/wire-name-collision` — and at the `@<T>` annotation root that fragment IS the compiled document, so AJV throws `data/required must NOT have duplicate items` after the model has already answered
 
-- **Status:** open.
+- **Status:** fixed (0.84.0).
 - **Kind:** defect, two elements on one gap.
   (1) *A prescribed check is unimplemented for the inline spelling.*
   `docs/spec_topics/grammar.md:109` states that an inline object type's fields
@@ -160,6 +160,209 @@
   `lowerQueryResponseSchema`, `buildBodyTypeSchemas`, `respondToolWireSchema`
   and the production `AjvSchemaValidator`; written, run, deleted. Every value
   below is that run's output verbatim.
+
+## Fix (0.84.0)
+
+- **Baseline drift, re-derived before anything was pinned.** The report's
+  citations are at `52e257bc` (0.49.0), 34 minors back. Every `path:line` moved
+  (`hoistInlineObjectType` `params.ts:502`→`:670`, `lowerInlineObject`
+  `body-type-lowering.ts:151`→`:153`, `checkObjectSchema`
+  `schema-declarations.ts:65`→`:87`, `parseObject`
+  `type-grammar.ts:275–307`→`:367`, the walk's `object` arm `:374`→`:519`, and
+  every `theta-document.ts` call site); every OBSERVABLE re-derived BYTE-EXACT —
+  all of A1–A6, B1–B3, C1–C4, D1–D5, E1, G1–G5 and H1–H8, including the A2
+  throw text and the `__inline_7e1395c6a16e04cf` slug. Two of §Affected's claims
+  are stale in the fix's favour: "three of the eight positions run no
+  type-grammar pass" is false at this HEAD (0044 wired the `params:` loop and
+  the `@<T>` root with the FULL walk; 0045 wired `invoke<T>` with the narrow
+  set), so §Fix constraint 3 needed NO new call site.
+- **Reuse, as [0045](./0045-inline-empty-object-type-missing-empty-schema-body.md)
+  §Fix's "0052 coordination" prescribes.** The rule lives in `walkType`'s
+  `object` arm and JOINS the `"inline-object-shape"` rule SET
+  (`TypeCheckRules`), so it runs under every `rules` value and reaches all eight
+  positions with zero wiring: no new call site, no second pass, no parallel
+  selector, and the single `invoke<T>` call in `walkExpr` unedited. The names
+  change is to the NODE.
+- **What shipped**
+  - `src/parser/type-grammar.ts` (567 → 835) — `TypeParser.parseObject` retains
+    `fieldNames` on the object node, pushed as soon as the interior spells
+    `Ident ":"` at a field-name position (before the type parses, so a stolen
+    type cannot erase an author's name), range-free because a field name's own
+    span is [0154](./0154-inline-object-type-field-name-rules-unenforced.md)'s
+    open subject; a local stop suppresses further names once a field's type
+    carries an interior that never closes (transitive `carriesUnclosedInterior`
+    over object fields, generic args and union arms), which is what keeps the
+    enclosing body from comparing a nested interior's leftovers as its own;
+    `closingBraceSpelled` (from `interiorSpellsClosingBrace`, a depth-0 `}`
+    ahead of the interior in the token stream) gates the rule on the brace
+    `ObjectType` spells; and `walkType`'s `object` arm emits
+    `theta/parse/duplicate-inline-field-name` once per repeated name at that
+    name's second position, over two `Set`s (never a plain object — an author
+    field name spelling `__proto__` or `constructor` is compared like any
+    other), withheld beneath a generic type argument via a new
+    `insideGenericArgument` walk parameter the `generic` arm sets and the
+    `object`/`union` arms propagate.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the NEW row
+    (DIAG-2, same commit), severity `E`, phase `parse`, *Message*
+    `duplicate field name '<field>' within one inline object type`, *Spec*
+    [Grammar Appendix — Type grammar](../spec_topics/grammar.md#type-grammar),
+    no *Hint*. Its *Trigger* states the comparison key (the field-name positions
+    the interior spells as `Ident ":"`), the three stops, the closing-brace
+    requirement, the multiplicity and ordering, and the three excluded shapes.
+  - `docs/spec_topics/grammar.md` §"Inline object types" — one sentence naming
+    the code, in the idiom of the neighbouring empty-object sentence, with the
+    nested-reuse and generic-argument boundaries.
+  - `docs/reference/diagnostics.md`, `docs/reference/grammar.md` — the
+    user-facing mirrors, lock-step.
+  - `src/parser/theta-document.ts` — one comment clause in `walkExpr`'s
+    `"invoke"` arm: the set this fix joins carries two rules, so "the one rule
+    this call wires" was false of the code.
+  - `tests/inline-object-duplicate-field-name.test.ts` (new, 49 cells) and one
+    additive H8a cell in `tests/live/live-production-acceptance.test.ts`
+    (26 → 27).
+- **The open adjudication, settled: a NEW row, not a widened
+  `theta/parse/wire-name-collision` *Trigger*.** That row's *Message* carries
+  `<schema>`, which `placeholder-rendering-b.md` §7 fixes as identifier-shaped,
+  and an inline object has no name; the one literal candidate (`{}`) is already
+  bound by 0045's carve-out to mean the EMPTY inline object, so reusing it would
+  render a message false of the source, and rendering the body's own text needs
+  token spans the tokeniser does not carry. The new row's *Message* uses
+  `<field>` — an existing category-5 source-derived identifier-shaped
+  placeholder — so the CLOSED placeholder table needed no carve-out at all, and
+  because the rule compares only `ident` tokens the subject is always identifier
+  form. §Expected's own observation ("The field case has no counterpart row",
+  beside `theta/parse/duplicate-enum-variant-name`) is the precedent. The
+  declaration spelling does not move (DIAG-3/DIAG-4): `checkObjectSchema` is
+  untouched and E1/G3/G5 render byte-identically.
+- **The H1 reading, settled.** §Fix constraint 3's "every nesting depth" is
+  general; §Fix's own *Test witness* requires H1's `array<…>` element "asserted
+  still silent and byte-unchanged", §Non-goals says a repeat inside such an
+  element "is invisible … and stays so here", and constraint 4 names H1 as one
+  of three fixtures pinning the chosen key's AGREEMENT with what is lowered.
+  Measured: the lowering never divides a generic argument's interior into fields
+  at any arity (`array<{a: integer}>` → `items: {}`), so agreement means
+  silence. The specific carve-out governs the general clause, which its own
+  examples (a nested body, a union arm) do not extend to generic arguments.
+  Both variants were prototyped and neither flipped an existing test, so the
+  decision rests on the document alone.
+- **Multiplicity and order, settled.** One line per repeated NAME at its second
+  position (H5's three-way repeat draws one), two repeated names draw two in
+  source order, sibling bodies draw one each, and a body's own repeats precede
+  those of the bodies nested in its field types.
+- **Blast radius, pre-measured before the witness was written.** The emission
+  was prototyped and the FULL suite run at HEAD: 277 files / 4306 tests green,
+  ZERO existing-test flips, under both the generic-argument-suppressed and the
+  uniform variant. The GOV-15 re-scan at this HEAD (a multi-line PCRE2 sweep
+  over `src/`, `tests/`, `docs/`, `examples/` and all 35 committed
+  `.theta`/`.thetalib`) matches only this report's and 0039's prose — the only
+  committed inline object type is `acc-typed-inline.theta` with distinct names —
+  so the
+  [diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out)
+  disposes of the addition and no landed lock inverts. The prototype was
+  reverted byte-exact (blob hash) before Phase 1.
+- **Gates.** Witness `tests/inline-object-duplicate-field-name.test.ts` 49/49;
+  full default suite 278 files / 4355 tests green (`npm test`);
+  `npx tsc -p tsconfig.json --noEmit` clean; `npm run lint` clean. Live: H8a
+  `tests/live/live-production-acceptance.test.ts` 27/27 (the new cell 303 ms,
+  registration-only, zero tokens), H9a `tests/live/acceptance/` 11/11.
+  `tests/fixtures/h7a/permitted-codes.json` byte-unchanged: decided by the real
+  H9a run plus a sweep of every live fixture and embedded theta source — the
+  code is unreachable from the acceptance corpus, the 0045 precedent exactly.
+- **Review.** Four rounds, plus one pre-review citation/comment-only correction
+  round (not a review round). Round 1 (deep): four findings — the malformed-field
+  scan truncation (adjudicated a residual, not fixable in scope), an emission
+  outside the *Trigger* on a stolen type (fixed by re-keying the name list onto
+  the `Ident ":"` position), H7 unpinned (added), one false comment clause
+  (fixed). Round 2 (fast): one `correctness` finding — the truncation also
+  curtails an ENCLOSING body — plus `recommend-deep-review`; adjudicated the same
+  residual class, disclosure widened. Round 3 (deep): a genuine cross-body FALSE
+  POSITIVE (`{p: {c: 1, : y, p: 2}}` named a repeat no single body spells) and an
+  under-described boundary; both fixed by the name-list stop, the closing-brace
+  gate and the *Trigger* rewrite. Round 4 (deep): CLEAN, no finding in any
+  category, with the divergence from round 3's literal brace instruction judged
+  correct and witnessed (gating on the parse-time `braceClosed` would silence a
+  source that DOES spell its `}`).
+- **Verification.** VERIFIED, four obligations. (i) Three neutralisations —
+  removing the emission, reverting the name retention, dropping the
+  generic-argument gate — red 25, 25 and exactly 1 (d3) cells respectively, each
+  restored byte-exact by matching blob hash `3bbb6b3c`; `git stash` unused
+  throughout. (ii) Full suite green, plus 0045's lock (46), 0035's byte-freeze
+  (37), the declaration controls (10) and the committed-fixture gate (34), each
+  run alone. (iii) H8a and H9a run for real, above. (iv) Typecheck and lint
+  clean.
+- **Residuals.**
+  1. *A stop position masks a duplicate, and the A2 throw stays reachable
+     through it.* The comparison ends at the first field-name position the
+     interior cannot read as `Ident ":"`, and such a position also ends the
+     comparison of every body enclosing it. Measured, all silent and all still
+     minting the duplicate `required` this report owns:
+     `{a: integer, : x, a: boolean}` and
+     `{a as "w": integer, a: string, a: boolean}` (root `["a","a"]` /
+     `["a as \"w\"","a","a"]`), `{"a": string, a: integer, a: boolean}`,
+     `{p: {c: 1, : y, c: 2}, p: 3}` and `{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}`
+     (root `["p","p"]`, so `ajv.compile` throws A2's message), and
+     `{a: 1 a: 2, a: 3}` (a completed field not followed by `,`). Pinned as
+     group (k) of the witness, and stated in the row's *Trigger* so the boundary
+     is normative rather than accidental. Not closed here on two measured
+     grounds: a resync in `parseObject`'s tolerant recovery changes which field
+     types the walk visits on malformed interiors and so moves
+     `theta/parse/void-in-non-return-position`,
+     `theta/parse/generic-arity-mismatch` and
+     `theta/parse/result-in-schema-position` on unmeasured inputs; and
+     brace-level resync alone would still not deliver §Expected's "no fragment
+     carrying a repeated `required` entry is ever minted", because the same-body
+     shapes need per-FIELD resync. 0045 §Non-goals reserves this
+     malformed-but-non-empty interior family with "widening the inline rule to
+     these shapes needs its own spec decision". The closing route is §Fix
+     constraint 4's SECOND branch — comparing over the lowerers' own
+     `splitTopLevel`/`topLevelColon` tokenisation — which would re-key the rule
+     onto raw pre-colon text and flip the rename and quoted-name dispositions
+     below.
+  2. *The `as "WireName"` rename inside an inline body is still unparsed*
+     (§Non-goals). Re-derived at this HEAD: G1/G2/G4 load `[]`, and the whole
+     pre-colon text becomes the property name. The settled reading for the
+     rename+duplicate edge is that the rename is one of the stops, so
+     `{a as "w": integer, a as "x": string}` is silent (its two property names
+     differ — consistent with G1) and so is
+     `{a as "w": integer, a as "w": string}`, which still lowers one last-wins
+     property beside `required: ["a as \"w\"","a as \"w\""]`. Pinned as d4.
+  3. *A quoted field name is not a `Field`.* `{"a": string, "a": integer}` is
+     silent and lowers one property keyed `"a"` beside a two-item `required` —
+     the defect's own shape at a position the row excludes, and 0045
+     §Non-goals' malformed-interior family. Pinned as d5.
+  4. *The compound position emits per check-site.* `let r: {a: integer, a:
+     string} = @`hi`` draws the line TWICE, because the annotation text
+     propagates into the query's schema and both walks check it. Inherited from
+     the walk, identical for the three rules that already owned it (0045 §Fix
+     residual (i));
+     [0093](./0093-let-annotation-over-query-double-emission.md) owns the class.
+     Pinned as h1 so that fix flips it knowingly.
+  5. *Position-only citation drift.* `tests/reserved-keyword-type-position.test.ts`
+     cites `type-grammar.ts:36–51` for `TypePosition`; it was already stale at
+     `df7a3d55` and this fix moved the file further (567 → 835). Disclosed, not
+     chased (0134's class). Nothing this fix authored cites that file by line.
+- **Measured NOT to be a
+  [0129](./0129-empty-inline-object-schema-field-double-diagnostic.md) instance.**
+  This rule adds no case of two `E` lines for ONE written mistake:
+  `schema S by kind = {kind: "a", kind: "b"} | Cat` and
+  `schema S by p = {a: 1, a: 2} | Cat` each draw this code alone, and every
+  co-emission measured (`{a: void, a: void}`, `{a: {}, a: {}}`,
+  `{a: Result<…>, a: string}`, `{a: array<integer,string>, a: string}`) is one
+  code per DISTINCT written fault. No disclosure note is owed there.
+- **Discharge notes appended.**
+  [0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md)
+  §Fix (0.49.0) *Residuals* item (i) (the residual this report was filed from);
+  0045 §Fix (0.57.0) "0052 coordination" (the prescribed reuse happened);
+  0154 §Status (the field-name retention shape it rebases onto).
+- **Pinned dispositions / non-goals, unmoved.** The permissive `array<{…}>`
+  element (H1–H3 byte-unchanged); AJV's root-only meta-schema validation — the
+  refusal removes the outcome for well-formed interiors rather than reframing
+  the throw, and no `catch` is added at any AJV seam; a duplicate YAML key in
+  `params:` (measured again: `p: {a: integer, a: string}` unquoted is a
+  duplicate-key flow mapping, drawing `theta/load/missing-mode` with the
+  frontmatter discarded — adjacent
+  [0041](./0041-params-block-mapping-rhs-silent-permissive.md), pinned as the
+  a11 control); 0039's residuals (ii)–(iv).
 
 ## Summary
 

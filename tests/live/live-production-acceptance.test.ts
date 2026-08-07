@@ -3781,3 +3781,217 @@ describe("H8a-T — bug 0081: the array/ternary common-type union admits a spec-
   });
 });
 
+// ===========================================================================
+// Bug 0052 — a repeated field name inside an inline object body
+// (`{a: integer, a: string}`) was admitted with zero diagnostics at every
+// `Type` position: `TypeParser.parseObject` (src/parser/type-grammar.ts) read
+// the field-name token and dropped it, so `walkType`'s `object` arm had no
+// name list to compare, and the two lowerers (`hoistInlineObjectType`,
+// `lowerInlineObject`) built a last-wins `properties.a` beside a two-item
+// `required: ["a", "a"]` with no diagnostic anywhere
+// (docs/bugs/0052-inline-object-duplicate-field-names-silent-last-wins.md).
+// The same two fields written as a `schema` declaration were already refused
+// with `theta/parse/wire-name-collision` (docs/spec_topics/schemas.md:44),
+// but `grammar.md:109` states the inline spelling "carr[ies] the same field
+// semantics" — the two spellings of these two fields disagreed.
+//
+// The fix retains the field names `parseObject` used to discard
+// (`TypeNode.fieldNames`) and adds a repeated-name comparison to `walkType`'s
+// `object` arm, joining the EXISTING `"inline-object-shape"` rule set
+// (`TypeCheckRules`, src/parser/type-grammar.ts) beside
+// `theta/parse/empty-schema-body` — bug 0045's sibling rule on the same
+// grammar sentence — so no new call site was added: the rule reaches all
+// eight `Type` positions through the five `"all"` call sites already in
+// `theta-document.ts`, the `params:` per-field loop (`params.ts`), the
+// `@<T>` annotation root and the `invoke<T>` return annotation, which already
+// select the narrower `"inline-object-shape"` set. The new registered code is
+// `theta/parse/duplicate-inline-field-name`
+// (`docs/spec_topics/diagnostics/code-registry-parse.md`). The 49-cell unit
+// witness (tests/inline-object-duplicate-field-name.test.ts) proves the
+// mechanism offline at the `parseThetaDocument` boundary — its own group (a5)
+// cell is the fixture this live cell mirrors. This cell proves the SAME
+// registered code denies REGISTRATION end to end through the real production
+// composition root (session_start → resources_discover →
+// composeExtensionInstance), which the offline harness cannot reach.
+// `theta/parse/duplicate-inline-field-name` is severity `E`, so
+// `hasLoadParseError` (production-composition.ts) un-registers the declaring
+// theta at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095/
+// 0102/0125/0050/0137/0139/0142/0148/0149/0081 cells above exercise for their
+// own codes.
+//
+// The broken theta mirrors the bug doc's own §Reproduction fixture C1 and the
+// unit witness's cell a5 verbatim: a `schema` body field type is one of the
+// three positions that HOIST (§Fix constraint 1 — the lowering does not
+// move), so pre-fix this shape loaded cleanly and registered, carrying a
+// silently-dropped `a: integer` declaration inside its hoisted `$defs` entry.
+// The same-shape sibling (the second field renamed `b`) isolates the refusal
+// to the REPEATED name rather than to "a theta declaring this schema shape
+// never registers here" — mirroring the bug 0149 FACE 1 pair above.
+//
+// No existing live fixture (H8a in this file, the H9a acceptance fixtures, or
+// the hardening probes) declares an inline object type carrying a repeated
+// field name anywhere before this cell: the sole committed inline object type
+// is `tests/live/acceptance/fixtures/acc-typed-inline.theta`'s
+// `{ ok: boolean, label: string }` — distinct names (bug 0052 §Affected "Not
+// affected" makes the same PCRE2-scan claim over `src/`, `tests/` and
+// `docs/`; a fresh scan over every `tests/live/**` fixture and embedded theta
+// source string confirms it still holds at this HEAD) — so the fixed arm had
+// NO live reach at all before this addition, mirroring the bug 0070/0071/
+// 0110/0148/0149 cells' own "no existing live fixture reaches this arm"
+// findings for their own constructs.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the file header claims for
+// the discovery→registration cells above). ADDITIVE ONLY: no existing cell in
+// this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const DUPLICATE_INLINE_FIELD_NAME_CODE = "theta/parse/duplicate-inline-field-name";
+
+/** The sharded registry page carrying `theta/parse/duplicate-inline-field-name`'s row. */
+const DUPLICATE_INLINE_FIELD_NAME_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/duplicate-inline-field-name: duplicate field name '<field>'
+ * within one inline object type` — DIAG-4: the message half is read from the
+ * registry row, not copied, mirroring this file's `reservedKeywordFragment` /
+ * `invokePathEscapeFragment`. The row carries the one `<field>` placeholder,
+ * so this helper fills it and the trailing assertion confirms no second
+ * placeholder is left unsubstituted.
+ */
+function duplicateInlineFieldNameFragment(field: string): string {
+  const template = registryMessage(
+    DUPLICATE_INLINE_FIELD_NAME_REGISTRY,
+    DUPLICATE_INLINE_FIELD_NAME_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${DUPLICATE_INLINE_FIELD_NAME_CODE} has no registry row — the code this ` +
+      "cell asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const withSlot = template as string;
+  expect(
+    withSlot,
+    `${DUPLICATE_INLINE_FIELD_NAME_CODE}: the registry row's Message template ` +
+      "must carry the <field> slot this cell fills — the row changed shape",
+  ).toContain("<field>");
+  const message = withSlot.replace("<field>", field);
+  expect(
+    message,
+    `${DUPLICATE_INLINE_FIELD_NAME_CODE}: the registry row's Message template ` +
+      "grew a second unsubstituted placeholder this reader does not fill",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${DUPLICATE_INLINE_FIELD_NAME_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own §Reproduction fixture C1, and the unit witness's cell a5,
+ * verbatim: a top-level `schema` whose sole field's inline object type
+ * repeats the field name `a`. One of the three HOISTING positions (§Fix
+ * constraint 1), so pre-fix this loaded cleanly and registered with a
+ * silently-dropped `a: integer` declaration.
+ */
+function duplicateInlineFieldNameSchemaTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { p: {a: integer, a: string} }", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The same-shape SIBLING with the SAME schema and the SAME inline object
+ * field, the second field renamed `b` — must still register, isolating the
+ * broken theta's refusal to the repeated name rather than to "a theta
+ * declaring this schema shape never registers here".
+ */
+function conformantInlineFieldNameSchemaTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { p: {a: integer, b: string} }", ""].join(
+    "\n",
+  );
+}
+
+describe("H8a-T — bug 0052: a repeated field name inside an inline object body draws duplicate-inline-field-name and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose inline object type repeats a field name, while its distinct-names sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the broken
+      // theta's absence could be (wrongly) attributed to a broken workspace
+      // instead of the duplicate-inline-field-name rule under test.
+      { source: "project", stem: "b52livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME schema and the SAME inline object
+      // field, distinct names — must still register, isolating the refusal
+      // to the repeated name rather than to "a theta declaring this schema
+      // shape cannot register here".
+      { source: "project", stem: "b52livegood", text: conformantInlineFieldNameSchemaTheta() },
+      // The load-bearing broken theta: the bug doc's own §Reproduction
+      // fixture C1 / unit-witness cell a5 spelling.
+      { source: "project", stem: "b52livebroken", text: duplicateInlineFieldNameSchemaTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b52livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the duplicate-inline-field-name rule under test, would explain the " +
+          "broken theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b52livegood"),
+        "the same schema and inline object field, spelled with distinct " +
+          "names, did not register — a theta declaring this schema shape " +
+          "cannot register in this harness at all, independent of this bug. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta whose inline object type repeats a field name does NOT
+      // register — `walkType`'s `object` arm (src/parser/type-grammar.ts)
+      // fires theta/parse/duplicate-inline-field-name, and hasLoadParseError
+      // un-registers this theta at the SAME site the bug 0070/0071/0077/
+      // 0079(a)/0110/0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/
+      // 0081 cells above exercise for their own codes.
+      expect(
+        handle.command("b52livebroken"),
+        "the theta whose inline object type repeats a field name registered " +
+          "anyway through the live discovery/session_start path — " +
+          "theta/parse/duplicate-inline-field-name did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b52livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/0081 cells
+      // above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = duplicateInlineFieldNameFragment("a");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the duplicate-inline-field-name " +
+          "rejection for the broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+

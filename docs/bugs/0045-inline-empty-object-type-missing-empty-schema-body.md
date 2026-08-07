@@ -281,6 +281,13 @@ the `invoke<T>` call needs no edit. Its rule needs the field NAMES that
 `parseObject` currently discards, which is a change to the node rather than to
 any call site.
 
+That reuse happened as prescribed: 0052's fix (0.84.0) added
+`theta/parse/duplicate-inline-field-name` to `walkType`'s `object` arm as a
+second member of the `"inline-object-shape"` set, retained the field names on
+the object node, and added no call site — the `invoke<T>` call and the seven
+walk-reached positions were unedited. The set's doc comment, which anticipated
+exactly this widening, now describes two members.
+
 **Residuals.** (i) The compound `let`-annotation-over-query position emits per
 check-site rather than per occurrence, for this rule and for the three the walk
 already owned — recorded in the offline lock, unfiled. (ii) `checkSchemaFeedingType`

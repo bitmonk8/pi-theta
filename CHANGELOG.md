@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-08-06
+
+### Fixed
+
+- **A repeated field name inside an inline object type was admitted at every
+  `Type` position, dropping the author's first declaration and minting a
+  duplicate `required` entry** (bug 0052). `grammar.md` §"Inline object types"
+  gives an `ObjectType`'s fields "the same `Field` form as an object-schema
+  body" and "the same field semantics", and `schemas.md` makes two fields
+  sharing a wire name a refusal, so `schema S { a: integer, a: string }` was
+  refused while the inline spelling of the same two fields was not:
+  `{a: integer, a: string}` loaded with zero diagnostics at all eight `Type`
+  positions and lowered a last-wins `properties.a` beside `required: ["a","a"]`.
+  At the three hoisting positions AJV compiled and enforced that fragment; at
+  the `@<T>` annotation root the fragment IS the compiled document, so
+  `ajv.compile` threw `data/required must NOT have duplicate items` after the
+  query turn had been spent, surfacing as an internal error rather than a
+  diagnostic, and the respond tool advertised the invalid `required` to the
+  provider verbatim.
+  A repeated field name is now refused at parse, before any body is lowered,
+  with the new `theta/parse/duplicate-inline-field-name`
+  (`duplicate field name '<field>' within one inline object type`) — one line
+  per repeated name, at that name's second position, in source order. The rule
+  lives in the type-grammar walk's inline-object arm and joins the existing
+  inline-object-shape rule set, so it reaches the `let` annotation, `fn`
+  parameter and return types, schema body fields, alias/union arms, `params:`
+  fields, the `@<T>` root and the `invoke<T>` return annotation — plus every
+  nesting depth and both file kinds — with no new call site. A name reused
+  between an outer inline object and one nested inside it stays two field lists,
+  and a generic type argument's interior stays outside the rule. No lowering
+  changed: the hoisted and annotation-root bytes are byte-identical for every
+  input, the named-declaration spelling keeps `theta/parse/wire-name-collision`
+  unchanged, and no `catch` was added at the validator seam — the throw is
+  removed by refusing the input, not by framing the failure.
+
 ## [0.83.0] - 2026-08-06
 
 ### Fixed
