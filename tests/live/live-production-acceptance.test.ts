@@ -3995,3 +3995,249 @@ describe("H8a-T — bug 0052: a repeated field name inside an inline object body
   });
 });
 
+// ===========================================================================
+// Bug 0056 — the `params:` right-hand side had no literal sublanguage at any
+// depth: `p: '"x" | "y"'` lowered the PERMISSIVE `{"anyOf":[{},{}]}` and
+// `p: '"x"'` lowered `{}`, where the same type text at the `schema`-body,
+// alias-RHS and `@<T>` positions lowered the ENFORCING `{"type":"string",
+// "enum":[...]}` / `{"const":"x"}`
+// (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md).
+// `lowerParamsFieldType` (src/parser/params.ts) now checks the shared
+// `lowerLiteralSublanguage` recogniser BEFORE its brace test, so the
+// `params:` position mints the same fragment the other three positions do,
+// at every nesting depth.
+//
+// UNLIKE every bug-fix cell above, this fix does NOT move the register/
+// non-register verdict for ANY input: every row of §Fix constraint 1's table
+// loads with ZERO diagnostics both before and after the fix (the bug's own
+// "Why it matters" census confirms the absence is silent, never a
+// diagnostic). `handle.command(...)` / `handle.registeredNames()` therefore
+// cannot distinguish the two lowerings; the observable this cell needs is
+// downstream ENFORCEMENT of the lowered fragment, not registration.
+//
+// THE OBSERVABLE. Of the three consumers the bug doc names (the binder
+// envelope, the post-default-merge AJV compile, the subagent child's params
+// intake), only the THIRD is reachable without a live model call and without
+// depending on stochastic model output: a `params:` field of a literal-union
+// type is never `single-string-bypass`-eligible (`classifyBinderBypass`,
+// src/binder/binder-envelope.ts — the type text is not literally `"string"`),
+// so it always routes to `binder` for a SLASH dispatch — but an `invoke(...)`
+// call supplies its argument value directly from CODE (invocation.md
+// §"Argument binding": "The LLM-driven binder ... does not run here —
+// `invoke(...)` callers pass already-typed values"), and PIC-60 marshals it
+// straight to the callee's spawned child, which validates it against
+// `theta.frontmatter.params.loweredSchema` via the REAL AJV seam
+// (`#intakeSubagentRootParams`, src/extension/production-theta-producer.ts) —
+// entirely code-computed, no model in the loop for the value itself. A
+// rejection there is `intakeChildParams`'s `refuseParams`
+// (src/runtime/subagent-params.ts): `Err(InvokeInfraError { kind:
+// "invoke_infra", cause: "validation", ... })`, which crosses the RFC-0006
+// envelope back to the `invoke(...)` parent UNCHANGED even through an
+// UNTYPED invoke (invocation.md §"Typed return": untyped `invoke(...)`
+// discards only the `Ok` VALUE to `null`; failure envelopes "pass through
+// unchanged"). Pre-fix the lowered fragment is `{"anyOf":[{},{}]}` — an empty
+// schema admits every JSON value, so the SAME out-of-enum argument is
+// silently ACCEPTED instead (`Ok(null)`); post-fix it is the enforcing
+// `{"type":"string","enum":["x","y"]}`, which refuses it. Fully deterministic
+// in EITHER direction: no live-model-authored value crosses the boundary
+// under test, and the parent theta below `match`es both `Result` arms
+// explicitly, so nothing here depends on `prompt()` merely resolving.
+//
+// WHY THE ARGUMENT CANNOT BE CAUGHT BY AN UNRELATED STATIC CHECK (confirmed
+// by direct reading, so this cell cannot be confounded with the bug 0050/0137
+// invoke-arg-type-mismatch cells above): the argument below is a bare `let`-
+// bound IDENTIFIER (`good` / `bad`), and `collectProvableArgTypes`'s
+// `"ident"` arm (src/extension/invoke-static-checks.ts) unconditionally
+// returns `undefined` for an identifier operand ("even a `let`-bound name is
+// nominal here") — `buildInvokeArgSlot` therefore WITHHOLDS that argument
+// slot before `checkCompatible` (src/parser/type-compat.ts, UNCHANGED by this
+// fix) is ever consulted, so `theta/parse/invoke-arg-type-mismatch` cannot
+// fire for either value regardless of literal contents; the runtime AJV net —
+// this fix's own surface — is what the static layer defers to by
+// construction. Independently, `type-compat.ts`'s `literal` `CompatType` is
+// value-erased (it records only the primitive KIND a literal types as, never
+// its value), so even a DIRECT literal argument would decide "compatible" by
+// primitive-kind reflexivity — the static layer has no mechanism to
+// distinguish `"zzz"` from `"x"`/`"y"` at all, which is exactly why bug
+// 0056's runtime AJV lowering is the only enforcement this class of argument
+// gets. Verified offline before this cell was added, then deleted per
+// scratch policy: both fixture bodies below parse and type-check with zero
+// diagnostics, and the child's `params:` lowers this tree's fix's enforcing
+// fragment.
+//
+// No existing live fixture (H8a in this file, the H9a acceptance fixtures, or
+// the hardening probes) declares a literal-typed `params:` field anywhere:
+// every `params:` occurrence across `tests/live/**` is `string`, `number = 3`
+// or a plain identifier default (`acc-params-binder.theta`; the bug 0071/
+// 0102/0137/0149 fixtures above) — matching the bug doc's own 17-file
+// committed-fixture census, re-measured for this addition. The fixed arm
+// therefore had NO live reach at all before this cell.
+//
+// Token cost: ONE small untyped free-phase turn (the closing `@`-query,
+// rendering both outcomes computed by CODE before the model ever replies —
+// the model's reply itself is never asserted on). Both `invoke(...)` calls
+// spawn a REAL RFC-0006 child process each (the callee's body is a bare tail
+// expression — no query, zero tokens per child, mirroring the bug 0020
+// forged-ingress cell's "driving it needs a child spawn" precedent above);
+// `./harness`'s module-scope `#subagent-child-pins` (executable +
+// `PI_THETA_SUBAGENT_EXTENSION_PIN_ENV`) already cover both, imported at the
+// top of this file. ADDITIVE ONLY: no existing cell in this file is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * The callee both `invoke(...)` calls below name: one `params:` field whose
+ * declared type is the bug doc's own reproduction text, an all-string-literal
+ * union — never `single-string-bypass`-eligible (`classifyBinderBypass`), so
+ * it needs a resolvable `bind_model:` to independently load (the SAME
+ * provider-qualified id `tests/live/acceptance/fixtures/acc-params-binder.theta`
+ * and this file's `b71livecallee` use) — pure model-registry name resolution
+ * at LOAD time, spending no tokens. The body is the bound field itself: a
+ * bare tail expression, so the callee's OWN drive (inside its spawned child)
+ * issues no query either.
+ */
+function literalParamsChildTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  p: '\"x\" | \"y\"'",
+    "---",
+    "p",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The load-bearing parent: TWO `invoke(...)` calls against the SAME callee —
+ * one argument the declared union admits (`"x"`), one it does not (`"zzz"`) —
+ * each bound to a plain identifier (`good` / `bad`) so
+ * `collectProvableArgTypes`'s `"ident"` withholding keeps BOTH calls off the
+ * static invoke-arg-type-mismatch checker's plate (see the file-header
+ * comment above), leaving the runtime AJV net at the child's params intake as
+ * the only judge. Each `Result` is `match`ed EXPLICITLY into a plain string —
+ * `"ACCEPTED"` for `Ok`, `"REJECTED " + <the wire cause>` for `Err` — so
+ * nothing here is an unhandled `Err` (no `?`, no panic path), and the ONE
+ * closing query renders both outcomes the way theta CODE computed them,
+ * independent of anything the model says back.
+ */
+function literalParamsInvokeCheckTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'let good = "x"',
+    'let bad = "zzz"',
+    'let okResult = invoke("./b56livechild.theta", good)',
+    'let badResult = invoke("./b56livechild.theta", bad)',
+    "let okOutcome = match okResult {",
+    '  Ok(_) => "ACCEPTED",',
+    '  Err(e) => "REJECTED " + e.cause,',
+    "}",
+    "let badOutcome = match badResult {",
+    '  Ok(_) => "ACCEPTED",',
+    '  Err(e) => "REJECTED " + e.cause,',
+    "}",
+    "@`Reply with exactly: GOOD=${okOutcome} BAD=${badOutcome}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0056: an invoke(...) argument outside a params: literal union's declared values is refused at the child's params intake, live (Convention: live-host acceptance)", () => {
+  it("accepts an invoke(...) argument the declared literal union admits and refuses one it does not, through the real RFC-0006 marshalled-params AJV intake", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // invoke() outcome below could be (wrongly) attributed to a broken
+      // workspace instead of the params literal-sublanguage lowering under
+      // test.
+      { source: "project", stem: "b56livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b56livechild", text: literalParamsChildTheta() },
+      { source: "project", stem: "b56livecheck", text: literalParamsInvokeCheckTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b56livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the params literal-sublanguage lowering under test, would explain " +
+          "either invoke() outcome below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b56livechild"),
+        "the literal-typed-params callee did not register — its bind_model: " +
+          "chain failed to resolve (a workspace/registry problem, not the " +
+          "lowering under test). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b56livecheck"),
+        "the invoking parent did not register — precondition unmet before any " +
+          "live turn is driven. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b56livecheck");
+      const outbound = turn.userTexts.join("\n");
+
+      // THE CONTROL — the in-enum argument is accepted at BOTH the permissive
+      // and the enforcing lowering (an empty schema admits everything; the
+      // enforcing enum admits its own declared arm), isolating the fixed
+      // observable below to the OUT-of-enum argument specifically rather than
+      // to "invoke() to this callee never succeeds in this harness".
+      expect(
+        outbound,
+        "the in-enum invoke() argument was not accepted — Registered: " +
+          JSON.stringify(handle.registeredNames()) + "; outbound: " +
+          JSON.stringify(turn.userTexts),
+      ).toContain("GOOD=ACCEPTED");
+
+      // THE FIXED OBSERVABLE. Pre-fix the `params:` position lowers the
+      // permissive `{"anyOf":[{},{}]}` (an empty schema admits every JSON
+      // value), so the out-of-enum argument is silently ACCEPTED at the
+      // child's params intake too — `BAD=ACCEPTED`. Post-fix it lowers the
+      // enforcing `{"type":"string","enum":["x","y"]}` (schema-subset.md:80,
+      // bug 0055's landed spelling, bug 0056 §Fix constraint 1), so the SAME
+      // argument is refused with `InvokeInfraError { cause: "validation" }`
+      // (`refuseParams`, src/runtime/subagent-params.ts) — `BAD=REJECTED
+      // validation`, rendered by theta CODE from the real `Result` the real
+      // RFC-0006 child intake returned, never asserted on `prompt()` merely
+      // resolving.
+      expect(
+        outbound,
+        "the out-of-enum invoke() argument was not refused — the params: " +
+          "position's literal sublanguage did not enforce at the child's " +
+          "params intake (bug 0056 did not fire, or fired with an unexpected " +
+          "cause). Registered: " + JSON.stringify(handle.registeredNames()) +
+          "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain("BAD=REJECTED validation");
+      expect(
+        outbound,
+        "the out-of-enum invoke() argument was accepted — the pre-fix " +
+          "permissive lowering's own failure signature. outbound: " +
+          JSON.stringify(turn.userTexts),
+      ).not.toContain("BAD=ACCEPTED");
+
+      // No fail-closed ending of the PARENT's own drive: both `invoke(...)`
+      // results are `match`ed explicitly above (no `?`, no unhandled `Err`),
+      // so this theta's own top-level outcome is Success either way — a
+      // failure note here would mean the fixture itself is broken, not that
+      // bug 0056 fired.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b56livecheck (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the invoking parent's own drive surfaced fail-closed system note(s) " +
+          "— the fixture itself is broken: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+

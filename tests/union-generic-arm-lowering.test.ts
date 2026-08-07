@@ -1058,15 +1058,16 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
     }
   });
 
-  it("CONTROL (g7): the LITERAL union `\"x\" | \"y\"` keeps its per-position bytes (bug 0055 owns them)", () => {
-    // The literal sublanguage lives in `lowerTypeSource`'s own top-level check
-    // (body-type-lowering.ts:378–392), which `alias`, `field` and `annotation`
-    // run and the `params:` position does not: the first three carry
-    // schema-subset.md:80's spelled emission since bug 0055 §Fix landed, while
-    // the `params:` position never reaches the check and stays outside :80.
-    // Neither spelling carries a `<`, so the generic arm never fires for either
-    // and the reorder moves nothing here.
-    for (const position of ["alias", "field", "annotation"] as const) {
+  it("CONTROL (g7): the LITERAL union `\"x\" | \"y\"` lowers alike at all four positions", () => {
+    // All four positions run the same literal check now: bug 0056 §Fix
+    // constraint 1 moved the recogniser and ONE shared emission helper into
+    // `params.ts`, and `lowerParamsFieldType` calls them ahead of its brace test
+    // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md),
+    // so the `params:` position carries schema-subset.md:80's spelled emission
+    // the other three have carried since bug 0055 §Fix landed. Neither spelling
+    // carries a `<`, so the generic arm never fires and the reorder this
+    // describe block is about moves nothing here either way.
+    for (const position of POSITIONS) {
       const fragment = fragmentOf("g7", position, '"x" | "y"');
       expect(
         fragment,
@@ -1075,21 +1076,14 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
           `SUBS-1 (:81) governs; observed ${JSON.stringify(fragment)}`,
       ).toEqual({ type: "string", enum: ["x", "y"] });
     }
-    const atParams = fragmentOf("g7", "params", '"x" | "y"');
-    expect(
-      atParams,
-      `g7 [params]: bug 0055 §Non-goals declares this position out of scope — it reaches ` +
-        `\`lowerTypeExpr\` without the literal pre-check, so each literal arm lands on the ` +
-        `trailing catch-all — and 0055 §Fix left these bytes identical; observed ` +
-        `${JSON.stringify(atParams)}`,
-    ).toEqual({ anyOf: [{}, {}] });
   });
 
   it("CONTROL (g8): a LITERAL arm of a mixed union keeps its permissive variant", () => {
-    // Named by §Non-goals: literal recognition lives only in `lowerTypeSource`'s
-    // top-level check, so `"a"` beside a named arm lowers `{}` as one variant of
-    // an otherwise correct `anyOf`. The union already splits (no `<`), so the
-    // reorder does not reach it.
+    // Named by §Non-goals, and still held there after bug 0056: the all-arms
+    // literal test declines a union carrying a non-literal arm at EVERY
+    // position, so `"a"` beside a named arm lowers `{}` as one variant of an
+    // otherwise correct `anyOf` — the shape g7's move does not reach. The union
+    // already splits (no `<`), so the reorder does not reach it either.
     for (const position of POSITIONS) {
       const fragment = fragmentOf("g8", position, '"a" | Triage');
       expect(

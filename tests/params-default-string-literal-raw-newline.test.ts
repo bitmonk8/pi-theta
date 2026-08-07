@@ -615,8 +615,15 @@ describe("bug 0102 (d) — no spelling whose break lies outside a string span is
     // A string literal with a raw break in TYPE position is what
     // `LiteralType` (grammar.md:102) admits and what keeps the binder's
     // string-escape rendering arm reachable (§Fix constraint 6). The refusal is
-    // scoped to the default RHS, so this row is untouched.
-    ["LIT (string literal in TYPE position)", ROW.LIT, {}],
+    // scoped to the default RHS, so bug 0102's claim is untouched here: no
+    // diagnostic, because the predicate is a break inside a STRING SPAN on the
+    // DEFAULT RHS and this break is in TYPE position. Only the lowered bytes
+    // move — the `params:` position gained schema-subset.md:79's single-literal
+    // emission under bug 0056 §Fix constraint 1
+    // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md),
+    // and the literal's own raw break survives into the `const` value, which is
+    // what makes the recording assertion below and this one one claim.
+    ["LIT (string literal in TYPE position)", ROW.LIT, { const: "a\nb" }],
     ["R1 (block-scalar type text)", ROW.R1, {}],
     ["R1b (folded block scalar — YAML folds the break to a space)", ROW.R1b, {}],
     [

@@ -456,8 +456,8 @@ const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
  *     `NamedType` (`NamedType ::= Ident`, grammar.md:98, and a reserved
  *     spelling cannot be an `Ident`): `true` / `false` lower their
  *     `LiteralType` fragment (`{ "const": true }` / `{ "const": false }`,
- *     matching what `parseLiteralArm`, body-type-lowering.ts, already returns
- *     for the same atom at the top level); `void` lowers `{}` and records
+ *     matching what `parseLiteralArm` (below) already returns for the same
+ *     atom at the top level); `void` lowers `{}` and records
  *     nothing (its own registered row, `void-in-non-return-position`, is the
  *     rejection); every other reserved spelling lowers `{}` and records the
  *     spelling on a second sink, which each of the four callers renders as
@@ -545,9 +545,8 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     // and always miss — the resolution map below (bug 0044 §Fix).
     if (s === "true" || s === "false") {
       // `LiteralType ::= ... BOOLEAN ...` (grammar.md:102): a `Type` atom,
-      // not a `NamedType`, matching what `parseLiteralArm`
-      // (body-type-lowering.ts) already returns for the same atom at the top
-      // level.
+      // not a `NamedType`, matching what `parseLiteralArm` (below) already
+      // returns for the same atom at the top level.
       return { const: s === "true" };
     }
     if (s === "void") {
@@ -652,13 +651,21 @@ export function classifyLoweredUnionArm(lowered: Record<string, unknown>): Lower
  * `topLevelColon` needs no change: it already tracks brace depth, so a nested
  * object's own `:` never splits the enclosing entry.
  *
- * `lowerFieldType` is the caller's OWN recursion for a field's `Type`.
- * `lowerParamsFieldType` passes itself, so a nested brace-rooted field stays
- * routed through the same interception (the MIXED fixture). `lowerTypeSource`
- * passes an inner helper that returns through ITS OWN literal-sublanguage check
- * first — recursing through `lowerTypeExpr` instead would lower a nested
- * `"x" | "y"` to `anyOf: [{}, {}]` rather than the SUBS-1 enum form (bug 0039
- * §Fix constraint: the literal sublanguage must not regress).
+ * `lowerFieldType` is the caller's OWN recursion for a field's `Type`. Both
+ * callers now check the SAME literal sublanguage first
+ * (`lowerLiteralSublanguage`), so that asymmetry is gone — but each still
+ * passes ITSELF here, not a bare call to the shared check, because a
+ * declined literal still has to reach the rest of that position's OWN
+ * dispatch, which the shared check performs none of.
+ * `lowerParamsFieldType` passes itself, so its own pre-brace call to
+ * `lowerLiteralSublanguage` runs again for a nested brace-rooted field
+ * exactly as for a top-level one (the MIXED fixture). `lowerTypeSource`
+ * passes an inner helper for the same reason: its own brace-group and
+ * shredded-union dispatches sit AFTER its literal check too, and only
+ * recursing back into `lowerTypeSource` itself — never `lowerTypeExpr`,
+ * which owns no literal check — reaches them at every depth (bug 0056 §Fix,
+ * discharging bug 0039 §Fix's "the literal sublanguage must not regress"
+ * constraint by sharing the sublanguage itself rather than by convention).
  *
  * A zero-field body — `{}`, or an interior of only whitespace — returns the
  * permissive `{}` with no hoist and no diagnostic. grammar.md:109's rule now
@@ -762,25 +769,114 @@ export function hoistInlineObjectType(
 }
 
 /**
- * Lower a single `params:` field's type expression, intercepting a
- * brace-rooted inline object type (`{a: Triage, b: integer}`) before it can
- * reach `lowerTypeExpr`'s catch-all: `parseParams`'s per-field loop calls this
- * instead of `lowerTypeExpr` directly (bug 0035), so a name inside the object
- * resolves through the same `lowerCtx` — landing in `lowerCtx.unresolved` for
- * the caller's diagnostic loop, or in `lowerCtx.defs` as a hoisted `$ref`
- * target — exactly as every OTHER type position now does too (bug 0039 §Fix).
+ * Parse a literal-type atom (a quoted string, integer/number, boolean, or
+ * `null`) to its JSON value, or `undefined` when the atom is not a literal.
+ * Wrapped so a legitimately-`null` literal is distinguishable from "not a
+ * literal".
+ *
+ * Exported, and living here rather than in `body-type-lowering.ts`: that
+ * module imports from this one and not the reverse (bug 0039 §Fix), and
+ * `lowerLiteralSublanguage` (below) — the one emission both
+ * `lowerParamsFieldType` and `lowerTypeSource` (body-type-lowering.ts) call —
+ * needs this recogniser on the side of that boundary either caller can reach
+ * (bug 0056 §Fix).
+ */
+export function parseLiteralArm(source: string): { readonly value: unknown } | undefined {
+  const s = source.trim();
+  if (
+    s.length >= 2 &&
+    ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
+  ) {
+    return { value: s.slice(1, -1) };
+  }
+  if (s === "true") {
+    return { value: true };
+  }
+  if (s === "false") {
+    return { value: false };
+  }
+  if (s === "null") {
+    return { value: null };
+  }
+  if (/^-?\d+(\.\d+)?$/.test(s)) {
+    return { value: Number(s) };
+  }
+  return undefined;
+}
+
+/**
+ * Lower a type source's literal sublanguage — a quoted string (either quote
+ * form), `true`, `false`, `null`, or a signed integer/decimal, alone or in a
+ * `|`-separated union of them (`splitTopLevel`) — to schema-subset.md's
+ * literal emission, or `undefined` when `source` is not (wholly) that
+ * sublanguage: a union carrying any non-literal arm declines whole, matching
+ * `parseLiteralArm`'s own per-arm decline (bug 0043 §Non-goals; bug 0056
+ * §Non-goals — a mixed union's literal arm stays permissive at
+ * `lowerTypeExpr`, everywhere).
+ *
+ * The one emission `lowerParamsFieldType` (below) and `lowerTypeSource`
+ * (body-type-lowering.ts) both call, so the `params:` position agrees with
+ * the other three type-annotation positions on a literal source's bytes by
+ * construction (bug 0056 §Fix) rather than by two call sites kept in sync by
+ * hand. More than one arm returns the union form only when EVERY arm is
+ * accepted — one declined arm declines the whole union; exactly one arm
+ * returns schema-subset.md:79's `const` when accepted, and declines
+ * otherwise. The union form's KEY ORDER is CONTRACTUAL, not cosmetic: `type`
+ * first when every value is a string (schema-subset.md:80), the bare `enum`
+ * otherwise (`:81` scopes SUBS-1's own primitive-union rule away from
+ * `LiteralType` arms) — `respondSchemaSlug`
+ * (src/runtime/typed-query-validation.ts) and the `__inline_<slug>` mint both
+ * hash `JSON.stringify` of this fragment, so the order is what collapses a
+ * string-literal union declared at two positions onto one slug (bug 0055
+ * §Fix; bug 0056 §Fix *Ordering*). The ternary is bug 0055's landed one,
+ * moved here verbatim rather than re-spelled.
+ */
+export function lowerLiteralSublanguage(source: string): Record<string, unknown> | undefined {
+  const arms = splitTopLevel(source, "|");
+  if (arms.length > 1) {
+    const literals = arms.map(parseLiteralArm);
+    if (literals.every((lit) => lit !== undefined)) {
+      const values = literals.map((lit) => (lit as { readonly value: unknown }).value);
+      return values.every((v) => typeof v === "string")
+        ? { type: "string", enum: values }
+        : { enum: values };
+    }
+    return undefined;
+  }
+  const lit = parseLiteralArm(source);
+  return lit !== undefined ? { const: lit.value } : undefined;
+}
+
+/**
+ * Lower a single `params:` field's type expression. Checks the literal
+ * sublanguage first (`lowerLiteralSublanguage` above, bug 0056 §Fix
+ * constraint 1), returning its `const` / `enum` fragment on a match; a
+ * decline falls through to intercepting a brace-rooted inline object type
+ * (`{a: Triage, b: integer}`) before it can reach `lowerTypeExpr`'s
+ * catch-all: `parseParams`'s per-field loop calls this instead of
+ * `lowerTypeExpr` directly (bug 0035), so a name inside the object resolves
+ * through the same `lowerCtx` — landing in `lowerCtx.unresolved` for the
+ * caller's diagnostic loop, or in `lowerCtx.defs` as a hoisted `$ref`
+ * target — exactly as every OTHER type position now does too (bug 0039
+ * §Fix).
  *
  * The hoist itself is `hoistInlineObjectType`, shared with `lowerTypeSource`
- * (body-type-lowering.ts); this function's own bytes are unchanged by that
- * sharing (bug 0039 §Fix constraint: "The `params:` position's bytes do not
- * move"), since it recurses into ITSELF for a nested brace-rooted field type,
- * exactly as before.
+ * (body-type-lowering.ts). Bug 0039 §Fix froze this function's bytes
+ * byte-for-byte; bug 0056 §Fix is the authority that lifts that freeze for a
+ * source that is wholly what `parseLiteralArm` recognises, at any depth.
+ * Every other source keeps its frozen bytes: this function still recurses
+ * into ITSELF for a nested brace-rooted field type, exactly as before, which
+ * is what makes the lifted check apply at every depth for free.
  */
 export function lowerParamsFieldType(
   source: string,
   lowerCtx: LowerCtx,
 ): Record<string, unknown> {
   const s = source.trim();
+  const literal = lowerLiteralSublanguage(s);
+  if (literal !== undefined) {
+    return literal;
+  }
   if (!(s.startsWith("{") && s.endsWith("}"))) {
     return lowerTypeExpr(s, lowerCtx);
   }
@@ -791,13 +887,13 @@ export function lowerParamsFieldType(
  * Convert a lowered-schema JSON value (as `lowerParamsFieldType` builds it —
  * nested objects, arrays, strings, booleans) to the `LoweredJsonValue` the
  * canonical-hash recipe (`schemaSlug`) requires. Total over that domain: an
- * integer-valued number renders `"integer"`, any other number `"number"` — no
- * numeric consts arise from a `params:` inline object today, since a field
- * type routes through `lowerTypeExpr`, never the literal-sublanguage lowering,
- * but the slug recipe is number-kind-sensitive, so this conversion does not
- * assume only the shapes reachable so far. Object entries are walked in
- * insertion order; `canonicalForm` sorts them by Unicode code point before
- * hashing.
+ * integer-valued number renders `"integer"`, any other number `"number"` — a
+ * `params:` inline object field carrying an integer or decimal literal
+ * (`p: '{m: 42}'`) reaches this arm through `lowerLiteralSublanguage`'s
+ * `const` emission (bug 0056 §Fix), so the number-kind split is EXERCISED by
+ * a reachable input, not defensive against a shape no caller produces. Object
+ * entries are walked in insertion order; `canonicalForm` sorts them by
+ * Unicode code point before hashing.
  */
 function toLoweredJsonValue(value: unknown): LoweredJsonValue {
   if (typeof value === "string") {

@@ -15,6 +15,7 @@
 import {
   classifyLoweredUnionArm,
   hoistInlineObjectType,
+  lowerLiteralSublanguage,
   lowerTypeExpr,
   splitTopLevel,
   topLevelColon,
@@ -201,9 +202,11 @@ export function lowerInlineObject(
  * The predicate serves callers beyond the type-lowering dispatches: the
  * discriminator-field classifier in `theta-document.ts` asks it for the same
  * reason at a non-lowering position (bug 0096 §Fix). `lowerParamsFieldType`'s
- * own brace check (params.ts:766) is the one remaining copy of the naive form,
- * kept with its bytes by bug 0039 §Fix's freeze on the `params:` position's
- * lowered output.
+ * own brace check is the one remaining copy of the naive form. Bug 0039 §Fix
+ * froze the `params:` position's lowered output and kept it there; bug 0056
+ * §Fix lifts that freeze only for the literal sublanguage the function now
+ * checks ahead of this brace test, leaving the brace test's own precision
+ * outside the lifted class, so the naive copy remains.
  */
 export function isSingleEnclosingBraceGroup(s: string): boolean {
   if (!(s.startsWith("{") && s.endsWith("}"))) {
@@ -315,10 +318,13 @@ function isBraceBalanced(s: string): boolean {
  *
  * The inline-object arm recurses each field's type through `lowerTypeSource`
  * itself (an inner helper closing over `sinks`), not through `lowerTypeExpr`:
- * the literal sublanguage below is this function's own, so a field's type has
- * to re-enter here or a nested `"x" | "y"` would lower `anyOf: [{}, {}]`
- * instead of the `schema-subset.md:80` enum form (a string-literal union is
- * `LiteralType` arms, not the `PrimitiveType` arms SUBS-1, `:81`, governs).
+ * this function checks the SHARED literal sublanguage
+ * (`lowerLiteralSublanguage`, params.ts — also `lowerParamsFieldType`'s,
+ * bug 0056 §Fix) before either dispatch below, so a field's type has to
+ * re-enter HERE, where that check runs again, or a nested `"x" | "y"` would
+ * lower `anyOf: [{}, {}]` instead of the `schema-subset.md:80` enum form (a
+ * string-literal union is `LiteralType` arms, not the `PrimitiveType` arms
+ * SUBS-1, `:81`, governs).
  *
  * THE ARM DISPATCH IS GUARDED TWICE, but only the SHREDDED guard below is
  * behavioural. A union with no brace-group arm is handed WHOLE to
@@ -376,19 +382,12 @@ export function lowerTypeSource(
   };
 
   const arms = splitTopLevel(s, "|");
-  if (arms.length > 1) {
-    const literals = arms.map(parseLiteralArm);
-    if (literals.every((lit) => lit !== undefined)) {
-      const values = literals.map((lit) => (lit as { readonly value: unknown }).value);
-      return values.every((v) => typeof v === "string")
-        ? { type: "string", enum: values }
-        : { enum: values };
-    }
-  } else {
-    const lit = parseLiteralArm(s);
-    if (lit !== undefined) {
-      return { const: lit.value };
-    }
+  // Shared with `lowerParamsFieldType` (params.ts, bug 0056 §Fix): one
+  // recogniser and one emission, so this function's three callers and the
+  // `params:` position agree on a literal source's bytes by construction.
+  const literal = lowerLiteralSublanguage(s);
+  if (literal !== undefined) {
+    return literal;
   }
 
   // An inner helper, not `lowerTypeExpr`, so a nested field's own type routes
@@ -730,33 +729,4 @@ export function collectUnresolvedNamedTypes(
   }
   reservedKeywords?.push(...new Set(keywordHits));
   return [...new Set(unresolved)];
-}
-
-/**
- * Parse a literal-type atom (a quoted string, integer/number, boolean, or
- * `null`) to its JSON value, or `undefined` when the atom is not a literal.
- * Wrapped so a legitimately-`null` literal is distinguishable from "not a
- * literal".
- */
-function parseLiteralArm(source: string): { readonly value: unknown } | undefined {
-  const s = source.trim();
-  if (
-    s.length >= 2 &&
-    ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
-  ) {
-    return { value: s.slice(1, -1) };
-  }
-  if (s === "true") {
-    return { value: true };
-  }
-  if (s === "false") {
-    return { value: false };
-  }
-  if (s === "null") {
-    return { value: null };
-  }
-  if (/^-?\d+(\.\d+)?$/.test(s)) {
-    return { value: Number(s) };
-  }
-  return undefined;
 }

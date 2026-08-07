@@ -6028,11 +6028,11 @@ function discriminatorCandidateFields(
  * discriminator candidate). Operates on the already-captured source text
  * (`SchemaFieldSource.typeSource`), the only representation a field retains
  * past parsing — mirrors `parseLiteralArm`
- * (body-type-lowering.ts) at that same source-text level rather than
+ * (params.ts) at that same source-text level rather than
  * re-deriving from a live token.
  *
  * The nested-object arm's guard is `isSingleEnclosingBraceGroup`
- * (body-type-lowering.ts:208), not a two-ended `startsWith("{") &&
+ * (body-type-lowering.ts), not a two-ended `startsWith("{") &&
  * endsWith("}")` test. The two-ended form is POSITIONAL: a top-level union
  * whose FIRST and LAST arms are brace groups satisfies it too, since the first
  * arm opens the source and the last arm closes it. Under it, `{a: X} | {b: Y}`

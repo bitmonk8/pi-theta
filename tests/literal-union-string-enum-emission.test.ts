@@ -105,10 +105,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   SUBS-1  string | null                        {"type":["string","null"]}
 //
 // WHAT IS RED HERE: every cell of groups (a), (b) and (c)'s c2 — each observes
-// the bare `{"enum":[...]}` where `:80` spells `{"type":"string","enum":[...]}`.
+// the bare `{"enum":[...]}` where `:80` spells `{"type":"string","enum":[...]}` —
+// plus group (e)'s e1, whose `params:` position bug 0056 §Fix constraint 1
+// brings onto this same emission through one shared helper
+// (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md).
 // Group (c)'s c1 (the 13-payload verdict table), group (d) (the all-strings
-// guard in its REFUSING direction) and group (e) (the three positions the arm
-// does not reach, plus the SUBS-1 control) are green now and must stay green
+// guard in its REFUSING direction) and group (e)'s e2 / e3 / e4 (the generic
+// argument and mixed union bug 0056 §Non-goals leaves permissive, plus the
+// SUBS-1 control) are green now and must stay green
 // byte-for-byte: they are what keeps the fix from over-reaching. `1 | 2`,
 // `"x" | 1`, `true | false` and `"x" | null` keep the bare `enum` because `:80`
 // spells the emission for an enum or a STRING-literal union only, and
@@ -651,29 +655,36 @@ describe("bug 0055 (d) — a non-string literal form keeps its current fragment"
 });
 
 // ===========================================================================
-// (e) THE POSITIONS THE ARM DOES NOT REACH — byte-identical to HEAD. Each
-// lowers a permissive fragment through `lowerTypeExpr`, which owns no literal
-// sublanguage; that asymmetry is filed elsewhere and is not this fix's.
-// GREEN at HEAD and must stay green.
+// (e) THE POSITIONS THE ARM DID NOT REACH — e2, e3 and e4 lower a permissive
+// fragment through `lowerTypeExpr`, which owns no literal sublanguage; those
+// asymmetries are filed elsewhere (bug 0043 §Non-goals, bug 0056 §Non-goals)
+// and stay green byte-for-byte. e1 is the one row bug 0056 §Fix constraint 1
+// moves: the `params:` position joins the other three on 0055's emission.
 // ===========================================================================
 
-describe("bug 0055 (e) — the unreached positions do not move", () => {
-  it("CONTROL (e1, `params:`): `p: \"x\" | \"y\"` keeps `{\"anyOf\":[{},{}]}`", () => {
-    // `lowerParamsFieldType` routes to `lowerTypeExpr`, whose trailing catch-all
-    // owns every literal arm, so this position emits NEITHER spelling. Closing
-    // it would move the frozen `params:` bytes and is outside bug 0055 §Non-goals.
+describe("bug 0055 (e) — the position bug 0056 reaches, and the three that stay unreached", () => {
+  it("CONTROL (e1, `params:`): `p: \"x\" | \"y\"` carries the spelled fragment too", () => {
+    // This position is REACHED now. Bug 0055 §Non-goals scoped its own fix to
+    // the three `lowerTypeSource` positions and left the `params:` bytes
+    // frozen; bug 0056 §Fix constraint 1 is the authority that lifts that
+    // freeze for the all-literal class, by moving the recogniser and ONE shared
+    // emission helper into `params.ts` and calling them from
+    // `lowerParamsFieldType` ahead of its brace test
+    // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md).
+    // The emission this cell reads is still 0055's, verbatim and key-order
+    // included — one helper, so the two positions cannot drift.
     const lowered = paramsSchema(
       "e1",
       `---\nmode: prompt\nparams:\n  p: "\\"x\\" | \\"y\\""\n---\n@\`use \${p}\`\n`,
     );
     expect(
       lowered,
-      `bug 0055 §Non-goals — the \`params:\` position never reaches ` +
-        `\`lowerTypeSource\`'s literal arm, so the fix at body-type-lowering.ts:383–385 ` +
-        `must leave these bytes untouched; observed ${JSON.stringify(lowered)}`,
+      `schema-subset.md:80 is not scoped to a position and type-system.md:15 admits one answer ` +
+        `per type expression, so the \`params:\` position emits the same bytes as the other ` +
+        `three (bug 0056 §Fix constraint 1); observed ${JSON.stringify(lowered)}`,
     ).toEqual({
       type: "object",
-      properties: { p: { anyOf: [{}, {}] } },
+      properties: { p: XY_ENUM },
       required: ["p"],
       additionalProperties: false,
     });
@@ -693,7 +704,7 @@ describe("bug 0055 (e) — the unreached positions do not move", () => {
     const lowered = lowerSource("e3", '"x" | string');
     expect(
       lowered,
-      `bug 0055 §Non-goals — \`parseLiteralArm\` (body-type-lowering.ts:741) fails on ` +
+      `bug 0055 §Non-goals — \`parseLiteralArm\` (params.ts) fails on ` +
         `\`string\`, so the whole-union literal check never fires and the source goes ` +
         `whole to \`lowerTypeExpr\`; observed ${JSON.stringify(lowered)}`,
     ).toEqual({ anyOf: [{}, { type: "string" }] });

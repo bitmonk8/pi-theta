@@ -857,3 +857,12 @@ unreached positions are byte-identical to HEAD.
 - Measurement: scratch vitest probes under `tests/`, run with
   `npx vitest run`, deleted after use. No source file, test file, or other bug
   document was modified.
+
+Discharge note (0.85.0): the `params:` position adopted this fix's settled
+emission under
+[0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md) §Fix
+constraint 1, which shares the ternary landed here rather than re-spelling it
+(`type` first, order intact, so the slug collapses). Group (e)'s no-op pin over
+that position, `e1`, flipped in lock-step from `{"anyOf":[{},{}]}` to
+`{"type":"string","enum":["x","y"]}`; `e2` (the generic argument), `e3` (the
+mixed union) and `e4` (SUBS-1) did not move and remain this fix's fences.

@@ -1,10 +1,6 @@
 # Bug 0056 — The `params:` position has no literal sublanguage at any depth: `p: '"x" | "y"'` lowers to `{"anyOf":[{},{}]}` and `p: '"x"'` to `{}`, where the same type text at the `schema`-body, alias-RHS and `@<T>` positions lowers to `{"enum":["x","y"]}` / `{"const":"x"}` — the declared type constrains nothing, AJV accepts every JSON value, and the binder is still told the type the schema drops
 
-- **Status:** open. §Fix is constraint-pinned, not settled. The change moves
-  `params:` lowered bytes that bug 0039 §Fix froze by name, so it needs doc
-  authority to re-pin them, and it inherits whichever literal-union emission
-  bug [0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md)
-  settles.
+- **Status:** fixed (0.85.0).
 - **Kind:** defect — the implementation disagrees with the specification at one
   of the four type-expression lowering positions. schema-subset.md §Lowering
   Algorithm step 3 gives a literal its emission (`:79`,
@@ -810,3 +806,259 @@ Constraints on any implementation:
   record and rendered `Parameters:` line, including the two default rows; and
   ten controls. Run on the outputs quoted above, then deleted per scratch
   policy.
+
+## Fix (0.85.0)
+
+- **Baseline drift, re-derived before anything was pinned.** The report's
+  citations are at `52e257bc` (0.49.0), 35 minors back; its addendum re-anchored
+  two at 0.59.0. Every observable was re-measured at HEAD `f856fd33` (0.84.0)
+  with a scratch probe before Phase 1. Two §Reproduction rows are STALE in the
+  fix's favour and were NOT re-pinned as the report writes them:
+  - **The boolean rows already load.** Bug 0044's fix (0.54.0) gave
+    `lowerTypeExpr`'s atom section its own `true` / `false` arm, so at HEAD
+    `p: 'true'` loads with zero diagnostics and already lowers `{"const":true}`.
+    The refusal §Reproduction records (`theta/parse/unresolved-named-type`
+    naming `true`) is gone before this fix touches anything. **Constraint 3 is
+    therefore already discharged for the single-boolean case, and this fix
+    removes NO input from any diagnostic's emission set.** Only
+    `p: 'true | false'` moves, from `{"anyOf":[{"const":true},{"const":false}]}`
+    — `lowerUnion` combining two `const` arms — to `{"enum":[true,false]}`.
+  - **The `schema`-body slugs moved with 0055.** `{m: "x" | "y"}` mints
+    `__inline_cf9a345524fd2d87` at the contrast positions, not the report's
+    `__inline_743ab811743679bb`, because 0055 (0.59.0) changed that emission.
+    The `params:` position's own pre-fix slugs are byte-exact as written
+    (`__inline_b5d5a13ca7926846`, `__inline_4b5ea26f0093b13c`,
+    `__inline_168515c51f5e820f`, `__inline_438f9e4c9fffd394`).
+- **What shipped**
+  - `src/parser/params.ts` — `parseLiteralArm` MOVED here from
+    `body-type-lowering.ts` and exported, its body byte-identical (a quoted
+    string in either quote form, `true`, `false`, `null`,
+    `/^-?\d+(\.\d+)?$/`); the import direction `body-type-lowering.ts` →
+    `params.ts` is the one bug 0039 §Fix permits, which is why the recogniser
+    moves rather than being exported in place. New exported
+    `lowerLiteralSublanguage` carries the ONE emission: `splitTopLevel` on `|`,
+    then all-arms-literal → 0055's landed ternary MOVED VERBATIM
+    (`{ type: "string", enum: values }` when every value is a string, the bare
+    `{ enum: values }` otherwise), single accepted arm → `{ const: value }`,
+    anything else → `undefined`. `lowerParamsFieldType` calls it BEFORE its
+    brace test and returns the fragment on a match; a decline falls through to
+    its two existing arms unchanged.
+  - `src/parser/body-type-lowering.ts` — `lowerTypeSource`'s inline literal
+    block replaced by a call to the shared helper; `parseLiteralArm` removed.
+  - **Depth cost nothing.** `lowerParamsFieldType` is itself the per-field
+    recursion it hands `hoistInlineObjectType`, so the check re-runs at every
+    nesting depth with no second change. The hoist, the slug retention and the
+    slug-collision posture are untouched; `lowerTypeExpr`, `lowerUnion` and
+    SUBS-1 are untouched.
+  - **Five in-tree comments re-derived** (§Fix constraint 1 names three; the
+    change falsified two more): `hoistInlineObjectType`'s `lowerFieldType`
+    contract and `lowerParamsFieldType`'s frozen-bytes paragraph (params.ts),
+    `isSingleEnclosingBraceGroup`'s freeze restatement and `lowerTypeSource`'s
+    "this function's own" claim (body-type-lowering.ts), and
+    `toLoweredJsonValue`'s "no numeric consts arise from a `params:` inline
+    object" claim, which `p: '{m: 42}'` now falsifies.
+  - `src/parser/theta-document.ts` — two comment lines only, in
+    `classifyDiscriminatorFieldType`'s doc comment: `parseLiteralArm`'s file
+    attribution corrected to `params.ts`, and `isSingleEnclosingBraceGroup`'s
+    volatile `:208` dropped in favour of the symbol. Line count unchanged
+    (6904). Zero executable lines.
+- **Constraint 2 — the `null` adjudication, settled once for all four
+  positions.** **`null` is a `LiteralType` for lowering purposes; the `params:`
+  position adopts `{"const":null}` and the three contrast positions do not
+  move.** Implemented structurally, by NOT special-casing `null` anywhere — the
+  moved recogniser already accepts it. The reasoning:
+  - `schema-subset.md:79` names `null` EXPLICITLY among the literal row's own
+    members ("Literal `"foo"` / `42` / `true` / `null`: `{ "const": <value> }`"),
+    while the primitive row (`{ "type": "<primitive>" }`) names no member at
+    all. Step 3 is the emission table, and it spells `null` in exactly one
+    emission row.
+  - `:81` (SUBS-1) scopes its "treating `null` as a primitive" clause to the
+    UNION rule alone ("A union all of whose arms are primitive types — treating
+    `null` as a primitive, so the `string | null` case is included"). The
+    parenthetical exists because the primitive reading is a union-only
+    accommodation; outside a union the literal row governs.
+  - The three contrast positions already emit `{"const":null}` at HEAD and are
+    pinned doing so.
+  - **Both directions were measured before choosing**, by prototyping each and
+    running the full suite. The literal reading reds SIX cells, every one at the
+    `params:` position. The primitive reading reds FIVE — numerically smaller,
+    but it moves a MAJORITY position's bytes, it needs a `null` carve-out inside
+    the very helper this fix exists to share, and it is internally incoherent
+    with constraint 1 row 3 (it would read `null` as a literal arm inside
+    `"x" | null` but not alone — two readings of one atom in one function).
+    The losing position is therefore `params:`, and its pins are re-derived
+    below.
+- **Constraint 4 — the GOV-15 affected class, enumerated.** Exactly constraint
+  1's table, at any depth, at the `params:` position only:
+
+  | Source shape | before | after |
+  | --- | --- | --- |
+  | a single string or number literal | `{}` | `{"const": <value>}` |
+  | an all-string-literal union | `{"anyOf":[{},…]}` | `{"type":"string","enum":[…]}` |
+  | any other all-literal union | `{"anyOf":[…]}` | `{"enum":[…]}` |
+  | a literal union carrying `null` | `{"anyOf":[…,{"type":"null"}]}` | `{"enum":[…,null]}` |
+  | a bare `null` | `{"type":"null"}` | `{"const":null}` |
+  | an all-boolean union | `{"anyOf":[{"const":true},{"const":false}]}` | `{"enum":[true,false]}` |
+  | a single boolean literal | `{"const":true}` | unchanged (bug 0044 already) |
+
+  Nothing else moves. `string | null`, `integer | null`, `Triage | null`,
+  `"x" | integer`, `"x" | Triage`, `array<"x" | "y">`, every primitive, every
+  named type, every `array<T>` and every non-literal inline object keep their
+  bytes AND their minted slugs — pinned as controls, not assumed.
+  **The census was re-run at HEAD**: 17 committed `.theta` / `.thetalib` files
+  declare `params:`, and every right-hand side is `string`, `number = 3` or the
+  named type `Author`. **No committed theta fixture is in the moved class**, so
+  no shipped example changes what it validates. One committed TEST fixture is
+  (`ROW.LIT` in `tests/params-default-string-literal-raw-newline.test.ts`), and
+  it is re-pinned below.
+- **Constraint 5 held**: no diagnostic registered, no registry row edited, no
+  new permissive lowering. Every source the recogniser declines keeps its exact
+  current disposition.
+- **The minted-slug split heals.** One source text now mints ONE name across
+  the `params:`, `schema`-body and alias positions: `{m: "x" | "y"}` →
+  `__inline_cf9a345524fd2d87` (was `__inline_b5d5a13ca7926846` at `params:`),
+  `{m: "x"}` → `__inline_419c8179123a99b0` (was `__inline_4b5ea26f0093b13c`),
+  `{m: null}` → `__inline_84af3dd41af27d3e` (was `__inline_168515c51f5e820f`),
+  and twice-nested `{m: {n: "x" | "y"}}` → `__inline_b29de9705c9f6fd4` over
+  `__inline_5e132cb3f692fe5a` (was `__inline_438f9e4c9fffd394` over
+  `__inline_829bfb0636444915`). The unmoved control `{m: integer}` keeps
+  `__inline_0b0411e1b6314e7d` at both positions.
+- **A measured consequence of sharing one recogniser, recorded rather than
+  filtered.** `parseLiteralArm`'s `/^-?\d+(\.\d+)?$/` accepts a NEGATIVE numeric
+  atom, and already did so at the three contrast positions, so `p: '-1 | 1'`
+  moves `{"anyOf":[{},{}]}` → `{"enum":[-1,1]}` and joins the agreement the
+  `@<T>` position already had. §Non-goals holds negative numerics outside
+  constraint 1's table; that bullet forbids ADDING handling for them, and
+  excluding them here would need a second, differently-behaving recogniser — an
+  explicitly rejected route — recreating for `-1 | 1` the very split this fix
+  removes. The parse-layer refusals that are 0042's family are untouched:
+  `schema S { a: -1 | 1 }` still raises `theta/parse/empty-schema-body` and
+  `schema X = -1 | 1` still raises `theta/parse/malformed-alias-rhs` plus the
+  stray-`|` residue. Pinned in both directions by cell `d12`.
+- **Authorized pins moved, in lock-step, each under the class authority**
+  (§Fix constraint 1 for the bytes, constraint 2 for the `null` rows). No
+  assertion outside this list changed, and no cell was weakened:
+
+  | Cell | old bytes | new bytes | authority |
+  | --- | --- | --- | --- |
+  | `literal-union-string-enum-emission.test.ts` (e) e1 | `p: {"anyOf":[{},{}]}` | `p: {"type":"string","enum":["x","y"]}` | 0055's no-op pin over this position; constraint 1 |
+  | `params-block-mapping-rhs-refusal.test.ts` (b) b2 | `p: {"type":"null"}` | `p: {"const":null}` | constraint 1 row 4 + constraint 2 |
+  | `params-block-mapping-rhs-refusal.test.ts` (d) d4 | `p: {"type":"null"}` | `p: {"const":null}` | constraint 1 row 4 + constraint 2 |
+  | `params-block-mapping-rhs-refusal.test.ts` (e) M1 | `{}` | `{"const":42}` | that cell's own clause names this report |
+  | `params-block-mapping-rhs-refusal.test.ts` (e) M2 | `{}` | `{"const":"hello"}` | that cell's own clause names this report |
+  | `params-default-string-literal-raw-newline.test.ts` `ROW.LIT` | `{}` | `{"const":"a\nb"}` | constraint 1 row 1 |
+  | `union-generic-arm-lowering.test.ts` g7 (params) | `{"anyOf":[{},{}]}` | `{"type":"string","enum":["x","y"]}` | constraint 1 row 2 |
+
+  Each keeps its OWN claim intact: bug 0041's b2/d4 still assert that the
+  value-less key's scalar arm ADMITS the field and records the type `"null"`;
+  bug 0102's `LIT` row still asserts zero diagnostics and that the refusal
+  predicate is a break inside a STRING SPAN on the default RHS; bug 0043's g8
+  (the MIXED union) does not move. **0035's 37-cell lock
+  (`params-inline-object-lowering.test.ts`), 0039's file
+  (`inline-object-nested-lowering.test.ts`) and 0052's 49-cell witness
+  (`inline-object-duplicate-field-name.test.ts`) were measured in the unmoved
+  set and stayed green throughout** — none declares an all-literal `params:`
+  type. So did every protected whole-list `toEqual([])` witness and
+  `committed-fixture-parse-gate`.
+- **Two comment-only corrections outside the §Fix's named files**, both
+  self-authorized on the record because the change itself falsified them and
+  neither touches an assertion or an executable line: `theta-document.ts`'s two
+  citation lines (above), and `tests/reserved-keyword-type-position.test.ts`
+  cells a3 and d6, whose comments recorded that the `params:` position "never
+  gets `parseLiteralArm`" — false once `lowerParamsFieldType` calls the shared
+  helper first. That file's assertions, fixtures and cell names are byte-
+  identical and it still reports 42 passing cells; its observables never moved.
+- **Gates**
+  - Witness RED before: `npx vitest run` → `Test Files 5 failed | 274 passed
+    (279)`, `Tests 24 failed | 4376 passed (4400)`, every failure observing the
+    permissive `{}` / `{"anyOf":[{},{}]}` / `{"type":"null"}` or a stale slug.
+  - Witness GREEN after: `npx vitest run` → `Test Files 279 passed (279)`,
+    `Tests 4402 passed (4402)`.
+  - `npx tsc --noEmit -p tsconfig.json` → exit 0, no output.
+  - `npm run lint` → exit 0, no output.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Test Files 1 passed (1)`,
+    `Tests 28 passed (28)` (27 → 28 cells).
+  - Live H9a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/` → `Test Files 2 passed (2)`, `Tests 11 passed (11)`.
+    `tests/fixtures/h7a/permitted-codes.json` byte-unchanged from the real run
+    (`git status --porcelain` and `git diff --stat` on it both empty), as a fix
+    that registers no code and removes an emission input class should leave it.
+  - Line pins intact: `static-type-inference.ts` 378, `functions.ts` 427,
+    `type-layer-checks.ts` 2531, `type-compat.ts` untouched.
+- **Review**: 2 rounds plus one bounded pre-review citation correction (not a
+  review round; citation/comment-only, `theta-document.ts` line count proven
+  unchanged at 6904).
+  - Round 1 (deep) — FINDINGS: four, ALL `prose`; zero `correctness`, zero
+    `fidelity`, zero `spec`, zero `house-rule`, zero `test`. Two stale
+    `parseLiteralArm` file attributions in `params.ts` itself; two falsified
+    mechanism comments in bug 0044's witness; a self-contradicting `describe`
+    title; one banned "used to" narration. It independently audited and endorsed
+    the negative-numeric reasoning above.
+  - Round 2 (fast) — CLEAN. Zero correctness, fidelity, spec. One non-blocking
+    `test` residual: `toLoweredJsonValue`'s re-derived comment advertised a
+    reachability nothing pinned. Closed by adding cell `b5` (`{m: 42}` and
+    `{m: 1.5}`, both sides of the `Number.isInteger` split, one minted name per
+    source text at three positions, against the file's independent oracle).
+- **Verification**: SOLID, zero findings.
+  - *The witness can red.* Two targeted neutralisations, each restored
+    blob-exact (`git hash-object src/parser/params.ts` =
+    `ba2467c6098745eb7c2ff024bc81187c5df279a7` before and after both
+    round-trips; no `git stash`, no `git checkout`). Removing
+    `lowerParamsFieldType`'s literal interception → 26 failed / 4376 passed
+    across the 5 expected files, every failure back at the permissive fragment.
+    Dropping `-?` from `parseLiteralArm`'s regex → exactly 1 failed, cell
+    `d12`.
+  - *The default suite is green.* 279 files / 4402 tests / 0 failed.
+  - *A live test exercises the fixed path, run for real, proven both ways.* The
+    new H8a cell drives the third of the three consumers the report names — the
+    subagent child's params intake — because this fix moves no register /
+    non-register verdict for any input in its own table, so `registeredNames`
+    cannot witness it. An `invoke(...)` argument is supplied from CODE and
+    marshalled past the binder (PIC-60) to the child's real AJV compile of
+    `params.loweredSchema`: pre-fix `{"anyOf":[{},{}]}` admits an out-of-enum
+    value (`BAD=ACCEPTED`), post-fix `{"type":"string","enum":["x","y"]}`
+    refuses it as `Err(InvokeInfraError { cause: "validation" })`. The theta
+    `match`es both `Result` arms, so nothing asserts on `prompt()` resolving.
+    Under the neutralisation the cell REDS with `expected 'Reply with exactly:
+    GOOD=ACCEPTED BAD…' to contain 'BAD=REJECTED validation'`; restored, it is
+    green. Confirmed independently by this orchestrator: 28/28.
+  - *Lint and typecheck pass.* Both exit 0, no output.
+- **Residuals** — all re-derived at the fixed tree, none filed by this fix:
+  1. **`theta/parse/inline-enum` at the `params:` right-hand side.**
+     `p: 'enum["x", "y"]'` loads with ZERO diagnostics and lowers `{}`, where
+     `schema S { a: enum["x", "y"] }` and `schema S = enum["x", "y"]` both raise
+     the registered code. The literal recogniser declines the text, so this fix
+     leaves it exactly as it found it. A trigger gap in a different row,
+     unfiled. (§Non-goals measured it; re-measured here post-fix.)
+  2. **A literal-typed default is still unchecked at LOAD.**
+     `p: '"x" | "y" = "zzz"'` loads with zero diagnostics and records
+     `defaultSource: "\"zzz\""`, though `frontmatter-fields-a.md:60` requires
+     the default's static type to be compatible with the declared type. What
+     CHANGED: the lowered fragment now enforces, so the impossible default is
+     refused at INVOCATION — real AJV over the lowered document returns `false`
+     for `{"p":"zzz"}` where before the fix it returned `true`. The silence is
+     therefore no longer total, but it is still a load-time gap: the author
+     learns at invocation, not at load.
+  3. **`array<"x" | "y">` stays permissive at ALL FOUR positions**
+     (`{"type":"array","items":{"anyOf":[{},{}]}}`), because `lowerTypeExpr`
+     recurses a generic's argument through ITSELF and never back through the
+     literal check. §Non-goals declines it (the remedy is a change to
+     `lowerTypeExpr`'s recursion, which `TypeSplitNesting` governs) and pins it
+     as a control. Named in passing by 0055 §Non-goals and 0098, OWNED by
+     neither — unfiled. Bug 0043 owns the MIXED union, not this.
+  4. **The `-` parse layer still splits the four positions for negative
+     numerics.** `p: '-1 | 1'` and `@<-1 | 1>` now agree on `{"enum":[-1,1]}`,
+     but `schema S { a: -1 | 1 }` is still lost to
+     `theta/parse/empty-schema-body` and `schema X = -1 | 1` to
+     `theta/parse/malformed-alias-rhs` plus `theta/parse/unsupported-feature`.
+     Bug 0042 is fixed and its fix did not reach the junk `-` arm, so the
+     parse-layer gap §Non-goals defers to remains open at HEAD.
+- **Discharge notes appended**: bug 0039 §Fix (0.49.0) §Residuals item (viii);
+  bug 0055 §Fix (0.59.0); bug 0041 §Fix (0.51.0) group-(e) authority clause.
+  Bug 0043 §Non-goals stays accurate — the mixed union did not move — so it
+  takes no note.
+- **Pinned dispositions / non-goals**: the mixed-union literal arm (0043
+  §Non-goals), the generic-argument element type (residual 3), whether `{}`
+  should ever be a lowering (0028's inventory), and the `theta/parse/inline-enum`
+  trigger gap (residual 1) are all unmoved by design and pinned as controls.

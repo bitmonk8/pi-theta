@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-08-06
+
+### Fixed
+
+- **The `params:` position now runs the literal sublanguage the other three
+  type-annotation positions run, at every depth** (bug 0056). A `params:`
+  field whose type is a literal or an all-literal union lowered the permissive
+  `{}` / `{"anyOf":[{},{}]}`, so AJV accepted every JSON value for a field the
+  author had constrained to a fixed set, while the same type text in a
+  `schema` body, an alias right-hand side or an `@<T>` annotation lowered the
+  enforcing `{"const": ...}` / `{"type":"string","enum":[...]}`.
+  `parseLiteralArm` moves from `body-type-lowering.ts` to `params.ts` and is
+  shared, and `lowerParamsFieldType` checks one emission ahead of its brace
+  test, so all four positions agree by construction rather than by convention
+  — including on the minted `__inline_<slug>` name, which one source text had
+  been splitting into two. `null` is adjudicated a `LiteralType` for lowering
+  at all four positions, so a `params:` `null` emits `{"const":null}`.
+  Unchanged by design: a mixed union (`"x" | integer`), a literal union inside
+  a generic argument (`array<"x" | "y">`), `T | null` for non-literal `T`, and
+  every primitive, named type, `array<T>` and non-literal inline object.
+
 ## [0.84.0] - 2026-08-06
 
 ### Fixed

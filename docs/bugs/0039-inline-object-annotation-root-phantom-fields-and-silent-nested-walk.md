@@ -333,6 +333,14 @@ line as authority, discharging the purpose its own comment states.
 do; the shared arm takes each caller's own recursion precisely so that
 asymmetry does not move the frozen `params:` bytes. All unfiled.
 
+Discharge note (0.85.0): residual (viii) was filed as
+[0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md) and is
+DISCHARGED by its fix. `parseLiteralArm` moved to `params.ts` and is shared, and
+`lowerParamsFieldType` checks the one emission ahead of its brace test — so the
+asymmetry closes at every depth without a second recursion, and the `params:`
+bytes this fix's constraint froze move only for the all-literal class 0056 §Fix
+constraint 1 enumerates. The rest of the freeze stands.
+
 ## Summary
 
 An inline object type is recursive by the grammar: a field's `Type` may be

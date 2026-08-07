@@ -602,16 +602,24 @@ describe("bug 0041 (b2) — a field carrying no value node at all is refused; th
     // block-form `p:` (fixture J, group (d)); the whole lowered document is
     // pinned so the absent-node refusal can never silently widen over the
     // null-scalar family.
+    //
+    // The bug-0041 claim under assertion is unchanged: the SCALAR ARM ADMITS
+    // the value-less key and the recorded declared type is still `"null"`. Only
+    // the lowered bytes move, under bug 0056 §Fix constraint 2's adjudication
+    // that `null` is a `LiteralType` for lowering purposes at every position
+    // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md);
+    // `{"type":"null"}` and `{"const":null}` admit exactly `null`, so what
+    // moved is bytes and slugs, never a verdict.
     const loaded = loadCleanly(
       "flow value-less key `params: {p: }`",
       srcInlineParams("params: {p: }"),
     );
     expect(
       loaded.loweredSchema,
-      "fixture J's class: the null scalar lowers `{\"type\":\"null\"}`, byte-identical to the block form's",
+      "fixture J's class: the null scalar lowers `{\"const\":null}` under bug 0056 §Fix constraint 2's adjudication (`null` is a `LiteralType` at all four positions, schema-subset.md:79), byte-identical to the block form's",
     ).toEqual({
       type: "object",
-      properties: { p: { type: "null" } },
+      properties: { p: { const: null } },
       required: ["p"],
       additionalProperties: false,
     });
@@ -771,16 +779,23 @@ describe("bug 0041 (d) — the working routes and the fail-closed neighbour do n
   it("GREEN (d4, fixture J): the value-less key keeps its null-scalar reading", () => {
     // J bounds the refused class from below. The value node of `p:` is a
     // SCALAR carrying `null` (probed: isScalar true, .value null), so the
-    // positive node-shape predicate admits it. Whether `{"type":"null"}` is
-    // the intended reading of an absent RHS is bug 0041 §Non-goals' open
-    // question, not this fix's.
+    // positive node-shape predicate admits it. Whether a null scalar is the
+    // intended reading of an absent RHS is bug 0041 §Non-goals' open question,
+    // not this fix's.
+    //
+    // The claim under assertion is unchanged — the scalar arm ADMITS the
+    // value-less key and records the type as `"null"`. Only the lowered bytes
+    // move, under bug 0056 §Fix constraint 2's adjudication that `null` is a
+    // `LiteralType` for lowering purposes at all four type positions
+    // (schema-subset.md:79 names it in the literal row; :81 scopes its
+    // null-as-primitive clause to the union rule alone).
     const loaded = loadCleanly("fixture J", src("  p:"));
     expect(
       loaded.loweredSchema,
-      "the exact lowered bytes measured at HEAD: the scalar arm reads a null scalar and lowers `{\"type\":\"null\"}`",
+      "the scalar arm reads a null scalar and lowers the `LiteralType` emission `{\"const\":null}` (schema-subset.md:79), which admits exactly the value `{\"type\":\"null\"}` admitted",
     ).toEqual({
       type: "object",
-      properties: { p: { type: "null" } },
+      properties: { p: { const: null } },
       required: ["p"],
       additionalProperties: false,
     });
@@ -844,19 +859,27 @@ describe("bug 0041 (e) — the residual spellings keep their measured dispositio
     });
   }
 
-  it("GREEN (e-M1/M2): `p: 42` and `p: '\"hello\"'` stay silent and permissive — LiteralType is legal input on the catch-all", () => {
+  it("GREEN (e-M1/M2): `p: 42` and `p: '\"hello\"'` stay silent and carry their `LiteralType` emission", () => {
     // The blast-radius bound the bug doc's fixture M states: `LiteralType` is
     // grammar-admitted (grammar.md:102) with a defined emission
-    // (schema-subset.md:79, `{"const": <value>}`) that is unimplemented — the
-    // params literal sublanguage is bug 0056's subject
+    // (schema-subset.md:79, `{"const": <value>}`). This cell's own authority
+    // clause names bug 0056 as the report licensed to move these bytes — "the
+    // params literal sublanguage is bug 0056's subject" — and its §Fix
+    // constraint 1 lifts bug 0039's freeze for exactly this class
     // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md).
-    // A refusal wide enough to catch these would refuse input the grammar
-    // admits, so their measured HEAD disposition is pinned unchanged here.
+    // What this cell still bounds is the REFUSAL: a node-shape refusal wide
+    // enough to catch these would refuse input the grammar admits, so both
+    // fixtures must keep loading silently and keep recording the author's own
+    // text.
     const m1 = loadCleanly("fixture M1", src("  p: 42"));
-    expect(m1.properties["p"], "M1: permissive, not `{\"const\": 42}` — 0056's gap").toEqual({});
+    expect(m1.properties["p"], "M1: schema-subset.md:79's single-literal emission").toEqual({
+      const: 42,
+    });
     expect(fieldOf(m1, "p").type, "M1: the recorded declared type").toBe("42");
     const m2 = loadCleanly("fixture M2", src("  p: '\"hello\"'"));
-    expect(m2.properties["p"], "M2: permissive — 0056's gap").toEqual({});
+    expect(m2.properties["p"], "M2: schema-subset.md:79 over a string literal").toEqual({
+      const: "hello",
+    });
     expect(fieldOf(m2, "p").type, "M2: the recorded declared type keeps the inner quotes").toBe(
       '"hello"',
     );

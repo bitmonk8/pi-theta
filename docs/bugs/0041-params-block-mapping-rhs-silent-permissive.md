@@ -683,3 +683,18 @@ implementation over-firing on exactly the query-template case, i.e. reproducing
 this report's adjudicated failure mode, and the finding was fixed before ship.
 The multi-line flow mapping this report protected is measured admitted and
 unchanged.
+
+Discharge note (0.85.0). Group (e)'s authority clause is spent:
+[0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md) shipped
+and moved the three rows this report named it as licensed to move. `p: 42` and
+`p: '"hello"'` lower `{"const":42}` and `{"const":"hello"}` where they lowered
+`{}`; `p: true` was already `{"const":true}` at that point, since bug 0044
+(0.54.0) had given `lowerTypeExpr` its own boolean arm, so no refusal remained
+for 0056 to lift. Two rows this report did NOT name also moved, under 0056 §Fix
+constraint 2's `null` adjudication (`null` is a `LiteralType` at all four
+positions): the value-less-key fixtures b2 and d4 lower `{"const":null}` where
+they lowered `{"type":"null"}`. **This report's own claims are untouched** — the
+node-shape refusal still covers ABSENCE of the value node and not the null
+scalar, both fixtures still load, and the recorded declared type is still
+`"null"`. Only the lowered bytes moved. The one-line scalar rows and the
+multi-line block-scalar residual stayed green, as this report predicted.

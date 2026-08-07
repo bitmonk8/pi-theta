@@ -604,9 +604,13 @@ describe("bug 0044 (a) — the 32-keyword × four-position matrix", () => {
   });
 
   it("a3: the `params:` right-hand side reports the keyword class, never an unresolved name", () => {
-    // The longest column: it is the only one of the four that does not route
-    // through `lowerTypeSource`, so it loses the `parseLiteralArm` pre-check and
-    // `true` / `false` join it. grammar.md:102 admits both.
+    // The longest column: it is still the only one of the four that does not
+    // route through `lowerTypeSource`. It reaches `parseLiteralArm` too, but
+    // through the shared `lowerLiteralSublanguage` helper (params.ts) instead
+    // — a recogniser that declines every keyword spelling but `true` /
+    // `false` / `null`, so the reserved-keyword-as-identifier class this cell
+    // measures is `lowerTypeExpr`'s own delegation, reached for exactly the
+    // spellings the recogniser declines.
     const { actual, expected } = column(paramsSrc, (row) => row.params);
     expect(
       actual,
@@ -904,7 +908,10 @@ describe("bug 0044 (d) — `true` and `false` are `Type` atoms wherever written"
   });
 
   it("d6: `params: p: true` loads and lowers to the single `const` fragment", () => {
-    // The bare atom at the one position that never gets `parseLiteralArm`.
+    // `p: true` now lowers its `const` through the shared literal check (bug
+    // 0056 §Fix), which produces the same `{const:true}` bytes bug 0044's
+    // `lowerTypeExpr` arm produces, so this cell's observable is unchanged
+    // and the two routes agree.
     // §Fix Blast-radius: "`params: p: true` becomes {"const":true} where the
     // field lowered nothing (the file was refused)".
     const loaded = loadParams("d6", paramsSrc("true"));
