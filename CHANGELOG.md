@@ -6,6 +6,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.88.0] - 2026-08-08
+
+### Fixed
+
+- Bug 0066 (also discharging bug 0163): the post-default-merge AJV verdict is
+  now consumed — `runBinder` routes a failing merged-`args` validation through
+  the AJV-on-`args` failure note (`theta /<name>: argument binding produced
+  invalid args — <ajv-summary>`) and refuses to start the body, instead of
+  discarding the verdict behind the `Running /…` success echo; hard-ceiling
+  #4's depth walk runs at the same hook before AJV (CIO-3), the hook runs
+  whenever a lowered `params:` schema is presented (no-defaults and
+  recovery-failure paths included), `<ajv-summary>` is canonically ordered
+  (ERR-14), and the unreachable, wire-shape-violating
+  `crossRouteSlashLoadParams` seam is deleted in favour of the wired
+  `classifyBinderArgs`. At load, a `params:` default literal is now checked
+  against its declared type over an empty type environment —
+  `theta/parse/integer-narrowing` for number-under-integer, the new registered
+  `theta/parse/params-default-type-mismatch` for every other decidable
+  mismatch; named/alias/literal-typed declared halves and non-flat or
+  heterogeneous array defaults defer to the now-real runtime net (the
+  partition is normative in the registry row's Trigger). Witnesses:
+  `tests/binder-post-merge-ajv-enforcement.test.ts`,
+  `tests/defaulting-post-merge-classification.test.ts`,
+  `tests/params-default-type-compat.test.ts`, one additive real-binder-turn
+  H8a live cell, and the rewritten ERR-16 masked-absence cell.
+
 ## [0.87.0] - 2026-08-08
 
 ### Fixed

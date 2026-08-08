@@ -941,3 +941,20 @@ pass in a detached worktree checked out at `f31eac45` with
 `git status --short --untracked-files=no` clean, and the two passes produced
 identical output on every row. The line numbers cited here are HEAD's, not that
 working tree's.
+
+Mechanism-delta note (0.88.0). Bug
+[0066](./0066-ajv-verdict-discarded-unreachable-enforcement.md)'s fix moved
+this report's seam: #mergeDeclaredDefaults no longer returns before the
+post-default-merge hook — the hook now runs whenever a lowered params:
+schema is presented, including when default recovery yields nothing (the
+exact arm this report describes; witness cell (5) of
+tests/binder-post-merge-ajv-enforcement.test.ts pins it). The headline
+null-bind PERSISTS: the recovered-nothing field is omitted from required,
+AJV over the merged args passes, and the body still binds null for the
+non-nullable declared param — measured during that fix's verification (the
+red-proof output renders q=null (default)). This report's §Actual mechanism
+sentences describing the early return are stale as of 0.88.0 (0134's
+class); the load-time admission of the empty literal and the null-bind are
+unchanged and remain this report's subject. Its load-time deferral is now
+also pinned by cell c7 of tests/params-default-type-compat.test.ts — a fix
+here re-pins that cell knowingly.

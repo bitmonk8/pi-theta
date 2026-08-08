@@ -34,7 +34,16 @@
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { reservedKeywords } from "../lexer/lexer";
 import { type LoweredSchema } from "../seams/schema-validator";
-import { checkLiteralSublanguage, hasRawNewlineInStringLiteral } from "./literal-sublanguage";
+import {
+  checkLiteralSublanguage,
+  defaultLiteralStaticType,
+  hasRawNewlineInStringLiteral,
+} from "./literal-sublanguage";
+import {
+  checkParamsDefaultCompat,
+  paramsDeclaredCompatType,
+  type TypeEnv,
+} from "./type-compat";
 import { isReservedSynthesisedName } from "./synthesised-names";
 import {
   canonicalForm,
@@ -316,6 +325,16 @@ export function parseParams(
   // not per string literal and not per break; the predicate is the span, so a
   // break that is inter-token whitespace (an `ArrayLit` spanning lines) or the
   // two-character `\n` escape is untouched.
+  // The `params:` position resolves a declared `NamedType` against the body's
+  // own declarations, but only their LOWERED JSON Schema reaches this function —
+  // never the `CompatType` declarations the `⊑` relation resolves names
+  // through. The environment handed to the compatibility check is therefore
+  // empty, and every named, aliased, inline-object or literal declared type
+  // answers `"unknown"` and defers to the invocation-time AJV check, exactly as
+  // an unresolvable operand does at every other sink (type-system.md
+  // §"Unresolvable operands"). The primitive, union-of-primitive and `array<T>`
+  // declared types — the ones this position can decide — are decided.
+  const defaultCompatEnv: TypeEnv = Object.create(null) as TypeEnv;
   for (const field of fields) {
     // Guard-extension precedence (operator grant, HEAD 948b7814; bug 0059
     // §Fix): the type-half refusal survives ALONE, so an offending field
@@ -330,6 +349,7 @@ export function parseParams(
     if (field.defaultSource === undefined || typeRefused.has(field)) {
       continue;
     }
+    const defaultDiagStart = diagnostics.length;
     if (hasRawNewlineInStringLiteral(field.defaultSource)) {
       diagnostics.push({
         severity: "error",
@@ -343,6 +363,32 @@ export function parseParams(
       ...checkLiteralSublanguage(field.defaultSource, "default", {
         file: site.file,
         range: field.range,
+      }),
+    );
+    // frontmatter-fields-a.md §Defaults: the default literal's static type must
+    // be compatible with the param's declared type. The two halves
+    // `splitParamValue` separated are paired here, at the one position that
+    // holds both. Same "exactly one diagnostic per offending field" precedence
+    // as the guards above: a default this field's own form rules already refused
+    // keeps that diagnostic alone rather than being judged a second time on
+    // whatever type its refused bytes make.
+    if (diagnostics.slice(defaultDiagStart).some((d) => d.severity === "error")) {
+      continue;
+    }
+    const declared = paramsDeclaredCompatType(field.typeSource, (source) =>
+      splitTopLevel(source, "|", "angle"),
+    );
+    const value = defaultLiteralStaticType(field.defaultSource);
+    if (declared === undefined || value === undefined) {
+      continue;
+    }
+    diagnostics.push(
+      ...checkParamsDefaultCompat({
+        param: field.name,
+        declared,
+        value,
+        env: defaultCompatEnv,
+        site: { file: site.file, range: field.range },
       }),
     );
   }

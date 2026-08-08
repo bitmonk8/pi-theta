@@ -702,3 +702,115 @@ function isObjectBranch(branch: CompatType, env: TypeEnv): boolean {
     (unfolded.kind === "named" && resolveNamed(env, unfolded.name)?.kind === "object-schema")
   );
 }
+
+// --- the `params:` default position (frontmatter-fields-a.md §Defaults) ------
+
+/** The five `PrimitiveType` spellings, as the `Type` grammar admits them. */
+const PRIMITIVE_TYPE_NAMES: ReadonlySet<string> = new Set<PrimitiveName>([
+  "string",
+  "number",
+  "integer",
+  "boolean",
+  "null",
+]);
+
+/**
+ * Project a `params:` field's declared type SOURCE onto the `CompatType` model,
+ * for the compatibility check at the field's own default (§Defaults). Handles
+ * the primitive names, top-level unions (`A | B`), and `array<T>`; every other
+ * spelling — a `NamedType`, an alias, an inline object type, a literal type —
+ * becomes a nominal `named` reference, which the relation answers `"unknown"`
+ * for against an empty environment and the sink therefore defers on.
+ *
+ * `splitUnion` is the caller's top-level-`|` splitter, injected rather than
+ * imported: the `params:` parser sits BELOW the type layer in this package's
+ * module graph (the type layer reads whole parsed documents, which are parsed
+ * in part by the `params:` parser), so the frontmatter position cannot reach
+ * the type layer's own splitter without inverting that layering. One splitter
+ * is threaded in instead of a second one being written here, so both positions
+ * agree on where a union arm begins.
+ */
+export function paramsDeclaredCompatType(
+  typeSource: string,
+  splitUnion: (source: string) => string[],
+): CompatType | undefined {
+  const text = typeSource.trim();
+  if (text.length === 0) {
+    return undefined;
+  }
+  const arms = splitUnion(text);
+  if (arms.length > 1) {
+    const armTypes: CompatType[] = [];
+    for (const arm of arms) {
+      const armType = paramsDeclaredCompatType(arm, splitUnion);
+      if (armType === undefined) {
+        // One undecidable arm makes the whole union undecidable: dropping it
+        // would silently narrow the declared type and refuse a default the
+        // dropped arm admits.
+        return undefined;
+      }
+      armTypes.push(armType);
+    }
+    return { kind: "union", arms: armTypes };
+  }
+  const arrayMatch = /^array<(.+)>$/.exec(text);
+  if (arrayMatch !== null) {
+    const element = paramsDeclaredCompatType(arrayMatch[1] ?? "", splitUnion);
+    return element === undefined ? undefined : { kind: "array", element };
+  }
+  if (PRIMITIVE_TYPE_NAMES.has(text)) {
+    return { kind: "prim", name: text as PrimitiveName };
+  }
+  return { kind: "named", name: text };
+}
+
+/**
+ * A `params:` field's declared default literal against the field's declared
+ * type (frontmatter-fields-a.md §Defaults: "The default literal's static type
+ * must be compatible with the param's declared type per Type System — Type
+ * compatibility"). Reports `theta/parse/params-default-type-mismatch` when the
+ * default's static type is not `⊑` the declared type (both statically
+ * resolvable), or `theta/parse/integer-narrowing` when the failure is
+ * specifically a `number` default under an `integer`-declared param (TYPE-2's
+ * one-way widening) — the routing §Defaults names by code, and the same routing
+ * `checkLetRhsCompat` and `checkObjectFieldCompat` apply at their own sinks.
+ * Returns no diagnostic when the relation holds or is statically unresolvable.
+ */
+export function checkParamsDefaultCompat(opts: {
+  readonly param: string;
+  readonly declared: CompatType;
+  readonly value: CompatType;
+  readonly env: TypeEnv;
+  readonly site: CompatSite;
+}): Diagnostic[] {
+  const { param, declared, value, env, site } = opts;
+  const r = checkCompatible(value, declared, env);
+  if (r === "compatible" || r === "unknown") {
+    return [];
+  }
+  if (r === "integer-narrowing") {
+    // TYPE-2 — a `number` default under an `integer`-declared param. Message
+    // from diagnostics/code-registry-parse.md.
+    return [
+      {
+        severity: "error",
+        code: "theta/parse/integer-narrowing",
+        file: site.file,
+        range: site.range,
+        message: "cannot narrow number to integer",
+      },
+    ];
+  }
+  // Incompatible default. Message from diagnostics/code-registry-parse.md.
+  return [
+    {
+      severity: "error",
+      code: "theta/parse/params-default-type-mismatch",
+      file: site.file,
+      range: site.range,
+      message: `param '${param}' default type mismatch: expected ${displayType(
+        declared,
+      )}, got ${displayType(value)}`,
+    },
+  ];
+}

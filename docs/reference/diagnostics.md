@@ -92,6 +92,7 @@ trigger.
 | `theta/parse/object-field-type-mismatch` | E | type | `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/bare-object-literal` | E | parse | `bare object literal not permitted in this position; name the schema (Schema { ... })` |
 | `theta/parse/default-not-literal` | E | parse | `params default RHS must be a literal-sublanguage form; offending sub-expression: <expr>` |
+| `theta/parse/params-default-type-mismatch` | E | type | `param '<param>' default type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/non-trailing-default` | E | parse | `non-defaulted param '<field>' follows a defaulted param; defaulted params must be trailing` |
 | `theta/parse/tool-arg-arity` | E | parse | `Pi tool '<name>' takes a single object argument; got <count>` |
 | `theta/parse/tool-arg-not-object-literal` | E | parse | `Pi tool '<name>' argument must be written inline as a bare object literal { ... }; a let-bound value cannot supply the field shape` |

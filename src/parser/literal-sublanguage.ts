@@ -29,6 +29,7 @@
 // check are absent). The paired V2a implementation leaf fills them in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import { type CompatType, type PrimitiveName } from "./type-compat";
 
 /**
  * Which literal position an expression occupies. RFC 0002 retired the Pi-tool
@@ -604,4 +605,137 @@ export function checkObjectLiteralFields(
  */
 export function hasRawNewlineInStringLiteral(source: string): boolean {
   return tokeniseExpr(source).some((token) => token.kind === "str" && token.text.includes("\n"));
+}
+
+/**
+ * The static type of a `params:` default RHS, as the compatibility relation
+ * `⊑` sees it (type-system.md §"Type compatibility"), or `undefined` when this
+ * position cannot decide it.
+ *
+ * WHY it lives here: this module already owns the one tokeniser and parser that
+ * decide what the default RHS *is* at this position, and a second reader of the
+ * same bytes could disagree with the is-literal verdict `checkLiteralSublanguage`
+ * renders one call earlier. The node shape is therefore shared and the primitive
+ * a `literal` node types as is read back off its own source span.
+ *
+ * The decided set is exactly two shapes, the ones the
+ * `theta/parse/params-default-type-mismatch` registry Trigger enumerates
+ * (diagnostics/code-registry-parse.md): a primitive literal — `string` /
+ * `number` / `boolean` / `null`, a unary-`-` numeric literal included — and a
+ * FLAT array literal every element of which is such a literal, all typing as
+ * one primitive.
+ *
+ * `undefined` is the deliberate deferral, not a failure: it covers every form
+ * whose static type this position does not establish — an `Enum.Variant` or a
+ * schema-constructor default, a bare object literal (whose schema comes from the
+ * param's declared type, frontmatter-fields-a.md §Defaults), an empty,
+ * heterogeneous or NESTED array literal, and any source outside the literal
+ * sublanguage (already refused by `checkLiteralSublanguage`) or spelling no
+ * expression at all. The relation reports `"unknown"` for an undecidable
+ * operand and its sinks emit nothing, so deferring here and deferring there
+ * agree.
+ *
+ * WHY the decided set stops at the flat case: that Trigger is the emission set
+ * the registered code is licensed for (GOV-15 admits a code addition exactly on
+ * the inputs the row names), so deciding a shape the row does not name would
+ * put the emission past its own Trigger — and the deferral the row's own
+ * closing sentence prescribes is not a hole: the post-default-merge AJV hook
+ * (binder/defaulting-system-note-echo.md, enforcement point #4) validates the
+ * merged value at invocation. A recursive reading also cannot report itself
+ * honestly: an element type taken from one element is not a type the rest of
+ * the list need share, so `[[1], ["x"]]` under `array<array<string>>` would
+ * render an `<actual>` of `array<array<integer>>` that no reader could relate
+ * to the bytes.
+ */
+export function defaultLiteralStaticType(source: string): CompatType | undefined {
+  const tokens = tokeniseExpr(source);
+  const parser = new ExprParser(tokens, source);
+  const node = parser.parse();
+  if (node === undefined) {
+    return undefined;
+  }
+  const primitive = primitiveLiteralType(node, source);
+  if (primitive !== undefined) {
+    return primitive;
+  }
+  return node.kind === "array" ? flatArrayStaticType(node.elements, source) : undefined;
+}
+
+/**
+ * The `CompatType` of one PRIMITIVE literal node, read off its own source span.
+ * A `neg` node types as its operand and only when that operand is itself a
+ * literal (unary `-` is admitted on numeric literals only, grammar.md §"Theta
+ * literal sublanguage"), so `-1` types as `1` does while `-[1]` — a form
+ * `checkLiteralSublanguage` refuses on its own terms — types as nothing.
+ * Container literals are not primitives and answer `undefined` here.
+ */
+function primitiveLiteralType(
+  node: ExprNode,
+  source: string,
+): { readonly kind: "literal"; readonly typesAs: PrimitiveName } | undefined {
+  if (node.kind === "neg") {
+    return node.operand.kind === "literal" ? primitiveLiteralType(node.operand, source) : undefined;
+  }
+  if (node.kind === "literal") {
+    return { kind: "literal", typesAs: literalPrimitiveOf(source.slice(node.start, node.end)) };
+  }
+  return undefined;
+}
+
+/**
+ * The element type of a FLAT homogeneous array literal: every element is a
+ * primitive literal and they all type as the same primitive. Anything else —
+ * an empty list (no element type is named), a mixed list (more than one is
+ * named), a nested array literal, an object / `Enum.Variant` / non-literal
+ * element — defers, because it is outside the shape the Trigger decides.
+ *
+ * Sameness is the ELEMENT's own primitive, which keeps `integer` and `number`
+ * distinct: `array<integer> = [1.5]` stays decidable as `array<number>` and
+ * draws `theta/parse/integer-narrowing` through TYPE-7's element-wise
+ * covariance, the direction frontmatter-fields-a.md §Defaults names by code.
+ * Reconciling `[1, 1.5]` into one element type instead would need the
+ * array/ternary common-type machinery, which is the type layer's and not this
+ * position's.
+ */
+function flatArrayStaticType(
+  elements: readonly ExprNode[],
+  source: string,
+): CompatType | undefined {
+  const first = elements[0];
+  if (first === undefined) {
+    return undefined;
+  }
+  const element = primitiveLiteralType(first, source);
+  if (element === undefined) {
+    return undefined;
+  }
+  for (const other of elements.slice(1)) {
+    const type = primitiveLiteralType(other, source);
+    if (type === undefined || type.typesAs !== element.typesAs) {
+      return undefined;
+    }
+  }
+  return { kind: "array", element };
+}
+
+/**
+ * Which primitive a `literal` node's own source span types as (TYPE-3). The
+ * span is exactly one `str`, `num`, or `true`/`false`/`null` token, so the
+ * leading byte decides every case but the numeric split: a numeric literal
+ * types as `integer` only when it spells no fractional or exponent part, which
+ * is the `integer ⊑ number` direction TYPE-2 makes one-way.
+ */
+function literalPrimitiveOf(span: string): PrimitiveName {
+  const text = span.trim();
+  const head = text[0] ?? "";
+  if (head === '"' || head === "'") {
+    return "string";
+  }
+  if (text === "true" || text === "false") {
+    return "boolean";
+  }
+  if (text === "null") {
+    return "null";
+  }
+  return /^[0-9]+$/.test(text) ? "integer" : "number";
 }

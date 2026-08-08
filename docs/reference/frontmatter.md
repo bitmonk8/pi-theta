@@ -107,7 +107,9 @@ anchors, and prose ("binder model").
   inside a string literal is refused too (`theta/parse/literal-newline-in-string`);
   use the `\n` escape, or move the value into body code. When a slash-command
   invocation omits the positional argument, the default fills in before AJV
-  validation. The default's static type must be compatible with the declared type.
+  validation. The default's static type must be compatible with the declared type
+  (`theta/parse/params-default-type-mismatch`; a `number` under `integer` is
+  `theta/parse/integer-narrowing`).
   No non-defaulted field may follow a defaulted field
   (`theta/parse/non-trailing-default`). Defaults are the only literal-valued
   defaulting in theta 1.0; schema field declarations support no defaults.

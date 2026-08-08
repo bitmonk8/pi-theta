@@ -45,6 +45,7 @@ function recordingChannel(): {
 function onlyNote(sendMessage: ReturnType<typeof vi.fn>): {
   customType: string;
   content: string;
+  details: SystemNoteDetails;
   triggerTurn: unknown;
 } {
   expect(sendMessage).toHaveBeenCalledTimes(1);
@@ -55,6 +56,7 @@ function onlyNote(sendMessage: ReturnType<typeof vi.fn>): {
   return {
     customType: message.customType,
     content: message.content,
+    details: message.details,
     triggerTurn: options.triggerTurn,
   };
 }
@@ -172,19 +174,26 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     expect(note.triggerTurn).toBe(false);
   });
 
-  it("ERR-16: the slash-load params arm of ceiling #4, cross-routed via CIO-1 / ceiling #3 no-retry, routes pre-eval with triggerTurn:false", () => {
+  it("ERR-16: the slash-load params arm of ceiling #4, cross-routed via CIO-1 / ceiling #3 no-retry, routes pre-eval with triggerTurn:false and omits masked", () => {
     // ERR-16: the slash-load `params` arm of ceiling #4, cross-routed through
-    // ceiling #3's no-retry classification per CIO-1. The depth-6 breach is
-    // detected by V5e's live depth walk; V16a's arbitration surfaces ceiling #3
-    // and masks ceiling #4; and the cross-route note routes pre-eval, never an
-    // evaluation outcome.
+    // ceiling #3's no-retry classification per CIO-1. The breach is detected and
+    // the row rendered at the boundary that owns it — ceiling #4's depth walk at
+    // the post-default-merge AJV validation hook, whose AJV-on-`args` class
+    // renders the row below — and the assembled note routes pre-eval here,
+    // never becoming an evaluation outcome.
     const { channel, sendMessage } = recordingChannel();
     const router = createLoadFailurePreEvalRouter({ channel });
 
-    // A materialised value of depth 6 (six nesting levels) — trips V5e's
-    // ceiling-#4 depth walk (cap = 5).
-    const depth6 = { a: { b: { c: { d: { e: { f: 1 } } } } } };
-    const result = router.crossRouteSlashLoadParams("demo", depth6);
+    const crossRoute: SystemNote = {
+      content:
+        "theta /demo: argument binding produced invalid args — /a/b/c/d/e JSON document depth exceeds 5",
+      display: true,
+      // PIC-1 (c): this site's reachable `masked` domain is EMPTY. The
+      // originating ceiling is recoverable from the rendered note's
+      // `<ajv-summary>`, so the cross-route surfaces ceiling #3 alone.
+      details: { event: { kind: "ceiling", surfaced: "ceiling#3" } },
+    };
+    router.routePreEvalFailure("slash-load-params", crossRoute);
 
     // Primary assertion — the cross-route note routes pre-eval onto the
     // theta-system-note channel with `triggerTurn:false`, never firing a turn.
@@ -192,10 +201,11 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
     expect(note.triggerTurn).toBe(false);
 
-    // CIO-1 cross-route decision — the slash-load `params` arm surfaces
-    // ceiling #3 (the no-retry cross-route) and masks ceiling #4.
-    expect(result.arbitration.surfaced).toBe("ceiling#3");
-    expect(result.arbitration.masked).toContain("ceiling#4");
+    // PIC-1 (b)/(c) — `masked` is absent, not `[]`, at a site whose reachable
+    // mask domain is empty.
+    const details = note.details as { readonly event: Record<string, unknown> };
+    expect(details.event["surfaced"]).toBe("ceiling#3");
+    expect("masked" in details.event).toBe(false);
   });
 
   it("ERR-1…ERR-6/ERR-16: every load-time cause routes onto theta-system-note (no cause becomes an evaluation outcome)", () => {

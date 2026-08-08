@@ -22,10 +22,12 @@
 // that `sendSystemNote`'s fixed `triggerTurn:false` option is applied and the
 // failure never fires a turn.
 //
-// The ERR-16 cross-route additionally CONSULTS `V16a`'s cross-ceiling
-// arbitration seam at slash-load per CIO-1 — a load-time cross-route that
-// differs in kind from the four runtime first-enforcement sites — and its
-// depth-6 breach is detected by `V5e`'s live theta-owned depth walk.
+// The ERR-16 cross-route's own detection and rendering belong to the site that
+// owns the boundary: ceiling #4's depth walk runs at the post-default-merge AJV
+// validation hook over the merged `args` (`binder/defaulting.ts`) and the
+// resulting AJV-on-`args` class renders through the binder's failure-mode row.
+// This module owns only the pre-eval routing of the assembled note, so the
+// cross-route has exactly one implementation.
 //
 // V4e-T (tests-task) declares this seam and stubs the routing so the failing
 // ERR-1…ERR-6/ERR-16 tests compile and red on their own primary assertions
@@ -42,12 +44,6 @@ import {
   type SystemNote,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
-import { arbitrate, type ArbitrationResult } from "../runtime/ceiling-arbitration";
-import { depthWalk } from "../runtime/depth-walk";
-import {
-  renderBinderSystemNote,
-  renderDepthWalkAjvSummary,
-} from "../binder/retry-taxonomy";
 
 /**
  * The seven load-time pre-evaluation failure causes (errors-and-results/
@@ -74,23 +70,10 @@ export interface LoadPreEvalDeps {
   readonly channel: SystemNoteChannelDeps;
 }
 
-/** The ERR-16 slash-load `params` cross-route outcome (CIO-1). */
-export interface SlashLoadParamsCrossRoute {
-  /**
-   * The arbitration decision `V16a`'s seam returns for the slash-load `params`
-   * candidate: ceiling #3 surfaces (the cross-route destination), ceiling #4
-   * (the JSON-depth breach) is masked (CIO-1).
-   */
-  readonly arbitration: ArbitrationResult;
-  /** The ceiling-#3-templated `theta-system-note` the cross-route routes pre-eval. */
-  readonly note: SystemNote;
-}
-
 /**
  * The load-time pre-evaluation failure router: route an assembled pre-eval
  * failure `theta-system-note` onto the `theta-system-note` channel with
- * `triggerTurn:false` (never an evaluation outcome), and the ERR-16 slash-load
- * `params` cross-route helper that consults `V16a`/`V5e`.
+ * `triggerTurn:false` (never an evaluation outcome).
  */
 export interface LoadFailurePreEvalRouter {
   /**
@@ -100,17 +83,6 @@ export interface LoadFailurePreEvalRouter {
    * turn and never becomes an evaluation outcome.
    */
   routePreEvalFailure(cause: PreEvalFailureCause, note: SystemNote): void;
-  /**
-   * The ERR-16 slash-load `params` cross-route: detect the depth-6 breach with
-   * `V5e`'s live depth walk, consult `V16a`'s cross-ceiling arbitration seam at
-   * slash-load per CIO-1 (surfacing ceiling #3, masking ceiling #4), build the
-   * ceiling-#3 no-retry system-note (the AJV-on-`args` disposition HC3-c
-   * defines), and route it pre-eval via `routePreEvalFailure`.
-   */
-  crossRouteSlashLoadParams(
-    thetaName: string,
-    paramsValue: unknown,
-  ): SlashLoadParamsCrossRoute;
 }
 
 /**
@@ -134,51 +106,6 @@ export function createLoadFailurePreEvalRouter(
       // path, so no per-cause branching is required here.
       void cause;
       sendSystemNote(note, deps.channel);
-    },
-    crossRouteSlashLoadParams(
-      thetaName: string,
-      paramsValue: unknown,
-    ): SlashLoadParamsCrossRoute {
-      // Detect the depth-6 breach with V5e's live theta-owned depth walk (not a
-      // synthetic load-time signal).
-      const walk = depthWalk(paramsValue);
-      const ajvSummary =
-        walk.ok === false
-          ? renderDepthWalkAjvSummary(walk.issue)
-          : "";
-      // Consult V16a's cross-ceiling arbitration seam at slash-load per CIO-1:
-      // a candidate co-presenting ceiling #4 (the JSON-depth breach) at the
-      // slash-load-binder site surfaces ceiling #3 and masks ceiling #4.
-      const arbitration = arbitrate({
-        site: "slash-load-binder",
-        satisfied: ["ceiling#3", "ceiling#4"],
-      });
-      // The ceiling-#3 no-retry surface (the same disposition HC3-c defines for
-      // AJV-on-`args` failures): render the binder `ajv_args` failure template
-      // from the depth-walk AJV summary.
-      const content = renderBinderSystemNote(thetaName, {
-        kind: "ajv_args",
-        ajvSummary,
-      });
-      const note: SystemNote = {
-        content,
-        display: true,
-        // The ceiling-#3 cross-route surfaces through the runtime-event
-        // `details: { event }` shape, carrying the arbitration decision.
-        details: {
-          event: {
-            kind: "ceiling",
-            surfaced: arbitration.surfaced,
-            ...(arbitration.masked !== undefined
-              ? { masked: arbitration.masked }
-              : {}),
-          },
-        },
-      };
-      // Route the assembled cross-route note pre-eval (dropped by the V4e-T
-      // stub above).
-      this.routePreEvalFailure("slash-load-params", note);
-      return { arbitration, note };
     },
   };
 }

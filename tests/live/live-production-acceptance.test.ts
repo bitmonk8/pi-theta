@@ -4676,3 +4676,215 @@ describe("H8a-T — bug 0061: a schema object-body field type carrying text no T
   });
 });
 
+
+// ===========================================================================
+// Bug 0066 — `#mergeDeclaredDefaults` (src/extension/production-theta-producer.ts)
+// compiles the lowered `params:` schema, calls `fillDefaultsAndRevalidate`
+// (src/binder/defaulting.ts), and returns `result.args` alone: `result.validation`
+// has no reader anywhere in `src/`. The binder's AJV-on-`args` failure class is
+// therefore never constructed from the binder path — a declared default whose
+// value violates the field's own lowered fragment is filled into the merged
+// `args`, the post-default-merge validation returns `ok: false`, the verdict is
+// discarded, the BND-1 SUCCESS echo is emitted, and the theta body runs on the
+// invalid value
+// (docs/bugs/0066-ajv-verdict-discarded-unreachable-enforcement.md, element 1).
+//
+// This is the bug doc's §Reproduction (A), recorded LIVE at HEAD `d06daae3`
+// with binder model `anthropic/claude-haiku-4-5`: three deterministic
+// observables, all wrong — the note channel carrying
+// `Running /<name>: … (default)` instead of the AJV-on-`args` row, `userTexts`
+// proving the body ran with the invalid value interpolated, and a real turn
+// spent on a theta the spec says must not have started. §Fix constraint 3 pins
+// the post-fix disposition: `#emitBinderFailureNote(slashName, classification)`
+// then `return { bound: false }`, BEFORE `#emitBinderEchoNote` — one note
+// (`theta /<name>: argument binding produced invalid args — <ajv-summary>`,
+// determinism-cancellation-failure.md:52), no retry (HC3-c,
+// ceilings-3-and-4.md:11), and no body.
+//
+// THE DECLARED TYPE IS NOT THE BUG DOC'S `integer`. §Fix constraint 8 lands the
+// load-time companion gate in the same commit, so `count: integer = "xyzzy"`
+// stops loading altogether and cannot witness the runtime half. The fixture
+// below uses an all-string-literal union instead — a declared type the compat
+// relation resolves against an EMPTY environment (so it answers `"unknown"` and
+// DEFERS, keeping the theta loadable; pinned in
+// tests/params-default-type-compat.test.ts group (c) cell c1) whose lowered
+// fragment `{"type":"string","enum":["x","y"]}` (schema-subset.md:80) AJV
+// nevertheless refuses for `"zzz"` at the merge. The defaulted field is omitted
+// from the lowered `required` (src/parser/params.ts), so the envelope's relaxed
+// `args` copy (`relaxParamsSchema`, src/binder/binder-envelope.ts) and the
+// extraction-time envelope AJV both accept an `ok` arm that omits it — the
+// post-merge hook is the only place the filled value is ever checked, which is
+// what makes this class unreachable by any earlier gate.
+//
+// WHAT THIS CELL ADDS OVER THE OFFLINE WITNESS. The unit cell
+// (tests/binder-post-merge-ajv-enforcement.test.ts group (1)) drives the same
+// production `runBinder` with the off-session `complete()` mocked, so it proves
+// the routing but scripts the envelope. This cell proves a REAL binder pass
+// against a real model produces the `ok` envelope with the defaulted field
+// omitted — the input class the bug is about — and that the production note
+// channel carries the refusal end to end through the shipped composition root
+// (session_start → resources_discover → composeExtensionInstance).
+//
+// Token cost: ONE binder inference call against `anthropic/claude-haiku-4-5`
+// (the same binder model every `bind_model:` fixture in this file already uses),
+// plus — AT HEAD ONLY — the one body turn the defect lets through. Post-fix the
+// body never runs, so the fixed path costs the binder call alone. No child
+// process is spawned (prompt mode, no `invoke(...)`, no `subagent fn`).
+//
+// STOCHASTIC DEPENDENCE, STATED. The envelope the binder returns is a model
+// output. The binder system prompt's last line instructs omission of defaulted
+// parameters the user did not specify (src/binder/binder-system-prompt.ts), the
+// slash argument names only `topic`, and §Reproduction (A) recorded exactly
+// `{"envelope":{"kind":"ok","args":{"topic":"hello"}}}` for this params shape —
+// but a binder that invented an in-arm value for `pick` would make the merge
+// valid and this cell's fixed observable unreachable. That case is not a silent
+// pass: the assertion below is POSITIVE (the refusal note must be present) and
+// its failure message renders the whole note channel, so an invented value reds
+// here naming what the channel carried instead. ADDITIVE ONLY: no existing cell
+// in this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** The committed body sentinel — present in `userTexts` iff the body ran. */
+const B66_SENTINEL = "SENTINEL-B66";
+
+/** The AJV-on-`args` row's fixed phrase (determinism-cancellation-failure.md:52). */
+const B66_AJV_ARGS_PHRASE = "argument binding produced invalid args";
+
+/**
+ * The expected note, composed from `renderFailureNote`'s rule-3 grammar
+ * (`theta /<name>: <fixed-phrase> — <suffix>`, src/binder/system-note.ts; the
+ * separator is U+2014 EM DASH). The `<ajv-summary>` suffix is the in-order
+ * `<path> <message>` rendering of the merged-args verdict's single issue
+ * (determinism-cancellation-failure.md:42) — AJV's own `enum` message for the
+ * lowered fragment, re-derived offline against the production
+ * `AjvSchemaValidator` on the same schema/value pair. The whole line is 108
+ * code points, inside `capSystemNote`'s 120-code-point cap.
+ */
+const B66_EXPECTED_NOTE =
+  "theta /b66livedef: " +
+  B66_AJV_ARGS_PHRASE +
+  " \u2014 /pick must be equal to one of the allowed values";
+
+/**
+ * The declared-default fixture: a required `string` plus a defaulted field whose
+ * declared type is an all-string-literal union its own default value is not an
+ * arm of. Two fields, so this is never `classifyBinderBypass`'s
+ * single-string-bypass shape (src/binder/binder-envelope.ts) — it is a genuine
+ * binder pass, which is why it needs a resolvable `bind_model:` to register.
+ *
+ * The body interpolates BOTH bound values behind a committed sentinel, so
+ * `turn.userTexts` is the deterministic body-ran observable: at HEAD it carries
+ * the rendered template with `pick=zzz`; post-fix the theta never starts and the
+ * sentinel is absent from the outbound text entirely.
+ */
+function incompatibleDefaultBinderTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  topic: string",
+    "  pick: '\"x\" | \"y\" = \"zzz\"'",
+    "---",
+    "@`" + B66_SENTINEL + " topic=${topic} pick=${pick}. Reply with exactly: done.`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0066: a declared default its own lowered params fragment refuses does not bind, live (Convention: live-host acceptance)", () => {
+  it("refuses a recovered default the post-default-merge AJV validation rejects, emitting the AJV-on-`args` note instead of the success echo and never running the body", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without it, an absent
+      // refusal note below could be (wrongly) attributed to a broken workspace
+      // instead of the discarded post-merge verdict under test.
+      { source: "project", stem: "b66livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b66livedef", text: incompatibleDefaultBinderTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b66livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the discarded post-default-merge verdict under test, would explain " +
+          "the refusal note's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      // The theta MUST register: §Fix constraint 8's load-time gate defers on a
+      // literal-union declared type (the compat relation resolves names against
+      // an empty environment), so the value class survives to the runtime hook
+      // this cell drives. A theta refused at load would leave element 1
+      // unwitnessed rather than fixed.
+      expect(
+        handle.command("b66livedef"),
+        "the declared-default theta did not register — either its bind_model: " +
+          "chain failed to resolve (a registry problem) or the load-time gate " +
+          "over-refused a declared type it must defer on, which would leave " +
+          "the runtime hook unreachable rather than enforced. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The slash argument names ONLY the required field, so the binder has
+      // nothing to say about `pick` and omits it per its system prompt's last
+      // line — leaving the runtime's own fill-if-absent to supply `"zzz"`.
+      const turn = await driveSlashCaptureTurn(handle, "/b66livedef hello");
+
+      // THE FIXED OBSERVABLE, asserted FIRST and POSITIVELY so a red names what
+      // the channel actually carried. Read off the settled in-memory
+      // `SessionManager` (AGENTS.md §"Assert on real observables"), never off
+      // `prompt()` merely resolving — a fail-closed binder still resolves.
+      expect(
+        turn.systemNotes,
+        "the theta-system-note channel carries no AJV-on-`args` row for a " +
+          "merged-args document the post-default-merge validation refused — " +
+          "`result.validation` still has no reader, so a passing and a failing " +
+          "merged-args validation are indistinguishable. Notes: " +
+          JSON.stringify(turn.systemNotes) +
+          "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain(B66_EXPECTED_NOTE);
+
+      // The echo's SUPPRESSION — §Fix constraint 3 moves the `bind_echo` note
+      // after the verdict. HEAD's own failure signature is the success echo
+      // `Running /b66livedef: topic=hello, pick=zzz (default)`, with the
+      // `(default)` tag firing exactly when it should (which is why the echo
+      // asserts the bind worked while the bound value is one the declared type
+      // says is impossible).
+      expect(
+        turn.systemNotes.filter((n) => n.startsWith("Running /b66livedef")),
+        "the BND-1 success echo was emitted for a refused merge — the pre-fix " +
+          "signature §Reproduction (A) recorded. Notes: " +
+          JSON.stringify(turn.systemNotes),
+      ).toEqual([]);
+
+      // The body did not run. `userTexts` is the deterministic outbound-render
+      // channel (the exact text theta CODE computed and sent), so the sentinel's
+      // absence is the "no turn was spent on a theta that must not have
+      // started" observable — independent of anything the model replied.
+      expect(
+        turn.userTexts.filter((t) => t.includes(B66_SENTINEL)),
+        "the theta body ran and sent a turn: the invalid default reached body " +
+          "scope and was interpolated into the outbound query text, which is " +
+          "the corruption class this bug reports at the parameter boundary. " +
+          "Outbound: " + JSON.stringify(turn.userTexts),
+      ).toEqual([]);
+
+      // No OTHER fail-closed ending: the refusal is a binder-arm short-circuit
+      // (the theta never starts), not an SLSH-3 err note, a cancellation or a
+      // panic framing. A note from that set here would mean the fixture broke
+      // rather than that bug 0066's arm fired.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b66livedef (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the drive ended through a different fail-closed path than the " +
+          "AJV-on-`args` binder arm: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -1,20 +1,7 @@
 # Bug 0163 — A `params:` field default is never checked against the declared type at load: `p: '"x" | "y" = "zzz"'`, `p: 'integer = "nope"'`, `p: 'string = 5'` and nine further declaration/default pairs load with zero diagnostics, record `defaultSource` verbatim and drop the field from `required`, and since bug 0056 the lowered fragment refuses that same default at all three consumers — the post-default-merge AJV hook computes the refusal and its one caller discards the verdict, so a slash invocation that omits the field runs the body on the out-of-type value one binder model call in
 
-- **Status:** open. Residual 2 of the bug 0056 fix (0.85.0, commit `81600080`),
-  recorded there as `## Fix (0.85.0)` *Residuals* item 2
-  (`0056-…md:1034–1042`). §Fix is constraint-pinned, not settled: it names three
-  candidate check sites with their measured blast radii and the registry and
-  GOV-15 constraints every route carries, and leaves the disposition to the
-  change that lands it. Ordering: nothing blocks this report from starting;
-  [0164](./0164-generic-argument-literal-lowers-permissive.md), residual 3 of
-  the same fix, bounds one §Fix candidate while it is open (§Non-goals).
-  [0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md) is in
-  flight against the same `parseParams` per-field loop and the same
-  `lowerTypeExpr` catch-all; whichever lands second rebases onto the other's
-  hunks (§Fix *Ordering*). Sibling residual
-  [0162](./0162-inline-enum-trigger-misses-params-position.md) is filed from the
-  same fix in the same batch against a different row and shares no surface with
-  this one.
+- **Status:** fixed (0.88.0) — discharged by bug 0066's fix; see the note
+  appended at the end of this document.
 - **Sev/Diff estimate:** S1/D3 — S1 because the load-time acceptance registers a
   theta whose every defaulted invocation carries a value its own lowered schema
   refuses, and the refusal the post-default-merge hook computes is discarded by
@@ -851,3 +838,27 @@ pass over a tree `git status --short --untracked-files=no` reported clean at
 `04c6585f`, and the two passes produced byte-identical output on every row
 outside (g). No file outside `docs/bugs/` was read as evidence in a modified
 state.
+
+Closure note (0.88.0). Bug
+[0066](./0066-ajv-verdict-discarded-unreachable-enforcement.md)'s fix
+discharged this report — its §Fix constraint 8 is this report's subject,
+settled in the older document and implemented there: parseParams now pairs
+each field's declared-type half with its default-literal half and calls
+checkParamsDefaultCompat (type-compat.ts) over an EMPTY type environment.
+The measured observables of this report's §Reproduction resolve as follows:
+p: 'integer = 1.5' draws theta/parse/integer-narrowing at load;
+p: 'integer = "xyzzy"' and every other decidable pairing draw the new
+registered theta/parse/params-default-type-mismatch at load and the theta
+does not register. The literal-declared row (p: '"x" | "y" = "zzz"')
+DEFERS at load — a literal-typed declared half resolves to the relation's
+"unknown" case under the empty environment — and is refused LOUDLY at first
+invocation, before the body starts, by the post-default-merge hook the same
+fix wired (the AJV-on-args note; no Running echo; bound: false): the
+silent-wrong-value letter this report was scored on is closed on every row.
+The deferral posture this report's §Expected found undocumented is now
+documented — the new row's *Trigger* names the deferral set and the runtime
+net, and type-system.md TYPE-9's site enumeration carries the
+params:-default site. That documentation is the :31 "unless … documented as
+the safety net" reading this closure relies on; bug 0144's pending
+:31-vs-:48 adjudication must agree with it or reopen this question by a new
+report.

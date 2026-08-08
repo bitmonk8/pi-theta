@@ -1,7 +1,6 @@
 # Bug 0066 — `#mergeDeclaredDefaults` returns only `result.args`, discarding the post-default-merge AJV verdict: the binder's AJV-on-`args` failure class is never constructed, hard-ceiling #4's slash-load `params` enforcement point runs no depth walk, and a declared default that violates its own param type binds into body scope behind the `Running /<name>:` success echo
 
-- **Status:** open. Live-confirmed on the mistyped-default arm; offline-confirmed
-  on the depth-walk and cross-route arms. §Fix is constraint-pinned, not settled.
+- **Status:** fixed (0.88.0).
 - **Kind:** defect — one discarded verdict at one call site leaves two specified
   obligations unmet, in two symptom families: the binder's AJV-on-`args` failure
   class (element 1) and hard-ceiling #4's slash-load `params` enforcement point
@@ -718,3 +717,132 @@ end-to-end surface.
   in reproduction (A). Offline evidence: scratch vitest at `d06daae3`, values
   recorded verbatim in reproductions (B) and (C). Both probes deleted after
   recording, per hunt protocol.
+
+## Fix (0.88.0)
+
+- What shipped, keyed to §Fix. Runtime (constraints 1–5):
+  `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts`) runs hard-ceiling
+  #4's depth walk over the MERGED `args` before AJV (CIO-3) and classifies
+  through the previously-callerless `classifyBinderArgs({depth, ajvIssues})`;
+  the projected `ValidationIssue[]` passes through `orderValidationIssues`
+  first, so `<ajv-summary>` is canonical by ERR-14's own contract rather than
+  one AJV build's traversal order; `#mergeDeclaredDefaults`
+  (`production-theta-producer.ts`) returns `{args, classification}` and
+  `runBinder` routes a non-`ok` classification through the existing
+  `#emitBinderFailureNote` + `{bound: false}` BEFORE `#emitBinderEchoNote`
+  (no retry, HC3-c — the theta does not start); the hook runs whenever the
+  theta presents a lowered `params:` schema — the `defaultedFields.length
+  === 0` and recovery-yields-nothing early returns are gone, so a
+  no-defaults theta's own args and a theta whose defaults cannot be
+  recovered are both walked and validated. A depth breach renders
+  `renderDepthWalkAjvSummary`'s single-issue form (no `; ` separator).
+  Cross-route seam (constraints 6–7): the binder path is wired through
+  `classifyBinderArgs`, so `crossRouteSlashLoadParams`,
+  `SlashLoadParamsCrossRoute` and their dead imports are DELETED from
+  `load-pre-eval.ts` rather than left as a divergent twin; the failure note
+  emits `details: {event: {}}` with `masked` ABSENT (PIC-1 (c));
+  `tests/pre-evaluation-failures.test.ts`'s ERR-16 cell — the one
+  doc-authorized flip — now routes an assembled ceiling-#3 note and asserts
+  `masked` absent. Load time (constraint 8): `parseParams` pairs each
+  field's declared-type half with its default-literal half and calls the new
+  `checkParamsDefaultCompat` (`type-compat.ts`, appended after the file's
+  last line; `paramsDeclaredCompatType` beside it) over a null-prototype,
+  `Object.hasOwn`-guarded EMPTY `TypeEnv`, reusing
+  `theta/parse/integer-narrowing` for the one-way number-under-integer case
+  and emitting the new registered `theta/parse/params-default-type-mismatch`
+  otherwise; `literal-sublanguage.ts` gained `defaultLiteralStaticType`
+  (sharing the module's own tokeniser so it can never disagree with the
+  is-literal verdict). DIAG-2, same commit: the new registry row (Trigger =
+  the GOV-15 post-hoc in-scope set: the EMPTY-env decidable/deferral
+  partition, the two precedence rules, the not-registered disposition) +
+  `docs/reference/diagnostics.md` mirror; `frontmatter-fields-a.md` §Defaults
+  gains the code beside `integer-narrowing` + `docs/reference/frontmatter.md`
+  mirror; `type-system.md` TYPE-9's site enumeration Three→Four naming the
+  `params:`-default site + `docs/reference/type-system.md` mirror (a
+  recorded, bounded self-authorization — the enumeration only).
+- The decidable/deferral partition, normative in the Trigger and pinned by
+  the witness: decidable declared shapes — primitives, unions of primitives,
+  `array<T>` nesting over either; decidable default shapes — string / number
+  / boolean / `null` literals (unary-minus numerics included) and FLAT
+  HOMOGENEOUS array literals of them. Everything else — `NamedType`, alias,
+  inline-object or literal-typed declared halves; object / `Enum.Variant` /
+  construction / empty / heterogeneous / NESTED-array / unparseable default
+  halves — defers to the relation's `"unknown"` case and rides the runtime
+  net this same fix made real. Review round 1 caught the code deciding MORE
+  than the Trigger (recursing into nested array literals off the first
+  element's shape — order-dependent verdicts over identical multisets);
+  settled by NARROWING the code to the Trigger as written (cells c9–c13 pin
+  the deferrals both element orders; b3 pins element-level narrowing on flat
+  arrays surviving).
+- Recovery note: the orchestrator for this run died (host-side connection
+  loss) after gating Phase 2; the run was completed under the command's
+  §Stability fallback — phases driven from the main session, each gated
+  there. Phase artifacts recovered from the session log to
+  `.pi/tmp/fixes/0066-phase2-brief-recovered.md`,
+  `0066-implementer-report-recovered.md`, `0066-testwriter-report-recovered.md`.
+- Gates: witnesses `tests/binder-post-merge-ajv-enforcement.test.ts` (6
+  cells incl. the recovery-failure arm), `tests/defaulting-post-merge-classification.test.ts`
+  (6, incl. the spy proof that AJV does not run on a depth breach — CIO-3),
+  `tests/params-default-type-compat.test.ts` (36; refusal, narrowing,
+  deferral, control and precedence tables); full default suite 284 files /
+  4639 tests green; tsc clean; lint clean; H8a live 31/31 (the additive cell
+  below); H9a acceptance 11/11 (clean first time — no open stochastic
+  signature encountered); `tests/fixtures/h7a/permitted-codes.json`
+  byte-unchanged (`a4a8da04…`), decided by the real H9a run (the parse code
+  un-registers thetas and is absent from the acceptance corpus; the one
+  defaulted acceptance fixture is TYPE-2-compatible and exercises only the
+  success echo).
+- Review: round 1 deep — one `spec` finding (the Trigger/code nested-array
+  divergence above; resolved by narrowing + new cells) + two residuals
+  (`arbitrate` now caller-less; the recovery-failure arm unwitnessed —
+  taken, cell (5)); round 2 fast — CLEAN (one pre-existing find flagged:
+  `firstNonLiteral`'s neg arm admits `-true`/`-null`/`-"x"` against
+  grammar.md's `LiteralType ::= "-" NUMBER`; predates this fix; filed as a
+  residual by the parent). Cap 2 of 5.
+- Verification: SOLID, zero findings. Three unit neutralisations, each red
+  for the right reason and restored blob-exact (`defaulting.ts` `29b9068d…`,
+  `params.ts` `c463b0bb…`, `literal-sublanguage.ts` `ddd44132…`): the
+  straight-to-AJV shape reds 8 cells across both binder witnesses (the
+  success echo returns); disabling `checkParamsDefaultCompat` reds exactly
+  a1–a8/b1–b3; re-widening `flatArrayStaticType` reds exactly c10/c11/c13
+  and exhibits the order-dependent verdict the narrowing exists to prevent
+  (c12 green on the same multiset). Live: the additive H8a cell (file
+  30 → 31, +212/−0) drives reproduction (A) through a REAL binder turn —
+  red-proven live under the neutralisation (the success echo carries
+  `pick=zzz (default)` and the sentinel reaches the model), restored
+  blob-exact, 31/31 green.
+- Baseline drift recorded (the doc was verified at `d06daae3`, ~35 minors
+  back): 0050 is fixed (0.77.0), not "open" as §Related states; the
+  `params.ts` / `production-theta-producer.ts` line anchors shifted
+  (0056/0059/0061/0137/0149 churn) and were re-anchored by symbol; the
+  0165-shape `defaultSource: ""` fails `parseExpressionSource` (measured —
+  the premise of witness cell (5)).
+- Residuals: (1) `firstNonLiteral`'s unary-minus arm admits non-numeric
+  literals (`-true`, `-null`, `-"x"`) against grammar.md's
+  `LiteralType ::= "-" NUMBER` — pre-existing, surfaced by round 2; the
+  parent files it. (2) `arbitrate`
+  (`src/runtime/ceiling-arbitration.ts`) is now fully caller-less in `src/`
+  after constraint 7's deletion — dead production code with a green unit
+  test; recorded-not-filed (cruft with no spec obligation; §Non-goals keeps
+  the seam out of frame). (3) The deferral classes' load-time silence is
+  normative in the new Trigger and rides the now-real runtime net; bug
+  0165's empty-default null-bind persists by design of its own class (see
+  the coordination note on its doc) and stays open. (4) `runBinderWithRetries`
+  remains the module's other unreferenced export (pre-existing, §Affected
+  lists it as context; unchanged here).
+- Discharge notes appended: bug 0163's doc — closure note (this fix
+  discharges it: constraint 8 refuses its decidable rows at load;
+  the wired hook refuses its literal-declared row loudly before the body at
+  first invocation; the deferral posture its §Expected found undocumented is
+  now documented in the Trigger and TYPE-9) + Status flipped to
+  fixed (0.88.0) BY THIS FIX (parent-gate adjudication); bug 0165's doc —
+  mechanism-delta note (the merge no longer returns before the hook; the
+  null-bind observable persists; stays open). No 0013/0036-era note owed
+  (checked — their records claim nothing this fix moves).
+- Pinned dispositions / non-goals: the EMPTY-TypeEnv deferral design (named
+  types/aliases/literal-typed declared halves defer at load — the runtime
+  net is the documented backstop); `arbitrate` untouched; bug 0165's
+  `string = ` row pinned as a load-time DEFERRAL (cell c7) and its null-bind
+  untouched; bug 0064's binder signature distinguished (the live fixture
+  pins `bind_model: anthropic/claude-haiku-4-5`); `PreEvalFailureCause`'s
+  `"slash-load-params"` member retained (ERR-5-symmetric direct emission).

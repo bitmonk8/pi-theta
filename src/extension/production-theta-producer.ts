@@ -280,6 +280,7 @@ import { fillDefaultsAndRevalidate, type DefaultedField } from "../binder/defaul
 import { matchAvailableModel } from "../binder/binder-model";
 import {
   renderBinderSystemNote,
+  type BinderArgsClassification,
   type BinderAttemptOutcome,
   type BinderFailureSurface,
 } from "../binder/retry-taxonomy";
@@ -599,6 +600,15 @@ class UnknownHostToolError extends Error {}
  * memoising envelope-validator accessor (compiled at most once per dispatch —
  * the malformed retry re-issues against the SAME schema).
  */
+/**
+ * The post-default-merge outcome `runBinder` routes on: the merged `args` plus
+ * the `params`-boundary classification the named hook computed over them.
+ */
+interface MergedDeclaredDefaults {
+  readonly args: Readonly<Record<string, unknown>>;
+  readonly classification: BinderArgsClassification;
+}
+
 interface BinderForcedToolDispatch {
   readonly model: Model<Api>;
   readonly systemPrompt: string;
@@ -853,13 +863,23 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // single-string / no-params bypasses carry no defaults), so the bypass arms
     // above are intentionally left unchanged.
     const binderArgs = okArgs;
-    const mergedArgs = await this.#mergeDeclaredDefaults(binderInput.theta, params, binderArgs);
+    const merged = await this.#mergeDeclaredDefaults(binderInput.theta, params, binderArgs);
+    // The post-default-merge verdict routes BEFORE the success echo: an
+    // AJV-on-`args` classification (a merged document AJV refuses, or a
+    // ceiling-#4 depth breach cross-routed per CIO-1) is terminal — no retry
+    // (HC3-c), the failure-mode row surfaces, and the theta does not start. The
+    // echo asserts a bind that happened, so it may not precede the verdict that
+    // decides whether it did.
+    if (merged.classification.kind !== "ok") {
+      this.#emitBinderFailureNote(binderInput.theta.slashName, merged.classification);
+      return { bound: false };
+    }
     // §"Echo policy" (BND-1): on a successful bind the runtime appends the
     // one-line success echo note (`Running /<name>: …`) on the theta-system-note
     // channel immediately before the theta starts, UNLESS `bind_echo: false`. The
     // bypass arms auto-suppress the echo independently and never reach here.
-    this.#emitBinderEchoNote(binderInput.theta, params, binderArgs, mergedArgs);
-    return { bound: true, args: mergedArgs };
+    this.#emitBinderEchoNote(binderInput.theta, params, binderArgs, merged.args);
+    return { bound: true, args: merged.args };
   }
 
   /**
@@ -1156,7 +1176,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * `args`, then run the post-default-merge AJV validation, reusing the
    * unit-tested `fillDefaultsAndRevalidate` (`binder/defaulting.ts`). A wire name
    * PRESENT in `args` is preserved unchanged (a user-supplied value wins over the
-   * default); a wire name ABSENT takes its declared default.
+   * default); a wire name ABSENT takes its declared default. The merged args are
+   * returned together with the `params`-boundary classification the caller routes
+   * on, so the named hook's verdict reaches a consumer.
+   *
+   * The hook runs whenever the theta presents a lowered `params:` schema, not
+   * only when it declares defaults: enforcement point #4 is about the `params`
+   * boundary, so a theta with no defaults still needs the depth walk over the
+   * binder's own args, and a theta whose defaults could not be recovered still
+   * needs what DID arrive validated.
    *
    * The parser retains each default's literal source on the parsed `ParsedParams`
    * (`fields[].defaultSource`, feeding the binder system prompt's
@@ -1172,23 +1200,27 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     theta: ConversationBindInput["theta"],
     params: NonNullable<ConversationBindInput["theta"]["frontmatter"]["params"]>,
     binderArgs: Readonly<Record<string, unknown>>,
-  ): Promise<Readonly<Record<string, unknown>>> {
-    if (params.defaultedFields.length === 0 || params.loweredSchema === undefined) {
-      return binderArgs;
+  ): Promise<MergedDeclaredDefaults> {
+    if (params.loweredSchema === undefined) {
+      // No lowered `params:` document to validate against, so the boundary this
+      // hook guards does not exist for this theta. (`runBinder` already returns
+      // ahead of the binder pass in that case; this is its type narrowing.)
+      return { args: binderArgs, classification: { kind: "ok" } };
     }
-    const defaults = await this.#recoverDeclaredDefaults(theta, params.defaultedFields);
-    if (defaults.length === 0) {
-      return binderArgs;
-    }
-    // Post-default-merge AJV validation runs against the MERGED args (§Defaulting).
-    // Its verdict routes, on failure, to the AJV-on-`args` retry class owned
-    // elsewhere in the runtime; this leaf owns only the fill-if-absent merge and
-    // invoking the named validation hook, so the merged args are returned
-    // regardless of the verdict (the body-run vs short-circuit routing is not
-    // this leaf's to change).
+    // Recovery is best-effort and may yield nothing (an in-memory theta, an
+    // unreadable file, a default that does not re-parse). That leaves the field
+    // unfilled — it does NOT excuse the boundary: what did arrive is still
+    // validated below.
+    const defaults =
+      params.defaultedFields.length === 0
+        ? []
+        : await this.#recoverDeclaredDefaults(theta, params.defaultedFields);
+    // Post-default-merge AJV validation runs against the MERGED args, behind
+    // ceiling #4's depth walk (§Defaulting; CIO-3). The classification is
+    // returned to the caller, which owns the body-run vs short-circuit routing.
     const validator = this.#input.root.schemaValidator.compile(params.loweredSchema);
     const result = fillDefaultsAndRevalidate({ binderArgs, defaults, validator });
-    return result.args;
+    return { args: result.args, classification: result.classification };
   }
 
   /**
