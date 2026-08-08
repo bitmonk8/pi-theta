@@ -180,6 +180,15 @@ const LET_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 /** Bug 0042 §Fix — a `schema X = …` right-hand side that is not an `AliasRhs`. */
 const MALFORMED_ALIAS_RHS = "theta/parse/malformed-alias-rhs";
+/**
+ * Bug 0061 §Fix — a `schema` object-body field type or an alias/union arm
+ * whose text derives from no `Type` production at all. Moves n24's field-
+ * position CONTROL below from silent-and-permissive to refused: the
+ * field-position dangling `|` is the sibling of this file's own
+ * alias-position dangling `|` (`schema X = Cat |`, `MALFORMED_ALIAS_RHS`
+ * since bug 0042).
+ */
+const SCHEMA_TYPE_NOT_EXPRESSION = "theta/parse/schema-type-not-expression";
 
 /** The three codes the unparsed shape is misattributed to today. */
 const RESIDUE_CODES = [
@@ -2212,7 +2221,7 @@ describe("bug 0033 (r) — the cycle diagnostic's range names a participating de
 // ===========================================================================
 
 describe("bug 0033 (s) — a dangling `|` is reported at the alias position, silent at the field position", () => {
-  it("n24: `schema X = Cat |` is a one-arm alias the declaration reports as malformed, and the field position stays silent", () => {
+  it("n24: `schema X = Cat |` is a one-arm alias the declaration reports as malformed, and the field position is refused too (bug 0061)", () => {
     const doc = parse(F_DANGLING_PIPE);
     expect(
       armsOf(doc, "X", "n24"),
@@ -2233,10 +2242,12 @@ describe("bug 0033 (s) — a dangling `|` is reported at the alias position, sil
     expect(
       diagLines(parse(F_FIELD_DANGLING_PIPE)),
       "n24 CONTROL — `schema S { a: string | }`, the identical dangling `|` in the object " +
-        "form's field-type position: still silent and still lowers permissively — the " +
-        "malformed-right-hand-side rule is scoped to the `schema X = …` declaration and does " +
-        "not reach a field type",
-    ).toEqual([]);
+        "form's field-type position: MOVED by bug 0061 §Fix from silent-and-permissive to " +
+        "refused. `MALFORMED_ALIAS_RHS` still does not reach a field type — that rule is " +
+        "unchanged and unmoved — but the field's own text, `string|`, derives from no `Type` " +
+        "production and is now `SCHEMA_TYPE_NOT_EXPRESSION`, the fence bug 0061 names for both " +
+        "body positions",
+    ).toEqual([line(SCHEMA_TYPE_NOT_EXPRESSION, msg(SCHEMA_TYPE_NOT_EXPRESSION, [["<X>", "S"]]))]);
   });
 });
 
@@ -2410,7 +2421,10 @@ describe("bug 0033 (u) — `-` after a completed arm ends the capture", () => {
         "position: the field list is dropped whole and the body reads as empty. No `Type` " +
         "position in the implementation carries a negative numeric literal, and the " +
         "malformed-right-hand-side rule is a declaration-shape question this field position " +
-        "never reaches",
+        "never reaches. MEASURED UNMOVED by bug 0061 §Fix (the other cell §Fix constraint 7 " +
+        "licenses to move, beside n24 above): the field list is dropped whole before any " +
+        "field-type walk runs, so no fragment ever reaches `theta/parse/schema-type-not-expression`'s " +
+        "judgement here either",
     ).toEqual([line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "S"]]))]);
   });
 });

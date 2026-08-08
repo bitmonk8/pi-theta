@@ -12,8 +12,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // Bug 0059 — a `params:` right-hand side that is a YAML SCALAR carrying text no
 // `Type` production spells is recorded verbatim as the field's declared type,
 // falls past every arm of `lowerTypeExpr` to its trailing catch-all
-// (src/parser/params.ts:695–:701 — the sink push at `:700`, the permissive
-// `return {}` at `:701`), lowers the permissive `{}`, and draws no
+// (src/parser/params.ts:693–:702 — the sink push at `:701`, the permissive
+// `return {}` at `:702`), lowers the permissive `{}`, and draws no
 // diagnostic at any severity — so the theta registers with a param that
 // validates nothing
 // (docs/bugs/0059-params-scalar-nontype-text-recorded-and-permissive.md).
@@ -544,10 +544,21 @@ describe("bug 0059 (b) — a node-shape-refused field keeps its single diagnosti
 });
 
 // ===========================================================================
-// (c) CONSTRAINT 2 — NO CROSS-POSITION BLAST RADIUS. The `schema`-body field,
-// the alias right-hand side and the `@<T>` annotation thread no sink, so the
+// (c) CONSTRAINT 2 — NO CROSS-POSITION BLAST RADIUS, NARROWED BY BUG 0061. The
+// `@<T>` annotation, the `value` position (`let` annotations, `fn` parameter
+// types) and the `return` position thread no sink under either bug, so the
 // same junk text keeps byte-identical lowered documents AND byte-identical
-// diagnostic sequences at all three. GREEN at HEAD and required to stay green.
+// diagnostic sequences there — GREEN at HEAD and required to stay green. The
+// `schema`-body field and the alias right-hand side are NO LONGER fenced here:
+// bug 0061 §Fix threads its OWN sink at those two body positions
+// (`isUnspellableTextRefusable`, params.ts), independent of this bug's
+// `params:`-only one, so three cells that used to pin silence there (`c4`,
+// `c5`, `c7` — operator grant "Authorize the 3-cell fence update; re-dispatch
+// 0061", HEAD `8e2a199c`) now pin bug 0061's refusal instead, in their own
+// table below. The other 18 `CONTRAST_ROWS` stay green for the same reason
+// they always did: each already carries its own pre-existing code (a
+// same-scope error, or `malformed-alias-rhs`), so bug 0061's guards hold them
+// at their existing sequence — this bug's own subject stays fully witnessed.
 // ===========================================================================
 
 const CONTRAST_POSITIONS = ["field", "alias", "annotation"] as const;
@@ -650,10 +661,7 @@ const CONTRAST_ROWS: ReadonlyArray<
     [...ALIAS_MALFORMED, "error theta/parse/unknown-identifier"],
   ],
   ["c3", "a: Tirage", "annotation", PERMISSIVE, []],
-  ["c4", "???", "field", S_WITH_PERMISSIVE_A, []],
-  ["c5", "???", "alias", PERMISSIVE, []],
   ["c6", "???", "annotation", PERMISSIVE, []],
-  ["c7", "[a, b]", "field", S_WITH_PERMISSIVE_A, []],
   [
     "c8",
     "[a, b]",
@@ -694,10 +702,10 @@ describe("bug 0059 (c) — the three other type positions keep their bytes and t
       // The refusal must not be raised inside `lowerTypeExpr`, which every
       // type position reaches — the `schema`-body field and the alias
       // right-hand side through `lowerTypeSource`'s delegation
-      // (src/parser/body-type-lowering.ts:438 and :444), the `@<T>` annotation through
+      // (src/parser/body-type-lowering.ts:455 and :461), the `@<T>` annotation through
       // that same function (src/runtime/query-schema-lowering.ts:160). The sink
-      // is optional on `LowerCtx` (src/parser/params.ts:429–:512 — the
-      // `unspellable` member and its contract at `:492–:511`) for exactly this
+      // is optional on `LowerCtx` (src/parser/params.ts:421–:510 — the
+      // `unspellable` member and its contract at `:483–:509`) for exactly this
       // reason: a position that threads none collects nothing.
       const read = readAt(position, typeSource);
       expect(
@@ -710,6 +718,47 @@ describe("bug 0059 (c) — the three other type positions keep their bytes and t
         `${id}: the diagnostic SEQUENCE at the ${position} position is outside this fix's ` +
           `reach; a gained code is the cross-position blast constraint 2 forbids`,
       ).toEqual(codes);
+    });
+  }
+
+  /**
+   * THREE ROWS MOVED HERE FROM `CONTRAST_ROWS` ABOVE (bug 0061 §Fix, operator
+   * grant "Authorize the 3-cell fence update; re-dispatch 0061", HEAD
+   * `8e2a199c`): `c4` and `c7` were the FIELD position's `???` and `[a, b]`;
+   * `c5` was the ALIAS position's `???`. Each is text no `Type` production
+   * spells and carries no brace, so the ONE SHARED decline
+   * (`isUnspellableTextRefusable`, params.ts) this bug's and bug 0061's
+   * refusal both read cannot decline it without narrowing this bug's own
+   * landed refusal too — no implementation faithful to bug 0061 §Fix
+   * constraint 4 keeps these three cells silent. The lowered bytes are
+   * UNMOVED (the refusal is raised by the caller, never inside
+   * `lowerTypeExpr`): only the diagnostic sequence moves. `c6` (the
+   * ANNOTATION position's own `???`) is untouched and stays in
+   * `CONTRAST_ROWS` above — the `@<T>` position threads no sink under either
+   * bug.
+   */
+  const BODY_POSITION_REFUSED: ReadonlyArray<
+    readonly [string, string, ContrastPosition, unknown]
+  > = [
+    ["c4", "???", "field", S_WITH_PERMISSIVE_A],
+    ["c5", "???", "alias", PERMISSIVE],
+    ["c7", "[a, b]", "field", S_WITH_PERMISSIVE_A],
+  ];
+
+  for (const [id, typeSource, position, lowered] of BODY_POSITION_REFUSED) {
+    it(`GREEN (${id}, ${position}): \`${typeSource}\` is refused now by bug 0061`, () => {
+      const read = readAt(position, typeSource);
+      expect(
+        read.lowered,
+        `${id}: the lowered bytes at the ${position} position are UNMOVED by bug 0061 — the ` +
+          `refusal is raised by the caller, never inside \`lowerTypeExpr\` (§Fix constraint 2)`,
+      ).toEqual(lowered);
+      expect(
+        read.diagCodes,
+        `${id}: bug 0061 §Fix threads its own refusal at the ${position} position now, ` +
+          `independent of this bug's \`params:\`-only sink — the fence these three cells used to ` +
+          `pin has narrowed to the positions that still thread neither`,
+      ).toEqual(["error theta/parse/schema-type-not-expression"]);
     });
   }
 });
@@ -812,7 +861,7 @@ describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own hones
  *   - the 0164 tripwire (`array<"x" | "y">`, `array<1 | 2>` and their nested
  *     form): the union arms DO reach the catch-all and land in the sink, so
  *     only the caller's literal decline via `parseLiteralArm`
- *     (src/parser/params.ts:882) keeps them silent. These are the sharpest
+ *     (src/parser/params.ts:883) keeps them silent. These are the sharpest
  *     over-refusal detectors in the file.
  *   - constraint 3's grammar-admitted brace-rooted and mixed-union traffic.
  *   - the authorized under-refusal (operator grant, HEAD 948b7814): "the brace

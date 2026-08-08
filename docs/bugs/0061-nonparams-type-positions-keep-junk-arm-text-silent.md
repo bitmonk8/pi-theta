@@ -1,11 +1,13 @@
 # Bug 0061 — Type text that no `Type` production spells is kept verbatim and lowered to the permissive `{}` with zero diagnostics at the two non-`params:` schema positions: an operator absorbed into an alias arm (`schema X = Cat +` → arm `"Cat+"`, `$defs.X = {}`) and the field-position dangling `|` (`schema S { a: Cat | }` → `properties.a = {}`) both load clean, and the type-grammar seam that already runs over the same text reports only its three position rules
 
-- **Status:** open. §Fix is constraint-pinned, not settled: it names the input
-  class, the recogniser the judgement needs, the two candidate emission points
-  and the per-position blast radius, and leaves the choice between the two
-  points to the change that lands it. **Coordination with
-  [0043](./0043-union-nonprimitive-arm-lowers-permissive.md) and
-  [0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md)** — all
+- **Status:** fixed (0.87.0). §Fix's one open disposition — the emission point —
+  was adjudicated to the lowering sink (option (b), through bug 0059's landed
+  `LowerCtx.unspellable`); every other constraint shipped as written, and the
+  four pins constraint 7 licenses moved two, held two, and needed one operator
+  grant for three further cells (§Fix (0.87.0)). **Coordination with
+  [0043](./0043-union-nonprimitive-arm-lowers-permissive.md) (open) and
+  [0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md) (fixed
+  0.86.0)** — all
   three move behaviour on the one shared lowering path
   (`src/parser/params.ts:391–470`), none of them needs another's fix, and
   whichever lands last re-derives the others' pins (§Fix *Coordination*).
@@ -944,3 +946,308 @@ Constraints on any implementation:
   over twelve payloads; the `@<T>` annotation rows; and a `git ls-files` census
   over every committed `.theta` / `.thetalib`. Run on the outputs quoted above,
   then deleted per scratch policy.
+
+## Fix (0.87.0)
+
+- What shipped, keyed to §Fix: arm and field type text at the two `Type`
+  positions inside a theta body is judged against the type grammar and refused
+  when no `Type` production spells it, one error-severity
+  `theta/parse/schema-type-not-expression` per offending brace-free FRAGMENT, at
+  the declaration's range, and the theta does not register.
+  **Emission point — the disposition §Fix left open — adjudicated as option
+  (b), the lowering sink**, at the narrowest threading site: bug 0059's landed
+  `LowerCtx.unspellable` reached through `collectUnresolvedNamedTypes`'s
+  optional out-parameter pattern (the bug 0044 `reservedKeywords` shape:
+  caller-owned, append-only, the module never reads it back). Option (a), the
+  type-grammar seam (`parseTypeExpression`), was rejected on measurement: its
+  blast radius is every caller, including the `value` and `return` positions
+  this report neither owns nor measures, and §Fix constraint 2 pins `@<Cat +>`
+  as "measured silent at HEAD and … not claimed here" — measured at HEAD with
+  the prototype absent, `let x: Cat + = 1`, `fn f(p: Cat +): integer { 1 }` and
+  `@<Cat +>` all draw `[]`, so making the seam a recogniser moves three
+  unclaimed positions at once.
+  `src/parser/body-type-lowering.ts` — `collectUnresolvedNamedTypes` gains a
+  fourth optional out-parameter `unspellable?: string[]`, threaded into the
+  `LowerCtx` it builds through `lowerTypeSource` / `lowerObjectFields` /
+  `lowerInlineObject`, so the sink rides the hoist to every nesting depth;
+  pushed WITHOUT the `[...new Set(...)]` dedup its two siblings use, because
+  constraint 4's count rule is one diagnostic per FRAGMENT.
+  `src/parser/theta-document.ts` — the two threading sites, re-anchored by
+  symbol: the per-field `collectUnresolvedNamedTypes` call in `walkStatement`'s
+  `schema` arm, and the joined-arms call in `checkSchemaDeclarationGraph`;
+  `schemaTypeNotExpressionDiagnostic` as the single emitter builder;
+  `emitMalformedAliasRhs` now returns `boolean` and `finishAliasSchema` records
+  it as `SchemaDecl.aliasRhsRefused?: true` (guard 2's channel — explicit node
+  state, no global). `buildBodyTypeSchemas` is deliberately NOT the threading
+  site: it is called by `collectBodyTypes` (the load path) AND by
+  `lowerQueryResponseSchema` (the `@<T>` path), so threading there would put the
+  annotation one optional argument from inheriting the refusal.
+  `src/parser/params.ts` — bug 0059's inline decline extracted verbatim into one
+  exported `isUnspellableTextRefusable`
+  (`parseLiteralArm(text) === undefined && !text.includes("{") && !text.includes("}")`),
+  called by `parseParams` and by both body-position emitters: ONE decline, never
+  a copy, so narrowing it narrows every position's refusal at once. The
+  `LowerCtx.unspellable` contract comment and the catch-all's reader comment
+  re-derived to name the three readers.
+  Registry: a NEW `theta/parse/*` row (DIAG-2, same commit as the sites it is
+  raised from), `E`, phase `parse`, *Message*
+  `'<X>' declares a type that is not a theta type expression`, with the
+  *Trigger* authored as the GOV-15 post-hoc in-scope set. Same-commit spec
+  edits: `schemas.md:17` (the field position) and `:62` (the alias position) now
+  name the refusal, `:64`'s absorbed-operator exclusion re-derived to say the
+  boundary token is absent *for `malformed-alias-rhs` to name* and that the arm
+  text itself is this row's; `malformed-alias-rhs`'s own registry *Trigger*
+  sentence re-derived identically; mirrors `docs/reference/schema-subset.md`
+  §Type-alias / union schema and `docs/reference/diagnostics.md` (confirmed
+  Trigger-less — Code | Sev | Phase | Message only, re-verified at HEAD).
+- **Message shape — the `<text>` placeholder was rejected, and why.** The
+  prototype used `'<text>' is not a theta type expression` for measurement only.
+  `<text>` is admissible under NO category of the placeholder surface, and that
+  surface is CLOSED (`placeholder-rendering-a.md` §Closure: "No other
+  placeholders are admitted; this closure is enforced at build time. Introducing
+  a new placeholder … is a spec-versioned breaking change governed by GOV-7 and
+  GOV-8"), which is the same objection §Fix already raises against
+  `unsupported-feature`'s closed `<construct>` table. Category 3's `<expr>` is
+  the only verbatim-source-span placeholder and fails on two independent
+  grounds: it is scoped by name to `theta/parse/default-not-literal`, and its
+  rule requires the span "copied byte-for-byte from the source file … with
+  internal whitespace preserved", where the refused fragment is `parseType`'s
+  JOINED text (`Cat +` in source is `Cat+` in the arm) and the diagnostic's
+  range is the declaration's, not the fragment's — so no sub-expression span
+  exists to copy. `<X>` is category 7's identifier-shaped `schema`-declaration
+  placeholder, already carried by `empty-schema-body`, `empty-enum-body` and
+  `malformed-alias-rhs`, whose rule extends to "every other row carrying `<X>`";
+  no table edit, no GOV-7 / GOV-8 exposure. This mirrors bug 0059's own row,
+  which names the FIELD (`<param>`) rather than the text. Consequence, stated
+  normatively in the *Trigger* rather than left as an accident: two junk
+  fragments in one declaration render two diagnostics with identical text and
+  identical range, because each fragment is refused independently so fixing one
+  does not silently hide the other. Witness cells a28/a29 pin the count; group
+  (r) pins the row's placeholder set as exactly `["<X>"]`, so a later
+  junk-text placeholder reds rather than passing silently.
+- Operator authorization, recorded verbatim (granted 2026-08-08 at HEAD
+  `8e2a199c`, unblocking the archived pre-Phase-1 stop
+  `.pi/tmp/fixes/0061-report-stopped-premeasure.md`): "Authorize the 3-cell
+  fence update; re-dispatch 0061" — scope: in
+  `tests/params-scalar-nontype-text-refusal.test.ts` (bug 0059's 93-cell
+  witness), group (c) `CONTRAST_ROWS` rows c4 (`???` field), c5 (`???` alias),
+  c7 (`[a, b]` field): change ONLY the codes column (`[]` → the new refusal
+  line), leaving each row's lowered-bytes half byte-unchanged; re-derive group
+  (c)'s header sentence and the affected assertion messages to name bug 0061 as
+  the authority for the two body positions and to state that the fence now
+  covers the `@<T>` / `value` / `return` positions (which remain unthreaded);
+  mark each moved row inline with its authority (the idiom 0059's own 12 moved
+  cells use); 0059's subject stays witnessed by its remaining 90 cells. Also
+  authorized as its rider: the append-only note on 0059's doc whose
+  thread-no-sink claim this change makes stale for two of the three positions.
+  The blocker the grant resolved: §Fix constraint 4 names punctuation text
+  (`???`) in the refused set at both positions, and `[a, b]` is text no `Type`
+  production spells, is not what `parseLiteralArm` recognises, and carries no
+  brace — so the ONE SHARED decline cannot decline either without narrowing bug
+  0059's landed refusal as well. No implementation faithful to constraint 4
+  keeps c4/c5/c7 green. Constraint 7 could not have named them: this document
+  was verified at `9c961f7f` (0.52.0) and 0059's witness was created at
+  `f31eac45` (0.86.0), 34 minors later.
+- The 7 cells §Fix constraint 7 and the grant cover, old → new, authority per
+  cell — 5 moved, 2 measured unmoved:
+
+  | file | cell | old → new | authority |
+  |---|---|---|---|
+  | `tests/schema-alias-rhs-malformed.test.ts` | `e5` (fixture 2a) | `schema S { a: string \| }` diags `[]` → one `schema-type-not-expression` at the decl range; `properties.a` still `{}` | §Fix constraint 7 |
+  | `tests/schema-alias-union-decl.test.ts` | `n24` CONTROL | same input, same flip | §Fix constraint 7 |
+  | `tests/schema-alias-rhs-malformed.test.ts` | `e6` (fixture 3b) | **MEASURED UNMOVED** — `schema S { a: -1 }` keeps `empty-schema-body` alone; comment re-derived | §Fix constraint 7 |
+  | `tests/schema-alias-union-decl.test.ts` | `n29` CONTROL | **MEASURED UNMOVED** — same `-1` control; comment re-derived | §Fix constraint 7 |
+  | `tests/params-scalar-nontype-text-refusal.test.ts` | `c4` (`???`, field) | codes `[]` → `["error theta/parse/schema-type-not-expression"]`; `S_WITH_PERMISSIVE_A` byte-unchanged | **OPERATOR GRANT** |
+  | `tests/params-scalar-nontype-text-refusal.test.ts` | `c5` (`???`, alias) | codes `[]` → same; `PERMISSIVE` byte-unchanged | **OPERATOR GRANT** |
+  | `tests/params-scalar-nontype-text-refusal.test.ts` | `c7` (`[a, b]`, field) | codes `[]` → same; `S_WITH_PERMISSIVE_A` byte-unchanged | **OPERATOR GRANT** |
+
+  e6 and n29 do not move because `parseSchemaObjectBody` drops the malformed
+  field list WHOLE, so no field-type walk runs and no fragment reaches the
+  judgement — the fix moves fewer pins than constraint 7 licenses. The three
+  granted cells were relocated from `CONTRAST_ROWS` into a `BODY_POSITION_REFUSED`
+  table inside the same `describe`, which review round 1 verified is the idiom
+  0059's own moved cells use (its four `params-default-string-literal-raw-newline`
+  rows moved from `ADMITTED` into a new `TYPE_TEXT_REFUSED` table under the same
+  grant), with both halves still asserted per cell and the file still at 93
+  cells; recorded because the grant's words "change ONLY the codes column"
+  describe a smaller textual edit than shipped, while every semantic obligation
+  of the grant is met.
+- Per-position sink-threading map after the change (§Fix constraint 2, measured
+  in both directions): `params:` field type — bug 0059's sink;
+  `schema` object-body field type — **this fix's**, at
+  `collectUnresolvedNamedTypes` per field in `walkStatement`'s `schema` arm;
+  `schema X = …` alias/union arm — **this fix's**, at
+  `collectUnresolvedNamedTypes` over the joined arms in
+  `checkSchemaDeclarationGraph`; `@<T>` annotation — **none** (its own
+  `collectUnresolvedNamedTypes` call threads no fourth argument and
+  `lowerQueryResponseSchema` → `buildBodyTypeSchemas` is untouched); `value`
+  (`let` annotation, `fn` parameter type) and `return` (`fn` return type) —
+  none, they never reach `lowerTypeSource`. All five unthreaded observables
+  measured byte-identical across the change and pinned as over-refusal
+  tripwires: `@<Cat +>` → `[]`, `lowerQueryResponseSchema("Cat +", …)` → `{}`,
+  `let x: Cat + = 1` → `[]`, `fn f(p: Cat +): integer { 1 }` → `[]`,
+  `fn f(): Cat + { 1 }` → `[]` (the return position captures `"Cat+"` whole and
+  stays silent; `ReturnType` is a different production and refusing it is
+  nobody's claim here). `@<Ghost>` → `unresolved-named-type` is the control
+  proving those four absence assertions can red.
+- The emission set — the *Trigger*'s post-hoc in-scope set, measured. Judged
+  unit: the brace-free FRAGMENT `lowerTypeExpr`'s trailing catch-all is handed,
+  at either body position, at any reach — the whole arm or field type
+  (`schema X = Cat +` → `Cat+`; `schema S { a: string | }` → `string|`), a union
+  arm at either position (`string | integer +` → `integer+`), a `GenericType`
+  argument (`array<Cat +>` → `Cat+`), an inline `ObjectType`'s field type at any
+  depth (`{b: string +}` → `string+`; `{b: {c: ???}}` → `???`), and the `by`
+  spelling (`schema X by a = Cat | Dog +` → `Dog+`) and the `.thetalib` spelling
+  alike. Count: one per offending fragment, no dedup (`Cat + | Dog +` → two;
+  `{ a: string +, b: Cat . }` → two). Range: the declaration's, which is the
+  range both positions' existing type diagnostics already carry
+  (`SchemaFieldSource` has none of its own). The fragment-level brace/literal
+  decline is SHARED with `theta/load/params-type-not-expression`, stated as
+  shared in both rows rather than copied.
+- Guards (§Fix constraint 1), two, both modelled on bug 0059's landed pair.
+  (1) *Same-scope last resort* — a field, resp. a declaration, that already drew
+  an error-severity diagnostic in its own walk keeps it alone:
+  `schema S { a: void + }` → `void-in-non-return-position`;
+  `{ a: array<integer, integer> + }` → `generic-arity-mismatch`;
+  `schema X = Result<string, integer> +` → `result-in-schema-position`;
+  `{ a: enum["x"] + }` → `inline-enum`; `schema X = Ghost | Cat +` →
+  `unresolved-named-type`. The window is DECLARATION-wide at the alias position
+  and PER-FIELD at the object position, which follows the shape of each
+  position's own walk — one `collectUnresolvedNamedTypes` call over the joined
+  arms versus one per field — and review round 1 verified it independently:
+  a per-arm alias window would red `schema X = Ghost | Cat +` with two
+  diagnostics, and would additionally move pre-existing behaviour
+  (`schema X = Ghost | Ghost` emits one `unresolved-named-type` today through
+  the single call's dedup, two under per-arm calls), which nothing authorizes.
+  (2) *Node-refusal flag* — `emitMalformedAliasRhs` runs at PARSE time into a
+  different diagnostic array from the checker pass, so guard 1 cannot see it;
+  its boolean return is recorded as `SchemaDecl.aliasRhsRefused` and the alias
+  emitter skips a flagged declaration. `schema X = Cat + 1`, `Cat . Dog`,
+  `string+integer`, `Cat.a`, `string ++ integer` each keep exactly one
+  `malformed-alias-rhs` (and `Cat.a`'s pair with `unknown-identifier` stays a
+  pair of two). Verification found guard 2 additionally protects
+  `schema X = -1`, whose captured arm is the lone `"-"` — itself unspellable —
+  so `tests/schema-alias-rhs-malformed.test.ts` cells b4/b5/d3 depend on it too.
+- §Fix constraint 6, the suppressed sibling, DECIDED: the refusal ALONE.
+  `schema X = Ghost +` and `schema S { a: Ghost + }` draw
+  `schema-type-not-expression` and NOT `unresolved-named-type`, because `Ghost+`
+  is not a `NamedType` (`NamedType ::= Ident`, `grammar.md:98`) so that row's
+  trigger does not reach it, and restoring it would be the mis-attribution bug
+  0044 owns, which constraint 6 forbids moving. `schema S { a: match + }`
+  likewise draws the refusal alone; `schema S { a: match }` keeps
+  `reserved-keyword-as-identifier` untouched.
+- §Fix constraint 3, grammar-admitted traffic keeps its bytes AND its silence,
+  pinned byte-for-byte at both positions: `array<{b: string}>` →
+  `{"type":"array","items":{}}`; `"x" | integer` →
+  `{"anyOf":[{},{"type":"integer"}]}`; `{b: string}` →
+  `{"$ref":"#/$defs/__inline_0aac28182e71617b"}`; `"low" | "high"` →
+  `{"type":"string","enum":["low","high"]}`; `string | integer` →
+  `{"type":["string","integer"]}`; `"x"` → `{"const":"x"}`; and `{}` keeps
+  `theta/parse/empty-schema-body` ALONE — declined, never refused. The
+  `__inline_<slug>` names are minted by hand-written canonical-form SHA-256
+  oracles with their own honesty cells; `schemaSlug` is deliberately not
+  imported.
+- Committed-corpus census, re-derived at the fix baseline rather than assumed
+  (§Fix constraint 8): `git ls-files` lists **34** committed `.theta` /
+  `.thetalib` files (32 `.theta`, 2 `.thetalib`) declaring **zero** alias/union
+  declarations and **11** object schemas with **25** field types, every one a
+  well-formed `Type`. No committed fixture is in either sub-class, so none
+  changes disposition; `tests/committed-fixture-parse-gate.test.ts` is green,
+  and `tests/fixtures/h7a/permitted-codes.json` stays byte-unchanged (blob
+  `a4a8da04…`), decided by the real H9a run.
+- Baseline drift recorded — the doc's §Reproduction was measured at 0.52.0 and
+  two rows have since moved; everything else re-derived exact. (1) `{}` at both
+  body positions now draws `theta/parse/empty-schema-body` (bug **0045 is
+  fixed**), so this document's `diags []` row for `schema S { a: {} }` /
+  `schema X = {}` and its §Related description of 0045 as "open" are stale: the
+  disposition a recogniser must decline is now a *diagnostic to leave alone*,
+  not a silence to preserve. The lowered bytes are unchanged, so constraint 3's
+  byte requirement still holds. (2) `schema S { a: match }` now draws
+  `theta/parse/reserved-keyword-as-identifier`, not the spurious
+  `unresolved named type 'match'` this document cites for bug 0044. Neither
+  error changes any constraint's substance.
+- Gates: witness `tests/schema-body-nontype-text-refusal.test.ts` 96/96 green
+  (RED before the fix at HEAD `8e2a199c`: 49 failed | 47 passed (96) — group (a)
+  43 refusal cells, group (d) 3 constraint-6 cells, group (r) 3 registry cells,
+  with the six fence groups (a0)/(b)/(c)/(e)/(f)/(g) green already); full
+  default suite `npm test` 281 files / 4591 tests green;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) exit 0; `npm run lint`
+  exit 0; H8a live 30/30 (the additive cell below); H9a acceptance 11/11.
+- Review: round 1 deep — FINDINGS, both non-behavioural: F1 `house-rule` (the
+  catch-all's comment still claimed `parseParams` was the sink's "one reader",
+  contradicting the same file's own updated `LowerCtx.unspellable` contract;
+  re-derived to name the three readers and the shared predicate), F2 `test`
+  (two `path:line` citations inside the new witness wrong at the post-fix
+  tree — `code-registry-parse.md:91`→`:92`, shifted by this fix's own row
+  insertion, and `schemas.md:63`→`:64`; re-anchored). Both posed questions were
+  answered with independent evidence: the guard-1 window asymmetry is correct
+  and follows each position's walk, and the three granted cells' relocation is
+  the idiom 0059's own moved cells use. Two comment-only polish passes followed
+  (the second re-anchoring three further `params.ts` citations that the first
+  pass's own +3 comment lines staled); every hunk of both passes touches only
+  comment prose, verified hunk-by-hunk against the tree, so the confirmation
+  review round was skipped per the polish rule with the gates re-run green.
+  Cap 1 of 5.
+- Verification: SOLID, zero findings. Four neutralisations, each red for the
+  right reason and restored blob-hash-exact against the working-tree oracle
+  (`theta-document.ts` `cdf7db1b…`, `params.ts` `3dbd9c03…`, all 11 files
+  re-hashed after every cycle). (i) Removing the `unspellable` argument from
+  both threading sites reds 46 cells — group (a)'s 43 plus d1/d2/d3 — with the
+  six fence groups still green. (ii) Dropping the BRACE half of the shared
+  decline reds exactly 10 cells: this fix's e1 at both positions, and bug 0059's
+  own group-(d) brace rows d4/d5/d6/d6-body/d9/d11/d12/d13 — one edit reddening
+  both bugs' witnesses, which is the proof the decline is genuinely shared and
+  that narrowing it narrows 0059's landed refusal. (iii) Deleting the
+  `s.aliasRhsRefused` conjunct doubles up the `malformed-alias-rhs` pairs
+  (witness group (c)'s five cells) and additionally reds b4/b5/d3 in bug 0042's
+  witness. (iv) The additive H8a cell was red-proven live under (i): the junk
+  theta `b61livebroken` registered where the cell asserts it must not.
+  Live: one additive H8a cell (file 29 → 30 cells, +211/−0) — a theta whose
+  `schema S { a: string + }` field type is junk is refused through the real
+  `session_start` → `resources_discover` → `composeExtensionInstance` →
+  `discoverAndComposeFixtures` path (`handle.command` undefined,
+  `registeredNames()` excludes it, and the `theta-system-note` channel carries
+  the registry-sourced message exactly once) beside a well-formed sibling
+  (`schema S { a: string }`) and an unrelated control that both register;
+  registration-only, so zero tokens. No open live signature was hit — both
+  halves ran clean first time.
+- Residuals: (1) **Cross-file `src`-line citation drift.** The change grew
+  `theta-document.ts` by +102 lines, `body-type-lowering.ts` by +31 and
+  `params.ts` by +25, so `path:line` citations in roughly two dozen OTHER test
+  files' comments are now stale. Every citation inside the eleven touched files
+  was re-anchored and verified at the post-fix tree (review round 1 swept all 30
+  in the new witness); the others are outside this fix's file allowlist, and the
+  repo does not maintain them — two such citations in
+  `tests/schema-alias-union-decl.test.ts` (`:143`, `:694`) were already stale at
+  HEAD from earlier fixes. Bug 0134's class. (2) **The `.thetalib` field-position
+  reach is pinned at one position only.** The *Trigger* claims both extensions
+  at both positions; the witness pins `.thetalib` at the alias position, and the
+  field position in a `.thetalib` was verified live by review round 1
+  (`schema S { a: ??? }` in a library → one refusal) but carries no cell. A cell
+  would close it. (3) **`schema X by a = Cat +` draws the refusal plus
+  `by-on-object-schema`** — two distinct author errors, not a cascade: the
+  `by`-clause check is outside the *Trigger*'s closed guard set and the row
+  promises one diagnostic per FRAGMENT, not per declaration. Verified live in
+  review round 1; unpinned. (4) The `-1` alias arm's dependence on guard 2
+  (witness-adjacent cells b4/b5/d3 in bug 0042's file) is load-bearing but
+  documented only in this record and in verification's N3.
+- Discharge notes appended: bug 0042 §Fix (0.52.0) *Residuals* (i) and (ii) —
+  both discharged, this report being the filing of exactly those two residuals;
+  bug 0059 — its §Fix's "a position that threads no sink is unchanged, so the
+  three other type positions keep their bytes and their diagnostics until they
+  adopt it" and its constraint 2 are now discharged for two of the three
+  positions (the operator grant's rider). NO note on bug 0033 §Fix (0.45.0)
+  *Residuals* (ii): it records grammar-admitted arms (bug 0043's subject), which
+  this fix DECLINES rather than refuses, so its claim is untouched.
+- Pinned dispositions / non-goals: the `@<T>` annotation, the `value` position
+  and the `return` position keep byte-identical lowered documents and
+  diagnostic sequences and are NOT claimed here (§Fix constraint 2, witness
+  group (g)); `{}` keeps bug 0045's `empty-schema-body` alone and is declined,
+  never refused; `schema S { a: -1 }` and `schema X = |` keep
+  `empty-schema-body` alone (both measured — the field list, resp. the arm list,
+  is dropped whole before any fragment reaches the judgement); keyword-shaped
+  text drawing the wrong code stays bug 0044's (`schema S { a: match }`
+  untouched); `lowerTypeExpr`'s arm ordering stays bug 0043's; the boundary
+  token after a completed capture stays bug 0042's, its five contrast fixtures
+  each keeping exactly one `malformed-alias-rhs`; and the capture over-run
+  through `<` / `>` (`schema X = Cat >`) remains unfiled and out of frame.

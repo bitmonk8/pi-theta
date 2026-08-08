@@ -91,7 +91,7 @@ import {
   isSingleEnclosingBraceGroup,
   type SchemaSlugCollision,
 } from "./body-type-lowering";
-import { splitTopLevel, splitTopLevelSegments } from "./params";
+import { isUnspellableTextRefusable, splitTopLevel, splitTopLevelSegments } from "./params";
 // QRY-19 lives in the runtime discard module (it owns the discarded-query
 // discipline shared with the QRY-20 runtime obligation); the parser reuses its
 // pure parse-time check rather than re-deriving the diagnostic. Parser→runtime
@@ -624,6 +624,18 @@ export interface SchemaDecl extends NodeBase {
    * clause rather than it being silently discarded.
    */
   readonly by?: string;
+  /**
+   * Set when `emitMalformedAliasRhs` already refused this declaration's
+   * right-hand side at PARSE time (bug 0042 §Fix), into `this.diagnostics` —
+   * a DIFFERENT array from the one `checkSchemaDeclarationGraph` (the checker
+   * pass) builds. That pass's own same-scope guard reads only its own array,
+   * so it cannot see a parse-time refusal by inspecting diagnostics alone; a
+   * node-level flag is the one channel that carries the fact forward (bug
+   * 0061 §Fix guard 2). A declaration carrying this flag draws no
+   * `theta/parse/schema-type-not-expression` for its arm text, keeping
+   * `malformed-alias-rhs` its only report.
+   */
+  readonly aliasRhsRefused?: true;
 }
 
 /** An `enum` declaration (`EnumDecl`; schemas.md). */
@@ -2484,8 +2496,15 @@ class BodyParser {
       return { kind: "schema", name, range };
     }
     const range = spanRange(kw.range, this.prevRange());
-    this.emitMalformedAliasRhs(name, range, segments, arms);
-    return { kind: "schema", name, arms, ...(by !== undefined ? { by } : {}), range };
+    const aliasRhsRefused = this.emitMalformedAliasRhs(name, range, segments, arms);
+    return {
+      kind: "schema",
+      name,
+      arms,
+      ...(by !== undefined ? { by } : {}),
+      ...(aliasRhsRefused ? { aliasRhsRefused: true } : {}),
+      range,
+    };
   }
 
   /**
@@ -2515,13 +2534,20 @@ class BodyParser {
    *
    * A right-hand side with no arms at all took the `empty-schema-body` path
    * above and never reaches here.
+   *
+   * Returns whether a diagnostic fired, so `finishAliasSchema` can record the
+   * refusal on the returned decl node (bug 0061 §Fix guard 2): this method
+   * pushes into `this.diagnostics`, a PARSE-time array the checker pass
+   * (`checkSchemaDeclarationGraph`) never sees, so a node-level flag is the
+   * only channel that lets that later pass skip refusing the same
+   * right-hand side's arm text a second time under a different code.
    */
   private emitMalformedAliasRhs(
     name: string,
     declRange: SourceRange,
     segments: readonly string[],
     arms: readonly string[],
-  ): void {
+  ): boolean {
     const message = `'${name}' has a malformed right-hand side; write a single type, or arms separated by single '|', and nothing else on the declaration's line`;
     if (segments.length !== arms.length) {
       this.diagnostics.push({
@@ -2531,11 +2557,11 @@ class BodyParser {
         range: declRange,
         message,
       });
-      return;
+      return true;
     }
     const cursor = this.peek();
     if (!isAliasResidueHead(cursor) || cursor.range.start.line !== this.prevRange().end.line) {
-      return;
+      return false;
     }
     this.diagnostics.push({
       severity: "error",
@@ -2544,6 +2570,7 @@ class BodyParser {
       range: cursor.range,
       message,
     });
+    return true;
   }
 
   /**
@@ -5162,6 +5189,33 @@ function reservedKeywordAsIdentifierDiagnostic(
   };
 }
 
+/**
+ * The registered `theta/parse/schema-type-not-expression` refusal (bug 0061
+ * §Fix): a `schema` object-body field type, or an arm of a `schema X = …` /
+ * `schema X by f = …` alias/union declaration, whose text reaches
+ * `lowerTypeExpr`'s trailing catch-all (params.ts) carrying a FRAGMENT no
+ * `Type` production spells. `<X>` renders the DECLARATION's identifier, the
+ * same category-7 slot `unresolvedNamedTypeDiagnostic`'s sibling rows use for
+ * `<name>` — `SchemaFieldSource` and an arm string carry no range or name of
+ * their own — so two offending fragments in one declaration render IDENTICAL
+ * text: the count rule made visible, not a duplicate. Held identical to the
+ * registry row's Message by DIAG-4 rather than by shared code, matching
+ * `unresolvedNamedTypeDiagnostic` above.
+ */
+function schemaTypeNotExpressionDiagnostic(
+  declName: string,
+  range: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/schema-type-not-expression",
+    file,
+    range,
+    message: `'${declName}' declares a type that is not a theta type expression`,
+  };
+}
+
 /** A `Result<Ok, Err>` application, captured as its two type arguments. */
 const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
 
@@ -5879,6 +5933,11 @@ function checkSchemaDeclarationGraph(
     // the arm is the `Type`; `checkInlineEnumForm` anchors its match at the
     // start of what it is given, so a second-position `enum[...]` arm is
     // rejected here where the joined source would hide it.
+    //
+    // `declDiagStart` bounds the bug 0061 §Fix guard-1 last-resort check below
+    // to diagnostics THIS declaration's own arm walk raises, mirroring bug
+    // 0059's identical per-field guard in `parseParams` (params.ts).
+    const declDiagStart = out.length;
     for (const arm of s.arms) {
       pushDiag(out, checkInlineEnumForm(arm, site));
       out.push(...parseTypeExpression(arm, "schema-feeding", site));
@@ -5900,16 +5959,38 @@ function checkSchemaDeclarationGraph(
     // drives (`collectUnresolvedNamedTypes`, body-type-lowering.ts) over the
     // arms rejoined with the same separator `lowerTypeSource` re-splits on.
     const aliasReservedKeywords: string[] = [];
+    const aliasUnspellable: string[] = [];
     const aliasUnresolved = collectUnresolvedNamedTypes(
       s.arms.join(" | "),
       typeNames,
       aliasReservedKeywords,
+      aliasUnspellable,
     );
     for (const keyword of aliasReservedKeywords) {
       out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
     }
     for (const name of aliasUnresolved) {
       out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+    }
+    // bug 0061 §Fix: text no `Type` production spells reaches
+    // `lowerTypeExpr`'s catch-all as `aliasUnspellable`
+    // (`collectUnresolvedNamedTypes`, body-type-lowering.ts); refuse what the
+    // shared decline (`isUnspellableTextRefusable`, params.ts) does not admit,
+    // one diagnostic per offending fragment, no dedup. Guard 1 — this
+    // declaration already drew an error-severity diagnostic in its own arm
+    // walk above (a position rule, a reserved keyword, or an unresolved
+    // name) — keeps that diagnostic alone. Guard 2 — `emitMalformedAliasRhs`
+    // already refused this right-hand side at PARSE time, into a diagnostic
+    // array this checker pass cannot see — is read off the node flag
+    // `finishAliasSchema` recorded (`s.aliasRhsRefused`), so the refusal never
+    // cascades onto a right-hand side another row already named.
+    if (
+      s.aliasRhsRefused !== true &&
+      !out.slice(declDiagStart).some((d) => d.severity === "error")
+    ) {
+      aliasUnspellable
+        .filter(isUnspellableTextRefusable)
+        .forEach(() => out.push(schemaTypeNotExpressionDiagnostic(s.name, s.range, file)));
     }
     if (s.by !== undefined) {
       pushDiag(out, checkByClause({ name: s.name, form: byForm, field: s.by }, site));
@@ -6300,6 +6381,11 @@ function walkStatement(
           ),
         );
         for (const f of s.fields) {
+          // `fieldDiagStart` bounds the bug 0061 §Fix guard-1 last-resort
+          // check below to diagnostics THIS field's own walk raises,
+          // mirroring bug 0059's identical per-field guard in `parseParams`
+          // (params.ts).
+          const fieldDiagStart = out.length;
           // An inline `enum[...]` in a schema field type is `theta/parse/inline-enum`
           // — `enum` is top-level only (schemas.md §Enum declarations).
           pushDiag(
@@ -6319,16 +6405,32 @@ function walkStatement(
           // the registry row's "resolves to no declaration usable at the
           // position it is written".
           const fieldReservedKeywords: string[] = [];
+          const fieldUnspellable: string[] = [];
           const fieldUnresolved = collectUnresolvedNamedTypes(
             f.typeSource,
             refs.typeNames,
             fieldReservedKeywords,
+            fieldUnspellable,
           );
           for (const keyword of fieldReservedKeywords) {
             out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
           }
           for (const name of fieldUnresolved) {
             out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+          }
+          // bug 0061 §Fix, guard 1 only: the object body has no parse-time
+          // refusal to mirror the alias position's guard 2
+          // (`emitMalformedAliasRhs`) — a field's type is one verbatim capture
+          // with no separate malformed-right-hand-side emission. A field that
+          // already drew an error-severity diagnostic in its own walk above
+          // (a position rule, a reserved keyword, or an unresolved name)
+          // keeps that diagnostic alone; otherwise refuse what the shared
+          // decline (`isUnspellableTextRefusable`, params.ts) does not admit,
+          // one diagnostic per offending fragment, no dedup.
+          if (!out.slice(fieldDiagStart).some((d) => d.severity === "error")) {
+            fieldUnspellable
+              .filter(isUnspellableTextRefusable)
+              .forEach(() => out.push(schemaTypeNotExpressionDiagnostic(s.name, s.range, file)));
           }
         }
       }

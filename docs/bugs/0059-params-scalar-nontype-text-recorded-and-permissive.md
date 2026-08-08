@@ -1005,3 +1005,30 @@ Constraints on any implementation:
   refusal > same-iteration error > text refusal > that field's default-side
   literal checks); the cross-field `non-trailing-default` check is never
   suppressed.
+
+Discharge note (0.87.0). §Fix's "a position that threads no sink is unchanged,
+so the three other type positions keep their bytes and their diagnostics until
+they adopt it" has been taken up: bug
+[0061](./0061-nonparams-type-positions-keep-junk-arm-text-silent.md) adopted
+this fix's `LowerCtx.unspellable` sink at TWO of those three positions — a
+`schema` object-body field type and a `schema X = …` alias/union arm — threading
+it through `collectUnresolvedNamedTypes`'s optional out-parameter and raising
+its own `theta/parse/schema-type-not-expression` at the declaration's range.
+§Fix constraint 2's three-position byte-identicality claim therefore now holds
+for the `@<T>` annotation ALONE, which still threads no sink
+(`lowerQueryResponseSchema` → `buildBodyTypeSchemas` is untouched, deliberately
+not the threading site for exactly this reason), together with the `value` and
+`return` positions that never reach `lowerTypeSource` at all. **This report's own
+claims are untouched.** The `params:` judgement, its two-stage trigger, its
+guards, its precedence rules and its lowered bytes are unchanged, and the shared
+decline is now literally shared: this fix's inline predicate was extracted into
+one exported `isUnspellableTextRefusable` that `parseParams` and both body-position
+emitters call, so the brace and `LiteralType` exemptions this report's operator
+grant established govern all three positions from one place — 0061's verification
+proved it by reddening this report's own group-(d) brace cells
+(d4/d5/d6/d6-body/d9/d11/d12/d13) from a single edit to that predicate. Group
+(c)'s fence is narrowed, not weakened, under the operator grant "Authorize the
+3-cell fence update; re-dispatch 0061" (2026-08-08, HEAD `8e2a199c`): rows c4
+(`???` field), c5 (`???` alias) and c7 (`[a, b]` field) moved from silent to
+0061's refusal with their lowered-bytes halves byte-unchanged, and the witness
+stays at 93 cells with this report's subject fully witnessed by the remaining 90.

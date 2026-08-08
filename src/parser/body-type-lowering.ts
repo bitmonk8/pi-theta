@@ -113,6 +113,7 @@ export function lowerObjectFields(
   unresolved?: string[],
   sinks?: InlineHoistSinks,
   reservedKeywords?: string[],
+  unspellable?: string[],
 ): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
@@ -125,6 +126,7 @@ export function lowerObjectFields(
       unresolved,
       sinks,
       reservedKeywords,
+      unspellable,
     );
     required.push(field.name);
   }
@@ -157,6 +159,7 @@ export function lowerInlineObject(
   unresolved?: string[],
   sinks?: InlineHoistSinks,
   reservedKeywords?: string[],
+  unspellable?: string[],
 ): Record<string, unknown> {
   const fields: LowerableField[] = [];
   for (const entry of splitTopLevel(body, ",", "angle-and-brace")) {
@@ -171,7 +174,7 @@ export function lowerInlineObject(
     }
     fields.push({ name, typeSource });
   }
-  return lowerObjectFields(fields, bodyTypeMap, unresolved, sinks, reservedKeywords);
+  return lowerObjectFields(fields, bodyTypeMap, unresolved, sinks, reservedKeywords, unspellable);
 }
 
 /**
@@ -351,6 +354,17 @@ function isBraceBalanced(s: string): boolean {
  * and discarded, which is the behaviour every OTHER caller relies on (the
  * lowering itself stays permissive regardless of `unresolved`).
  *
+ * `unspellable`, when supplied, is `LowerCtx.unspellable` (params.ts, bug
+ * 0059 §Fix) threaded the same append-only, caller-owned way as `unresolved`:
+ * `collectUnresolvedNamedTypes` (below) passes it through to the two body
+ * positions — a `schema` object-body field type and a `schema X = …`
+ * alias/union arm — so their callers can decline and refuse text that reaches
+ * `lowerTypeExpr`'s trailing catch-all, exactly as `parseParams` already does
+ * for `params:` (bug 0061 §Fix). Omitted, the catch-all stays exactly as
+ * permissive and silent as it always was — the posture `lowerQueryResponseSchema`
+ * (query-schema-lowering.ts) relies on for the `@<T>` annotation, which
+ * threads this parameter to neither call it makes.
+ *
  * `sinks`, when supplied, carries the slug-collision posture's two sinks
  * through to the inline-object arm's mint (bug 0039 §Fix constraint: the
  * posture must be wired wherever an `__inline_` entry can now be minted, not
@@ -363,6 +377,7 @@ export function lowerTypeSource(
   unresolved?: string[],
   sinks?: InlineHoistSinks,
   reservedKeywords?: string[],
+  unspellable?: string[],
 ): Record<string, unknown> {
   const s = source.trim();
   // `exactOptionalPropertyTypes` forbids an explicit `undefined` on
@@ -372,6 +387,7 @@ export function lowerTypeSource(
     defs,
     unresolved: unresolved ?? [],
     ...(reservedKeywords !== undefined ? { reservedKeywords } : {}),
+    ...(unspellable !== undefined ? { unspellable } : {}),
     ...(sinks !== undefined
       ? {
           inlineCanonical: sinks.inlineCanonical,
@@ -403,6 +419,7 @@ export function lowerTypeSource(
       fieldCtx.unresolved,
       sinks,
       fieldCtx.reservedKeywords,
+      fieldCtx.unspellable,
     );
 
   // THE TWO DISPATCHES BELOW ARE DISJOINT — no source satisfies both guards —
@@ -710,23 +727,37 @@ function transitiveDefNames(
  * optional, caller-owned, append-only OUT-PARAMETER this function never
  * reads back — deduped to the same `[...new Set(...)]` posture the returned
  * list uses before being appended to the caller's array.
+ *
+ * `unspellable`, when supplied, is a FOURTH, differently-shaped class again
+ * (bug 0061 §Fix): text `lowerTypeExpr`'s trailing catch-all lowers
+ * permissively because it derives from no `Type` production at all — not a
+ * name, resolved or not, and not a reserved keyword. It travels the identical
+ * optional, caller-owned, append-only shape `reservedKeywords` does, with one
+ * difference the count rule requires: NO dedup. §Fix constraint 4 refuses one
+ * diagnostic per offending FRAGMENT, so two occurrences of the same junk text
+ * in one declaration (`schema X = Cat + | Cat +`) must reach the caller as
+ * two entries, not one — `[...new Set(...)]` would silently drop the second
+ * fragment's refusal.
  */
 export function collectUnresolvedNamedTypes(
   source: string,
   declared: ReadonlySet<string>,
   reservedKeywords?: string[],
+  unspellable?: string[],
 ): string[] {
   const bodyTypeMap = new Map<string, Record<string, unknown>>(
     [...declared].map((name) => [name, {}] as const),
   );
   const unresolved: string[] = [];
   const keywordHits: string[] = [];
+  const unspellableHits: string[] = [];
   const s = source.trim();
   if (isSingleEnclosingBraceGroup(s)) {
-    lowerInlineObject(s.slice(1, -1), bodyTypeMap, unresolved, undefined, keywordHits);
+    lowerInlineObject(s.slice(1, -1), bodyTypeMap, unresolved, undefined, keywordHits, unspellableHits);
   } else {
-    lowerTypeSource(s, bodyTypeMap, {}, unresolved, undefined, keywordHits);
+    lowerTypeSource(s, bodyTypeMap, {}, unresolved, undefined, keywordHits, unspellableHits);
   }
   reservedKeywords?.push(...new Set(keywordHits));
+  unspellable?.push(...unspellableHits);
   return [...new Set(unresolved)];
 }

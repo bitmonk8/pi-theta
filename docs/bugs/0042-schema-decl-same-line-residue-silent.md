@@ -690,3 +690,27 @@ which callers pass the flag.
 own 31-test witness is green and unchanged, and the boundary family was probed
 directly across the fix (a declaration ending on the previous logical line with a
 keyword head, `= -1`, and `(1)` all byte-identical).
+
+Discharge note (0.87.0). *Residuals* (i) and (ii) are both discharged by bug
+[0061](./0061-nonparams-type-positions-keep-junk-arm-text-silent.md), which
+filed them as one family and fixed them together. (i)'s "general case is
+arm-text validation against the type grammar" landed as
+`theta/parse/schema-type-not-expression`, raised at the two body positions from
+bug 0059's `LowerCtx.unspellable` sink: `schema X = Cat +` now draws one
+error-severity refusal at the declaration's range instead of keeping the junk
+arm `"Cat+"` silently, and the four spellings (i) names — `Cat +`, `Cat .`,
+`string +`, and the firing contrast `Cat + 1` — are pinned by that report's
+96-cell witness, the contrast still keeping exactly one
+`theta/parse/malformed-alias-rhs` through a node-refusal flag this fix added for
+that purpose. (ii) is discharged asymmetrically, exactly as measured:
+`schema S { a: string | }` is no longer silent and now draws the refusal while
+its lowered `properties.a` stays `{}` — closing the position disagreement (ii)
+recorded — but `schema S { a: -1 }` still draws `theta/parse/empty-schema-body`
+alone, because the malformed field list is dropped WHOLE before any field-type
+walk runs, so no fragment reaches the judgement. **This report's own claims are
+untouched.** `theta/parse/malformed-alias-rhs`'s trigger, both its shapes, and
+its boundary-token scope are unchanged; the only edit to its registry row is one
+re-derived sentence naming the new row as the absorbed-operator arm's authority
+where this row has no token to point at. Its 31-cell witness is green, with the
+two cells §Fix constraint 4 named as deliberate holds moved under 0061's
+authority (e5, the field dangling `|`) or measured unmoved (e6, the field `-1`).

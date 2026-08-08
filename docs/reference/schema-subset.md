@@ -57,18 +57,20 @@ runs on the wire name; the explicit `by <field>` form accepts the theta-side nam
 
 `schema X = ...` is a top-level type alias: literal unions, primitive unions,
 object unions (discriminated), and references to other named types. The
-right-hand side is exactly one type, or two or more separated by a single `|`.
-`theta/parse/malformed-alias-rhs` reports two arrangements: an empty arm
-position (`schema X = Cat |`, `schema X = | Cat`), and a boundary token — an
-identifier, a keyword, a string or number literal, `@`, a backtick template,
-`(`, `[`, `!`, or a unary-negation `-` — on the same source line as the
-right-hand side's last token (`schema X = Cat Cat`, `schema X = -1`). Other
-boundaries keep the disposition they already have: a stray `,`, `)`, `=` or `}`
-is `theta/parse/unsupported-feature`, a `{` is
-`theta/parse/bare-object-literal`, and an operator with no operand behind it
-(`schema X = Cat +`) is absorbed into the arm, leaving no boundary token to
-report. A right-hand side that yields no arm at all is
-`theta/parse/empty-schema-body`.
+right-hand side is exactly one type, or two or more separated by a single
+`|`. An arm whose text derives from no `Type` production is
+`theta/parse/schema-type-not-expression`. `theta/parse/malformed-alias-rhs`
+reports two arrangements: an empty arm position (`schema X = Cat |`,
+`schema X = | Cat`), and a boundary token — an identifier, a keyword, a
+string or number literal, `@`, a backtick template, `(`, `[`, `!`, or a
+unary-negation `-` — on the same source line as the right-hand side's last
+token (`schema X = Cat Cat`, `schema X = -1`). Other boundaries keep the
+disposition they already have: a stray `,`, `)`, `=` or `}` is
+`theta/parse/unsupported-feature`, a `{` is `theta/parse/bare-object-literal`,
+and an operator with no operand behind it (`schema X = Cat +`) is absorbed
+into the arm, leaving no boundary token to report — the arm itself is
+`theta/parse/schema-type-not-expression`. A right-hand side that yields no
+arm at all is `theta/parse/empty-schema-body`.
 
 ### Enum declarations
 

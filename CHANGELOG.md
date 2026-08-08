@@ -6,6 +6,53 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-08-08
+
+### Fixed
+
+- Bug 0061: type text that no `Type` production spells is no longer kept
+  verbatim and lowered to the permissive `{}` in silence at the two `Type`
+  positions inside a theta body. A `schema` object-body field type and a
+  `schema X = …` / `schema X by f = …` alias/union arm now draw one
+  error-severity `theta/parse/schema-type-not-expression` per offending
+  brace-free fragment, at the declaration's range, and the theta does not
+  register — so `schema X = Cat +` (the operator absorbed into the arm) and
+  `schema S { a: string | }` (the field-position dangling `|`) are refused where
+  they previously loaded clean and validated nothing. The judgement is per
+  FRAGMENT at every reach: the whole arm or field type, a union arm, a
+  `GenericType` argument, and an inline `ObjectType`'s field type at any depth,
+  at the `by`, `.theta` and `.thetalib` spellings alike; one diagnostic per
+  fragment, no dedup.
+- The judgement reuses bug 0059's `LowerCtx.unspellable` sink rather than making
+  the type-grammar seam a recogniser, threaded at the two body positions through
+  `collectUnresolvedNamedTypes`'s optional out-parameter, so the `@<T>`
+  annotation, the `value` position (`let` annotations, `fn` parameter types) and
+  the `return` position keep byte-identical lowered documents and byte-identical
+  diagnostic sequences. Bug 0059's decline is now literally shared as one
+  exported predicate, so a `LiteralType` atom or union arm and every
+  brace-carrying fragment stay admitted at every position from one place; `{}`
+  keeps bug 0045's `theta/parse/empty-schema-body` alone, and
+  `schema S { a: -1 }` keeps it alone too because the malformed field list is
+  dropped whole before any fragment reaches the judgement.
+- Two guards keep the refusal to one diagnostic per scope and stop it
+  cascading: a field or declaration that already drew an error-severity
+  diagnostic in its own walk keeps that diagnostic alone (`void +`,
+  `array<integer, integer> +`, `Result<…> +`, `enum["x"] +`, `Ghost | Cat +`),
+  and a declaration `theta/parse/malformed-alias-rhs` already refused at parse
+  time is skipped through a node-level flag (`Cat + 1`, `Cat . Dog`,
+  `string+integer`, `Cat.a`, `string ++ integer` each keep exactly one). A junk
+  fragment hiding an unresolvable name or a reserved keyword (`Ghost +`,
+  `match +`) draws the refusal alone — bug 0044's mis-attribution is not moved.
+- New registry row `theta/parse/schema-type-not-expression` (E, parse, DIAG-2,
+  landed in the same commit as the sites it is raised from), with its *Trigger*
+  written as the GOV-15 post-hoc in-scope set and its *Message*
+  `'<X>' declares a type that is not a theta type expression` keyed to the
+  existing category-7 `<X>` declaration placeholder, so the closed
+  placeholder-rendering surface is untouched. Owning spec sentences in
+  `schemas.md` (the field position, the alias position, and the
+  absorbed-operator exclusion) and the `docs/reference/schema-subset.md` /
+  `docs/reference/diagnostics.md` mirrors re-derived in the same commit.
+
 ## [0.86.0] - 2026-08-08
 
 ### Fixed

@@ -234,21 +234,12 @@ export function parseParams(
         message: `unresolved named type '${name}'`,
       });
     }
-    // bug 0059 §Fix constraint 3: decline this field's `unspellable` entries
-    // down to what the catch-all is NOT licensed to carry. `parseLiteralArm`
-    // (0056's recogniser) declines a `LiteralType` atom; the brace check
-    // declines every text carrying a brace, WIDER than "brace-rooted" by
-    // operator grant (HEAD 948b7814) — "the brace frame
-    // (`lowerParamsFieldType`'s intercept, `hoistInlineObjectType`, bugs
-    // 0035/0045/0052) owns every text carrying a brace; this refusal owns
-    // brace-free text." Necessity: `splitTopLevel` defaults to angle-only
-    // nesting, so `array<{x: integer, y: string}>` hands this arm the two
-    // UNBALANCED fragments `{x: integer` and `y: string}` — neither
-    // brace-ROOTED, both brace-CARRYING — and a narrower "brace-rooted" test
-    // would refuse both.
-    const refusable = unspellable.filter(
-      (text) => parseLiteralArm(text) === undefined && !text.includes("{") && !text.includes("}"),
-    );
+    // bug 0059 §Fix constraint 3, factored into the shared
+    // `isUnspellableTextRefusable` predicate (below) so this position and bug
+    // 0061's two body-position emitters (theta-document.ts) decline the
+    // identical class rather than each keeping its own copy: narrowing the
+    // predicate narrows every position's refusal at once.
+    const refusable = unspellable.filter(isUnspellableTextRefusable);
     // §Fix constraint 1 ("exactly one diagnostic per offending field"), two
     // guards. `field.shapeRefused` is set at the frontmatter seam when the
     // value NODE was already refused (`paramValueCanCarryType`,
@@ -499,14 +490,21 @@ export interface LowerCtx {
    * mixed union's literal arm; a brace-rooted type nested in a generic
    * argument or a union arm) and turns what remains into
    * `theta/load/params-type-not-expression` at the field being lowered.
+   * `checkSchemaDeclarationGraph` and `walkStatement`'s `schema` arm
+   * (theta-document.ts) read this same sink for the two body positions,
+   * declining through the identical shared predicate
+   * (`isUnspellableTextRefusable`, above) and turning what remains into
+   * `theta/parse/schema-type-not-expression` (bug 0061 §Fix).
    *
    * OPTIONAL for the same reason `slugCollisions` is: a caller threading no
    * sink collects nothing and the catch-all stays exactly as permissive as it
-   * always was. `lowerTypeSource` (body-type-lowering.ts) builds its own
-   * `LowerCtx` without this key, so the `schema`-body field, the alias
-   * right-hand side, and the `@<T>` annotation reach this same catch-all and
-   * keep byte-identical lowered documents and diagnostic sequences (bug 0059
-   * §Fix constraint 2).
+   * always was. `lowerTypeSource` (body-type-lowering.ts) accepts this key as
+   * its own trailing optional parameter, threaded only at the two body
+   * positions (bug 0061 §Fix); the `@<T>` annotation's own
+   * `collectUnresolvedNamedTypes` call threads none, so that position alone
+   * keeps byte-identical lowered documents and diagnostic sequences (§Fix
+   * constraint 2) — the `value` and `return` positions never reach
+   * `lowerTypeSource` at all.
    */
   readonly unspellable?: string[];
 }
@@ -694,9 +692,12 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
   }
   // A literal-type atom (string/number literal) or any other form: lower
   // permissively; literal lowering is owned by the schema-subset leaves.
-  // `parseParams` is this sink's one reader (bug 0059 §Fix): it declines the
-  // literal and brace-carrying survivors of this arm's legitimate traffic and
-  // raises the text-level refusal at the field being lowered for what remains.
+  // The sink's readers — `parseParams` (`params:`, bug 0059 §Fix) and
+  // `checkSchemaDeclarationGraph` and `walkStatement`'s `schema` arm
+  // (theta-document.ts, bug 0061 §Fix) — decline the literal and
+  // brace-carrying survivors of this arm's legitimate traffic through the
+  // shared `isUnspellableTextRefusable` predicate and raise the text-level
+  // refusal at their own position for what remains.
   lowerCtx.unspellable?.push(s);
   return {};
 }
@@ -900,6 +901,33 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
     return { value: Number(s) };
   }
   return undefined;
+}
+
+/**
+ * Whether one `LowerCtx.unspellable` entry (a text `lowerTypeExpr`'s trailing
+ * catch-all lowered permissively) is text the shared refusal owns, rather
+ * than traffic the catch-all carries on the grammar's own behalf. Declined —
+ * `false` — are exactly the two classes the catch-all is licensed to be
+ * silent for: a `LiteralType` atom or union arm (`parseLiteralArm` above
+ * recognises it) lowers under its own emission, and any fragment carrying a
+ * `{` or `}` anywhere, balanced or not, belongs to the brace frame
+ * (`lowerParamsFieldType`'s intercept, `hoistInlineObjectType`, bugs
+ * 0035/0045/0052) rather than to a catch-all refusal — WIDER than
+ * "brace-rooted" by operator grant (bug 0059 §Fix, HEAD 948b7814):
+ * `splitTopLevel`'s angle-only nesting can hand this arm an UNBALANCED half of
+ * a shredded brace group (`array<{x: integer, y: string}>`'s two fragments,
+ * `{x: integer` and `y: string}`), and neither half is brace-ROOTED, so a
+ * narrower "brace-rooted" test would refuse both.
+ *
+ * ONE declined predicate for every position that refuses `unspellable` text —
+ * `parseParams` below (`params:`, bug 0059 §Fix) and the two body-position
+ * emitters in `theta-document.ts` (a `schema` object-body field type and a
+ * `schema X = …` alias/union arm, bug 0061 §Fix) — so narrowing it here
+ * narrows every position's refusal at once, and none of the three keeps a
+ * private copy of the check.
+ */
+export function isUnspellableTextRefusable(text: string): boolean {
+  return parseLiteralArm(text) === undefined && !text.includes("{") && !text.includes("}");
 }
 
 /**

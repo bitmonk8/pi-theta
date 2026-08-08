@@ -89,6 +89,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //       @2:16-2:19];  the residue-free `.thetalib` control              diags []
 //   2   `schema X = Cat |` arms ["Cat"] decl 2:1-2:17, NO residue stmt, diags []
 //   2a  `schema S { a: string | }` diags []; params → $defs.S properties.a {}
+//       (MOVED by bug 0061 §Fix: diags now [schema-type-not-expression
+//       @1:1-1:25]; $defs.S.properties.a stays {} — the judgement, not the
+//       lowering, moved)
 //   3   `schema X = -1` arms ["-"] decl 1:1-1:13 residue 1:13-1:14    diags []
 //   3a  `schema X = -1 | null` arms ["-"], residue 1:13-1:14 + 1:17-1:21,
 //       diags [unsupported-feature "stray '|' in statement position" @1:15-1:16]
@@ -136,7 +139,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // length mismatch. Group (a) (the registry row) and group (e) (the
 // anti-widening fences) are GREEN today and must stay green: they are the fence
 // around the two exclusions (fixtures 4 and 12), around the object-body
-// position (1d, 1e, 2a, 3b — §Fix constraint 4 keeps the object form still),
+// position (1d, 1e, 3b — §Fix constraint 4 keeps the object form still; 2a
+// moved under bug 0061 §Fix — the field-position sibling of this file's own
+// alias-position dangling `|`, see cell e5 below),
 // around the general same-line statement class the bug doc's §Non-goals
 // excludes (1a, 6a, 6b), and around every pre-existing emission the fix must
 // leave in place.
@@ -186,6 +191,11 @@ const REGISTRY = parseRegistry(
 ) as RegistryRow[];
 
 const CODE = "theta/parse/malformed-alias-rhs";
+// bug 0061 §Fix moved fixture 2a (below, cell e5) from silent-and-permissive
+// to refused: the field-position dangling `|` is the sibling of this file's
+// own alias-position dangling `|` (fixture 2, refused since 0042), and bug
+// 0061 is the authority that closes that asymmetry.
+const REFUSAL = "theta/parse/schema-type-not-expression";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
 const UNRESOLVED = "theta/parse/unresolved-named-type";
 const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
@@ -220,6 +230,11 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
 /** The malformed-RHS message for one declaration name (`<X>` is the schema name). */
 function malformedMessage(declName: string): string {
   return msg(CODE, [["<X>", declName]]);
+}
+
+/** The bug 0061 refusal's message for one declaration name (`<X>` is the schema name). */
+function refusalMessage(declName: string): string {
+  return msg(REFUSAL, [["<X>", declName]]);
 }
 
 // ===========================================================================
@@ -1264,17 +1279,27 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     ]);
   });
 
-  it("GREEN (e5, fixture 2a): the dangling `|` in a FIELD type keeps its silence and its lowering", () => {
-    // The empty arm position at the object form's field-type position. The rule
-    // is scoped to the alias right-hand side, so this input's disposition —
-    // silent, with the field lowering to the permissive fragment — must not
-    // move. Its lowering is pinned too, because a rule that reached the field
-    // position would change what a caller's argument is validated against.
+  it("GREEN (e5, fixture 2a): the dangling `|` in a FIELD type is refused now (bug 0061)", () => {
+    // WHY THIS TEST MOVED: the empty arm position at the object form's
+    // field-type position is the field-position half of one defect with this
+    // file's own alias-position dangling `|` (fixture 2, `schema X = Cat |`,
+    // refused since 0042) — bug 0061 names both positions as one class of
+    // text no `Type` production spells and is the authority that closes the
+    // asymmetry (docs/bugs/0061-…md §Fix constraint 7). `string|` reaches
+    // `lowerTypeExpr`'s catch-all whole (the trailing `|` survives inside one
+    // `typeSource`, unlike the alias arm list's own non-empty filter), so it
+    // now draws exactly one `theta/parse/schema-type-not-expression` at the
+    // DECLARATION's range (bug 0061 §Fix constraint 4). The lowering stays
+    // pinned: the refusal is raised by the caller, never inside
+    // `lowerTypeExpr` itself (§Fix constraint 2), so a caller's argument is
+    // validated against the same permissive fragment as before — now with a
+    // registered diagnostic naming it, and the theta does not register.
     const doc = parse(F2A);
-    expect(renderDiags(doc.diagnostics, FM_LINES), "e5 — the field position stays silent").toEqual(
-      [],
-    );
-    expect(stmtSpans(doc, FM_LINES), "e5 — one declaration statement").toEqual([
+    expect(
+      renderDiags(doc.diagnostics, FM_LINES),
+      "e5 — the field position now refuses the dangling `|`",
+    ).toEqual([`error ${REFUSAL}: ${refusalMessage("S")} @1:1-1:25`]);
+    expect(stmtSpans(doc, FM_LINES), "e5 — one declaration statement, unmoved").toEqual([
       "schema:S@1:1-1:25",
       "let:a@2:1-2:10",
     ]);
@@ -1282,12 +1307,14 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     const withParams = parseDoc(P2A, THETA_PATH);
     expect(
       renderDiags(withParams.diagnostics, PARAMS_LINES),
-      "e5 — and reaching it from `params:` changes nothing",
-    ).toEqual([]);
+      "e5 — reaching it from `params:` changes nothing about the lowering, but the body's OWN " +
+        "schema declaration still draws the same refusal",
+    ).toEqual([`error ${REFUSAL}: ${refusalMessage("S")} @1:1-1:25`]);
     expect(
       loweredParams("e5", withParams),
-      "e5 — the field's own lowering is the measured one: the trailing `|` is dropped by the same " +
-        "top-level split and the field falls to the permissive fragment",
+      "e5 — the field's own lowering is the measured one, UNMOVED by bug 0061: the trailing `|` is " +
+        "dropped by the same top-level split and the field falls to the permissive fragment — the " +
+        "refusal judges the text, it does not touch the bytes",
     ).toEqual({
       type: "object",
       properties: { a: { $ref: "#/$defs/S" } },
@@ -1308,10 +1335,17 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     // The `-1` at the object form's field-type position: the field list is
     // dropped whole and the body reads as empty. One code, unchanged — the
     // alias rule must not add a second one at a position it does not govern.
+    //
+    // MEASURED UNMOVED BY BUG 0061 (the field-position sibling of e5, and the
+    // other cell §Fix constraint 7 licenses to move): `parseSchemaObjectBody`
+    // discards the whole malformed field list before any field-type walk
+    // runs, so no fragment ever reaches `lowerTypeExpr`'s catch-all for
+    // `theta/parse/schema-type-not-expression` to judge — this cell stays
+    // pinned by construction, not by a guard.
     const doc = parse(F3B);
     expect(
       renderDiags(doc.diagnostics, FM_LINES),
-      "e6 — exactly the object position's own disposition",
+      "e6 — exactly the object position's own disposition, unmoved",
     ).toEqual([`error ${EMPTY_BODY}: ${msg(EMPTY_BODY, [["<X>", "S"]])} @1:1-1:19`]);
   });
 

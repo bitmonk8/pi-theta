@@ -4465,3 +4465,214 @@ describe("H8a-T — bug 0059: a params: right-hand side spelling no Type product
   });
 });
 
+// ===========================================================================
+// Bug 0061 — a `schema` object-body field type, or a `schema X = …` alias/
+// union arm, carrying text no `Type` production spells (an operator absorbed
+// into the fragment with no operand behind it, a dangling `|`, or bare
+// punctuation) was captured verbatim and lowered through `lowerTypeExpr`'s
+// trailing catch-all to the permissive `{}` with zero diagnostics at either
+// body position
+// (docs/bugs/0061-nonparams-type-positions-keep-junk-arm-text-silent.md).
+//
+// The fix threads bug 0059's landed `LowerCtx.unspellable` sink
+// (src/parser/params.ts) through `collectUnresolvedNamedTypes`'s existing
+// optional out-parameter pattern (src/parser/body-type-lowering.ts) at the
+// two body positions — the per-field call in `walkStatement`'s `schema` arm
+// and the joined-arms call in `checkSchemaDeclarationGraph`
+// (src/parser/theta-document.ts) — and refuses what the SAME shared decline
+// bug 0059 already uses (`isUnspellableTextRefusable`, params.ts) does not
+// admit, one error-severity `theta/parse/schema-type-not-expression` per
+// offending fragment. `hasLoadParseError` (production-composition.ts)
+// un-registers the theta at the SAME site the bug 0070/0071/0077/0079(a)/
+// 0110/0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/0081/0052/0059
+// cells above exercise for their own codes.
+//
+// The 96-cell unit witness (tests/schema-body-nontype-text-refusal.test.ts)
+// proves the mechanism offline at the `parseThetaDocument` boundary — its own
+// group (a) cell a3 (`schema S { a: string + }`) is the fixture this live
+// cell mirrors. This cell proves the SAME registered code denies
+// REGISTRATION end to end through the real production composition root
+// (session_start → resources_discover → composeExtensionInstance), which the
+// offline harness cannot reach.
+//
+// The broken theta mirrors the unit witness's field-position cell a3
+// verbatim: the object-body field type `string +` absorbs the operator with
+// no operand behind it, so pre-fix this shape loaded cleanly and registered a
+// declaration that validated nothing at that field. The same-shape sibling
+// (the field's type corrected to the well-formed `string`) isolates the
+// refusal to the junk type text rather than to "a theta declaring this
+// schema shape never registers here" — mirroring the bug 0052/0059 pairs
+// above. Neither fixture declares `params:`, unlike the bug 0059 pair: the
+// checker pass that raises this code (`walkStatement`'s `schema` arm) walks
+// every body-level `schema` declaration directly, independent of whether any
+// `params:` field ever references it, so the refusal fires with no
+// `params:` block in either fixture.
+//
+// No existing live fixture (H8a in this file, the H9a acceptance fixtures, or
+// the hardening probes) declares a `schema` object-body field type or an
+// alias/union arm carrying text outside the `Type` grammar — confirmed by a
+// fresh scan over every `tests/live/**` fixture and embedded theta source
+// string at this HEAD — so the fixed arm had NO live reach at all before this
+// cell.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0052/0059/0110/0148/
+// 0149 cells above claim). ADDITIVE ONLY: no existing cell in this file is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const SCHEMA_TYPE_NOT_EXPRESSION_CODE = "theta/parse/schema-type-not-expression";
+
+/** The sharded registry page carrying `theta/parse/schema-type-not-expression`'s row. */
+const SCHEMA_TYPE_NOT_EXPRESSION_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/schema-type-not-expression: '<X>' declares a type that is not
+ * a theta type expression` — DIAG-4: the message half is read from the
+ * registry row, not copied, mirroring this file's
+ * `paramsTypeNotExpressionFragment` / `duplicateInlineFieldNameFragment`. The
+ * row carries the one `<X>` placeholder (the offending declaration's own
+ * identifier, category 7), so this helper fills it and the trailing
+ * assertion confirms no second placeholder is left unsubstituted.
+ */
+function schemaTypeNotExpressionFragment(declName: string): string {
+  const template = registryMessage(
+    SCHEMA_TYPE_NOT_EXPRESSION_REGISTRY,
+    SCHEMA_TYPE_NOT_EXPRESSION_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${SCHEMA_TYPE_NOT_EXPRESSION_CODE} has no registry row — the code this ` +
+      "cell asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const withSlot = template as string;
+  expect(
+    withSlot,
+    `${SCHEMA_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
+      "must carry the <X> slot this cell fills — the row changed shape",
+  ).toContain("<X>");
+  const message = withSlot.replace("<X>", declName);
+  expect(
+    message,
+    `${SCHEMA_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
+      "grew a second unsubstituted placeholder this reader does not fill",
+  ).not.toMatch(/<[a-zA-Z][a-zA-Z0-9-]*>/);
+  return `${SCHEMA_TYPE_NOT_EXPRESSION_CODE}: ${message}`;
+}
+
+/**
+ * The unit witness's own cell a3, verbatim: a top-level `schema` object-body
+ * field type absorbs an operator with no operand behind it — text no `Type`
+ * production spells (docs/bugs/0061-…md §Fix constraint 4).
+ */
+function schemaTypeNotExpressionSchemaTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { a: string + }", ""].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with the SAME schema and field name, the field's
+ * type corrected to the well-formed `string` — must still register, isolating
+ * the broken theta's refusal to the junk type text rather than to "a theta
+ * declaring this schema shape never registers here".
+ */
+function conformantSchemaFieldTypeTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { a: string }", ""].join("\n");
+}
+
+describe("H8a-T — bug 0061: a schema object-body field type carrying text no Type production spells draws schema-type-not-expression and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose schema object-body field type is junk type text, while its valid-type sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the broken
+      // theta's absence could be (wrongly) attributed to a broken workspace
+      // instead of the schema-type-not-expression rule under test.
+      { source: "project", stem: "b61livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME schema and field name, a VALID type
+      // — must still register, isolating the refusal to the junk type text
+      // rather than to "a theta declaring this schema shape at all cannot
+      // register here".
+      { source: "project", stem: "b61livegood", text: conformantSchemaFieldTypeTheta() },
+      // The load-bearing broken theta: the unit witness's own cell a3
+      // spelling.
+      { source: "project", stem: "b61livebroken", text: schemaTypeNotExpressionSchemaTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b61livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the schema-type-not-expression rule under test, would explain the " +
+          "broken theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b61livegood"),
+        "the same schema and field name with a VALID type did not register " +
+          "— a theta declaring this schema shape at all cannot register in " +
+          "this harness, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta whose schema object-body field type is text no `Type`
+      // production spells does NOT register — `lowerTypeExpr`'s catch-all
+      // sink and `walkStatement`'s per-field decline (src/parser/
+      // theta-document.ts) fire theta/parse/schema-type-not-expression, and
+      // hasLoadParseError un-registers this theta at the SAME site the bug
+      // 0070/0071/0077/0079(a)/0110/0084/0089/0095/0102/0125/0050/0137/0139/
+      // 0142/0148/0149/0081/0052/0059 cells above exercise for their own
+      // codes.
+      expect(
+        handle.command("b61livebroken"),
+        "the theta whose schema object-body field type is junk type text " +
+          "registered anyway through the live discovery/session_start path " +
+          "— theta/parse/schema-type-not-expression did not fire. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b61livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/0081/0052/
+      // 0059 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = schemaTypeNotExpressionFragment("S");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the schema-type-not-expression " +
+          "rejection for the broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+      // The negative half: the valid-type sibling declares the IDENTICAL
+      // schema name and field name, so a second occurrence of the code would
+      // mean it fired for the sibling too rather than only for the junk text
+      // — the code must appear exactly once across the whole session.
+      expect(
+        notes.filter((note) => note.includes(SCHEMA_TYPE_NOT_EXPRESSION_CODE)).length,
+        "schema-type-not-expression must appear for the broken theta's " +
+          "declaration and nowhere else. Notes: " + JSON.stringify(notes),
+      ).toBe(1);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
