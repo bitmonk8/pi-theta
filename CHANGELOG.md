@@ -6,6 +6,29 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-08-08
+
+### Fixed
+
+- Bug 0059: a `params:` field right-hand side that is a YAML scalar carrying
+  text no `Type` production spells now refuses the theta at load with one
+  `theta/load/params-type-not-expression` per offending field, instead of
+  lowering the permissive `{}` with zero diagnostics while the binder prompt
+  rendered the junk text as the declared type. The judgement is per brace-free
+  fragment (top level, union arms, generic type arguments, hoisted
+  inline-object field types at any depth); literal-shaped fragments (the 0056
+  sublanguage) and brace-carrying fragments keep their own lowering, and a
+  field draws at most one diagnostic (node-shape refusal > same-iteration
+  error > text refusal > that field's default-side literal checks). Registry
+  row *Trigger* widened in lock-step (DIAG-2); `frontmatter-fields-a.md` and
+  the reference mirror re-derived. Under an operator grant recorded in the
+  fix record, four fixture vehicles in bug 0060's lock were substituted with
+  loading equivalents (render subject preserved, forged-byte reach now
+  asserted) and four rows of bug 0102's lock moved to a labelled
+  `TYPE_TEXT_REFUSED` table (its default-side rule untouched). Witness:
+  `tests/params-scalar-nontype-text-refusal.test.ts` (93 cells) plus one
+  additive H8a live registration-denial cell.
+
 ## [0.85.0] - 2026-08-06
 
 ### Fixed

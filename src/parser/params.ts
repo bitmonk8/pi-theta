@@ -58,12 +58,19 @@ import { parseTypeExpression } from "./type-grammar";
  *                       a `= <literal>` default; checked against the theta
  *                       literal sublanguage.
  *   - `range`         — the field's located site, for diagnostics.
+ *   - `shapeRefused`  — set when the frontmatter seam already refused this
+ *                       field's YAML value node (`paramValueCanCarryType`,
+ *                       frontmatter.ts): retained so this module can tell a
+ *                       node-shape refusal from a text-level one and raise at
+ *                       most one `theta/load/params-type-not-expression` per
+ *                       field (bug 0059 §Fix constraint 1).
  */
 export interface ParamFieldInput {
   readonly name: string;
   readonly typeSource: string;
   readonly defaultSource?: string;
   readonly range: SourceRange;
+  readonly shapeRefused?: boolean;
 }
 
 /**
@@ -113,6 +120,12 @@ export interface ParamsParseResult {
  *     a `NamedType`;
  *   - `theta/parse/unresolved-named-type` — a RHS `NamedType` resolving to no
  *     `bodyTypes` entry (whole-file resolution, so forward references resolve);
+ *   - `theta/load/params-type-not-expression` — a field's recovered type text
+ *     spells no `Type` production (bug 0059 §Fix): the field's own value node
+ *     already passed the frontmatter seam's shape gate
+ *     (`ParamFieldInput.shapeRefused` unset), the text is not what
+ *     `parseLiteralArm` recognises or brace-carrying, and the field carries no
+ *     other error-severity diagnostic from this same pass;
  *   - `theta/load/schema-slug-collision` — an `__inline_<slug>` slug match
  *     whose retained canonical-form bytes differ (schema-subset.md §Schema-slug
  *     collision posture);
@@ -159,12 +172,23 @@ export function parseParams(
   const inlineFragments = new Map<string, Record<string, unknown>>();
   const slugCollisions: string[] = [];
   const collisionSites: { readonly slug: string; readonly range: SourceRange }[] = [];
+  // Fields whose type half drew `theta/load/params-type-not-expression` below,
+  // so the default-literal loop further down (bug 0059 §Fix's guard
+  // extension) can tell which fields to leave unchecked.
+  const typeRefused = new Set<ParamFieldInput>();
   for (const field of fields) {
+    // `fieldDiagStart` bounds the last-resort guard below to diagnostics THIS
+    // field's own pass raised; `unspellable` is this field's private view of
+    // `lowerTypeExpr`'s catch-all (bug 0059 §Fix) — a fresh array per field so
+    // one field's junk text can never be blamed on another's range.
+    const fieldDiagStart = diagnostics.length;
+    const unspellable: string[] = [];
     const lowerCtx: LowerCtx = {
       bodyTypeMap,
       defs,
       unresolved: [],
       reservedKeywords: [],
+      unspellable,
       inlineCanonical,
       inlineFragments,
       slugCollisions,
@@ -208,6 +232,46 @@ export function parseParams(
         file: site.file,
         range: field.range,
         message: `unresolved named type '${name}'`,
+      });
+    }
+    // bug 0059 §Fix constraint 3: decline this field's `unspellable` entries
+    // down to what the catch-all is NOT licensed to carry. `parseLiteralArm`
+    // (0056's recogniser) declines a `LiteralType` atom; the brace check
+    // declines every text carrying a brace, WIDER than "brace-rooted" by
+    // operator grant (HEAD 948b7814) — "the brace frame
+    // (`lowerParamsFieldType`'s intercept, `hoistInlineObjectType`, bugs
+    // 0035/0045/0052) owns every text carrying a brace; this refusal owns
+    // brace-free text." Necessity: `splitTopLevel` defaults to angle-only
+    // nesting, so `array<{x: integer, y: string}>` hands this arm the two
+    // UNBALANCED fragments `{x: integer` and `y: string}` — neither
+    // brace-ROOTED, both brace-CARRYING — and a narrower "brace-rooted" test
+    // would refuse both.
+    const refusable = unspellable.filter(
+      (text) => parseLiteralArm(text) === undefined && !text.includes("{") && !text.includes("}"),
+    );
+    // §Fix constraint 1 ("exactly one diagnostic per offending field"), two
+    // guards. `field.shapeRefused` is set at the frontmatter seam when the
+    // value NODE was already refused (`paramValueCanCarryType`,
+    // frontmatter.ts): its ordering comment on the `paramsShapeDiags` push
+    // settles which survives — "a field whose RHS spells no type expression
+    // is reported as such, not by whatever the lowering makes of its
+    // recovered bytes." The same-iteration check is the last-resort guard: a
+    // field that already drew its own registered refusal this iteration
+    // (such as `void-in-non-return-position`, `result-in-schema-position`,
+    // `generic-arity-mismatch`, or the unresolved-named-type loop just above)
+    // keeps that diagnostic alone.
+    if (
+      refusable.length > 0 &&
+      field.shapeRefused !== true &&
+      !diagnostics.slice(fieldDiagStart).some((d) => d.severity === "error")
+    ) {
+      typeRefused.add(field);
+      diagnostics.push({
+        severity: "error",
+        code: "theta/load/params-type-not-expression",
+        file: site.file,
+        range: field.range,
+        message: `'params:' field '${field.name}' right-hand side is not a theta type expression`,
       });
     }
     if (field.defaultSource === undefined) {
@@ -262,7 +326,17 @@ export function parseParams(
   // break that is inter-token whitespace (an `ArrayLit` spanning lines) or the
   // two-character `\n` escape is untouched.
   for (const field of fields) {
-    if (field.defaultSource === undefined) {
+    // Guard-extension precedence (operator grant, HEAD 948b7814; bug 0059
+    // §Fix): the type-half refusal survives ALONE, so an offending field
+    // draws exactly one diagnostic — the same reasoning as the ordering
+    // comment on the `paramsShapeDiags` push in `parseFrontmatter`
+    // (frontmatter.ts): a field whose type half spells no type expression is
+    // reported as such, not by whatever its default half's literal check
+    // makes of the same field's recovered bytes. The cross-field
+    // `non-trailing-default` ordering check above reads `field.defaultSource`
+    // alone across every field, not this field's own type disposition, and
+    // is untouched.
+    if (field.defaultSource === undefined || typeRefused.has(field)) {
       continue;
     }
     if (hasRawNewlineInStringLiteral(field.defaultSource)) {
@@ -415,6 +489,26 @@ export interface LowerCtx {
    * check has nowhere to report and the retention is still first-wins.
    */
   readonly slugCollisions?: string[];
+  /**
+   * Text `lowerTypeExpr`'s trailing catch-all lowered permissively rather
+   * than through a `PrimitiveType`, `NamedType`, or `GenericType` arm,
+   * appended in lowering order (bug 0059 §Fix). Like `unresolved` and
+   * `slugCollisions`, the caller owns the array's lifetime and this module
+   * never reads it back: `parseParams` declines the recognised `LiteralType`
+   * atoms and brace-carrying survivors of this arm's legitimate traffic (a
+   * mixed union's literal arm; a brace-rooted type nested in a generic
+   * argument or a union arm) and turns what remains into
+   * `theta/load/params-type-not-expression` at the field being lowered.
+   *
+   * OPTIONAL for the same reason `slugCollisions` is: a caller threading no
+   * sink collects nothing and the catch-all stays exactly as permissive as it
+   * always was. `lowerTypeSource` (body-type-lowering.ts) builds its own
+   * `LowerCtx` without this key, so the `schema`-body field, the alias
+   * right-hand side, and the `@<T>` annotation reach this same catch-all and
+   * keep byte-identical lowered documents and diagnostic sequences (bug 0059
+   * §Fix constraint 2).
+   */
+  readonly unspellable?: string[];
 }
 
 const PRIMITIVE_TYPES = new Set<LoweredPrimitiveType>([
@@ -600,6 +694,10 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
   }
   // A literal-type atom (string/number literal) or any other form: lower
   // permissively; literal lowering is owned by the schema-subset leaves.
+  // `parseParams` is this sink's one reader (bug 0059 §Fix): it declines the
+  // literal and brace-carrying survivors of this arm's legitimate traffic and
+  // raises the text-level refusal at the field being lowered for what remains.
+  lowerCtx.unspellable?.push(s);
   return {};
 }
 

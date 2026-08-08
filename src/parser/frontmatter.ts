@@ -766,7 +766,15 @@ function extractParsedParams(
     // shape recovers bytes no `Type` production spells. One registered error
     // per offending field; the field is still recorded below so no second
     // diagnostic cascades at the `system:` interpolation seam (bug 0041).
-    if (!paramValueCanCarryType(item.value)) {
+    // `shapeRefused` rides along with the retained field so `parseParams`
+    // (bug 0059 §Fix constraint 1) can tell a node already refused HERE from
+    // one whose recovered TEXT it must judge itself, and skip its own
+    // refusal — the ordering comment on the `paramsShapeDiags` push in
+    // `parseFrontmatter`, below, states why: a field whose RHS spells no type
+    // expression is reported as such, not by whatever the lowering makes of
+    // its recovered bytes.
+    const shapeRefused = !paramValueCanCarryType(item.value);
+    if (shapeRefused) {
       diagnostics.push({
         severity: "error",
         code: "theta/load/params-type-not-expression",
@@ -780,6 +788,7 @@ function extractParsedParams(
       typeSource,
       ...(defaultSource !== undefined ? { defaultSource } : {}),
       range,
+      ...(shapeRefused ? { shapeRefused: true } : {}),
     });
     bypassFields.push({
       wireName: name,

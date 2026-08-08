@@ -4241,3 +4241,227 @@ describe("H8a-T — bug 0056: an invoke(...) argument outside a params: literal 
   });
 });
 
+// ===========================================================================
+// Bug 0059 — a `params:` right-hand side that is a YAML SCALAR carrying text
+// no `Type` production spells (`p: "a: Tirage"`, and every other quoted or
+// block-scalar spelling of the same bytes) fell past every arm of
+// `lowerTypeExpr` to its trailing catch-all, lowered the permissive `{}` with
+// ZERO diagnostics, and registered with a param that validated nothing
+// (docs/bugs/0059-params-scalar-nontype-text-recorded-and-permissive.md).
+// Bug 0041's node-shape gate (`paramValueCanCarryType`, src/parser/
+// frontmatter.ts) admits every scalar whatever bytes it carries — it judges
+// the YAML value NODE, not its text — so this class fell through the one gap
+// between two correct decisions.
+//
+// The fix judges the RECOVERED TEXT once that node-shape gate has already
+// admitted a scalar: `lowerTypeExpr`'s trailing catch-all (src/parser/
+// params.ts) now appends the text it would otherwise lower permissively to an
+// optional `LowerCtx` sink (`unspellable`), and `parseParams`'s per-field loop
+// declines the recognised `LiteralType` atoms (bug 0056's `parseLiteralArm`)
+// and every brace-carrying survivor, turning what remains into ONE
+// error-severity `theta/load/params-type-not-expression` at the field —
+// re-using the SAME registered code bug 0041's node-shape refusal already
+// raises, now widened to a text-level judgement (code-registry-load.md:19).
+// `hasLoadParseError` (production-composition.ts) un-registers the theta at
+// the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095/0102/0125/
+// 0050/0137/0139/0142/0148/0149/0081/0052 cells above exercise for their own
+// codes.
+//
+// The 93-cell unit witness (tests/params-scalar-nontype-text-refusal.test.ts)
+// proves the mechanism offline at the `parseThetaDocument` boundary — its own
+// group (a) cell a13 (`p: "a: Tirage"`) is the fixture this live cell
+// mirrors. This cell proves the SAME registered code denies REGISTRATION end
+// to end through the real production composition root (session_start →
+// resources_discover → composeExtensionInstance), which the offline harness
+// cannot reach.
+//
+// The broken theta's single `params:` field is NOT the
+// `classifyBinderBypass` (src/binder/binder-envelope.ts) single-string-bypass
+// shape — its pre-fix recorded type is the junk text itself, never the
+// literal string `"string"` — so, MEASURED against production-composition.ts's
+// own binder-model-resolution step (the bug 0149 cell's own file-header note
+// above), it needs a resolvable `bind_model:` to register independently of
+// this bug; the fixture below carries one for exactly that reason, mirroring
+// `b71livecallee`'s and `b102livebroken`'s own non-bypass callees above.
+// Post-fix this never matters: `theta/load/params-type-not-expression` fires
+// inside `parseThetaDocument` itself, collapsing the frontmatter to `null`
+// before `composeExtensionInstance`'s per-theta loop ever reaches its
+// binder-model-resolution step (production-composition.ts:2094's
+// `document.frontmatter === null` arm drops the theta first).
+//
+// No existing live fixture (H8a in this file, the H9a acceptance fixtures, or
+// the hardening probes) declares a `params:` field whose right-hand side is
+// text outside the `Type` grammar: every `params:` occurrence across
+// `tests/live/**` is a primitive, a literal union (the bug 0056 cell above),
+// or a plain identifier default — matching the bug doc's own 17-file
+// committed-fixture census, re-measured for this addition. The fixed arm had
+// NO live reach at all before this cell.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0052/0110/0148/0149
+// cells above claim). ADDITIVE ONLY: no existing cell in this file is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const PARAMS_TYPE_NOT_EXPRESSION_CODE = "theta/load/params-type-not-expression";
+
+/** The sharded registry page carrying `theta/load/params-type-not-expression`'s row. */
+const PARAMS_TYPE_NOT_EXPRESSION_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-load.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/load/params-type-not-expression: 'params:' field '<param>'
+ * right-hand side is not a theta type expression` — DIAG-4: the message half
+ * is read from the registry row, not copied, mirroring this file's
+ * `duplicateInlineFieldNameFragment` / `invokePathEscapeFragment` /
+ * `unknownMethodFragment`. The row carries the one `<param>` placeholder, so
+ * this helper fills it and the trailing assertion confirms no second
+ * placeholder is left unsubstituted.
+ */
+function paramsTypeNotExpressionFragment(param: string): string {
+  const template = registryMessage(
+    PARAMS_TYPE_NOT_EXPRESSION_REGISTRY,
+    PARAMS_TYPE_NOT_EXPRESSION_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${PARAMS_TYPE_NOT_EXPRESSION_CODE} has no registry row — the code this ` +
+      "cell asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const withSlot = template as string;
+  expect(
+    withSlot,
+    `${PARAMS_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
+      "must carry the <param> slot this cell fills — the row changed shape",
+  ).toContain("<param>");
+  const message = withSlot.replace("<param>", param);
+  expect(
+    message,
+    `${PARAMS_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
+      "grew a second unsubstituted placeholder this reader does not fill",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${PARAMS_TYPE_NOT_EXPRESSION_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own §Reproduction fixture A, and the unit witness's cell a13,
+ * verbatim: a `params:` field whose right-hand side is a double-quoted
+ * scalar carrying YAML-mapping-shaped text no `Type` production spells.
+ * `Tirage` is declared nowhere, so a resolvable `NamedType` can never be the
+ * (wrong) explanation for either this theta's pre-fix registration or its
+ * post-fix refusal. `bind_model:` is declared because the field's pre-fix
+ * recorded type is the junk text itself, never bypass-eligible (file-header
+ * note above) — needed only for the red-direction proof this cell's own
+ * verification records, and inert post-fix (file-header note above).
+ */
+function junkParamsTypeTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    '  p: "a: Tirage"',
+    "---",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with the SAME field name, a VALID type — must still
+ * register, isolating the broken theta's refusal to the junk type text
+ * rather than to "a theta declaring `params:` at all cannot register in this
+ * harness". `string` is the `classifyBinderBypass` single-string-bypass
+ * shape, so this sibling needs no `bind_model:` and no resolvable binder
+ * model to register (the bug 0149 cell's own measurement above; confirmed
+ * again by this cell's own precondition assertion below).
+ */
+function conformantParamsTypeTheta(): string {
+  return ["---", "mode: prompt", "params:", "  p: string", "---", "1", ""].join("\n");
+}
+
+describe("H8a-T — bug 0059: a params: right-hand side spelling no Type production draws params-type-not-expression and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose params: field right-hand side is junk type text, while its valid-type sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the broken
+      // theta's absence could be (wrongly) attributed to a broken workspace
+      // instead of the params-type-not-expression rule under test.
+      { source: "project", stem: "b59livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME field name, a VALID type — must
+      // still register, isolating the refusal to the junk type text rather
+      // than to "a theta declaring params: at all cannot register here".
+      { source: "project", stem: "b59livegood", text: conformantParamsTypeTheta() },
+      // The load-bearing broken theta: the bug doc's own §Reproduction
+      // fixture A / unit-witness cell a13 spelling.
+      { source: "project", stem: "b59livebroken", text: junkParamsTypeTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b59livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the params-type-not-expression rule under test, would explain the " +
+          "broken theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b59livegood"),
+        "the same field name with a VALID type did not register — a theta " +
+          "declaring params: at all cannot register in this harness, " +
+          "independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta whose params: field right-hand side is text no `Type`
+      // production spells does NOT register — `lowerTypeExpr`'s catch-all
+      // sink and `parseParams`'s per-field decline (src/parser/params.ts)
+      // fire theta/load/params-type-not-expression, and hasLoadParseError
+      // un-registers this theta at the SAME site the bug 0070/0071/0077/
+      // 0079(a)/0110/0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/
+      // 0081/0052 cells above exercise for their own codes.
+      expect(
+        handle.command("b59livebroken"),
+        "the theta whose params: field right-hand side is junk type text " +
+          "registered anyway through the live discovery/session_start path " +
+          "— theta/load/params-type-not-expression did not fire. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b59livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137/0139/0142/0148/0149/0081/0052
+      // cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = paramsTypeNotExpressionFragment("p");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the params-type-not-expression " +
+          "rejection for the broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+

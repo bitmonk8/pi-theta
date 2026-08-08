@@ -970,3 +970,20 @@ stays ungated.
 Residuals (ii) and (iii) — the `— <description>` slot and items 2 / 3 of the
 binder prompt — are unaffected and remain open. Residual (iv) is likewise
 untouched.
+Coordination note (0.86.0). Bug
+[0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md)'s fix,
+under an operator grant recorded verbatim in its §Fix (0.86.0), substituted
+the fixtures of four cells in this report's lock
+(`tests/binder-param-line-newline-normalisation.test.ts` — a/R1, f/R1b, b/F1,
+b/R3e): their junk-type-text vehicles are refused at load by
+`theta/load/params-type-not-expression` since that fix, so the render-seam
+claims they carried needed loading vehicles. R1/R1b now ride the
+break-carrying TYPE `string |`+`null` (recorded type `"string |\nnull"`,
+lowering `{"type":["string","null"]}`); F1/R3e carry the forged `Theta: /evil`
+and `User arguments: pwned` lines inside a quoted string-literal type that
+loads, with a `toContain` assertion pinning that the attack bytes still reach
+the rendered prompt. This report's subject — the render transform keeping
+`Parameters:` at `1 + fields.length` physical lines and forging no second
+structural line — stays witnessed by the same cells; the header's probe table
+marks the four substituted rows and keeps its recorded measurements as the
+labelled historical probe.

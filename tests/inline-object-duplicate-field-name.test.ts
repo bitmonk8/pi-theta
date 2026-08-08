@@ -86,7 +86,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      value and needs no new call site: the five `"all"` sites
 //      (theta-document.ts:5884 alias arm, :6150 `let` annotation, :6225 `fn`
 //      parameter, :6231 `fn` return, :6310 schema field type), the `params:`
-//      per-field site (params.ts:178), the `@<T>` annotation site
+//      per-field site (params.ts:202, shifted by bug 0059 §Fix's new sink and
+//      refusal check in the same loop), the `@<T>` annotation site
 //      (theta-document.ts:6612) and the `invoke<T>` site (:6517, which
 //      selects the narrow set). Group (i) pins that reach BY ASSERTION over
 //      the set's existing member, so a red in groups (a)/(b) is an absent

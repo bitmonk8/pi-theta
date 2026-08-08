@@ -126,7 +126,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   QRY  p: | string = @`x "a / b"`  ONE error theta/parse/default-not-literal
 //   TPL  p: | string = `x "a / b"`   ONE error theta/parse/default-not-literal
 //   INTP p: | string = ${"a / b"}    ONE error theta/parse/default-not-literal
-//   R1 / R1b / R1c / R1d / R1e / R2 / R2b / F1 / R3e   []  (break-carrying TYPE text)
+//   R1c / R1d / R1e / R2 / R2b                          []  (break-carrying TYPE text,
+//                                    grammar-admitted — stays this rule's positive witness)
+//   R1 / R1b / F1 / R3e   REFUSED (bug 0059, a DIFFERENT rule): one error
+//        theta/load/params-type-not-expression — junk TYPE text no `Type`
+//        production spells, moved out of group (d)'s `ADMITTED` table into
+//        `TYPE_TEXT_REFUSED` (operator grant, HEAD 948b7814)
 //   X3   p: integer = 1 + 1          ONE error theta/parse/default-not-literal,
 //                                    frontmatter null, fields[0] undefined
 //   checkLiteralSublanguage("\"a<LF>b\"" | "'a<LF>b'" | "[\"a<LF>b\"]" |
@@ -152,11 +157,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 // alone; (b) all eight refused spellings load with ZERO diagnostics and
 // register; (c) no diagnostic carries the offending field's range because none
 // is emitted. GREEN BY DESIGN and required to stay green: (d) the over-refusal
-// fence — the multi-line `ArrayLit`, the `\n` escape, every break-carrying type
-// spelling, the folded scalar, the template / query / `${...}` forms whose
-// quotes open no span, and the `default-not-literal` control; (e) the
-// shared-tokeniser fence; (f) the recovery shapes that make the refusal the
-// honest disposition.
+// fence — the multi-line `ArrayLit`, the `\n` escape, the grammar-admitted
+// break-carrying type spellings (`R1c`/`R1d`/`R1e`/`R2`/`R2b`), the folded
+// scalar, the template / query / `${...}` forms whose quotes open no span, and
+// the `default-not-literal` control; (e) the shared-tokeniser fence; (f) the
+// recovery shapes that make the refusal the honest disposition. FOUR TYPE-side
+// junk-text spellings (`R1`, `R1b`, `F1`, `R3e`) are refused under a DIFFERENT
+// rule — bug 0059's, not this file's — in their own `TYPE_TEXT_REFUSED` table
+// in group (d) (bug 0059 §Fix + operator grant, HEAD 948b7814).
 //
 // TIER: unit, offline, deterministic, provider-free. The whole contract settles
 // inside `parseThetaDocument` over a string (`parseDoc`, tests/helpers/e2e-s1.ts
@@ -602,7 +610,7 @@ describe("bug 0102 (c) — the refusal is ranged on the offending field", () => 
 // grammar-admitted multi-line flow mapping.
 // ===========================================================================
 
-describe("bug 0102 (d) — no spelling whose break lies outside a string span is refused", () => {
+describe("bug 0102 (d) — no spelling whose break lies outside a string span is refused by this rule", () => {
   /** Each admitted row with its re-derived lowered `properties.p` fragment. */
   const ADMITTED: ReadonlyArray<readonly [string, string, unknown]> = [
     // The break is inter-token whitespace inside a legal `ArrayLit`
@@ -624,8 +632,6 @@ describe("bug 0102 (d) — no spelling whose break lies outside a string span is
     // and the literal's own raw break survives into the `const` value, which is
     // what makes the recording assertion below and this one one claim.
     ["LIT (string literal in TYPE position)", ROW.LIT, { const: "a\nb" }],
-    ["R1 (block-scalar type text)", ROW.R1, {}],
-    ["R1b (folded block scalar — YAML folds the break to a space)", ROW.R1b, {}],
     [
       "R1c (block-scalar inline object type)",
       ROW.R1c,
@@ -643,8 +649,6 @@ describe("bug 0102 (d) — no spelling whose break lies outside a string span is
       ROW.R2b,
       { $ref: "#/$defs/__inline_90133f3fc80f32bb" },
     ],
-    ["F1 (the forged `Theta: /evil` line in TYPE text)", ROW.F1, {}],
-    ["R3e (the forged `User arguments: ` line in TYPE text)", ROW.R3e, {}],
   ];
 
   for (const [label, paramsBlock, fragment] of ADMITTED) {
@@ -657,6 +661,46 @@ describe("bug 0102 (d) — no spelling whose break lies outside a string span is
         loaded.properties["p"],
         `${label}: §Fix constraint 1 — the refusal predicate is a line terminator inside a STRING SPAN, and this spelling has none`,
       ).toEqual(fragment);
+    });
+  }
+
+  /**
+   * FOUR ROWS MOVED HERE FROM `ADMITTED` ABOVE (bug 0059 §Fix + operator
+   * grant, HEAD 948b7814): `R1` / `R1b` were YAML-mapping-shaped junk type
+   * text (`a: Tirage` / `b: integer`, one-line after `R1b`'s folding) and
+   * `F1` / `R3e` were a forged `Theta: /evil` / `User arguments: pwned` line
+   * riding BARE (unquoted) TYPE text — none of the four is a `Type`
+   * production (grammar.md:90–:102), so bug 0059 now refuses each with
+   * `theta/load/params-type-not-expression` before this rule's own check
+   * ever runs. THIS PRESERVES THE GROUP'S POINT rather than contradicting
+   * it: §Fix constraint 1's claim — "a break outside a string span is not
+   * refused" — is a claim about THIS rule
+   * (`theta/parse/literal-newline-in-string`) and stays true of it; these
+   * four rows were never string-literal-span rows to begin with, so their
+   * refusal is bug 0059's rule, not a widening of this one. The remaining
+   * `ADMITTED` rows (`R3a`, `CTL`, `LIT`, `R1c`, `R1d`, `R1e`, `R2`, `R2b`)
+   * are untouched and stay this rule's own positive witnesses.
+   */
+  const TYPE_TEXT_REFUSED: ReadonlyArray<readonly [string, string]> = [
+    ["R1 (block-scalar type text)", ROW.R1],
+    ["R1b (folded block scalar — YAML folds the break to a space)", ROW.R1b],
+    ["F1 (the forged `Theta: /evil` line in TYPE text)", ROW.F1],
+    ["R3e (the forged `User arguments: ` line in TYPE text)", ROW.R3e],
+  ];
+
+  for (const [label, paramsBlock] of TYPE_TEXT_REFUSED) {
+    it(`GREEN (d, ${label}): refused now by bug 0059 — a different rule than this group's`, () => {
+      const doc = parseDoc(src(paramsBlock), "bug0102.theta");
+      expect(
+        diagCodes(doc),
+        `${label}: outside the closed \`Type\` grammar (grammar.md:90–:102) — bug 0059's rule, not a ` +
+          `string-literal-span break under this one. Rendered: ${JSON.stringify(diagLines(doc))}`,
+      ).toEqual(["error theta/load/params-type-not-expression"]);
+      expect(
+        doc.diagnostics[0]?.message,
+        "DIAG-4 — the registry row's Message with `<param>` rendered as the field name",
+      ).toBe(registryMessageOf("theta/load/params-type-not-expression").replace("<param>", "p"));
+      expect(doc.frontmatter, `${label}: the theta does not register`).toBeNull();
     });
   }
 

@@ -537,3 +537,14 @@ cites the inline-enum registry row at `code-registry-parse.md:93` (§Why it
 matters) and `schemas.md:89`; at this HEAD they are `:95` and `:93`. The
 `schemas.md` drift is already disclosed in that fix's own report; the registry
 row's is not.
+
+Note (0.86.0). Bug
+[0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md) landed:
+`p: 'enum["x", "y"]'` now draws one `theta/load/params-type-not-expression`
+at load (the text is neither literal-shaped nor brace-carrying, so the
+fragment-level judgement refuses it) where this report measured silence. The
+coordination this report anticipated is now the live state: the params:
+position refuses with the GENERIC text code while both declaration spellings
+draw `theta/parse/inline-enum` with its targeted fix hint — the code-divergence
+question this report owns stands, re-derive §Reproduction against v0.86.0 at
+pick time.

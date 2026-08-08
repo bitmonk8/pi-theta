@@ -497,7 +497,14 @@ one-line `p: |` / `p: >`, and a folded multi-line that folds to one line) stay
 silent-permissive with `properties.p = {}` — the settled route reads no text,
 and the §Fix names this as route 1's boundary. Unfiled; adjacent to 0056's
 surface but not its subject (0056 owns literal-shaped text, these carry
-non-type text). (ii) The `Parameters:` per-field line-shape MUSTs
+non-type text). Filed as bug
+[0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md) and
+discharged by its fix (0.86.0): the recovered text is judged fragment by
+fragment at the `params:` position and the scalar spellings of this residual
+now draw one `theta/load/params-type-not-expression` each; this lock's group
+(e) scalar rows and group (c1)'s multi-line residual were inverted under that
+report's §Fix constraint 7, exactly as their comments anticipated.
+(ii) The `Parameters:` per-field line-shape MUSTs
 (binder-bypass-and-envelope.md `:117`/`:129`) remain violable for a theta that
 **registers**, through three reaches, all byte-identical to 0.50.0 and none in
 this report's input class: a multi-line block-scalar type text

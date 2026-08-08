@@ -639,28 +639,23 @@ describe("bug 0041 (b2) — a field carrying no value node at all is refused; th
 // ===========================================================================
 
 describe("bug 0041 (c) — the `Parameters:` line-shape MUSTs and the predicate's multi-line bounds", () => {
-  it("GREEN (c1, residual): the MULTI-line literal block scalar still loads silently, line break and all", () => {
-    // The recorded residual, pinned so it can only move deliberately: a
-    // literal block scalar is a YAML *scalar*, the settled route is a
-    // node-shape test judged on the value node, and the bug doc §Fix states
-    // route 1 "does not close fixture E" — this is fixture E's multi-line
-    // member. The recorded declared type still carries the line break that
-    // binder-bypass-and-envelope.md:117/:129 forbid the `Parameters:` block
-    // to render; the rendering itself is deliberately NOT asserted — pinning
-    // a MUST-violating output as an expectation would enshrine the defect.
-    // Disposition only.
-    const loaded = loadCleanly(
+  it("GREEN (c1, residual): the MULTI-line literal block scalar is refused now (bug 0059)", () => {
+    // WHY THIS TEST MOVED: a literal block scalar is a YAML *scalar*, and bug
+    // 0041's settled route is a node-shape test judged on the value node —
+    // "does not close fixture E", this fixture's multi-line member — so this
+    // file pinned its silent, permissive disposition as a named residual
+    // rather than close it here. Bug 0059 §Fix constraint 7 is the named
+    // authority that moves it: the recovered text "a: Tirage\nb: integer"
+    // is YAML-mapping-shaped and spells no `Type` production (§Fix
+    // constraint 4), so it now draws exactly one
+    // `theta/load/params-type-not-expression` at the field — the same
+    // disposition group (e) below pins for the one-line spellings of the
+    // same bytes.
+    expectParamsTypeRefused(
       "multi-line block scalar",
-      src("  p: |\n    a: Tirage\n    b: integer"),
+      parseDoc(src("  p: |\n    a: Tirage\n    b: integer"), "bug0041.theta"),
+      "p",
     );
-    expect(
-      loaded.properties["p"],
-      "the recovered text falls to the lowering catch-all and stays permissive",
-    ).toEqual({});
-    expect(
-      fieldOf(loaded, "p").type,
-      "the recorded declared type carries the interior line break — the residual this pin records",
-    ).toBe("a: Tirage\nb: integer");
   });
 
   it(`GREEN (c1, fence): the MULTI-line FLOW mapping is admitted and hoists under ${MF_INLINE}`, () => {
@@ -832,11 +827,14 @@ describe("bug 0041 (e) — the residual spellings keep their measured dispositio
    * the node-shape predicate admits a scalar whatever text it carries, which
    * is the bug doc §Fix's stated residual for the frontmatter-read route:
    * "the quoted and block-scalar spellings carry byte-identical text through
-   * the `isScalar` arm". Closing them is the lowering-side question (the
-   * catch-all carries `LiteralType`, fixture M below), NOT this fix's — so
-   * their silence is pinned unchanged, and an implementer who also closes
-   * them must move these rows deliberately, in lock-step with that separate
-   * decision.
+   * the `isScalar` arm". Closing them was the LOWERING-side question this
+   * fix (0041) explicitly left open, naming a separate decision as the
+   * authority licensed to move them — bug 0059 §Fix is that decision (§Fix
+   * constraint 7): the recovered text "a: Tirage" spells no `Type`
+   * production, so all three spellings now draw exactly one
+   * `theta/load/params-type-not-expression` at the field. The one-line
+   * scalar carrying a `LiteralType` (fixture M, group (e-M1/M2) below) is a
+   * DIFFERENT class — bug 0056's, not bug 0059's — and stays silent.
    */
   const SCALAR_SPELLINGS: ReadonlyArray<readonly [string, string]> = [
     ["fixture E1 (quoted scalar)", '  p: "a: Tirage"'],
@@ -845,17 +843,16 @@ describe("bug 0041 (e) — the residual spellings keep their measured dispositio
   ];
 
   for (const [label, paramsBlock] of SCALAR_SPELLINGS) {
-    it(`GREEN (e, ${label}): silent, permissive, type "a: Tirage" — unchanged`, () => {
-      const loaded = loadCleanly(label, src(paramsBlock));
-      expect(
-        loaded.properties["p"],
-        `${label}: the one-line text falls to the lowering catch-all and stays permissive`,
-      ).toEqual({});
-      expect(Object.keys(loaded.defs), `${label}: nothing is hoisted or resolved`).toEqual([]);
-      expect(
-        fieldOf(loaded, "p").type,
-        `${label}: the recorded declared type is the recovered one-line text — a scalar is admitted whatever bytes it carries`,
-      ).toBe("a: Tirage");
+    it(`GREEN (e, ${label}): refused now — bug 0059 closes the scalar-spelling residual`, () => {
+      // WHY THIS TEST MOVED: pinned silent here because bug 0041's own fix
+      // named the closure a separate decision's to make ("an implementer who
+      // also closes them must move these rows deliberately, in lock-step
+      // with that separate decision"). Bug 0059 is that decision (§Fix
+      // constraint 7, constraint 4): "a: Tirage" is YAML-mapping-shaped text
+      // no `Type` production spells, reached through a quoted scalar or
+      // either block-scalar form, so it now draws exactly one
+      // `theta/load/params-type-not-expression` at the field.
+      expectParamsTypeRefused(label, parseDoc(src(paramsBlock), "bug0041.theta"), "p");
     });
   }
 

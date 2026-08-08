@@ -894,8 +894,9 @@ describe("bug 0040 (g) — key ownership at the `lowerCtx.defs` seam", () => {
 
   /**
    * One hand-built lowering scope with the sinks readable afterwards, shaped as
-   * `parseParams` builds it (src/parser/params.ts:135–156): one `defs`, one
-   * retention pair, one collision sink, all block-shared.
+   * `parseParams` builds it (src/parser/params.ts:148–169, shifted by bug 0059
+   * §Fix's new doc-comment bullet ahead of it): one `defs`, one retention
+   * pair, one collision sink, all block-shared.
    */
   function seam(bodyTypes: ReadonlyArray<readonly [string, Record<string, unknown>]>): Seam {
     const defs: Record<string, Record<string, unknown>> = {};

@@ -174,7 +174,11 @@ mapping and refuses every other shape with the registered
 reach the lowering and the two-key block mapping can no longer break the
 binder's `Parameters:` block. The scalar spellings that carry the same bytes
 stay silent — that route reads no text — and are recorded as that fix's
-residual (i).
+residual (i), in turn filed as bug
+[0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md) and
+discharged by its fix (0.86.0): the recovered text is now judged fragment by
+fragment at the `params:` position, so the scalar spellings refuse with the
+same registered code the node-shape gate uses.
 
 ## Summary
 

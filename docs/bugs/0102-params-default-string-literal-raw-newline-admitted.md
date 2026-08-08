@@ -1142,3 +1142,16 @@ Bug 0050 (fixed 0.77.0) reused the GOV-15 diagnostic-registry carve-out
 disposition a fourth time (after 0031, 0084 and this report): engaged as an
 ADDITION, discharged by measurement of the shipped corpus — the three example
 call sites all defer, and no committed fixture draws the newly wired code.
+
+Coordination note (0.86.0). Bug
+[0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md)'s fix,
+under an operator grant recorded verbatim in its §Fix (0.86.0), moved four
+rows of this report's lock (`tests/params-default-string-literal-raw-newline.test.ts`
+group (d): R1, R1b, F1, R3e) from the `ADMITTED` table into a new
+`TYPE_TEXT_REFUSED` table with their original bytes: their junk TYPE texts are
+refused at load by `theta/load/params-type-not-expression` since that fix — a
+different rule than this report's, named as such in the table. This report's
+own rule — a raw line terminator inside a string-literal span on the DEFAULT
+right-hand side is refused, a break outside such a span is not — stays
+witnessed unchanged by rows LIT, R1c, R1d, R1e, R2 and R2b, and the group's
+title now reads "refused by this rule" to keep its claim exact.

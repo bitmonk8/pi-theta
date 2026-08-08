@@ -1,13 +1,6 @@
 # Bug 0059 — A `params:` right-hand side that is a YAML scalar carrying text no `Type` production spells lowers to the permissive `{}` with zero diagnostics: `p: "a: Tirage"`, the one-line `p: |` and `p: >` block scalars, a folded multi-line, prose, punctuation and the quoted collection spellings all fall past every arm of `lowerTypeExpr` to its catch-all, AJV then accepts every JSON value for the field, and the same text is recorded as the declared type and rendered into the binder's `Parameters:` block
 
-- **Status:** open. §Fix is constraint-pinned, not settled: it names the
-  emission point, the recogniser and the registry disposition, and leaves the
-  recogniser's implementation to the change that lands it. **Fix-ordering
-  dependency on [0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md)**
-  — the recogniser this fix needs is the literal recogniser 0056 moves into
-  `params.ts` and exports, and the two reports invert adjacent rows of one
-  pinned test group. Land 0056 first, or land both in one change; whichever
-  lands second re-derives the other's pins (§Fix *Ordering*).
+- **Status:** fixed (0.86.0).
 - **Kind:** defect, two elements on one frame.
   1. *An input the type grammar does not admit is accepted silently and lowers
      permissively.* frontmatter-fields-a.md (`:58`) makes the `params:`
@@ -865,3 +858,150 @@ Constraints on any implementation:
   catch-all residents including the `schema`-body contrast; and a census of
   every committed `.theta` / `.thetalib`. Run on the outputs quoted above, then
   deleted per scratch policy.
+
+## Fix (0.86.0)
+
+- What shipped, keyed to §Fix: the recovered `params:` type text is judged and
+  refused when no `Type` production spells it, one error per offending field.
+  `src/parser/params.ts` — `LowerCtx.unspellable?: string[]`, an optional sink
+  beside `unresolved`/`reservedKeywords`/`slugCollisions` with the same
+  never-read-back contract; `lowerTypeExpr`'s trailing catch-all appends the
+  text it is discarding (one line, no diagnostic raised there — constraint 2);
+  `parseParams`'s per-field loop declines the sink's `LiteralType` atoms
+  (0056's exported `parseLiteralArm` — no second recogniser) and every
+  brace-carrying FRAGMENT, then raises one
+  `theta/load/params-type-not-expression` at the field's range for what
+  remains (the `theta/load/schema-slug-collision` emission precedent).
+  `src/parser/frontmatter.ts` — `ParamFieldInput.shapeRefused?` set by
+  `extractParsedParams`, so a node-shape refusal suppresses the text refusal
+  (constraint 1); a same-iteration error-severity diagnostic suppresses it
+  (the last-resort guard keeping `p: 'array<'` at its single
+  `generic-arity-mismatch`); a refused type half suppresses that field's own
+  default-side literal checks (`typeRefused`), the cross-field
+  `non-trailing-default` ordering check untouched. Registry row *Trigger*
+  widened to the two-stage, FRAGMENT-level judgement (DIAG-2, same commit;
+  *Message* bytes unchanged, *Fix hint* second sentence and the
+  scalar-exclusion sentence re-derived); owning sentence
+  `frontmatter-fields-a.md` §Type side and the `docs/reference/frontmatter.md`
+  mirror re-derived the same way. The judged unit is the brace-free fragment
+  at any reach — top level, union arm at any depth, generic type argument,
+  hoisted inline-object field type at any depth — and the brace exemption is
+  the fragment's own, not its enclosure's.
+- Operator authorization, recorded verbatim (granted 2026-08-07 at HEAD
+  `948b7814`, unblocking the archived pre-Phase-1 stop
+  `.pi/tmp/fixes/0059-report-stopped-premeasure.md`): "Authorize the full
+  package; re-dispatch 0059" — (1) the 8-cell subject-preserving fixture
+  substitution in `tests/binder-param-line-newline-normalisation.test.ts`
+  (bug 0060's lock, fixed 0.61.0 — cells a/R1, b/F1, b/R3e, f/R1b) and
+  `tests/params-default-string-literal-raw-newline.test.ts` (bug 0102's lock,
+  fixed 0.75.0 — group (d) ADMITTED rows R1, R1b, F1, R3e), each lock's own
+  subject staying witnessed; (2) the widened brace decline — decline ANY text
+  carrying a `{` or `}`, "the brace frame (`lowerParamsFieldType`'s intercept,
+  `hoistInlineObjectType`, bugs 0035/0045/0052) owns every text carrying a
+  brace; this refusal owns brace-free text", the under-refusal recorded as
+  this fix's residual; (3) guard-extension precedence — the type-half refusal
+  survives alone, exactly one diagnostic per offending field. The blocker the
+  grant resolved: all eight fixture vehicles recover to junk TYPE text —
+  §Fix constraint 4's mandatory-refusal class — so refusing them was not
+  optional, and constraint 7 named neither lock. Review round 1 established
+  that the granted design's decline operates at the FRAGMENT level (the
+  validated prototype's own behaviour: the hoist re-enters
+  `lowerParamsFieldType` per field and generic arguments recurse through
+  `lowerTypeExpr`), so the registry/spec prose was re-derived to state that
+  reach — a prose catch-up to the granted design, not a new authorization —
+  and the boundary was pinned with cells a21–a24/d12–d13.
+- The 12 moved cells, old → new, authority named per cell: 4 in
+  `tests/params-block-mapping-rhs-refusal.test.ts` (c1-residual, e/E1, e/E2,
+  e/E3: silent-permissive → refused; §Fix constraint 7, this document);
+  4 in bug 0060's lock (a/R1 and f/R1b: junk vehicle → `string |`+`null`
+  break-carrying TYPE, render transform still exercised; b/F1 and b/R3e: the
+  forged `Theta: /evil` / `User arguments: pwned` line moved inside a quoted
+  string-literal type that loads, attack bytes proven to still reach the
+  rendered prompt, `toContain` hardening added; operator grant); 4 in bug
+  0102's lock (group (d) rows R1/R1b/F1/R3e moved from `ADMITTED` into a new
+  `TYPE_TEXT_REFUSED` table, original bytes kept, its default-side
+  string-span rule untouched and still witnessed by LIT/R1c/R1d/R1e/R2/R2b;
+  operator grant).
+- Recovery note: the first re-dispatched orchestrator run was killed by a
+  host reboot after Phase 1 (witness written and gated red 21/66) with zero
+  src edits; the run was completed under the command's §Stability fallback —
+  phases driven directly from the main session, each gated there. The stopped
+  run's validated artifacts were reused blob-hash-proven
+  (`0059-prototype-full.diff`, `0059-cells-head.txt`/`-withfix.txt`, the
+  recovered Phase-2 brief).
+- Gates: witness `tests/params-scalar-nontype-text-refusal.test.ts` 93/93
+  (87 written in Phase 1 + 6 boundary cells from review round 1); full
+  default suite 280 files / 4495 tests green; `npx tsc -p tsconfig.json
+  --noEmit` clean; `npm run lint` clean; H8a live 29/29 (the additive cell
+  below); H9a acceptance 11/11 (one `0xC0000142` child-spawn red on an
+  unrelated area, the documented stochastic class, cleared on isolated
+  re-run then a full clean 11/11); `tests/fixtures/h7a/permitted-codes.json`
+  byte-unchanged (blob `a4a8da04…`), decided by the real H9a run — the code
+  un-registers thetas and is absent from the acceptance corpus.
+- Review: one pre-review correction (two witness self-citations the fix's
+  own +9 `frontmatter.ts` shift staled; digest-proven, not a review round);
+  round 1 deep — F1 `spec` (Trigger/spec prose understated the fragment-level
+  emission set; resolved by prose re-derivation plus additive boundary cells
+  a21–a24/d12–d13), F2 `prose` (three witness self-citations pinned to the
+  pre-fix `params.ts`; re-derived), residuals R1/R2/R3 (forgery-cell
+  `toContain` hardening, substituted-row markers, group-(d) title qualifier —
+  all taken); round 2 fast — CLEAN, one recorded nit (the junk-name spelling
+  `a: Triage` vs `a: Tirage` differs across the three re-derived prose
+  surfaces, each locally consistent, behaviourally identical — tidy on next
+  touch). Cap 2 of 5.
+- Verification: SOLID, zero findings. Three unit neutralisations, each red
+  for the right reason and restored blob-exact (`params.ts` `8e5be897…`,
+  `frontmatter.ts` `eef9356a…` re-hashed after every cycle): removing the
+  catch-all push reds 25 refusal cells (all observing `[]`); removing the
+  brace half of the decline reds exactly the 8 brace-boundary cells
+  (d4/d5/d6/d6-body/d9/d11/d12/d13); reverting the default-side suppression
+  reds exactly f1 (two diagnostics observed where one is pinned). Live: one
+  additive H8a cell (file 28 → 29 cells, +227/−0) — a theta with junk
+  `params:` text is refused through the real discovery→registration path
+  (`handle.command` undefined, `registeredNames()` excludes it, the
+  `theta-system-note` channel carries the registry-sourced fragment) beside
+  a registering valid-params sibling and an unrelated control; red direction
+  proven live under the catch-all neutralisation (the junk theta registered),
+  restored blob-exact, 29/29 green.
+- Baseline drift recorded (the doc's §Reproduction was measured at 0.51.0):
+  `array<` now draws `generic-arity-mismatch` (0044's walk) and the
+  last-resort guard keeps it at that one diagnostic; the value-less `p:`
+  lowers `{"const":null}` (0056's null adjudication), not `{"type":"null"}`;
+  `p: '{}'` draws `empty-schema-body` (0045); `Result<…>` draws
+  `result-in-schema-position`; `p: true` lowers `{"const":true}` (0044), so
+  §Fix constraint 3's "boolean rows" refusal claim was already discharged;
+  the literal rows carry 0056's emissions; the census is 34 committed
+  `.theta`/`.thetalib` files (17 with `params:`, zero in the refused class);
+  the doc's slugs `__inline_6a8e2246094f0455` and `__inline_800ba1c3970ee2a8`
+  re-derived NOT stale.
+- Residuals: (1) an EMPTY default-side literal loads silently —
+  `p: 'string = '` records `hasDefault: true`, `defaultSource: ""`,
+  `required: []` and renders `default=` with no literal, which
+  binder-bypass-and-envelope.md's default-literal rendering cannot satisfy;
+  measured on the real load path; the parent files it (boundary vs bug 0163:
+  0163 owns type-correct-but-incompatible defaults; this is the empty/absent
+  default literal). (2) The authorized under-refusal: a brace-carrying
+  fragment that reaches the judgement WHOLE stays silent — `p: '{junk}'`,
+  the unterminated `p: '{a: string'`, `string | {a: ???}`,
+  `array<{a: ???}>` — pinned by witness cells d11–d13 and stated normatively
+  in the row's *Trigger*; the malformed-inline-interior family behind those
+  bytes is bugs 0133/0159's territory reached at this position, not a new
+  class. (3) The `a: Triage`/`a: Tirage` spelling drift across the three
+  prose surfaces (round-2 nit). (4) The witness's
+  `frontmatter.ts:1202–1204` citations re-anchor if `frontmatter.ts` moves
+  again (bug 0134's class).
+- Discharge notes appended: bug 0041 §Fix (0.51.0) *Residuals* (i)
+  (discharged — the scalar spellings now refuse); bug 0035 §Fix (0.44.0)
+  *Residuals* (iii) (closure clause on its chain); coordinating notes on bug
+  0060 and bug 0102 (the operator-granted cell moves, subjects preserved);
+  a status note on bug 0162 (its `p: 'enum["x", "y"]'` observable flipped
+  from silence to this fix's refusal; its code-divergence subject stands).
+- Pinned dispositions / non-goals: `p: '"x" | "y" = "zzz"'` still loads with
+  zero diagnostics (bug 0163's subject, pinned AS-IS by witness cell f3);
+  `array<"x" | "y">` stays permissive at every position (bug 0164's subject,
+  tripwire cells d1–d3); identifier-shaped junk keeps
+  `theta/parse/unresolved-named-type` (bugs 0044/0051 own the code-choice
+  questions); the guard precedence is normative in the *Trigger* (node-shape
+  refusal > same-iteration error > text refusal > that field's default-side
+  literal checks); the cross-field `non-trailing-default` check is never
+  suppressed.

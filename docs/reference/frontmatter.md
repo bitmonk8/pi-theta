@@ -85,7 +85,19 @@ anchors, and prose ("binder model").
   `theta/load/params-type-not-expression` and the theta does not register. A
   value-less `p:` (or `params: {p: }`) parses as a null scalar and is
   admitted. The inline object type `{a: Triage}` is a YAML flow mapping and is
-  admitted.
+  admitted. A scalar's recovered text must itself spell a `Type`, fragment by
+  fragment — YAML-shaped text, prose, punctuation, or an empty string is the
+  same `theta/load/params-type-not-expression`, however it is quoted or
+  block-scalar-spelled, and wherever the fragment sits: at the top level, in a
+  union arm at any depth, in a generic type argument (`array<a: Triage>`), or
+  in an inline object type's field type at any depth (`{a: ???}`, `{a: {b:
+  ???}}`). Literal-shaped text is exempt, and so is a fragment that reaches the
+  check carrying a `{` or `}` — `{junk}`, the unterminated `{a: string`,
+  `array<{a: ???}>` and `string | {a: ???}` keep their own lowering, which the
+  brace frame owns; a brace-free fragment inside a hoisted inline object does
+  not inherit that exemption. A field already refused or already erroring keeps
+  that one diagnostic alone, and a refused type suppresses that field's own
+  default-literal checks.
 - **Defaults.** `field: type = literal`. The RHS is the [Theta literal
   sublanguage](./grammar.md#theta-literal-sublanguage) — primitives (incl. unary-`-`
   on numerics), `null`, arrays, bare-key object literals (declared type supplies
