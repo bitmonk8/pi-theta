@@ -1,9 +1,8 @@
 # Bug 0167 — DISC-2's clean-leaf-`ENOENT` bullet (`discovery-sources.md:66`) classifies an absent conventional root as *unreadable* as soon as its own parent is absent too, which is the ordinary state of a workspace carrying no host config directory: the table's three `silent` *Missing path* cells (`:51`–`:53`) are unreachable for the commonest form of absence, every pass in such a workspace draws a `theta/load/unreadable-source` warning per conventional root, and no sentence in the section adjudicates between the two
 
-- **Status:** fixed, in the host-portability change that introduced the
-  `FileSystem.configDirName()` / `globalAgentDir()` seam members (working tree
-  over HEAD `faac684`, v0.88.0; the release number is the one the shipping commit
-  assigns, so it is not stated here). Both halves landed in that change: the walk
+- **Status:** fixed (0.89.0) — in the host-portability change that introduced
+  the `FileSystem.configDirName()` / `globalAgentDir()` seam members (external
+  PR #1 over HEAD `faac684`/v0.88.0, shipped as v0.89.0). Both halves landed in that change: the walk
   skips an `ENOENT` conventional root before classification, and the spec bullet
   gained the *Conventional-root exemption* clause that says so. The table rows
   are unchanged — they were the side the reconciliation kept.

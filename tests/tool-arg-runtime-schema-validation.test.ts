@@ -144,8 +144,9 @@ beforeAll(async () => {
     theta("---", "mode: prompt", "tools: read", "---", "@`hi`"),
     "utf8",
   );
-  // A minimal valid settings file — noise suppression for the bug-0013 warning
-  // surface, NOT behaviour under test (the sibling load harnesses' note).
+  // A minimal valid settings file pins the fixture's settings read to a known
+  // value. An ABSENT settings file is silent (package-and-settings.md
+  // §Failure modes), so the plant is hermeticity, not noise suppression.
   writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
   loadOutcome = await runProductionLoad(workspaceDir);
 });

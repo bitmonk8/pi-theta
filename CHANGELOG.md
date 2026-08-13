@@ -6,6 +6,61 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.89.0] - 2026-08-13
+
+### Added
+
+- Oh-My-Pi host support (external PR #1, hknielsen): theta runs on the `omp`
+  binary as a second host with the Pi path byte-identical — `HostCliDialect`
+  makes the subagent child-argv launch contract intent-level (per-host flag
+  spellings, an inexpressible intent stays an empty flag group, project trust
+  deliberately unmapped on Oh-My-Pi); `FileSystem` gains `configDirName()` /
+  `globalAgentDir()` so every conventional discovery/settings/package path
+  resolves against the running host (relocated global agent directories
+  included); `normalizeToolSnapshot` decodes `pi.getAllTools()` in either host
+  shape (`ToolInfo[]` or bare names — unpublished information stays absent, no
+  trust from an absent scope); `readPeerVersion` becomes a filesystem-only
+  three-rung ladder (authored scope → `@oh-my-pi/` alias → in-process host-SDK
+  `VERSION` for the four pinned peers only — compiled host binaries now load).
+- The inherited `PI_THETA_*` control plane is authenticated against the real
+  parent pid before any reader honours it
+  (subagent.md `#subagent-control-plane-authentication`): env-planted control
+  values (a repository `.env` a host loads) can no longer select the process
+  regime, feed the hash verifier, or name an extension to load. Harnesses
+  topping a chain write the parent-pid carriage beside the extension pin
+  (AGENTS.md `#subagent-child-pins`).
+
+### Fixed
+
+- Bug 0167: an absent conventional discovery root is silent — DISC-2's
+  clean-leaf-`ENOENT` walk no longer converts "the host config directory does
+  not exist" into a spurious `theta/load/unreadable-source` warning per root
+  per pass (the conventional-root exemption; explicit `--theta` / settings
+  references keep the clean-leaf distinction, and a root that exists but
+  cannot be read still warns).
+- Bug 0168: the executable-resolution ladder's rung-1 existence check answers
+  `false` for a `process.argv[1]` inside a compiled host binary's own embedded
+  filesystem (`isEmbeddedFsPath`), so a compiled-binary install spawns the
+  host binary directly (rung 2) instead of handing the child an unopenable
+  embedded path as a stray positional argument.
+- Bug 0169: the child-side subagent model pre-flight (PIC-62 obligation 2)
+  matches the fully-qualified `provider/id` reference — a registry serving one
+  model id through several providers no longer reads as ambiguous-therefore-
+  unresolved and no longer refuses every child.
+- Bug 0170: `--system-prompt` is emitted newline-prefixed so neither host can
+  path-coerce the interpolated `system:` text into reading a named file's
+  bytes as the child's system prompt; an empty prompt stays empty so the host
+  default still applies.
+- Bug 0171: the marshalled-params env patch names BOTH carriers on every
+  launch (the unused one explicitly cleared), so a nested callee can no longer
+  silently run on its caller's inherited `PI_THETA_PARAMS`; the callable-hash
+  carrier follows the same rule (cleared when a launch marshals none).
+- The missing-file half of bug 0013's recorded settings contradiction is
+  resolved the registry row's way: an ABSENT settings file is silent
+  (`theta/load/settings-unreadable` fires only for a file that exists and
+  cannot be read), matching the row's registered trigger and the files'
+  documented optionality.
+
 ## [0.88.0] - 2026-08-08
 
 ### Fixed
