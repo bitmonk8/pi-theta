@@ -335,6 +335,12 @@ class ReaddirDenied implements FileSystem {
   cwd(): string {
     return this.#inner.cwd();
   }
+  configDirName(): string {
+    return this.#inner.configDirName();
+  }
+  globalAgentDir(): string {
+    return this.#inner.globalAgentDir();
+  }
   lstat(path: string): Promise<FileStat> {
     return this.#inner.lstat(path);
   }

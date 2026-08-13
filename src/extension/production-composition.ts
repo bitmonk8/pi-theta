@@ -20,7 +20,6 @@
 // pi-integration-contract/registration-steps.md, discovery.md.
 
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import {
   delimiter as PATH_DELIMITER,
   dirname,
@@ -36,11 +35,16 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  VERSION, // allow-pi-surface: PIC#subagent-launch-contract — Step 0 (d) rung 3: the in-process host SDK version, the only readable peer version on a compiled host binary
 } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+  normalizeToolSnapshot,
+  type HostToolSnapshotEntry,
+} from "../seams/host-tool-snapshot";
 import { Type } from "typebox";
 import {
   hashCallableClosure,
@@ -1183,7 +1187,10 @@ export async function composeExtensionInstance(
   );
 
   // The watched set: the active discovery-root union plus the two settings-file
-  // paths (project `.pi/settings.json`, global `~/.pi/agent/settings.json`).
+  // paths (project `<config-dir>/settings.json` and global
+  // `<global-agent-dir>/settings.json`, both resolved against the running host —
+  // `.pi` on Pi, `.omp` on Oh-My-Pi, and a relocated global directory under
+  // either).
   const roots = [
     ...initial.activeRoots,
     ...settingsFilePaths(ctx, root.fileSystem),
@@ -1248,17 +1255,25 @@ export async function composeExtensionInstance(
 
 /**
  * The two settings-file paths the watcher covers: the project
- * `.pi/settings.json` (relative to `ctx.cwd`) and the global
- * `~/.pi/agent/settings.json` (home expanded via the `FileSystem` seam), per
- * package-and-settings.md §"Settings file reads".
+ * `<config-dir>/settings.json` (relative to `ctx.cwd`, with the config-dir name
+ * from the `FileSystem` seam) and the global `<globalAgentDir>/settings.json`.
+ * Both track the running host, and both MUST agree with `loadSettings`, which
+ * resolves the same two files the same way — a watcher pointed at a path the
+ * loader never reads would leave a live edit of the real global settings file
+ * undetected until the next session.
+ *
+ * The global arm takes the host's OWN resolved global agent directory rather
+ * than `<homedir>/<config-dir>/agent`, because Pi relocates it via
+ * `PI_CODING_AGENT_DIR` and Oh-My-Pi via an active profile or `PI_CONFIG_DIR`.
+ * Per package-and-settings.md §"Settings file reads".
  */
 function settingsFilePaths(
   ctx: ExtensionContext,
   fileSystem: FileSystem,
 ): readonly string[] {
   return [
-    resolvePath(ctx.cwd, ".pi", "settings.json"),
-    resolvePath(fileSystem.homedir(), ".pi", "agent", "settings.json"),
+    resolvePath(ctx.cwd, fileSystem.configDirName(), "settings.json"),
+    resolvePath(fileSystem.globalAgentDir(), "settings.json"),
   ];
 }
 
@@ -1814,17 +1829,12 @@ function builtinToolDefinition(
 }
 
 /**
- * The `pi.getAllTools()` `ToolInfo` subset the mode-independent load-time
- * admission reads (name + registered `parameters` schema). A real Pi
- * `ToolInfo` is structurally assignable to it.
+ * Accessor for the RAW `pi.getAllTools()` snapshot the registry admission
+ * reads. The entry shape is host-dependent (`ToolInfo[]` on Pi, `string[]` on
+ * Oh-My-Pi), so the resolver normalises through `seams/host-tool-snapshot.ts`
+ * rather than reading members off the raw entries.
  */
-interface AdmissibleToolInfo {
-  readonly name: string;
-  readonly parameters?: unknown;
-}
-
-/** Accessor for the `pi.getAllTools()` snapshot the registry admission reads. */
-type GetAllToolsSnapshot = () => readonly AdmissibleToolInfo[];
+type GetAllToolsSnapshot = () => readonly HostToolSnapshotEntry[];
 
 /**
  * The load-time resolved shape a `pi-tool` callable-set entry carries.
@@ -1860,13 +1870,18 @@ function resolveRegistryExtensionTool(
   name: string,
   getAllTools: GetAllToolsSnapshot | undefined,
 ): PiToolLoadEntry | undefined {
-  const info = (getAllTools?.() ?? []).find((tool) => tool.name === name);
+  const info = normalizeToolSnapshot(getAllTools?.() ?? []).find(
+    (tool) => tool.name === name,
+  );
   if (info === undefined) {
     return undefined;
   }
+  // A host that publishes bare names supplies no schema; the field stays absent
+  // (never `undefined`-as-a-value) so the RFC-0002 disjointness check reads
+  // "schema unknown" rather than "schema is undefined".
   return {
     toolName: name,
-    parameters: info.parameters,
+    ...(info.parameters === undefined ? {} : { parameters: info.parameters }),
   };
 }
 
@@ -2260,7 +2275,7 @@ function buildSystemNoteDeps(
  * synthetic stand-in.
  */
 export function createProductionProbeHost(pi: ExtensionAPI): ProbeHost {
-  // This module's own directory is the rung-2 walk's starting point (below):
+  // This module's own directory is the walk's starting point (below):
   // `import.meta.url` is exempt from the ambient-primitive ban (the ban
   // covers `process.env` / `process.cwd` / timers / `Date.now`, not
   // `import.meta` or `process.versions`).
@@ -2271,68 +2286,129 @@ export function createProductionProbeHost(pi: ExtensionAPI): ProbeHost {
     abortSignal: AbortSignal,
     pi: pi as unknown as Readonly<Record<string, unknown>>,
     typeboxType: Type,
-    readPeerVersion: (pkg: string) => readPeerVersion(pkg, moduleDir),
+    readPeerVersion: (pkg: string) =>
+      readPeerVersion(pkg, moduleDir, VERSION),
   };
 }
 
 /**
+ * The lock-step peer scope the extension is authored against. Every name in
+ * `PEER_DEP_PACKAGES` (capability-probe.md Step 0 (d)) carries this scope.
+ */
+const AUTHORED_PEER_SCOPE = "@earendil-works/";
+
+/**
+ * Host scopes that publish the same four lock-step pi packages, in probe
+ * order. A Pi host installs the authored `@earendil-works/*` scope; an
+ * Oh-My-Pi host serves the identical surface under `@oh-my-pi/*` and remaps
+ * `@earendil-works/*` imports onto it at load time, so a `package.json` under
+ * the authored scope may not exist there at all. Probing both scopes is what
+ * lets one build satisfy Step 0 (d) on either host. Frozen to stay off the
+ * *No globals, statics, singletons* mutable-binding scan.
+ */
+const PEER_SCOPE_ALIASES: readonly string[] = Object.freeze([
+  AUTHORED_PEER_SCOPE,
+  "@oh-my-pi/",
+]);
+
+/**
  * The `readPeerVersion` mechanic (capability-probe.md Step 0 (d) /
  * `#step-0-d-recommended-recipe`) — load-bearing, not a simplification
- * candidate. The doc's own recommended recipe
- * (`createRequire(import.meta.url).resolve("<pkg>")` + parent walk) throws
- * `ERR_PACKAGE_PATH_NOT_EXPORTED` against three of the four pinned
- * `@earendil-works/*` peers: their `"."` export publishes only `types` and
- * `import` conditions, leaving the CJS resolver no `require` condition to
- * match. That throw is outside Step 0 (d)'s four closed conditions, so a bare
- * recipe routes those peers to `kind: "probe-failed"` and the shipped
- * extension would refuse to load on every host. `import.meta.resolve`
- * is `undefined` under vitest, so it cannot be the sole mechanic either. The
- * doc permits "any `exports`-independent mechanic" — this two-rung ladder
- * reproduces the four installation-observable conditions without depending on
- * either gap: rung 1 is the direct `./package.json` subpath resolution (a hit
- * whenever a package has no `exports` map, or exports that subpath — it misses
- * the two peers whose `exports` map omits a `./package.json` entry); rung 2
- * walks `node_modules` ancestor directories from this module's own directory,
- * which finds an ESM-only peer's `package.json` directly on disk regardless of
- * its `exports` map (a plain file read consults no `exports` field at all).
- * First success wins; a resolved candidate whose `name` does not match `pkg`
- * keeps walking rather than answering "unresolvable" prematurely.
+ * candidate.
+ *
+ * The doc's own recommended recipe (`createRequire(import.meta.url).resolve(
+ * "<pkg>")` + parent walk) is UNUSABLE here for two independent reasons.
+ * First, it throws `ERR_PACKAGE_PATH_NOT_EXPORTED` against three of the four
+ * pinned `@earendil-works/*` peers: their `"."` export publishes only `types`
+ * and `import` conditions, leaving the CJS resolver no `require` condition to
+ * match, and that throw is outside Step 0 (d)'s four closed conditions, so a
+ * bare recipe routes those peers to `kind: "probe-failed"` and the shipped
+ * extension would refuse to load on every host. Second, on an Oh-My-Pi host
+ * the pi package specifiers are served by an ASYNCHRONOUS `Bun.plugin`
+ * resolver; a synchronous `require.resolve` (or `import.meta.resolve`) cannot
+ * drain the microtask queue that resolver awaits, so the call DEADLOCKS the
+ * whole factory before any diagnostic can be emitted. Every rung below is
+ * therefore a plain filesystem read or an already-evaluated in-process value —
+ * no host resolver is entered.
+ *
+ * The doc permits "any `exports`-independent mechanic". This three-rung ladder
+ * reproduces the four installation-observable conditions:
+ *
+ *   - Rung 1 walks `node_modules` ancestor directories from this module's own
+ *     directory looking for `<authored scope><pkg>/package.json`. A plain file
+ *     read consults no `exports` field, so an ESM-only peer answers here.
+ *   - Rung 2 repeats that walk for every other known host scope
+ *     (`PEER_SCOPE_ALIASES`), which is how an Oh-My-Pi source / npm install
+ *     answers when the authored scope is absent from disk.
+ *   - Rung 3 falls back to the host SDK's own in-process `VERSION` export.
+ *     Both hosts export it from the coding-agent package root. This is the only
+ *     readable answer on a COMPILED host binary, where the pi packages are
+ *     bundled into the executable and no `package.json` exists on disk at all;
+ *     it is also the most truthful answer available, since it is read off the
+ *     very module instance the extension was linked against rather than off a
+ *     sibling tree that may not be the one in use.
+ *
+ * First success wins; a resolved candidate whose `name` does not match the
+ * candidate's own scoped spelling keeps walking rather than answering
+ * "unresolvable" prematurely.
  *
  * Exported — rather than reached only through `createProductionProbeHost` —
- * because `moduleDir` is the walk's only ambient input, so a caller supplying a
- * planted tree witnesses each of the four installation-observable conditions,
- * and the throw-rather-than-answer arm that routes a genuine read/parse failure
- * to `kind: "probe-failed"`, directly at this seam.
+ * because `moduleDir` and `hostSdkVersion` are the ladder's only ambient inputs,
+ * so a caller supplying a planted tree and a chosen host version witnesses each
+ * of the four installation-observable conditions, the rung-3 fallback, and the
+ * throw-rather-than-answer arm that routes a genuine read/parse failure to
+ * `kind: "probe-failed"`, directly at this seam. `hostSdkVersion` is a parameter
+ * rather than a module-scope read for exactly that reason: a hardcoded import
+ * would make rung 3 unconditional and the "unresolvable" condition unobservable.
  */
-export function readPeerVersion(pkg: string, moduleDir: string): string | undefined {
-  for (const candidate of peerPackageJsonCandidates(pkg, moduleDir)) {
-    const parsed = readCandidatePackageJson(candidate);
-    if (parsed === undefined) {
-      continue; // no file at this candidate — keep walking.
+export function readPeerVersion(
+  pkg: string,
+  moduleDir: string,
+  hostSdkVersion?: string,
+): string | undefined {
+  for (const scope of PEER_SCOPE_ALIASES) {
+    // Re-spell the authored-scope peer under `scope`. A name outside the
+    // authored scope is never rewritten, so a caller-supplied package that is
+    // not one of the four pinned peers passes through untouched.
+    const scoped =
+      scope === AUTHORED_PEER_SCOPE || !pkg.startsWith(AUTHORED_PEER_SCOPE)
+        ? pkg
+        : `${scope}${pkg.slice(AUTHORED_PEER_SCOPE.length)}`;
+    for (const candidate of peerPackageJsonCandidates(scoped, moduleDir)) {
+      const parsed = readCandidatePackageJson(candidate);
+      if (parsed === undefined) {
+        continue; // no file at this candidate — keep walking.
+      }
+      if (parsed.name !== scoped) {
+        continue; // a different package's package.json — keep walking.
+      }
+      // Conditions (2)/(3) collapse into the same `undefined` answer as
+      // "unresolvable": a located `package.json` with no own (string) `version`
+      // field is exactly as unreadable as no candidate at all.
+      if (typeof parsed.version === "string") {
+        return parsed.version;
+      }
     }
-    if (parsed.name !== pkg) {
-      continue; // a different package's package.json — keep walking.
-    }
-    // Conditions (2)/(3) collapse into the same `undefined` answer as
-    // "unresolvable": a located `package.json` with no own (string) `version`
-    // field is exactly as unreadable as no candidate at all.
-    return typeof parsed.version === "string" ? parsed.version : undefined;
   }
-  // Conditions (1)/(2): no candidate anywhere parsed to an object named `pkg`.
-  return undefined;
+  // Rung 3 — the in-process host SDK version, for a PINNED lock-step peer only.
+  // One host serves all four, so its single `VERSION` answers for each. The
+  // authored-scope test is what keeps this rung from swallowing condition (1):
+  // an arbitrary package the host does not serve is still genuinely
+  // unresolvable, and answering it with the host's own version would report a
+  // satisfied floor for something that is not installed at all.
+  if (!pkg.startsWith(AUTHORED_PEER_SCOPE)) {
+    return undefined;
+  }
+  return hostSdkVersion;
 }
 
 /**
- * The ordered candidate `package.json` paths for `pkg`: rung 1 (the direct
- * `require.resolve` subpath hit, when resolvable) followed by rung 2 (the
- * `node_modules` ancestor walk from `moduleDir` up to the filesystem root).
+ * The ordered candidate `package.json` paths for `pkg`: the `node_modules`
+ * ancestor walk from `moduleDir` up to the filesystem root. Filesystem-only by
+ * design — see `readPeerVersion` for why no host resolver may be entered here.
  */
 function peerPackageJsonCandidates(pkg: string, moduleDir: string): readonly string[] {
   const candidates: string[] = [];
-  const direct = resolvePackageJsonViaRequire(pkg);
-  if (direct !== undefined) {
-    candidates.push(direct);
-  }
   let dir = moduleDir;
   for (;;) {
     candidates.push(resolvePath(dir, "node_modules", pkg, "package.json"));
@@ -2343,22 +2419,6 @@ function peerPackageJsonCandidates(pkg: string, moduleDir: string): readonly str
     dir = parent;
   }
   return candidates;
-}
-
-/**
- * Rung 1: the direct `./package.json` subpath resolution. `undefined` when the
- * CJS resolver cannot resolve it — e.g. `ERR_PACKAGE_PATH_NOT_EXPORTED` against
- * an `exports` map with no `./package.json` entry, which is how two of the four
- * pinned peers behave — so rung 2's ancestor walk answers for them instead. A
- * rung-1 miss is a step in the ladder, not a probe-failed condition.
- */
-function resolvePackageJsonViaRequire(pkg: string): string | undefined {
-  try {
-    return createRequire(import.meta.url).resolve(`${pkg}/package.json`);
-  } catch (resolveError: unknown) { // allow-broad-catch: theta/load/host-incompatible — pi-integration-contract/capability-probe.md#step-0-d-recommended-recipe
-    void resolveError;
-    return undefined;
-  }
 }
 
 /**

@@ -14,7 +14,8 @@
 //     temp file whose path travels on `PI_THETA_PARAMS_FILE`, read and deleted
 //     by the child, with a parent-`finally` delete as backstop;
 //   - parent-side marshalling (`marshalParams`) with the temp-file write +
-//     cleanup closure;
+//     cleanup closure, emitting BOTH carrier keys on every path (the unused one
+//     `undefined`) so the patch CLEARS an inherited sibling carrier (SPAWN-08);
 //   - child-side intake (`readMarshalledParams`, `intakeChildParams`): read env
 //     or file, delete the file, validate against the callee's `params:` schema,
 //     and — on the marshalled path — bypass the binder entirely.
@@ -119,8 +120,21 @@ export interface ParamsMarshalDeps {
 
 /** The marshalled params outcome: the child env patch + the parent-`finally` cleanup backstop. */
 export interface MarshalledParams {
-  /** The env patch to fold into the child env — exactly one of the two carriers. */
-  readonly env: Record<string, string>;
+  /**
+   * The env patch to fold into the child env. It names BOTH carriers on every
+   * path — the chosen one carrying its value, the unused one explicitly
+   * `undefined` — so the patch describes the WHOLE channel state rather than
+   * just the half this invocation picked (see `marshalParams` for the hazard
+   * that makes the cleared sibling load-bearing).
+   *
+   * `undefined` is the DELETE signal, not an empty value: the patch is spread
+   * into the child env and handed to the spawn seam, and both Node's
+   * `child_process.spawn` and Bun's skip `undefined` entries when they build the
+   * child's environment block — so a cleared carrier is ABSENT in the child, not
+   * present-and-empty (an empty string would still satisfy
+   * `readMarshalledParams`'s `!== undefined` test and fail closed on parse).
+   */
+  readonly env: Record<string, string | undefined>;
   /** The temp-file path on the file channel (absent on the env channel). */
   readonly tempFilePath?: string;
   /** The parent-`finally` backstop: delete the temp file (a no-op on the env channel). */
@@ -131,7 +145,10 @@ export interface MarshalledParams {
  * Marshal the already-typed params for the child: canonicalise, choose the
  * channel, and (on the file channel) write the 0600 temp file. Returns the env
  * patch and a `cleanup` closure the parent's per-invocation `finally` runs as
- * the backstop delete (PIC-60 / PIC-65 teardown).
+ * the backstop delete (PIC-60 / PIC-65 teardown). The returned patch names BOTH
+ * carriers on every path — the unused one `undefined` — so folding it into the
+ * child env CLEARS an inherited sibling carrier instead of leaving it live; the
+ * body's SPAWN-08 note says why that is load-bearing rather than tidiness.
  */
 export function marshalParams(
   params: Record<string, unknown>,
@@ -139,11 +156,33 @@ export function marshalParams(
 ): MarshalledParams {
   const canonicalJson = canonicalizeParamsJson(params);
   const plan = chooseParamsChannel(canonicalJson);
+  // WHY both branches emit BOTH carrier keys, `undefined`-ing the unused one
+  // (SPAWN-08): this patch is LAYERED over the launching process's own inherited
+  // environment, and that process is itself frequently a subagent child still
+  // carrying the carrier of the invocation that launched IT. A single-key patch
+  // cannot clear an inherited sibling, and `readMarshalledParams` resolves a
+  // two-carrier env by PREFERENCE (inline first, returning before it ever
+  // consults the file carrier) rather than by refusal — so a leftover carrier
+  // does not surface as an error, it silently WINS.
+  //
+  // Concretely: a level-1 child launched with SMALL params holds its own
+  // `PI_THETA_PARAMS`; it then invokes a level-2 callee whose params are LARGE,
+  // so only `PI_THETA_PARAMS_FILE` is chosen. Patch just that one key and the
+  // grandchild reads the INHERITED inline JSON — it runs on its CALLER's
+  // arguments and never opens its own temp file. Nothing catches the
+  // substitution: a callee that declares no `params:` admits any payload
+  // unvalidated. The caller picks the payload, so crossing the threshold is a
+  // controllable trigger, making this a cross-invocation argument disclosure on
+  // top of a silent correctness break. Stating both keys is what makes the
+  // channel choice authoritative for the child.
   if (plan.kind === "env") {
     // Below-threshold: the canonical JSON rides the env var; the cleanup backstop
     // is a no-op (nothing to delete).
     return {
-      env: { [SUBAGENT_PARAMS_ENV]: plan.value },
+      env: {
+        [SUBAGENT_PARAMS_ENV]: plan.value,
+        [SUBAGENT_PARAMS_FILE_ENV]: undefined,
+      },
       cleanup: (): void => {},
     };
   }
@@ -152,7 +191,10 @@ export function marshalParams(
   // the cutover). The parent-`finally` backstop deletes the temp file.
   const tempFilePath = deps.writeTempFile(plan.contents, SUBAGENT_PARAMS_TEMP_FILE_MODE);
   return {
-    env: { [SUBAGENT_PARAMS_FILE_ENV]: tempFilePath },
+    env: {
+      [SUBAGENT_PARAMS_ENV]: undefined,
+      [SUBAGENT_PARAMS_FILE_ENV]: tempFilePath,
+    },
     tempFilePath,
     cleanup: (): void => {
       deps.unlink(tempFilePath);
@@ -184,6 +226,14 @@ export function readMarshalledParams(
   deps: ParamsIntakeDeps,
 ): unknown {
   // Below-threshold: read the canonical JSON from the env var (no file touched).
+  //
+  // This inline-first preference is only safe because `marshalParams` emits BOTH
+  // carrier keys and `undefined`s the unused one (SPAWN-08): the child env can
+  // therefore hold at most the carrier THIS invocation chose. Were a stale
+  // inherited inline carrier able to survive alongside a fresh file carrier, the
+  // early return below would silently hand the callee its caller's params — so
+  // do not relax that emission invariant without making this read refuse a
+  // two-carrier env outright.
   const inlineJson = env[SUBAGENT_PARAMS_ENV];
   if (inlineJson !== undefined) {
     return parseParamsJson(inlineJson);

@@ -22,6 +22,7 @@ import { minimatch } from "minimatch";
 import type { Diagnostic, Severity } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import type { ThetaSettings } from "./settings";
+import { nodeErrorCode } from "./node-error-code";
 
 /** The five discovery sources, in priority order high→low. */
 export type DiscoverySource = "cli" | "settings" | "project" | "package" | "global";
@@ -233,16 +234,6 @@ function relativeToBase(baseDir: string | undefined, abs: string): string | unde
  *  override prefix is stripped by the caller before this test. */
 function isGlobPattern(operand: string): boolean {
   return /[*?[\]{}]/.test(operand);
-}
-
-/** Node-style `.code` reader that binds no broad `catch` (the fs rejections
- *  carry no narrow subtype; the broad-catch ban targets `catch` clauses). */
-function nodeErrorCode(error: unknown): string | undefined {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const code = (error as { code?: unknown }).code;
-    return typeof code === "string" ? code : undefined;
-  }
-  return undefined;
 }
 
 type LstatOutcome =
@@ -808,6 +799,16 @@ async function resolveSettingsSource(
  * resolve priority and collisions, and return the registrable thetas plus the
  * load-phase diagnostics.
  */
+/**
+ * The descriptor naming the conventional project discovery root in diagnostics.
+ * Built from the HOST's config-dir name so a reader is pointed at the directory
+ * that host actually reads (`.pi/theta/` on Pi, `.omp/theta/` on Oh-My-Pi)
+ * rather than at the one this extension was authored against.
+ */
+function projectSourceLabel(configDirName: string): string {
+  return `project ${configDirName}/theta/`;
+}
+
 export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryResult> {
   const { fs } = input;
   const diagnostics: Diagnostic[] = [];
@@ -836,29 +837,69 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     candidates.push({ ...candidate, source: "settings", sourceLabel: settingsSourceLabel });
   }
 
-  // Project (priority 3) — conventional `.pi/theta/`; silent when absent.
-  await collectFromEntries(
-    fs,
-    [{ path: joinPosix(fs.cwd(), ".pi/theta"), descriptor: "project .pi/theta/" }],
-    "project",
-    CONVENTIONAL_MODES,
-    false,
-    candidates,
-    diagnostics,
-  );
-
-  // Package (priority 4) — owned by V10b; not plumbed into this walk yet.
-
-  // Global (priority 5) — conventional `~/.pi/agent/theta/`; silent when absent.
-  await collectFromEntries(
-    fs,
-    [{ path: joinPosix(fs.homedir(), ".pi/agent/theta"), descriptor: "global thetas directory" }],
-    "global",
-    CONVENTIONAL_MODES,
-    false,
-    candidates,
-    diagnostics,
-  );
+  // Project (priority 3) — conventional `<config-dir>/theta/`; silent when
+  // absent. The config-dir name is the HOST's (`.pi` on Pi, `.omp` on
+  // Oh-My-Pi), read through the seam so the root and the descriptor that names
+  // it in diagnostics both point at the directory the running host actually
+  // conventions. Reconstructing the PROJECT directory from the bare name is
+  // exact: both hosts build it from the same static constant.
+  //
+  // The GLOBAL root is not reconstructible that way, so it hangs off the host's
+  // own resolved global agent directory instead (`globalAgentDir()`): Pi
+  // relocates that with `PI_CODING_AGENT_DIR`, Oh-My-Pi with an active profile
+  // or `PI_CONFIG_DIR`, and a synthesised `<homedir>/<config-dir>/agent/theta`
+  // would then be an absent directory — which this walk skips SILENTLY, so
+  // every global theta would vanish with no diagnostic at all.
+  const configDir = fs.configDirName();
+  const conventionalRoots: readonly {
+    readonly source: DiscoverySource;
+    readonly path: string;
+    readonly descriptor: string;
+  }[] = [
+    {
+      source: "project" as const,
+      path: joinPosix(fs.cwd(), `${configDir}/theta`),
+      descriptor: projectSourceLabel(configDir),
+    },
+    // Package (priority 4) — owned by V10b; not plumbed into this walk yet.
+    {
+      source: "global" as const,
+      path: joinPosix(fs.globalAgentDir(), "theta"),
+      descriptor: "global thetas directory",
+    },
+  ];
+  for (const root of conventionalRoots) {
+    // A conventional root is OPTIONAL: `CONVENTIONAL_MODES.missing === null`
+    // promises that absence contributes nothing and says nothing. Skipping an
+    // absent root BEFORE classification is what keeps that promise, because
+    // DISC-2's clean-leaf-ENOENT rule (`classifyPath`) downgrades an absent
+    // path to `unreadable` — a WARNING — as soon as a proper ancestor is
+    // absent too. For a conventional root that ancestor is the host config
+    // directory itself, and "the config directory does not exist either" is
+    // the most ordinary form of "not present": on a host that never creates
+    // that directory it is the universal case, so every session in every
+    // workspace would carry two spurious `unreadable-source` warnings.
+    //
+    // Only ENOENT is skipped. A root that EXISTS but cannot be read (EACCES /
+    // EPERM) still reaches the classifier and still warns — that is a real
+    // problem an operator needs told about, and it is what `unreadable`
+    // means. DISC-2's clean-leaf distinction is untouched for the CLI and
+    // settings sources, where an absent intermediate directory is a genuine
+    // signal about a path the user typed.
+    const probe = await lstatOutcome(fs, root.path);
+    if (!probe.ok && probe.code === "ENOENT") {
+      continue;
+    }
+    await collectFromEntries(
+      fs,
+      [{ path: root.path, descriptor: root.descriptor }],
+      root.source,
+      CONVENTIONAL_MODES,
+      false,
+      candidates,
+      diagnostics,
+    );
+  }
 
   // Per-source case-collision, then slash-name validity + per-file readability,
   // then cross-source/format collision resolution over the survivors.
@@ -894,6 +935,10 @@ function sourceLabelOf(source: DiscoverySource): string {
     case "settings":
       return "settings thetaPaths";
     case "project":
+      // The host config-dir name is unavailable at this pure-label seam, so the
+      // Pi spelling stands in for the source CATEGORY here. Every path-bearing
+      // project diagnostic is built with `projectSourceLabel(configDir)` below,
+      // which names the real directory.
       return "project .pi/theta/";
     case "package":
       return "package theta/ directory";

@@ -12,6 +12,8 @@
 4. `~/.pi/agent/npm/` — global npm packages installed via `pi install -g`. When `npmCommand` is configured (per `packages.md` §npm), Pi resolves the global root and the extension reads that already-resolved root instead of the literal path; the extension does not itself invoke `npmCommand`.
 5. `~/.pi/agent/git/<host>/<path>/` — global git packages cloned via `pi install`.
 
+**Path derivation for the roots above.** The `.pi` / `~/.pi/agent` spellings are Pi's own vantage point on the two host-location seam members, not literal paths. A PROJECT-relative root is `<cwd>/<host config-dir name>/…` — the host's own `CONFIG_DIR_NAME` (`.pi` on Pi, `.omp` on Oh-My-Pi), read through the [`FileSystem.configDirName()` seam member](../pi-integration-contract/host-interfaces-services.md#pic-13-host-config-locations) — so roots (1) and (2) are `<cwd>/<config-dir>/npm/` and `<cwd>/<config-dir>/git/<host>/<path>/`, and the project settings file of [Settings file reads](#settings-file-reads) below is `<cwd>/<config-dir>/settings.json`. A GLOBAL root hangs off the host's OWN resolved global agent directory — the host SDK's `getAgentDir()`, read through the [`FileSystem.globalAgentDir()` seam member](../pi-integration-contract/host-interfaces-services.md#pic-13-host-config-locations) — and never off a synthesised `<homedir>/<config-dir>/agent`, because a host may relocate that directory through an environment override or an active profile: roots (4) and (5) are `<globalAgentDir>/npm/` and `<globalAgentDir>/git/<host>/<path>/`, and the global settings file is `<globalAgentDir>/settings.json`. On a default Pi install both derivations resolve to exactly the paths spelled above.
+
 Within each root, the extension treats every immediate child directory whose name does **not** begin with `@` as a candidate package, and every immediate child directory whose name **does** begin with `@` as a scope directory whose own immediate children are candidate packages. Scope directories themselves are not packages and are not inspected for `package.json`; this matches npm's on-disk layout for scoped packages. A candidate package contributes thetas only when its `package.json` parses successfully. The `pi-package` keyword in `package.json` is informational (used by the gallery, per `packages.md` §"Gallery Metadata") and is **not** required for theta discovery — packages installed before the convention existed, and packages that ship thetas incidentally, are still scanned.
 
 **Per-package resolution.** For each candidate package (candidate enumeration — including `@scope` unwrapping — is defined under **Roots scanned** above):
@@ -44,9 +46,10 @@ The theta extension owns its own keys in `settings.json` — Pi does not recogni
 
 The extension reads both files directly through the injected `FileSystem` seam (the same seam used for `.theta` discovery; see [`FakeFileSystem` / `FileSystem` interface](../pi-integration-contract.md)). Pi itself is not consulted for these values.
 
-**Failure modes.** Treated as `{}` (with the loaded value of the other file unaffected) and logged as a single load-time diagnostic per file:
+**Failure modes.** Treated as `{}` (with the loaded value of the other file unaffected); each condition below that names a diagnostic logs exactly one load-time diagnostic per file:
 
-- File missing or unreadable — `theta/load/settings-unreadable`.
+- File absent — **silent**. Both files are optional (per **Files** above), so a file that is not there is the ordinary case: it contributes `{}` and logs nothing.
+- File present but unreadable (`EACCES` / `EPERM`, a directory in the file's place, a transient I/O error) — `theta/load/settings-unreadable`. Absence and unreadability are distinct outcomes: the diagnostic fires only when the file exists and cannot be read, matching that row's own trigger in [Code registry — load](../diagnostics/code-registry-load.md) ("exists but is unreadable").
 - File present but not valid UTF-8 JSON — `theta/load/settings-invalid-json`.
 - File present and valid JSON but whose root is not a JSON object (a top-level array, number, boolean, string, or bare `null`) — `theta/load/settings-value-out-of-range`, logged once for the file (see **Top-level shape validation** below).
 

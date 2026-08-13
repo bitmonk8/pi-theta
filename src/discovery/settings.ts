@@ -7,8 +7,8 @@
 // global; deep-merge objects, replace arrays/scalars — DISC-7).
 //
 // Resolved file locations (POSIX-joined, project before global):
-//   project: `<FileSystem.cwd()>/.pi/settings.json`
-//   global:  `<FileSystem.homedir()>/.pi/agent/settings.json`
+//   project: `<FileSystem.cwd()>/<FileSystem.configDirName()>/settings.json`
+//   global:  `<FileSystem.globalAgentDir()>/settings.json`
 //
 // V10c-T (tests-task) declares the seam shape and stubs the two behaviour-
 // bearing functions with inert, empty results so the failing tests compile and
@@ -23,6 +23,7 @@
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import { renderCanonicalNumber } from "../render/canonical-number";
+import { nodeErrorCode } from "./node-error-code";
 
 /** A parsed JSON object (the on-disk shape of one settings file's root). */
 export type JsonObject = Record<string, unknown>;
@@ -50,7 +51,8 @@ export interface ThetaSettings {
   /**
    * The settings-file directory the `thetaPaths` entries resolve relative to
    * (DISC-7 `thetaPaths` resolution): the origin dir of whichever file supplied
-   * the surviving array — project `<cwd>/.pi` or global `<homedir>/.pi/agent`.
+   * the surviving array — project `<cwd>/<config-dir>` or the global
+   * `FileSystem.globalAgentDir()`.
    * Absent when no file supplied `thetaPaths`. Absolute and `~/` entries ignore
    * it; relative entries join it. The project array replaces the global array
    * wholesale (no concat), so the surviving array is wholly from one file and
@@ -170,24 +172,35 @@ function posixJoin(base: string, tail: string): string {
 
 /** The outcome of reading + parsing one settings file. */
 type FileReadOutcome =
+  | { readonly kind: "absent" }
   | { readonly kind: "unreadable" }
   | { readonly kind: "invalid-json" }
   | { readonly kind: "parsed"; readonly root: unknown };
 
 /**
- * Read one settings file through the seam and parse its UTF-8 JSON root. A read
- * rejection (missing or unreadable) maps to `unreadable`; an invalid-UTF-8
- * decode or a JSON parse failure maps to `invalid-json`. Both discriminate via
- * Promise rejection handlers rather than `catch` clauses (Node fs errors carry
- * no narrow subtype to bind, and the broad-`catch` ban targets `catch`).
+ * Read one settings file through the seam and parse its UTF-8 JSON root. An
+ * `ENOENT` rejection maps to `absent`; any other read rejection (`EACCES`,
+ * `EPERM`, `EISDIR`, …) maps to `unreadable`; an invalid-UTF-8 decode or a JSON
+ * parse failure maps to `invalid-json`. All discriminate via Promise rejection
+ * handlers rather than `catch` clauses (Node fs errors carry no narrow subtype
+ * to bind, and the broad-`catch` ban targets `catch`).
+ *
+ * `absent` is a distinct outcome from `unreadable` because both settings files
+ * are OPTIONAL and the two conditions are not the same event: a file that is
+ * not there is the ordinary case and warrants no diagnostic, while a file that
+ * EXISTS and cannot be read is a real problem an operator must be told about.
+ * Collapsing them made `theta/load/settings-unreadable` fire for every absent
+ * file, which contradicts that code's own registry trigger ("exists but is
+ * unreadable") — recorded in `docs/bugs/0013` — and made the warning
+ * unconditional on any host that does not itself create the settings file.
  */
 async function readSettingsFile(fs: FileSystem, path: string): Promise<FileReadOutcome> {
   const bytes = await fs.readBytes(path).then(
-    (value) => ({ ok: true as const, value }),
-    () => ({ ok: false as const }),
+    (value) => ({ ok: true as const, value, code: undefined }),
+    (error: unknown) => ({ ok: false as const, value: undefined, code: nodeErrorCode(error) }),
   );
   if (!bytes.ok) {
-    return { kind: "unreadable" };
+    return bytes.code === "ENOENT" ? { kind: "absent" } : { kind: "unreadable" };
   }
   const parsed = await Promise.resolve()
     .then(() => {
@@ -301,6 +314,10 @@ async function loadOneFile(
   path: string,
 ): Promise<{ readonly cleaned: JsonObject; readonly diagnostics: Diagnostic[] }> {
   const outcome = await readSettingsFile(fs, path);
+  if (outcome.kind === "absent") {
+    // An optional file that is not there: treated as `{}` with NO diagnostic.
+    return { cleaned: {}, diagnostics: [] };
+  }
   if (outcome.kind === "unreadable") {
     return {
       cleaned: {},
@@ -341,8 +358,18 @@ async function loadOneFile(
  * implements the reads, validation, and merge.
  */
 export async function loadSettings(fs: FileSystem): Promise<SettingsLoadResult> {
-  const projectPath = posixJoin(fs.cwd(), ".pi/settings.json");
-  const globalPath = posixJoin(fs.homedir(), ".pi/agent/settings.json");
+  // Both locations come from the RUNNING host, not from this extension's
+  // authoring host: a theta's settings must come from the settings files the
+  // host actually writes. The project file is reconstructible from the host's
+  // config-dir NAME because both hosts build the project directory from that
+  // same static constant; the global file is NOT — it hangs off the host's own
+  // resolved global agent directory, which Pi relocates via
+  // `PI_CODING_AGENT_DIR` and Oh-My-Pi relocates via an active profile or
+  // `PI_CONFIG_DIR`. Synthesising `<homedir>/<config-dir>/agent` would read a
+  // file the host never writes and silently drop every global setting.
+  const projectPath = posixJoin(fs.cwd(), `${fs.configDirName()}/settings.json`);
+  const globalAgentDir = fs.globalAgentDir();
+  const globalPath = posixJoin(globalAgentDir, "settings.json");
 
   // Read sequentially (Sequential by default): global then project.
   const global = await loadOneFile(fs, globalPath);
@@ -364,8 +391,8 @@ export async function loadSettings(fs: FileSystem): Promise<SettingsLoadResult> 
       project.cleaned,
       "thetaPaths",
     )
-      ? posixJoin(fs.cwd(), ".pi")
-      : posixJoin(fs.homedir(), ".pi/agent");
+      ? posixJoin(fs.cwd(), fs.configDirName())
+      : globalAgentDir;
   }
   if (isPlainObject(merged["theta"])) {
     settings.theta = merged["theta"] as ThetasSettings;

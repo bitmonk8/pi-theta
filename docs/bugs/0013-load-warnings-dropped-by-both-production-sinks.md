@@ -135,15 +135,26 @@ environment flake to watch).
 
 **Residuals.**
 
-- `theta/load/settings-unreadable` fires for a *missing* settings file
-  (`readSettingsFile` maps a failed `readBytes` to `unreadable`) — backed by
-  package-and-settings.md §Failure modes ("File missing or unreadable") but
-  contradicting the registry row's trigger ("exists but is unreadable"), and
-  the diagnostic carries `file:` although diagnostic-shape.md's located-site
-  classification pins the row location-less. Both pre-date this fix; the fix
-  makes them *visible* (a workspace with no `.pi/settings.json` now sees a
-  recurring warning note per pass). Reconciliation is a DIAG-2-governed spec
-  edit, out of scope here; no new test enshrines either nonconformance.
+- **RESOLVED** (the missing-file half). `theta/load/settings-unreadable` fired for
+  a *missing* settings file (`readSettingsFile` mapped every failed `readBytes` to
+  `unreadable`) — backed by package-and-settings.md §Failure modes ("File missing
+  or unreadable") but contradicting the registry row's trigger ("exists but is
+  unreadable"). This residual picked no winner; the reconciliation did, and the
+  **registry row was authoritative**: `code-registry-load.md:50` states the
+  intended trigger, both settings files are documented optional, and a warning
+  fired unconditionally on any host that does not itself create the file.
+  `readSettingsFile` now discriminates `absent` (an `ENOENT` read rejection —
+  silent, contributing `{}` and no diagnostic) from `unreadable` (every other read
+  rejection — the warning), and the contradicted spec sentence was amended to
+  match: package-and-settings.md §Failure modes carries an absent-file row that
+  logs nothing beside a present-but-unreadable row that carries the code, and the
+  derived `docs/reference/discovery-cli.md` line follows. The registry row is
+  unchanged. A workspace with no `.pi/settings.json` therefore no longer sees a
+  recurring warning note per pass.
+- Still open from that residual: the diagnostic carries `file:` although
+  diagnostic-shape.md's located-site classification pins the row location-less.
+  It pre-dates this fix; reconciliation is a DIAG-2-governed spec edit, out of
+  scope here, and no test enshrines the nonconformance.
 - Imported `.thetalib` parse **warnings** are still discarded
   (`src/extension/import-static-checks.ts` filters the imported document's
   diagnostics to registration errors), as are callee-parse warnings on the

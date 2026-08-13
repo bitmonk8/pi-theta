@@ -1596,6 +1596,8 @@ function fakeThetaLibFs(files: Record<string, string>): FileSystem {
     exists: reject,
     homedir: (): string => "/home",
     cwd: (): string => "/proj",
+    configDirName: (): string => ".pi",
+    globalAgentDir: (): string => "/home/.pi/agent",
     lstat: reject,
     realpath: reject,
     readdir: (path: string): Promise<readonly string[]> => {

@@ -38,6 +38,7 @@ import {
   launchSubagentChild,
   routeSubagentSpawnFailure,
 } from "../runtime/subagent-launcher";
+import type { HostToolSnapshotEntry } from "../seams/host-tool-snapshot";
 import {
   attachSubagentCancellation,
   driveSubagentChild,
@@ -388,11 +389,12 @@ export interface ProductionProducerInput {
    */
   readonly subagentInboundInvokeDepth?: number;
   /**
-   * #subagent-isolation-and-trust: the `pi.getAllTools()` name+`sourceInfo.scope`
-   * snapshot the project-local trust inference (`--approve` / `--no-approve`)
-   * reads. Absent on non-production harnesses (yields `--no-approve`).
+   * #subagent-isolation-and-trust: the RAW `pi.getAllTools()` snapshot the
+   * project-local trust inference reads. Host-shape-agnostic — `inferChildTrust`
+   * normalises it (`seams/host-tool-snapshot.ts`). Absent on non-production
+   * harnesses (withholds child approval).
    */
-  readonly getAllTools?: () => readonly import("../runtime/subagent-launcher").ToolSourceScope[];
+  readonly getAllTools?: () => readonly HostToolSnapshotEntry[];
   /**
    * RFC-0006 (PIC-60): the params-channel filesystem seam — `writeTempFile`
    * (parent-side 0600 temp-file write for the at/above-threshold channel) and
@@ -1724,11 +1726,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     ];
     const emptyCallableSet = callableNames.length === 0;
 
-    // #subagent-isolation-and-trust: pass `--approve` iff the callable set holds a
-    // project-local tool (the operator already trusted its extension in the
-    // parent session), else `--no-approve` (least privilege).
+    // #subagent-isolation-and-trust: grant the child PROJECT-LOCAL trust iff the
+    // callable set holds a project-local tool (the operator already trusted its
+    // extension in the parent session), else withhold it (least privilege). The
+    // flags that spell either arm are the host dialect's, not this seam's — see
+    // `HostCliDialect`, and note that one host cannot express this intent at all.
     const allTools = this.#input.getAllTools?.() ?? [];
-    const approve = inferChildTrust(callableNames, allTools);
+    const projectTrust = inferChildTrust(callableNames, allTools);
 
     // §Resolution snapshot (widened): marshal each `.theta` callable's
     // transitive-closure content hash captured AT LOAD on the frozen callable-set
@@ -1871,7 +1875,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           emptyCallableSet,
           provider: String(model.provider),
           model: model.id,
-          approve,
+          projectTrust,
         },
         cwd: ctx.cwd,
         parentEnv,
@@ -2081,16 +2085,29 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const model = ctx.model;
     if (model !== undefined) {
       const available = this.#input.modelRegistry.getAvailable();
-      const resolved = matchAvailableModel(model.id, available);
+      // Match on the FULLY-QUALIFIED `provider/id` reference, not the bare id.
+      // The marshalled reference carries both halves (`--provider <p> --model
+      // <id>`) and the concrete `Model` here carries both, so the qualified
+      // form is the one the child can confirm unambiguously. A bare id is not
+      // a unique key in a host registry that serves the same model through
+      // several providers (e.g. a first-party endpoint plus a gateway): the
+      // bare-id filter then matches more than one entry, `matchAvailableModel`
+      // answers `undefined` for "ambiguous", and a perfectly resolvable child
+      // model is refused as totally unresolved.
+      const qualified = `${model.provider}/${model.id}`;
+      const resolved = matchAvailableModel(qualified, available);
       // PIC-62 obligation 2: `resolved === undefined` is TOTAL non-resolution —
       // the child's own model registry holds no match for the marshalled
-      // `--provider`/`--model` reference. Falling back to `model.id` here would
-      // make `confirmChildModel(model.id, model.id)` trivially PASS and silently
+      // `--provider`/`--model` reference. Falling back to the expected value
+      // here would make `confirmChildModel(x, x)` trivially PASS and silently
       // admit a child whose model never resolved; instead surface an explicit
       // unresolved marker as the child-resolved value so the pre-flight mismatch
       // is real and the diagnostic names expected vs. "(unresolved)".
-      const resolvedId = resolved?.id ?? "(unresolved: no matching model)";
-      const confirmation = confirmChildModel(model.id, resolvedId);
+      const resolvedRef =
+        resolved === undefined
+          ? "(unresolved: no matching model)"
+          : `${resolved.provider}/${resolved.id}`;
+      const confirmation = confirmChildModel(qualified, resolvedRef);
       if (!confirmation.ok) {
         (this.#input.emitDiagnostic ?? ((): void => {}))(confirmation.diagnostic);
         emitErr({

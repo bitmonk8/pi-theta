@@ -101,6 +101,12 @@ class InstrumentedFileSystem implements FileSystem {
   cwd(): string {
     return this.#base.cwd();
   }
+  configDirName(): string {
+    return this.#base.configDirName();
+  }
+  globalAgentDir(): string {
+    return this.#base.globalAgentDir();
+  }
   readdir(path: string): Promise<readonly string[]> {
     return this.#base.readdir(path);
   }

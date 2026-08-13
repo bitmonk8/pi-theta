@@ -20,6 +20,7 @@
 import { describe, expect, it } from "vitest";
 import { delimiter } from "node:path";
 import {
+  PI_CLI_DIALECT,
   assembleSubagentArgv,
   buildSubagentChildEnv,
   inferChildTrust,
@@ -43,7 +44,7 @@ import {
 } from "../src/runtime/subagent-callable-hash";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { InvokeInfraError } from "../src/runtime/query-error";
-import type { ToolSourceScope } from "../src/runtime/subagent-launcher";
+import type { HostToolSnapshotEntry } from "../src/seams/host-tool-snapshot";
 import { enoentSpawnError, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
 
 // ---------------------------------------------------------------------------
@@ -120,8 +121,8 @@ describe("RFC-0006 — json-mode argv assembly", () => {
       emptyCallableSet: false,
       provider: "anthropic",
       model: "claude-sonnet",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
 
     // ONE --theta flag, all discovery roots joined with path.delimiter, so the
     // child re-discovers the callee (bug 0008: host pi resolves a repeated
@@ -136,7 +137,10 @@ describe("RFC-0006 — json-mode argv assembly", () => {
     expect(argv).toContain("-p");
     expect(argv[argv.indexOf("-p") + 1]).toBe("/code-review");
     expect(argv).toContain("--no-session");
-    expect(argv[argv.indexOf("--system-prompt") + 1]).toBe("you are a subagent");
+    // Newline-PREFIXED on purpose (SPAWN-04): both hosts path-coerce this value
+    // and would read a file it names, so a leading newline forces it to be taken
+    // as text. The prompt itself must survive the prefix intact.
+    expect(argv[argv.indexOf("--system-prompt") + 1]).toBe("\nyou are a subagent");
     // --tools carries the callable-set names as a comma-joined allowlist
     // (defence-in-depth; the child theta enforces its own callable set).
     expect(argv).toContain("--tools");
@@ -161,8 +165,8 @@ describe("RFC-0006 — json-mode argv assembly", () => {
       emptyCallableSet: true,
       provider: "anthropic",
       model: "claude-sonnet",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
     expect(argv).toContain("--no-tools");
     expect(argv).not.toContain("--tools");
   });
@@ -176,8 +180,8 @@ describe("RFC-0006 — json-mode argv assembly", () => {
       emptyCallableSet: true,
       provider: "anthropic",
       model: "m",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
     // #subagent-extension-pin: ambient discovery is the production default —
     // the pin is strictly opt-in, so the default argv is unchanged.
     expect(argv).not.toContain("-ne");
@@ -194,8 +198,8 @@ describe("RFC-0006 — json-mode argv assembly", () => {
       emptyCallableSet: true,
       provider: "anthropic",
       model: "m",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
     // `-ne` disables ambient discovery; `-e <dir>` loads exactly the pinned
     // build — mirroring how the acceptance harness pins the OUTER process
     // (bug 0002 defect 2: an unpinned child can bind to a stale ambient build).
@@ -211,8 +215,8 @@ describe("RFC-0006 — json-mode argv assembly", () => {
       emptyCallableSet: false,
       provider: "anthropic",
       model: "m",
-      approve: true,
-    });
+      projectTrust: true,
+    }, PI_CLI_DIALECT);
     expect(approving).toContain("--approve");
     expect(approving).not.toContain("--no-approve");
 
@@ -224,8 +228,8 @@ describe("RFC-0006 — json-mode argv assembly", () => {
       emptyCallableSet: false,
       provider: "anthropic",
       model: "m",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
     expect(denying).toContain("--no-approve");
     expect(denying).not.toContain("--approve");
   });
@@ -236,7 +240,7 @@ describe("RFC-0006 — json-mode argv assembly", () => {
 // ---------------------------------------------------------------------------
 
 /** A `pi.getAllTools()` tool fixture with a given source scope. */
-function toolInfo(name: string, scope: string): ToolSourceScope {
+function toolInfo(name: string, scope: string): HostToolSnapshotEntry {
   return { name, sourceInfo: { scope } };
 }
 
@@ -259,6 +263,30 @@ describe("RFC-0005 — project-local trust inference (#subagent-isolation-and-tr
 
   it("an empty callable set infers no trust → --no-approve", () => {
     expect(inferChildTrust([], [toolInfo("projectLocalTool", "project")])).toBe(false);
+  });
+
+  it("a bare-string host snapshot (no published source scope) infers no trust → the assembled argv carries --no-approve", () => {
+    // Oh-My-Pi's `pi.getAllTools()` returns bare tool NAMES, so no tool can be
+    // shown project-local. Reading `sourceInfo.scope` off a string used to throw
+    // `TypeError` (re-wrapped as InvokeInfraError{internal_error}); the seam
+    // (`seams/host-tool-snapshot.ts`) decodes it to a name-only entry, and the
+    // launch contract's end of that is least privilege on the wire.
+    const allTools: readonly HostToolSnapshotEntry[] = ["read", "projectLocalTool"];
+    const projectTrust = inferChildTrust(["projectLocalTool"], allTools);
+    expect(projectTrust).toBe(false);
+
+    const argv = assembleSubagentArgv({
+      slug: "s",
+      thetaDirs: [],
+      systemPrompt: "sp",
+      tools: ["projectLocalTool"],
+      emptyCallableSet: false,
+      provider: "anthropic",
+      model: "m",
+      projectTrust,
+    }, PI_CLI_DIALECT);
+    expect(argv).toContain("--no-approve");
+    expect(argv).not.toContain("--approve");
   });
 });
 
@@ -311,7 +339,7 @@ function launchRequest(overrides?: Partial<SubagentLaunchRequest>): SubagentLaun
       emptyCallableSet: false,
       provider: "anthropic",
       model: "claude-sonnet",
-      approve: false,
+      projectTrust: false,
     },
     cwd: "/work/project",
     parentEnv: { PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk-xxx" },

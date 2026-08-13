@@ -11,6 +11,14 @@
 import { promises as fsp, realpath as realpathCallback } from "node:fs";
 import os from "node:os";
 import { promisify } from "node:util";
+// These are STATIC NAMED imports, which makes both symbols a hard host
+// requirement rather than a soft capability: a host build that does not publish
+// one fails Bun's static export check when the extension is validated (Bun issue
+// #5968 — the Oh-My-Pi legacy-pi-coding-agent-shim records the same hazard), and
+// that is a LINK failure, so the whole extension never loads and no theta
+// diagnostic is emitted to explain it. The floor is a host version, not a
+// runtime branch: it cannot be probed or degraded around from inside this module.
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#13 — the host config-dir name every PROJECT-relative discovery path is built from, plus the host's own resolved global agent directory every GLOBAL one hangs off
 import type { FileStat, FileSystem } from "./file-system";
 
 // `realpath.native` canonicalises every path component — including leaf case on
@@ -31,6 +39,24 @@ export class PiFileSystem implements FileSystem {
 
   constructor(cwd?: string) {
     this.#cwd = cwd ?? process.cwd(); // allow-ambient: process.cwd — FileSystem
+  }
+
+  configDirName(): string {
+    // The host SDK's own constant, read off the LOADED module — so a theta
+    // resolves its PROJECT-relative discovery roots and settings file against
+    // the host actually running it (`".pi"` on Pi, `".omp"` on Oh-My-Pi).
+    return CONFIG_DIR_NAME;
+  }
+
+  globalAgentDir(): string {
+    // The host's own answer, not a reconstruction: `getAgentDir()` is the very
+    // function each host uses for its own global state, so it already applies
+    // Pi's `PI_CODING_AGENT_DIR` override and Oh-My-Pi's active-profile /
+    // `PI_CONFIG_DIR` resolution. Calling it is what keeps a relocated global
+    // agent directory visible instead of silently unread — and it is the reason
+    // this adapter reads no environment variable of its own, which would only
+    // re-derive one host's rule and get the other host wrong.
+    return getAgentDir();
   }
 
   readText(path: string): Promise<string> {

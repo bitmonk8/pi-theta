@@ -128,6 +128,20 @@ export class FakeFileSystem implements FileSystem {
     return this.#cwd;
   }
 
+  configDirName(): string {
+    return ".pi";
+  }
+
+  // The Pi-shaped default that pairs with `configDirName()` above: with no
+  // `PI_CODING_AGENT_DIR` relocation Pi's own `getAgentDir()` answers exactly
+  // `<homedir>/.pi/agent`, so every fixture written against that spelling keeps
+  // reading the same paths. A suite that needs a RELOCATED global directory —
+  // the case a directory name cannot express — decorates this fake and
+  // overrides this member (see tests/host-config-dir.test.ts).
+  globalAgentDir(): string {
+    return `${this.#homedir}/.pi/agent`;
+  }
+
   async readdir(path: string): Promise<readonly string[]> {
     const injected = this.#errors.get(path);
     if (injected !== undefined) {

@@ -160,8 +160,10 @@ the built-ins plus any tool an installed Pi extension contributes (e.g.
 `finding_store`, `projection`). Admission is mode-independent (since 0.11.0): a
 `tools:` name resolves against the `pi.getAllTools()` registry snapshot in
 `mode: prompt` and `mode: subagent` alike, and the resolved entry carries the
-tool's `parameters` schema (read by the RFC-0002 argument/field disjointness
-check and the model tool spec). An admitted extension tool is reachable by the
+tool's `parameters` schema **when the host publishes one** (read by the RFC-0002
+argument/field disjointness check and the model tool spec; a host that returns
+bare tool names publishes no schema, and the check degrades to "schema unknown"
+rather than to a defaulted one). An admitted extension tool is reachable by the
 theta's **model** — in prompt mode the callable set is installed as the
 session's active tools for each query window (PIC-17) and the user's host
 session executes the call; in subagent mode the invocation runs the whole

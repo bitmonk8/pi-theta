@@ -131,8 +131,8 @@ Files (precedence order, project over global): `.pi/settings.json`,
 **DISC-7 (merge semantics).** Project overrides global with deep merge for nested
 objects, **replace** for arrays and scalars.
 
-Failure modes (treated as `{}`, one diagnostic per file): missing/unreadable →
-`theta/load/settings-unreadable`; not valid UTF-8 JSON →
+Failure modes (treated as `{}`, one diagnostic per file): absent → **silent** (both
+files are optional); present but unreadable → `theta/load/settings-unreadable`; not valid UTF-8 JSON →
 `theta/load/settings-invalid-json`; valid JSON whose root is not an object →
 `theta/load/settings-value-out-of-range` (once, root rendered `(root)`).
 

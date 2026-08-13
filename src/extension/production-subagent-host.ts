@@ -29,27 +29,85 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#subagent-launch-contract — the host-identity signal selecting the child-argv flag dialect
 import type {
   ChildExitInfo,
   ExecutableHost,
   SpawnFn,
   SubagentChildProcess,
 } from "../runtime/subagent-launcher";
+import {
+  SUBAGENT_EXTENSION_PIN_ENV,
+  SUBAGENT_INVOKE_DEPTH_ENV,
+  SUBAGENT_PARENT_PID_ENV,
+} from "../runtime/subagent-launcher";
+import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
+import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
+import {
+  SUBAGENT_PARAMS_ENV,
+  SUBAGENT_PARAMS_FILE_ENV,
+} from "../runtime/subagent-params";
+
+/**
+ * Matches a path that lives inside a compiled binary's OWN embedded filesystem —
+ * the single-file-executable virtual root Bun mounts. Such a path can be
+ * `stat`ed by the running process and opened by NOBODY else, so it can never be a
+ * child's entry script.
+ *
+ * The marker vocabulary is the host's own (`isBunBinary` in the host's config
+ * module tests `$bunfs`, `~BUN`, and the URL-encoded `%7EBUN`), but it is ANCHORED
+ * to the virtual ROOT rather than matched as a bare substring anywhere in the
+ * path. Substring matching also rejected legitimate real paths that merely
+ * contain a marker — an installation under a directory named `~BUNDLE`, say —
+ * and a wrong rejection here is not harmless: it falls through to rung 2 and, under
+ * a generic runtime, to a closed refusal that disables every subagent invocation.
+ * The failure direction is safe but the failure is total, so the test is kept as
+ * tight as the real forms allow: `/$bunfs/…` (POSIX), `<drive>:\~BUN\…` (Windows),
+ * and either spelling of the encoded root when the value arrived as a URL.
+ */
+const EMBEDDED_FS_ROOT =
+  /^(?:[\\/]|[A-Za-z]:[\\/]|file:\/\/[\\/]?)?(?:\$bunfs|~BUN|%7EBUN)[\\/]/i;
 
 /**
  * Build the `ExecutableHost` snapshot from the running process, for the
- * two-rung executable-resolution ladder. `process.argv` / `process.execPath` /
- * `process.platform` are not banned ambient primitives (only `process.env` /
- * `process.cwd` are), so they are read directly here at the composition root.
+ * two-rung executable-resolution ladder and the child-argv dialect. `process.argv`
+ * / `process.execPath` / `process.platform` are not banned ambient primitives
+ * (only `process.env` / `process.cwd` are), so they are read directly here at the
+ * composition root.
  */
 export function createProductionExecutableHost(): ExecutableHost {
   return {
     argv1: process.argv[1],
     execPath: process.execPath,
-    fileExists: (path: string): boolean => existsSync(path), // allow-sync: RFC-0005 executable-resolution ladder — a one-shot probe/spawn-time existence check, not event-loop I/O
+    // The host's own config-directory constant, read off the LOADED SDK module:
+    // the child-argv dialect's host-identity signal (`resolveHostCliDialect`).
+    //
+    // A STATIC NAMED import, so a host build that does not publish this constant
+    // fails to LINK rather than degrading — the extension does not load and emits
+    // no theta diagnostic. That makes it a hard host requirement (a version
+    // floor), not a soft capability. A namespace read would tolerate absence, but
+    // this repo's inventory-closure audit classifies a namespace import of a peer
+    // package as a non-exemptible family-(4) violation, deliberately, to keep the
+    // consumed host surface a closed set; widening that classification is a
+    // change to the compliance gate itself and belongs in its own change, not
+    // here. `ExecutableHost.configDirName` stays OPTIONAL for the harness hosts
+    // that legitimately state no identity.
+    configDirName: CONFIG_DIR_NAME,
+    fileExists: (path: string): boolean => {
+      // Discharges the rung-1 obligation `resolveSubagentExecutable` documents:
+      // the question is "could a CHILD open this?", not "can this process stat
+      // it?". Under a compiled host binary `process.argv[1]` is a path inside the
+      // executable's embedded filesystem, which `existsSync` reports as present
+      // — answering `true` would select rung 1 and hand the child that path as a
+      // stray positional argument instead of an entry script.
+      if (EMBEDDED_FS_ROOT.test(path)) {
+        return false;
+      }
+      return existsSync(path); // allow-sync: RFC-0005 executable-resolution ladder — a one-shot probe/spawn-time existence check, not event-loop I/O
+    },
     isGenericRuntime: (execPath: string): boolean => {
-      // The rung-2 gate: a generic runtime (`node` / `bun`) is not itself Pi, so
-      // rung 2 cannot treat `execPath` as the child `pi` binary.
+      // The rung-2 gate: a generic runtime (`node` / `bun`) is not itself a host
+      // CLI, so rung 2 cannot treat `execPath` as the child host binary.
       const name = basename(execPath).toLowerCase().replace(/\.exe$/, "");
       return name === "node" || name === "bun";
     },
@@ -57,12 +115,81 @@ export function createProductionExecutableHost(): ExecutableHost {
 }
 
 /**
+ * The `PI_THETA_*` control-plane variables — the ones that steer THIS process's
+ * behaviour rather than merely being passed along. Each is normally written by a
+ * pi-theta parent at spawn and read by the child it spawned:
+ *
+ *   - the extension pin becomes `-e <path>`, i.e. "load this file as an extension";
+ *   - the root marker puts the process into subagent-root regime (watcher
+ *     suppression, in-process root drive, a machine envelope on fd 1);
+ *   - the params carriers supply the callee's arguments and BYPASS the binder;
+ *   - the invoke depth seeds the recursion ceiling;
+ *   - the callable-hash map is the load-to-spawn tamper check.
+ */
+const CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze([
+  SUBAGENT_EXTENSION_PIN_ENV,
+  SUBAGENT_ROOT_ENV_MARKER,
+  SUBAGENT_PARAMS_ENV,
+  SUBAGENT_PARAMS_FILE_ENV,
+  SUBAGENT_INVOKE_DEPTH_ENV,
+  SUBAGENT_CALLABLE_HASHES_ENV,
+  SUBAGENT_PARENT_PID_ENV,
+]);
+
+/**
  * The parent environment inherited by every subagent child (full inheritance is
- * the RFC-0005 credential mechanism — credentials are never marshalled). Sourced
- * once at the composition root.
+ * the RFC-0005 credential mechanism — credentials are never marshalled), with the
+ * control plane above ACCEPTED ONLY FROM A REAL PI-THETA PARENT.
+ *
+ * Those variables were designed on the assumption that only a pi-theta parent
+ * writes them — the root marker is documented as "set ONLY by the parent launcher
+ * and never authorable from a `.theta` file". That assumption holds for a `.theta`
+ * file but not for the process environment on every host: a host may populate the
+ * environment from files found in the working directory (Oh-My-Pi loads `<cwd>/.env`
+ * before any provider lookup, and `PI_THETA_*` names match its key shape and are
+ * normally unset). The environment is therefore not a channel this extension can
+ * treat as parent-authored, and the variables it carries are load-bearing: they
+ * select the process regime, supply callee arguments with the binder bypassed, and
+ * name a file to load as an extension.
+ *
+ * The carriage is authenticated rather than trusted. A genuine child always carries
+ * its launcher's pid, and that launcher IS its parent process, so
+ * `PI_THETA_SUBAGENT_PARENT_PID` must equal this process's real `ppid` — a
+ * per-run, externally-assigned value that a file written ahead of time cannot
+ * state. On a mismatch (including the ordinary top-level case, where no launcher
+ * wrote anything) the whole control plane is dropped and every value is re-derived
+ * per launch, which is what the launcher already does: `buildSubagentChildEnv`
+ * spreads its own markers LAST, so dropping an inherited value cannot disturb a
+ * real spawn.
+ *
+ * This narrows the channel rather than closing it: a `ppid` is a small integer, so
+ * a writer able to observe the live process tree could still match it. What it
+ * removes is the write-a-file-and-wait case.
  */
 export function readParentEnv(): Readonly<Record<string, string | undefined>> {
-  return process.env; // allow-ambient: process.env — RFC-0005 subagent full-env inheritance
+  return authenticateControlPlane(
+    process.env, // allow-ambient: process.env — RFC-0005 subagent full-env inheritance
+    process.ppid, // allow-ambient: process.ppid — the control-plane carriage check
+  );
+}
+
+/**
+ * Drop the control-plane variables unless `env` carries the pid of the process
+ * that actually launched this one. Exported so the check is testable against a
+ * planted environment without spawning anything.
+ */
+export function authenticateControlPlane(
+  env: Readonly<Record<string, string | undefined>>,
+  parentPid: number,
+): Readonly<Record<string, string | undefined>> {
+  if (env[SUBAGENT_PARENT_PID_ENV] === String(parentPid)) {
+    return env;
+  }
+  const authenticated: Record<string, string | undefined> = { ...env };
+  for (const key of CONTROL_PLANE_ENV_KEYS) {
+    delete authenticated[key];
+  }
+  return authenticated;
 }
 
 /** The parent process id carried to the child (orphan-prevention watchdog / depth counter). */

@@ -178,24 +178,30 @@ describe("S6 — discoverAndComposeFixtures load diagnostics route to the ctx.ui
       );
       expect(thetas.map((l) => l.slashName)).toContain("goodtool");
       expect(recorder.notifications.filter((n) => n.type === "error")).toHaveLength(0);
-      // The headless mirror carries WARNING lines too (bug 0013), and this
-      // workspace is not warning-free: the settings source reads BOTH halves
-      // through the real filesystem (no home-dir seam), so the planted
-      // workspace's missing `.pi/settings.json` emits
-      // `theta/load/settings-unreadable`, while the runner's REAL global
-      // `~/.pi/agent/settings.json` is machine-dependent — missing (→
-      // `settings-unreadable`) or present but malformed JSON (→
-      // `theta/load/settings-invalid-json`); both are the settings-source W
-      // rows of package-and-settings.md §Failure modes. The clean-load pin is
-      // therefore: every theta line on stderr is a settings-source WARNING —
-      // nothing error-severity, nothing about the planted theta.
+      // A clean load is now genuinely QUIET: an absent optional settings file is
+      // silent, so the planted workspace contributes no line at all. The only
+      // line that can still appear comes from the runner's REAL global
+      // `~/.pi/agent/settings.json` when that file exists and is malformed
+      // (`theta/load/settings-invalid-json`) or exists and is unreadable
+      // (`theta/load/settings-unreadable`) — machine-dependent, so tolerated
+      // rather than asserted.
+      //
+      // Stated as an equality on the UNEXPECTED subset, not as a per-line loop:
+      // the loop this replaces iterated zero times once absence became silent,
+      // so it passed without checking anything. An empty unexpected-subset is
+      // now the meaningful clean-load result, and any other theta line — any
+      // error severity, anything naming the planted theta — fails it.
       const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
       const thetaLines = stderrText
         .split("\n")
         .filter((line) => line.includes("theta/"));
-      for (const line of thetaLines) {
-        expect(line).toMatch(/theta\/load\/settings-(unreadable|invalid-json)/);
-      }
+      expect(
+        thetaLines.filter(
+          (line) => !/theta\/load\/settings-(unreadable|invalid-json)/.test(line),
+        ),
+        "a clean load must mirror nothing but (machine-dependent) settings-source warnings",
+      ).toStrictEqual([]);
+      expect(stderrText).not.toContain("goodtool");
     } finally {
       stderrSpy.mockRestore();
     }

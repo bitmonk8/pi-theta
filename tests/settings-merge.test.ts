@@ -107,8 +107,10 @@ describe("V10c-T — theta/load/settings-invalid-json", () => {
 });
 
 // --------------------------------------------------------------------------
-// theta/load/settings-unreadable — missing or unreadable file → treated as {},
-// other file unaffected, single diagnostic per file.
+// theta/load/settings-unreadable — a file that EXISTS but cannot be read is
+// treated as {} and warns; an ABSENT file is treated as {} SILENTLY. Either
+// way the other file's value is unaffected, and a warning fires at most once
+// per file.
 // --------------------------------------------------------------------------
 
 describe("V10c-T — theta/load/settings-unreadable", () => {
@@ -124,13 +126,26 @@ describe("V10c-T — theta/load/settings-unreadable", () => {
     expect(settings.thetaPaths).toEqual(["g.theta"]); // readable file unaffected
   });
 
-  it("theta/load/settings-unreadable: a missing settings file fires the diagnostic and is treated as {}", async () => {
-    // Project present & valid; global absent (missing on disk).
+  it("theta/load/settings-unreadable: a missing settings file is treated as {} and fires NOTHING", async () => {
+    // Project present & valid; global absent (ENOENT on disk). Both settings
+    // files are OPTIONAL, so absence is the ordinary case and carries no
+    // diagnostic — the registry trigger for this code is "exists but is
+    // unreadable" (docs/bugs/0013). Warning here made the diagnostic
+    // unconditional on any host that does not itself create the file.
     const fs = build({ content: JSON.stringify({ thetaPaths: ["p.theta"] }) }, {});
     const { settings, diagnostics } = await loadSettings(fs);
-    const hits = byCode(diagnostics, "theta/load/settings-unreadable");
-    expect(hits).toHaveLength(1);
+    expect(byCode(diagnostics, "theta/load/settings-unreadable")).toHaveLength(0);
     expect(settings.thetaPaths).toEqual(["p.theta"]); // present file's value unaffected
+  });
+
+  it("theta/load/settings-unreadable: BOTH files absent loads empty settings and fires nothing", async () => {
+    // The universal case on a host that never creates a settings file: it must
+    // be indistinguishable from a clean load, or every session in every
+    // workspace carries two spurious warnings.
+    const { settings, diagnostics } = await loadSettings(build({}, {}));
+    expect(diagnostics).toEqual([]);
+    expect(settings.thetaPaths).toBeUndefined();
+    expect(settings.theta).toBeUndefined();
   });
 });
 

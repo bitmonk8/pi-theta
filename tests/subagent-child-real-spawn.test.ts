@@ -116,7 +116,7 @@ describe("bug 0002 — real subagent child spawn (production spawn path, provide
             emptyCallableSet: true,
             provider: CHILD_MODEL_PROVIDER,
             model: CHILD_MODEL_ID,
-            approve: false,
+            projectTrust: false,
           },
           cwd: scratchDir,
           parentEnv: { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },

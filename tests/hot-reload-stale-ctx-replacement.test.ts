@@ -69,6 +69,8 @@ import {
 import { REGISTRY_SWAP_FAILED_CODE } from "../src/extension/reload-wiring";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { loadSettings } from "../src/discovery/settings";
+import { PiFileSystem } from "../src/seams/pi-file-system";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 
@@ -324,6 +326,18 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
     thetaDir = join(workspace, ".pi", "theta");
     mkdirSync(thetaDir, { recursive: true });
     writeFileSync(join(thetaDir, "greet.theta"), GREET_THETA, "utf8");
+    // A MALFORMED project settings file, planted so the reload pass has a
+    // deterministic workspace-local load-diagnostic batch to deliver. What this
+    // cell guards is the DELIVERY of such a batch through a stale channel, not
+    // which diagnostic it carries, so the batch must exist by construction.
+    // It used to arrive by ABSENCE — an absent settings file raised
+    // `theta/load/settings-unreadable` — but absence is now correctly silent
+    // (both settings files are optional), which would leave this cell asserting
+    // that an empty cascade stays empty: vacuously green, with the bug-0018
+    // delivery path no longer exercised at all. Malformed JSON keeps a real
+    // batch on the channel and, unlike absence, does not depend on the runner's
+    // machine-dependent global settings file.
+    writeFileSync(join(workspace, ".pi", "settings.json"), "{", "utf8");
     stderrCalls = [];
     errorSpy = vi.spyOn(console, "error").mockImplementation(
       (...args: unknown[]) => {
@@ -526,17 +540,28 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
     const b = boot();
     await driveBareInvalidateReload(b);
 
-    // The reload pass re-reads settings; the temp workspace has no
-    // .pi/settings.json, so the pass emits the `theta/load/settings-unreadable`
-    // warning batch. Spec-correct delivery resolves a LIVE surface (or the
-    // whole pass quiesces per PIC-57); it must never die on the captured
-    // stale channel and fall through to the PIC-54 terminal
-    // `console.error("system-note delivery failed: …")`.
+    // The reload pass re-reads settings; the workspace's planted MALFORMED
+    // `.pi/settings.json` makes the pass emit the
+    // `theta/load/settings-invalid-json` warning batch. Spec-correct delivery
+    // resolves a LIVE surface (or the whole pass quiesces per PIC-57); it must
+    // never die on the captured stale channel and fall through to the PIC-54
+    // terminal `console.error("system-note delivery failed: …")`.
     // At HEAD this FAILS: pi.sendMessage throws stale, ctx.ui throws stale,
     // the off-channel fallback throws stale, and the cascade lands on stderr.
+    //
+    // The batch must be non-empty for this assertion to mean anything, so the
+    // fixture is proven to be a PRODUCER first. It is proven through a direct
+    // settings read rather than through `b.notes`, because notes only record
+    // deliveries that SUCCEEDED and this scenario deliberately breaks delivery —
+    // an empty `notes` is the expected state here, so it can witness nothing.
+    const settingsProbe = await loadSettings(new PiFileSystem(workspace));
     expect(
-      cascades("theta/load/settings-unreadable"),
-      "load-diagnostic (settings-unreadable) delivery must not die on the stale captured channel",
+      settingsProbe.diagnostics.map((d) => d.code),
+      "precondition: the planted malformed settings file must be a real load-diagnostic producer",
+    ).toContain("theta/load/settings-invalid-json");
+    expect(
+      cascades("theta/load/settings-invalid-json"),
+      "load-diagnostic (settings-invalid-json) delivery must not die on the stale captured channel",
     ).toStrictEqual([]);
   });
 

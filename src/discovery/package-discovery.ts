@@ -1,9 +1,12 @@
 // V10b / V10b-T — Package discovery (bounded walk).
 //
 // The theta extension owns package discovery end-to-end (Pi has no `pi.theta`
-// slot): it walks the five installed-package roots itself — project `.pi/npm/`,
-// project `.pi/git/<host>/<path>/`, project-local `node_modules/`, global
-// `~/.pi/agent/npm/`, and global `~/.pi/agent/git/<host>/<path>/` — inspects
+// slot): it walks the five installed-package roots itself — project
+// `<config-dir>/npm/`, project `<config-dir>/git/<host>/<path>/`, project-local
+// `node_modules/`, global `<global-agent-dir>/npm/`, and global
+// `<global-agent-dir>/git/<host>/<path>/`, where the config-dir name and the
+// global agent directory are both the running host's own (`.pi` on Pi, `.omp` on
+// Oh-My-Pi, and a relocated global directory under either) — inspects
 // each candidate package's `package.json`, and resolves either its `pi.theta`
 // manifest array (minimatch globs with the fixed `!`/`+`/`-` override order) or
 // the conventional `theta/` fallback directory. The walk is bounded: it stops
@@ -30,6 +33,7 @@ import type { Diagnostic, Severity } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import type { Clock, TimerHandle } from "../seams/clock";
 import type { ThetaSettings } from "./settings";
+import { nodeErrorCode } from "./node-error-code";
 
 /**
  * Inputs to one package-discovery walk. The bounds (`scanPackages`,
@@ -130,16 +134,6 @@ function jsonKind(value: unknown): string {
   return typeof value;
 }
 
-/** Node-style `.code` reader that binds no broad `catch` (fs rejections carry
- *  no narrow subtype; the broad-catch ban targets `catch` clauses). */
-function nodeErrorCode(error: unknown): string | undefined {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const code = (error as { code?: unknown }).code;
-    return typeof code === "string" ? code : undefined;
-  }
-  return undefined;
-}
-
 // --------------------------------------------------------------------------
 // Filesystem probes (all rejection-mapped, no broad `catch`).
 // --------------------------------------------------------------------------
@@ -231,13 +225,23 @@ interface CandidatePackage {
 /** The five installed-package roots, project before global (DISC-6 order). */
 function packageRoots(fs: FileSystem): readonly PackageRoot[] {
   const cwd = fs.cwd();
-  const home = fs.homedir();
+  // The two PROJECT install roots are reconstructible from the host's
+  // config-dir NAME (`.pi` on Pi, `.omp` on Oh-My-Pi) because both hosts build
+  // the project directory from that same static constant. The two GLOBAL roots
+  // are not: they hang off the host's OWN resolved global agent directory, which
+  // Pi relocates via `PI_CODING_AGENT_DIR` and Oh-My-Pi via an active profile
+  // or `PI_CONFIG_DIR`. A synthesised `<homedir>/<config-dir>/agent/npm` is a
+  // non-existent root, and a root that does not exist is silently skipped
+  // (`enumerateRoot`) — so every globally installed theta package would
+  // disappear without a diagnostic.
+  const configDir = fs.configDirName();
+  const globalAgentDir = fs.globalAgentDir();
   return [
-    { path: joinPosix(cwd, ".pi/npm"), layout: "npm" },
-    { path: joinPosix(cwd, ".pi/git"), layout: "git" },
+    { path: joinPosix(cwd, `${configDir}/npm`), layout: "npm" },
+    { path: joinPosix(cwd, `${configDir}/git`), layout: "git" },
     { path: joinPosix(cwd, "node_modules"), layout: "npm" },
-    { path: joinPosix(home, ".pi/agent/npm"), layout: "npm" },
-    { path: joinPosix(home, ".pi/agent/git"), layout: "git" },
+    { path: joinPosix(globalAgentDir, "npm"), layout: "npm" },
+    { path: joinPosix(globalAgentDir, "git"), layout: "git" },
   ];
 }
 

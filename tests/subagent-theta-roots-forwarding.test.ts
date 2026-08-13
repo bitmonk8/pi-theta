@@ -42,6 +42,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import {
+  PI_CLI_DIALECT,
   assembleSubagentArgv,
   launchSubagentChild,
   SUBAGENT_EXTENSION_PIN_ENV,
@@ -65,8 +66,8 @@ describe("bug 0008 — --theta argv shape (one path.delimiter-joined flag, never
       emptyCallableSet: true,
       provider: "anthropic",
       model: "claude-sonnet",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
 
     // Host pi keeps only the LAST occurrence of a repeated extension string
     // flag, so a second `--theta` silently drops the first root in the child
@@ -92,8 +93,8 @@ describe("bug 0008 — --theta argv shape (one path.delimiter-joined flag, never
       emptyCallableSet: true,
       provider: "anthropic",
       model: "claude-sonnet",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
 
     // The single-root case is the degenerate join: one flag, the bare path.
     expect(argv.filter((arg) => arg === "--theta")).toHaveLength(1);
@@ -109,8 +110,8 @@ describe("bug 0008 — --theta argv shape (one path.delimiter-joined flag, never
       emptyCallableSet: true,
       provider: "anthropic",
       model: "claude-sonnet",
-      approve: false,
-    });
+      projectTrust: false,
+    }, PI_CLI_DIALECT);
 
     // Pins the fixed contract's empty-set arm: joining zero roots must OMIT
     // the flag rather than emit `--theta ""` (an empty value would arrive at
@@ -320,7 +321,7 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
             emptyCallableSet: true,
             provider: CHILD_MODEL_PROVIDER,
             model: CHILD_MODEL_ID,
-            approve: false,
+            projectTrust: false,
           },
           cwd: scratchDir,
           parentEnv,
