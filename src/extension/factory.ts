@@ -58,6 +58,7 @@ import {
   SUPERSESSION_QUIESCE_CAP_MS,
 } from "./capability-probe";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
+import { readParentEnv } from "./production-subagent-host";
 
 /**
  * The diagnostics-registry code a factory-time bootstrap registration /
@@ -1123,12 +1124,15 @@ export default function thetaExtension(pi: ExtensionAPI): void {
   }
 
   // RFC-0006 (PIC-58): read the subagent-root regime marker ONCE at factory
-  // entry. `process.env` is a localised ambient read here (exempted) — the
-  // marker's presence identifies a spawned subagent child and gates the step-5
-  // watcher suppression so the child does not install a recursive file watcher.
-  // It subsumes RFC-0005's boolean `PI_THETA_SUBAGENT_CHILD` marker.
-  const isSubagentChild =
-    process.env[SUBAGENT_ROOT_ENV_MARKER] !== undefined; // allow-ambient: process.env — RFC-0006 subagent-root regime marker (subagent.md #pic-58)
+  // entry, through the AUTHENTICATED control-plane view (`readParentEnv`) so a
+  // marker planted in the ambient environment (a repository `.env` a host loads,
+  // never a real launcher) cannot suppress the parent session's file watcher —
+  // the same gate every other control-plane reader applies
+  // (subagent.md #subagent-control-plane-authentication). The marker's presence
+  // identifies a spawned subagent child and gates the step-5 watcher suppression
+  // so the child does not install a recursive file watcher. It subsumes
+  // RFC-0005's boolean `PI_THETA_SUBAGENT_CHILD` marker.
+  const isSubagentChild = readParentEnv()[SUBAGENT_ROOT_ENV_MARKER] !== undefined;
   createThetaExtension({
     fixtures: [],
     emitDiagnostic: sink.emit,

@@ -503,9 +503,9 @@ beforeAll(async () => {
   for (const planted of THETAS) {
     writeFileSync(join(projectThetaDir, `${planted.stem}.theta`), planted.text, "utf8");
   }
-  // A minimal valid settings file suppresses the `theta/load/settings-unreadable`
-  // warning this workspace's absent `.pi/settings.json` would otherwise raise —
-  // noise on the channel the cells below read, not behaviour under test.
+  // A minimal valid settings file pins the fixture's settings read to a known
+  // value. An ABSENT settings file is silent (package-and-settings.md
+  // §Failure modes), so the plant is hermeticity, not noise suppression.
   writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
   outcome = await runProductionLoad(workspaceDir);
 });

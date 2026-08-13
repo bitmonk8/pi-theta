@@ -114,9 +114,11 @@ const PI_SDK_PIN_RANGE = ">=0.80.8";
 /**
  * The four lock-step `@earendil-works/*` peer-dep packages, in the fixed
  * normative iteration order (capability-probe.md Step 0 (d)). Frozen to stay
- * off the *No globals, statics, singletons* mutable-binding scan.
+ * off the *No globals, statics, singletons* mutable-binding scan. Exported
+ * because Step 0 (d)'s in-process-`VERSION` route is spec-confined to exactly
+ * these four names — `readPeerVersion`'s rung 3 gates on membership here.
  */
-const PEER_DEP_PACKAGES: readonly string[] = Object.freeze([
+export const PEER_DEP_PACKAGES: readonly string[] = Object.freeze([
   "@earendil-works/pi-coding-agent",
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-ai",

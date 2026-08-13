@@ -63,10 +63,23 @@ import {
  * a generic runtime, to a closed refusal that disables every subagent invocation.
  * The failure direction is safe but the failure is total, so the test is kept as
  * tight as the real forms allow: `/$bunfs/…` (POSIX), `<drive>:\~BUN\…` (Windows),
- * and either spelling of the encoded root when the value arrived as a URL.
+ * and either spelling of the root when the value arrived as a URL — with or
+ * without a drive letter (`file:///$bunfs/…`, `file:///B:/~BUN/…`).
  */
 const EMBEDDED_FS_ROOT =
-  /^(?:[\\/]|[A-Za-z]:[\\/]|file:\/\/[\\/]?)?(?:\$bunfs|~BUN|%7EBUN)[\\/]/i;
+  /^(?:file:\/\/)?[\\/]?(?:[A-Za-z]:[\\/])?[\\/]?(?:\$bunfs|~BUN|%7EBUN)[\\/]/i;
+
+/**
+ * Does `path` live inside a compiled binary's own embedded filesystem?
+ * Exported as the seam the rejection is witnessed at: inside a compiled host
+ * binary `existsSync` answers TRUE for such a path (the defect), while on any
+ * ordinary test runner it answers false — so the predicate's behaviour is
+ * unobservable through the composed `fileExists` outside a compiled binary,
+ * and the tests pin the predicate directly plus the composition around it.
+ */
+export function isEmbeddedFsPath(path: string): boolean {
+  return EMBEDDED_FS_ROOT.test(path);
+}
 
 /**
  * Build the `ExecutableHost` snapshot from the running process, for the
@@ -100,7 +113,7 @@ export function createProductionExecutableHost(): ExecutableHost {
       // executable's embedded filesystem, which `existsSync` reports as present
       // — answering `true` would select rung 1 and hand the child that path as a
       // stray positional argument instead of an entry script.
-      if (EMBEDDED_FS_ROOT.test(path)) {
+      if (isEmbeddedFsPath(path)) {
         return false;
       }
       return existsSync(path); // allow-sync: RFC-0005 executable-resolution ladder — a one-shot probe/spawn-time existence check, not event-loop I/O

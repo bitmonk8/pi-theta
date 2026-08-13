@@ -124,7 +124,7 @@ export interface MarshalledParams {
    * The env patch to fold into the child env. It names BOTH carriers on every
    * path — the chosen one carrying its value, the unused one explicitly
    * `undefined` — so the patch describes the WHOLE channel state rather than
-   * just the half this invocation picked (see `marshalParams` for the hazard
+   * only the half this invocation picked (see `marshalParams` for the hazard
    * that makes the cleared sibling load-bearing).
    *
    * `undefined` is the DELETE signal, not an empty value: the patch is spread
@@ -167,7 +167,7 @@ export function marshalParams(
   //
   // Concretely: a level-1 child launched with SMALL params holds its own
   // `PI_THETA_PARAMS`; it then invokes a level-2 callee whose params are LARGE,
-  // so only `PI_THETA_PARAMS_FILE` is chosen. Patch just that one key and the
+  // so only `PI_THETA_PARAMS_FILE` is chosen. Patch that one key alone and the
   // grandchild reads the INHERITED inline JSON — it runs on its CALLER's
   // arguments and never opens its own temp file. Nothing catches the
   // substitution: a callee that declares no `params:` admits any payload

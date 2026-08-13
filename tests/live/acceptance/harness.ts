@@ -34,7 +34,10 @@ import {
   ModelRegistry,
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { SUBAGENT_EXTENSION_PIN_ENV } from "../../../src/runtime/subagent-launcher";
+import {
+  SUBAGENT_EXTENSION_PIN_ENV,
+  SUBAGENT_PARENT_PID_ENV,
+} from "../../../src/runtime/subagent-launcher";
 import {
   RELOAD_REBUILD_REJECTED_PREFIX,
   STALE_QUIESCE_STDERR_PREFIX,
@@ -417,7 +420,16 @@ export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrin
       // build the inner child silently binds to the WRONG extension (no
       // envelope, fail-closed (e)/(g)). The env knob makes the launcher pin
       // every nested child to the same working-tree build under test.
-      env: { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
+      // The pin travels with the parent-pid carriage (subagent.md
+      // #subagent-control-plane-authentication): the spawned `pi`'s real parent
+      // is THIS harness process, so naming our own pid is what authenticates
+      // the control plane inside it — without it the pin is stripped and the
+      // inner child falls back to ambient discovery.
+      env: {
+        ...process.env,
+        [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
+        [SUBAGENT_PARENT_PID_ENV]: String(process.pid),
+      },
       // Close the child's stdin: `pi -p` in non-interactive print mode reads its
       // prompt from argv, but an OPEN inherited stdin pipe leaves it waiting for
       // EOF and the process-and-exit run never terminates. `"ignore"` gives the

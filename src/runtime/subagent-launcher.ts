@@ -353,7 +353,7 @@ export interface SubagentArgvInput {
    * the control it governs — trusting the child with PROJECT-LOCAL FILES — and
    * deliberately not "approve": Pi spells this intent `--approve`/`--no-approve`
    * while Oh-My-Pi uses those words for tool-call approval instead, and the
-   * shared word is what makes the two easy to conflate.
+   * shared word is what invites conflating the two.
    */
   readonly projectTrust: boolean;
 }

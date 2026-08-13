@@ -81,6 +81,15 @@ children mis-resolve silently (`#subagent-child-pins`):
    ambient discovery finds (bug 0002 defect 2: a stale globally-installed
    theta binds silently). Production default (var absent) is ambient
    discovery; the pin is opt-in and inherits down the process tree.
+3. **Parent-pid carriage** — the pin is a control-plane variable and the
+   control plane is AUTHENTICATED (subagent.md
+   `#subagent-control-plane-authentication`): `readParentEnv` honours
+   `PI_THETA_*` only when `PI_THETA_SUBAGENT_PARENT_PID` names the reading
+   process's real parent. A harness topping a chain must write it beside the
+   pin — `String(process.ppid)` when the extension composes in-process (the
+   H8a / probe harnesses), `String(process.pid)` into the env of a host
+   process it spawns (the H9a acceptance harness) — or the pin is silently
+   stripped and children fall back to ambient discovery.
 
 Compliant setters to mirror: `tests/live/harness.ts`,
 `tests/live/hardening/probe-harness.ts` (module-scope; vitest's per-file

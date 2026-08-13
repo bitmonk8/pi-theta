@@ -253,4 +253,43 @@ describe("RFC-0006 — child-side subagent-root drive wiring", () => {
       expect((parsed.error as { message?: string }).message).toContain("unresolved");
     }
   });
+
+  it("PIC-62 obligation 2: a registry serving the SAME id through TWO providers passes the pre-flight — the child matches the fully-qualified reference", async () => {
+    // The defect this pins at its own site: the pre-flight used to match the
+    // BARE id, and a bare id is not a unique key in a registry that serves one
+    // model through a first-party endpoint beside a gateway —
+    // `matchAvailableModel` answers `undefined` for "ambiguous" exactly as for
+    // "no match", so a perfectly resolvable child model was refused as total
+    // non-resolution. The qualified `provider/id` reference (subagent.md
+    // PIC-62) resolves exactly one entry, and the drive completes with the
+    // callee's Ok envelope. Red with the qualified-matching hunk reverted.
+    const lines: string[] = [];
+    const deps = createProductionProducerDeps({
+      pi: noopPi(),
+      root: rootDouble(),
+      modelRegistry: {
+        getAvailable: () => [
+          { id: "claude-test", provider: "anthropic" },
+          { id: "claude-test", provider: "openrouter" },
+        ],
+      } as unknown as ModelRegistry,
+      subagentParentEnv: {},
+      subagentRootRegime: { active: true, slug: "worker" },
+      emitResultEnvelope: (line: string) => lines.push(line),
+    });
+
+    await deps.driveSubagentRootRegime!({
+      theta: subagentTheta('"DUAL-PROVIDER-OK"'),
+      args: "",
+      ctx: childCtx(),
+      thetaAbort: new AbortController(),
+    });
+
+    expect(lines).toHaveLength(1);
+    const parsed = parseEnvelopeLine(lines[0]!.trimEnd());
+    expect(parsed.kind).toBe("ok");
+    if (parsed.kind === "ok") {
+      expect(parsed.value).toBe("DUAL-PROVIDER-OK");
+    }
+  });
 });

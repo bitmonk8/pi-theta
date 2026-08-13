@@ -9,8 +9,9 @@
 //   - host identity → dialect (`resolveHostCliDialect`, from the host SDK's own
 //     `CONFIG_DIR_NAME`), with the authored Pi dialect as the fallback so an
 //     unrecognised host behaves exactly as it did before the seam existed;
-//   - the `PI_THETA_HOST_DIALECT` operator override, which wins over detection
-//     in BOTH directions and falls THROUGH on an unrecognised value;
+//   - the ABSENCE of any env override (SPAWN-07): the host constant is the
+//     selection's only input — pinned by arity and by setting the retired
+//     `PI_THETA_HOST_DIALECT` variable and observing detection unmoved;
 //   - `assembleSubagentArgv(input, dialect)` — the per-dialect spellings, the
 //     ABSENCE of the other dialect's flags, and the host-invariant core.
 
@@ -18,7 +19,6 @@ import { describe, expect, it } from "vitest";
 import { delimiter } from "node:path";
 import {
   assembleSubagentArgv,
-
   OMP_CLI_DIALECT,
   PI_CLI_DIALECT,
   resolveHostCliDialect,

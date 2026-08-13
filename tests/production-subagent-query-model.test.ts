@@ -73,7 +73,9 @@ function subagentTheta(): ThetaCompositionInput {
   } as unknown as ThetaCompositionInput;
 }
 
-function makeDeps(): { deps: ThetaProducerDeps; launcher: ReturnType<typeof makeFakeJsonChildLauncher> } {
+function makeDeps(
+  parentEnv: Readonly<Record<string, string | undefined>> = {},
+): { deps: ThetaProducerDeps; launcher: ReturnType<typeof makeFakeJsonChildLauncher> } {
   const launcher = makeFakeJsonChildLauncher();
   const deps = createProductionProducerDeps({
     pi: noopPi(),
@@ -84,7 +86,7 @@ function makeDeps(): { deps: ThetaProducerDeps; launcher: ReturnType<typeof make
     } as unknown as ModelRegistry,
     subagentSpawn: launcher.spawn,
     subagentExecutableHost: fakeExecutableHost(),
-    subagentParentEnv: {},
+    subagentParentEnv: parentEnv,
     subagentParentPid: 4242,
   });
   return { deps, launcher };
@@ -186,5 +188,30 @@ describe("RFC-0006 — production subagent drive maps the child envelope (PIC-59
     }
     await h.teardown?.();
     h.finishInvocation?.();
+  });
+});
+
+describe("subagent.md #subagent-theta-callable-hash — the hash carrier is named on every launch", () => {
+  it("a launch marshalling NO hashes clears an inherited stale hash map instead of letting it reach the child", async () => {
+    // The SPAWN-08 layering hazard at the hash key: the launching process is
+    // itself frequently a subagent child still carrying the hash map of the
+    // invocation that launched IT. This callee has no `.theta` callables, so a
+    // conditional spread would add nothing and the stale inherited map would
+    // reach the grandchild's hash verification — checking the CALLER's callable
+    // names against the child's own discovery. The carrier must be PRESENT and
+    // explicitly cleared (`undefined` — the spawn seam drops such entries from
+    // the real child environment, probed in subagent-params-carrier.test.ts).
+    const staleMap = '{"inherited_callable":"sha256:stale"}';
+    const { deps, launcher } = makeDeps({
+      PATH: "/usr/bin",
+      PI_THETA_SUBAGENT_CALLABLE_HASHES: staleMap,
+    });
+    await deps.spawnSubagentConversation(bindInput());
+    expect(launcher.spawns).toHaveLength(1);
+    const env = launcher.spawns[0]!.env;
+    expect(Object.hasOwn(env, "PI_THETA_SUBAGENT_CALLABLE_HASHES")).toBe(true);
+    expect(env["PI_THETA_SUBAGENT_CALLABLE_HASHES"]).toBeUndefined();
+    // The clear is surgical: unrelated inherited environment survives.
+    expect(env["PATH"]).toBe("/usr/bin");
   });
 });

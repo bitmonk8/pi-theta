@@ -46,6 +46,13 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { InvokeInfraError } from "../src/runtime/query-error";
 import type { HostToolSnapshotEntry } from "../src/seams/host-tool-snapshot";
 import { enoentSpawnError, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
+import {
+  createProductionExecutableHost,
+  isEmbeddedFsPath,
+} from "../src/extension/production-subagent-host";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Executable-resolution ladder.
@@ -103,6 +110,93 @@ describe("RFC-0005 — executable-resolution ladder", () => {
     expect(resolution.ok).toBe(true);
     if (resolution.ok) {
       expect(resolution.rung).toBe(2);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rung-1 embedded-filesystem rejection (subagent.md #subagent-executable-resolution
+// rung 1: the existence check MUST answer false for a path inside a compiled
+// binary's own embedded filesystem).
+// ---------------------------------------------------------------------------
+
+describe("rung 1 — embedded-filesystem paths are rejected (isEmbeddedFsPath + the production fileExists)", () => {
+  it("isEmbeddedFsPath recognises every spelled form of the embedded root", () => {
+    // Under a compiled host binary `process.argv[1]` is a path the running
+    // process can stat and no spawned child can open — `fileExists` answering
+    // true selects rung 1 and hands the child that path as a stray positional
+    // argument. The predicate is pinned directly because the composed
+    // `fileExists` cannot witness it outside a compiled binary: `existsSync`
+    // answers false for these paths on an ordinary runner either way.
+    const embedded = [
+      "/$bunfs/root/cli.js", // POSIX
+      "\\$bunfs\\root\\cli.js", // backslash spelling
+      "B:\\~BUN\\root\\cli.js", // Windows drive form
+      "b:/~bun/root/cli.js", // case-insensitive, forward slashes
+      "%7EBUN/root/cli.js", // URL-encoded root, bare
+      "file:///$bunfs/root/cli.js", // URL form, POSIX
+      "file:///B:/~BUN/root/cli.js", // URL form with a drive letter
+    ];
+    for (const path of embedded) {
+      expect(isEmbeddedFsPath(path), path).toBe(true);
+    }
+  });
+
+  it("isEmbeddedFsPath is ANCHORED: a path merely containing a marker is not embedded", () => {
+    // The anchor is load-bearing: substring matching would reject a legitimate
+    // install under `~BUNDLE`, and a wrong rejection falls through to a closed
+    // refusal that disables every subagent invocation.
+    const real = [
+      "/home/x/~BUNDLE/cli.js",
+      "C:\\Users\\pi\\~BUNDLE\\cli.js",
+      "/opt/apps/$bunfs-lookalike/cli.js",
+      "/tmp/%7EBUNsuffix/cli.js",
+      "C:\\Users\\pi\\dist\\cli.js",
+    ];
+    for (const path of real) {
+      expect(isEmbeddedFsPath(path), path).toBe(false);
+    }
+  });
+
+  it("the production fileExists composes the predicate ahead of the disk probe — and still answers true for a real file under a marker-CONTAINING directory", () => {
+    const { fileExists } = createProductionExecutableHost();
+    const dir = mkdtempSync(join(tmpdir(), "theta-embedded-fs-"));
+    try {
+      const plain = join(dir, "cli.js");
+      writeFileSync(plain, "// entry", "utf8");
+      expect(fileExists(plain)).toBe(true);
+
+      const bundleDir = join(dir, "~BUNDLE");
+      mkdirSync(bundleDir, { recursive: true });
+      const underBundle = join(bundleDir, "cli.js");
+      writeFileSync(underBundle, "// entry", "utf8");
+      expect(fileExists(underBundle)).toBe(true);
+
+      // An embedded path is refused regardless of the disk — on the compiled
+      // binary this fix targets, the disk probe would have answered TRUE.
+      expect(fileExists("/$bunfs/root/cli.js")).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("an embedded argv1 falls through rung 1 to rung 2 on a modelled compiled-binary host (stat answers true)", () => {
+    // The compiled-binary host this fix targets: the embedded entry path IS
+    // statable by the running process (`existsSync` true — modelled here by
+    // answering true for everything the predicate does not reject), and the
+    // executable is the host binary itself, not a generic runtime.
+    const resolution = resolveSubagentExecutable(
+      host({
+        argv1: "/$bunfs/root/cli.js",
+        execPath: "/opt/pi/pi",
+        fileExists: (path: string): boolean => !isEmbeddedFsPath(path),
+      }),
+    );
+    expect(resolution.ok).toBe(true);
+    if (resolution.ok) {
+      expect(resolution.rung).toBe(2);
+      expect(resolution.execPath).toBe("/opt/pi/pi");
+      expect(resolution.scriptArgs).toEqual([]);
     }
   });
 });

@@ -119,7 +119,7 @@ describe("capability-probe.md Step 0 (d) — readPeerVersion rung 1: the authore
     expect(readPeerVersion(AUTHORED_PEER, tree.moduleDir)).toBe("5.4.3-planted");
   });
 
-  it("walks ANCESTOR node_modules directories, not just <moduleDir>/node_modules", () => {
+  it("walks ANCESTOR node_modules directories, not <moduleDir>/node_modules alone", () => {
     // A pnpm/npm install several levels above the extension's own module dir is
     // the normal layout; answering only from the immediate directory would
     // report a lock-step peer as uninstalled on an ordinary source checkout.
@@ -205,6 +205,18 @@ describe("capability-probe.md Step 0 (d) — readPeerVersion rung 3: the injecte
     expect(readPeerVersion(FOREIGN_PEER, tree.moduleDir, "9.9.9-host-sdk")).toBeUndefined();
   });
 
+  it("is CONFINED to the four pinned peers: an authored-scope name OUTSIDE the list stays undefined (Step 0 (d))", () => {
+    // The spec sentence is exact — "the route is confined to the four pinned
+    // peers: any other package name remains genuinely unresolvable" — and a
+    // scope-prefix gate would satisfy it for foreign packages while still
+    // answering a mistyped or future authored-scope name with the host's own
+    // version. Membership in `PEER_DEP_PACKAGES` is the gate.
+    const tree = makePeerTree();
+    expect(
+      readPeerVersion("@earendil-works/pi-not-a-real-peer-xyz", tree.moduleDir, "9.9.9"),
+    ).toBeUndefined();
+  });
+
   it("yields undefined with nothing on disk and no hostSdkVersion (condition (1) preserved)", () => {
     const tree = makePeerTree();
     expect(readPeerVersion(AUTHORED_PEER, tree.moduleDir)).toBeUndefined();
@@ -236,16 +248,15 @@ describe("capability-probe.md Step 0 (d) — readPeerVersion enters no module re
     }).not.toThrow();
     expect(foreign).toBeUndefined();
 
-    // Same walk, authored scope: the ladder falls through the whole real tree to
-    // rung 3 rather than raising the `ERR_MODULE_NOT_FOUND` /
-    // `ERR_PACKAGE_PATH_NOT_EXPORTED` a resolver would have raised.
+    // Same walk, a PINNED peer name: the ladder falls through the whole real
+    // tree to rung 3 rather than raising the `ERR_MODULE_NOT_FOUND` /
+    // `ERR_PACKAGE_PATH_NOT_EXPORTED` a resolver would have raised. The
+    // ancestor walk from a temp dir keeps the answer off the repo's own
+    // installed peer: no ancestor of the temp root carries it.
+    const tree = makePeerTree();
     let authored: string | undefined = "unset";
     expect(() => {
-      authored = readPeerVersion(
-        "@earendil-works/pi-not-a-real-peer-xyz",
-        REAL_MODULE_DIR,
-        "0.99.0",
-      );
+      authored = readPeerVersion(AUTHORED_PEER, tree.moduleDir, "0.99.0");
     }).not.toThrow();
     expect(authored).toBe("0.99.0");
   });

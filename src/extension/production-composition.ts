@@ -70,7 +70,11 @@ import {
   probeGetToolDefinitionSurface,
   probeHostLoopSurfaces,
 } from "./production-host-loop-dispatch";
-import { probeSubagentExecutable, type ProbeHost } from "./capability-probe";
+import {
+  PEER_DEP_PACKAGES,
+  probeSubagentExecutable,
+  type ProbeHost,
+} from "./capability-probe";
 import {
   parseInboundInvokeDepth,
 } from "../runtime/invoke-depth-cycle";
@@ -944,10 +948,14 @@ async function refuseDivergedChildCallables(
   parseDeps: Parameters<typeof parseThetaDocument>[1],
   emitDiagnostic: (diagnostic: Diagnostic) => void,
 ): Promise<ParsedTheta[]> {
-  // Localised ambient read of the child env carrier (exempted, mirroring the
-  // factory's `PI_THETA_SUBAGENT_ROOT` marker read — the live subagent-root
-  // regime marker that subsumed RFC-0005's retired `PI_THETA_SUBAGENT_CHILD`).
-  const env = process.env; // allow-ambient: process.env — RFC-0005 subagent child hash carrier (subagent.md #subagent-theta-callable-hash)
+  // The child env carrier, read through the AUTHENTICATED control-plane view
+  // (`readParentEnv`) — the same gate the factory's `PI_THETA_SUBAGENT_ROOT`
+  // marker read applies — so a hash map planted in the ambient environment (a
+  // repository `.env` a host loads, never a real launcher) can neither throw a
+  // parse failure out of the compose pass nor drop discovered callables
+  // (subagent.md #subagent-control-plane-authentication). A real child always
+  // authenticates: its launcher wrote the parent-pid carriage beside the map.
+  const env = readParentEnv();
   const marshalled = readMarshalledCallableHashes(env);
   if (marshalled === undefined) {
     return [...thetas];
@@ -2392,11 +2400,13 @@ export function readPeerVersion(
   }
   // Rung 3 — the in-process host SDK version, for a PINNED lock-step peer only.
   // One host serves all four, so its single `VERSION` answers for each. The
-  // authored-scope test is what keeps this rung from swallowing condition (1):
-  // an arbitrary package the host does not serve is still genuinely
-  // unresolvable, and answering it with the host's own version would report a
-  // satisfied floor for something that is not installed at all.
-  if (!pkg.startsWith(AUTHORED_PEER_SCOPE)) {
+  // membership test against the fixed four-name list (capability-probe.md
+  // Step 0 (d): "the route is confined to the four pinned peers") is what keeps
+  // this rung from swallowing condition (1): any other package — including an
+  // authored-scope name outside the list — is still genuinely unresolvable, and
+  // answering it with the host's own version would report a satisfied floor for
+  // something that is not installed at all.
+  if (!PEER_DEP_PACKAGES.includes(pkg)) {
     return undefined;
   }
   return hostSdkVersion;

@@ -52,9 +52,10 @@ function mergeDirs(
   return out;
 }
 
-/** The two conventional roots' ancestor chains — registered in every fixture so
- *  an absent conventional root classifies as a clean (silent) missing rather
- *  than as an unreadable ancestor failure. */
+/** The two conventional roots' ancestor chains, registered in every fixture.
+ *  An absent conventional root is skipped BEFORE classification today (DISC-2's
+ *  conventional-root exemption), so the chains are not load-bearing for those
+ *  roots any more; they keep each fixture's directory shape self-consistent. */
 const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
 
 interface FakeSpec {

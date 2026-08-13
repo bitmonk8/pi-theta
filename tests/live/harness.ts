@@ -31,7 +31,10 @@ import type {
   ExtensionRunner,
   ResolvedCommand,
 } from "@earendil-works/pi-coding-agent";
-import { SUBAGENT_EXTENSION_PIN_ENV } from "../../src/runtime/subagent-launcher";
+import {
+  SUBAGENT_EXTENSION_PIN_ENV,
+  SUBAGENT_PARENT_PID_ENV,
+} from "../../src/runtime/subagent-launcher";
 
 /** The shipped Pi extension entry — the way Pi loads theta (re-exports the `src/**` factory). */
 export const SHIPPED_EXTENSION_ENTRY = fileURLToPath(
@@ -62,6 +65,13 @@ process.argv[1] = fileURLToPath(
 process.env[SUBAGENT_EXTENSION_PIN_ENV] = fileURLToPath(
   new URL("../../extensions", import.meta.url),
 );
+// The control plane is authenticated (subagent.md
+// #subagent-control-plane-authentication): `readParentEnv` honours `PI_THETA_*`
+// only when the parent-pid carriage names this process's real parent. A
+// harness topping a chain authenticates its own pin the same way a real
+// launcher authenticates a child's — without this line the pin above is
+// silently stripped and every child falls back to ambient discovery.
+process.env[SUBAGENT_PARENT_PID_ENV] = String(process.ppid);
 
 /** A live model resolved from `getAvailable()`. */
 export type LiveModel = ReturnType<ModelRegistry["getAvailable"]>[number];

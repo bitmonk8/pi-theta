@@ -1730,7 +1730,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // callable set holds a project-local tool (the operator already trusted its
     // extension in the parent session), else withhold it (least privilege). The
     // flags that spell either arm are the host dialect's, not this seam's — see
-    // `HostCliDialect`, and note that one host cannot express this intent at all.
+    // `HostCliDialect` — one host cannot express this intent at all.
     const allTools = this.#input.getAllTools?.() ?? [];
     const projectTrust = inferChildTrust(callableNames, allTools);
 
@@ -1845,12 +1845,23 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const paramsCleanup = marshalled.cleanup;
 
     const baseParentEnv = this.#input.subagentParentEnv ?? {};
+    // The hash carrier is named on EVERY launch — cleared (`undefined`, absent
+    // in the child) when this launch marshals none — for the same layering
+    // reason `marshalParams` names both params carriers (SPAWN-08): this env is
+    // spread over the launching process's own inherited environment, and that
+    // process is itself frequently a subagent child still carrying the hash map
+    // of the invocation that launched IT. A conditional spread cannot clear the
+    // inherited map, and the grandchild's hash verification would then check the
+    // CALLER's callable names against its own discovery — a spurious
+    // `subagent-callable-hash-mismatch` drop for a file edited between the two
+    // launches (subagent.md #subagent-theta-callable-hash).
     const parentEnv: Record<string, string | undefined> = {
       ...baseParentEnv,
       ...marshalled.env,
-      ...(Object.keys(callableHashes).length > 0
-        ? { [SUBAGENT_CALLABLE_HASHES_ENV]: JSON.stringify(callableHashes) }
-        : {}),
+      [SUBAGENT_CALLABLE_HASHES_ENV]:
+        Object.keys(callableHashes).length > 0
+          ? JSON.stringify(callableHashes)
+          : undefined,
     };
 
     // PIC-65 launch. The spawn seam + executable host are wired at the composition

@@ -746,9 +746,9 @@ function plantMalformedTheta(): ComposeWorkspace {
     BLOCK_COMMENT_THETA,
     "utf8",
   );
-  // An empty-but-valid settings file: an absent one raises a
-  // `theta/load/settings-unreadable` warning that is noise against the
-  // delivery-surface assertions below, not behaviour under test.
+  // A minimal valid settings file pins the fixture's settings read to a known
+  // value. An ABSENT settings file is silent (package-and-settings.md
+  // §Failure modes), so the plant is hermeticity, not noise suppression.
   writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
   return {
     cwd,

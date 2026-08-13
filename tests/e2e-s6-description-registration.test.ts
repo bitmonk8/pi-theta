@@ -56,11 +56,9 @@ describe("S6 FIND-S6-1 — description drop on the discoverAndComposeFixtures pa
       THETA_WITH_DESC,
       "utf8",
     );
-    // A minimal valid settings file — noise suppression for the bug-0013
-    // warning surface, NOT behaviour under test: without it the headless
-    // helper path mirrors a `theta/load/settings-unreadable` WARNING for the
-    // workspace's absent `.pi/settings.json` to real stderr in every
-    // `npm test` run.
+    // A minimal valid settings file pins the fixture's settings read to a known
+    // value. An ABSENT settings file is silent (package-and-settings.md
+    // §Failure modes), so the plant is hermeticity, not noise suppression.
     writeFileSync(join(workspace, ".pi", "settings.json"), "{}", "utf8");
   });
   afterEach(() => rmSync(workspace, { recursive: true, force: true }));

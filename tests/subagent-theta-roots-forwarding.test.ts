@@ -162,13 +162,12 @@ describe("bug 0008 — the joined --theta value splits back to both roots on the
       ui: { notify: (): void => {} },
     } as unknown as ExtensionContext;
 
-    // Scoped stderr spy — noise suppression for the bug-0013 warning surface,
-    // NOT behaviour under test: this headless (hasUI:false) composition now
-    // mirrors real warning lines to stderr (`theta/load/settings-unreadable`
-    // for the scratch workspace's absent `.pi/settings.json`,
-    // `theta/load/unreadable-source` for its absent project `.pi/theta/` root
-    // — both deliberately absent: the cell drives CLI roots only), which
-    // would print into every `npm test` run. Nothing here asserts on stderr.
+    // Scoped stderr spy — hermeticity, not behaviour under test: an absent
+    // settings file and an absent conventional root are both SILENT today
+    // (package-and-settings.md §Failure modes; DISC-2's conventional-root
+    // exemption), so the headless (hasUI:false) composition's stderr mirror is
+    // expected quiet here — the spy keeps any machine-dependent global-root
+    // noise out of `npm test` output. Nothing here asserts on stderr.
     const stderrSpy = vi
       .spyOn(process.stderr, "write")
       .mockImplementation((): boolean => true);

@@ -246,10 +246,11 @@ function mergeDirs(
   return out;
 }
 
-/** The two conventional roots' ancestor chains, in every walk fixture: an
- *  absent conventional root then classifies as a clean (silent) missing rather
- *  than as an unreadable ancestor failure, so each cell's diagnostic count is
- *  about the root under test alone. */
+/** The two conventional roots' ancestor chains, in every walk fixture. An
+ *  absent conventional root is skipped BEFORE classification today (DISC-2's
+ *  conventional-root exemption), so the chains no longer decide those roots'
+ *  disposition; they keep each cell's diagnostic count about the root under
+ *  test alone by keeping the fixture's directory shape self-consistent. */
 const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
 
 /** The five installed-package roots `packageRoots` enumerates

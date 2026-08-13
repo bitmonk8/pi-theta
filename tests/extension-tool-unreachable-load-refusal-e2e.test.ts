@@ -35,6 +35,8 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { composeExtensionInstance } from "../src/extension/production-composition";
+import { readParentEnv } from "../src/extension/production-subagent-host";
+import { detectSubagentRootRegime } from "../src/runtime/subagent-root-regime";
 import type { ExecutableHost } from "../src/runtime/subagent-launcher";
 import { EXTENSION_TOOL_UNREACHABLE_CODE } from "../src/runtime/host-loop-dispatch";
 
@@ -213,6 +215,8 @@ function resolvingHost(): ExecutableHost {
 interface LoadOutcome {
   readonly registered: readonly string[];
   readonly noteContent: readonly string[];
+  /** The regime the compose pass detected — the childRegime cells' premise probe. */
+  readonly regimeActive: boolean;
 }
 
 async function runLoad(
@@ -291,22 +295,38 @@ async function runLoad(
   } as unknown as ExtensionContext;
 
   // The child regime is selected ONLY by the parent-launcher env marker
-  // (`detectSubagentRootRegime` reads `readParentEnv()` = `process.env`). Set it
-  // around the compose for the child-context case, restore after (no leakage).
+  // (`detectSubagentRootRegime` reads `readParentEnv()`), and that read is
+  // AUTHENTICATED (subagent.md #subagent-control-plane-authentication): the
+  // marker counts only beside a parent-pid carriage naming this process's real
+  // parent — a real launcher always writes both. Plant both around the compose
+  // for the child-context case, restore after (no leakage).
   const priorMarker = process.env["PI_THETA_SUBAGENT_ROOT"];
+  const priorPid = process.env["PI_THETA_SUBAGENT_PARENT_PID"];
   if (options?.childRegime === true) {
     process.env["PI_THETA_SUBAGENT_ROOT"] = "codecall";
+    process.env["PI_THETA_SUBAGENT_PARENT_PID"] = String(process.ppid);
   }
   try {
+    // The premise probe: the regime the compose pass will detect, read through
+    // the same authenticated view it uses. A childRegime cell whose marker was
+    // stripped (missing/wrong parent-pid carriage) would silently degrade to
+    // the parent leg and test it twice — this value lets the cell assert its
+    // own premise instead.
+    const regimeActive = detectSubagentRootRegime(readParentEnv()).active;
     const wiring = await composeExtensionInstance(pi, ctx, {
       subagentExecutableHost: resolvingHost(),
     });
-    return { registered: wiring.thetas.map((t) => t.slashName), noteContent };
+    return { registered: wiring.thetas.map((t) => t.slashName), noteContent, regimeActive };
   } finally {
     if (priorMarker === undefined) {
       delete process.env["PI_THETA_SUBAGENT_ROOT"];
     } else {
       process.env["PI_THETA_SUBAGENT_ROOT"] = priorMarker;
+    }
+    if (priorPid === undefined) {
+      delete process.env["PI_THETA_SUBAGENT_PARENT_PID"];
+    } else {
+      process.env["PI_THETA_SUBAGENT_PARENT_PID"] = priorPid;
     }
   }
 }
@@ -530,6 +550,10 @@ describe("PIC-64 — registration tracks EXECUTABLE rungs: pi.getToolDefinition 
 describe("PIC-64 — refusal tracks RUNG AVAILABILITY, not process regime", () => {
   it("under the subagent-root regime + host-loop surfaces present, the code-calling theta registers (unchanged child leg)", async () => {
     const outcome = await runLoad(workspaceDir, { childRegime: true });
+    // Premise first: the compose pass genuinely ran in the child regime — the
+    // planted marker survived the authenticated control-plane read. Without
+    // this the cell would go vacuously green in the parent regime.
+    expect(outcome.regimeActive).toBe(true);
     expect(outcome.registered).toContain("codecall");
     expect(outcome.noteContent.join("\n")).not.toContain(
       EXTENSION_TOOL_UNREACHABLE_CODE,

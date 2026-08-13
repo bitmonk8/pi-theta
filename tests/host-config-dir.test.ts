@@ -51,7 +51,7 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //      either" is the most ordinary shape of absence, so that rule turned the
 //      universal case into two spurious `theta/load/unreadable-source`
 //      warnings in every workspace. The walk now skips an `ENOENT` conventional
-//      root before classification. The narrowness is the point, and cells 9-12
+//      root before classification. The narrowness is the point, and cells 10-13
 //      pin it: a root that EXISTS and cannot be read still warns (:51-52
 //      Unreadable column), and the clean-leaf distinction is untouched for the
 //      explicit CLI references (:56) where a missing intermediate directory is
@@ -507,7 +507,7 @@ describe("B2 — the host-location seams are the source of every conventional pa
 
 describe("A4 — an absent conventional discovery root is silent (discovery-sources.md:47, :51-52)", () => {
   for (const configDir of [".pi", ".omp"] as const) {
-    it(`7. neither conventional root exists and the ${configDir} config dir itself is absent: zero diagnostics (no unreadable-source)`, async () => {
+    it(`8. neither conventional root exists and the ${configDir} config dir itself is absent: zero diagnostics (no unreadable-source)`, async () => {
       // The universal fresh-install shape: cwd and homedir exist, the host
       // config directory does not. Under :66 the roots' `ENOENT` has a dirty
       // ancestor chain (the config dir is itself `ENOENT`), which used to
@@ -524,7 +524,7 @@ describe("A4 — an absent conventional discovery root is silent (discovery-sour
       expect(thetas).toEqual([]);
     });
 
-    it(`8. the ${configDir} config dir exists but its theta/ root does not: still zero diagnostics (clean leaf, Missing column is silent)`, async () => {
+    it(`9. the ${configDir} config dir exists but its theta/ root does not: still zero diagnostics (clean leaf, Missing column is silent)`, async () => {
       const fs = hostFs(configDir, {
         dirs: mergeDirs(
           ancestors(projectRoot(configDir)),
@@ -538,7 +538,7 @@ describe("A4 — an absent conventional discovery root is silent (discovery-sour
       expect(thetas).toEqual([]);
     });
 
-    it(`9. the ${configDir} project root EXISTS but rejects EACCES: the unreadable-source warning is still emitted (Unreadable column)`, async () => {
+    it(`10. the ${configDir} project root EXISTS but rejects EACCES: the unreadable-source warning is still emitted (Unreadable column)`, async () => {
       const fs = hostFs(configDir, {
         dirs: mergeDirs(
           ancestors(projectRoot(configDir)),
@@ -558,7 +558,7 @@ describe("A4 — an absent conventional discovery root is silent (discovery-sour
       expect(byCode(diagnostics, MISSING_SOURCE)).toEqual([]);
     });
 
-    it(`10. the ${configDir} global root EXISTS but rejects EPERM: the unreadable-source warning is still emitted while the absent project root stays silent`, async () => {
+    it(`11. the ${configDir} global root EXISTS but rejects EPERM: the unreadable-source warning is still emitted while the absent project root stays silent`, async () => {
       const fs = hostFs(configDir, {
         dirs: mergeDirs(
           ancestors(projectRoot(configDir)),
@@ -576,7 +576,7 @@ describe("A4 — an absent conventional discovery root is silent (discovery-sour
     });
   }
 
-  it("11. an explicit `--theta` path is unaffected: a clean-leaf miss is still a missing-source ERROR (discovery-sources.md:56)", async () => {
+  it("12. an explicit `--theta` path is unaffected: a clean-leaf miss is still a missing-source ERROR (discovery-sources.md:56)", async () => {
     const fs = hostFs(".omp", {
       dirs: mergeDirs(
         ancestors(projectRoot(".omp")),
@@ -596,7 +596,7 @@ describe("A4 — an absent conventional discovery root is silent (discovery-sour
     expect(missing[0]!.message).toContain("--theta flag #1");
   });
 
-  it("12. DISC-2's clean-leaf distinction survives for explicit references: a `--theta` path with an ABSENT intermediate directory is an unreadable-source ERROR, not silence (:66)", async () => {
+  it("13. DISC-2's clean-leaf distinction survives for explicit references: a `--theta` path with an ABSENT intermediate directory is an unreadable-source ERROR, not silence (:66)", async () => {
     // The exact ancestor-chain shape the conventional roots are now excused
     // from. For a path the user typed it remains a signal, and at CLI severity
     // (the Unreadable column of the `--theta` row is "error").

@@ -88,11 +88,9 @@ beforeAll(async () => {
   plant(join(nm, "dupe-e2e-s5", "theta", "shadowme-e2e-s5.theta"), CLEAN_THETA);
   plant(join(workspaceDir, ".pi", "theta", "shadowme-e2e-s5.theta"), CLEAN_THETA);
 
-  // A minimal valid settings file — noise suppression for the bug-0013
-  // warning surface, NOT behaviour under test: without it the headless
-  // helper path mirrors a `theta/load/settings-unreadable` WARNING for the
-  // workspace's absent `.pi/settings.json` to real stderr in every
-  // `npm test` run.
+  // A minimal valid settings file pins the fixture's settings read to a known
+  // value. An ABSENT settings file is silent (package-and-settings.md
+  // §Failure modes), so the plant is hermeticity, not noise suppression.
   plant(join(workspaceDir, ".pi", "settings.json"), "{}");
 
   registered = await runProductionLoad(workspaceDir);
