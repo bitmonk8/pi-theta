@@ -1,6 +1,6 @@
 # Bug 0068 — An `invoke` of a `mode: prompt` callee resolves `Ok(null)`: the callee's final value is dropped on the in-process prompt→prompt cell, where the identical body returns its value correctly when the same file is `mode: subagent`
 
-- **Status:** open.
+- **Status:** wontfix — not a defect. See §Resolution.
 - **Kind:** defect — `invocation.md:36` states that a prompt-mode child
   "attaches to the caller's current conversation, but **the final value still
   propagates through the same return surface**". Observed: the parent receives
@@ -219,3 +219,80 @@ Both are reachable by reading; neither was confirmed.
   deleted after the run). The envelope bytes above are verbatim. The mechanism
   is **not** isolated and the general-vs-subagent-specific question is open —
   see *Open questions*.
+
+## Resolution — not a defect (investigated 2026-08-14, at HEAD `e18b30e5`)
+
+This report is closed `wontfix`: the observable it documents is specified
+behaviour, and the mechanism it proposes does not exist. Nothing above is
+deleted — the record of what was reported and measured stands. What follows is
+what a dedicated isolation run measured against it.
+
+### The reported observable is the specified untyped-`invoke` discard
+
+`invocation.md` §Typed return: "Untyped `invoke(...)` returns
+`Result<null, QueryError>` — the runtime discards the child's return value entirely."
+Mirrored at `docs/reference/discovery-cli.md` §Typed return; implemented in
+`runInvokeEffect` (`src/runtime/effectful-statement-host.ts`) as an early
+`makeOk(null)` when `expr.returnSchema === null`, under an `INVCEIL-3` comment
+citing both pages. That site is downstream of, and common to, every cell, so
+the `null` is **mode-blind by construction**.
+
+§Reproduction invokes both callees **untyped** (`invoke("./kidp.theta")`,
+`invoke("./kidp2.theta")`), so `rawEnum: null` and `rawStr: null` are that
+discard and not a dropped final value.
+
+### The subagent-vs-prompt contrast was a misreading
+
+§Reproduction's contrast case reads
+`{"theta_result":{"v":1,"ok":"high"}}` as the callee's value reaching the
+caller. That line is the **child's own envelope on its own fd 1**, not the
+parent's `invoke` binding. In the same run the caller's own result was
+`{"crossed":false,"local":true}` — the caller received `null` from the
+**subagent** callee too. Re-measured from this document's own fixtures:
+
+```
+### top-pu :: {"ok":true,"value":null}   untyped invoke, prompt-mode callee
+### top-su :: {"ok":true,"value":null}   untyped invoke, subagent-mode callee
+### topc   :: {"ok":true,"value":{"crossed":false,"local":true}}   this doc's own contrast fixture
+```
+
+### Both §Open-questions candidate mechanisms are eliminated
+
+The prompt→prompt cell propagates final values. With the callee mode as the
+only control, a fully-resolvable typed invoke of a prompt-mode callee delivers
+strings, objects and arrays:
+
+```
+### d-prompt :: {"ok":true,"value":"PSTR"}            invoke<string>
+### e-prompt :: {"ok":true,"value":{"a":"x","b":true}}  invoke<S>, no enum field
+### g-prompt :: {"ok":true,"value":[1,2,3]}            invoke<array<integer>>
+```
+
+A lost or empty tail value would have failed `e-prompt` and `g-prompt`
+identically. It did not. Candidate (a) is refuted — the `parseCallee` body
+carries its tail expression; candidate (b) is refuted — the prompt-mode
+`ExecuteBodyDeps` records it. §Open questions item 3 is answered: pure-expression
+tails propagate.
+
+### A real, different defect was isolated in the same run
+
+A **typed** `invoke<T>` of a `mode: prompt` callee fails return-validation for
+any named-enum position, where the byte-identical body as a `subagent` callee
+returns `Ok`. `makeEnumValue` builds a boxed `String`; across the subagent
+boundary `JSON.stringify` renders it a JSON primitive that AJV accepts, while
+in-process it stays boxed (`typeof` `"object"`) and `{"type":"string"}`
+rejects it. The observable is a loud `Err(InvokeInfraError{cause:
+"return_validation"})`, not this report's silent `Ok(null)`, and the mechanism
+is unrelated. It is pre-existing (not introduced by bug 0067) and is filed
+separately as
+[0174](./0174-typed-invoke-enum-return-validation-prompt-cell.md).
+
+### Provenance of this resolution
+
+Five provider-free scratch probes driving real spawned `pi` children through
+the production launch path (`launchSubagentChild` + `createProductionSpawnFn` +
+`driveSubagentChild`) with all three `AGENTS.md` `#subagent-child-pins` set;
+plus a unit-level check against the repository's own `AjvSchemaValidator`. Probes
+written, run and deleted. Full evidence: `.pi/tmp/fixes/0068-report.md`.
+Every implementation `path:line` in this document was read at `d06daae3` and is
+stale at `e18b30e5`; bug 0134 owns that corpus-wide class.

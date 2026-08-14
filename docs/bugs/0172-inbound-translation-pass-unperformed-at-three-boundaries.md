@@ -1,0 +1,1039 @@
+# Bug 0172 — `runtime-value-model.md:34` closes the inbound wire-name-translation boundary set at four and states the rule once for all of them ("not restated per call site"), but after the bug 0067 fix `translateInbound` still has exactly one production caller: typed query results, typed `.theta`-callable tool-call returns and binder `args` each bind the raw AJV-validated payload, so a named-enum position arrives untagged and a schema-typed object unbranded — and on the one boundary 0067 did wire, a value inside a `{"anyOf":[…]}` arm is untranslated too, because the sidecar is keyed by JSON Pointer and `anyOf` has no data-space image, which makes arm dispatch a spec question no sentence answers
+
+- **Status:** open. Residual of the bug 0067 fix (0.90.0, commit `e18b30e5`),
+  recorded there as `## Fix (0.90.0)` *Residuals* items 1 and 2 and in that fix's
+  report (`.pi/tmp/fixes/0067-report.md` R1 and R2). §Fix is constraint-pinned,
+  not settled: face 1 has four candidate scopes with their measured costs, face 2
+  cannot be implemented at all until an arm-dispatch rule is written into the
+  spec, and the enforced-entry-point question 0067's §Options left open is
+  restated here rather than answered. Ordering:
+  [0120](./0120-inbound-rebuild-ignores-declaration-order-and-brand.md) is open
+  and undecided on what the inbound rebuild *does* (declaration order, brand);
+  this report owns whether the rebuild *runs*. Wiring the typed-query boundary
+  imports 0120's unsettled order question into production on exactly the boundary
+  0120's own coordination note reserves for itself, so either 0120 settles first
+  or a route here that touches the typed-query boundary lands both halves.
+  [0173](./0173-inbound-rebuild-record-not-null-prototyped.md) (open) states a
+  prerequisite in the other direction and this report agrees with it: its
+  record-build hardening lands **before** any of the three boundaries here is
+  wired, because each of them makes the payload model-produced and that is what
+  makes 0173's `__proto__` path reachable. Nothing blocks this report from
+  starting; the wiring itself waits on 0173.
+- **Sev/Diff estimate:** S1/D3 — S1 because a value silently loses its
+  declaring-enum tag and its schema brand on production paths with no diagnostic
+  on any surface: measured over the same lowered document and the same payload,
+  a `schema Box { sev: Sev }` value that reaches theta code through the boundary
+  0067 wired brands as `Box` and compares `box.sev == Sev.High` **`true`**, while
+  the identical value reaching theta code through the typed-query loop or the
+  binder-`args` merge is unbranded and compares **`false`** (§Reproduction (b),
+  (c), (d)); the spec fixes that comparison at `true` on every one of these
+  boundaries in one sentence. D3 because face 1 spans three separate seams —
+  `runTypedQueryLoop`, the `.theta`-callable invoke resolver, and the
+  binder-`args` projection — each needing its own witness and each with its own
+  plan-derivation question, the typed-query one is coupled to 0120's undecided
+  route, and face 2 needs an arm-dispatch rule that no sentence in
+  `runtime-value-model.md` or `schema-subset.md` currently supplies.
+- **Kind:** defect — the runtime performs, at one boundary, a rule the
+  specification states once for four, and performs it there only at the positions
+  a JSON Pointer can address. Two faces, five elements, each measured at HEAD
+  `e18b30e5`.
+  1. *The seam has one production caller.* `translateInbound`
+     (`src/runtime/wire-translation.ts:130`) is called from exactly one place in
+     `src/`: `#validateInvokeReturn`'s success arm
+     (`src/extension/production-theta-producer.ts:3472`, inside the method
+     declared at `:3436`). `rg -n "translateInbound" src/` returns four lines
+     total — the definition, that call, its import (`:225`), and one prose
+     mention in the module header (`wire-translation.ts:31`). §Reproduction (a).
+  2. *Typed query results bind the raw validated payload.* `runTypedQueryLoop`
+     (`src/runtime/query-tool-loop.ts:465`) returns
+     `{ kind: "value", value: forced.payload, … }` (`:721–728`) — the
+     AJV-validated payload itself. The respond-repair arm returns `repair.value`
+     (`:705`), which `buildTypedQueryValidation`
+     (`src/runtime/typed-query-validation.ts:168`) produced as
+     `{ kind: "validated", value: turn.payload }` (`:276`) or
+     `{ kind: "validated", value: payload }` (`:300`). `runQueryEffect`
+     (`src/runtime/effectful-statement-host.ts:195`) hands that value straight to
+     the executor (`:232–233`). Measured: `@<Box>` with a forced-respond payload of
+     `{"sev":"high"}` binds an unbranded object whose `sev` is a plain string
+     (§Reproduction (c)).
+  3. *A typed `.theta`-callable tool-call return is never even offered to the
+     pass.* `tool-calls.md:23` gives the registered-theta row the return type
+     `Result<T, QueryError>` where `T` is the callee's inferred return type, and
+     `runToolCallEffect` routes such a call through the invoke trampoline
+     (`effectful-statement-host.ts:273`, its theta-callable branch at
+     `:285–292`). But `#resolveCallAsInvoke`
+     (`production-theta-producer.ts:3149`) builds the `InvokeChild` with
+     `returnSchema` `null` (`:3164`), and `#validateInvokeReturn`'s first
+     statement returns its argument unchanged when `returnSchema === null`
+     (`:3442–3443`). The inferred type never becomes a runtime schema, so neither
+     AJV nor the translation pass runs on this boundary.
+  4. *Binder `args` bind the raw merged payload.* `runBinder`
+     (`production-theta-producer.ts:685`) returns
+     `{ bound: true, args: merged.args }` (`:886`)
+     from `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts:117`), and
+     `paramBindingsFrom` (`src/extension/theta-composition-producer.ts:90`)
+     projects each entry into body scope with `bindings.set(name, value as
+     ThetaValue)` (`:97`) — a cast, not a walk. Measured: `params: { sev: Sev }`
+     lowers to a `$ref` at `/properties/sev`, the merged args validate `ok`, and
+     the bound `sev` is a plain string (§Reproduction (d)). The child-side
+     marshalled-params intake binds the same way
+     (`#intakeSubagentRootParams`, `:2019`; the projection at `:2145–2151`).
+  5. *On the boundary 0067 did wire, a value inside a `{"anyOf":[…]}` arm is
+     untranslated.* `Sev | null` lowers to
+     `{"anyOf":[{"$ref":"#/$defs/Sev"},{"type":"null"}],…}` (SUBS-1,
+     `docs/spec_topics/schema-subset.md:81` — a union with any non-primitive arm
+     lowers to `anyOf`), AJV's verdict is `{"ok":true}`, and the rebuilt value is
+     an untagged string: `rebuilt == Sev.High` is `false`. This is **not a
+     regression** — the position was untranslated before 0067 too — and 0067
+     narrowed its code's documented claims rather than widen the route. The
+     sidecar is keyed by JSON Pointer into the lowered fragment and `anyOf` has
+     no image in the data space the way `properties` and `items` do, so nothing
+     in the lowered fragment names which arm governs a materialised value.
+     §Reproduction (f) measures the reach loss as wider than 0067's residual
+     recorded: under `Box | null` the whole object arrives unbranded **and** its
+     nested named-enum field untagged, and under `array<Sev | null>` the elements
+     are untagged where `array<Sev>` elements are tagged.
+- **Related:**
+  - **0067** —
+    [`0067-subagent-envelope-drops-enum-tag.md`](./0067-subagent-envelope-drops-enum-tag.md),
+    **fixed (0.90.0)**, this report's parent and its substrate. That fix wired one
+    of the four boundaries deliberately and shipped the machinery the other three
+    would consume: `buildInboundTranslationPlan` (`src/parser/schema-lowering.ts`)
+    derives the per-`$defs` sidecars from any lowered document, and step 5 of the
+    Lowering Algorithm gained the `$ref`-target map that makes the walk faithful
+    (`docs/spec_topics/schema-subset.md:87`). Its §Options closes with the
+    question this report carries forward verbatim: "a fix should also decide
+    whether `translateInbound` gains a single enforced entry point that every
+    inbound boundary is required to route through." Its `## Fix (0.90.0)`
+    *Residuals* items 1 and 2 hand both faces to the parent. Its fix also amended
+    three code comments to state the `anyOf` reach limit — the seam header
+    (`src/runtime/wire-translation.ts:33–41`), `translateInbound`'s doc comment
+    (`:125–128`) and `#validateInvokeReturn`'s doc comment
+    (`src/extension/production-theta-producer.ts:3430–3434`) — so the code claims
+    no coverage it lacks, and face 2 is a gap in the rule, not a divergence
+    between code and its own comments.
+  - **0120** —
+    [`0120-inbound-rebuild-ignores-declaration-order-and-brand.md`](./0120-inbound-rebuild-ignores-declaration-order-and-brand.md),
+    **open**, §Fix unsettled. **Boundary.** 0120 owns what the inbound rebuild
+    *produces* once it runs — whether `rebuildInbound` reorders a rebuilt record
+    into declaration order (`expressions.md:118`) and how the brand is installed;
+    this report owns *whether the rebuild runs at all* at the three boundaries
+    that do not call it. The two docs cite the same line: 0120 cites the
+    typed-query boundary's raw bind at `src/runtime/query-tool-loop.ts:721–728`
+    (re-verified at HEAD `e18b30e5` — still exact; `:724` is `value:
+    forced.payload,`) as the reason its own defect is currently unreachable in
+    production. 0067's fix appended a `## Coordination note` to 0120 (`:992`)
+    recording that the brand half landed for the subagent-`invoke` boundary, that
+    the order half is vacuous there because the producer is a theta child whose
+    object `buildObjectSchemaValue` already ordered, and that "§Reproduction's
+    model-ordered hazard bites at the typed-QUERY boundary, which 0067 did not
+    wire, so it remains this report's to settle". That sentence is the coupling:
+    a route here that wires the typed-query boundary makes 0120's hazard
+    production-visible, so it either follows 0120's decision or carries it.
+  - **0173** —
+    [`0173-inbound-rebuild-record-not-null-prototyped.md`](./0173-inbound-rebuild-record-not-null-prototyped.md),
+    **open. Prerequisite: it lands first.** Residual R3 of the same 0067 fix,
+    filed separately by that residual's own orchestrator. It owns
+    `rebuildInbound`'s record construction — a plain object literal, so a payload
+    key spelled `__proto__` reassigns the record's prototype and is dropped
+    instead of becoming an own field. **Boundary.** 0173 owns what the walk's
+    record build does with a hostile key; this report owns which boundaries call
+    the walk at all. The coupling is one-directional and both docs state it the
+    same way: at HEAD the defect is unreachable because the one wired boundary's
+    payload is a theta child's own `JSON.stringify` output, and it becomes
+    reachable the moment a boundary here is wired, because all three of them take
+    MODEL-produced payloads. §Fix (a) and (e)(4) carry the ordering.
+  - **0134** —
+    [`0134-params-shift-induced-stale-citations.md`](./0134-params-shift-induced-stale-citations.md),
+    **open**, the adjudicated do-not-chase class for positional drift.
+    `src/extension/production-theta-producer.ts` is 6165 lines at this HEAD and
+    every open report inserts into it, which is why every volatile position below
+    is named by symbol beside its line and every line is stamped with the commit
+    it was read at.
+- **Affected** (every citation re-verified against the tree at HEAD `e18b30e5`,
+  v0.90.0; symbols named beside lines):
+  - **The seam and its one caller.** `translateInbound`
+    (`src/runtime/wire-translation.ts:130`), its `InboundTranslationInput`
+    (`:85`), the walk entry `rebuildUnder` (`:198`) and `rebuildInbound` (`:223`)
+    with its array recursion (`:247`) and field recursion (`:298–299`); the
+    module header's *positions this pass reaches* paragraph (`:33–41`).
+    `#validateInvokeReturn` (`src/extension/production-theta-producer.ts:3436`),
+    its `returnSchema === null` early return (`:3442–3443`), its
+    `buildInboundTranslationPlan` call (`:3465`) and its `translateInbound` call
+    (`:3472`); the import (`:225`). Its two call sites in `#driveCallee` (`:3332`,
+    `:3370`) are unchanged by this report.
+  - **Boundary 1 — typed query results.** `runTypedQueryLoop`
+    (`src/runtime/query-tool-loop.ts:465`), its terminal return (`:721–728`) and
+    its respond-repair `value` arm (`:705`); `buildTypedQueryValidation`
+    (`src/runtime/typed-query-validation.ts:168`), its two `validated` returns
+    (`:276`, `:300`) and `validateAgainst` (`:318`); the respond-tool capture that
+    produces the payload (`#executeRespondTool`,
+    `src/extension/production-theta-producer.ts:2748`, the capture at
+    `:2775–2776`; the off-session twin `#serviceHeldCall`, `:4928`);
+    `runQueryEffect` (`src/runtime/effectful-statement-host.ts:195`) and its typed
+    arm (`:223–233`).
+  - **Boundary 2 — typed `.theta`-callable tool-call returns.**
+    `runToolCallEffect` (`src/runtime/effectful-statement-host.ts:273`) and its
+    theta-callable branch (`:285–292`); `#classifyCall`
+    (`src/extension/production-theta-producer.ts:2820`); `#resolveCallAsInvoke`
+    (`:3149`) and the `null` it passes as `returnSchema` (`:3164`) with the
+    comment stating why (`:3161–3163`); `#buildInvokeChild` (`:3168`).
+    `lowerAcceptedThetaCallableReturn` (`src/runtime/tool-call.ts:550`) is the
+    lowering-side carrier and is not on this path.
+  - **Boundary 3 — binder `args`.** `runBinder`
+    (`src/extension/production-theta-producer.ts:685`), its merge call (`:870`)
+    and its bound return (`:886`); `#mergeDeclaredDefaults` (`:1203`), the
+    compiled validator (`:1225`) and the `fillDefaultsAndRevalidate` call
+    (`:1226`); `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts:117`) and
+    its post-merge AJV call (`:151`); `paramBindingsFrom`
+    (`src/extension/theta-composition-producer.ts:90`) and its cast (`:97`), and
+    its one caller (`:396`). The child-side sibling:
+    `#intakeSubagentRootParams` (`src/extension/production-theta-producer.ts:2019`)
+    and the raw projection at `:2145–2151`, over
+    `src/runtime/subagent-params.ts` (`readMarshalledParams`, `:224`; the
+    validator call, `:294`).
+  - **The plan derivation a fix consumes.** `buildInboundTranslationPlan` and
+    `buildSidecar` (`src/parser/schema-lowering.ts`); `lowerQueryResponseSchema`
+    (`src/runtime/query-schema-lowering.ts`), which produces the lowered document
+    for a typed query and for an `invoke<Schema>` annotation alike;
+    `params.loweredSchema` (`src/parser/params.ts:404–414`, surfaced through
+    `src/parser/frontmatter.ts:809`), which is the lowered document the
+    binder-`args` boundary already compiles.
+  - **Spec.** `docs/spec_topics/runtime-value-model.md:32` (the two-place
+    opening), `:34` (the inbound bullet, whose closing sentence is the obligation
+    this report measures), `:35` (the outbound bullet), `:36` (the `params:`
+    defaults bypass), `:13` (the enum row: the tag is what `==` compares and it
+    MUST NOT appear in JSON output), `:22` (the cross-type equality rule that
+    makes an untagged variant compare `false` against a tagged one);
+    `docs/spec_topics/schema-subset.md:81` (SUBS-1 — a union with any
+    non-primitive arm lowers to `anyOf`), `:82` (discriminated object union),
+    `:83` (mixed `anyOf`), `:87` (step 5, the three-map sidecar and the
+    JSON-Pointer keying), `:88` (step 6, discriminator detection over the lowered
+    `anyOf` form — the only existing rule that reads an `anyOf`'s arms);
+    `docs/spec_topics/tool-calls.md:23` (the registered-theta return-type row);
+    `docs/spec_topics/invocation.md:28` (§Typed return — untyped `invoke(...)`
+    discards the child's return value, which bounds this report's domain);
+    `docs/spec_topics/expressions.md:118` (the declaration-order `keys()` rule
+    0120 owns). Reference mirror: `docs/reference/type-system.md:145` (§Wire-name
+    translation), `:153–154` ("Applies uniformly to typed query results, typed
+    tool-call returns, `invoke` returns, and binder `args`").
+  - **The committed cells a fix must not red.**
+    `tests/wire-translation-inbound-retag.test.ts:200` — "a brand at a position
+    the plan does not describe survives the walk" — asserts over the REAL
+    lowering of `schema U2 { q: Person2 | null }` that `U2`'s sidecar addresses
+    `/properties/q` with neither map (`:228–229`) and that an already-branded
+    in-process value at that position keeps its brand (`:249`), while the
+    described root is still re-branded (`:253`). It pins the
+    union-arm pass-through as *non-destructive*, which any face-2 route must
+    preserve or renegotiate explicitly.
+    `tests/subagent-invoke-inbound-enum-tag.test.ts` is 0067's primary witness —
+    one `it()` (`:157`) carrying six assertion cells (`crossed`, `local`,
+    `objSev`, `objWho`, `elem0`, `anon`), including the `anon` control at
+    `:311–316` pinning `Severity.Low == "low"` at `false`.
+    `tests/inbound-translation-plan.test.ts` (eleven cells over
+    `buildInboundTranslationPlan` / `buildSidecar`) is the plan-derivation
+    witness a face-1 route reuses at each new boundary.
+    `tests/e2e-s3-typed-query-conformance.test.ts` asserts `outcome.value` with
+    `toEqual` over a `Triage` schema whose only union field is an anonymous
+    string-literal union, so it carries no named-enum position and no route here
+    changes its verdict.
+    `tests/wire-name-translation.test.ts:24` still describes `translateInbound` /
+    `translateOutbound` as "inert identity stubs" — stale prose in a comment,
+    correct at the time it was written, and bug 0134's class rather than this
+    report's.
+  - **Corpus census, re-run at HEAD.** 34 committed `.theta` / `.thetalib` files;
+    17 declare `params:`; **none** declares a named `enum` (`rg -ln "enum "` over
+    the tracked set returns nothing), so no committed fixture carries the enum-tag
+    half of any boundary. Two committed typed queries exist —
+    `docs/examples/handle-error.theta:12` (`@<Triage>`, a declared `schema`) and
+    `docs/examples/personas.thetalib:8` (`@<integer>`) — so the brand half is
+    reachable from the committed corpus at the typed-query boundary and is
+    asserted by nothing. No committed `.theta` / `.thetalib` declares an `as`
+    rename, so the rename half of the rule is unexercised corpus-wide.
+- **Observed at:** v0.90.0 (`e18b30e5`). Offline, deterministic, provider-free:
+  one scratch vitest probe over the shipped seams — `parseThetaDocument`,
+  `lowerQueryResponseSchema`, `buildInboundTranslationPlan`, `translateInbound`,
+  the production `AjvSchemaValidator` (`src/seams/schema-validator.ts`) built with
+  the shipped content-addressing, `fillDefaultsAndRevalidate`, and the real
+  `runTypedQueryLoop` + `buildTypedQueryValidation` driven by a scripted
+  `QueryModelDriver` at `max_rounds: 0` (the harness pattern of
+  `tests/e2e-s3-typed-query-conformance.test.ts:84–95`, `:130–159`) — written,
+  run, deleted. Every value below is that run's output verbatim over a tree
+  `git status --short --untracked-files=no` reported clean at `e18b30e5`. The
+  static census is `rg` over `src/` at the same HEAD.
+
+## Summary
+
+`runtime-value-model.md:34` states the inbound wire-name-translation rule once
+and closes its boundary set at four: "The rule applies uniformly to every inbound
+boundary — typed query results, tool-call return decoding where typed, `invoke`
+returns, and binder `args` — and is not restated per call site." The bug 0067 fix
+(0.90.0) performed the rule at one of the four. The other three are unperformed,
+and the one that was wired performs it only where a JSON Pointer addresses a
+value.
+
+**Face 1 — three boundaries perform no inbound translation.**
+`translateInbound` has exactly one production caller: `#validateInvokeReturn`.
+Typed query results, typed `.theta`-callable tool-call returns and binder `args`
+each bind the AJV-validated payload directly. Measured over the same fixture
+(`enum Sev { High = "high", Low = "low" }`, `schema Box { sev: Sev }`), the same
+lowered document and the same payload `{"sev":"high"}`:
+
+| Boundary | root `schemaTagOf` | `.sev` tagged | `.sev == Sev.High` |
+| --- | --- | --- | --- |
+| `invoke<Box>` (wired by 0067) | `Box` | yes | `true` |
+| typed query `@<Box>` | `undefined` | no | **`false`** |
+| binder `args` (`params: { sev: Sev }`) | — | no | **`false`** |
+
+The typed `.theta`-callable tool-call boundary loses it one step earlier:
+`#resolveCallAsInvoke` passes `returnSchema` `null`, so `#validateInvokeReturn`
+returns before AJV and before the pass. The spec gives that boundary a return
+type by inference (`tool-calls.md:23`); the runtime carries no schema for it.
+
+0067's §Options left one question open that this report carries forward: whether
+`translateInbound` should gain a single enforced entry point that every inbound
+boundary is required to route through, so an omission cannot silently recur.
+Nothing in the code or the spec enforces the "not restated per call site"
+sentence today — it is satisfied by convention, and the convention was not
+followed at three of four sites.
+
+**Face 2 — union (`anyOf`) positions are untranslated on the boundary 0067
+fixed.** `invoke<Sev | null>` hands the parent an untagged string. This is not a
+regression: the position was untranslated before 0067, and 0067 narrowed its
+code's documented claims instead of widening the route. Measured over the real
+`lowerQueryResponseSchema`, the real `AjvSchemaValidator` and the shipped plan
+derivation: `Sev | null` lowers to
+`{"anyOf":[{"$ref":"#/$defs/Sev"},{"type":"null"}],"$defs":{"Sev":{"type":"string","enum":["high","low"]}}}`,
+the AJV verdict is `{"ok":true}`, and `rebuilt == Sev.High` is `false`. The
+reach loss is wider than the residual recorded: a union arm stops the walk
+entirely, so `Box | null` arrives unbranded with its nested `sev` untagged, and
+`array<Sev | null>` arrives with untagged elements where `array<Sev>` has tagged
+ones. It is not closable inside 0067's route because the sidecar is keyed by JSON
+Pointer into the lowered fragment and `anyOf` has no data-space image the way
+`properties` and `items` do: nothing in the lowered fragment names which arm
+governs a materialised value. Choosing that rule is a **spec question** — it must
+be written into `runtime-value-model.md` and/or `schema-subset.md` before any
+code can implement it.
+
+## Reproduction
+
+Offline, deterministic, at HEAD `e18b30e5`. Shared fixture, parsed by the real
+`parseThetaDocument`:
+
+```
+enum Sev { High = "high", Low = "low" }
+schema Box { sev: Sev }
+schema R { who as "Who": string }
+Box { sev: Sev.High }
+```
+
+`report` below prints, for a value: its JSON form, whether `isEnumValue` holds,
+what `schemaTagOf` recovers, and `valuesEqual(v, makeEnumValue("Sev","high"))`.
+
+### (a) The static census
+
+`rg -n "translateInbound" src/` at HEAD (paths normalised to forward slashes):
+
+```
+src/extension/production-theta-producer.ts:225:import { translateInbound } from "../runtime/wire-translation";
+src/extension/production-theta-producer.ts:3472:        translateInbound({
+src/runtime/wire-translation.ts:31://   `Severity.High` — neither passes through `translateInbound`.
+src/runtime/wire-translation.ts:130:export function translateInbound(input: InboundTranslationInput): ThetaValue {
+```
+
+Four lines: one definition, one import, one call, one prose mention. The call at
+`:3472` is inside `#validateInvokeReturn` (`:3436`). `translateOutbound` has one
+production caller of its own (`src/render/query-render.ts:423`) and is not this
+report's subject.
+
+### (b) Control — the `invoke<Box>` boundary 0067 wired
+
+`lowerQueryResponseSchema("Box", …)` produces
+
+```json
+{"type":"object","properties":{"sev":{"$ref":"#/$defs/Sev"}},"required":["sev"],
+ "additionalProperties":false,"$defs":{"Sev":{"type":"string","enum":["high","low"]}}}
+```
+
+AJV verdict over `{"sev":"high"}` is `{"ok":true}`. The derived plan carries
+`rootDef "Box"` and two sidecars:
+
+```
+sidecar[Sev] {"wireNames":[],"namedEnumPositions":[{"pointer":"","enumName":"Sev"}],"refTargets":[]}
+sidecar[Box] {"wireNames":[],"namedEnumPositions":[{"pointer":"/properties/sev","enumName":"Sev"}],"refTargets":[]}
+```
+
+After `translateInbound`:
+
+```
+root: json={"sev":"high"} enum=-    brand=Box ==Sev.High=false
+.sev: json="high"         enum=ENUM brand=-   ==Sev.High=true
+```
+
+The root is branded `Box` and the named-enum field compares equal to a locally
+constructed `Sev.High`. This is the specified end state, and it is what the three
+boundaries below do not reach.
+
+### (c) Typed query results — real `runTypedQueryLoop`
+
+Driven through the production collaborators: `lowerQueryResponseSchema("Box", …)`
+(the identical lowered document as (b)), the real `AjvSchemaValidator`, the real
+`buildTypedQueryValidation`, and `runTypedQueryLoop` at `max_rounds: 0` with a
+scripted `QueryModelDriver` whose forced-respond turn carries `{"sev":"high"}`.
+
+```
+typed-query outcome.kind value
+query value      : json={"sev":"high"} enum=- brand=- ==Sev.High=false
+query value .sev : json="high"         enum=- brand=- ==Sev.High=false
+```
+
+Same schema, same payload, same AJV verdict as (b); the bound value is the raw
+payload. `schemaTagOf` recovers nothing, so both brand consumers — the QRY-18
+outbound render's rename map and the `QuestionOperandDefectError` operand
+summariser — see an anonymous object; and `box.sev == Sev.High` in body code is
+`false` where (b) makes it `true`.
+
+### (d) Binder `args` — real lowering, real AJV, real merge
+
+Theta source:
+
+```
+---
+description: probe
+mode: prompt
+model: m
+params:
+  sev: Sev
+  note: string
+---
+enum Sev { High = "high", Low = "low" }
+Sev.High
+```
+
+Loads with `diags []`. Its `params.loweredSchema` is
+
+```json
+{"type":"object","properties":{"sev":{"$ref":"#/$defs/Sev"},"note":{"type":"string"}},
+ "required":["sev","note"],"additionalProperties":false,
+ "$defs":{"Sev":{"type":"string","enum":["high","low"]}}}
+```
+
+`fillDefaultsAndRevalidate({binderArgs:{sev:"high",note:"n"}, defaults:[], validator})`
+over the compiled validator yields:
+
+```
+merged args    {"sev":"high","note":"n"}
+classification {"kind":"ok"}
+args.sev       : json="high" enum=- brand=- ==Sev.High=false
+```
+
+`paramBindingsFrom` then casts each entry into body scope unchanged
+(`theta-composition-producer.ts:97`, read from source — the function is
+module-private), so the body's `sev` is a plain string.
+
+The sidecar the rule needs is derivable from the document already in hand:
+`buildInboundTranslationPlan` over that same `params.loweredSchema` returns
+
+```
+sidecar[<root>] {"wireNames":[],"namedEnumPositions":[{"pointer":"/properties/sev","enumName":"Sev"}],"refTargets":[]}
+sidecar[Sev]    {"wireNames":[],"namedEnumPositions":[{"pointer":"","enumName":"Sev"}],"refTargets":[]}
+```
+
+(`<root>` is whatever root name the caller supplies as the plan's `annotation`;
+the probe passed a placeholder, since no annotation names a `params:` document
+today — choosing that name is part of the route in §Fix (a).)
+
+Nothing calls it. The boundary already compiles this exact document for the
+post-default-merge AJV check (`#mergeDeclaredDefaults`, `:1225`), so the missing
+step is the call, not the data.
+
+### (e) Typed `.theta`-callable tool-call returns — traced
+
+Not driven; read from source at HEAD. `runToolCallEffect`
+(`effectful-statement-host.ts:273`) routes a call classified `theta-callable`
+through `runInvokeChild` (`:285–292`). `#resolveCallAsInvoke`
+(`production-theta-producer.ts:3149`) constructs that child with `returnSchema`
+`null`:
+
+```ts
+    // A `.theta`-callable call through `tools:` carries no `invoke<Schema>`
+    // annotation, so there is no parse-time return-type site; the runtime AJV
+    // net still applies at the query/typed boundary inside the callee.
+    return this.#buildInvokeChild(theta, calleePath, argValues, ctx, chain, null, parentSignal, callerMode);
+```
+
+and `#validateInvokeReturn` returns immediately on that value:
+
+```ts
+    if (returnSchema === null || !result.ok) {
+      return result;
+    }
+```
+
+So a registered-theta tool call's return reaches the caller with no AJV check and
+no translation pass, while `tool-calls.md:23` gives it the type `Result<T,
+QueryError>` where `T` is the callee's inferred return type. The comment states
+the mechanism accurately; the gap is that the inferred type is never materialised
+as a runtime schema at this site.
+
+### (f) Face 2 — union arms on the `invoke` boundary
+
+Every row uses the real `lowerQueryResponseSchema`, the real `AjvSchemaValidator`
+and the shipped `buildInboundTranslationPlan` + `translateInbound`. Every AJV
+verdict is `{"ok":true}`.
+
+| annotation | payload | lowered (abbrev.) | rebuilt end state |
+| --- | --- | --- | --- |
+| `Sev` | `"high"` | `{"type":"string","enum":[…]}` | enum, `== Sev.High` **`true`** |
+| `Sev \| null` | `"high"` | `{"anyOf":[{"$ref":"#/$defs/Sev"},{"type":"null"}]}` | plain string, `== Sev.High` **`false`** |
+| `Box` | `{"sev":"high"}` | `{"type":"object","properties":{"sev":{"$ref":…}}}` | brand `Box`; `.sev` enum, `== Sev.High` **`true`** |
+| `Box \| null` | `{"sev":"high"}` | `{"anyOf":[{"$ref":"#/$defs/Box"},{"type":"null"}]}` | brand **absent**; `.sev` plain string, **`false`** |
+| `array<Sev>` | `["high"]` | `{"type":"array","items":{"$ref":"#/$defs/Sev"}}` | element enum, `== Sev.High` **`true`** |
+| `array<Sev \| null>` | `["high"]` | `{"type":"array","items":{"anyOf":[…]}}` | element plain string, **`false`** |
+
+The derived plans show why. For `Sev` the root sidecar names the root position:
+`namedEnumPositions [{"pointer":"","enumName":"Sev"}]`. For `Sev | null` the
+reserved root sidecar is empty on all three maps:
+
+```
+rootDef #root  sidecars ["Sev","#root"]
+sidecar[Sev]   {"wireNames":[],"namedEnumPositions":[{"pointer":"","enumName":"Sev"}],"refTargets":[]}
+sidecar[#root] {"wireNames":[],"namedEnumPositions":[],"refTargets":[]}
+```
+
+The `Sev` sidecar exists and is correct; nothing in the lowered fragment says
+that the materialised string is governed by arm 0 rather than arm 1. The same
+emptiness at `array<Sev | null>` (`#root` carries no `/items` entry, where
+`array<Sev>` carries `{"pointer":"/items","enumName":"Sev"}`) is why elements
+lose their tags, and the `Box | null` row shows the loss compounding: the arm is
+not descended into, so the object's own `/properties/sev` position is never
+consulted either.
+
+A separate fact bounding the rename half at this boundary:
+`lowerQueryResponseSchema` emits theta-side property names —
+`schema R { who as "Who": string }` lowers to `properties: {"who": …}`, and a
+`{"Who":"w"}` payload is refused by AJV (`must NOT have additional properties`).
+The derived sidecars therefore carry an empty `wireNames` map by construction,
+which is what 0067's fix recorded when it applied the re-tag and re-brand halves
+only. Face 2 is about the tag and the brand; no rename is available to lose here.
+
+## Expected behaviour
+
+- `docs/spec_topics/runtime-value-model.md:34` (§Wire-name translation, inbound
+  bullet) — the obligation, verbatim in its closing sentence: "The rule applies
+  uniformly to every inbound boundary — typed query results, tool-call return
+  decoding where typed, `invoke` returns, and binder `args` — and is not restated
+  per call site." The same bullet fixes the pass's content: "after AJV validation
+  against the lowered schema, the runtime walks the validated JSON and (a)
+  rebuilds the value with theta-side names using each schema's translation map,
+  and (b) at every position the lowering pass's *Named-enum positions* sidecar
+  ([Schema Subset — Lowering Algorithm](../spec_topics/schema-subset.md#lowering-algorithm)
+  step 5) maps to a declaring-enum name, reattaches that enum's tag to the
+  validated string so the resulting value compares equal to a locally constructed
+  variant of the same enum." The boundary set is closed at four and the rule is
+  stated once; there is no per-boundary carve-out, and the only stated exemption
+  is the `params:`-defaults bypass (`:36`), which names the load-time default
+  path, not any of the four.
+- `docs/spec_topics/runtime-value-model.md:34` (same bullet, the depth clause) —
+  "The walk recurses through arrays, nested object fields, and `Result.Ok` /
+  `Result.Err` payloads; tags are attached at the same depth as the value the
+  schema annotates and are never propagated to enclosing arrays, objects, or
+  `Result` wrappers." The clause enumerates the structural forms the walk
+  traverses. `anyOf` is not among them, and no sentence anywhere states what a
+  union position does — which is the gap face 2 names, not a licence for the
+  current behaviour.
+- `docs/spec_topics/runtime-value-model.md:13` (the enum row of the
+  representation table) — "An enum value carries the variant's wire string plus
+  an interpreter-private tag identifying the declaring enum. Cross-enum equality
+  compares both". `:22` fixes the consequence of an absent tag: a bare string and
+  an enum variant share no common structural ground, so `==` evaluates to `false`
+  and the comparison "loads and runs, it neither fails to parse nor panics at
+  runtime". The measured `false` in §Reproduction (c), (d) and (f) is that rule
+  applied to a value that should have carried the tag.
+- `docs/spec_topics/schema-subset.md:87` (Lowering Algorithm step 5) — "The
+  inbound translation pass in [Runtime Value Model — Wire-name
+  translation](../spec_topics/runtime-value-model.md) reads this map to decide
+  which validated string positions get the declaring-enum tag reattached." The
+  sidecar is specified as a per-`$defs` artefact of the lowering pass, available
+  wherever a lowered document is; §Reproduction (d) shows it derivable from the
+  binder boundary's own already-compiled document.
+- `docs/spec_topics/schema-subset.md:81` (SUBS-1) — "a union with any
+  non-primitive arm MUST lower to `{ "anyOf": [...] }`". A named `enum` arm lowers
+  through `$ref` and is non-primitive, so `Sev | null` is `anyOf` by
+  specification, not by accident, and every named-enum-or-schema union is in the
+  untranslated class.
+- `docs/spec_topics/tool-calls.md:23` — the registered-theta row: "`Result<T,
+  QueryError>` where `T` is the callee's inferred return type … when the callee
+  `.theta` is statically resolvable per [Invocation — Static
+  resolution](../spec_topics/invocation.md#static-resolution), its inferred return
+  type … flows into the call site. Otherwise the runtime AJV check enforces it."
+  This is the "tool-call return decoding where typed" of the inbound bullet's
+  enumeration. At HEAD neither branch happens: no inferred type reaches the site
+  as a schema, and the runtime AJV check does not run there.
+- `docs/reference/type-system.md:153–154` (the reference mirror) — "Applies
+  uniformly to typed query results, typed tool-call returns, `invoke` returns, and
+  binder `args`." The obligation is stated on the surface a theta author reads as
+  well as in the spec topic.
+
+## Actual behaviour / root cause
+
+**1. The rule has no enforcement surface, and the sentence that states it is the
+reason.** "not restated per call site" is a documentation economy: it removes the
+per-boundary prose that would otherwise sit beside each of the four sites. In the
+code there is no counterpart — no shared entry point, no type that a boundary
+must produce, no lint. A boundary satisfies the rule by calling
+`translateInbound`, and three of the four do not. `rg -n "translateInbound" src/`
+returns one call. 0067's §Options anticipated this exactly: "the spec's 'not
+restated per call site' sentence is what makes the omission cheap to repeat — a
+fix should also decide whether `translateInbound` gains a single enforced entry
+point that every inbound boundary is required to route through." That decision
+was not made, and this report is the omission recurring on schedule.
+
+**2. Typed query results: the payload is the value.** `runTypedQueryLoop` treats
+the AJV verdict as a gate and the payload as the product. Its terminal return is
+
+```ts
+  // The respond tool's validated value is the typed query's final result.
+  return {
+    kind: "value",
+    value: forced.payload,
+    rounds,
+    forcedRespond,
+    committed,
+  };
+```
+
+(`src/runtime/query-tool-loop.ts:721–728`.) The respond-repair arm is the same
+shape one layer up: `buildTypedQueryValidation` returns `{ kind: "validated",
+value: turn.payload }` / `value: payload` (`typed-query-validation.ts:276`,
+`:300`) and the loop forwards `repair.value` (`:705`). `runQueryEffect` hands the
+result to the executor with no interposition
+(`effectful-statement-host.ts:232–233`).
+Everything on this path is correct for a value that needed no rebuild; nothing on
+it knows the rebuild exists.
+
+**3. The `.theta`-callable tool-call return never acquires a schema.** The
+classification is right (`#classifyCall` returns `"theta-callable"` when the name
+resolves to a callee path) and the routing is right (an invoke, not a
+string-lowered tool call — FN-5). The loss is at `#resolveCallAsInvoke`, which
+has no annotation to pass and passes `null`. `#validateInvokeReturn` then
+short-circuits on the first line. The spec's typing for this row comes from
+inference over the statically resolved callee, which the parent has already
+parsed (`#driveCallee`'s `parseCallee` hook,
+`production-theta-producer.ts:3270`, over the seam declared at `:469`); nothing
+derives a lowered schema from it at this site.
+
+**4. Binder `args`: a cast where the rule wants a walk.** The merged args are
+AJV-validated against the theta's own lowered `params:` document
+(`fillDefaultsAndRevalidate`, `defaulting.ts:151`) — the exact document a plan
+would be derived from — and then projected:
+
+```ts
+  const bindings = new Map<string, ThetaValue>();
+  for (const [name, value] of Object.entries(args)) {
+    bindings.set(name, value as ThetaValue);
+  }
+```
+
+(`src/extension/theta-composition-producer.ts:93–97`.) The `as ThetaValue` cast
+is where the type system stops asking. A `params:` field declared as a named
+`enum` lowers to a `$ref` and validates as a string; the string is what reaches
+body scope. The child-side marshalled-params intake repeats the shape at
+`production-theta-producer.ts:2145–2151`, so a subagent-root theta binds its own
+params the same way.
+
+**5. Face 2: the pointer keying has no image for `anyOf`.** `rebuildInbound`
+walks a value against one sidecar and a JSON Pointer, descending `/items` for
+array elements (`wire-translation.ts:247`) and `/properties/<field>` for object
+fields (`:298–299`), and consulting `refTargets` to jump into a `$defs` entry
+(`:240`). Those three descents are exactly the lowered forms that have a
+data-space image: an array element IS at `/items`, a field value IS at
+`/properties/<name>`, a `$ref` target IS the whole fragment. A union arm is not:
+`{"anyOf":[A, B]}` describes two alternative schemas for one datum, and the datum
+carries no marker saying which one it satisfied. AJV knows — it evaluated the
+arms — but its verdict is `{"ok": true}` and nothing else. The walk therefore
+arrives at a union position with a sidecar that addresses nothing there, and
+returns the value untouched. That is a deliberate, documented stop
+(`wire-translation.ts:33–41`; `:125–128`;
+`production-theta-producer.ts:3430–3434`), and its cost is measured in
+§Reproduction (f): not only no tag on the arm's own value, but no descent
+beneath it, so a `Box | null` loses its brand and its nested tag together.
+
+**6. Nothing reports any of it.** Every path here ends in a successful AJV
+verdict. There is no diagnostic code for "a boundary bound an untranslated
+value", no runtime event, and no assertion in the default suite that would red.
+The only observable is the comparison the theta author writes, and it evaluates
+`false` silently.
+
+## Why it matters
+
+- **`v == Sev.High` reads `false` where the spec fixes it at `true`, on three
+  production paths, with no diagnostic.** Measured for the typed-query boundary
+  and the binder-`args` boundary over the same schema and payload that read
+  `true` through the boundary 0067 wired (§Reproduction (b), (c), (d)). A theta
+  that matches on a query result or a bound param takes the wrong branch, and
+  every surface — diagnostics, runtime events, the system-note channel — is
+  silent.
+- **The brand loss is not confined to equality.** `schemaTagOf` has two
+  consumers: the QRY-18 outbound render's rename map and the
+  `QuestionOperandDefectError` operand summariser. Both degrade silently on an
+  unbranded value — 0120 measured that independently. A typed query result is
+  unbranded at HEAD, and `docs/examples/handle-error.theta:12` is a committed
+  theta on that path.
+- **The failure mode is asymmetric between two boundaries an author reads as
+  equivalent.** `invoke<Box>(…)` and a `Box`-returning `.theta` callable invoked
+  through `tools:` are the same operation to a theta author — the second is
+  routed through the same invoke trampoline by design (FN-5). One translates, the
+  other does not even validate. Nothing in the source distinguishes them.
+- **The binder boundary is where model output becomes a typed parameter.** A
+  `params:` field declared as a named `enum` is the case the binder exists to
+  handle: the model returns a wire string, the runtime is meant to hand the body a
+  variant. It hands the body a string.
+- **Face 2 makes the tag depend on a type annotation's shape rather than its
+  content.** `invoke<Sev>` returns a tagged variant; `invoke<Sev | null>` returns
+  a bare string for the identical non-null payload. `invoke<Box>` returns a
+  branded object with a tagged field; `invoke<Box | null>` returns neither.
+  Adding `| null` to an annotation — the ordinary way to express an optional
+  result — silently disables the rule for that whole subtree.
+- **The class is the one 0067 was filed and scored on.** 0067's own summary is
+  "`v == Sev.High` is `false` in the parent where the identical value compares
+  `true` in the child". This report measures the same sentence at three more
+  boundaries and inside union arms at the fourth.
+- **Nothing gates it.** No committed `.theta` / `.thetalib` declares a named
+  `enum` at all, so the tag half is unexercised corpus-wide; the committed typed
+  query that would exercise the brand half
+  (`docs/examples/handle-error.theta:12`) is asserted by nothing on that axis;
+  and the default suite's typed-query conformance cells use an anonymous
+  string-literal union, which is specified to receive no tag. The three
+  unperformed boundaries are unwitnessed in the direction that matters.
+- **The spec statement is load-bearing for future boundaries.** "not restated per
+  call site" means a fifth inbound boundary added later inherits the obligation
+  without any prose naming it. With no enforced entry point, it inherits the
+  obligation and no mechanism.
+
+## Fix
+
+Not settled. Face 1 is a wiring decision with four candidate scopes; face 2
+cannot be implemented until a spec rule exists. The run selects a scope, states
+the evidence that decided it, and carries the constraints in (e).
+
+### Face 1 — the three unperformed boundaries
+
+#### (a) Wire all three, with one enforced entry point
+
+Give `translateInbound` a single required entry — a function every inbound
+boundary calls, taking the lowered document, the annotation/root name and the
+validated payload, and returning the theta-side value — and route
+`#validateInvokeReturn`, the typed-query loop, the `.theta`-callable resolver and
+the binder-`args` projection through it. Answers 0067's §Options question in the
+affirmative.
+
+- **The plan derivation already exists at two of the three sites.** The
+  typed-query loop is handed `lowered` (`query-tool-loop.ts:692`) and the binder
+  boundary compiles `params.loweredSchema`
+  (`production-theta-producer.ts:1225`), matching the `invoke` boundary, which
+  lowers the annotation (`:3454`). §Reproduction (d) confirms the derivation on
+  the binder document directly. The `.theta`-callable site has no document at
+  all — next bullet.
+- **The typed-query leg is coupled to 0120.** Wiring it makes an inbound rebuild
+  run over a MODEL-produced payload, which is the exact input 0120's §Reproduction
+  measures as model-ordered and whose disposition 0120's §Fix (a)–(e) leaves
+  undecided. 0120's coordination note reserves that boundary for itself. This
+  route either lands after 0120's decision or makes it.
+- **The `.theta`-callable leg needs a schema that does not exist yet.** The site
+  has no annotation; `tool-calls.md:23` types it by inference over the resolved
+  callee. Producing a lowered document there means deriving the callee's declared
+  final-value shape parent-side — the cost 0067's §Options item 3 priced and
+  declined for its own scope, and the reason that boundary is the most expensive
+  of the three.
+- **`rebuildInbound` must be hardened first —
+  [0173](./0173-inbound-rebuild-record-not-null-prototyped.md).** 0067's residual
+  3, now its own report: the record build uses plain assignment, so a payload key
+  spelled `__proto__` reassigns the record's prototype and is dropped rather than
+  becoming an own key (`Object.prototype` is NOT polluted; measured by that fix).
+  It is unreachable on the `invoke` boundary — a declared field of that name never
+  reaches the lowered `properties`, `additionalProperties: false` refuses the key,
+  and neither a theta constructor nor a `JSON.stringify` envelope can produce it —
+  and it becomes reachable the moment a **model**-produced payload boundary is
+  wired, which all three legs here are. 0173 lands first, or a route here lands
+  0173's change with its own.
+
+#### (b) Wire the boundaries separately, one report-sized change each
+
+Land the binder-`args` leg, the typed-query leg and the `.theta`-callable leg as
+three changes.
+
+- **They have genuinely different costs.** Binder `args` needs no new lowering —
+  the document is compiled two lines earlier — and couples only to
+  [0173](./0173-inbound-rebuild-record-not-null-prototyped.md), which every leg
+  couples to. Typed query needs 0120 settled as well. `.theta`-callable needs a
+  return-shape derivation that does not exist. Bundling them prices the cheapest
+  at the cost of the dearest.
+- **It leaves the rule partly unperformed for longer**, and — without (d) —
+  leaves no mechanism preventing the next boundary from repeating the omission.
+- **Each leg still needs its own witness.** The three boundaries share no test
+  harness: the binder leg drives `runBinder` / `fillDefaultsAndRevalidate`, the
+  typed-query leg drives `runTypedQueryLoop` with a scripted `QueryModelDriver`,
+  the `.theta`-callable leg drives the invoke trampoline. Splitting does not
+  duplicate witness work; it distributes it.
+
+#### (c) Wire only where the boundary already holds a lowered document
+
+Restrict to the typed-query and binder-`args` legs; leave the `.theta`-callable
+return to a separate report, since its defect is the absent schema, not the absent
+walk.
+
+- **It matches the actual root causes.** Two boundaries have a document and skip
+  the walk; the third has no document at all. §Reproduction (e)'s mechanism
+  differs from §Reproduction (c)'s and (d)'s, and is arguably a different report.
+- **It leaves a spec sentence unsatisfied and says so.** `tool-calls.md:23`'s
+  inferred `T` would remain unenforced, which is a claim about validation as well
+  as translation. A route taking this scope states that explicitly rather than
+  letting the enumeration quietly shrink to three.
+
+#### (d) The enforced entry point, with or without the wiring
+
+Decide separately whether `translateInbound` gains a single required entry point.
+0067's §Options poses it; nothing has answered it.
+
+- **The failure it prevents is measured, twice.** 0067 was one boundary omitting
+  the call; this report is three more. A shape that makes an inbound boundary
+  unable to produce a bound value without routing through the pass converts a
+  convention into a compile-time or test-time obligation.
+- **It has a cost the run must price.** Every boundary's payload arrives with a
+  different provenance (envelope `JSON.parse`, respond-tool arguments, merged
+  binder args, marshalled child params) and a different failure disposition, so a
+  common entry point either takes a wide input or forces each caller to normalise.
+  Deciding the signature IS the work; the wiring is small once it exists.
+- **Landing it with (a) or without it is itself the question.** An entry point
+  introduced with no second caller is scaffolding; introduced after all four
+  callers exist it is a refactor of working code. The run states which and why.
+
+### Face 2 — union (`anyOf`) arms
+
+**No code route exists until a rule is written.** The sidecar keys positions by
+JSON Pointer into the lowered fragment; `anyOf` has no data-space image, so there
+is no pointer to key and no fact in the lowered document identifying the governing
+arm. Any implementation must first answer: *given a value that AJV admitted
+against `{"anyOf":[A, B]}`, which arm's translation applies?* Candidate rules,
+each of which is a spec edit before it is a code change:
+
+1. **First matching arm, evaluated theta-side.** Re-test the value against each
+   arm in source order and translate under the first that admits it. Deterministic
+   (SUBS-1 fixes arm order at source order) but duplicates AJV's work and makes
+   the translation depend on an evaluation the spec does not currently describe.
+   Pathological where two arms both admit — `Sev | "high"` — which the rule must
+   then adjudicate explicitly.
+2. **Unique-admitting-arm only, no translation when ambiguous.** Translate when
+   exactly one arm admits the value; leave it untouched otherwise. Narrower and
+   states its own limit, but makes the tag's presence depend on the shapes of
+   sibling arms, which is the behaviour face 2 currently names as the defect.
+3. **Discriminator-driven, reusing step 6.**
+   `docs/spec_topics/schema-subset.md:88` already runs discriminator detection
+   over the lowered `anyOf` form. Extend the sidecar to carry the detected
+   discriminator and dispatch on it. Principled for discriminated object unions;
+   silent for `T | null` and for `string | Author`, which carry no discriminator —
+   so it closes part of the class and must say which part.
+4. **Emit arm-indexed pointers into the sidecar.** Key positions as
+   `/anyOf/0/properties/sev` and have the walk resolve the index at runtime. Moves
+   the problem rather than solving it: the runtime still has to decide the index.
+5. **Decline, and state the limit normatively.** Add a sentence to
+   `runtime-value-model.md`'s inbound bullet fixing that a value inside a union arm
+   receives no tag, no brand and no descent — making today's behaviour specified
+   rather than unaddressed. Cheapest, and the honest floor if none of 1–4 is
+   chosen; it changes the language's guarantees, so it is a decision, not a
+   no-op.
+
+Constraints on face 2 whichever rule is chosen:
+
+- **The rule lands in the spec first.** `runtime-value-model.md:34`'s inbound
+  bullet is where the pass's positions are enumerated, and
+  `schema-subset.md:87` is where the sidecar's maps are fixed; a dispatch rule
+  touches one or both. No code lands ahead of that sentence.
+- **The three amended code comments move with it.**
+  `src/runtime/wire-translation.ts:33–41`, `:125–128` and
+  `src/extension/production-theta-producer.ts:3430–3434` currently state the
+  reach limit accurately. They stop being accurate the moment the reach changes,
+  and they are the reason the code claims no coverage it lacks today.
+- **`tests/wire-translation-inbound-retag.test.ts:200` is a live constraint.**
+  That cell pins that a value at a plan-undescribed position keeps a brand it
+  arrived with — "a rebuild there could only subtract". A route that starts
+  descending into union arms must show it still cannot subtract, or renegotiate
+  that cell with its rationale.
+- **The anonymous-union rule is untouched.** `Severity.Low == "low"` stays
+  `false` (`runtime-value-model.md:22`, `:34`), pinned by 0067's `anon` control
+  cell (`tests/subagent-invoke-inbound-enum-tag.test.ts:311–316`). Face 2 is
+  about a NAMED enum or schema sitting in a union arm, not about anonymous
+  string-literal unions.
+
+### (e) Constraints every route carries
+
+1. **Ordering after AJV, never before.** `runtime-value-model.md:34` fixes the
+   pass "after AJV validation against the lowered schema". Each new call site
+   places it after that boundary's existing verdict and before the value binds —
+   for the typed-query loop that is after `schemaValidation.validate`
+   (`query-tool-loop.ts:693`) and after the respond-repair arm's own
+   re-validation; for the binder that is after `fillDefaultsAndRevalidate`
+   returns an `ok` classification.
+2. **Re-tag and re-brand only where the wire-name map is empty.** The invoke
+   boundary's derived sidecars carry an empty `wireNames` map because
+   `lowerQueryResponseSchema` emits theta-side property names (§Reproduction (f),
+   last paragraph), which is why 0067 applied only two of the three halves. Each
+   new boundary re-measures its own document before assuming the same: a boundary
+   whose lowered document DOES carry wire names needs the rename half, and
+   applying a rename to an already-theta-side key corrupts it.
+3. **0120's two open questions are not decided in passing.** Reordering into
+   declaration order and the choice between `brandSchemaValue` and
+   `buildObjectSchemaValue` are 0120's §Fix (a)–(e). 0067 called
+   `brandSchemaValue` directly with its rationale at the call site precisely to
+   avoid deciding them. Any route here that reaches the same code states which
+   posture it takes and why.
+4. **`rebuildInbound`'s record build is hardened before any model-produced
+   payload boundary is wired.**
+   [0173](./0173-inbound-rebuild-record-not-null-prototyped.md); see (a). All
+   three legs here are model-produced payload boundaries, so this constraint
+   binds every face-1 route without exception.
+5. **The `params:` defaults bypass and the `Result` pass-through stay as they
+   are.** `runtime-value-model.md:36` exempts frontmatter defaults, and
+   `Result` is not a lowerable type form (`schema-subset.md`, step 3), so
+   `translateInbound` passes a `Result` through by identity
+   (`wire-translation.ts:249`, `rebuildInbound`'s `isResultValue` arm; pinned by
+   `tests/wire-translation-inbound-retag.test.ts:256`). Neither is in scope.
+6. **Test witness — unit, offline, provider-free, plus the live legs.** Each
+   wired boundary gets a cell of the §Reproduction shape: real lowering, real
+   AJV, the boundary's real driver, asserting the end state (`schemaTagOf` and
+   `valuesEqual` against a locally constructed variant) rather than the JSON
+   projection, which is identical either way. The binder leg reuses the
+   `tests/defaulting-post-merge-classification.test.ts` harness; the typed-query
+   leg reuses `tests/e2e-s3-typed-query-conformance.test.ts`'s scripted
+   `QueryModelDriver` (`:84–95`). Each new assertion is proved both directions once — red
+   with the translation call neutralised, green with it restored — per the
+   repo's live-suite convention applied to the offline gate.
+7. **GOV-15 observable (a) is what moves.** No route here refuses an input that
+   loads today, so the loads-cleanly predicate
+   (`docs/spec_topics/governance/source-language-stability.md:9`) is unchanged.
+   What changes is the VALUE a boundary binds: a theta whose body compares a
+   query result or a bound param against an enum variant flips from `false` to
+   `true`, and `schemaTagOf` starts resolving where it did not. GOV-15
+   (`:5`) promises identical return values across 1.x for a file that loads
+   cleanly, so the fix is a deliberate departure from the observed 1.x behaviour
+   toward the behaviour `runtime-value-model.md:34` specifies — a tension the run
+   records rather than one GOV-15 blesses. The route enumerates the affected
+   spellings (named-enum-typed and schema-typed positions at each wired boundary)
+   in the fix record rather than leaving them to be discovered; the corpus census
+   in §Affected found no committed fixture in the set.
+
+## Non-goals
+
+- **Whether an untyped `invoke(...)` should discard the callee's value.**
+  `docs/spec_topics/invocation.md:28` (§Typed return) fixes that it does: "Untyped
+  `invoke(...)` returns `Result<null, QueryError>` — the runtime discards the
+  child's return value entirely." There is therefore no value at that boundary to
+  translate, and the form is outside this report's domain. The design question was
+  considered and declined at 0067; it is not reopened here.
+- **What the inbound rebuild produces once it runs.** Declaration-order `keys()`
+  and the brand-installation route are
+  [0120](./0120-inbound-rebuild-ignores-declaration-order-and-brand.md)'s
+  unsettled §Fix. This report measures only whether the rebuild runs, and (e)(3)
+  records the boundary so no route decides 0120's questions by implementation.
+- **Anonymous string-literal-union positions.** They are absent from the
+  named-enum sidecar by specification (`runtime-value-model.md:34`;
+  `schema-subset.md:87`) and receive no tag; `Severity.Low == "low"` stays
+  `false`. Face 2 concerns a NAMED enum or schema inside a union arm.
+- **`Result` values crossing the pass.** Not a lowerable type form, passed
+  through by identity, pinned by
+  `tests/wire-translation-inbound-retag.test.ts:256`.
+- **Frontmatter `params:` defaults.** They bypass the inbound pass by
+  specification (`runtime-value-model.md:36`) and arrive already branded and
+  theta-side-named. §Reproduction (d)'s fixture declares no defaults for that
+  reason.
+- **The outbound direction.** `translateOutbound` has its own single production
+  caller (`src/render/query-render.ts:423`) and its own coverage question; this
+  report does not measure it.
+- **The `__proto__` record-build hardening.**
+  [0173](./0173-inbound-rebuild-record-not-null-prototyped.md) owns it, with its
+  own settled §Fix. It is carried here only as a precondition of wiring a
+  model-produced payload boundary ((a), (e)(4)); this report proposes no change
+  to `rebuildInbound`'s record construction.
+- **`tests/wire-name-translation.test.ts:24`'s stale "inert identity stubs"
+  comment.** Correct when written, false since 0067. Bug
+  [0134](./0134-params-shift-induced-stale-citations.md)'s class, recorded here
+  so a route does not treat it as evidence of the current state.
+
+## Provenance
+
+Filed as a residual of the bug 0067 fix (0.90.0, commit `e18b30e5`). The source
+is that fix's report, `.pi/tmp/fixes/0067-report.md`, which records both faces
+and directs that they be filed as ONE bug: R1 ("union (`anyOf`) positions are not
+translated — *file as ONE bug with R2*") and R2 ("the enforced entry point +
+three unperformed inbound boundaries"). The same two items appear in the shipped
+bug doc as `## Fix (0.90.0)` *Residuals* 1 and 2. The same report's R3 is filed
+separately as [0173](./0173-inbound-rebuild-record-not-null-prototyped.md) and is
+cited here as a prerequisite, not restated. The report's own instruction that the
+"should untyped invoke discard?" design question was declined by the operator is
+honoured: it appears above only as a bounding fact citing `invocation.md:28`.
+
+**Re-verified at HEAD `e18b30e5` for this filing, not copied.** The residual
+records were treated as claims to check, not as facts to restate. What I checked
+and what I found:
+
+- **The census.** `rg -n "translateInbound" src/` returns four lines — definition
+  (`wire-translation.ts:130`), import and call
+  (`production-theta-producer.ts:225`, `:3472`), one prose mention
+  (`wire-translation.ts:31`). The residual's "only production caller is
+  `#validateInvokeReturn`" holds; I confirmed the call sits inside the method
+  declared at `:3436`.
+- **The typed-query boundary.** 0120 cites it at
+  `src/runtime/query-tool-loop.ts:721–728`. That citation is still exact at this
+  HEAD: `:721` is the comment, `:724` is `value: forced.payload,`, `:728` closes
+  the object. It has not drifted since 0120 was written, so no correction to that
+  report is owed. I also traced the two upstream `validated` returns
+  (`typed-query-validation.ts:276`, `:300`) and the repair arm
+  (`query-tool-loop.ts:705`), which the residual does not mention.
+- **The `.theta`-callable boundary.** The residual names it as unperformed. The
+  mechanism is more specific than "no translation": `#resolveCallAsInvoke`
+  (`production-theta-producer.ts:3149`) passes `returnSchema` `null` (`:3164`),
+  so `#validateInvokeReturn` returns at `:3442–3443` before AJV as well as
+  before the pass. Read from source; recorded as element 3 and §Reproduction (e).
+- **The binder-`args` boundary.** Traced to `paramBindingsFrom`'s cast
+  (`theta-composition-producer.ts:97`) and driven at the seam: the lowered
+  `params:` document, the real `AjvSchemaValidator`, and the real
+  `fillDefaultsAndRevalidate` produce `{"sev":"high","note":"n"}` with
+  classification `ok` and an untagged `sev`, while
+  `buildInboundTranslationPlan` over that same document names
+  `/properties/sev` as a `Sev` position. `paramBindingsFrom` is
+  module-private, so its cast is read from source, not called; its input is the
+  measured `merged.args`.
+- **Face 2.** The residual's three measured values reproduce exactly: `Sev|null`
+  lowers to `{"anyOf":[{"$ref":"#/$defs/Sev"},{"type":"null"}]}`, the AJV verdict
+  is `{"ok":true}`, and `rebuilt == Sev.High` is `false`. Three additional rows
+  are new to this filing and widen the recorded reach loss: `Box | null` arrives
+  unbranded with its nested `sev` untagged (a union arm stops the descent, not
+  only the tag), `array<Sev | null>` arrives with untagged elements where
+  `array<Sev>` has tagged ones, and the `invoke<Box>` control confirms the
+  branded/tagged end state on the wired boundary.
+- **The three amended comments.** Present and accurate at
+  `src/runtime/wire-translation.ts:33–41`, `:125–128`, and
+  `src/extension/production-theta-producer.ts:3430–3434`.
+- **The 0120 coordination note.** Present at
+  `docs/bugs/0120-…md:992`, appended by 0067's fix, and it reserves the
+  typed-query boundary to itself — the sentence this report's ordering clause
+  rests on.
+- **Spec citations.** `runtime-value-model.md:34` carries the four-boundary
+  sentence verbatim as quoted; `:32`, `:35`, `:36`, `:13`, `:22` read as cited.
+  `schema-subset.md:81` (SUBS-1), `:87` (step 5, "three maps" — amended by 0067's
+  fix), `:88` (step 6) read as cited. `tool-calls.md:23` carries the
+  registered-theta row. `invocation.md:28` carries §Typed return.
+  `docs/reference/type-system.md:145`, `:153–154` carry the mirror. Every line
+  number above was read at `e18b30e5`; volatile positions are named by symbol
+  beside their line per bug 0134's adjudication.
+
+**Method.** One scratch vitest file, offline and provider-free, over the shipped
+seams named in §Observed at; written, run, and deleted. Every table value and
+every quoted JSON fragment in §Reproduction is that run's output verbatim. The
+corpus census was re-run over `git ls-files` (34 `.theta` / `.thetalib`; 17 with
+`params:`; zero declaring a named `enum`; zero declaring an `as` rename; two
+typed queries). The committed-cell inventory in §Affected was grepped over
+`tests/` at the same HEAD. Two facts are read from source rather than exercised
+and are marked as such in the text: `paramBindingsFrom`'s cast and
+`#resolveCallAsInvoke`'s `null` argument, both module-private.
