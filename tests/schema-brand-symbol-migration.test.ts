@@ -561,7 +561,7 @@ describe("bug 0026 (b) — the ctor delivers every declared field (production ex
 // ===========================================================================
 // (c) PROVENANCE-TWIN EQUALITY — a ctor-built value and the wire-provenance
 // value of the same schema are structurally identical, so `==` is true in both
-// argument orders. `rebuildInbound` (wire-translation.ts:129) rebuilds plain
+// argument orders. `rebuildInbound` (wire-translation.ts) rebuilds plain
 // enumerable objects, and the QRY-22 lowering marks the field required and the
 // schema closed, so the twin is exactly what a validated response binds.
 // ===========================================================================

@@ -93,7 +93,16 @@ Citations below name symbols, not lines.
 
 **The two sites are UNIFIED, not kept in parallel.** No ordering or branding
 decision remains at either call site, and `brandSchemaValue`'s only production
-callers are now the two branded arms inside `buildObjectSchemaValue`. The
+callers are now the two branded arms inside `buildObjectSchemaValue`.
+(Superseded in 0.90.0: [0067](./0067-subagent-envelope-drops-enum-tag.md) added a
+third production caller, `rebuildUnder` in `src/runtime/wire-translation.ts`,
+which brands a value rebuilt at the inbound `invoke`-return boundary. It calls
+`brandSchemaValue` directly rather than through `buildObjectSchemaValue` because
+that function's contract reorders into declaration order as well as branding,
+and whether an inbound value is reordered is
+[0120](./0120-inbound-rebuild-ignores-declaration-order-and-brand.md)'s open
+question. The two construction-point call sites this section is about are
+unaffected, and the ordering guarantee below is unchanged.) The
 witness pins both sites regardless, and the neutralisations prove the pin:
 breaking site 1 alone reds eight cells and leaves cell L green; breaking site 2
 alone reds **cell L alone**. Cell L is the only cell reaching

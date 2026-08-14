@@ -988,3 +988,46 @@ pin that a payload naming `__thetaSchema` still recovers no tag — bug 0020's
   child process, no ambient state touched. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug document are unmodified by this
   filing.
+
+## Coordination note — bug 0067 (0.90.0): the brand half has landed
+
+Appended by [0067](./0067-subagent-envelope-drops-enum-tag.md)'s fix. This
+report's status and route are unchanged; nothing above is retracted.
+
+§Fix (f) made the ordering bidirectional: "either this fix lands first, or
+0067's fix lands both halves". 0067 took the second horn and shipped in 0.90.0.
+What that leaves for this report:
+
+- **The brand half is discharged for the subagent-`invoke` boundary.** A value
+  the inbound walk rebuilds under a `$defs` entry naming a declared `schema` is
+  now branded, so `schemaTagOf` recovers it and both of its consumers — the
+  QRY-18 outbound render's rename map and the `QuestionOperandDefectError`
+  operand summary — behave as they do for a constructor-built value.
+- **The order half is untouched here, and is vacuous on that one boundary.**
+  Measured while settling 0067's route: this boundary's producer is a theta
+  child, so its object was built by `buildObjectSchemaValue`, which bug 0080
+  made reorder into declaration order before branding; `JSON.stringify` of it,
+  and therefore the parent's `JSON.parse`, is already declaration-ordered. The
+  observed envelope for `schema P { sev: Sev, who as "Who": string }` is
+  `{"sev":"high","who":"w"}` — `P`'s declaration order. §Reproduction's
+  model-ordered hazard bites at the typed-QUERY boundary, which 0067 did not
+  wire, so it remains this report's to settle.
+- **The brand install does NOT go through `buildObjectSchemaValue`.** §Fix (f)'s
+  constraint asks a route that declines the shared construction point to say
+  why, and the reason is this report's own open question: that function's
+  contract reorders into declaration order *and* brands, so routing through it
+  would have decided §Fix (a) by implementation. `brandSchemaValue` is called
+  directly instead, from `rebuildUnder` in `src/runtime/wire-translation.ts`,
+  with that rationale stated at the call site. It is a third production caller
+  of `brandSchemaValue`; the other two remain the branded arms inside
+  `buildObjectSchemaValue`.
+- **Reordering is still absent from the walk**, so §Fix (a)–(e) are undecided
+  exactly as written, and the three sibling inbound boundaries §Fix (f) names
+  remain unwired.
+
+One citation note: §Fix (a1) and §Provenance quote
+`docs/spec_topics/schema-subset.md`'s step 5 as fixing the sidecar at "two
+maps". 0067's fix amended that step in place — it now reads "three maps", the
+third being a per-position `$ref` target — and the file remains 118 lines, so
+the `:87` locant still resolves. The mirror `docs/reference/schema-subset.md`
+grew by four lines, so the `:184–187` locant now points four lines high.

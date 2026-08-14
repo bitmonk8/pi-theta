@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.90.0] - 2026-08-13
+
+### Fixed
+
+- **bug 0067 — a `mode: subagent` callee's enum variant lost its declaring-enum
+  tag crossing the PIC-59 envelope, so `v == Sev.High` read `false` in the
+  parent where the identical value compared `true` in the child.** The inbound
+  translation pass of `runtime-value-model.md` §"Wire-name translation" — which
+  that section names for `invoke` returns and states once for every inbound
+  boundary — is now applied in `#validateInvokeReturn`, after AJV, for the typed
+  `invoke<Schema>` form. A named-enum value regains its tag at the annotated
+  root, at a schema field, and at an array element; an object of a declared
+  schema regains its `SCHEMA_TAG` brand. The untyped `invoke(...)` form is out
+  of domain: it returns `Result<null, QueryError>` and discards the callee's
+  value by specification, so it carries nothing to translate. The pass re-tags
+  and re-brands but never renames — the envelope is `JSON.stringify` of the
+  callee's theta-side value, which is keyed by theta-side names regardless of
+  any `as` renames the schema declares.
+
+### Changed
+
+- **`schema-subset.md` §"Lowering Algorithm" step 5: the per-schema sidecar
+  carries three maps, not two.** The new one records, per position and on the
+  same JSON-Pointer keying as the named-enum map, the `$defs` name that
+  position's lowered form references. A `$ref` names the fragment it points to
+  rather than the field carrying it — a field `manager: Person` references
+  `$defs` `Person`, not `$defs` `manager` — so an inbound consumer cannot
+  recurse faithfully by matching a position's name against a `$defs` key.
+  Mirrored in `docs/reference/schema-subset.md`.
+
 ## [0.89.0] - 2026-08-13
 
 ### Added

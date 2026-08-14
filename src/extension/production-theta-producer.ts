@@ -221,6 +221,8 @@ import type {
 import { parseExpressionSource } from "../parser/theta-document";
 import { renderSystemPrompt } from "../parser/system-interpolation";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
+import { buildInboundTranslationPlan } from "../parser/schema-lowering";
+import { translateInbound } from "../runtime/wire-translation";
 import type { CompiledValidator, LoweredSchema } from "../seams/schema-validator";
 import { parseToolsEntry, type ResolvedCallable } from "../parser/callable-set";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
@@ -3413,6 +3415,23 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * child's `Ok` payload. An untyped invoke (`returnSchema === null`) or an
    * `Err` result passes through unchanged; a validation failure is surfaced as
    * `Err(InvokeInfraError{cause:"return_validation"})`.
+   *
+   * On success the payload also runs through the inbound translation pass
+   * runtime-value-model.md §"Wire-name translation" names for `invoke` returns,
+   * ordered — as that section fixes — after AJV validation. Both call sites in
+   * `#driveCallee` (the prompt→prompt attach cell and the subagent spawn cell)
+   * route through this one method, so a callee's `mode:` frontmatter cannot
+   * change the caller's equality semantics. The subagent envelope is
+   * `JSON.stringify` of the callee's own theta-side value, not a lowered-schema
+   * encoding, so the derived sidecars carry an empty wire-name map and this
+   * pass only re-tags named-enum positions and re-brands schema-typed objects —
+   * renaming here would corrupt an already-correct key.
+   *
+   * The pass reaches the positions the derived sidecars key by JSON Pointer:
+   * named-enum positions, `$ref` targets, array elements, and the annotated
+   * root. A `{"anyOf":[…]}` arm carries no position a sidecar can key, so a
+   * value inside one is handed to the caller exactly as AJV validated it —
+   * untagged, unbranded, and not descended into.
    */
   #validateInvokeReturn(
     theta: ConversationBindInput["theta"],
@@ -3443,7 +3462,20 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const validator = this.#input.root.schemaValidator.compile(lowered);
     const verdict = validator.validate(result.value as unknown);
     if (verdict.ok) {
-      return result;
+      const plan = buildInboundTranslationPlan({
+        lowered: lowered as Record<string, unknown>,
+        annotation: returnSchema,
+        schemaNames: new Set(schemaDeclsOf(theta.body).map((decl) => decl.name)),
+        enumNames: new Set(enumDeclsOf(theta.body).map((decl) => decl.name)),
+      });
+      return makeOk(
+        translateInbound({
+          validated: result.value as unknown,
+          sidecars: plan.sidecars,
+          rootDef: plan.rootDef,
+          schemaNames: plan.schemaNames,
+        }),
+      );
     }
     const error: InvokeInfraError = {
       kind: "invoke_infra",

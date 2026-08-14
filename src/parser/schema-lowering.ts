@@ -12,9 +12,13 @@
 //     over the keys-sorted, whitespace-free, binder-number-rendered canonical
 //     form of the lowered fragment; the schema slug is the first 16 hex
 //     characters of the digest (lowercased).
-//   - Lowering Algorithm step 5 (per-schema sidecar): a two-map sidecar — a
-//     wire-name translation map and a named-enum-position map keyed by JSON
-//     Pointer into the lowered fragment.
+//   - Lowering Algorithm step 5 (per-schema sidecar): a three-map sidecar — a
+//     wire-name translation map, a named-enum-position map keyed by JSON
+//     Pointer into the lowered fragment, and a per-position `$ref`-target map
+//     on the same JSON-Pointer keying, naming the `$defs` entry a `$ref`
+//     position resolves to (a field `manager: Person` names `$defs` `Person`,
+//     not `$defs` `manager`, so a consumer cannot recover the target from the
+//     field's own name).
 //   - The `__inline_<slug>` `$defs` dedup of Lowering Algorithm step 2 under the
 //     §Schema-slug collision posture byte-equality check: byte-identical
 //     fragments sharing a slug dedup silently; a slug match whose fragments are
@@ -207,6 +211,21 @@ export type SidecarFieldType =
   | { readonly kind: "anonymous-string-literal-union" }
   | { readonly kind: "other" };
 
+/**
+ * One position nested inside an `array<T>` field: the element type's own
+ * classification, plus its own nested element for `array<array<T>>`. An
+ * element position carries no field name of its own — the sidecar addresses
+ * it by appending `/items` to the enclosing position's pointer, once per
+ * level of nesting.
+ */
+export interface SidecarElementInput {
+  readonly type: SidecarFieldType;
+  /** The `$defs` name this element's lowered position references, when it is a `$ref`. */
+  readonly refTarget?: string;
+  /** The element of a nested `array<array<T>>` position. */
+  readonly element?: SidecarElementInput;
+}
+
 /** One field of a `$defs` entry, with its JSON Pointer into the lowered fragment. */
 export interface SidecarFieldInput {
   readonly thetaName: string;
@@ -215,6 +234,16 @@ export interface SidecarFieldInput {
   /** JSON Pointer into the lowered fragment naming this field's position. */
   readonly pointer: string;
   readonly type: SidecarFieldType;
+  /**
+   * The `$defs` name this field's lowered position references, when that
+   * position is a `$ref`. Recorded per position rather than inferred from the
+   * field name: `manager: Person` references `$defs` `Person`, so a consumer
+   * recursing by matching the field's own name against `$defs` keys resolves
+   * only the coincidence where the two happen to agree.
+   */
+  readonly refTarget?: string;
+  /** This field's element position, when the field's type is `array<T>`. */
+  readonly element?: SidecarElementInput;
 }
 
 /** A wire-name translation entry: the theta-side name and its wire name. */
@@ -229,36 +258,286 @@ export interface NamedEnumPosition {
   readonly enumName: string;
 }
 
-/** The two-map per-schema sidecar (Lowering Algorithm step 5). */
+/**
+ * A `$ref` target position: a JSON Pointer (on the same keying as the other
+ * two maps) paired with the `$defs` name its lowered position references.
+ */
+export interface SidecarRefTarget {
+  readonly pointer: string;
+  readonly defName: string;
+}
+
+/** The three-map per-schema sidecar (Lowering Algorithm step 5). */
 export interface SchemaSidecar {
   readonly wireNames: readonly WireNameEntry[];
   readonly namedEnumPositions: readonly NamedEnumPosition[];
+  /**
+   * Per-position `$ref` targets. Optional so a sidecar that omits the map
+   * still satisfies the interface; a consumer that finds no map here falls
+   * back to matching a position's wire name against a `$defs` key — faithful
+   * only where the two happen to agree.
+   */
+  readonly refTargets?: readonly SidecarRefTarget[];
 }
 
 /**
  * Build the per-schema sidecar: a wire-name translation map (one entry per
- * renamed field) and a named-enum-position map keyed by JSON Pointer (one entry
- * per named-`enum` position; anonymous string-literal-union positions absent).
+ * renamed field), a named-enum-position map keyed by JSON Pointer (one entry
+ * per named-`enum` position; anonymous string-literal-union positions absent),
+ * and a `$ref`-target map on the same pointer keying (one entry per position
+ * whose lowered form is a `$ref`). An `array<T>` field's element position is
+ * addressed by appending `/items` to the field's own pointer, once per level
+ * of `array<array<T>>` nesting, so an element can carry its own named-enum tag
+ * or `$ref` target exactly as a field can.
  */
 export function buildSidecar(fields: readonly SidecarFieldInput[]): SchemaSidecar {
   const wireNames: WireNameEntry[] = [];
   const namedEnumPositions: NamedEnumPosition[] = [];
+  const refTargets: SidecarRefTarget[] = [];
+  const record = (
+    pointer: string,
+    type: SidecarFieldType,
+    refTarget: string | undefined,
+  ): void => {
+    // Named-enum positions: included iff the source type was a named `enum`;
+    // anonymous string-literal-union positions are deliberately absent.
+    if (type.kind === "named-enum") {
+      namedEnumPositions.push({ pointer, enumName: type.enumName });
+    }
+    if (refTarget !== undefined) {
+      refTargets.push({ pointer, defName: refTarget });
+    }
+  };
   for (const field of fields) {
     // Wire-name translation: one entry per *renamed* field; un-renamed fields
     // (wire name equals theta name) are absent.
     if (field.wireName !== undefined && field.wireName !== field.thetaName) {
       wireNames.push({ theta: field.thetaName, wire: field.wireName });
     }
-    // Named-enum positions: included iff the source type was a named `enum`;
-    // anonymous string-literal-union positions are deliberately absent.
-    if (field.type.kind === "named-enum") {
-      namedEnumPositions.push({
-        pointer: field.pointer,
-        enumName: field.type.enumName,
-      });
+    record(field.pointer, field.type, field.refTarget);
+    let element = field.element;
+    let elementPointer = field.pointer;
+    while (element !== undefined) {
+      elementPointer = `${elementPointer}/items`;
+      record(elementPointer, element.type, element.refTarget);
+      element = element.element;
     }
   }
-  return { wireNames, namedEnumPositions };
+  return { wireNames, namedEnumPositions, refTargets };
+}
+
+// --- Inbound translation plan (runtime-value-model.md §Wire-name translation) -
+
+/**
+ * The per-`$defs` sidecars an inbound boundary needs to translate a validated
+ * value, the `$defs` name the validated value itself conforms to, and the
+ * subset of `$defs` names that are declared theta-side `schema` names — the
+ * only names a rebuilt object may be branded with, so a caller cannot brand a
+ * `#root` position or a minted `__inline_<slug>` entry as if either were an
+ * author-declared schema.
+ */
+export interface InboundTranslationPlan {
+  readonly sidecars: ReadonlyMap<string, SchemaSidecar>;
+  readonly rootDef: string;
+  readonly schemaNames: ReadonlySet<string>;
+}
+
+/**
+ * The reserved `$defs` key an inbound plan registers the lowered document's
+ * OWN root fragment under, when the annotation is not a bare declared name
+ * (e.g. `array<Sev>`, an inline `{…}` annotation). `#` falls outside the
+ * identifier alphabet (lexical.md's `[A-Za-z_][A-Za-z0-9_]*`), so this key can
+ * never equal a declared `schema` / `enum` name or a minted `__inline_<slug>`
+ * entry.
+ */
+const ROOT_DEF_KEY = "#root";
+
+/** An identifier-shaped annotation names a declared `schema` or `enum` directly. */
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** A `$ref` naming a document-root `$defs` entry — the only `$ref` form lowering emits. */
+const DEFS_REF = /^#\/\$defs\/(.+)$/;
+
+/** Whether `value` is a plain (non-array, non-null) JS object. */
+function isFragment(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Whether a lowered fragment is the enum / string-literal-union form (step 3, `enum`). */
+function isEnumFragment(fragment: Record<string, unknown>): boolean {
+  return fragment["type"] === "string" && Array.isArray(fragment["enum"]);
+}
+
+/** Whether a lowered fragment is the object form (step 3, `Object`), carrying `properties`. */
+function isObjectFragment(fragment: Record<string, unknown>): boolean {
+  return fragment["type"] === "object" && isFragment(fragment["properties"]);
+}
+
+/** The classification of one lowered position — the shape a field and an array element share. */
+interface PositionClass {
+  readonly type: SidecarFieldType;
+  readonly refTarget?: string;
+  readonly element?: SidecarElementInput;
+}
+
+/** The lowered document and declaration names an inbound plan is derived against. */
+export interface InboundTranslationPlanInput {
+  /** The lowered schema document the validated value was checked against. */
+  readonly lowered: Record<string, unknown>;
+  /** The verbatim annotation source `lowered` was produced from. */
+  readonly annotation: string;
+  /** The caller's declared `schema` names — the only names a rebuilt object may be branded with. */
+  readonly schemaNames: ReadonlySet<string>;
+  /**
+   * The caller's declared `enum` names. A string position is tagged only when
+   * its lowered fragment belongs to one of these: a `schema S = "a" | "b"`
+   * alias lowers to the identical `{ "type": "string", "enum": […] }` shape as
+   * an `enum` declaration, and step 5 admits a position "iff its source type
+   * was a named `enum` declaration" — an alias is a `schema`, not an `enum`.
+   */
+  readonly enumNames: ReadonlySet<string>;
+}
+
+/**
+ * Derive the inbound translation plan for a lowered schema document: one
+ * sidecar per `$defs` entry that carries an object or enum body, plus one for
+ * the document root (the annotation's own top-level fragment, which a named
+ * arm returns directly rather than as a `$ref`).
+ *
+ * The plan is derived from the LOWERED document rather than carried alongside
+ * it by the lowering pass, because the object-form lowering this seam's
+ * callers use (`lowerObjectFields`, via `LowerableField`) has no `as "Wire"`
+ * rename to lower with — a field's `properties` key is already its
+ * theta-side name. Every sidecar this function returns therefore carries an
+ * EMPTY wire-name map, which is what a boundary whose payload already arrives
+ * theta-side-keyed requires: renaming an already-theta-side key would corrupt
+ * it. What the plan does carry is the re-tag and recursion information —
+ * named-enum positions and per-position `$ref` targets — which a
+ * theta-side-keyed payload still needs exactly as a wire-keyed one would.
+ *
+ * `input.schemaNames` bounds which `$defs` names may be branded: only a name
+ * in that set is a `schema` the caller declared, so a `#root` position or a
+ * synthesised `__inline_<slug>` entry — present in `sidecars` for recursion,
+ * but never in `schemaNames` — is never mistaken for one.
+ */
+export function buildInboundTranslationPlan(
+  input: InboundTranslationPlanInput,
+): InboundTranslationPlan {
+  const { lowered, annotation, schemaNames: declaredSchemaNames, enumNames } = input;
+  const defsSource = lowered["$defs"];
+  const fragments = new Map<string, Record<string, unknown>>();
+  if (isFragment(defsSource)) {
+    for (const [name, fragment] of Object.entries(defsSource)) {
+      if (isFragment(fragment)) {
+        fragments.set(name, fragment);
+      }
+    }
+  }
+
+  const annotationName = annotation.trim();
+  const rootDef = IDENTIFIER.test(annotationName) ? annotationName : ROOT_DEF_KEY;
+  const rootBody: Record<string, unknown> = { ...lowered };
+  delete rootBody["$defs"];
+  // A self-referential named schema's OWN `$defs` entry carries this same body
+  // (byte-for-byte — both trace back to the identical lowered fragment); every
+  // other annotation's root key is either unclaimed or the reserved `#root`.
+  // Either way the root fragment is authoritative for its key.
+  fragments.set(rootDef, rootBody);
+
+  const sidecars = new Map<string, SchemaSidecar>();
+  const pending: string[] = [...fragments.keys()];
+  const classify = (owner: string, pointer: string, position: unknown): PositionClass => {
+    if (!isFragment(position)) {
+      return { type: { kind: "other" } };
+    }
+    const ref = position["$ref"];
+    if (typeof ref === "string") {
+      const match = DEFS_REF.exec(ref);
+      const target = match?.[1];
+      const targetFragment = target === undefined ? undefined : fragments.get(target);
+      if (target === undefined || targetFragment === undefined) {
+        return { type: { kind: "other" } };
+      }
+      if (isEnumFragment(targetFragment)) {
+        // A named-enum `$ref` is terminal: an enum position has no fields or
+        // elements of its own to recurse into.
+        return enumNames.has(target)
+          ? { type: { kind: "named-enum", enumName: target } }
+          : { type: { kind: "anonymous-string-literal-union" } };
+      }
+      return { type: { kind: "other" }, refTarget: target };
+    }
+    if (position["type"] === "array") {
+      return {
+        type: { kind: "other" },
+        element: classify(owner, `${pointer}/items`, position["items"]),
+      };
+    }
+    if (isEnumFragment(position)) {
+      // An inline `{ "type": "string", "enum": […] }` position is an anonymous
+      // string-literal union — step 5 keeps those out of the sidecar so
+      // equality on them stays plain string equality.
+      return { type: { kind: "anonymous-string-literal-union" } };
+    }
+    if (isObjectFragment(position)) {
+      // An object position emitted in place rather than hoisted to `$defs`.
+      // Mint a reserved key so the walk can recurse against its own sidecar;
+      // the key is `#`-prefixed and position-derived, so it is unique in this
+      // document and never brandable as a declared name.
+      const minted = `#${owner}${pointer}`;
+      if (!fragments.has(minted)) {
+        fragments.set(minted, position);
+        pending.push(minted);
+      }
+      return { type: { kind: "other" }, refTarget: minted };
+    }
+    return { type: { kind: "other" } };
+  };
+
+  while (pending.length > 0) {
+    const name = pending.shift() as string;
+    if (sidecars.has(name)) {
+      continue;
+    }
+    const fragment = fragments.get(name);
+    if (fragment === undefined) {
+      continue;
+    }
+    const inputs: SidecarFieldInput[] = [];
+    const properties = fragment["properties"];
+    if (isObjectFragment(fragment) && isFragment(properties)) {
+      for (const [field, position] of Object.entries(properties)) {
+        const pointer = `/properties/${encodePointerSegment(field)}`;
+        inputs.push({ thetaName: field, pointer, ...classify(name, pointer, position) });
+      }
+    } else if (isEnumFragment(fragment) && enumNames.has(name)) {
+      // The annotation names an `enum` outright (`invoke<Sev>`): the ROOT
+      // position is itself the named-enum position — tags attach "at the same
+      // depth as the value the schema annotates" (runtime-value-model.md
+      // §Wire-name translation). The empty pointer addresses the fragment
+      // itself.
+      inputs.push({ thetaName: name, pointer: "", type: { kind: "named-enum", enumName: name } });
+    } else {
+      // Any other non-object root — `invoke<array<Sev>>`, an inline literal
+      // union, a bare primitive — classified in place so an array root's
+      // elements still resolve.
+      inputs.push({ thetaName: name, pointer: "", ...classify(name, "", fragment) });
+    }
+    sidecars.set(name, buildSidecar(inputs));
+  }
+
+  const schemaNames = new Set<string>();
+  for (const name of sidecars.keys()) {
+    if (declaredSchemaNames.has(name)) {
+      schemaNames.add(name);
+    }
+  }
+  return { sidecars, rootDef, schemaNames };
+}
+
+/** Encode an RFC 6901 JSON Pointer segment (`~`→`~0`, `/`→`~1`). */
+function encodePointerSegment(segment: string): string {
+  return segment.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
 // --- `__inline_<slug>` `$defs` dedup (schema-subset.md §Lowering step 2 + ----

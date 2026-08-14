@@ -4888,3 +4888,132 @@ describe("H8a-T — bug 0066: a declared default its own lowered params fragment
     }
   });
 });
+
+// ===========================================================================
+// Bug 0067 — the `invoke` return of a subagent-mode callee re-entered its
+// parent as raw `JSON.parse` output with no inbound translation pass: a named-
+// enum variant crossing the PIC-59 envelope lost its declaring-enum tag, so
+// `v == Sev.High` was `false` in the parent where the identical value compared
+// `true` in the child (`docs/bugs/0067-subagent-envelope-drops-enum-tag.md`).
+// The fix runs the `runtime-value-model.md` §"Wire-name translation" inbound
+// pass in `#validateInvokeReturn`, after AJV, for the typed `invoke<Schema>`
+// form.
+//
+// No existing live cell asserts enum-tag SURVIVAL across the envelope. The
+// forged-ingress pair above (bug 0020) drives the SAME typed-`invoke`-into-
+// subagent-child shape and now additionally exercises this fix's `SCHEMA_TAG`
+// re-brand half (the bound `Forged` value gains a schema brand it lacked
+// before), but its own assertion is on the OUTBOUND-rendered compact JSON,
+// which is byte-identical whether or not the brand is present (the brand is a
+// non-enumerable symbol property, invisible to `JSON.stringify` —
+// `docs/spec_topics/runtime-value-model.md:16`) — so that cell cannot witness
+// this fix's INBOUND half at all, by construction. This cell closes that gap
+// with the shallowest position `runtime-value-model.md:34`'s "tags are
+// attached at the same depth as the value the schema annotates" describes: a
+// bare named-enum variant at the envelope root.
+//
+// `b67livesevkid` is a `mode: subagent` callee whose tail is a bare enum
+// variant — a pure expression, zero model turns, zero tokens (mirrors
+// `tests/subagent-invoke-inbound-enum-tag.test.ts`'s provider-free `kid.theta`
+// exactly, driven here through the shipped extension entry against a live
+// host rather than the raw launcher). `b67livesevparent` is a `mode: prompt`
+// caller whose typed `invoke<Sev>("./b67livesevkid.theta")` binds the
+// envelope through the real production return-validation + inbound-
+// translation gate, then compares the bound value against its own locally
+// constructed `Sev.High`. Pre-fix the comparison is a cross-type `false`
+// (`valuesEqual`, `src/runtime/value.ts`: one operand tagged, one a bare wire
+// string); post-fix it is `true`. The comparison is a `boolean`, so QRY-18's
+// boolean row (`stringifyInterpolatedValue`, `src/render/query-render.ts`)
+// renders it as the literal `true` / `false` — a marker-anchored,
+// deterministic segment of `turn.userTexts`, independent of what the model
+// replies to the one dispatched query (the same read this file's
+// forged-ingress and bug-0080 cells already use).
+//
+// Token cost: one dispatched query in the parent (the same profile as the
+// forged-ingress cell above); the callee spends none.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered, or deleted.
+// ===========================================================================
+
+/** The `mode: subagent` callee: a pure named-enum tail, zero model turns. */
+function b67SevEnumKidTheta(): string {
+  return ["---", "mode: subagent", "---", 'enum Sev { High = "high" }', "Sev.High"].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: a typed `invoke<Sev>` binds the envelope, then
+ * the boolean comparison against the parent's own `Sev.High` is interpolated
+ * between markers so the rendered text — not the model's reply — is the
+ * observable.
+ */
+function b67SevEnumParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Sev { High = "high" }',
+    'let v = invoke<Sev>("./b67livesevkid.theta")?',
+    "@`SEVCROSS=${v == Sev.High}|END reply with exactly: OK`",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0067: a named-enum value crossing the PIC-59 envelope regains its tag, live", () => {
+  it("a typed invoke<Sev> binds a spawned subagent child's bare enum variant, and it compares equal to the parent's own Sev.High", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b67livesevparent", text: b67SevEnumParentTheta() },
+      { source: "project", stem: "b67livesevkid", text: b67SevEnumKidTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b67livesevparent"),
+        "no bug-0067 enum-cross parent command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b67livesevparent");
+      const outbound = turn.userTexts.join("\n");
+      // Marker-anchored extraction of the rendered `${...}` segment — the
+      // exact text theta code computed from the envelope-bound comparison
+      // (fails loudly when the query never rendered, e.g. the invoke Err'd).
+      const anchored = /SEVCROSS=([\s\S]*?)\|END/.exec(outbound);
+      expect(
+        anchored,
+        "the parent query's rendered text (SEVCROSS=…|END) is absent — the " +
+          "invoke did not resolve Ok. Outbound user texts: " +
+          JSON.stringify(turn.userTexts) + "; system notes: " +
+          JSON.stringify(turn.systemNotes),
+      ).not.toBeNull();
+      // THE FIXED OBSERVABLE. runtime-value-model.md:34 — the inbound pass
+      // reattaches the declaring-enum tag "so the resulting value compares
+      // equal to a locally constructed variant of the same enum"; pre-fix the
+      // bound value is a bare wire string and `valuesEqual`'s cross-type arm
+      // renders this segment `false`.
+      expect(
+        anchored![1],
+        "runtime-value-model.md:34 — a named-enum value returned by a " +
+          "subagent-mode callee across a typed invoke<Sev> must compare equal " +
+          "to the caller's own variant of the same enum; a bare untagged " +
+          "string takes valuesEqual's cross-type arm and renders `false`. " +
+          "Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("true");
+      // No fail-closed ending of the drive (invoke infra errors and Err tails
+      // land here — absence is the success observable).
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b67livesevparent (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the enum-cross drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
