@@ -958,3 +958,22 @@ class); the load-time admission of the empty literal and the null-bind are
 unchanged and remain this report's subject. Its load-time deferral is now
 also pinned by cell c7 of tests/params-default-type-compat.test.ts — a fix
 here re-pins that cell knowingly.
+
+Coordination note (appended by the bug 0166 fix, 0.91.0). 0166 landed FIRST,
+so this report rebases onto its hunks per its §Fix (f). The two classes stayed
+disjoint on the measured observable: 0166 narrowed `firstNonLiteral`'s `neg`
+arm (and, in step, `primitiveLiteralType`'s) through one new shared predicate
+`isNumericLiteralOperand`, and left `checkLiteralSublanguage`'s
+`node === undefined` early return — this report's subject — byte-identical,
+verified by diff and by the verifier. Cell e3 of
+`tests/params-default-unary-minus-non-numeric-refusal.test.ts` now also pins
+`p: 'string = '` still loading clean with `defaultSource: ""`, so a route here
+reds that cell knowingly, as it already does cell c7 of
+`tests/params-default-type-compat.test.ts`. A route that closes the
+`node === undefined` arm **inherits a narrower `neg` arm and must not
+re-widen it**: `firstNonLiteral` now takes `source` and admits `neg` only over
+a numeric-literal operand, and its agreement with `primitiveLiteralType` is
+witnessed — neutralising either arm alone reds group C of that file. This
+report's own line citations to `src/parser/literal-sublanguage.ts` (`:53`,
+`:58–63`, `:61–63`) sit ABOVE 0166's insertion point at `:493` and are
+unshifted by it; the file grew 741 → 767 lines.

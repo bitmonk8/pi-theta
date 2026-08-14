@@ -62,7 +62,7 @@ export function checkLiteralSublanguage(
   if (node === undefined) {
     return [];
   }
-  const offending = firstNonLiteral(node);
+  const offending = firstNonLiteral(node, source);
   if (offending === undefined) {
     return [];
   }
@@ -481,25 +481,48 @@ class ExprParser {
 }
 
 /**
+ * Whether a `neg` node's OPERAND is itself a numeric literal — the only
+ * operand the unary-`-` carve-out admits (grammar.md §"Theta literal
+ * sublanguage": `PrimitiveLit ::= … | "-" NUMBER`; §"Forbidden inside a
+ * literal": "Operators other than the unary `-` carve-out for numeric
+ * literals"). SHARED by `firstNonLiteral`'s `neg` arm and
+ * `primitiveLiteralType`'s `neg` arm so the is-literal check and the compat
+ * reader can never disagree: an operand this declines is refused by the
+ * first and typed by neither.
+ */
+function isNumericLiteralOperand(operand: ExprNode, source: string): boolean {
+  if (operand.kind !== "literal") {
+    return false;
+  }
+  const primitive = literalPrimitiveOf(source.slice(operand.start, operand.end));
+  return primitive === "integer" || primitive === "number";
+}
+
+/**
  * Pre-order walk returning the first sub-expression outside the literal
  * sublanguage, or `undefined` when the whole expression is a literal. Admitted
  * container literals (array, bare/named object) recurse into their members; an
- * `Enum.Variant` member access (`Ident "." Ident`) and a unary `-` on a numeric
- * literal are admitted carve-outs.
+ * `Enum.Variant` member access (`Ident "." Ident`) and a unary `-` on a NUMERIC
+ * literal are admitted carve-outs — `source` lets the `neg` arm read the
+ * operand's own span through `isNumericLiteralOperand`.
  */
-function firstNonLiteral(node: ExprNode): ExprNode | undefined {
+function firstNonLiteral(node: ExprNode, source: string): ExprNode | undefined {
   switch (node.kind) {
     case "literal":
       return undefined;
     case "neg":
-      // Unary `-` is admitted only on a numeric literal.
-      return node.operand.kind === "literal" ? undefined : node;
+      // The carve-out is numeric only, so a string, boolean or `null`
+      // operand is refused as the `neg` node itself — its own span is what
+      // the diagnostic interpolates. Shared with `primitiveLiteralType`'s
+      // `neg` arm via `isNumericLiteralOperand`: the two readers of this
+      // position move together.
+      return isNumericLiteralOperand(node.operand, source) ? undefined : node;
     case "member":
       // `Enum.Variant` only — the head must be a bare identifier (one level).
       return node.objectIsIdent ? undefined : node;
     case "array":
       for (const el of node.elements) {
-        const bad = firstNonLiteral(el);
+        const bad = firstNonLiteral(el, source);
         if (bad !== undefined) {
           return bad;
         }
@@ -507,7 +530,7 @@ function firstNonLiteral(node: ExprNode): ExprNode | undefined {
       return undefined;
     case "object":
       for (const v of node.fieldValues) {
-        const bad = firstNonLiteral(v);
+        const bad = firstNonLiteral(v, source);
         if (bad !== undefined) {
           return bad;
         }
@@ -663,18 +686,21 @@ export function defaultLiteralStaticType(source: string): CompatType | undefined
 
 /**
  * The `CompatType` of one PRIMITIVE literal node, read off its own source span.
- * A `neg` node types as its operand and only when that operand is itself a
- * literal (unary `-` is admitted on numeric literals only, grammar.md §"Theta
- * literal sublanguage"), so `-1` types as `1` does while `-[1]` — a form
- * `checkLiteralSublanguage` refuses on its own terms — types as nothing.
- * Container literals are not primitives and answer `undefined` here.
+ * A `neg` node types as its operand, and only when `isNumericLiteralOperand`
+ * admits that operand — the same predicate `firstNonLiteral`'s `neg` arm
+ * applies, so this reader can never assign a type to a form the is-literal
+ * check refuses: `-1` types as `1` does, while `-true` and `-[1]` — both
+ * refused by `checkLiteralSublanguage` — type as nothing. Container literals
+ * are not primitives and answer `undefined` here.
  */
 function primitiveLiteralType(
   node: ExprNode,
   source: string,
 ): { readonly kind: "literal"; readonly typesAs: PrimitiveName } | undefined {
   if (node.kind === "neg") {
-    return node.operand.kind === "literal" ? primitiveLiteralType(node.operand, source) : undefined;
+    return isNumericLiteralOperand(node.operand, source)
+      ? primitiveLiteralType(node.operand, source)
+      : undefined;
   }
   if (node.kind === "literal") {
     return { kind: "literal", typesAs: literalPrimitiveOf(source.slice(node.start, node.end)) };

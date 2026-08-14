@@ -1,6 +1,6 @@
 # Bug 0166 — `firstNonLiteral`'s unary-minus arm tests only that the operand is a `literal`, so the `params:`-default sublanguage admits `-` on a string, boolean or `null` literal against `PrimitiveLit ::= … | "-" NUMBER`: twenty-one declared-type pairings load with zero diagnostics, and because both readers of the position agree the operand's own type is the default's type while the invocation-time recovery evaluates unary `-` as JS numeric negation, `p: 'integer | boolean = -true'` binds `-1`, `p: 'Count = -"x"'` binds `NaN` and `p: 'number | null = -null'` binds `-0` behind a `default=-true` prompt token and a `p=-1 (default)` success echo — while the same admission routes `integer = -true` to `theta/parse/params-default-type-mismatch` (a type-mismatch code for a form the grammar does not derive) and nine other pairings to a post-default-merge AJV refusal one binder model call late
 
-- **Status:** open. Residual 1 of the bug 0066 fix (0.88.0, commit `94e81974`),
+- **Status:** fixed (0.91.0). Residual 1 of the bug 0066 fix (0.88.0, commit `94e81974`),
   recorded there as `## Fix (0.88.0)` *Residuals* item 1
   (`0066-…md:820–823`) and surfaced by that fix's round-2 review
   (`:798–801`). §Fix is constraint-pinned, not settled: it names four candidate
@@ -903,6 +903,242 @@ anything else.
 ### (f) Ordering
 
 Nothing blocks this report from starting.
+
+## Fix (0.91.0)
+
+**Settled route: §Fix (a) + (b) TOGETHER**, plus one DIAG-2 *Trigger*
+clarification. §Fix left the emission point constraint-pinned rather than
+settled and required the run to select one and state the evidence.
+
+*The evidence that decided it.* The route was prototyped and the FULL default
+suite run before any test was written (the mandatory blast-radius
+pre-measurement): **293 files / 4756 tests green, zero reds**, `tsc` clean,
+`lint` clean. That confirms the doc's measured blast radius for (a) exactly —
+`checkLiteralSublanguage` has ONE production caller (`parseParams`'s per-field
+default loop) and `LiteralPosition` a single value `"default"`, so the seven
+committed direct test call sites and the 47-cell whole-list witness in
+`tests/params-literal-sublanguage-lowering.test.ts` are all unaffected. A
+scratch probe over the prototype measured every row of §Reproduction (b)–(f)
+and showed the class decided at one site: all six spellings refused at exactly
+one diagnostic, at all three nesting positions, under decidable and deferring
+declared halves alike, with all five (e)(4) controls and both (e)(3) precedence
+rows keeping their exact verdicts. (b) taken alone is the strict regression the
+doc measured and is implemented as (a)'s mirror half, not as an alternative —
+§Fix (e)(2)'s contract. (c) was rejected because
+`theta/parse/default-not-literal`'s *Trigger* already claims an operator outside
+the sublanguage and its *Message* interpolates a sub-expression that exists
+(measured: `-true`, `- true`, `-"x"`), so a new row would duplicate a row that
+already describes the defect, at the wrong phase. (d) was rejected because
+`parseUnary` also backs `isBareObjectLiteral`, whose consumer is
+`src/runtime/tool-call.ts`, and because it moves the diagnostic's span; (a)
+touches one predicate.
+
+- **What shipped:**
+  - `src/parser/literal-sublanguage.ts` — one new module-local predicate
+    `isNumericLiteralOperand`, which reads a `neg` node's operand span through
+    `literalPrimitiveOf` and admits it only as `integer` or `number`
+    (`PrimitiveLit ::= … | "-" NUMBER`, grammar.md §"Theta literal
+    sublanguage"). `firstNonLiteral`'s `neg` arm (§Fix (a)) narrows through it
+    and returns the `neg` node itself as the offending sub-expression, so the
+    refusal rides the existing `checkLiteralSublanguage` emission with the span
+    already measured for `--1` and `-[1]`; `source` is threaded through
+    `firstNonLiteral`, its two container recursions and its one caller.
+    `primitiveLiteralType`'s `neg` arm (§Fix (b)) narrows through the SAME
+    predicate, shared not copied — bug 0056's mandate — so the compat reader
+    establishes no type for a form the is-literal check refuses. Both
+    doc-comments state that the two readers move together, which is the
+    mirror contract §Fix (e)(2) and `primitiveLiteralType`'s own design note
+    require.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` —
+    `theta/parse/default-not-literal`'s *Trigger* parenthetical now reads "an
+    operator other than the unary `-` carve-out for numeric literals" in place
+    of a bare "operator". One cell on one row; nothing else on the page moved.
+- **The DIAG-2 questions of (e)(1), both answered.**
+  - *(i) State the carve-out's numeric bound inside `default-not-literal`'s
+    Trigger parenthetical?* **Yes — edited.** The row admits the refusal
+    without the edit (its operative clause is "a form outside the [Theta literal
+    sublanguage]", hyperlinked to the page that states the numeric bound at
+    `grammar.md:22` and `:51`), so this is a precision edit that moves no input
+    into or out of the emission set. Three things decided it: the row already
+    spells its SIBLING carve-out inline ("identifier reference other than
+    `Enum.Variant`"), so the unqualified "operator" was the odd one out in its
+    own list; this fix is the moment the distinction becomes load-bearing,
+    because six spellings at three nesting positions enter the row's emission
+    set; and `primitiveLiteralType`'s shipped design note already reads the
+    registry as the licence surface ("GOV-15 admits a code addition exactly on
+    the inputs the row names"). Its governance disposition is neutral:
+    `source-language-stability.md` §*Diagnostic-registry carve-out* dispositions
+    a DIAG-2 *trigger* change "as an addition for inputs newly brought into the
+    code's emission set and as a removal for inputs taken out of it", and this
+    edit brings none and takes none — the code change is what moves them, and
+    that movement is the carve-out's admissible ADDITION direction.
+  - *(ii) Does `params-default-type-mismatch`'s decided-set enumeration need
+    the same treatment?* **No — untouched.** Its enumeration already reads "a
+    string / number / boolean / `null` literal (a unary-`-` **numeric** literal
+    included)", which is exactly `defaultLiteralStaticType`'s decided set after
+    the fix (measured: `undefined` for all six non-numeric neg spellings). The
+    row was firing PAST its own registered *Trigger* for `integer = -true` /
+    `integer = -null`; the fix resolves that by narrowing the CODE to the
+    registered row rather than widening the row — the direction DIAG-2's closed
+    registry prescribes. **This discharges the 0066-row Trigger-exactness item
+    the operator assigned to this report; no separate filing exists or is
+    needed.**
+  - **DIAG-4 holds: no *Message* column moved anywhere.** Cell R1 of the
+    witness pins `default-not-literal`'s Sev `E` / Phase `parse` / *Message*,
+    and every expected message in the file is rendered from the registry
+    oracle, never copied.
+- **GOV-15 — the newly-refused set, enumerated (§Fix (e)(5)).** Unary `-`
+  applied to a **string**, **boolean** or **`null`** literal — the six admitted
+  spellings `-true`, `-false`, `-null`, `-"x"`, `-'x'` and the whitespace form
+  `- true` — at the **top level**, as an **array element** (`[-true]`) and as an
+  **object field value** (`{ a: -true }`), under a **decidable** declared half
+  (`boolean`, `string`, `null`, `integer | boolean`, `boolean | null`,
+  `array<boolean>`, `array<null>`, `array<string>`) and under a **deferring**
+  one (a `schema` alias, an `enum` name, a schema name, an inline object type,
+  a literal union, an array alias) alike. Each now draws exactly one
+  `theta/parse/default-not-literal` and does not register. Two rows that already
+  drew a diagnostic change WHICH code they draw: `integer = -true` and
+  `integer = -null` move from `theta/parse/params-default-type-mismatch` to
+  `theta/parse/default-not-literal`, the ordering `code-registry-parse.md`'s
+  second precedence rule prescribes; four further pairings measured in
+  §Reproduction (c) (`number = -true`, `number | null = -false`,
+  `integer | null = -true`, `array<number> = [-true]`) flip the same way.
+  **Census re-run at HEAD `d2cc1fca`** (the standing GOV-15 obligation, run
+  independently by the orchestrator and again by the reviewer): 34 committed
+  `.theta` / `.thetalib` files, 17 declaring `params:`, exactly one committed
+  default — `count: number = 3` in
+  `tests/live/acceptance/fixtures/acc-params-binder.theta` — and **zero** `= -`
+  defaults anywhere, including the 21 files under `docs/`. No committed fixture
+  is in the newly-refused set.
+- **Gates** (each re-run independently by the orchestrator, not taken on
+  report):
+  - Witness RED before: `npx vitest run
+    tests/params-default-unary-minus-non-numeric-refusal.test.ts` →
+    `Tests  60 failed | 14 passed (74)`, every A/C row rendering `[]` where a
+    refusal is due and every B row rendering
+    `params-default-type-mismatch` where `default-not-literal` is due.
+  - Witness GREEN after: `Tests  74 passed (74)`.
+  - Full default suite: `npm test` → `Test Files  294 passed (294)`,
+    `Tests  4830 passed (4830)` (293/4756 at base + the 74-cell witness − the
+    file count is 294 because the witness is a new file).
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → clean, no output.
+  - Lint: `npm run lint` → clean, no output.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Tests  33 passed (33)`
+    (32 → 33, additive; cell 31's `bind_model` pin and cell 32 untouched).
+  - Live H9a, both files: `Tests  11 passed (11)` (10 + 1), and
+    `tests/fixtures/h7a/permitted-codes.json` **byte-unchanged**, proven by the
+    real run (`git hash-object` identical before and after,
+    `a4a8da04…` = the HEAD blob) rather than assumed — the 0045/0052/0056/0067
+    precedent held because no H9a fixture carries the trigger shape.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — **CLEAN**, zero findings,
+  with independent re-verification of all eleven checks (fidelity to (a)+(b),
+  the shared predicate, the out-of-frame third reader, the two precedence
+  guards, all five over-refusal controls, the GOV-15 enumeration and its own
+  census re-run, no consumer moves, the witness shape and its non-vacuity, the
+  0165 boundary, house rules, and eight spot-checked citations). One
+  **pre-review correction round** ran before it (citation/comment/prose only,
+  3 hunks classified `comment` / `assertion-message` / `assertion-message`,
+  zero `other`, gates re-run green, file line count 1083 → 1083): the fix grew
+  `literal-sublanguage.ts` 741 → 767 lines, staling six `path:line` citations
+  inside the new witness, which were re-anchored by symbol beside line per bug
+  0134's adjudication. It is not a review round and did not consume the cap.
+- **Verification:** **VERIFIED**, zero problems.
+  - *The witness genuinely reds.* Two independent neutralisations, each a
+    targeted byte edit restored byte-exact with both `git hash-object` values
+    stated (`5003d7d8ae9f75037a4a2425f33f0e548a14391e` before and after each).
+    (1) Neutralising the shared predicate to the pre-fix test reds 59 of 74,
+    reproducing the documented signature verbatim — `f1` returns `registered
+    and driven; bound=true; p=-1; binder calls=1` and `f6` `p=NaN`. (2)
+    Neutralising ONLY `primitiveLiteralType`'s `neg` arm, leaving
+    `firstNonLiteral` narrowed, reds exactly cells c1–c7 and nothing else —
+    which proves §Fix (e)(2)'s mirror contract is WITNESSED rather than merely
+    asserted, and that a route moving only one reader is caught.
+  - *Full default suite green.* 294 / 4830, run twice (mid-verification and at
+    the final tree state).
+  - *An end-to-end live test exercises the fixed path, run for real.* H8a cell
+    **33** added (additive-only append; a single `@@ -5019,0 +5020,237 @@`
+    hunk). It plants three thetas in one real workspace through the shipped
+    composition root: a precondition control, `p: 'boolean = -true'` which must
+    NOT register (asserted on `registeredNames()` and on the
+    `theta-system-note` channel read off the settled `SessionManager`, with the
+    expected message rendered from the registry), and `p: 'integer = -1'` which
+    must register AND bind through a real binder pass, echoing
+    `Running /b166livenum: topic=hello, p=-1 (default)` with a committed body
+    sentinel in `userTexts` and an empty fail-closed note set. Provider absence
+    fails loudly via `requireLiveProvider`. Run for real twice — by the
+    verifier and independently by the orchestrator — 33/33 both times, no red
+    on either attempt, so none of the open live signatures (0064, 0065, the
+    stochastic H9a stall, `0xC0000142`) needed splitting.
+  - *Lint and typecheck pass.* Both clean, script names read from
+    `package.json`.
+  - Line pins re-measured: `src/parser/static-type-inference.ts` **378**
+    (untouched — §Non-goal), `src/parser/functions.ts` **427**,
+    `src/parser/type-layer-checks.ts` **2531**, `src/parser/type-compat.ts`
+    untouched, `src/parser/params.ts` untouched.
+- **Tests that lock it:**
+  - `tests/params-default-unary-minus-non-numeric-refusal.test.ts` (new, 74
+    cells) — group **A** (39 cells) the refusal table over six spellings × three
+    nesting positions × decidable and deferring declared halves, each at exactly
+    one diagnostic with the registry-sourced *Message*, plus per-field
+    cardinality; group **B** (6) the code flip, asserting both the new code AND
+    the absence of `params-default-type-mismatch`; group **C** (11) the mirror
+    contract, the cell that reds if the two readers narrow apart; group **D**
+    (6) the (e)(4) over-refusal fence; group **E** (3) the two (e)(3) precedence
+    rows plus bug 0165's boundary row; group **F** (7) the runtime tier —
+    the six §Reproduction (e) bound rows shown *refused at load* with
+    `binderCalls: 0` through the real `runBinder` harness, against one
+    conformant numeric default still binding `p = -1` with the `(default)` echo;
+    group **R** (2) the DIAG-2/DIAG-4 registry row.
+  - `tests/live/live-production-acceptance.test.ts` cell 33 — the live half.
+- **Residuals:**
+  1. **`string = -"a<LF>b"` now draws two parse diagnostics where it drew one.**
+     Measured post-fix: `[theta/parse/literal-newline-in-string,
+     theta/parse/default-not-literal]`. `parseParams` pushes the raw-newline
+     refusal and the is-literal refusal as two unconditional pushes; only the
+     compat row sits behind the one-diagnostic guard, and the registered second
+     precedence rule binds only that row. The co-fire pre-exists for other
+     inputs (`string = "a<LF>b" + 1`). The input drew an `E` at HEAD, so it is
+     outside GOV-15's loads-cleanly input set entirely. Cell e2 pins the
+     ordering and the mismatch row's absence and states why it pins no total
+     count. No spec sentence is violated; recorded because §Reproduction (f)
+     measured this row at one diagnostic.
+  2. **`integer = -1x` loads clean and types `integer`** (probed by the round-1
+     reviewer; pre-existing and unchanged by this fix — true of `1x` too). The
+     module's `ExprParser` ignores trailing tokens after a parsed expression.
+     The operand is numeric, so the row is outside this report's class; it
+     neighbours bug 0165's fail-open territory. Evidence: the probe returns
+     `check []`, `staticType {kind:"literal",typesAs:"integer"}`.
+  3. **Two doc-side inaccuracies in this report, confirmed by the reviewer.**
+     §Fix (e)(1) prescribes landing the *Trigger* edit "with the
+     `docs/reference/diagnostics.md:94` mirror", and §Affected lists
+     `docs/reference/diagnostics.md:94`, `:95` among the "reference mirrors
+     restating the numeric bound". That page's tables are
+     `| Code | Sev | Phase | Message |` at `:55`, `:175`, `:239` and `:281` —
+     there is **no *Trigger* column**, and rows `:94`/`:95` carry no
+     numeric-bound wording at all. So no mirror edit is possible or required for
+     a *Trigger* change, and the numeric bound's reference mirrors are
+     `docs/reference/grammar.md:539` and `docs/reference/frontmatter.md:102`
+     only (both verified verbatim). Doc-was-wrong, in the 0056/0067 precedent;
+     the shipped diff correctly leaves that page untouched.
+- **Discharge notes appended:** bug **0066** (its registered row's
+  Trigger-exactness item resolved here, per the operator's rider) and bug
+  **0165** (it lands second and inherits a narrower `neg` arm it must not
+  re-widen).
+- **Pinned dispositions / non-goals:** unary `-` in BODY positions is bug 0050's
+  witnessed territory and is untouched — `src/parser/static-type-inference.ts`
+  is byte-identical at 378 lines and cells u10 / u10b of
+  `tests/fn-arg-type-mismatch-wired.test.ts` stay green. What
+  `-(x as number)` should yield for a non-numeric operand is not answered here.
+  The empty / whitespace-only default is bug 0165's class:
+  `checkLiteralSublanguage`'s `node === undefined` arm is byte-identical, cell
+  c7 of `tests/params-default-type-compat.test.ts` stays green, and cell e3 of
+  the new witness pins `p: 'string = '` still loading clean. Bug 0134's
+  corpus-wide stale-citation class was disclosed and not chased: this fix
+  shifted `literal-sublanguage.ts` positions cited by the CLOSED reports 0031,
+  0049 and 0102 and by this report's own §Affected (which is pinned to its
+  `94e81974` provenance); all of bug 0165's citations sit above the insertion
+  point and are unaffected.
 [0165](./0165-empty-params-default-literal-admitted-and-never-bound.md) is open
 against the same function's other silent arm and the same per-field default loop;
 the classes are disjoint (§Related), so neither fix changes the other's verdicts

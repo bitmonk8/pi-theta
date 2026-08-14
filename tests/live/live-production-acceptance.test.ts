@@ -5017,3 +5017,240 @@ describe("H8a-T — bug 0067: a named-enum value crossing the PIC-59 envelope re
     }
   });
 });
+
+// ===========================================================================
+// Bug 0166 — `firstNonLiteral`'s `neg` arm (the `params:`-default is-literal
+// check) tested only that a unary `-` operand parsed to a `literal` node, so
+// the sublanguage's OWN carve-out (`PrimitiveLit ::= … | "-" NUMBER`,
+// grammar.md:20–24) admitted `-` over a string, boolean or `null` literal too:
+// `p: 'boolean = -true'` loaded with zero diagnostics and, driven through the
+// real binder, bound `p = -1` — a value the source does not spell — behind a
+// `default=-true` prompt token and a `p=-1 (default)` success echo. The fix
+// narrows both readers of the position (`firstNonLiteral`'s `neg` arm and
+// bug 0066's `primitiveLiteralType`'s `neg` arm) through one shared
+// `isNumericLiteralOperand` predicate, so a non-numeric operand is refused as
+// the `neg` node itself (`theta/parse/default-not-literal`) and the numeric
+// carve-out (`"-" NUMBER`) keeps its exact verdicts
+// (docs/bugs/0166-unary-minus-default-admits-non-numeric-literal.md).
+//
+// No existing live fixture (H8a, H9a, or the hardening probes) declares a
+// `params:` default carrying a unary `-` over a non-numeric literal — the
+// corpus census the bug doc re-runs at HEAD (34 committed `.theta`/`.thetalib`
+// files, 17 with `params:`, exactly one committed default —
+// `tests/live/acceptance/fixtures/acc-params-binder.theta`'s
+// `count: number = 3`, which carries no unary `-` at all) — so neither this
+// defect's admission nor its fix had any live reach before this cell, mirroring
+// the bug 0102 cell's own "no existing live fixture reaches this arm" finding
+// for the neighbouring rule in the SAME per-field default loop.
+//
+// THIS CELL DRIVES BOTH DIRECTIONS THE BUG DOC PINS AS ONE FENCE (§Fix
+// (e)(4)/(e)(7)): `b166livebadneg`'s `params:` default `boolean = -true` (the
+// bug doc's own headline §Reproduction (c) row) must not register — the SAME
+// per-field default loop / `hasLoadParseError` site the bug 0102/0110/0125
+// cells above exercise for their own codes — while `b166livenum`'s
+// `integer = -1` (the ONE unary form the sublanguage derives) must not only
+// register but actually BIND through a real live binder pass, echoing
+// `p=-1 (default)` — the over-fire fence measured end to end rather than by
+// registration alone, mirroring the bug 0066 cell's own real-binder drive
+// immediately above.
+//
+// Token cost: the refused theta and its precondition control are load-time-
+// only (zero tokens, the same profile as the bug 0070/0071/0077/0079(a)/0110/
+// 0084/0089/0095/0102/0125 cells above); the numeric-default fence spends ONE
+// binder inference call against `anthropic/claude-haiku-4-5` (the same binder
+// model every `bind_model:` fixture in this file already uses) plus the one
+// body turn its own `@`-query dispatches once bound — the same two-call
+// profile the bug 0066 cell's fixture spends. ADDITIVE ONLY: no existing cell
+// in this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** `theta/parse/default-not-literal`'s registered code (bug 0166 narrows its Trigger to the numeric carve-out; code-registry-parse.md:48) and its registry page. */
+const DEFAULT_NOT_LITERAL_CODE = "theta/parse/default-not-literal";
+const DEFAULT_NOT_LITERAL_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/default-not-literal: params default RHS must be a
+ * literal-sublanguage form; offending sub-expression: <expr>` with `<expr>`
+ * substituted — DIAG-4: the message half is read from the registry row, not
+ * copied, mirroring this file's existing `literalNewlineInStringFragment` /
+ * `unknownMethodFragment` / `invokePathEscapeFragment` helpers.
+ */
+function defaultNotLiteralFragment(expr: string): string {
+  const template = registryMessage(
+    DEFAULT_NOT_LITERAL_REGISTRY,
+    DEFAULT_NOT_LITERAL_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${DEFAULT_NOT_LITERAL_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<expr>", expr);
+  expect(
+    message,
+    `${DEFAULT_NOT_LITERAL_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${DEFAULT_NOT_LITERAL_CODE}: ${message}`;
+}
+
+/** The committed body sentinel for the numeric-default fence — present in `userTexts` iff its body ran. */
+const B166_SENTINEL = "SENTINEL-B166";
+
+/**
+ * The load-bearing refused theta: bug 0166's own headline shape
+ * (§Reproduction (c) row 1) — a unary `-` over a BOOLEAN literal under a
+ * decidable declared half. A resolvable `bind_model:` keeps the isolated
+ * diagnostic unambiguous (mirrors the bug 0102 cell's header note: a
+ * defaulted `params:` field is never `single-string-bypass`-eligible, so
+ * without a pin the theta would also depend on this ephemeral workspace's
+ * absent ambient settings for a resolvable model).
+ */
+function nonNumericNegDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  p: 'boolean = -true'",
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+/**
+ * The over-fire fence, driven for real: the ONE unary form the sublanguage
+ * derives (`"-" NUMBER`, grammar.md:20–24) under a REQUIRED `topic` field (two
+ * typed `params:` fields, so `classifyBinderBypass` routes to a genuine
+ * `binder` pass rather than single-string bypass — the same shape bug 0066's
+ * `incompatibleDefaultBinderTheta` above uses). The body interpolates both
+ * bound values behind the committed sentinel so `userTexts` is the
+ * deterministic body-ran observable, independent of the model's reply.
+ */
+function numericNegDefaultBinderTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  topic: string",
+    "  p: 'integer = -1'",
+    "---",
+    "@`" + B166_SENTINEL + " topic=${topic} p=${p}. Reply with exactly: done.`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0166: a params: default's unary `-` over a non-numeric literal does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose params: default negates a non-numeric literal, while its numeric-default sibling still registers and binds through a real binder pass", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without it, the refused
+      // theta's absence below could be (wrongly) attributed to a broken
+      // workspace instead of the narrowed is-literal check under test.
+      { source: "project", stem: "b166livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The load-bearing caller: `boolean = -true`, refused post-fix.
+      { source: "project", stem: "b166livebadneg", text: nonNumericNegDefaultTheta() },
+      // The over-fire fence: `integer = -1`, the carve-out's positive control.
+      { source: "project", stem: "b166livenum", text: numericNegDefaultBinderTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b166livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the narrowed is-literal check under test, would explain the refused " +
+          "theta's absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The over-fire fence must register too, BEFORE the refusal is asserted:
+      // isolating the refusal below to the non-numeric operand specifically,
+      // not to "no defaulted params: theta ever registers in this harness".
+      expect(
+        handle.command("b166livenum"),
+        "the numeric-default sibling did not register — precondition unmet " +
+          "(the ONE unary form the sublanguage derives, `\"-\" NUMBER`, must " +
+          "keep registering; over-refusal here would hide the refusal below " +
+          "inside a broken control rather than a targeted fix). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the unit witness uses),
+      // the caller whose params: default is `boolean = -true` does not
+      // register — theta/parse/default-not-literal now fires from the SAME
+      // per-field default loop the bug 0102/0110/0125 cells above exercise for
+      // their own codes.
+      expect(
+        handle.command("b166livebadneg"),
+        "the caller whose params: default is `boolean = -true` registered " +
+          "anyway through the live discovery/session_start path — " +
+          "theta/parse/default-not-literal did not fire for a unary `-` over a " +
+          "non-numeric literal. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b166livebadneg");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager`: the
+      // diagnostic fires at LOAD time, before any drive, so the full entry
+      // list is the delta (mirrors the bug 0102/0110/0125 cells above).
+      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = defaultNotLiteralFragment("-true");
+      expect(
+        loadNotes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the default-not-literal rejection for " +
+          "the non-numeric unary-minus default. Notes: " + JSON.stringify(loadNotes),
+      ).toBe(true);
+
+      // THE OVER-FIRE FENCE, driven for real: the ONE unary form the
+      // sublanguage derives must still BIND end to end through a real binder
+      // pass, not merely register. The slash argument names only the required
+      // `topic` field, so the binder omits `p` per its own system prompt's
+      // last line and the runtime's fill-if-absent supplies the declared
+      // default (defaulting-system-note-echo.md:9) — the recovered value is
+      // the numeric literal's own negation (`-1`), the direction that must
+      // survive the narrowing untouched.
+      const turn = await driveSlashCaptureTurn(handle, "/b166livenum hello");
+      expect(
+        turn.systemNotes,
+        "the numeric-default sibling must bind and echo `p=-1 (default)` — the " +
+          "over-fire fence for the narrowing under test. Notes: " +
+          JSON.stringify(turn.systemNotes) + "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain("Running /b166livenum: topic=hello, p=-1 (default)");
+      expect(
+        turn.userTexts.some((t) => t.includes(B166_SENTINEL)),
+        "the numeric-default sibling's body must have run — the fence would be " +
+          "vacuous if the theta bound but never dispatched its query. Outbound: " +
+          JSON.stringify(turn.userTexts),
+      ).toBe(true);
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b166livenum (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the numeric-default sibling's drive surfaced fail-closed system " +
+          "note(s) instead of binding cleanly: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -6,6 +6,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-08-13
+
+### Fixed
+
+- **bug 0166 — a `params:` default could negate a non-numeric literal, and the
+  theta then bound a number its source never spelled.** The Theta literal
+  sublanguage derives `PrimitiveLit ::= … | "-" NUMBER` and no other unary
+  form, but the is-literal check admitted unary `-` over any primitive literal,
+  so `-true`, `-false`, `-null`, `-"x"`, `-'x'` and `- true` passed — at the top
+  level, as array elements and as object field values. Because the compat
+  reader mirrored that admission while the invocation-time recovery evaluates
+  unary `-` as numeric negation, `p: 'integer | boolean = -true'` loaded with
+  zero diagnostics and bound `p = -1`, `p: 'Count = -"x"'` bound `NaN` and
+  `p: 'number | null = -null'` bound `-0` — behind a `default=-true` prompt
+  token and a `p=-1 (default)` success echo. Both readers of the position now
+  narrow through one shared numeric-operand predicate, so such a default draws
+  `theta/parse/default-not-literal` at load and the theta does not register.
+  The numeric carve-out is untouched: `integer = -1` still loads, records `-1`
+  and binds `-1`; `integer = -1.5` still draws exactly one
+  `theta/parse/integer-narrowing`.
+
+### Changed
+
+- `theta/parse/default-not-literal`'s registry *Trigger* now names the
+  carve-out inline — "an operator other than the unary `-` carve-out for
+  numeric literals" — matching the bound `grammar.md` §"Theta literal
+  sublanguage" has always stated. A DIAG-2 clarification that moves no input
+  into or out of the code's emission set; no *Message* column changed.
+
 ## [0.90.0] - 2026-08-13
 
 ### Fixed

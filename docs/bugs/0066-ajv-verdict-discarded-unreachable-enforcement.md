@@ -846,3 +846,19 @@ end-to-end surface.
   untouched; bug 0064's binder signature distinguished (the live fixture
   pins `bind_model: anthropic/claude-haiku-4-5`); `PreEvalFailureCause`'s
   `"slash-load-params"` member retained (ERR-5-symmetric direct emission).
+
+Discharge note (appended by the bug 0166 fix, 0.91.0). This fix's *Residuals*
+item 1 — `firstNonLiteral`'s `neg` arm admitting `-true` / `-null` / `-"x"` —
+was filed as bug 0166 and is now **fixed (0.91.0)**. Two consequences for this
+record. First, the Trigger-exactness item this report opened is resolved:
+`theta/parse/params-default-type-mismatch` was firing past its own registered
+*Trigger* enumeration (which names "a unary-`-` **numeric** literal") for
+`integer = -true` and `integer = -null`; 0166 resolved it by narrowing the CODE
+to the registered row rather than widening the row, so that row is byte-
+unchanged and its enumeration is now exactly `defaultLiteralStaticType`'s
+decided set. Second, the mirror contract this fix pinned in
+`primitiveLiteralType`'s design note is preserved and is now WITNESSED, not
+only asserted: both `neg` arms narrow through one shared predicate
+`isNumericLiteralOperand`, and neutralising either arm alone reds group C of
+`tests/params-default-unary-minus-non-numeric-refusal.test.ts`. This fix's own
+post-default-merge AJV hook and its live cell are untouched.
