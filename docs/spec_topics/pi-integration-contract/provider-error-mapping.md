@@ -62,3 +62,25 @@ The two parent-side fail-closed rows are the only genuinely new failure classes;
 | `anthropic-messages` | omitted |
 | `amazon-bedrock` | omitted |
 
+<a id="binder-temperature-placement-mapping"></a>
+
+**Binder temperature placement mapping.** Whether a binder request payload carries `options.temperature`, and for which model ids it is refused, is governed by the static table below. The mapping is keyed on the resolved binder model's `api` field as reported by `@earendil-works/pi-ai`'s model registry — the same keying rule [Provider seed-field mapping](#provider-seed-field-mapping) above uses — and, where the deprecation is scoped to specific models rather than the whole api, additionally on that same registry's resolved `id` field; neither key is derived from any pi-ai capability flag. "Sent" means the binder call's `options` carries the key `temperature: 0`; "omitted" means the key is absent from `options` entirely — never present holding `undefined`, which still reaches the adapter's payload builder as an own key. Whether an adapter then drops such a key before the wire is adapter-owned behaviour this mapping presupposes nothing about in either direction: what the mapping pins is the `options` shape theta constructs, not the request the adapter emits from it.
+
+| Api | `temperature` placement |
+|---|---|
+| `openai-completions` | sent |
+| `mistral` | sent |
+| `anthropic-messages` | sent, except the model ids below |
+| `amazon-bedrock` | sent |
+
+**Model-scoped refusals.** A live provider response has measured the following model ids refusing `temperature` with a `400 invalid_request_error` under the api listed; `options.temperature` is omitted for exactly these (api, model id) pairs and sent for every other model id under that api:
+
+| Api | Refusing model id |
+|---|---|
+| `anthropic-messages` | `claude-fable-5` |
+| `anthropic-messages` | `claude-sonnet-5` |
+
+The refusal set is measured, not derived: it is not a function of an api family, a model-name pattern, or a "newest model" rule — `claude-opus-5`, released after both refusing ids, still accepts the field — so a model id is listed only once a live provider response has answered a `temperature`-carrying request with the deprecation error. `binderSendsTemperature` compares the resolved model's `id` field EXACTLY against the table; a dated alias of a listed id is a distinct id under this exact-match rule and needs its own row before it is covered.
+
+The per-api table above is version-coupled to `@earendil-works/pi-ai` on the same footing as [Provider seed-field mapping](#provider-seed-field-mapping) above: the build-time `Api`-coverage assertion that guards the seed-field table guards this one too — every value pi-ai's model registry exposes under its `Api` literal union MUST appear as a row key in the per-api table above. The model-scoped refusal set is a different kind of coupling: it is **provider-coupled, not pi-ai-coupled** — it widens only on live evidence that a provider has deprecated the field on a further model, independent of any `@earendil-works/pi-ai` version change, and widening it is a spec-versioned change on the same footing as widening the seed-supporting set above. An api absent from the per-api table sends the field: the table above records only measured request-shape facts, so an api this page has not measured defaults to the `temperature: 0` pin [Slash-Command Argument Binding — Determinism](../binder/determinism-cancellation-failure.md#determinism) states, the same "outside the table takes the default" posture the per-api `toolChoice` spelling table applies to an unlisted api (*Pin clarification — per-api `toolChoice` spelling* under [Provider compatibility — `complete()` forced-tool presupposition](./conversation-drive.md#complete-forced-tool-presupposition)).
+

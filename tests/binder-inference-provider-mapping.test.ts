@@ -25,7 +25,8 @@ import type { BinderEnvelopeSchema } from "../src/binder/binder-envelope";
 // Unit pins for the `V9j` "Binder inference call and provider-error mapping"
 // pair. Closes the code-keyed obligation areas `cka-34`
 // (binder-inference.md §Binder inference call) and `cka-35`
-// (provider-error-mapping.md §Provider error mapping / seed-field mapping), and
+// (provider-error-mapping.md §Provider error mapping / §Provider seed-field
+// mapping / §Binder temperature placement mapping), and
 // supplies the asserting test for the load warning code
 // `theta/load/typed-query-unsupported-provider`.
 //
@@ -50,7 +51,11 @@ import type { BinderEnvelopeSchema } from "../src/binder/binder-envelope";
 
 // --- helpers ----------------------------------------------------------------
 
-/** A minimal `Model<Api>` fixture; only `.api` is read by the seam under test. */
+/**
+ * A minimal `Model<Api>` fixture. `.api` and `.id` are the fields the seam
+ * reads; `modelOf` supplies only `.api`, so every row it drives is one the
+ * temperature placement mapping sends the field for by default.
+ */
 function modelOf(api: string): Model<Api> {
   return { api } as unknown as Model<Api>;
 }
@@ -665,6 +670,101 @@ describe("V9j-T — complete() binder envelope (cka-34)", () => {
 
   it("cka-34: options.temperature is 0", () => {
     const call = buildBinderCompleteCall(callInput("anthropic-messages", 7));
+    expect(call.options.temperature).toBe(0);
+  });
+
+  // --- per-(api, model-id) temperature placement (bug 0064) ----------------
+  //
+  // Whether the binder call carries `temperature` is a per-(api, model-id)
+  // request-shape fact, not a universal one. The Anthropic Messages API answers
+  // the field with `400 invalid_request_error` ("`temperature` is deprecated
+  // for this model.") on the models that deprecate it; the classifier routes
+  // that to the transport class, the single transport budget re-issues the
+  // identical call, and every non-bypass `params:` theta terminates on
+  // `argument binder unavailable` without ever running its body (bug 0064).
+  // The placement therefore reads a static table keyed on BOTH the resolved
+  // `Model<Api>.api` and the exact `Model<Api>.id` — the same shape the seed
+  // field (`#provider-seed-field-mapping`) and the forced tool choice already
+  // read — spec-anchored at
+  // `provider-error-mapping.md#binder-temperature-placement-mapping`.
+  //
+  // A "not sent" row must OMIT the key: an own `temperature` key holding
+  // `undefined` still reaches the adapter's payload builder, so presence is
+  // asserted with `in`, never against `undefined`. The `modelOf`-built cells
+  // above carry no `id` at all and so exercise only the default-sent rows;
+  // these cells are the id-keyed half.
+
+  /**
+   * The `callInput` triple with a model carrying BOTH `api` and the exact `id`
+   * — the pair the temperature placement is keyed on. `modelOf` above supplies
+   * only `api`, which no id-scoped row can match.
+   */
+  function callInputForModelId(
+    api: string,
+    id: string,
+    seed: number,
+  ): BinderCompleteCallInput {
+    return {
+      ...callInput(api, seed),
+      model: { api, id } as unknown as Model<Api>,
+    };
+  }
+
+  /** The built options' own keys — the red message's evidence. */
+  function optionKeys(call: { readonly options: unknown }): readonly string[] {
+    return Object.keys(call.options as Record<string, unknown>);
+  }
+
+  it("cka-34: bug 0064 — anthropic-messages + claude-sonnet-5 omits the temperature key entirely", () => {
+    const call = buildBinderCompleteCall(
+      callInputForModelId("anthropic-messages", "claude-sonnet-5", 7),
+    );
+    expect(
+      "temperature" in (call.options as Record<string, unknown>),
+      "the binder call carries a `temperature` own key for an (api, model-id) " +
+        "pair whose placement row refuses the field with a 400 — the whole " +
+        "non-bypass `params:` feature is unavailable against this model. " +
+        "options keys: " + JSON.stringify(optionKeys(call)),
+    ).toBe(false);
+    // The call was still BUILT (the omission is a deliberate row, not an
+    // unbuilt/empty options object) — the same anchoring the seed-omission
+    // cells below use.
+    expect(optionKeys(call)).toContain("toolChoice");
+  });
+
+  it("cka-34: bug 0064 — anthropic-messages + claude-fable-5 omits the temperature key entirely", () => {
+    const call = buildBinderCompleteCall(
+      callInputForModelId("anthropic-messages", "claude-fable-5", 7),
+    );
+    expect(
+      "temperature" in (call.options as Record<string, unknown>),
+      "the binder call carries a `temperature` own key for the second measured " +
+        "refusing model id — options keys: " + JSON.stringify(optionKeys(call)),
+    ).toBe(false);
+    expect(optionKeys(call)).toContain("toolChoice");
+  });
+
+  it("cka-34: bug 0064 control — anthropic-messages + claude-haiku-4-5 still sends temperature 0 (the row is id-scoped, not api-scoped)", () => {
+    const call = buildBinderCompleteCall(
+      callInputForModelId("anthropic-messages", "claude-haiku-4-5", 7),
+    );
+    expect(call.options.temperature).toBe(0);
+  });
+
+  it("cka-34: bug 0064 control — openai-completions + gpt-4o still sends temperature 0 (an api with no refusing row)", () => {
+    const call = buildBinderCompleteCall(
+      callInputForModelId("openai-completions", "gpt-4o", 7),
+    );
+    expect(call.options.temperature).toBe(0);
+  });
+
+  it("cka-34: bug 0064 control — openai-completions + claude-sonnet-5 still sends temperature 0 (the key is the (api, model-id) PAIR, not the id alone)", () => {
+    // A model id that refuses the field under `anthropic-messages` says nothing
+    // about the same id reached through another api's adapter, so the table
+    // must not degrade into an id-only denylist.
+    const call = buildBinderCompleteCall(
+      callInputForModelId("openai-completions", "claude-sonnet-5", 7),
+    );
     expect(call.options.temperature).toBe(0);
   });
 

@@ -20,7 +20,9 @@ import { renderArgumentEcho } from "../src/render/argument-echo";
 // and determinism" implementation. Closes the code-keyed obligation areas
 // `cka-41` (defaulting-system-note-echo.md §"System-note rendering" — the five
 // line-discipline rules) and `cka-42` (determinism-cancellation-failure.md
-// §Determinism — `temperature: 0` + FNV-1a seed derivation).
+// §Determinism — the `temperature: 0` MUST as conditioned by the §Binder
+// temperature placement mapping (a refusing (api, model id) pair omits the
+// field instead) + FNV-1a seed derivation).
 //
 // Each test reds on its own primary assertion because the V11e discipline is
 // absent: the string renderers (`sanitizeSystemNoteSubstring`, `capSystemNote`,
@@ -33,7 +35,7 @@ import { renderArgumentEcho } from "../src/render/argument-echo";
 // Spec: binder/defaulting-system-note-echo.md §"System-note rendering" (anchor
 // #system-note-rendering, incl. the normative reference rendering) and
 // binder/determinism-cancellation-failure.md §Determinism (FNV-1a reference
-// vectors; `temperature: 0`).
+// vectors; `temperature: 0` per the §Binder temperature placement mapping).
 
 const EM_DASH = "\u2014";
 
@@ -147,7 +149,7 @@ describe("V11e-T — System-note rendering (defaulting-system-note-echo.md #syst
 });
 
 // ============================================================================
-// cka-42 — Determinism (FNV-1a seed derivation; temperature: 0)
+// cka-42 — Determinism (FNV-1a seed derivation; per-(api, model-id) `temperature: 0` placement)
 // ============================================================================
 
 describe("V11e-T — Binder determinism (determinism-cancellation-failure.md §Determinism)", () => {
@@ -175,7 +177,7 @@ describe("V11e-T — Binder determinism (determinism-cancellation-failure.md §D
     };
   }
 
-  it("cka-42: the binder seed is FNV-1a-derived (deterministic) and `temperature: 0` is set on every call", () => {
+  it("cka-42: the binder seed is FNV-1a-derived (deterministic) and `temperature: 0` is sent on a pair the placement mapping sends it for", () => {
     // FNV-1a 32-bit reference vectors (offset basis 0x811c9dc5, prime
     // 0x01000193, UTF-8 input bytes, masked to 32-bit unsigned). Conforming
     // implementations MUST reproduce these exactly.
@@ -186,8 +188,10 @@ describe("V11e-T — Binder determinism (determinism-cancellation-failure.md §D
     // Determinism: the same theta name derives the same seed on every call.
     expect(deriveBinderSeed("code-review")).toBe(deriveBinderSeed("code-review"));
 
-    // `temperature: 0` is set on every binder call; the FNV-derived seed flows
-    // through the constructed provider call unchanged.
+    // `temperature: 0` is sent per the placement mapping, and this fixture's
+    // `openai-completions` api carries no refusing model id, so the pair is a
+    // sending one; the FNV-derived seed flows through the constructed provider
+    // call unchanged.
     const seed = deriveBinderSeed("code-review");
     const call = buildBinderCompleteCall(callInput(seed));
     expect(call.options.temperature).toBe(0);

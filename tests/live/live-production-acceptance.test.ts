@@ -39,6 +39,7 @@ import {
   bootShippedExtension,
   driveSlashCaptureText,
   driveSlashCaptureTurn,
+  failLoudly,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
@@ -5641,6 +5642,152 @@ describe("H8a-T — bug 0159: a stop-masked repeated inline field name draws dup
         "no theta-system-note entry named the duplicate-inline-field-name " +
           "rejection for the stop-masked broken theta. Notes: " + JSON.stringify(notes),
       ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Bug 0064 — `buildBinderCompleteCall` wrote `options.temperature = 0` into
+// EVERY binder `complete()` call, in its `options` construction, with no
+// per-(api, model-id) placement row beside the ones the forced tool choice
+// and the seed field already carried. The Anthropic Messages API answers
+// that field with `400 invalid_request_error` ("`temperature` is
+// deprecated for this model.") on the models that deprecate it —
+// `claude-sonnet-5` among them, the id this repo's own shared live-model
+// preference rule resolves FIRST (`requireLiveProvider`, ./harness). The 400
+// classified as transport, the single transport budget re-issued the
+// identical call, and the invocation terminated on `renderBinderSystemNote`'s
+// transport row (§Failure-mode templates) with the theta body never running:
+// the whole non-bypass `params:` feature was unavailable, at two provider
+// calls per invocation.
+//
+// Neither live half could witness that. NO live reach to a real binder call
+// ran against the rule-resolved model: every reach — the H9a acceptance area
+// (d) fixture and this file's own `bind_model:`-carrying cells alike —
+// hardcoded a model that still accepts the field, so the shared preference
+// rule never reached the binder wire at all. This cell closes the gap on the
+// H8a side by DERIVING `bind_model:` from `requireLiveProvider()` —
+// provider-qualified, because a bare id can be ambiguous across configured
+// providers — so the binder is exercised against whatever model the suite
+// itself prefers, and the cell keeps witnessing the class as the refusing set
+// grows with each release carrying the deprecation.
+//
+// The planted theta is non-bypass BY CONSTRUCTION: two `params:` fields, one
+// defaulted, is neither of `classifyBinderBypass`'s two bypass shapes
+// (src/binder/binder-envelope.ts — no `params:`, or exactly one non-defaulted,
+// non-optional, non-nullable `string`), so a real binder pass runs before the
+// body. The body is a pure literal, so the only provider traffic this cell
+// buys is the binder pass itself.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted — the bug 0066 cell's `anthropic/claude-haiku-4-5` pin
+// in particular stays, because that cell's subject is the post-default-merge
+// AJV verdict and a binder-model 400 would confound it.
+// ===========================================================================
+
+/**
+ * A NON-BYPASS `params:` theta whose binder model is the caller's
+ * rule-resolved, provider-qualified id — never a hardcoded one, since a
+ * hardcoded old model is exactly what let the request-shape defect ship green.
+ * `bind_echo: true` makes the successful bind observable as the BND-1
+ * `Running /<name>: …` note; the body is a pure literal, so nothing after the
+ * binder pass spends a turn (the committed `acc-params-binder.theta` fixture's
+ * own shape).
+ */
+function b64BinderParamsTheta(bindModel: string): string {
+  return [
+    "---",
+    "mode: prompt",
+    `bind_model: ${bindModel}`,
+    "bind_echo: true",
+    "params:",
+    "  topic: string",
+    "  count: number = 3",
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0064: a non-bypass params: theta binds against the live suite's OWN rule-resolved model, live (Convention: live-host acceptance)", () => {
+  it("drives a real binder pass against the rule-resolved bind_model and emits the bind_echo success note, never `argument binder unavailable`", async () => {
+    const provider = await requireLiveProvider();
+    // `bind_model:` is DERIVED from the one model-selection rule every live
+    // half shares, and provider-qualified the way the committed H9a fixture
+    // qualifies its own: the resolved `LiveModel` carries the provider id
+    // alongside the model id (the same read `resolveAcceptanceHost` does).
+    const providerId = (provider.model as { provider?: string }).provider ?? "";
+    if (providerId === "") {
+      failLoudly(
+        "live-host precondition unmet: the resolved live model carries no " +
+          "`provider` field, so `bind_model:` cannot be provider-qualified " +
+          `(resolved model id '${provider.modelId}'). This cell never falls ` +
+          "back to a hardcoded id — that fallback is the defect it witnesses.",
+      );
+    }
+    const bindModel = `${providerId}/${provider.modelId}`;
+
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without it, a missing
+      // success echo below could be (wrongly) attributed to a broken workspace
+      // instead of the binder call's request shape. Registration-only: it is
+      // never driven, so it spends no tokens.
+      { source: "project", stem: "b64livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b64livebinder", text: b64BinderParamsTheta(bindModel) },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Both preconditions are asserted BEFORE any turn is driven, so a
+      // discovery or binder-model-resolution regression reds token-free.
+      expect(
+        handle.command("b64livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the binder call's request shape under test, would explain the " +
+          "missing success echo below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b64livebinder"),
+        `the non-bypass params: theta did not register against bind_model: ` +
+          `'${bindModel}' — a LOAD-time registry lookup failed (the id the ` +
+          "shared preference rule resolved is not provider-qualifiable), " +
+          "which would leave the binder wire unreached rather than exercised. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // Raw slash text the binder must bind into the two declared params.
+      const turn = await driveSlashCaptureTurn(
+        handle,
+        "/b64livebinder summarise the three most recent commits",
+      );
+
+      // THE FIXED OBSERVABLE, asserted FIRST and POSITIVELY so a red names
+      // what the channel actually carried: a successful bind emits the BND-1
+      // one-line echo on the `theta-system-note` channel, read off the settled
+      // in-memory `SessionManager` (AGENTS.md §"Assert on real observables") —
+      // never off `prompt()` resolving, which a fail-closed binder does too.
+      expect(
+        turn.systemNotes.filter((n) => n.startsWith("Running /b64livebinder")),
+        `no bind_echo success note for a binder pass against bind_model: ` +
+          `'${bindModel}': the binder call's own request shape was refused, ` +
+          "so the theta never started. Notes: " + JSON.stringify(turn.systemNotes),
+      ).not.toEqual([]);
+
+      // The bug's own signature, asserted as an ABSENCE: the *Binder model
+      // transport failure* row after the transport budget re-issued the
+      // identical refused call.
+      expect(
+        turn.systemNotes.filter((n) => n.includes("argument binder unavailable")),
+        `the binder terminated on the transport-failure row against ` +
+          `bind_model: '${bindModel}' — the request carries a field this ` +
+          "(api, model-id) pair refuses, so both budgeted calls were spent " +
+          "and the body never ran. Notes: " + JSON.stringify(turn.systemNotes),
+      ).toEqual([]);
     } finally {
       await handle.dispose();
       workspace.dispose();

@@ -7,8 +7,9 @@
 // without the leading `/`), over the UTF-8 encoding of that name (no BOM, no
 // NUL terminator), masked to 32-bit unsigned. The same theta therefore derives
 // the same seed value on every binder call across processes and runs — theta's
-// deterministic input to the provider call, whose `temperature: 0` pin is set
-// by the V9j `buildBinderCompleteCall` and carried into the provider request.
+// deterministic input to the provider call, whose per-(api, model-id)
+// temperature placement is set by the V9j `buildBinderCompleteCall` and
+// carried into the provider request alongside this seed.
 //
 // Spec: binder/determinism-cancellation-failure.md §Determinism (anchor before
 // the reference-vector table): FNV-1a offset basis / prime, UTF-8 input bytes,

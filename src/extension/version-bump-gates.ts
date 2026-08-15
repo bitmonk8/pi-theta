@@ -34,7 +34,10 @@
 //     seed-field gates: every pi-ai `Api` literal-union value is a seed-field
 //     table row key, and each supported provider's seed field is unchanged
 //     (provider-error-mapping.md #provider-seed-field-mapping, version-bump-triggers
-//     step 6).
+//     step 6). `apiCoverageFailures` is reused (bug 0064) to guard the binder
+//     temperature placement table's row keys the same way
+//     (provider-error-mapping.md #binder-temperature-placement-mapping) — one
+//     coverage function, two tables asserted against it.
 //   • `strictCapabilityProbeFailures` — step 7 strict-capability probe, both
 //     spec-defined arms: the rename-detection arm (an indicator present under a
 //     name other than the probed `strictCapable`) and the absence-under-the-probed
@@ -265,17 +268,21 @@ export function reasonSnapshotConsistencyFailures(
 
 /**
  * Step 6 `Api`-coverage: return the pi-ai `Api` literal-union values that are
- * absent from the seed-field table's row keys — the spec's named trigger of a
- * new/unlisted `Api`. Every enumerated `Api` value MUST be a table row key.
+ * absent from a table's row keys — the spec's named trigger of a new/unlisted
+ * `Api`. Every enumerated `Api` value MUST be a table row key. Guards BOTH the
+ * seed-field table (provider-error-mapping.md #provider-seed-field-mapping)
+ * and the binder temperature placement table
+ * (#binder-temperature-placement-mapping): `tableRowKeys` is whichever of the
+ * two tables' row keys the caller is asserting coverage over.
  *
  * V18c-T stub: performs no coverage check (returns no failures), so the
  * new-unlisted-Api direction reds on its detection assertion.
  */
 export function apiCoverageFailures(
   apiUnionSnapshot: readonly string[],
-  seedFieldTableKeys: readonly string[],
+  tableRowKeys: readonly string[],
 ): readonly string[] {
-  const keySet = new Set(seedFieldTableKeys);
+  const keySet = new Set(tableRowKeys);
   return apiUnionSnapshot.filter((api) => !keySet.has(api));
 }
 

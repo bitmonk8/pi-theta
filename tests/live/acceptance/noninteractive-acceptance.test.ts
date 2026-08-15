@@ -47,6 +47,7 @@ import {
   failLoudly,
   featureTheta,
   loadPermittedCodes,
+  materialiseHostBoundThetaDir,
   parseEmittedJson,
   parseSystemNoteCodes,
   requireLiveHost,
@@ -266,12 +267,24 @@ describe("H9a-T (d) params theta forcing an OFF-session binder pass (no envelope
 
     requireLiveHost();
     const cwd = scratchCwd();
-    const result = await spawnPiPrint({
-      thetaDir: FEATURE_THETA_DIR,
-      // Raw slash text the binder must bind into the params object.
-      slashInvocation: `/${spec.stem} summarise the three most recent commits`,
-      cwd,
-    });
+    // The only live reach to a real binder call runs against the model the
+    // shared selection rule resolves, not against whatever id the committed
+    // fixture happens to name: a request-shape fact that holds only on the
+    // preferred model is otherwise invisible to the suite that prefers it
+    // (bug 0064). `materialiseHostBoundThetaDir` re-derives the fixture copy's
+    // `bind_model:` from `resolveAcceptanceHost()` and spawns against that dir.
+    const hostBound = await materialiseHostBoundThetaDir(spec);
+    let result: PiPrintResult;
+    try {
+      result = await spawnPiPrint({
+        thetaDir: hostBound.dir,
+        // Raw slash text the binder must bind into the params object.
+        slashInvocation: `/${spec.stem} summarise the three most recent commits`,
+        cwd,
+      });
+    } finally {
+      hostBound.dispose();
+    }
     assertNoErrorExit(result, spec);
     assertCodesSubsetOfPermitted(result, spec);
     assertStderrClean(result, spec);

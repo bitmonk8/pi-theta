@@ -18,8 +18,9 @@
 // `noninteractive-acceptance.test.ts` calls at every spawn site.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { delimiter } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert, expect } from "vitest";
 import {
@@ -326,6 +327,74 @@ export function resolveFeatureThetaPath(spec: FeatureThetaSpec): string | undefi
     new URL(`./fixtures/${spec.fixtureFile}`, import.meta.url),
   );
   return existsSync(path) ? path : undefined;
+}
+
+/** A throwaway `--theta` discovery dir holding one host-bound fixture copy. */
+export interface HostBoundThetaDir {
+  /** The `--theta <dir>` source to spawn against (holds only the rewritten copy). */
+  readonly dir: string;
+  /** The `<provider>/<model>` id written into the copy's `bind_model:` line. */
+  readonly bindModel: string;
+  /** Remove the throwaway dir (call in a `finally`). */
+  dispose(): void;
+}
+
+/**
+ * Materialise a throwaway `--theta` discovery dir holding a copy of one
+ * committed fixture whose `bind_model:` line is re-derived from
+ * `resolveAcceptanceHost()` — the SAME model-selection rule every other live
+ * cell obeys.
+ *
+ * A `bind_model:` a fixture hardcodes is a model the shared rule may never
+ * pick, and a binder-call request-shape fact that holds only on the preferred
+ * model is then invisible to the suite that prefers it (bug 0064: the binder's
+ * `temperature` field is a `400` on the models this rule resolves first, and
+ * the only live binder reach was this fixture). Rewriting at spawn time keeps
+ * the driven model tied to the rule no matter what the committed line says.
+ *
+ * Fails loudly (never a silent no-op) when the fixture is missing, when the
+ * resolved host carries no provider id, or when the fixture declares no single
+ * `bind_model:` line to rewrite — a silent no-op would restore exactly the
+ * hardcoded-model sidestep this helper exists to remove.
+ */
+export async function materialiseHostBoundThetaDir(
+  spec: FeatureThetaSpec,
+): Promise<HostBoundThetaDir> {
+  const fixturePath = resolveFeatureThetaPath(spec);
+  if (fixturePath === undefined) {
+    failLoudly(
+      `${spec.label} ${spec.area}: cannot host-bind an unauthored fixture ` +
+        `(expected ${spec.fixtureFile} under ${FEATURE_THETA_DIR}).`,
+    );
+  }
+  const host = await resolveAcceptanceHost();
+  if (host.provider === "" || host.model === "") {
+    failLoudly(
+      `${spec.label} ${spec.area}: the resolved live host is not ` +
+        `provider-qualifiable (provider '${host.provider}', model ` +
+        `'${host.model}'), so \`bind_model:\` cannot be re-derived from the ` +
+        "shared model-selection rule.",
+    );
+  }
+  const bindModel = `${host.provider}/${host.model}`;
+  const source = readFileSync(fixturePath, "utf8");
+  const matches = source.match(/^bind_model:.*$/gm) ?? [];
+  if (matches.length !== 1) {
+    failLoudly(
+      `${spec.label} ${spec.area}: expected exactly one \`bind_model:\` line to ` +
+        `re-derive in ${spec.fixtureFile}, found ${matches.length}.`,
+    );
+  }
+  const rewritten = source.replace(/^bind_model:.*$/m, () => `bind_model: ${bindModel}`);
+  const dir = mkdtempSync(join(tmpdir(), "theta-acc-hostbound-"));
+  writeFileSync(join(dir, basename(fixturePath)), rewritten, "utf8");
+  return {
+    dir,
+    bindModel,
+    dispose(): void {
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 /** Load the committed permitted-code list criterion (e) scores against. */

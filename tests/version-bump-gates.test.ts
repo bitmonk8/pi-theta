@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BINDER_TEMPERATURE_TABLE } from "../src/binder/binder-temperature";
 import { SDK_SURFACE_INVENTORY } from "../src/extension/sdk-inventory";
 import {
   PROVIDER_SEED_FIELD_TABLE,
@@ -179,6 +180,24 @@ describe("version-bump gate — step 6 provider seed-field Api-coverage", () => 
     // (provider-error-mapping.md #provider-seed-field-mapping).
     const withNewApi = [...apiSnapshot, "google-generative-ai"];
     expect(apiCoverageFailures(withNewApi, tableKeys)).toContain(
+      "google-generative-ai",
+    );
+  });
+
+  it("step 6: reds when a pi-ai Api literal-union value is absent from the binder temperature placement table row keys (bug 0064, provider-error-mapping.md #binder-temperature-placement-mapping)", () => {
+    const temperatureTableKeys = Object.keys(BINDER_TEMPERATURE_TABLE);
+    const apiSnapshot = inventoryPayload("api-coverage")
+      .apiUnionSnapshot as readonly string[];
+
+    // Every pinned Api value is a temperature-table row key → no failures —
+    // the same mechanical gate that guards the seed-field table above guards
+    // this table too (provider-error-mapping.md
+    // #binder-temperature-placement-mapping).
+    expect(apiCoverageFailures(apiSnapshot, temperatureTableKeys)).toEqual([]);
+
+    // A new/unlisted Api value not present as a row key → red, naming the value.
+    const withNewApi = [...apiSnapshot, "google-generative-ai"];
+    expect(apiCoverageFailures(withNewApi, temperatureTableKeys)).toContain(
       "google-generative-ai",
     );
   });

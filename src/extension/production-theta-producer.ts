@@ -1062,13 +1062,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * Issue ONE OFF-session binder `complete()` against the resolved binder
    * `Model<Api>` and return the raw reply. The call triple is the pinned
    * forced-tool constructor (`buildBinderCompleteCall`: system prompt, fixed
-   * user-message literal, the single forced `__theta_bind_<slug>` tool,
-   * temperature 0, per-api seed placement, signal, onResponse); registry auth
-   * (apiKey / headers) is threaded INTO the returned options HERE — the
-   * constructor stays auth-free — because the out-of-band `complete()` free
-   * function does not inherit the session's resolved credentials. No
-   * user-session turn, no transcript card — the reply is runtime-internal
-   * (BND-3).
+   * user-message literal, the single forced `__theta_bind_<slug>` tool, the
+   * per-(api, model-id) temperature placement, the per-api seed placement,
+   * signal, onResponse); registry auth (apiKey / headers) is threaded INTO
+   * the returned options HERE — the constructor stays auth-free — because
+   * the out-of-band `complete()` free function does not inherit the
+   * session's resolved credentials. No user-session turn, no transcript
+   * card — the reply is runtime-internal (BND-3).
    */
   async #completeBinderReply(
     dispatch: BinderForcedToolDispatch,

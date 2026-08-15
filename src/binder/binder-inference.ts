@@ -23,10 +23,13 @@
 //     artifact, so inlining changes no versioned schema surface. The slug and
 //     the AJV routing step both run over the envelope schema DOCUMENT itself,
 //     whose refs and root `$defs` stay intact.
-//   - `options.temperature` is `0`; the provider's tool choice is forced to that
-//     single tool via the shared per-api `options.toolChoice` spelling
-//     (`forcedToolChoiceForApi` — the same table the typed-query forced respond
-//     dispatch uses).
+//   - `options.temperature` is `0` for the (api, model id) pairs the per-
+//     (api, model-id) placement table does not list as refusing it
+//     (`binderSendsTemperature`, §"Binder temperature placement mapping");
+//     a refusing pair OMITS the key from `options` entirely. The provider's
+//     tool choice is forced to that single tool via the shared per-api
+//     `options.toolChoice` spelling (`forcedToolChoiceForApi` — the same
+//     table the typed-query forced respond dispatch uses).
 //   - the fixed seed, when the resolved provider's `Api` carries a seed field, is
 //     placed under that field name (per §"Provider seed-field mapping").
 //   - `options.signal` is `thetaAbort.signal`; `options.onResponse` is the
@@ -34,9 +37,11 @@
 //
 // Spec: pi-integration-contract/binder-inference.md (§Binder inference call),
 // pi-integration-contract/provider-error-mapping.md (§Provider seed-field
-// mapping), binder/binder-bypass-and-envelope.md (envelope schema),
-// binder/determinism-cancellation-failure.md (§Determinism — temperature 0, the
-// fixed user-message literal, the fixed seed).
+// mapping, §Binder temperature placement mapping),
+// binder/binder-bypass-and-envelope.md (envelope schema),
+// binder/determinism-cancellation-failure.md (§Determinism — the per-(api,
+// model-id) temperature placement, the fixed user-message literal, the fixed
+// seed).
 
 import { Type } from "typebox";
 import type {
@@ -50,6 +55,7 @@ import type {
   ToolCall,
 } from "@earendil-works/pi-ai";
 import type { BinderEnvelopeSchema } from "./binder-envelope";
+import { binderSendsTemperature } from "./binder-temperature";
 import { forcedToolChoiceForApi } from "./forced-tool-choice";
 
 /**
@@ -70,9 +76,10 @@ const BINDER_SEED_FIELD_BY_API: Readonly<Record<string, string | undefined>> =
 
 /**
  * The binder user message carries no wall-clock time — the call is deterministic
- * (temperature 0, fixed literal content) — but `@earendil-works/pi-ai`'s
- * `UserMessage` type requires a `timestamp`. A fixed `0` keeps the constructed
- * message deterministic and reads no ambient timing primitive.
+ * (fixed literal content; a temperature placement fixed per (api, model id)) —
+ * but `@earendil-works/pi-ai`'s `UserMessage` type requires a `timestamp`. A
+ * fixed `0` keeps the constructed message deterministic and reads no ambient
+ * timing primitive.
  */
 const BINDER_MESSAGE_TIMESTAMP = 0;
 
@@ -358,10 +365,11 @@ export interface BinderCompleteCall {
  * Construct the binder `complete()` call for one binder attempt
  * (binder-inference.md §"Binder inference call"): the rendered system prompt,
  * the fixed user-message literal, the single forced `__theta_bind_<slug>` tool
- * carrying the object-rooted envelope wrapper, `temperature: 0`, the per-api
- * seed placement, the abort signal, and the provider-response capture. The
- * constructor is auth-free — the caller threads registry auth (apiKey/headers)
- * into the returned `options` before dispatching.
+ * carrying the object-rooted envelope wrapper, the per-(api, model-id)
+ * temperature placement, the per-api seed placement, the abort signal, and the
+ * provider-response capture. The constructor is auth-free — the caller
+ * threads registry auth (apiKey/headers) into the returned `options` before
+ * dispatching.
  */
 export function buildBinderCompleteCall(
   input: BinderCompleteCallInput,
@@ -387,7 +395,6 @@ export function buildBinderCompleteCall(
   };
 
   const options: ProviderStreamOptions = {
-    temperature: 0,
     signal: input.signal,
     onResponse: input.onResponse,
     // The per-api forced-tool-choice spelling (bug 0010 pin clarification): the
@@ -396,6 +403,17 @@ export function buildBinderCompleteCall(
     // the choice per the resolved binder model's api.
     toolChoice: forcedToolChoiceForApi(String(input.model.api), toolName),
   };
+
+  // Per-(api, model-id) temperature placement (provider-error-mapping.md
+  // #binder-temperature-placement-mapping, bug 0064): a model that has
+  // deprecated `temperature` answers it with a 400 the classifier routes to
+  // the transport-retry budget, spending both budgeted binder calls on an
+  // identical, deterministically-refused request, so a refusing pair OMITS
+  // the key — never a present `temperature` key holding `undefined`, which
+  // still reaches the adapter's payload builder as an own key.
+  if (binderSendsTemperature(String(input.model.api), input.model.id)) {
+    options.temperature = 0;
+  }
 
   // Provider seed-field mapping: place the fixed seed under the provider's seed
   // field name, when its row carries one; omit it otherwise.

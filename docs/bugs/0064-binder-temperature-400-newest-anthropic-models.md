@@ -1,6 +1,6 @@
 # Bug 0064 — The binder's spec-pinned `options.temperature = 0` is a hard HTTP 400 on the newest `anthropic-messages` models: every non-bypass `params:` theta bound to `claude-sonnet-5` burns both budgeted binder calls and terminates on `argument binder unavailable`, and the live suite cannot see it because its one binder cell hardcodes an older model
 
-- **Status:** open. Live-confirmed.
+- **Status:** fixed (0.94.0). Live-confirmed at filing.
 - **Kind:** defect — spec and implementation together fail to deliver
   documented behaviour against a real provider. Three spec pages pin
   `temperature: 0` on the binder inference call as an unconditional
@@ -364,3 +364,272 @@ any of the three options. The H9a area (d) fixture's hardcoded
   live registry, model `claude-sonnet-5` (production path and raw
   `complete()` counterfactual) and the five-model `temperature: 0` census
   above. Probes deleted after recording, per hunt protocol.
+
+## Fix (0.94.0)
+
+- **What shipped:**
+  - `src/binder/binder-temperature.ts` (new) — §Fix Option 1's placement table:
+    `BINDER_TEMPERATURE_TABLE`, one row per pinned pi-ai `Api` value, each row
+    `{ placement: "sent" | "omitted", refusedByModelId }`; and
+    `binderSendsTemperature(api, modelId)`, an exact-`id` match against the
+    row's refusal set. Null-prototyped and `Object.hasOwn`-guarded per fix
+    records 0031/0038 (`api` is a registry-origin string, so an unguarded
+    bracket read would resolve an `Object.prototype` own key as a value);
+    table, rows and id arrays all frozen for the module-level-mutable gate.
+  - `src/binder/binder-inference.ts` — `buildBinderCompleteCall` drops
+    `temperature: 0` from its `options` literal and writes it only when
+    `binderSendsTemperature` says so, beside the per-api seed placement; a
+    refusing pair gets NO `temperature` own key. Module header and the
+    constructor's doc-comment restate the conditional contract and cite the new
+    anchor.
+  - `src/binder/binder-seed.ts`, `src/extension/production-theta-producer.ts`
+    (`#completeBinderReply`) — the two doc-comments that restated the
+    unconditional pin. Comment text only; the producer's doc-block was held at
+    its original line count so the external test citations into that file did
+    not shift.
+  - `src/extension/version-bump-gates.ts` — `apiCoverageFailures`'s second
+    parameter renamed `seedFieldTableKeys` to `tableRowKeys` (all four call
+    sites positional) and its doc-comment plus the module header's step-6
+    bullet now state that one coverage function guards two tables.
+  - `docs/spec_topics/pi-integration-contract/provider-error-mapping.md` — the
+    new §Binder temperature placement mapping (anchor
+    `#binder-temperature-placement-mapping`), beside §Provider seed-field
+    mapping: the keying rule, the per-api table, the model-scoped refusal
+    table, "omitted means the key is absent from `options`", the shared
+    `Api`-coverage gate, the provider-coupled-not-pi-ai-coupled widening rule,
+    the exact-id match rule, and the outside-the-table default.
+  - `docs/spec_topics/binder/determinism-cancellation-failure.md` §Determinism,
+    `docs/spec_topics/pi-integration-contract/binder-inference.md`,
+    `docs/spec_topics/implementation-notes.md`,
+    `docs/spec_topics/binder/binder-model-and-context.md`,
+    `docs/spec_topics/pi-integration-contract/version-bump-triggers.md` step 6,
+    `docs/plan_topics/coverage-matrix.md` (`cka-35` and `cka-42`) — the
+    same-commit conditionalisation of every page that pinned `temperature: 0`
+    unconditionally. §Determinism says what determinism means when the field is
+    omitted: theta pins byte-identical *input*, and whether the provider maps
+    that input to byte-identical output is provider-dependent and outside
+    theta's control — the claim the page already made for a seedless transport.
+    §Determinism's opening stayed a single edited line so the failure-mode
+    template line numbers below it did not shift. `docs/reference/**` carries no
+    temperature prose (swept twice), so no mirror row exists to update.
+  - `tests/version-bump-gates.test.ts` — one additive step-6 cell asserting the
+    `Api`-coverage gate over `Object.keys(BINDER_TEMPERATURE_TABLE)` in both
+    directions. No existing cell touched.
+  - `tests/binder-inference-provider-mapping.test.ts` — five additive `cka-34`
+    cells (below).
+  - `tests/live/live-production-acceptance.test.ts` — additive H8a cell 36
+    (below); 147 insertions, 0 deletions.
+  - `tests/live/acceptance/harness.ts`,
+    `tests/live/acceptance/noninteractive-acceptance.test.ts`,
+    `tests/live/acceptance/fixtures/acc-params-binder.theta` — the H9a area (d)
+    re-derivation (below).
+- **Parent adjudication (verbatim).** "Option 1 — the per-api `temperature`
+  placement table — is settled as the route. The doc recommends it; it mirrors
+  two landed precedents (the per-api seed-field table on
+  `provider-error-mapping.md`, and bug 0010's `forcedToolChoiceForApi` added
+  for exactly this failure class on a neighbouring field); Option 2 is
+  disfavoured by two named normative conflicts (the malformed-retry rule's 'no
+  schema mutation between attempts', and the provider-owned-wording
+  presupposition `provider-error-mapping.md` itself flags as undetectable
+  drift); Option 3 has the largest blast radius (three spec pages rewritten
+  around a new determinism framing, existing unit pins inverted) and no
+  recommendation. STOP only if your measurement contradicts Option 1's
+  feasibility."
+- **Operator riders (verbatim).** "three spec pages pin the binder's
+  temperature: 0 unconditionally, so any drop/conditionalization is a
+  same-commit spec edit under the corpus discipline" — and — "H8a cell 31 pins
+  bind_model: anthropic/claude-haiku-4-5 DELIBERATELY to sidestep this bug —
+  the fix adds sonnet-5-class coverage (additive cell, or a repin only with doc
+  authority) and the verifier proves the red path against a real sonnet-5
+  binder call once. Provider-billed calls are expected; token cost is not a
+  reason to skip."
+- **The api-vs-model scoping decision, and the live census that settled it.**
+  §Reproduction's Reach 3 census was measured at `d06daae3` (0.52.0) and is
+  stale; it was re-derived live at HEAD `e54338a7` against the configured
+  registry, one `temperature: 0` probe and one no-`temperature` counterfactual
+  per model. Under `anthropic-messages`: `claude-sonnet-5` and `claude-fable-5`
+  REFUSE with `400 {"type":"error","error":{"type":"invalid_request_error",
+  "message":"\`temperature\` is deprecated for this model."}}` and succeed
+  without the field; `claude-opus-5`, `claude-haiku-4-5`,
+  `claude-haiku-4-5-20251001`, `claude-opus-4-5`, `claude-opus-4-5-20251101`,
+  `claude-opus-4-6`, `claude-opus-4-7`, `claude-opus-4-8`, `claude-sonnet-4-5`,
+  `claude-sonnet-4-5-20250929` and `claude-sonnet-4-6` accept it;
+  `claude-opus-4-1` and its dated alias answer `404 not_found_error`
+  (unavailable — no row claimed); the openrouter `openai-completions` models
+  answer `401 Missing Authentication header` (uncredentialed here — no row
+  claimed). Two facts decided the shape. (1) The refusal is MODEL-scoped inside
+  one api, so an api-only key cannot express it. (2) `claude-fable-5` is absent
+  from the filed census, and `claude-opus-5` — newer than both refusing ids —
+  ACCEPTS the field, so this report's "the rejection is on the *newest* model …
+  the set grows with each Anthropic release" framing does not hold as a rule. A
+  family or newest-model heuristic would therefore claim coverage no probe
+  measured; the table lists the two measured ids and matches them exactly, and
+  the spec section says a dated alias is a distinct id needing its own row.
+- **Why the theta-side table is load-bearing at this pi-ai pin.** pi-ai's
+  anthropic adapter already gates the field —
+  `node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js:737`,
+  `options?.temperature !== undefined && !options?.thinkingEnabled &&
+  compat.supportsTemperature` — but `dist/providers/anthropic.models.js` sets
+  `compat.supportsTemperature: false` for `claude-opus-4-7` and
+  `claude-opus-4-8` ONLY, and the default is `true`
+  (`anthropic-messages.js:116`). Neither refusing id carries the flag, so pi-ai
+  forwards the field for them and the 400 is reached. Two consequences are
+  recorded rather than assumed: the mapping is an `options`-shape contract, not
+  a wire contract (an adapter may drop what theta writes — the census's
+  "accept" rows for opus-4-7/4-8 are options-level, since the adapter strips the
+  field before the wire); and an own `temperature` key holding `undefined` is
+  wire-identical to an absent one at this pin (`anthropic-messages.js:737`,
+  `openai-completions.js:476`, `mistral-conversations.js:184` all guard on
+  `!== undefined`), so the spec states only that such a key reaches the adapter
+  and presupposes nothing about what the adapter does with it.
+- **The `Api`-coverage build assertion, extended.** The gate that guards the
+  seed-field table is `apiCoverageFailures`
+  (`src/extension/version-bump-gates.ts`), driven by the `api-coverage` row's
+  pinned `Api` snapshot in `src/extension/sdk-inventory.ts`. It is
+  table-generic (it takes row keys), so it now guards the temperature table
+  through one additional assertion cell rather than a second gate function, and
+  `version-bump-triggers.md` step 6 tells the contributor a new `Api` needs a
+  row in each table in the same commit.
+- **The offline pins §Fix pre-authorized for movement did not move.**
+  Blast-radius pre-measurement at HEAD (an Option-1 prototype plus the full
+  suite) reds ONE test — the module-level-mutable gate on the prototype's
+  unfrozen constant, a scratch artefact. Neither
+  `tests/binder-inference-provider-mapping.test.ts` nor
+  `tests/binder-forced-tool-dispatch.test.ts` flipped: their model doubles are
+  `{ api }` with no `id` (`modelOf`) or `id: "binder-model"`, so no id-scoped
+  refusal row can match and every existing `temperature: 0` pin stays TRUE. The
+  authorization was conditional ("verify then move") and the verification said
+  do not move. Both files took additive or comment-only edits instead: five new
+  `cka-34` cells (two omission cells for the measured refusing ids; three
+  controls — same-api `claude-haiku-4-5` still sends, `openai-completions` +
+  `gpt-4o` still sends, and `openai-completions` + `claude-sonnet-5` still
+  sends, which is what forbids the table degrading to an id-only denylist), and
+  header-bullet qualifications. `tests/binder-system-note-determinism.test.ts`
+  took comment/title-only edits under a recorded self-authorization (below);
+  its `expect(call.options.temperature).toBe(0)` is untouched and remains true
+  for its `openai-completions` fixture.
+- **Recorded self-authorization (the `question` tool is unavailable
+  non-interactively).** The question that would have been asked: "the `cka-42`
+  conformance cell in `tests/binder-system-note-determinism.test.ts` restates
+  the now-conditional `temperature: 0` MUST in its `it()` title and three
+  comments; that file is not named by §Fix — may the claim text be corrected?"
+  Evidence: (1) `docs/plan_topics/coverage-matrix.md` maps `cka-42` to
+  `determinism-cancellation-failure.md` §Determinism, the exact section this
+  commit conditionalised; (2) that file's own banner names itself "cka-42 —
+  Determinism (…; temperature: 0)", so it is that token's conformance witness;
+  (3) the operator rider quoted above makes a same-commit sweep of the corpus
+  the discipline; (4) the full suite is green with the fix in place, proving the
+  cell's assertions stay TRUE for its fixture, so only the claim text is stale.
+  Bound: three files (`tests/binder-system-note-determinism.test.ts`,
+  `tests/binder-forced-tool-dispatch.test.ts`,
+  `src/binder/binder-inference.ts`), comment and `it()`-title text only, zero
+  `expect(...)` edits, zero behavioural change. STOP valve declared: any red in
+  those files, or any remedy needing an assertion edit, stops the run. Neither
+  fired.
+- **The live witness (doc-prescribed).**
+  `tests/live/live-production-acceptance.test.ts` H8a cell 36 plants a
+  non-bypass `params:` theta (two fields, one defaulted — neither
+  `classifyBinderBypass` arm) with `bind_echo: true`, DERIVES `bind_model:` as
+  `<provider>/<id>` from `requireLiveProvider()` (the shared preference rule,
+  never a hardcoded id), asserts both registrations token-free, then asserts the
+  BND-1 `Running /b64livebinder…` note is PRESENT and that no note contains
+  `argument binder unavailable`, read off the settled `SessionManager`. H8a cell
+  31's `anthropic/claude-haiku-4-5` pin is intact and untouched; its sidestep
+  rationale retires with this fix, and a later cleanup may repin it.
+- **H9a area (d), re-derived.** Per §Fix's "should be re-derived from the same
+  rule for the same reason": `materialiseHostBoundThetaDir` (new, in
+  `tests/live/acceptance/harness.ts`) materialises a throwaway `--theta` dir
+  holding a copy of `acc-params-binder.theta` whose `bind_model:` line is
+  rewritten from `resolveAcceptanceHost()`, and area (d) spawns against that
+  dir, disposing it in a `finally`. It fails loudly on a missing fixture, an
+  unqualifiable host, or a `bind_model:` line count other than 1 — a silent
+  no-op would restore the sidestep. The committed fixture's own line moved to
+  `anthropic/claude-sonnet-5` so the committed artefact stops naming a model the
+  rule would never pick. Area (d) is not a second witness: measured on both
+  models, its `pi -p` stdout and stderr are empty either way and its assertion
+  set is absence-only (the bind note never reaches print-mode stdout, DOC-73 /
+  FIND-S7-4), which is why §Fix requires the witness to be the H8a cell.
+- **Gates** (verbatim, at the verified tree):
+  - Witness RED at HEAD, offline: `AssertionError: the binder call carries a
+    'temperature' own key for an (api, model-id) pair whose placement row
+    refuses the field with a 400 … options keys:
+    ["temperature","signal","onResponse","toolChoice"]: expected true to be
+    false` (both omission cells).
+  - Witness RED at HEAD, live: `AssertionError: no bind_echo success note for a
+    binder pass against bind_model: 'anthropic/claude-sonnet-5': the binder
+    call's own request shape was refused, so the theta never started. Notes:
+    ["theta /b64livebinder: argument binder unavailable (anthropic-messages:
+    400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_req…"]`.
+  - Full suite: `Test Files  296 passed (296)` / `Tests  4893 passed (4893)`.
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, no diagnostics.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`, no
+    diagnostics.
+  - Live: `tests/live/live-production-acceptance.test.ts` `Tests  36 passed
+    (36)`; `tests/live/acceptance/noninteractive-acceptance.test.ts` `Tests  10
+    passed (10)`; `tests/live/acceptance/ctor-unresolved-load-refusal.test.ts`
+    `Tests  1 passed (1)` — H9a 11/11.
+- **Review:** 2 rounds. Round 1 (deep) — FINDINGS: two spec blockers (the "an
+  own `undefined` key is not the same request shape as an absent one"
+  overclaim, false at the pinned pi-ai; the `cka-42` coverage row left pinning
+  the superseded universal contract), one house-rule (a historical "holdover"
+  sentence explaining a parameter-name mismatch), two prose (two overclaiming
+  "the only … reaches a real binder call" sentences; a stale `modelOf` JSDoc and
+  header parenthetical), one test-prose (surviving universal-pin restatements),
+  plus three residuals. All fixed except the residuals. Round 2 (fast) — one
+  spec finding: two sentences still attributed an "unconditional" `temperature:
+  0` pin to the §Determinism this same commit had conditionalised. Fixed as a
+  one-word deletion in each; polish verified by gate-diff (comment and prose-only
+  hunks, gates re-run green), confirmation round skipped.
+- **Verification:** PASS. (1) Red path proven by neutralising
+  `binderSendsTemperature` to `return true`: both offline omission cells red
+  with the quoted assertion, and the live cell red against a real
+  `claude-sonnet-5` binder call with the quoted `argument binder unavailable
+  (anthropic-messages: 400 …)` note; restored byte-exact —
+  `sha256(src/binder/binder-temperature.ts)` before and after both
+  `d031cc362f2e0845c8f0fdb09c2be56c2a3a4ff2ebc9eeb7e57ae340a7b83427` — and both
+  green again. (2) Default suite 296/4893 green. (3) End-to-end live: all three
+  live files run for real, 47/47 green, H9a area (d) passing with its binder
+  pass against the rule-resolved model; no code outside
+  `tests/fixtures/h7a/permitted-codes.json` was emitted and that file was not
+  edited; none of the open live signatures (0065, the ~180 s H9a stall, the bug
+  0080 H8a cell, sentinel-refusal, `0xC0000142`) appeared. (4) typecheck and
+  lint clean. No `expect(...)` anywhere in the diff was weakened, removed or
+  inverted; `tests/live/live-production-acceptance.test.ts` is 36 cells with 0
+  deletions.
+- **Residuals:**
+  1. `BinderTemperatureRow.placement: "omitted"` is unreachable as shipped —
+     every row is `"sent"`, and `binderSendsTemperature` closes over the module
+     constant, so no test can drive that arm without a table edit. Kept because
+     the spec section defines "omitted" as a legal per-api cell value and the
+     adjacent seed table carries real whole-api omitted rows, so a future
+     whole-api deprecation is a row edit rather than a shape change. Witnessing
+     it would need a table-parameterised core the export closes over.
+  2. `BINDER_SEED_FIELD_BY_API[input.model.api]`
+     (`src/binder/binder-inference.ts`) is an unguarded bracket read on a
+     plain-prototype frozen object, ten lines from the new guarded one — the
+     hazard `binder-temperature.ts`'s own 0031/0038 rationale names (an `api`
+     spelling `constructor` resolves an `Object.prototype` own key, passes
+     `!== undefined`, and becomes an options key). Pre-existing, outside this
+     bug's blast radius, untouched.
+  3. `tests/live/acceptance/noninteractive-acceptance.test.ts`'s area-(d)
+     `it()` title promises "a success echo note surfaces", which that black-box
+     cell documents it cannot assert (the note never reaches `pi -p` stdout).
+     Pre-existing, on unchanged lines, untouched.
+  4. The `V18c-T stub: performs no coverage check` sentence survives on
+     `apiCoverageFailures`'s doc-comment though the shipped body does perform
+     the check. It is a file-wide pattern on all eight gate functions; sweeping
+     one is inconsistent and sweeping all eight is outside this fix.
+- **Discharge notes appended:** none. Bug 0065's reproduction is unaffected —
+  its anchor is a 200k-token context overflow at `claude-haiku-4-5` that never
+  carried `temperature`; only its secondary corroborating aside used a
+  `temperature`-carrying `claude-sonnet-5` call, which it already frames as "a
+  separate probe" and whose subject it scopes generally ("a property of the
+  adapter's error path, not of the overflow case"). No re-anchoring is needed
+  and 0065 was not edited.
+- **Pinned dispositions / non-goals:** all four §Non-goals hold and none was
+  touched — whether `temperature: 0` is the right determinism primitive; the
+  transport-class retry spending a call on an identical request; the
+  120-code-point note cap truncating the 400 body; `onResponse` not firing on
+  the 400 (bug 0065). No new diagnostic code was minted: the failure this fix
+  removes was already rendered by the existing *Binder model transport failure*
+  row, so the DIAG-2 closed registry is unchanged.

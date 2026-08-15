@@ -1,6 +1,6 @@
 ---
 mode: prompt
-bind_model: anthropic/claude-haiku-4-5
+bind_model: anthropic/claude-sonnet-5
 params:
   topic: string
   count: number = 3
@@ -12,7 +12,13 @@ params:
 // three-arm envelope JSON is NEVER streamed to the user / stdout. On a
 // successful bind the observable proof is the `bind_echo` success note
 // (`Running /acc-params-binder: …`). The `bind_model:` is provider-qualified
-// (`anthropic/claude-haiku-4-5`) because the bare id can be ambiguous across
-// configured providers; a non-bypass theta with no resolvable binder model fails
-// to load. The body is a pure-literal `respond`.
+// because a bare id can be ambiguous across configured providers, and it names
+// the model the shared live-suite preference rule resolves first: this is the
+// only committed fixture file the acceptance half drives to a real binder
+// call, so pinning it to a model the rule would never pick hides every
+// request-shape fact that holds only on the preferred model (bug 0064). The
+// area-(d) driver rewrites this
+// line from `resolveAcceptanceHost()` before every spawn, so the committed
+// value cannot drift away from the rule. A non-bypass theta with no resolvable
+// binder model fails to load. The body is a pure-literal `respond`.
 "ok"

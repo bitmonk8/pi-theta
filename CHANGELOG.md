@@ -6,6 +6,49 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-08-15
+
+### Fixed
+
+- **bug 0064 — the binder's `options.temperature = 0` was a hard HTTP 400 on the
+  Anthropic models that deprecated the field, so every non-bypass `params:`
+  theta bound to one of them spent both budgeted binder calls and terminated on
+  `argument binder unavailable` without running its body.**
+  `buildBinderCompleteCall` wrote `temperature: 0` into every binder
+  `complete()` call with no placement gate beside the ones the forced tool
+  choice and the seed field already carried. `claude-sonnet-5` — the model this
+  repo's own live-suite preference rule resolves first — answers that field with
+  `400 invalid_request_error` ("`temperature` is deprecated for this model.");
+  the classifier routes the 400 to the transport class, the single transport
+  budget re-issues the identical request, and the second failure surfaces as the
+  *Binder model transport failure* note. `src/binder/binder-temperature.ts` now
+  holds a static per-(api, model-id) placement table with a build-time
+  `Api`-coverage gate — the same `apiCoverageFailures` assertion that guards the
+  provider seed-field table — and the binder writes `temperature: 0` only for
+  pairs the table does not list as refusing it, omitting the key entirely
+  otherwise. The refusal set is measured, not derived: a live census at HEAD
+  found `claude-sonnet-5` and `claude-fable-5` refusing while `claude-opus-5`,
+  newer than both, accepts, so no family or newest-model rule holds. The table
+  is a spec artefact — §Binder temperature placement mapping on
+  `pi-integration-contract/provider-error-mapping.md`, beside the seed-field
+  table — and every page that pinned `temperature: 0` unconditionally
+  (`binder/determinism-cancellation-failure.md` §Determinism,
+  `pi-integration-contract/binder-inference.md`, `implementation-notes.md`,
+  `binder/binder-model-and-context.md`, `version-bump-triggers.md` step 6) was
+  conditionalised in the same commit, with §Determinism now stating what
+  determinism means when the field is omitted: theta pins byte-identical input,
+  and byte-identical output stays a provider property. Locked by five additive
+  `cka-34` cells in `tests/binder-inference-provider-mapping.test.ts` (two
+  omission cells plus three controls that forbid the table degrading to an
+  api-scoped or id-only rule), one additive `Api`-coverage cell in
+  `tests/version-bump-gates.test.ts`, and the doc-prescribed live witness — H8a
+  cell 36 in `tests/live/live-production-acceptance.test.ts`, which derives its
+  `bind_model:` from the shared live-model preference rule instead of hardcoding
+  one and asserts the `bind_echo` success note with no `argument binder
+  unavailable`. The H9a acceptance area (d) binder reach now re-derives its
+  `bind_model:` from the same rule at spawn time rather than pinning an older
+  model.
+
 ## [0.93.0] - 2026-08-15
 
 ### Fixed

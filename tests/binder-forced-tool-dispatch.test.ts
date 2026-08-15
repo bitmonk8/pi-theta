@@ -11,9 +11,11 @@
 // Spec pinned:
 //   - pi-integration-contract/binder-inference.md §"Binder inference call" —
 //     systemPrompt, the fixed user literal, the single `__theta_bind_<slug>`
-//     tool, forced `options.toolChoice`, temperature 0, per-api seed field,
-//     `options.signal`, `options.onResponse`, and the ToolCall-arguments
-//     extraction rule (plain text / wrong-name ToolCall = malformed envelope).
+//     tool, forced `options.toolChoice`, temperature 0 on the (api, model id)
+//     pairs the per-(api, model-id) placement mapping sends it for, per-api
+//     seed field, `options.signal`, `options.onResponse`, and the
+//     ToolCall-arguments extraction rule (plain text / wrong-name ToolCall =
+//     malformed envelope).
 //     ONE spec amendment rides the fix (bug 0011 option 1): the tool
 //     `parameters` is the envelope schema ROOTED IN AN OBJECT WRAPPER
 //     `{ type:"object", properties:{ envelope:<anyOf> }, required:["envelope"],
@@ -45,7 +47,9 @@
 //    5. anthropic toolChoice spelling       — HEAD: options.toolChoice absent.
 //    6. openai-completions toolChoice       — HEAD: options.toolChoice absent.
 //    7. temperature/signal/onResponse       — HEAD: onResponse never registered
-//       (temperature 0 and signal already conform at HEAD; onResponse is the teeth).
+//       (temperature 0 — sent here because every model double below is an
+//       (api, model id) pair the placement mapping sends the field for — and
+//       signal already conform at HEAD; onResponse is the teeth).
 //    8. openai `seed` = FNV-1a              — HEAD: no seed key ever sent.
 //    9. mistral `random_seed` + anthropic omission — HEAD: mistral arm red
 //       (no random_seed); the anthropic omission alone would be green, so the
