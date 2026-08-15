@@ -26,37 +26,37 @@
 //     types"). Shares its message and its construction with the
 //     named-declaration case (`schema-declarations.ts`'s
 //     `emptySchemaBodyDiagnostic`).
-//   - `theta/parse/duplicate-inline-field-name` — two or more field-name
-//     positions of one inline object body spell the same name; the inline
-//     spelling reuses the object-schema `Field` form (grammar.md §"Inline
-//     object types") and carries the same field semantics. `ObjectType`
-//     spells a closing `}` as well, so an interior that never closes is no
-//     inline object type and carries no comparison of its own — the same
-//     grammar requirement the empty rule above reads, asked here of the
-//     source (`TypeNode.closingBraceSpelled`) rather than of the field loop's
-//     own consumption, which a missing type position can spend on that brace.
-//     The comparison runs over the positions the interior spells as
-//     `Ident ":"`, in source order, and draws one diagnostic per repeated name
-//     at its second such position
-//     (code-registry-parse.md's row). It reaches only the positions ahead of
-//     the interior's FIRST STOP, of which the row states three: an identifier
-//     the interior does not follow with a `:`, a completed field it does not
-//     follow with a `,`, and a field whose own type carries an interior that
-//     never closes. The third shape stops EVERY body enclosing that field as
-//     well, at any depth, each of them reading its own field list through the
-//     interior that never closes. Names behind a stop are not compared, so a
-//     genuine repeat written there draws nothing (code-registry-parse.md's
-//     row). Withheld
-//     for an object reached through a generic type argument, at every depth
-//     beneath it: the walk parses that interior the same way regardless
-//     (`TypeNode.fieldNames` holds the repeat there too), so the withholding
+//   - `theta/parse/duplicate-inline-field-name` — two or more entries of one
+//     inline object interior share a key; the inline spelling reuses the
+//     object-schema `Field` form (grammar.md §"Inline object types") and
+//     carries the same field semantics. `ObjectType` spells a closing `}` as
+//     well, so an interior that never closes is no inline object type and
+//     carries no comparison of its own — the same grammar requirement the
+//     empty rule above reads, asked here of the source
+//     (`TypeNode.closingBraceSpelled`) rather than of the field loop's own
+//     consumption. The comparison runs over the entries a brace-and-angle-
+//     aware top-level comma split of the interior yields (`splitTopLevel`,
+//     `./params`), keyed on each entry's raw pre-colon text (`topLevelColon`,
+//     `./params`) after `trim()` — no unquoting, no normalisation, and no
+//     stop: this is the same split and the same colon `hoistInlineObjectType`
+//     (params.ts) and `lowerInlineObject` (body-type-lowering.ts) key their
+//     `properties` and `required` writes on, so the comparison agrees with
+//     what is lowered BY CONSTRUCTION. One diagnostic per repeated key, at its
+//     second occurrence, in source order (code-registry-parse.md's row).
+//     Withheld for an object reached through a generic type argument, at
+//     every depth beneath it: the interior parses brace-aware there too, so a
+//     key-derivation over it would find the same repeat, and the withholding
 //     is a deliberate scope decision rather than a parse-time blind spot —
 //     the mechanism that leaves nothing for this rule to name is the
 //     LOWERING's generic-argument split (`params.ts`'s `lowerTypeExpr`,
 //     through `splitTopLevel`'s default angle-only nesting), which never
 //     divides that interior into fields and mints no duplicate `required`
-//     there (code-registry-parse.md's row, "Three shapes sit outside this
-//     row"). Position-independent, like `empty-schema-body` above.
+//     there (code-registry-parse.md's row, "Two shapes sit outside this
+//     row"). Position-independent, like `empty-schema-body` above. The
+//     retained `fieldNames` / `namesStopped` stay on the node beside this
+//     key: they are the theta-side IDENTIFIER list bug 0154's identifier
+//     rules rebase onto, which the raw entry text this rule now keys on is
+//     not.
 //
 // A caller may select a narrower rule SET than all five checks
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
@@ -74,6 +74,7 @@
 // engine are absent). The paired V2a implementation leaf fills them in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import { splitTopLevel, topLevelColon } from "./params";
 import { emptySchemaBodyDiagnostic } from "./schema-declarations";
 
 /**
@@ -140,7 +141,7 @@ export function parseTypeExpression(
   rules: TypeCheckRules = "all",
 ): Diagnostic[] {
   const tokens = tokeniseType(source);
-  const parser = new TypeParser(tokens);
+  const parser = new TypeParser(tokens, source);
   const node = parser.parse();
   if (node === undefined) {
     return [];
@@ -169,47 +170,33 @@ type TypeNode =
        * a name and no parseable type contributes to `fieldNames` and not to
        * `fieldTypes`.
        *
-       * The key `theta/parse/duplicate-inline-field-name` (`walkType`'s
-       * `object` arm, below) compares is therefore the SOURCE's field-name
-       * positions, which is the only key statable on a malformed interior: the
-       * tolerant recovery lets one field's type swallow the next field's
-       * tokens, so a key that waited for the type would make the emission
-       * depend on which neighbouring text happened to parse. For the shapes bug
-       * 0052 §Fix constraint 4 pins — whitespace and a trailing comma, a
-       * generic argument's interior, a union arm — this key and what
-       * `lowerInlineObject` / `hoistInlineObjectType` build for the same text
-       * agree. On a malformed interior they diverge, and that family belongs to
-       * bug 0052 §Non-goals (the `as` rename the inline `Field` form does not
-       * parse) and bug 0045 §Non-goals (`{ a }`, `{ "a": string }`, `{ a: }`)
-       * rather than to this rule. Neither array carries a source range — a
-       * field name's own span is bug 0154's open subject, which reuses this
-       * retention.
+       * `fieldNames` is NOT `theta/parse/duplicate-inline-field-name`'s key.
+       * That rule (`walkType`'s `object` arm, below) compares the entries
+       * `interiorSource` (below) splits into — the same tokenisation
+       * `hoistInlineObjectType` (params.ts) and `lowerInlineObject`
+       * (body-type-lowering.ts) key their `properties` / `required` writes on,
+       * so the rule agrees with what is lowered BY CONSTRUCTION rather than by
+       * fixture (bug 0159 §Fix route (a)). `fieldNames` is the theta-side
+       * IDENTIFIER list bug 0154's lowercase-first and reserved-keyword rules
+       * rebase onto: those rules ask whether a name is a well-formed
+       * identifier, a question asked of a TOKEN, not of the raw, unnormalised
+       * entry text `interiorSource` yields — which is why the retention stays
+       * beside a comparison keyed on different text. Neither array carries a
+       * source range — a field name's own span is bug 0154's open subject,
+       * which reuses this retention.
        *
-       * THREE STOP SHAPES END THE CONTRIBUTIONS, and the third reaches EVERY
-       * ENCLOSING BODY. Two of them break `TypeParser.parseObject`'s loop: an
-       * identifier at a field-name position with no `:` behind it, and a
-       * completed field with no `,` behind it. The third leaves the loop
-       * running and stops the pushes for the rest of the body — a field whose
-       * own parsed type carries an interior that never closes
-       * (`carriesUnclosedInterior`, read off the field type the moment it
-       * parses). That third shape is needed for the same reason the key is the
-       * source's: a nested `parseObject` that broke without consuming its own
-       * closing `}` leaves the ENCLOSING call resumed at the token it left —
-       * still inside the nested interior — where the remaining `Ident ":"`
-       * positions are the NESTED body's fields, and that interior's `}` is
-       * read as the enclosing body's own. Reporting those as the enclosing
-       * body's repeat would name a name no single body spells, so the pushes
-       * stop at the field whose type carries the unclosed interior. That
-       * field's OWN name is read ahead of its type and stays contributed.
-       * `carriesUnclosedInterior` recurses object field types, generic
-       * arguments and union arms, which is what makes the stop reach every
-       * enclosing body rather than the nearest one: at depth three
-       * (`{a: {b: {c: 1, : y, c: 2}, a: 4}, z: 5}`) the middle body closes its
-       * own brace and reads its field list through the interior that never
-       * closes, so the outer body must stop on it too.
-       * code-registry-parse.md's row states all three shapes and
-       * the cascade. A genuine repeat written behind any of them is not
-       * compared by this rule.
+       * THREE STOP SHAPES END THE CONTRIBUTIONS TO `fieldNames`, reaching every
+       * enclosing body from the third; the cascade bears only on this
+       * identifier list, not on the duplicate-key comparison above. Two of the
+       * three break `TypeParser.parseObject`'s loop: an identifier at a
+       * field-name position with no `:` behind it, and a completed field with
+       * no `,` behind it. The third leaves the loop running and stops the
+       * pushes for the rest of the body — a field whose own parsed type
+       * carries an interior that never closes (`carriesUnclosedInterior`, read
+       * off the field type the moment it parses). `carriesUnclosedInterior`
+       * recurses object field types, generic arguments and union arms, which
+       * is what carries the stop to every enclosing body rather than the
+       * nearest one.
        */
       readonly fieldTypes: TypeNode[];
       readonly fieldNames: string[];
@@ -238,7 +225,7 @@ type TypeNode =
        * `closingBraceSpelled` is the same grammar requirement asked of the
        * SOURCE rather than of the field loop: whether a `}` stands at brace
        * depth 0 ahead of this interior in the token stream
-       * (`interiorSpellsClosingBrace`). The two diverge where a field's type
+       * (`interiorClosingBraceIndex`). The two diverge where a field's type
        * position is empty and `parsePrimary`'s tolerant punctuation skip
        * consumes the interior's own `}` looking for a type (`{a: integer, a: }`
        * — `braceClosed` false, `closingBraceSpelled` true), and again where a
@@ -247,16 +234,38 @@ type TypeNode =
        * `theta/parse/duplicate-inline-field-name` asks the grammar question and
        * reads `closingBraceSpelled`; the empty rule keeps `braceClosed`, which
        * for its token-free interior answers alike.
+       *
+       * `interiorSource` is the raw source text between this node's own `{`
+       * and the depth-0 `}` `interiorClosingBraceIndex` finds — the empty
+       * string when `closingBraceSpelled` is false, since a `{` the source
+       * never closes spells no interior to slice. Sliced off `TypeToken.start`
+       * offsets rather than reconstructed from token texts, so quoting and
+       * inter-token whitespace survive verbatim, exactly as `splitTopLevel` /
+       * `topLevelColon` would see them if handed this source directly.
+       * `theta/parse/duplicate-inline-field-name` derives its comparison key
+       * from this field alone (`inlineObjectFieldKeys`, below):
+       * `splitTopLevel(interiorSource, ",", "angle-and-brace")` (`./params`),
+       * keyed on each entry's raw pre-colon text (`topLevelColon`, `./params`)
+       * after `trim()` — no unquoting, no normalisation.
        */
       readonly interiorHasTokens: boolean;
       readonly braceClosed: boolean;
       readonly closingBraceSpelled: boolean;
+      readonly interiorSource: string;
     }
   | { readonly kind: "union"; readonly arms: TypeNode[] };
 
+/**
+ * `start` is the offset of the token's first character in the tokenised
+ * source string — recorded so `TypeParser.parseObject` can slice
+ * `TypeNode.interiorSource` directly off the source rather than
+ * reconstructing it from token texts (which would drop the interior's
+ * original whitespace and quoting).
+ */
 interface TypeToken {
   readonly kind: "ident" | "str" | "num" | "punct";
   readonly text: string;
+  readonly start: number;
 }
 
 /** Tokenise a type expression. Whitespace-separated; brackets and `|`/`,` punct. */
@@ -275,6 +284,7 @@ function tokeniseType(source: string): TypeToken[] {
       continue;
     }
     if (c === '"' || c === "'") {
+      const start = i;
       const quote = c;
       let text = c;
       i += 1;
@@ -290,28 +300,30 @@ function tokeniseType(source: string): TypeToken[] {
         text += source[i] ?? "";
         i += 1;
       }
-      tokens.push({ kind: "str", text });
+      tokens.push({ kind: "str", text, start });
       continue;
     }
     if (isDigit(c)) {
+      const start = i;
       let text = "";
       while (i < n && (isDigit(source[i] ?? "") || source[i] === ".")) {
         text += source[i] ?? "";
         i += 1;
       }
-      tokens.push({ kind: "num", text });
+      tokens.push({ kind: "num", text, start });
       continue;
     }
     if (isIdentStart(c)) {
+      const start = i;
       let text = "";
       while (i < n && isIdentPart(source[i] ?? "")) {
         text += source[i] ?? "";
         i += 1;
       }
-      tokens.push({ kind: "ident", text });
+      tokens.push({ kind: "ident", text, start });
       continue;
     }
-    tokens.push({ kind: "punct", text: c });
+    tokens.push({ kind: "punct", text: c, start: i });
     i += 1;
   }
   return tokens;
@@ -324,22 +336,25 @@ const GENERIC_ARITY: Readonly<Record<string, number>> = Object.freeze({
 });
 
 /**
- * Whether the interior beginning at `start` spells its own closing `}` — a `}`
- * token standing at brace depth 0 relative to that interior, anywhere ahead of
- * it in `tokens`.
+ * The TOKEN INDEX of the interior beginning at `start`'s own closing `}` — a
+ * `}` token standing at brace depth 0 relative to that interior, anywhere
+ * ahead of it in `tokens` — or `-1` when no such token exists.
  *
  * This is `ObjectType ::= "{" Field ("," Field)* ","? "}"` asked of the source,
  * which is the question `theta/parse/duplicate-inline-field-name` needs: a `{`
- * the source never closes is no inline object type and holds no field list to
+ * the source never closes is no inline object type and holds no interior to
  * compare. `TypeNode.braceClosed` cannot answer it, being whether
  * `TypeParser.parseObject`'s own loop CONSUMED that brace — for a field whose
  * type position is empty, `parsePrimary`'s tolerant punctuation skip consumes
  * the interior's `}` while looking for a type, and the depth-0 requirement here
  * is what keeps a NESTED interior's brace from answering for an enclosing one.
  * The scan is over `tokens`, which no parse step mutates, so it reads the source
- * however far the tolerant recovery has advanced.
+ * however far the tolerant recovery has advanced. `TypeParser.parseObject`
+ * reads the index twice: `closingBraceSpelled` is whether it is `>= 0`, and the
+ * found token's own `start` is the far end of the slice `TypeNode.interiorSource`
+ * reads off the source string.
  */
-function interiorSpellsClosingBrace(tokens: readonly TypeToken[], start: number): boolean {
+function interiorClosingBraceIndex(tokens: readonly TypeToken[], start: number): number {
   let depth = 0;
   for (let i = start; i < tokens.length; i += 1) {
     const token = tokens[i];
@@ -352,12 +367,12 @@ function interiorSpellsClosingBrace(tokens: readonly TypeToken[], start: number)
     }
     if (token.text === "}") {
       if (depth === 0) {
-        return true;
+        return i;
       }
       depth -= 1;
     }
   }
-  return false;
+  return -1;
 }
 
 /**
@@ -374,6 +389,14 @@ function interiorSpellsClosingBrace(tokens: readonly TypeToken[], start: number)
  * than the nearest one: a body that closes its own brace may itself read its
  * field list through an interior that never closes further down
  * (`{a: {b: {c: 1, : y, c: 2}, a: 4}, z: 5}`).
+ *
+ * The field names this stop guards feed only `fieldNames` — bug 0154's
+ * identifier retention. `theta/parse/duplicate-inline-field-name` reads
+ * `TypeNode.interiorSource` instead (bug 0159 §Fix route (a)), computed by
+ * `interiorClosingBraceIndex`'s own independent scan from each object node's
+ * own interior start; that scan balances nested braces on `tokens` alone, so
+ * it is immune to wherever this parser's shared `pos` ends up after a nested
+ * `parseObject` call breaks early.
  */
 function carriesUnclosedInterior(node: TypeNode): boolean {
   switch (node.kind) {
@@ -391,7 +414,13 @@ function carriesUnclosedInterior(node: TypeNode): boolean {
 /** A tolerant recursive-descent parser for the type grammar. */
 class TypeParser {
   private pos = 0;
-  constructor(private readonly tokens: readonly TypeToken[]) {}
+  // `source` is held beside `tokens` so `parseObject` can slice
+  // `TypeNode.interiorSource` directly off the original bytes, quoting and
+  // inter-token whitespace intact.
+  constructor(
+    private readonly tokens: readonly TypeToken[],
+    private readonly source: string,
+  ) {}
 
   private peek(): TypeToken | undefined {
     return this.tokens[this.pos];
@@ -502,6 +531,9 @@ class TypeParser {
   }
 
   private parseObject(): TypeNode {
+    // Captured before `eatPunct("{")` consumes it: one past its own `start`
+    // is the source offset `interiorSource` (below) slices from.
+    const openBrace = this.peek();
     this.eatPunct("{");
     // Held before the field loop advances `pos`, because the grammar's
     // closing-brace requirement is a question about the SOURCE and the tolerant
@@ -518,8 +550,10 @@ class TypeParser {
     // Set by a field type carrying an interior that never closes: from that
     // field on, this loop is reading tokens of the nested interior, so the
     // `Ident ":"` positions it still sees are that body's fields and not this
-    // one's. `TypeNode`'s doc comment states why a name this body never spells
-    // must not enter its comparison.
+    // one's. `fieldNames` feeds only bug 0154's identifier retention
+    // (`TypeNode`'s doc comment states why it stays), so this latch still
+    // guards that list even though `theta/parse/duplicate-inline-field-name`
+    // reads `interiorSource` instead.
     let namesStopped = false;
     while (this.peek() !== undefined && this.peek()?.text !== "}") {
       // FieldName `:` Type — hold the name token until the colon behind it is
@@ -564,15 +598,66 @@ class TypeParser {
       }
     }
     const braceClosed = this.eatPunct("}");
+    const closingBraceIndex = interiorClosingBraceIndex(this.tokens, interiorStart);
+    const closingBraceToken = closingBraceIndex >= 0 ? this.tokens[closingBraceIndex] : undefined;
+    // The raw source text between this node's own `{` and the depth-0 `}`
+    // `closingBraceToken` names — empty when the interior never closes, since
+    // there is then no such span to slice (`TypeNode`'s doc comment). Sliced
+    // off `TypeToken.start` offsets rather than reconstructed from token
+    // texts, so the bytes are exactly what `splitTopLevel` / `topLevelColon`
+    // would see if handed this source directly — quoting, inter-token
+    // whitespace and all.
+    const interiorSource =
+      closingBraceToken !== undefined
+        ? this.source.slice((openBrace?.start ?? 0) + 1, closingBraceToken.start)
+        : "";
     return {
       kind: "object",
       fieldTypes,
       fieldNames,
       interiorHasTokens,
       braceClosed,
-      closingBraceSpelled: interiorSpellsClosingBrace(this.tokens, interiorStart),
+      closingBraceSpelled: closingBraceToken !== undefined,
+      interiorSource,
     };
   }
+}
+
+/**
+ * The comparison key `theta/parse/duplicate-inline-field-name` (`walkType`'s
+ * `object` arm, below) runs over: every entry a brace-and-angle-aware
+ * top-level comma split of `interiorSource` yields
+ * (`splitTopLevel(interiorSource, ",", "angle-and-brace")`, `./params`),
+ * keyed on that entry's own raw text before its own top-level `:`
+ * (`topLevelColon`, `./params`) after `trim()` — no unquoting, no
+ * normalisation. This is the SAME split and the SAME colon
+ * `hoistInlineObjectType` (params.ts) and `lowerInlineObject`
+ * (body-type-lowering.ts) key their `properties` and `required` writes on,
+ * which is the whole point of route (a) (bug 0159 §Fix): the comparison then
+ * agrees with what is minted BY CONSTRUCTION, not by fixture.
+ *
+ * An entry with no top-level `:` contributes no key, and so does an entry
+ * whose pre-colon text trims to empty (`{: x, : y}`). An entry whose TYPE
+ * position is empty still KEEPS its key (`{a: integer, a: }` repeats `a`) —
+ * unlike the two lowerers above, which additionally skip an entry whose
+ * post-colon text is empty; this rule's key is the SOURCE's field-name
+ * positions, not the lowered artefact's, and a name the author wrote at two
+ * such positions is a repeat whether or not either position parses a type.
+ */
+function inlineObjectFieldKeys(interiorSource: string): string[] {
+  const keys: string[] = [];
+  for (const entry of splitTopLevel(interiorSource, ",", "angle-and-brace")) {
+    const colon = topLevelColon(entry);
+    if (colon < 0) {
+      continue;
+    }
+    const key = entry.slice(0, colon).trim();
+    if (key.length === 0) {
+      continue;
+    }
+    keys.push(key);
+  }
+  return keys;
 }
 
 /**
@@ -600,29 +685,33 @@ class TypeParser {
  *     unterminated `{` fails the second half and stays silent: `ObjectType`
  *     requires the closing brace, so there is no inline object type there to
  *     call empty.
- *   - `theta/parse/duplicate-inline-field-name` — two entries of
- *     `TypeNode.fieldNames` hold the same text, i.e. two of the field-name
- *     positions the interior spells as `Ident ":"` spell one name, AND the
- *     source spells the interior's closing `}`
- *     (`TypeNode.closingBraceSpelled`, the grammar requirement the empty rule
- *     above reads off `braceClosed`): `ObjectType` spells that brace, so an
- *     unterminated `{` is no inline object type and holds no field list for
- *     this rule to compare. `TypeNode.fieldNames` carries the names ahead of
- *     the interior's first stop only — an identifier with no `:` behind it, a
- *     completed field with no `,` behind it, or a field whose own type carries
- *     an interior that never closes, the last stopping every body enclosing
- *     that field as well, at any depth (the object variant's doc comment
- *     states all three shapes, the cascade, and why the key is the source's
- *     rather than the lowering's). One diagnostic per repeated name, at its
- *     second occurrence, in source order — `seen` tracks a
- *     name's first occurrence and `reported` its emission, both `Set`s, so a
- *     third occurrence draws no second line. Runs under EVERY `rules`
- *     value — the other check `"inline-object-shape"` admits — and is
- *     unqualified by `position` or by `isRoot`, but WITHHELD when
- *     `insideGenericArgument`: a generic type argument's interior is never
- *     divided into fields, so no duplicate `required` is ever minted there
- *     for this rule to name (code-registry-parse.md's row, "Three shapes sit
- *     outside this row").
+ *   - `theta/parse/duplicate-inline-field-name` — two entries of the split
+ *     `inlineObjectFieldKeys` derives from `TypeNode.interiorSource` share a
+ *     key — the raw text before that entry's own top-level `:`, after
+ *     `trim()`, with no unquoting and no normalisation — AND the source
+ *     spells the interior's closing `}` (`TypeNode.closingBraceSpelled`, the
+ *     grammar requirement the empty rule above reads off `braceClosed`):
+ *     `ObjectType` spells that brace, so an unterminated `{` is no inline
+ *     object type and holds no interior for this rule to compare. The split
+ *     is `splitTopLevel(interiorSource, ",", "angle-and-brace")` (`./params`)
+ *     and the colon is `topLevelColon` (`./params`) — the SAME functions
+ *     `hoistInlineObjectType` (params.ts) and `lowerInlineObject`
+ *     (body-type-lowering.ts) key their `properties` and `required` writes
+ *     on, so this rule's answer agrees with what is lowered BY CONSTRUCTION
+ *     (bug 0159 §Fix route (a)). There is no stop: every entry the split
+ *     yields is compared, regardless of what any other entry in the same or
+ *     an enclosing interior spells. One diagnostic per repeated key, at its
+ *     second occurrence, in source order — `seen` tracks a key's first
+ *     occurrence and `reported` its emission, both `Set`s, so a third
+ *     occurrence draws no second line. Runs under EVERY `rules` value — the
+ *     other check `"inline-object-shape"` admits — and is unqualified by
+ *     `position` or by `isRoot`, but WITHHELD when `insideGenericArgument`: a
+ *     generic type argument's interior is never divided into fields, so no
+ *     duplicate `required` is ever minted there for this rule to name
+ *     (code-registry-parse.md's row, "Two shapes sit outside this row").
+ *     `TypeNode.fieldNames` — not this rule's key — stays on the node for bug
+ *     0154's identifier rules, which need identifier tokens rather than this
+ *     rule's raw entry text.
  *
  * Every `rules` value still descends generic arguments, object field types
  * and union arms, so a nested empty inline object or a nested repeated field
@@ -705,41 +794,40 @@ function walkType(
       }
       // `theta/parse/duplicate-inline-field-name` stands on two gates. The
       // closing brace is the grammar's own: `ObjectType` spells it, so an
-      // interior the source never closes holds no field list to compare — the
+      // interior the source never closes holds no interior to compare — the
       // same requirement the empty rule reads above, asked of the source
       // because the tolerant recovery can spend this interior's `}` on a
       // missing type position (`TypeNode`'s doc comment). The generic-argument
       // gate is a deliberate scope decision rather than a parse-time blind
-      // spot: `node.fieldNames` still
-      // holds the repeat there, because `TypeParser.parseObject` parses a
-      // generic argument's interior exactly as it parses any other object
-      // type — brace-aware, not angle-only. What leaves nothing for this rule
-      // to name instead is the LOWERING's own generic-argument handling
-      // (`params.ts`'s `lowerTypeExpr`, through `splitTopLevel`'s default
-      // angle-only nesting): it never divides that interior into fields, so no
-      // duplicate `required` is ever minted there for this rule to see
-      // (code-registry-parse.md's row, "Three shapes sit outside this row";
-      // bug 0052 §Non-goals). `seen` / `reported` are `Set`s, never a plain
-      // object, so an author-chosen field name can never collide with an
-      // object's own prototype keys.
+      // spot: `interiorSource` still holds the repeat there, because
+      // `TypeParser.parseObject` parses a generic argument's interior exactly
+      // as it parses any other object type — brace-aware, not angle-only.
+      // What leaves nothing for this rule to name instead is the LOWERING's
+      // own generic-argument handling (`params.ts`'s `lowerTypeExpr`, through
+      // `splitTopLevel`'s default angle-only nesting): it never divides that
+      // interior into fields, so no duplicate `required` is ever minted there
+      // for this rule to see (code-registry-parse.md's row, "Two shapes sit
+      // outside this row"; bug 0052 §Non-goals). `seen` / `reported` are
+      // `Set`s, never a plain object, so an author-chosen key can never
+      // collide with an object's own prototype keys.
       if (!insideGenericArgument && node.closingBraceSpelled) {
         const seen = new Set<string>();
         const reported = new Set<string>();
-        for (const name of node.fieldNames) {
-          if (!seen.has(name)) {
-            seen.add(name);
+        for (const key of inlineObjectFieldKeys(node.interiorSource)) {
+          if (!seen.has(key)) {
+            seen.add(key);
             continue;
           }
-          if (reported.has(name)) {
+          if (reported.has(key)) {
             continue;
           }
-          reported.add(name);
+          reported.add(key);
           out.push({
             severity: "error",
             code: "theta/parse/duplicate-inline-field-name",
             file: site.file,
             range: site.range,
-            message: `duplicate field name '${name}' within one inline object type`,
+            message: `duplicate field name '${key}' within one inline object type`,
           });
         }
       }

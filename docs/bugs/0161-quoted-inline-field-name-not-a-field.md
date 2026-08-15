@@ -1,6 +1,8 @@
 # Bug 0161 — `grammar.md:101` spells `ObjectType ::= "{" Field ("," Field)* ","? "}"` with `Field` "per Schema Declarations" and `schemas.md:17` fixes a field name as an identifier, so the declaration spelling refuses `schema S { "a": string }` with `theta/parse/empty-schema-body`, while the inline spelling of the same text loads at eleven measured positions with zero diagnostics: `{"a": string, "a": integer}` contributes no name to `theta/parse/duplicate-inline-field-name`'s comparison and lowers ONE JSON Schema property whose key is the three-character source text `"a"` — quote characters included — beside `required: ["\"a\"","\"a\""]`, which the hoisting positions compile and enforce against provider payloads and which the `@<T>` annotation root hands `ajv.compile` as `schema is invalid: data/required must NOT have duplicate items (items ## 1 and 0 are identical)`
 
-- **Status:** open. Residual 3 of the bug 0052 fix (0.84.0, commit
+- **Status:** fixed (0.93.0), on this report's own §Fix **route B** terms — the
+  duplicate closes and the quoted-key question is re-filed rather than left
+  implicit (§Fix B2). Residual 3 of the bug 0052 fix (0.84.0, commit
   `f856fd33`), recorded in that fix's `## Fix (0.84.0)` *Residuals* item 3 —
   "*A quoted field name is not a `Field`.* `` {"a": string, "a": integer} `` is
   silent and lowers one property keyed `"a"` beside a two-item `required` — the
@@ -722,3 +724,86 @@ tree during part of this measurement session and were neither read as evidence
 nor touched. The tracked tree was verified identical to HEAD before and after
 every measurement (`git status --short` showing untracked bug documents and
 scratch files only).
+
+## Fix (0.93.0)
+
+Closed on §Fix **route B**, landed inside bug 0159's commit. This report shipped
+no code of its own: route B is one change to one rule, and
+[0159](./0159-inline-field-name-stop-masks-duplicate.md) `## Fix (0.93.0)`
+carries the full record — the two adjudications verbatim, the settled key, the
+DIAG-2 *Trigger* rewrite, the `<field>` placeholder disposition with its
+rejected alternatives, the GOV-15 set and the census. Cite that record rather
+than re-deriving any of it.
+
+- **The adjudication that closes this report.** §Fix *Coordination* required
+  that the three reports agree on one key and that "the first to reach
+  implementation states the chosen key and the other two rebase onto it". 0159
+  landed first with route (a), which is this report's route B: the comparison is
+  re-keyed onto `splitTopLevel(interior, ",", "angle-and-brace")` plus
+  `topLevelColon` — raw pre-colon text after `trim()`, no unquoting, no
+  normalisation, exactly as §Fix B4 requires — so `{"a": string, "a": integer}`
+  is one key written twice and is refused at every `Type` position. Route A was
+  not taken; the inline field-name slot still admits a non-identifier token, and
+  what changed is that two entries sharing one raw key are now compared.
+- **What closes here (§Fix B1).** §Reproduction (a)'s eleven positions no longer
+  load the duplicate spelling; §Reproduction (c) rows v1–v5 become unreachable
+  for it, because no fragment is minted for a refused source; §Reproduction (d)
+  rows L1–L7 are not built for that text; and §Reproduction (e) row c4
+  (`{"a": string, "a": integer, "a": boolean}`) draws exactly one line, the
+  multiplicity 0052 settled.
+- **What stays exactly as measured.** §Reproduction (e) rows c2
+  (`{"a": string, "b": integer}`) and c3 (`{a: integer, "a": string}`) still
+  load: two distinct raw keys are two properties, not a repeat. §Fix B4's key
+  boundary is shipped as stated — row f1 (`"a:b"`) and row f2 (`"a,b"`) keep
+  their quote-aware split, row f3 (`{'a': string, "a": integer}`) stays ADMITTED
+  because the two quote styles are two distinct spellings of one wire name, row
+  f4 (`{"": string, "": integer}`) is refused because the empty-string key
+  collides with itself, and row f5 (`{"a" : string, "a" : integer}`) is refused
+  because the padding is absorbed by the trim. §Reproduction (b)'s five
+  declaration controls b1–b5 are byte-identical: `checkObjectSchema` and
+  `emptySchemaBodyDiagnostic` were not edited, and
+  [0133](./0133-field-list-discard-recovery-unsettled.md) still owns that path.
+- **The placeholder (§Fix B3).** B3 named three admissible dispositions; the one
+  taken is the third, "the placeholder table gains a carve-out in the same
+  commit" — a ROW-SCOPED carve-out on `<field>` at
+  `placeholder-rendering-b.md:10`, on the precedent of `<X>`'s `{}` carve-out at
+  `:55`, so the subject renders verbatim and the *Message* does not move
+  (DIAG-4). §Fix A2's `<key>` candidate was raised for route A and is rejected
+  here with its measurement; 0159's record states why.
+- **Cells (§Fix A6, B5).** Cell d5
+  (`tests/inline-object-duplicate-field-name.test.ts`) inverts from
+  silence-plus-bytes to a refusal, as its own comment authorised in advance, and
+  its lowering read-back is reframed as what the refusal prevents. Cell k2 —
+  0159's cell, which A6 predicted route A would move and which route B moves for
+  the same reason — moves with it, under 0159's disposition. §Fix B5's
+  agreement obligation is discharged by assertion rather than by argument: the
+  plain-name rows 0052 shipped (its groups (a)–(c)) were re-run unflipped and
+  green, and the whole 49-cell witness is green with exactly nine cells re-pinned
+  and no cell outside the two predicted sets moved.
+- **Byte pins (§Fix *Common obligations*), re-measured.**
+  `src/parser/type-grammar.ts` 835 → **923**. `src/parser/params.ts` (1253),
+  `src/parser/body-type-lowering.ts` (763) and
+  `src/parser/schema-declarations.ts` (819) are UNCHANGED by this fix; the
+  counts differ from this report's 1006 / 726 / 819 because sibling fixes landed
+  between the filing and this commit.
+- **Live (§Fix *Common obligations*).** No code was added, so
+  `tests/fixtures/h7a/permitted-codes.json` was decided by a real H9a run rather
+  than assumed, and is BYTE-UNCHANGED (`git hash-object` = `git rev-parse HEAD:`
+  = `a4a8da04209f90e13d815edd92c1fc682e2a2236`). H8a 35/35, H9a 11/11.
+- **Residual, owed to this report and re-filed rather than left implicit
+  (§Fix B2).** A SINGLE quoted field still loads and still lowers a JSON Schema
+  property name carrying quote characters: `{"a": string}` draws nothing at
+  every `Type` position and mints `properties['"a"']`, a key no theta identifier
+  can address. That is this report's element (3), which route B does not reach.
+  It is pinned as a measured fact rather than a claim by cell G2 of
+  `tests/inline-object-field-name-comparison-key.test.ts` (the silence AND the
+  lowered bytes), and by §Reproduction (c) row v6 and (d) rows L1–L7 above. The
+  parent files the re-filing; the run that landed this fix created no bug
+  document.
+- **Not closed here.** The inline/declaration asymmetry on non-identifier field
+  names in general (route A's subject) is not settled: the inline slot still
+  admits `{"a": string}` where `schema S { "a": string }` is refused. The
+  `as "WireName"` rename's wire-name semantics remain
+  [0160](./0160-inline-object-wire-name-rename-unparsed.md)'s open subject, and
+  the identifier RULES at this slot remain
+  [0154](./0154-inline-object-type-field-name-rules-unenforced.md)'s.

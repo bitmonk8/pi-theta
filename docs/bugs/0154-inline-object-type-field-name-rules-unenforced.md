@@ -870,3 +870,40 @@ modified file is cited here, neither emits any code appearing in any row, every
 row was measured both before those edits existed and while they were present
 with identical output, and the tracked tree at the close of this filing is
 identical to HEAD.
+
+## Coordination note (0.93.0) — the retention this report rebases onto is kept
+
+Append-only; this report's status does not change and none of its rows moves.
+Bug 0159 landed §Fix route (a) in 0.93.0, which re-keys
+`theta/parse/duplicate-inline-field-name` off the `fieldNames` retention this
+report's §Status records. 0159 §Fix route (a) required the run to "state whether
+the retention stays on the node for 0154's subject or moves with the rule". The
+disposition, settled and recorded in
+[0159](./0159-inline-field-name-stop-masks-duplicate.md) `## Fix (0.93.0)`:
+
+- **`fieldNames` STAYS**, unchanged, together with the `namesStopped` latch and
+  `carriesUnclosedInterior`, in exactly the shape this report's §Status
+  describes — names only, range-free, not index-aligned with `fieldTypes`,
+  stopping at an unclosed interior, gated on the spelled closing brace. No
+  reshaping, no narrowing, no deletion. The rebase this report plans is intact.
+- **Why it stays, in the terms this report needs.** `fieldNames` is the
+  theta-side IDENTIFIER list. The lowercase-first rule (`lexical.md:16`) and the
+  reserved-keyword rule (`:20`) ask whether a name is a well-formed identifier —
+  a question asked of a TOKEN. The duplicate rule now keys on raw, unnormalised
+  entry text instead (`splitTopLevel` + `topLevelColon`, pre-colon text after
+  `trim()`), which is deliberately NOT an identifier: it can be `"a"`, `'a'`,
+  `""` or `a as "w"`. Reading the case rule off that text would test the wrong
+  string — the hazard this report's §Fix (a) route 3 and 0160's §Related both
+  name. The two lists therefore coexist by design, and the WHY is stated at all
+  three sites in `src/parser/type-grammar.ts`.
+- **The detection site is unchanged and still free.** `parseObject`'s field loop
+  and its non-identifier branch are untouched by 0159's fix: no parser recovery
+  moved, and no identifier rule was added at that slot. 0161 §Fix
+  *Coordination*'s "whichever lands first owns the site" is therefore still
+  open — 0159 did not take it, and this report may.
+- **Substrate drift.** `src/parser/type-grammar.ts` is now **923** lines. The
+  object `TypeNode` carries a new `interiorSource` field beside `fieldTypes` and
+  `fieldNames`, and `TypeToken` carries a `start` source offset; `walkType`'s
+  `object` arm derives the duplicate rule's keys through a module-private
+  `inlineObjectFieldKeys` helper. Cite by symbol; the line numbers in this
+  report's §Affected are one minor old (0134's do-not-chase class).

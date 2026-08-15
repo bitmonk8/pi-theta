@@ -817,3 +817,77 @@ records which.
   `:121–122` the zero-diagnostic assertion);
   `tests/live/acceptance/fixtures/acc-typed-inline.theta:14` (the only
   committed inline object type; no rename).
+
+## Coordination note (0.93.0) — narrowed, still open
+
+Append-only. This report's **status does not change**: its measured subject
+survives the ruling below, and §Fix (a) route 2 said so in advance — the
+tokenisation route "delivers no wire-name semantics: G1's two fields carry two
+*different* pre-colon texts and one *shared* wire name, so that route leaves
+§Reproduction (a) exactly as measured".
+
+- **The ruling, and where it is recorded.** Bug 0159 landed §Fix route (a) in
+  0.93.0 and states the adjudication for all three reports of this batch;
+  [0159](./0159-inline-field-name-stop-masks-duplicate.md) `## Fix (0.93.0)`
+  carries it verbatim, together with the DIAG-2 *Trigger* rewrite, the
+  `<field>` placeholder disposition, the GOV-15 set and the census. Cite that
+  record rather than re-deriving it. §Fix (e) required that "the two must not
+  both re-pin cell d4 without the second recording the first's ruling" — this
+  note is that recording.
+- **The key.** `theta/parse/duplicate-inline-field-name` now compares the
+  entries of `splitTopLevel(interior, ",", "angle-and-brace")`, keyed on each
+  entry's raw text before its own `topLevelColon`, after `trim()`, with no
+  unquoting and no normalisation. `a as "w"` is therefore a key like any other:
+  it is neither parsed nor stripped, exactly as this report measures.
+- **What closed — the identical-rename duplicate only.** §Reproduction (d) rows
+  **D1–D4** and **D6** close: `{a as "w": integer, a as "w": string}` is two
+  entries with one raw key, so it is refused at every `Type` position and the
+  duplicate-`required` root D4 compiles to a throw is never minted. Rows
+  **D7–D9** close for the same reason by a different route — the enclosing
+  body's own `q` repeat is now compared, because nothing about a nested rename
+  truncates an enclosing entry list. Rows D5 and D10 (the plain-name controls)
+  are unmoved. Cell **d4 row 1** and cell **k3** of
+  `tests/inline-object-duplicate-field-name.test.ts` were re-pinned under 0159's
+  disposition; cell d4 rows 2 and 3 stay silent, their pre-colon texts differing.
+- **What did NOT close — this report's subject.** §Reproduction (a) rows
+  **G1/G2/G4** are unchanged: `theta/parse/wire-name-collision` and
+  `theta/parse/redundant-wire-name` still cannot fire inside an inline object at
+  any `Type` position, because the rename is still not parsed and no inline
+  field record carries a `wireName`. §Reproduction (c) rows **L1–L6** are
+  unchanged: the whole pre-colon text is still the wire property name, so
+  `schemas.md:39`'s "only mechanism" is still unusable inline (row L5's
+  PascalCase example still keys on the rename text). §Reproduction (b)'s eight
+  positions, §Reproduction (e)'s suppression rows **S1–S10** and its bounds
+  **S11–S13**, and §Reproduction (f)'s post-type spelling **S14** are all
+  unchanged: 0159's route touched no parser recovery, so `parseObject` still
+  breaks its field loop at the `as` token and everything written behind a rename
+  in the same type expression is still unparsed. §Fix (b)'s lowering question and
+  §Fix (c)'s `<schema>` placeholder question are untouched and remain this
+  report's to settle.
+- **One measurement of this report is position-dependent, and was not when it
+  was written.** §Reproduction (c) rows **L1, L2, L4, L5, L6** and
+  §Reproduction (d) rows **D2, D3, D8** were measured by direct
+  `lowerQueryResponseSchema` / `buildBodyTypeSchemas` / `respondToolWireSchema`
+  calls on hand-written strings. Measured through the DOCUMENT instead, seven of
+  the eight `Type` positions reconstruct their type-source text by joining lexer
+  tokens with no separator (`theta-document.ts`, the `parts.join("")` capture),
+  so `{a as "w": integer, b: string}` reaches both the checker and the lowerer as
+  `{aas"w":integer,b:string}` and the minted property key is `aas"w"`, not
+  `a as "w"`. `params:` alone passes its raw YAML scalar through, keeping the
+  spaces. This is PRE-EXISTING — 0159's fix neither created nor changed it — and
+  it does not weaken any conclusion here: the key is still text containing a `"`
+  character that no author wrote, still not the wire name, and L2/L3 therefore do
+  NOT share one `$defs` slug as the table states. The consequence for this report
+  is that its wire-key bytes must be re-measured per position when its fix is
+  written, and §Fix (b)'s lowering change must state which of the two texts it
+  keys on. Pinned in both directions by cells H1 and H2 of
+  `tests/inline-object-field-name-comparison-key.test.ts`.
+- **Substrate drift for whoever writes §Fix.** `src/parser/type-grammar.ts` is
+  **923** lines (835 when this report was filed); the object `TypeNode` now
+  carries `interiorSource` beside `fieldTypes` / `fieldNames`, and `TypeToken`
+  carries a `start` source offset. `fieldNames`, the `namesStopped` latch and
+  `carriesUnclosedInterior` are UNCHANGED and were deliberately retained — they
+  are the theta-side identifier list, which route 1 here would extend with a
+  wire-name slot. `src/parser/params.ts` (1253),
+  `src/parser/body-type-lowering.ts` (763) and
+  `src/parser/schema-declarations.ts` (819) are untouched by 0159's fix.

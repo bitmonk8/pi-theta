@@ -201,11 +201,11 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
   `Result` remains admitted elsewhere (`fn` params/returns, `let` annotations,
   `invoke<Type>`, type ascription).
 - `ObjectType` fields reuse the object-schema `Field` form; empty `{}` is
-  `theta/parse/empty-schema-body`, and a field name repeated within one inline
-  object type is `theta/parse/duplicate-inline-field-name` (once per repeated
-  name; a name reused in a nested inline object is not a repeat, and a generic
-  argument's interior is outside the rule). At lowering, hoisted into `$defs` under
-  `__inline_<slug>` (see [Schema subset](./schema-subset.md)).
+  `theta/parse/empty-schema-body`; a key repeated in one inline object is
+  `theta/parse/duplicate-inline-field-name`, keyed as written on each top-level
+  comma entry's text up to its own top-level colon, once per repeated key; a
+  nested inline object is its own list; the rule skips generic arguments. Lowered
+  into `$defs` as `__inline_<slug>` ([Schema subset](./schema-subset.md)).
 - Nullability is written `T | null`.
 
 ## Blocks

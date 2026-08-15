@@ -5493,3 +5493,157 @@ describe("H8a-T — bug 0165: a params: default with no literal after `=` does n
     }
   });
 });
+
+// ===========================================================================
+// Bug 0159 — `theta/parse/duplicate-inline-field-name`'s comparison was keyed
+// off the type grammar's own retained `Ident ":"` positions, which stop at an
+// inline interior's first malformed entry — including a stop-masked entry
+// whose own field-name position holds nothing before the colon (`: x`). A
+// genuine repeat of `a` on either side of that stop drew ZERO diagnostics and
+// still minted the duplicate `required` entry / last-wins property drop the
+// rule exists to refuse
+// (docs/bugs/0159-inline-field-name-stop-masks-duplicate.md §Reproduction row
+// 1). §Fix route (a) re-keys the comparison onto the SAME
+// `splitTopLevel`+`topLevelColon` tokenisation `hoistInlineObjectType`
+// (params.ts) and `lowerInlineObject` (body-type-lowering.ts) already use to
+// build `properties`/`required`, so the rule now agrees with the lowering BY
+// CONSTRUCTION and the masked shape is refused like any other repeat.
+//
+// The load-bearing broken theta is 0159 §Reproduction (a) row 1 verbatim, at
+// the SAME hoisting position the bug 0052 cell above exercises (`schema`-body
+// field type): `{a: integer, : x, a: boolean}`. Pre-fix this loaded cleanly
+// (the `: x` entry stood at the field-name position with no leading
+// identifier, ending the retained `fieldNames` comparison before the second
+// `a`), registered, and hoisted a `$defs` entry carrying `required: ["a","a"]`
+// beside a last-wins `properties.a` — the exact consequence bug 0052
+// §Expected forbids. The same-shape sibling keeps the identical malformed
+// middle entry and renames only the SECOND field to `b`, isolating the
+// refusal to the REPEATED name rather than to "a theta whose inline object
+// carries a stop-masked entry cannot register here" — the same no-co-firing
+// discipline the bug 0052 cell's own sibling establishes.
+//
+// No existing live fixture (H8a in this file, the H9a acceptance fixtures, or
+// the hardening probes) declares an inline object type carrying a
+// field-name-position entry with no leading identifier anywhere before this
+// cell: the sole committed inline object type remains
+// `tests/live/acceptance/fixtures/acc-typed-inline.theta`'s
+// `{ ok: boolean, label: string }` (the bug 0052 cell above already pins this
+// as the only inline `ObjectType` in the corpus), so the widened
+// `inlineObjectFieldKeys` arm had NO live reach at all before this addition.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the bug 0052 cell's own profile, immediately
+// above). ADDITIVE ONLY: no existing cell in this file (1–34) is weakened,
+// reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * The load-bearing broken theta: bug 0159 §Reproduction (a) row 1, at the
+ * schema-body field position (one of the three HOISTING positions, §Fix
+ * constraint 1 — the lowering does not move). The middle entry `: x` stands
+ * at a field-name position with no leading identifier — the FIRST of the
+ * three stop shapes bug 0159 names — so pre-fix the retained `fieldNames`
+ * comparison ended there and the trailing `a: boolean` repeat of the first
+ * `a: integer` was never compared. Post-fix, `inlineObjectFieldKeys` splits
+ * the interior on its top-level commas regardless of that stop, and the two
+ * `a` entries collide.
+ */
+function stopMaskedDuplicateInlineFieldNameSchemaTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { p: {a: integer, : x, a: boolean} }", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The same-shape SIBLING: the identical malformed middle entry (`: x`) at the
+ * identical position, with only the SECOND field renamed `b` — must still
+ * register, isolating the broken theta's refusal to the repeated name rather
+ * than to "a theta whose inline object carries a stop-masked entry never
+ * registers here".
+ */
+function stopMaskedDistinctNamesSchemaTheta(): string {
+  return ["---", "mode: prompt", "---", "schema S { p: {a: integer, : x, b: boolean} }", ""].join(
+    "\n",
+  );
+}
+
+describe("H8a-T — bug 0159: a stop-masked repeated inline field name draws duplicate-inline-field-name and does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose inline object type repeats a field name behind a stop-masking malformed entry, while its distinct-names sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the broken
+      // theta's absence could be (wrongly) attributed to a broken workspace
+      // instead of the widened duplicate-inline-field-name rule under test.
+      { source: "project", stem: "b159livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME schema, the SAME malformed middle
+      // entry, distinct names — must still register, isolating the refusal to
+      // the repeated name rather than to the stop-masking entry itself.
+      { source: "project", stem: "b159livegood", text: stopMaskedDistinctNamesSchemaTheta() },
+      // The load-bearing broken theta: bug 0159's own §Reproduction fixture
+      // row 1, at the schema-body field position.
+      {
+        source: "project",
+        stem: "b159livebroken",
+        text: stopMaskedDuplicateInlineFieldNameSchemaTheta(),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b159livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the widened duplicate-inline-field-name rule under test, would " +
+          "explain the broken theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b159livegood"),
+        "the same malformed middle entry with distinct names did not register " +
+          "— the stop-masking entry itself, not the repeated name, would " +
+          "explain the broken theta's refusal below. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta whose inline object type repeats a field name BEHIND a
+      // stop-masking malformed entry does NOT register —
+      // `inlineObjectFieldKeys` (src/parser/type-grammar.ts) now derives its
+      // comparison key from the same brace-aware top-level comma split the
+      // two lowerers use, so the malformed `: x` entry contributes no key and
+      // curtails no comparison, and `hasLoadParseError` un-registers this
+      // theta at the SAME site the bug 0052 cell above exercises for the
+      // unmasked shape.
+      expect(
+        handle.command("b159livebroken"),
+        "the theta whose inline object type repeats a field name behind a " +
+          "stop-masking entry registered anyway through the live " +
+          "discovery/session_start path — the widened " +
+          "theta/parse/duplicate-inline-field-name did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b159livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0052 cell
+      // above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = duplicateInlineFieldNameFragment("a");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the duplicate-inline-field-name " +
+          "rejection for the stop-masked broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -1,6 +1,6 @@
 # Bug 0159 — `theta/parse/duplicate-inline-field-name` compares only the field-name positions ahead of an inline interior's first stop, and a stop carried by a field's own type ends the comparison of every body enclosing it, so `{a: integer, : x, a: boolean}` and `{p: {c: 1, : y, c: 2}, p: 3}` load with zero diagnostics at all eight `Type` positions and still mint the last-wins property and the duplicate `required` bug 0052 refuses — at the `@<T>` annotation root that fragment IS the compiled document, so a real `AjvSchemaValidator.compile` still throws `schema is invalid: data/required must NOT have duplicate items` after the model turn has been spent
 
-- **Status:** open. Residual 1 of the bug 0052 fix (0.84.0, commit
+- **Status:** fixed (0.93.0). Residual 1 of the bug 0052 fix (0.84.0, commit
   `f856fd33`), recorded there as `## Fix (0.84.0)` *Residuals* item 1
   (`0052-…md:294–320`) with its cause stated: a resync in `parseObject`'s
   tolerant recovery moves three other registered rows on unmeasured inputs, and
@@ -648,3 +648,305 @@ earlier measurement pass. Every value in this report comes from the later pass
 over a tree `git status --short` reported clean, and both passes produced
 byte-identical output. No file outside `docs/bugs/` was read as evidence in a
 modified state.
+
+## Fix (0.93.0)
+
+- **What shipped:**
+  - `src/parser/type-grammar.ts` — §Fix route (a), the whole change. `TypeToken`
+    gains a `start` source offset; `TypeParser` holds the source beside the
+    tokens; `interiorSpellsClosingBrace` becomes `interiorClosingBraceIndex`,
+    returning the token index of the depth-0 `}`; the object `TypeNode` gains
+    `interiorSource`, the raw text between its own `{` and that brace, sliced
+    off those offsets rather than rebuilt from token texts; and `walkType`'s
+    `object` arm keys on `inlineObjectFieldKeys(node.interiorSource)`, which
+    calls `splitTopLevel(interior, ",", "angle-and-brace")` and `topLevelColon`
+    imported from `./params` — the very functions `hoistInlineObjectType` and
+    `lowerInlineObject` call. Both gates, both `Set`s, the emission shape, the
+    multiplicity and ordering, `parseObject`'s tolerant recovery and every
+    lowerer are unchanged.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2 *Trigger*
+    rewrite of the `theta/parse/duplicate-inline-field-name` row, in the same
+    commit as the code. The *Message* cell is byte-identical to its 0.92.0 text
+    (DIAG-4).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — a row-scoped
+    `<field>` carve-out plus its test vector, both folded into existing lines so
+    the file's length does not move.
+  - `docs/spec_topics/grammar.md` §"Inline object types" and
+    `docs/reference/grammar.md`'s `ObjectType` bullet — the lock-step edits.
+    `docs/reference/diagnostics.md` needed none: that table carries no *Trigger*
+    column and the *Message* did not move.
+  - `tests/inline-object-field-name-comparison-key.test.ts` — the 18-cell
+    witness (new), carrying §Reproduction (a)'s 6 × 8 matrix plus the
+    `.thetalib` spelling, the key-boundary rows, the false-positive fence, the
+    agreement-by-construction assertion, the AJV unreachability, the surviving
+    carve-outs, 0161's declaration controls and its open half, and the
+    position-dependence of the rendered subject.
+  - `tests/inline-object-duplicate-field-name.test.ts` — the nine pre-authorized
+    re-pins (below).
+  - `tests/live/live-production-acceptance.test.ts` — additive H8a cell 35.
+
+- **The two adjudications this fix implements, verbatim.**
+  - *Operator, set-level:* "0159→0160→0161 as ONE adjudication: same rule, same
+    registry row (theta/parse/duplicate-inline-field-name); §Fix route (a) —
+    re-key the comparison onto the lowerers' splitTopLevel/topLevelColon
+    tokenisation — closes all three at once; route (b) enters open 0133's
+    recovery space; whichever lands FIRST states the adjudication and the other
+    two cite it; any Trigger widening is a DIAG-2 same-commit spec edit."
+  - *Parent, packaging:* "ONE orchestrator, ONE commit, v0.93.0, owning 0159 as
+    primary. It closes 0159 fully and 0161 per its route-B terms (both statuses
+    flip in the commit), and NARROWS 0160 with a coordination note (stays open —
+    flipping it would close a doc whose measured subject survives). The parent
+    files the 0161 quoted-key re-filing at the gate. This follows each doc's own
+    evidence over the summary sentence: 0160 §Fix (a) route 2 states it
+    'delivers no wire-name semantics: G1's two fields carry two different
+    pre-colon texts and one shared wire name, so G1 stays [] unless the rename
+    is additionally parsed OUT of that text' — so 0160's title subject (the
+    rename unparsed) survives route (a) and its doc stays open, narrowed to the
+    wire-name-semantics half. 0161 §Fix route B states its own closure terms:
+    'If route B is chosen, this report closes on the duplicate and the
+    quoted-key question is re-filed rather than left implicit.'"
+  - §Fix constraint (c)7 ("Do not settle their rows here beyond the key") was
+    written for three separate landings. The one-adjudication instruction
+    supersedes it for 0161, which closes here on its own route-B terms, and for
+    0160's duplicate face, which is recorded in that document rather than left
+    implicit. 0160's own subject is untouched and its status does not move.
+
+- **The key, exactly as landed.** Each entry of
+  `splitTopLevel(interiorSource, ",", "angle-and-brace")`; that entry's text
+  before its own `topLevelColon`, after `trim()`; no unquoting and no
+  normalisation. An entry with no top-level `:`, or whose pre-colon text trims
+  to empty, spells no key and contributes none — which is why `{: x, : y}`,
+  `{ a }` and `{ a: }` stay silent and mint no duplicate. An entry whose TYPE
+  position is empty KEEPS its key: `{a: integer, a: }` repeats `a` though the
+  lowering mints a one-item `required`, which is cell j1's settled reading that
+  the key is the source's and not the lowered artefact's. Both lowerers skip
+  that entry as well as the empty-key one; this rule skips only the empty-key
+  one, and the divergence is stated in the *Trigger* and in the helper's own doc
+  comment.
+
+- **The placeholder disposition, and the alternatives rejected by measurement.**
+  Route (a) makes the subject the raw key, which can be `"a"`, `'a'`, `""` or
+  `a as "w"` — none identifier-shaped, and `<field>` is category 5,
+  "identifier-shaped per Lexical — Identifiers", rendered unquoted
+  (`placeholder-rendering-b.md:10`). §Fix route (a)'s second disposition —
+  bounding the comparison to identifier-shaped entries — is foreclosed by the
+  set-level adjudication, which requires the re-key to close 0161's quoted shape
+  and 0160's rename-duplicate shape. **Landed: a ROW-SCOPED carve-out on
+  `<field>`**, written on the exact precedent of `<X>`'s `{}` carve-out for
+  `theta/parse/empty-schema-body`'s empty-inline-object trigger
+  (`placeholder-rendering-b.md:55`) — the sibling row of the same
+  `"inline-object-shape"` rule set. It is the narrowest admissible form of the
+  category-5 amendment, it leaves the *Message* untouched (DIAG-4), and 0161
+  §Fix B3 names it among the three admissible dispositions ("or the placeholder
+  table gains a carve-out in the same commit"). Rejected, each on measurement:
+  1. *A normalised rendered subject.* No normalisation maps `""`, `'a'` or
+     `"a-b"` to identifier shape, so it cannot satisfy the bullet it exists to
+     satisfy; and a render that erased the distinction between `'a'` and `"a"`
+     would describe two keys the row deliberately keeps distinct (0161 §Fix B4,
+     row f3).
+  2. *A NEW row keyed on `<key>`* (0161 §Fix A2's candidate, raised there for
+     route A). `<key>` double-quotes a non-identifier-shaped key by a runtime
+     check, so the subject would render `""a""` and `"a as "w""` — less legible
+     than the source text it names — and splitting one rule's emissions across
+     two closed-registry rows buys a distinction that carries no difference in
+     remedy.
+  3. *A general amendment to the category-5 bullet.* `<field>` is carried by
+     fifteen registry *Message* templates; the other fourteen must not move.
+
+- **The *Trigger* rewrite (DIAG-2, same commit).** The `Ident ":"` key, the
+  three stops and the cascade are deleted — under this key the stops do not
+  exist — and the excluded shapes drop from three to two (the quoted name and
+  the `as "WireName"` rename are now keys like any other). The closing-brace
+  requirement, the multiplicity and ordering sentence, and the final
+  `theta/parse/wire-name-collision` sentence are unchanged. The new key clause,
+  verbatim as shipped:
+
+  > The comparison runs over the entries a brace-and-angle-aware split of the
+  > interior on top-level commas yields (quoted regions skipped), keyed on each
+  > entry's own text before its own top-level `:`, taken verbatim after `trim()`
+  > — the same split and the same text both lowerers key their `properties` and
+  > `required` writes on, so `"a"`, `'a'` and `a as "w"` are the keys they are
+  > written as, `{'a': …, "a": …}` is two keys and not one, and padding around
+  > an entry's pre-colon text is absorbed by the trim; no unquoting and no
+  > normalisation otherwise apply. An entry with no top-level `:`, or whose
+  > pre-colon text trims to empty, spells no key and contributes none; an entry
+  > whose TYPE position is empty still keeps its key.
+
+  Review round 1 falsified a first draft of the closing clause ("so this row's
+  answer is exactly the lowering's") with two probes — `{a: integer, a: }` fires
+  while the lowering mints no repeat, and `{p: {c: 1, : y, c: 2}, p: 3}` reports
+  `p` and `c` while the lowered document repeats only `p`, last-wins having
+  erased the nested body. The shipped clause claims DERIVATION identity instead:
+  the key list is derived from exactly the bytes that position hands the
+  lowerer, by the same split and the same colon.
+
+- **The generic-argument carve-out and the closing-brace gate are intact and
+  load-bearing**, proven by neutralisation: dropping `!insideGenericArgument`
+  makes `array<{a: integer, a: string}>` fire (cells d3 and F1 red). The
+  comparison runs where the LOWERING splits, not over every brace group; cell d3
+  is the lock, as §Fix route (a) requires.
+
+- **0154 coordination — the retention stays.** `fieldNames`, the `namesStopped`
+  latch and `carriesUnclosedInterior` are unchanged and stay on the node.
+  `fieldNames` is the theta-side IDENTIFIER list; 0154's lowercase-first and
+  reserved-keyword rules ask whether a name is a well-formed identifier, a
+  question asked of a TOKEN and not of the raw, unnormalised entry text this
+  rule now keys on. Removing it would widen this diff into 0154's substrate. The
+  disposition is stated at all three sites in the code and appended to 0154's
+  own document.
+
+- **GOV-15.** Disposition: the diagnostic-registry carve-out
+  (`source-language-stability.md:25`), addition direction — every newly-refused
+  input carries no `E`-severity diagnostic at 0.92.0 and so leaves the
+  loads-cleanly set (`:9`). The newly-emitting input set, enumerated: an inline
+  object type, in any `Type` position and at any nesting depth reachable through
+  inline object fields and union arms, two of whose comma-separated entries
+  share a raw pre-colon text — which brings in (i) repeats behind a
+  malformed-entry position in the same body (`{a: integer, : x, a: boolean}`,
+  `{a: 1 a: 2, a: 3}`), (ii) repeats in a body enclosing a nested interior that
+  never closes, at any depth (`{p: {c: 1, : y, c: 2}, p: 3}`,
+  `{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}`), (iii) the quoted-name spelling
+  (`{"a": string, "a": integer}`, and `{"": …, "": …}`), and (iv) the
+  identical-rename spelling (`{a as "w": integer, a as "w": string}`). At four
+  positions — the `schema` body field, the alias RHS, the `.thetalib` spelling
+  and `params:` — `{a: 1 a: 2, a: 3}` was ALREADY refused at 0.92.0 by the
+  last-resort residue guards (`theta/parse/schema-type-not-expression`,
+  `theta/load/params-type-not-expression`), which stand down when the field's
+  own walk supplies an error; there the change substitutes this code for those,
+  and is not a new refusal.
+- **Corpus census, re-run at this HEAD.** 34 committed `.theta`/`.thetalib`.
+  The only inline object TYPE is
+  `tests/live/acceptance/fixtures/acc-typed-inline.theta:14`
+  (`{ ok: boolean, label: string }`, distinct names, well formed); every other
+  brace-and-colon match is an object-literal expression. Zero `as` renames (the
+  one regex hit is the English word in a comment at
+  `docs/examples/ralph-inline.theta:35`) and zero quoted field names. No
+  committed source moves; `tests/committed-fixture-parse-gate.test.ts` takes no
+  new refusal.
+
+- **Gates** (each re-run by the orchestrator, not taken on report):
+  - Witness, red before / green after — neutralising the object arm's key back
+    to `node.fieldNames` reds exactly 19 cells, all `AssertionError` of the form
+    "the expected duplicate line is missing", zero `TypeError`; restoring gives
+    `git hash-object src/parser/type-grammar.ts` =
+    `cedf5fa541f13396abbf71b82aa504cdee2987cd` on both sides and 67/67 green.
+  - Default suite: `npx vitest run` → 296 files / 4887 tests, zero failures.
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → clean. Build:
+    `npm run build` → clean.
+  - Lint: `npm run lint` → clean.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → 35/35 (cell 35 additive;
+    cells 1–34 untouched).
+  - Live H9a, both files: `noninteractive-acceptance.test.ts` (10) +
+    `ctor-unresolved-load-refusal.test.ts` (1) → 11/11.
+    `tests/fixtures/h7a/permitted-codes.json` decided by that real run:
+    BYTE-UNCHANGED, `git hash-object` = `git rev-parse HEAD:` =
+    `a4a8da04209f90e13d815edd92c1fc682e2a2236`.
+  - `src/parser/type-grammar.ts` 835 → **923** lines, recorded for the reports
+    that cite it by line rather than chased (0134's class).
+
+- **Existing cells re-pinned — the nine §Fix (c)4 and 0161 §Fix A6/B5
+  pre-authorize, and nothing else.** In
+  `tests/inline-object-duplicate-field-name.test.ts`: d4 (row 1 only; rows 2 and
+  3 stay silent, their pre-colon texts differing), d5, k1, k2, k3, k4, k6, k7
+  and k8 — with their comments rewritten, and the lowering read-backs reframed
+  as "what the refusal prevents" where the source is no longer admitted. k5 and
+  k9 are UNMOVED and green, so the false-positive fence of §Fix (c)3 holds
+  (`{p: {c: 1, : y, p: 2}}` silent, because no entry list spells a repeat and no
+  fragment carries a duplicate `required`; `{a: 1, a: 2, b: {c: 1, : y, d: 2},
+  a: 3}` fires exactly once). j1, j2, j3 and d1–d3 are unmoved and green. The
+  measured blast radius over the whole default suite is exactly those nine cells
+  and no file outside this witness.
+  §Fix (c)3's illustrative sentence "c4 and c5 stay silent" was derived under
+  the 0.92.0 key: c4 (cell k5) stays silent as required, but c5 (cell k6) mints
+  `required: ["p","p"]` at its own root, so refusing it is a true positive, and
+  the constraint's normative half — "an emission naming a repeat no single field
+  list spells is a false positive" — is what holds.
+
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — NOT-CLEAN, six
+  findings, no blockers: a falsifiable *Trigger* clause, an unreachable
+  rendering claimed by the placeholder carve-out, a stale spec quote in the new
+  witness, stale old-key prose in the landed witness's file and group (j)
+  headers, an under-enumerated stand-down appositive on another row, and one
+  historical-narration comment. It cleared, with probes, the re-key's
+  correctness (13 adversarial probes), the `type-grammar → params` import cycle
+  (one of nine in this repo; every cyclic use sits in a hoisted function
+  declaration, both entry orders probed green, `npm run build` clean), fidelity
+  to route (a), the false-positive fence, both gates by neutralisation, the
+  GOV-15 census and the residue-guard substitution. Round 2
+  (`bug-fix-reviewer-fast`) — CLEAN, no findings, after five of the six were
+  fixed; it re-probed every clause of the shipped *Trigger* and falsified none.
+- **Verification:** VERIFIED. The witness reds on neutralisation and only on the
+  expected cells, with byte-exact restoration proven by hash on all three
+  neutralisations; the default suite, typecheck, lint and build are clean; H8a
+  (35/35, additive cell 35) and H9a (11/11, both files) ran for real against a
+  live provider with `permitted-codes.json` byte-unchanged.
+
+- **Residuals:**
+  1. *The quoted-key SINGLE-field admission — 0161 §Fix B2's explicitly-open
+     half.* `{"a": string}` still loads at every `Type` position and still
+     lowers `properties['"a"']` — a JSON Schema property name carrying quote
+     characters no theta identifier can address. Route B closes the duplicate
+     and not this; 0161's own §Fix B2 requires it to be "re-filed rather than
+     left implicit". Evidence bundle: 0161 §Reproduction (c) row v6 and (d) rows
+     L1–L7, re-measured green here as cell G2 of
+     `tests/inline-object-field-name-comparison-key.test.ts`, which pins both
+     the silence and the lowered bytes. The parent files it; this run creates no
+     bug document.
+  2. *The type-source capture collapses inter-token whitespace at seven of the
+     eight positions.* Measured here, PRE-EXISTING and not created by this fix:
+     `params:` hands its position the raw YAML scalar, while `@<T>`, `let`, `fn`
+     parameter, `fn` return, the `schema` body field, the alias RHS and
+     `invoke<T>` reconstruct the type text by joining lexer token texts with no
+     separator, so `{a  as  "w": integer, b: string}` arrives as
+     `{aas"w":integer,b:string}`. Both the rule and the lowerer receive that
+     same string, so agreement is exact at every position and the LOWERED
+     property names already carried the collapse before this change; what is new
+     is only that the collapse is now visible in a diagnostic subject. Cells H1
+     and H2 pin it in both directions. Consequence for 0160: its §Reproduction
+     rows L1, L2, L4, L5, L6, D2, D3 and D8 were measured by direct
+     `lowerQueryResponseSchema` / `buildBodyTypeSchemas` calls on hand-written
+     strings, so their exact key bytes are not what the DOCUMENT path mints at
+     those positions — its conclusions stand, its bytes are position-dependent.
+     Recorded in 0160's coordination note.
+  3. *An under-enumerated appositive on another row.*
+     `theta/parse/schema-type-not-expression`'s stand-down clause names "a
+     position rule …, a reserved keyword, or an unresolved name" where the code
+     stands down for ANY error-severity diagnostic the field's own walk
+     supplies. Round 1 proved this pre-existing (it already stood down for this
+     rule at 0.92.0) and the generic clause true of the code; the sibling
+     `theta/load/params-type-not-expression` row already words it correctly
+     ("one of the type grammar's own registered rejections"). Not edited:
+     amending another row's normative *Trigger* on a pre-existing condition is
+     outside this fix's scope.
+  4. *A stale field list in a protected witness's comment.*
+     `tests/schema-field-name-case.test.ts:110` states that `TypeToken` "is
+     `{ kind, text }` with no range"; it is now `{ kind, text, start }`. The
+     comment's argument is unaffected — a single numeric offset is not a range —
+     and no assertion depends on it. Not edited: that file is a protected
+     whole-list witness.
+  5. *Positional drift, recorded not chased* (0134's adjudicated class):
+     `src/parser/type-grammar.ts` 835 → 923. `docs/reference/diagnostics.md`'s
+     row is at `:138`, not the `:136` the three sibling documents cite; the
+     registry row is at `:89`, not the `:87` those documents and the landed
+     witness cite. `docs/spec_topics/diagnostics/placeholder-rendering-b.md`
+     (134) and `docs/reference/grammar.md` (613) were deliberately restored to
+     their pre-fix line counts by a citation-only correction round, so no
+     citation into either moved.
+
+- **Discharge notes appended:**
+  [0160](./0160-inline-object-wire-name-rename-unparsed.md) (narrowed, status
+  unchanged) and
+  [0154](./0154-inline-object-type-field-name-rules-unenforced.md) (the
+  retention disposition).
+  [0161](./0161-quoted-inline-field-name-not-a-field.md) carries its own
+  `## Fix (0.93.0)` record and flips with this commit.
+- **Pinned dispositions / non-goals:** route (b) is rejected and stays rejected
+  — it closes neither sibling and enters open
+  [0133](./0133-field-list-discard-recovery-unsettled.md)'s recovery space;
+  `parseSchemaObjectBody` and `skipBraceRemainder` are untouched. Both lowerers
+  are byte-unchanged (§Fix constraint (c)1); no `catch` was added at any AJV
+  seam (§Fix constraint (c)2); the declaration spelling keeps
+  `theta/parse/wire-name-collision` and its own bytes. The `as "WireName"`
+  clause's wire-name SEMANTICS remain unparsed and remain 0160's subject, as
+  does the `<schema>` placeholder question for that row.

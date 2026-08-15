@@ -6,6 +6,52 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-08-15
+
+### Fixed
+
+- **bug 0159 — a malformed entry inside an inline object type masked every
+  repeated field name written behind it, and a nested interior that never closed
+  masked them in every enclosing body.** `theta/parse/duplicate-inline-field-name`
+  compared the field-name positions the type grammar itself parsed as
+  `Ident ":"`, and that retention stopped at the interior's first malformed
+  position — so `{a: integer, : x, a: boolean}`, `{a: 1 a: 2, a: 3}` and
+  `{p: {c: 1, : y, c: 2}, p: 3}` loaded with zero diagnostics at all eight `Type`
+  positions while both lowerers, which split the same interior as text, went on
+  minting the last-wins property and the duplicate `required` entry the rule
+  exists to refuse. At the `@<T>` annotation root that fragment IS the compiled
+  document, so a real `AjvSchemaValidator.compile` still threw
+  `schema is invalid: data/required must NOT have duplicate items` after the
+  model turn had been spent. The comparison is now re-keyed onto the lowerers'
+  own tokenisation — `splitTopLevel(interior, ",", "angle-and-brace")` plus
+  `topLevelColon`, the very functions `hoistInlineObjectType` and
+  `lowerInlineObject` call — keyed on each entry's raw pre-colon text after
+  `trim()`, so a repeated key at parse is by construction a repeated `required`
+  entry at lowering. No lowerer changed, no parser recovery changed, and the
+  generic-argument carve-out and the closing-brace requirement are unmoved.
+- **bug 0161 — a quoted inline field name is admitted where the declaration
+  spelling refuses it, and the duplicate spelling minted a quote-bearing
+  property key beside a duplicate `required`.** Closed on that report's own §Fix
+  route B by the same re-key: the key is raw text, so `{"a": string, "a":
+  integer}` is one key written twice and is refused, while `{'a': string, "a":
+  integer}` stays admitted as two distinct spellings. A single quoted field is
+  route B's explicitly-open half and is recorded as a residual rather than left
+  implicit.
+
+### Changed
+
+- **Diagnostics registry (DIAG-2, same commit as the code).**
+  `theta/parse/duplicate-inline-field-name`'s *Trigger* is rewritten onto the
+  new key: the three stop shapes and the enclosing-body cascade are gone, and
+  the shapes sitting outside the row drop from three to two — a quoted name and
+  an `as "WireName"` rename are now keys like any other, while a name reused in a
+  nested inline object and a generic type argument's interior stay outside it.
+  The *Message* is unchanged (DIAG-4). `<field>` gains a row-scoped carve-out in
+  the placeholder table so this row's subject renders verbatim, on the precedent
+  of `<X>`'s `{}` carve-out for `theta/parse/empty-schema-body`.
+  `docs/spec_topics/grammar.md` §"Inline object types" and
+  `docs/reference/grammar.md`'s `ObjectType` bullet move in lock-step.
+
 ## [0.92.0] - 2026-08-13
 
 ### Fixed

@@ -25,12 +25,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 // SPEC ANCHORS (the contract, not the current code):
 //   - docs/spec_topics/grammar.md:109 §"Inline object types" — an `ObjectType`'s
 //     fields "reuse the same `Field` form as an object-schema body and carry the
-//     same field semantics", and "A field name that repeats within one inline
-//     object type is `theta/parse/duplicate-inline-field-name`, raised once per
-//     repeated name in source order and before the body is lowered; a name
-//     reused between an outer inline object and one nested inside it is two
-//     field lists rather than a repeat, and a generic type argument's interior
-//     is outside that rule."
+//     same field semantics", and "A key that repeats within one inline object type
+//     is `theta/parse/duplicate-inline-field-name`, judged over the entries the
+//     body spells between its top-level commas, on the text before each entry's own
+//     top-level colon, taken as written, and raised once per repeated key in source
+//     order before the body is lowered; a key reused between an outer inline object
+//     and one nested inside it is two field lists rather than a repeat, and a
+//     generic type argument's interior is outside that rule."
 //   - docs/spec_topics/schemas.md:44 — the semantics that sentence defers to:
 //     "Two fields in the same schema cannot share a wire name… Either is
 //     `theta/parse/wire-name-collision`." :45 makes an `as` rename to the
@@ -44,12 +45,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     hash of the LOWERED fragment. A refused body is never lowered, so no
 //     duplicate-carrying fragment is minted and none is addressed.
 //   - docs/spec_topics/diagnostics/code-registry-parse.md:87 — the
-//     `theta/parse/duplicate-inline-field-name` row: severity `E`, phase
-//     `parse`, *Message* `duplicate field name '<field>' within one inline
-//     object type`, no *Hint*. Its *Trigger* fixes the multiplicity ("One
-//     diagnostic per repeated name, in source order") and the three shapes that
-//     sit outside it (group (d)). :85 is the `theta/parse/wire-name-collision`
-//     row the declaration spelling keeps (group (e)).
+//     `theta/parse/duplicate-inline-field-name` row: severity `E`, phase `parse`,
+//     *Message* `duplicate field name '<field>' within one inline object type`, no
+//     *Hint*. Its *Trigger* fixes the multiplicity ("One diagnostic per repeated name,
+//     in source order") and the two shapes that sit outside it (group (d)). :85 is the
+//     `theta/parse/wire-name-collision` row the declaration spelling keeps (group (e)).
 //   - DIAG-4 (diagnostic-shape.md:74) fixes that *Message* character-for-
 //     character with its placeholder interpolated, so every expected string here
 //     is read out of the registry through `registryMessage`; no message prose is
@@ -664,14 +664,21 @@ describe("bug 0052 (c) — one diagnostic per repeated name, in source order", (
 });
 
 // ===========================================================================
-// (d) THE SHAPES THAT ARE NOT A REPEAT — silent AND byte-unchanged. Three of
-// them are the registry *Trigger*'s own carve-outs (code-registry-parse.md:87),
-// and each is a shape a rule keyed on "two equal names anywhere under this
-// node" would take with it.
-// GREEN now and after. This group is what fixes the rule's key.
+// (d) THE SHAPES THAT SETTLE THE RULE'S KEY. d1–d3 are silent AND
+// byte-unchanged: two of the registry *Trigger*'s carve-outs
+// (code-registry-parse.md:89), each a shape a rule keyed on "two equal texts
+// anywhere under this node" would take with it. d4 and d5 are NOT a third
+// and fourth carve-out — bug 0159 §Fix route (a) re-keys the comparison onto
+// the raw pre-colon text of a brace-and-angle-aware top-level comma split,
+// the same text both lowerers key their `properties` / `required` writes on,
+// and under that key a rename and a quoted name are keys like any other:
+// two entries spelling one such key twice are refused exactly as two plain
+// names are.
+// GREEN now and after for d1–d3. RED for d4 row 1 and d5, which this fix
+// turns to a refusal (bug 0159 §Fix route (a); bug 0161 §Fix route B).
 // ===========================================================================
 
-describe("bug 0052 (d) — a nested reuse, a generic interior, a rename and a quoted name are not repeats", () => {
+describe("bug 0052 (d) — a nested reuse and a generic interior are not repeats; a rename and a quoted name are keys like any other", () => {
   it("CONTROL d1 (nested reuse, fixture H4): `@<{a: integer, b: {a: string}}>` stays silent and lowers unchanged", () => {
     // Two field lists — `[a, b]` and `[a]` — so no list repeats a name. The
     // lowered bytes are asserted beside the silence because they are what makes
@@ -763,72 +770,73 @@ describe("bug 0052 (d) — a nested reuse, a generic interior, a rename and a qu
     });
   });
 
-  it("CONTROL d4 (an `as` rename inside an inline body): all three spellings stay silent", () => {
-    // `parseObject` breaks its field loop at the `as` token — it expects `:`
-    // straight after the name — so a renamed field completes no
-    // `Field ::= Ident ":" Type` form and contributes no name to the
-    // comparison (code-registry-parse.md:87). The rename half is bug 0052
-    // §Non-goals' separate subject, so all three spellings below stay silent
-    // — including the mixed one, where an unrenamed `a` sits beside a
-    // renamed one.
+  it("RED d4 (an `as` rename inside an inline body): the key is the whole pre-colon text", () => {
+    // Neither lowerer parses the `as` clause: the whole text before the
+    // top-level colon becomes the property name, renamed or not. The
+    // comparison reads that same text (code-registry-parse.md:89), so the
+    // three spellings below divide on whether their pre-colon texts are
+    // equal — not on whether a rename is present.
     //
-    // CAVEAT — the lowerers do not parse `as` either, so the whole text
-    // before the colon becomes the property name, renamed or not. Two
-    // spellings with different text before the colon — `a` vs `a as "x"`, or
-    // `a as "w"` vs `a as "x"` — become two distinct properties, which is
-    // what the second and third spellings below lower. The first spelling
-    // repeats the identical text, `a as "w"` twice, so it is the SAME
-    // property name twice: last-wins overwrites that one property beside a
-    // two-item `required` naming it twice, the defect's own shape, at a name
-    // the rule does not compare. This fix's §Residuals records that gap
-    // rather than closing it.
+    // Row 1 writes the identical text twice, so it is ONE key twice: the
+    // lowering overwrites that single property and names it twice in
+    // `required`, and the row is refused. Rows 2 and 3 write two different
+    // pre-colon texts, so they are two distinct keys and two distinct
+    // properties — admitted, and their `required` arrays repeat nothing.
+    //
+    // The subject rendered for row 1 is the ANNOTATION position's captured
+    // text, which joins lexer token texts with no separator; the `params:`
+    // position passes its YAML scalar through verbatim and renders the
+    // author's spacing instead. That divergence belongs to the type-source
+    // capture rather than to this rule, and is pinned as cell H1 of
+    // tests/inline-object-field-name-comparison-key.test.ts.
+    const cells: ReadonlyArray<readonly [type: string, want: string[]]> = [
+      ['{a as "w": integer, a as "w": string}', [dupLine('aas"w"')]],
+      ['{a as "w": integer, a as "x": string}', []],
+      ['{a: integer, a as "x": string}', []],
+    ];
     const actual: Record<string, string[]> = {};
     const expected: Record<string, string[]> = {};
-    for (const type of [
-      '{a as "w": integer, a as "w": string}',
-      '{a as "w": integer, a as "x": string}',
-      '{a: integer, a as "x": string}',
-    ]) {
+    for (const [type, want] of cells) {
       actual[type] = lines(annotSrc(type));
-      expected[type] = [];
+      expected[type] = want;
     }
     expect(
       actual,
-      "d4 — a field whose `Field` form does not parse contributes no name; widening the rule " +
-        "to the rename spelling needs a field parse that understands `as`, which is the " +
-        "separate subject §Non-goals names",
+      "d4 — the rename clause is neither parsed nor stripped by either lowerer, so two fields " +
+        "renamed alike declare one property name twice; the two rows whose pre-colon texts " +
+        "differ declare two, and nothing is dropped there",
     ).toEqual(expected);
   });
 
-  it("CONTROL d5 (a quoted field name): `{\"a\": string, \"a\": integer}` stays silent", () => {
-    // The comparison runs over the field-name positions the interior spells as
-    // `Ident ":"` (code-registry-parse.md:87). A quoted name is a field-name
-    // position holding a string token, so it spells no such position and
-    // contributes no name — twice over here, which is why the repeated text is
-    // not a repeated NAME.
+  it('RED d5 (a quoted field name): `{"a": string, "a": integer}` is one key twice', () => {
+    // The comparison key is the entry's raw pre-colon text after `trim()`,
+    // with no unquoting and no normalisation (code-registry-parse.md:89), and
+    // both entries here spell the same three characters. The subject `<field>`
+    // renders is that text verbatim, by the row-scoped carve-out at
+    // placeholder-rendering-b.md:10 — the key can be quoted or space-bearing,
+    // neither of which is identifier-shaped.
     //
-    // What this silence costs is measured below rather than glossed: the
-    // lowering still mints ONE property whose name is the quoted source text
-    // beside a two-item `required` naming it twice — the defect's own shape, at
-    // a spelling the row's key excludes. Reaching it needs the `Field`-form
-    // decision §Non-goals defers (a field parse that admits a non-identifier
-    // name), so this cell pins the silence as deliberate and this fix's
-    // §Residuals records the shape it leaves open.
-    //
-    // MEASURED: this lowering is not in the bug doc's §Reproduction. It is
-    // pinned here so that a fix widening the key to the raw source text between
-    // the commas reds by naming the shape it over-reached into.
+    // Whether the inline field-name slot should admit a non-identifier AT ALL
+    // is a separate question this row does not answer: a SINGLE quoted field
+    // still loads and still lowers a property name carrying the author's quote
+    // characters. That residual is pinned as cell G2 of
+    // tests/inline-object-field-name-comparison-key.test.ts.
     expectList(
       annotSrc('{"a": string, "a": integer}'),
-      [],
-      "d5 — a field-name position holding anything other than `Ident \":\"` contributes no " +
-        "name to the comparison (code-registry-parse.md:87)",
+      [dupLine('"a"')],
+      "d5 — two entries whose raw pre-colon texts are identical are one key twice, which is " +
+        "exactly the property name the lowering would overwrite and the `required` entry it " +
+        "would repeat",
     );
+    // WHAT THE REFUSAL PREVENTS, not a control of an admitted source: the
+    // fragment below is still what a DIRECT lowerer call returns for this text
+    // (§Fix constraint 1 freezes both lowerers), and the refusal above is what
+    // keeps a loading document from reaching it.
     expect(
       lowerQueryResponseSchema('{"a": string, "a": integer}', [], []),
-      "d5 — the quoted-name shape's property name is the source text including its quotes, " +
-        "and its `required` still names that text twice; these bytes are frozen by §Fix " +
-        "constraint 1 exactly as every other lowering is",
+      "d5 — one last-wins property keyed with the source's quote characters beside a " +
+        "`required` naming that key twice: the invalid fragment the refusal keeps unminted, " +
+        "byte-identical to what it was before the refusal existed",
     ).toEqual({
       type: "object",
       properties: { '"a"': { type: "integer" } },
@@ -1149,17 +1157,17 @@ describe("bug 0052 (i) — the walk reaches every asserted position today", () =
 });
 
 // ===========================================================================
-// (j) THE COMPARISON KEY — the field-name positions the interior spells as
-// `Ident ":"`, in source order (code-registry-parse.md:87 *Trigger*). The key
-// is the SOURCE's and not the lowering's: a name written at such a position is
-// compared whether or not a type parses behind it, and whether or not either
-// lowerer keeps a property for it. j1 is the spelling where those two answers
-// differ, j2 the padded spelling §Fix constraint 4 names, j3 the key's
-// immunity to the field name an author chooses.
+// (j) THE COMPARISON KEY — each entry's raw pre-colon text, after `trim()`
+// (code-registry-parse.md:89 *Trigger*). The key is the SOURCE's and not the
+// lowered artefact's: an entry whose type position is empty keeps its key even
+// where both lowerers drop the property (j1), padding and a trailing comma do
+// not move it (j2), and the container is `Set`-based, so an author-chosen name
+// like `__proto__` is compared against the entries the interior spells rather
+// than answered out of an object's own prototype (j3).
 // RED at HEAD: all three `[]`.
 // ===========================================================================
 
-describe("bug 0052 (j) — the comparison runs over the field-name positions the source spells", () => {
+describe("bug 0052 (j) — the comparison key is the source's text, not the lowered artefact's", () => {
   it("RED j1 (a name with no parseable type): `{a: integer, a: }` fires once", () => {
     // Both rows spell `a` at two field-name positions, so both are refused; the
     // pair is one cell because the CONTRAST is the claim. The tolerant recovery
@@ -1241,61 +1249,55 @@ describe("bug 0052 (j) — the comparison runs over the field-name positions the
 });
 
 // ===========================================================================
-// (k) THE TRUNCATION BOUNDARY — the class the registry row's key excludes by
-// ENDING the comparison. The row (code-registry-parse.md:87 *Trigger*) states
-// three stop shapes, and this group carries one family per shape: an
-// identifier the interior does not follow with a `:` (k1–k2, and the `as`
-// rename the row names as one of them, k3); a completed field it does not
-// follow with a `,` (k8); and a field whose own type carries an interior that
-// never closes (k4–k7), that last shape stopping EVERY body enclosing the
-// field as well, each of them reading its own field list through the interior
-// that never closes. Names behind a stop are not compared, so a genuine repeat
-// written there draws nothing — whether it sits in the SAME body as the stop
-// (k1–k3, k8), in the body ONE LEVEL UP (k4, k6) or TWO levels up (k7).
+// (k) THE MALFORMED-ENTRY FAMILY — the interiors that carry an entry no `Field`
+// form spells, beside entries that repeat a key. The comparison runs over the
+// entries a brace-aware top-level comma split yields, keyed on each entry's raw
+// pre-colon text after `trim()` (code-registry-parse.md:89 *Trigger*), so a
+// malformed entry neither ends the comparison nor curtails an enclosing body's:
+// it is one entry whose pre-colon text is empty, contributing no key and
+// nothing else. Every cell here therefore refuses — whether the repeat sits in
+// the SAME body as the malformed entry (k1–k3, k8), in the body ONE LEVEL UP
+// (k4, k6) or TWO levels up (k7).
 //
-// TWO CELLS BOUND THE BOUNDARY FROM EITHER SIDE. k5 is the shape where NO body
-// spells a repeat at all and no duplicate `required` is minted anywhere: an
-// emission there would name a repeat no single field list holds, which is what
-// the third stop shape exists to prevent. k9 is a repeat spelled AHEAD of a
-// stop, which still fires — so the boundary truncates the comparison rather
-// than switching it off.
+// The key is what makes each refusal checkable against the lowering, and that
+// is the property this group exists for: each read-back below is the invalid
+// fragment the source WOULD have minted, and every repeated `required` entry in
+// it is named by a line the cell asserts. The general form of that containment
+// is asserted over a table in group (D) of
+// tests/inline-object-field-name-comparison-key.test.ts.
 //
-// THIS FIX DOES NOT CLOSE THE RESIDUAL HALF. Every silent fixture here except
-// k5 keeps a duplicate-`required` shape the bug is about — the read-backs below
-// are the evidence — so the annotation-root AJV compile throw group (g)'s g3
-// drives stays reachable through those spellings. The fix's §Residuals records
-// them. Two routes reach them and this fix owes neither. One is a recovery
-// that resynchronises on the next comma instead of stopping, which would also
-// move `theta/parse/void-in-non-return-position`,
-// `theta/parse/generic-arity-mismatch` and
-// `theta/parse/result-in-schema-position` on the same interiors — three
-// registered rows outside this subject. The other is §Fix constraint 4's
-// second branch, running the comparison over the lowerers' own tokenisation
-// (`splitTopLevel` plus `topLevelColon`, src/parser/params.ts) instead of over
-// the type-grammar parse, which re-keys the rule from the source's `Ident ":"`
-// positions to the lowerers' field split and so moves what groups (d) and (j)
-// pin. Widening to the k2 / k3 spellings additionally needs the `Field`-form
-// decision §Non-goals defers (a field parse that admits a non-identifier name
-// and an `as` rename).
-// GREEN now and after. A red here means the rule ran past the stop position
-// the row's key fixes, or stopped ahead of it.
+// TWO CELLS BOUND THE GROUP FROM EITHER SIDE, and neither moves. k5 is the
+// shape where NO body repeats a key and no duplicate `required` is minted
+// anywhere — a name reused between an outer inline object and one nested inside
+// it is two field lists rather than a repeat (group (d), d1) — so an emission
+// there would name a consequence no fragment carries. k9 is a repeat spelled
+// beside a malformed entry in the same body, which fires exactly once: the
+// counting unit is the KEY, so a third occurrence adds no subject.
+// A red in k1–k4 or k6–k8 means the comparison is still keyed on the type
+// grammar's own `Ident ":"` positions rather than on the split the lowerers
+// use; a red in k5 means the re-key over-reached into a source whose lowering
+// repeats nothing.
 // ===========================================================================
 
-describe("bug 0052 (k) — a repeat behind a stop position is not compared", () => {
-  it("CONTROL k1 (a nameless field): `{a: integer, : x, a: boolean}` stays silent and still mints the duplicate", () => {
-    // The `:` at the second field-name position contributes no name, and `x`
-    // then stands at one — an identifier the interior does not follow with a
-    // `:` — which ends the comparison before the trailing `a` is read.
+describe("bug 0052 (k) — a malformed entry contributes no key and curtails no comparison", () => {
+  it("RED k1 (a nameless entry): `{a: integer, : x, a: boolean}` is refused", () => {
+    // The middle entry has a top-level `:` with nothing before it, so its
+    // pre-colon text is empty and it contributes no key. The two `a` entries
+    // on either side of it are compared to each other, which is also exactly
+    // how the lowering derives the two `required` members it writes.
     expectList(
       annotSrc("{a: integer, : x, a: boolean}"),
-      [],
-      "k1 — the comparison ends at `x`, so the repeated `a` behind it is outside the row's " +
-        "stated boundary rather than a missed emission",
+      [dupLine("a")],
+      "k1 — an entry that spells no key is one entry with no key, not a boundary; the entries " +
+        "behind it are the same entries the lowering keys its properties on",
     );
+    // WHAT THE REFUSAL PREVENTS: the fragment a direct lowerer call still
+    // returns for this text (§Fix constraint 1 freezes both lowerers), no
+    // longer reachable through a loading document.
     expect(
       lowerQueryResponseSchema("{a: integer, : x, a: boolean}", [], []),
-      "k1 — and the lowering still mints `required: [\"a\",\"a\"]` beside a last-wins " +
-        "`properties.a`, the shape whose root-position compile g3 drives to a throw",
+      "k1 — `required: [\"a\",\"a\"]` beside a last-wins `properties.a`: the invalid fragment " +
+        "the refusal keeps unminted, whose root-position compile g3 drives to a throw",
     ).toEqual({
       type: "object",
       properties: { a: { type: "boolean" } },
@@ -1304,20 +1306,23 @@ describe("bug 0052 (k) — a repeat behind a stop position is not compared", () 
     });
   });
 
-  it('CONTROL k2 (a quoted name ahead of a repeat): `{"a": string, a: integer, a: boolean}` stays silent and still mints the duplicate', () => {
-    // The quoted name and its colon contribute nothing, which leaves `string` —
-    // the quoted field's TYPE — standing at a field-name position with a `,`
-    // behind it, so the comparison ends there and neither later `a` is read.
+  it('RED k2 (a quoted name ahead of a repeat): `{"a": string, a: integer, a: boolean}` is refused', () => {
+    // The quoted entry's key is the three characters `"a"`, quote characters
+    // included and not unquoted (code-registry-parse.md:89), so it collides
+    // with neither unquoted `a`. The repeat is between the two entries behind
+    // it, and it is those two the lowering writes one property for.
     expectList(
       annotSrc('{"a": string, a: integer, a: boolean}'),
-      [],
-      "k2 — the comparison ends at `string`, so the two `a` fields behind it are outside the " +
-        "row's stated boundary",
+      [dupLine("a")],
+      "k2 — the quoted key and the bare key are two distinct texts, so the subject is the " +
+        "bare `a` the two later entries share",
     );
+    // WHAT THE REFUSAL PREVENTS: the three-item `required` this text still
+    // lowers on a direct call, its middle `a` declaration dropped to last-wins.
     expect(
       lowerQueryResponseSchema('{"a": string, a: integer, a: boolean}', [], []),
-      "k2 — and the lowering still mints a three-item `required` naming `a` twice, so this " +
-        "spelling reaches the same root-position compile failure",
+      "k2 — a three-item `required` naming `a` twice: the fragment the refusal keeps out of " +
+        "the same root-position compile failure",
     ).toEqual({
       type: "object",
       properties: { '"a"': { type: "string" }, a: { type: "boolean" } },
@@ -1326,22 +1331,24 @@ describe("bug 0052 (k) — a repeat behind a stop position is not compared", () 
     });
   });
 
-  it('CONTROL k3 (a rename ahead of a repeat): `{a as "w": integer, a: string, a: boolean}` stays silent and still mints the duplicate', () => {
-    // The row states that an `as` rename ends the comparison, the inline
-    // `Field` form not parsing that clause: `a` stands at the first field-name
-    // position with `as` behind it rather than `:`. d4 pins the rename
-    // spellings that carry no other repeat; this fixture is the one where a
-    // genuine repeat sits behind the rename.
+  it('RED k3 (a rename ahead of a repeat): `{a as "w": integer, a: string, a: boolean}` is refused', () => {
+    // The renamed entry's key is its whole pre-colon text, `as` clause
+    // included, because neither lowerer parses that clause and the comparison
+    // reads the same text. It therefore collides with neither unrenamed `a`,
+    // and the repeat is between the two entries behind it. d4 pins the rename
+    // spellings that carry no other repeat.
     expectList(
       annotSrc('{a as "w": integer, a: string, a: boolean}'),
-      [],
-      "k3 — the comparison ends at the renamed field, so the two `a` fields behind it are " +
-        "outside the row's stated boundary",
+      [dupLine("a")],
+      "k3 — an unparsed rename is a distinct key, so the subject is the bare `a` the two " +
+        "later entries share",
     );
+    // WHAT THE REFUSAL PREVENTS: the three-item `required` this text still
+    // lowers on a direct call, beside the unparsed rename's own property name.
     expect(
       lowerQueryResponseSchema('{a as "w": integer, a: string, a: boolean}', [], []),
-      "k3 — and the lowering still mints a three-item `required` naming `a` twice, beside the " +
-        "unparsed rename's own property name",
+      "k3 — a three-item `required` naming `a` twice beside the rename's own key: the " +
+        "fragment the refusal keeps unminted",
     ).toEqual({
       type: "object",
       properties: { 'a as "w"': { type: "integer" }, a: { type: "boolean" } },
@@ -1350,40 +1357,35 @@ describe("bug 0052 (k) — a repeat behind a stop position is not compared", () 
     });
   });
 
-  it("CONTROL k4 (a stop position inside a NESTED body): `{p: {c: 1, : y, c: 2}, p: 3}` stays silent and still mints the duplicate ONE LEVEL UP", () => {
-    // The malformed position sits inside `p`'s FIRST value — the nested body
-    // `{c: 1, : y, c: 2}` — not in the outer body's own field list. Its stop
-    // still reaches the OUTER body: `TypeParser.parseObject`'s nested call
-    // breaks at `y` without consuming the nested interior's own closing `}`,
-    // so the OUTER loop resumes one token inside that interior and would read
-    // its leftover `c: 2` as the OUTER's own second field. The outer body's
-    // name list therefore stops at the field whose type carries that interior
-    // and compares `["p"]` alone — one name, so nothing repeats — while the
-    // outer body's genuine repeated `p` (the real `p: 3` past that `}`) sits
-    // behind the same stop and is never read.
+  it("RED k4 (a malformed entry inside a NESTED body): `{p: {c: 1, : y, c: 2}, p: 3}` is refused TWICE", () => {
+    // Two bodies, each repeating a key of its own. The outer body's split is
+    // brace-aware, so `p: {c: 1, : y, c: 2}` is ONE entry however its value is
+    // spelled, and the outer body's two `p` entries are compared to each other
+    // — the malformed entry inside the nested value is not the outer body's
+    // entry and cannot curtail it. The nested body's own two `c` entries are
+    // its own occurrence.
     //
-    // This is the same recovery leaf group (k) already discloses, observed
-    // ONE LEVEL UP from k1–k3: there the stop curtails the body it sits IN;
-    // here it curtails the body it sits BENEATH. It is NOT closed here — this
-    // fix's §Residuals records it, same as k1–k3.
-    //
-    // The well-formed contrast is fixture c4 (group (c)): with the malformed
-    // `: y,` removed, `{p: {c: 1, c: 2}, p: 3}` fires TWICE, `p` then `c`,
-    // because the outer loop then reaches the real `p: 3` and both repeats
-    // are compared.
+    // ORDER: a body's own repeats are reported before those of the inline
+    // objects nested in its field types (code-registry-parse.md:89), so `p`
+    // precedes `c` however the two second occurrences sit in the source. The
+    // well-formed contrast is fixture c4 (group (c)), which reports the same
+    // two subjects in the same order with the malformed entry removed.
     expectList(
       annotSrc("{p: {c: 1, : y, c: 2}, p: 3}"),
-      [],
-      "k4 — the stop inside the nested value reaches back into the field list " +
-        "the outer body reads through it, so the outer body's own repeated " +
-        "`p` sits behind the same boundary the nested body's `c` repeat does",
+      [dupLine("p"), dupLine("c")],
+      "k4 — the outer body's entries are decided by its own top-level commas, so what a " +
+        "field's value spells inside its braces changes neither how many entries the outer " +
+        "body has nor what they are keyed on",
     );
+    // WHAT THE REFUSAL PREVENTS: the root `required` this text still lowers on
+    // a direct call. The nested `c` repeat has no read-back of its own here
+    // because the root's own duplicate drops `p`'s first value to last-wins,
+    // which is why the emission names more than the lowering can show.
     expect(
       lowerQueryResponseSchema("{p: {c: 1, : y, c: 2}, p: 3}", [], []),
-      "k4 — and the lowering still mints a two-item `required` naming `p` " +
-        "twice at the ROOT (last-wins `properties.p = {const: 3}`), which is " +
-        "exactly what keeps bug 0052's own A2 compile throw reachable through " +
-        "this shape",
+      "k4 — a two-item `required` naming `p` twice at the ROOT beside a last-wins " +
+        "`properties.p = {const: 3}`: the document bug 0052's own A2 compile refuses, kept " +
+        "unreachable from a load by the two lines above",
     ).toEqual({
       type: "object",
       properties: { p: { const: 3 } },
@@ -1438,31 +1440,28 @@ describe("bug 0052 (k) — a repeat behind a stop position is not compared", () 
     });
   });
 
-  it("CONTROL k6 (the same stop with repeats behind it): `{p: {c: 1, : y, c: 2, c: 3}, p: 9}` stays silent and still mints the duplicate", () => {
-    // k5's shape carrying genuine repeats, all of them behind a stop. The
-    // nested interior's own list stops at `y` and holds `["c"]`, so its
-    // `c: 2, c: 3` are behind that stop; the outer body's list stops at the
-    // field whose type carries that interior and holds `["p"]`, so its `p: 9`
-    // is behind that one. The outer body spells no `c` at any field-name
-    // position of its own, so an emission naming `c` here — which the outer
-    // body's list carried while it read the nested interior's leftovers as its
-    // own — is false of the source.
+  it("RED k6 (three occurrences beside the malformed entry): `{p: {c: 1, : y, c: 2, c: 3}, p: 9}` is refused TWICE", () => {
+    // k5's shape with real repeats added on both levels. The nested body's
+    // entries are `c`, the nameless one, `c` and `c`, which is ONE repeated key
+    // and so one line: the counting unit is the key, not the extra occurrence.
+    // The outer body's two `p` entries are its own repeat, reported first.
     //
-    // MEASURED: the duplicate the lowering does mint is `p` at the ROOT, the
-    // outer body's own repeat, and no `c` duplicate appears anywhere. So the
-    // residual this stop leaves open and the name the leak reported are
-    // different names.
+    // The subject `c` names a key the NESTED body spells, never one the outer
+    // body spells — which is the discipline k5 fixes and this cell keeps: each
+    // line belongs to the body whose own split produced the repeated key.
     expectList(
       annotSrc("{p: {c: 1, : y, c: 2, c: 3}, p: 9}"),
-      [],
-      "k6 — both repeats sit behind a stop, so neither is compared; a line naming `c` would " +
-        "name a repeat the outer body does not spell and the nested body does not compare",
+      [dupLine("p"), dupLine("c")],
+      "k6 — two bodies, one repeated key each, reported outer body first; a third occurrence " +
+        "of `c` adds no subject",
     );
+    // WHAT THE REFUSAL PREVENTS: the root `required` this text still lowers on
+    // a direct call. As in k4, the root's own duplicate erases the nested body
+    // from the fragment, so `c` has no read-back here.
     expect(
       lowerQueryResponseSchema("{p: {c: 1, : y, c: 2, c: 3}, p: 9}", [], []),
-      "k6 — the measured lowering: `required: [\"p\",\"p\"]` at the root beside a last-wins " +
-        "`properties.p = {const: 9}`, and no `c` anywhere — the residual the stop leaves is the " +
-        "outer `p`",
+      "k6 — `required: [\"p\",\"p\"]` at the root beside a last-wins " +
+        "`properties.p = {const: 9}`: the invalid fragment the refusal keeps unminted",
     ).toEqual({
       type: "object",
       properties: { p: { const: 9 } },
@@ -1471,37 +1470,27 @@ describe("bug 0052 (k) — a repeat behind a stop position is not compared", () 
     });
   });
 
-  it("CONTROL k7 (the stop reaches EVERY enclosing body): `{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}` stays silent", () => {
-    // DEPTH THREE, which is what makes the reach a cascade rather than one
-    // level. The innermost interior breaks at `y` without consuming its own
-    // `}`; the MIDDLE body then reads that interior's leftover `c: 2` as its
-    // own field and takes the innermost `}` for its own closing brace — so the
-    // middle body CLOSES its brace and still read its field list through an
-    // interior that never closes. A containment check that looked only at the
-    // field type's own closing brace would clear that middle body and let the
-    // outer body keep reading names through it, so the check recurses object
-    // field types, generic arguments and union arms
-    // (`carriesUnclosedInterior`, src/parser/type-grammar.ts) and every body
-    // enclosing the unclosed interior stops.
+  it("RED k7 (depth three): `{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}` reports the outermost and the innermost bodies", () => {
+    // DEPTH THREE, which is what makes each line's OWNERSHIP falsifiable. Every
+    // body's entries come from its own brace-aware top-level comma split, so
+    // the malformed entry three levels down belongs to the innermost body
+    // alone; the middle body's entries are `q` and `r`, which repeat nothing,
+    // and the outermost body's two `p` entries are its own repeat.
     //
-    // MEASURED: the outer body's genuine repeated `p` is behind that stop and
-    // the root fragment still carries `required: ["p","p"]`, so this shape
-    // keeps bug 0052's own A2 compile throw reachable. Recorded as a residual
-    // of this fix rather than closed by it, like k4, k6 and k8.
-    //
-    // The second row is what makes the transitivity FALSIFIABLE, since the
-    // first row's outer body reaches no repeat under either check: there the
-    // outermost body spells `a` and the middle body spells `a` too — two field
-    // lists, not a repeat (group (d), d1) — and the outermost body reads the
-    // middle body's `a` position as its own only by way of the innermost
-    // interior that never closes. Keyed on the middle body's own closing brace,
-    // that row emits `duplicate field name 'a'`, false of the source and
-    // matched by no duplicate `required` at that root (measured below:
-    // `["a","z"]`, the sole duplicate being `["c","c"]` inside a hoisted
-    // `$defs` member, which AJV compiles).
-    const cells: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
+    // The second row is the one that fixes ownership from the other side. Its
+    // outermost body spells `a` and `z`, and its MIDDLE body spells `b` and
+    // `a` — two field lists, not a repeat (group (d), d1) — so the only
+    // repeated key anywhere is the innermost `c`, and it is the only line. A
+    // comparison that let one body's entries leak into an enclosing body's
+    // split would report `a` here, false of the source and matched by no
+    // duplicate `required` at that root (the read-back below: `["a","z"]`, the
+    // sole duplicate being `["c","c"]` inside a hoisted `$defs` member).
+    const cells: ReadonlyArray<
+      readonly [type: string, want: string[], lowered: Record<string, unknown>]
+    > = [
       [
         "{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}",
+        [dupLine("p"), dupLine("c")],
         {
           type: "object",
           properties: { p: { const: 3 } },
@@ -1511,6 +1500,7 @@ describe("bug 0052 (k) — a repeat behind a stop position is not compared", () 
       ],
       [
         "{a: {b: {c: 1, : y, c: 2}, a: 4}, z: 5}",
+        [dupLine("c")],
         {
           type: "object",
           properties: { a: { $ref: "#/$defs/__inline_6e47c05ad43f8f42" }, z: { const: 5 } },
@@ -1535,46 +1525,56 @@ describe("bug 0052 (k) — a repeat behind a stop position is not compared", () 
     ];
     const actual: Record<string, string[]> = {};
     const expected: Record<string, string[]> = {};
-    for (const [type] of cells) {
+    for (const [type, want] of cells) {
       actual[type] = lines(annotSrc(type));
-      expected[type] = [];
+      expected[type] = want;
     }
     expect(
       actual,
-      "k7 — the stop reaches every body enclosing the interior that never closes, at any " +
-        "depth; honoured one level up only, the second row reports a repeat neither of its " +
-        "field lists spells",
+      "k7 — each line belongs to the body whose own split produced the repeated key, at any " +
+        "depth; a split that read an enclosing body's entries through a nested value would " +
+        "report a key neither of the second row's field lists repeats",
     ).toEqual(expected);
-    for (const [type, lowered] of cells) {
+    // WHAT THE REFUSAL PREVENTS: the fragments a direct lowerer call still
+    // returns. The first row's duplicate is at the compiled ROOT, where AJV's
+    // meta-schema check applies and the compile throws; the second row's is
+    // inside a hoisted `$defs` member, which AJV compiles and then enforces
+    // against the model's payload.
+    for (const [type, , lowered] of cells) {
       expect(
         lowerQueryResponseSchema(type, [], []),
-        `k7 — the measured lowering of ${type}: the first row keeps the root ` +
-          "`required: [\"p\",\"p\"]` this fix leaves as a residual, and the second mints no " +
-          "duplicate at its root at all, so an emission there would name a consequence no " +
-          "position carries",
+        `k7 — the frozen lowering of ${type}, kept unreachable from a load by the lines ` +
+          "above; the two rows differ in WHERE their duplicate lands, which is why one throws " +
+          "at compile and the other is enforced against a payload instead",
       ).toEqual(lowered);
     }
   });
 
-  it("CONTROL k8 (a completed field with no `,` behind it): `{a: 1 a: 2, a: 3}` stays silent and still mints the duplicate", () => {
-    // The row's second stop shape, in its own right: `a: 1` completes as a
-    // field and the interior does not follow it with a `,`, so the field loop
-    // ends there and the list holds `["a"]`. Both later `a` positions are
-    // behind that stop.
+  it("RED k8 (a missing field separator): `{a: 1 a: 2, a: 3}` is refused", () => {
+    // A missing `,` changes which entries the split yields, not whether their
+    // keys are compared: the interior's one top-level comma gives two entries,
+    // `a: 1 a: 2` and `a: 3`, whose pre-colon texts are both `a`. Those are the
+    // same two entries the lowering keys its two `required` members on.
     //
-    // MEASURED: the lowering still mints `required: ["a","a"]` beside a
-    // last-wins `properties.a`, so this spelling reaches the same
-    // root-position compile failure k4, k6 and k7 do. Residual, not closed.
+    // At the three declaration positions and at `params:` this line REPLACES
+    // the residue sink those positions raise for this text today
+    // (`theta/parse/schema-type-not-expression` /
+    // `theta/load/params-type-not-expression`), each of which is a last-resort
+    // guard that stands down once the field's own walk has refused it; group
+    // (A) of tests/inline-object-field-name-comparison-key.test.ts pins that
+    // substitution at all nine positions.
     expectList(
       annotSrc("{a: 1 a: 2, a: 3}"),
-      [],
-      "k8 — a missing field separator ends the comparison, so the two `a` positions behind it " +
-        "are outside the row's stated boundary rather than a missed emission",
+      [dupLine("a")],
+      "k8 — the entry boundary is the top-level comma, so a run-together field pair is one " +
+        "entry with one key, and that key repeats against the entry behind it",
     );
+    // WHAT THE REFUSAL PREVENTS: the fragment a direct lowerer call still
+    // returns, with both earlier declarations dropped to last-wins.
     expect(
       lowerQueryResponseSchema("{a: 1 a: 2, a: 3}", [], []),
-      "k8 — the measured lowering: a two-item `required` naming `a` twice, beside " +
-        "`properties.a = {const: 3}`",
+      "k8 — a two-item `required` naming `a` twice beside `properties.a = {const: 3}`: the " +
+        "invalid fragment the refusal keeps unminted",
     ).toEqual({
       type: "object",
       properties: { a: { const: 3 } },
