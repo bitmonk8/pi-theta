@@ -63,6 +63,10 @@ A missing live provider/model **fails loudly** naming the unmet precondition
 (`failLoudly` in every live harness) — never an early return or skip. Preserve
 this in any new live test or harness.
 
+`tests/committed-fixture-parse-gate.test.ts` covers every committed `.theta`
+and `.thetalib` the repository ships. A fix record's corpus-wide "no shipped
+source moves" claim is discharged by that gate, not by a scratch probe.
+
 ### In-process harnesses that spawn real subagent children need the child pins
 
 Any test harness that is not itself a real `pi` process but reaches the

@@ -372,3 +372,11 @@ rather than key presence preserves that.
   0027, 0036, 0050.
 - Observations: throwaway vitest probe over the production composition drive at
   `d06daae3`, deleted after the run.
+
+- **Discharge note (bug 0132, 0.95.0).** This report's §Fix record states "every
+  shipped `.theta` and `.thetalib` in the tree parses free of this code", and
+  its `.thetalib` half was obtained from a scratch probe that was then deleted.
+  The gate that half belongs to now covers both extensions —
+  `tests/committed-fixture-parse-gate.test.ts` takes its corpus from
+  `git ls-files '*.theta' '*.thetalib'` — so that claim is gate-enforced and
+  re-derivable by running the default suite. Status unchanged.

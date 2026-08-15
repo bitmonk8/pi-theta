@@ -1029,3 +1029,12 @@ reports being written in this tree, 0128 and 0129, cite line ranges into
 `tests/discriminator-field-classifier-brace-group.test.ts`, which this fix grew;
 their authors will need to re-derive those anchors. 0128 explicitly anticipates
 this fix landing first.
+
+- **Discharge note (bug 0132, 0.95.0).** §Fix delegates this fix's blast-radius
+  proof to `tests/committed-fixture-parse-gate.test.ts` over "every committed
+  `.theta` / `.thetalib`", and the fix record above corrects that the gate's
+  walk filtered `.theta` only, so the `.thetalib` half rested on the separate
+  corpus oracle written for that run. That gap is closed: the gate's corpus is
+  now `git ls-files '*.theta' '*.thetalib'` and both committed libraries are
+  scored cells, so the corpus-wide claim is re-derivable by running the default
+  suite rather than by re-writing an oracle. Status unchanged.

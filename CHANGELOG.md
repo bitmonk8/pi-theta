@@ -6,6 +6,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-08-15
+
+### Fixed
+
+- **bug 0132 — the committed-fixture parse gate's walk filtered
+  `entry.name.endsWith(".theta")`, so neither committed `.thetalib` was lexed or
+  parsed by any offline test, and it took its corpus from the working tree
+  rather than the index, so its own vacuity guard required the gitignored
+  `.pi/theta/smoke.theta` to be present.**
+  `tests/committed-fixture-parse-gate.test.ts` is the repository's only offline
+  gate over committed theta sources, and two shipped fixes (0095, 0079) had each
+  delegated a corpus-wide "no shipped source moves" claim to it and then paid
+  for the `.thetalib` half with a scratch probe they deleted — the gate scored 32
+  of 34 tracked sources, and the one registered code reachable only from a
+  library (`theta/parse/thetalib-top-level-statement`) sat outside the corpus
+  entirely. The gate now takes its corpus from the git index —
+  `git ls-files -z -- '*.theta' '*.thetalib'`, less the seeded-invalid
+  directory — so the same commit gates identically on a fresh clone and on a
+  developer machine carrying local `.pi/` state, and an untracked scratch
+  `.theta` can no longer join the corpus or red the gate. The vacuity guard names
+  a committed precondition instead of an untracked file: exact per-extension
+  counts whose failure message tells a fixture-adder which constant to bump in
+  the same commit, membership of the H7a fixture and of both committed
+  libraries, and an assertion that no corpus member lies under `.pi/`. `git`
+  being unavailable, a cwd that is not a repository, a non-zero status or a
+  signal all fail loudly naming the unmet precondition — never a skip, never a
+  fallback to a working-tree walk. A second red-proof cell materialises a
+  malformed `.thetalib` and pins `theta/parse/thetalib-top-level-statement`,
+  giving the added extension the red-proof `AGENTS.md` requires. `AGENTS.md`
+  gained the obligation in text: the gate covers every committed theta source of
+  both extensions, and a corpus-wide claim in a fix record is discharged by it
+  rather than by a scratch probe. Gate 34 → 36 cells (1 guard + 33 shipped, 31
+  `.theta` + 2 `.thetalib`, + 2 red-proofs); no `src/**` change, no new
+  registered code, no spec edit.
+
 ## [0.94.0] - 2026-08-15
 
 ### Fixed

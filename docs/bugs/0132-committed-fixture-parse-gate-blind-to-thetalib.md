@@ -1,11 +1,11 @@
 # Bug 0132 — The committed-fixture parse gate's walk filters `entry.name.endsWith(".theta")`, so neither committed `.thetalib` is lexed or parsed by any offline test: two independent fixes (0095, 0079) delegated a corpus-wide "no shipped source moves" claim to this gate and each discharged the `.thetalib` half in a scratch probe it then deleted; and the same walk takes its corpus from the working tree rather than the index, so its own vacuity guard requires the gitignored `.pi/theta/smoke.theta` to be present and a scratch `.theta` dropped anywhere under `.pi/` reds the gate
 
-- **Status:** open. §Fix states one approach and pins the constraints; one axis
-  is left to the run — whether the corpus becomes `git ls-files` or stays a
-  working-tree walk — because that choice decides the disposition of defect 2
-  and rewrites the vacuity guard. Measured here so the choice is not blind: both
-  committed `.thetalib` files parse to `[]` at HEAD, so extending the filter adds
-  two green cells and reds nothing. No ordering dependency on another report.
+- **Status:** fixed (0.95.0). The one axis §Fix left to the run was settled by
+  the parent as (b1), `git ls-files '*.theta' '*.thetalib'`; §Fix (0.95.0) below
+  carries that adjudication verbatim, together with the one §Fix (d) route the
+  run refused on a measurement. Both committed `.thetalib` files parsed to `[]`
+  at HEAD and still do, so extending the corpus added two green cells and
+  reddened nothing.
 - **Sev/Diff estimate:** S3/D2 — a shipped gate that cannot red for part of the
   corpus its own header claims ("every committed `.theta` the repository ships",
   `tests/committed-fixture-parse-gate.test.ts:11`), with two fix records already
@@ -783,3 +783,231 @@ corpus (no local `.pi/`) greens, and a scratch `.theta` under `.pi/` is ignored.
   anywhere in `AGENTS.md`; `docs/plan_topics/conventions.md` is a retired
   nine-line stub, so the anchor at
   `tests/committed-fixture-parse-gate.test.ts:3–4` resolves to no text.
+
+## Fix (0.95.0)
+
+- **What shipped.**
+  - `tests/committed-fixture-parse-gate.test.ts` — **(a)** the corpus covers
+    every committed theta source of BOTH extensions; the leaf title (`:1`), the
+    header claim (`:11–14`), `discoverShippedFixtures`'s doc comment, the
+    reader's doc comment and both `describe` titles restate that domain, so code
+    and comment agree on the widened claim rather than on the narrow one.
+    `loadParseDiagnostics` needed no change beyond being split: its lex/parse/
+    filter core moved to `loadParseDiagnosticsOf(path, bytes)` so an absolute
+    path can reach it, and the repo-relative wrapper is unchanged in behaviour.
+  - `tests/committed-fixture-parse-gate.test.ts` — **(b1)** the corpus is the
+    git index. `walkThetaFiles` and `SKIP_DIRS` are deleted; discovery is
+    `spawnSync("git", ["ls-files", "-z", "--", "*.theta", "*.thetalib"])` run at
+    `REPO_ROOT`, less the seeded-invalid DIRECTORY (`SEEDED_INVALID_DIR`, a
+    prefix rather than the single filename, so a second seeded fixture cannot
+    silently join the corpus), sorted. `REPO_ROOT` is derived from the module's
+    own location (`fileURLToPath(new URL("..", import.meta.url))`, the in-tree
+    precedent at `tests/division-result-type-number.test.ts:1488`) rather than
+    `process.cwd()`, so the corpus does not depend on where the runner was
+    launched. `spawnSync` rather than `execFileSync` because it reports failure
+    as a value: git absent, a cwd that is not a repository, a non-zero status or
+    a signal all reach one `throw` that NAMES the unmet precondition ("a working
+    `git` executable plus a repository checkout at the test root") and carries
+    `status` / `error` / `stderr` — with no `catch` anywhere, and no fallback to
+    a working-tree walk.
+  - `tests/committed-fixture-parse-gate.test.ts` — **(c)** the vacuity guard
+    names a committed precondition: exact per-extension counts
+    (`EXPECTED_SHIPPED_THETA = 31`, `EXPECTED_SHIPPED_THETALIB = 2`) compared as
+    one object, then membership of `tests/fixtures/h7a/acceptance.theta` (kept
+    from `:110`), of `docs/examples/personas.thetalib` and of
+    `tests/live/acceptance/fixtures/acc-lib.thetalib`, then the kept
+    `not.toContain(SEEDED_INVALID)` (`:115`), then a filter asserting no corpus
+    member lies under `.pi/`. The `:111–113` cell that required an untracked
+    file is deleted — it was defect 2 direction 1. **How the count is
+    maintained:** the count assertion carries a custom message that renders in
+    the failure and tells the adder what to do — "Adding or removing a committed
+    theta source is deliberate: bump EXPECTED_SHIPPED_THETA /
+    EXPECTED_SHIPPED_THETALIB in this file in the SAME commit that adds or
+    removes the file." That is `AGENTS.md:60`'s fail-loudly shape: a shrunken
+    corpus reds naming the unmet precondition instead of passing over fewer
+    files.
+  - `tests/committed-fixture-parse-gate.test.ts` — **(d)** a second red-proof
+    cell beside the seeded-invalid `.theta` one (which is byte-unchanged): it
+    materialises a real malformed `.thetalib` — a top-level `let`, which
+    `imports.md:13` excludes from the five permitted forms — under
+    `mkdtempSync(join(tmpdir(), …))`, reads it back off disk, drives it through
+    the gate's own reader and asserts the code
+    `theta/parse/thetalib-top-level-statement` (`code-registry-parse.md:113`).
+    Code only, never message text, mirroring the `.theta` cell and incurring no
+    DIAG-4 registry-read obligation. Cleanup is `try`/`finally` + `rmSync`; no
+    `catch`.
+  - `AGENTS.md` — **(e)** two sentences appended to §"No silent skipping"
+    (`:66–69`): "`tests/committed-fixture-parse-gate.test.ts` covers every
+    committed `.theta` and `.thetalib` the repository ships. A fix record's
+    corpus-wide 'no shipped source moves' claim is discharged by that gate, not
+    by a scratch probe." The gate's dead convention anchor (`:3–4`, which cited
+    the pruned `conventions.md` stub) is repointed there.
+- **Operator rider (verbatim).** "0132 last (S2/D2, gate/fixture work): the
+  anti-vacuity guard asserts a .pi/theta/*.theta fixture that .gitignore
+  excludes, so a fresh clone reds; the fix makes a fresh clone green WITHOUT
+  weakening the guard (no silent skipping — a skipped test is a lie); my
+  untracked smoke.theta stays untouched until the fix supersedes it, and the fix
+  record states whether it is still needed."
+- **Parent adjudication of the (b) axis (verbatim).** "(b1) `git ls-files
+  '*.theta' '*.thetalib'` is settled as the corpus source. Reasons: it makes the
+  corpus a function of the commit, which is what 'committed fixture' claims and
+  the only reading under which a fresh clone is green; (b2) closes only
+  direction 2 and still needs the guard rewritten for direction 1, while minting
+  a SKIP_DIRS-must-track-.gitignore drift class; the in-tree precedent is the
+  bug-0095 oracle, which takes exactly the ls-files route. The git subprocess is
+  offline and admissible; per the doc's own constraint, git being unavailable
+  must FAIL LOUDLY naming the unmet precondition — never skip."
+- **Is `.pi/theta/smoke.theta` still needed? NO.** No cell references it and no
+  cell references any untracked path: the corpus is `git ls-files`, which cannot
+  see an untracked file, and the guard asserts
+  `shippedFixtures.filter((p) => p.startsWith(".pi/"))` is empty. Measured both
+  ways WITHOUT touching the file: `git ls-files -- '*.theta' '*.thetalib'` piped
+  through `grep '^\.pi/'` returns nothing (grep exit 1), so a fresh clone
+  carrying no local `.pi/` state sees the identical 34-file corpus; and a
+  malformed scratch `.theta` written to `.pi/tmp/scratch-0132-corpus.theta` left
+  the gate at 36/36 (pre-fix, that file became a cell and reddened the gate —
+  §Reproduction's defect-2 direction 2). The file stays on disk as the
+  operator's local fixture, harmless and load-bearing for nothing; it was never
+  read, written, renamed or deleted during this fix (size 210, mtime unchanged).
+- **The corpus, re-derived at HEAD `38b94f73`.** 34 tracked sources: 32 `.theta`
+  + 2 `.thetalib`; 21 under `docs/examples/`, 1 `tests/fixtures/h7a/`, 1
+  `tests/fixtures/h7b-invalid/`, 11 `tests/live/acceptance/fixtures/`. Identical
+  to §Reproduction's figure — the corpus has NOT grown since filing. Every
+  tracked source parses to `[]` through the gate's own reader except the
+  seeded-invalid `tests/fixtures/h7b-invalid/malformed.theta`; both `.thetalib`
+  rows re-derived `[]` before the fix and after it.
+- **Cell count.** Before: **34** = 1 guard + 32 shipped (31 tracked `.theta` +
+  the untracked `.pi/theta/smoke.theta`) + 1 `.theta` red-proof. After: **36** =
+  1 guard + 33 shipped (31 `.theta` + 2 `.thetalib`) + 2 red-proofs. Net +2 on
+  the file and +2 on the suite (4893 → 4895): +2 `.thetalib` shipped cells, −1
+  for the dropped untracked member, +1 for the new red-proof. §Fix (a)'s
+  predicted "36 cells — 1 guard + 31 shipped `.theta` + 2 `.thetalib` + 1
+  seeded-invalid" sums to 35, not 36; the arithmetic in that sentence is off by
+  one in both of its branches. 36 is right for a different reason — (d) adds a
+  second red-proof cell.
+- **§Fix (d): the seeded-file route was REFUSED, with a measurement.** §Fix (d)
+  offers two routes and says "The run decides and states which"; the parent
+  preferred the committed-file route on this report's premise that seeding under
+  `tests/fixtures/h7b-invalid/` "costs nothing elsewhere". **That premise is
+  false at HEAD.** Prototyped with a malformed `.thetalib` committed there, the
+  full suite went `1 failed | 4894 passed (4895)`: `AssertionError:
+  tests/fixtures/h7b-invalid/malformed.thetalib: a committed library must keep
+  loading cleanly: expected [ Array(1) ] to deeply equal []` — cell (h2) of
+  `tests/params-scalar-nontype-text-refusal.test.ts:1253`, which carries its OWN
+  working-tree census (`CENSUS_SKIP_DIRS` =
+  `node_modules`/`.git`/`dist`/`coverage`; the seeded-invalid directory is not
+  skipped) and excludes exactly one file BY NAME (`:1207`, `:1230`). Any
+  committed malformed `.thetalib` anywhere in the tree reds it. The one-line
+  remedy — widening that census's exclusion from the filename to the directory,
+  provably a no-op on its scored set at HEAD since the directory holds exactly
+  one already-excluded file — is an EXECUTABLE change in bug 0059's 93-cell
+  witness, which open bugs 0165, 0166 and 0175 cite as a pinned witness and
+  which was PROTECTED for this run. That is STOP-class and not
+  self-authorisable, so the run took §Fix (d)'s second sanctioned route (prove
+  the red by neutralisation and record it) and strengthened it with the
+  permanent temp-directory red-proof cell described above. See Residual 1.
+- **Gates.** Witness `tests/committed-fixture-parse-gate.test.ts` **36 passed
+  (36)**. Default suite `npx vitest run` **296 files / 4895 tests passed**
+  (pre-fix baseline 296 / 4893). `npx tsc -p tsconfig.json --noEmit` clean.
+  `npm run lint` clean. Live, run at the landing: H8a
+  `tests/live/live-production-acceptance.test.ts` +
+  `tests/live/double-session-start-live.test.ts` +
+  `tests/live/typed-query-wire-shapes.test.ts` — 38/39, the one red being the
+  known stochastic sentinel-refusal signature ("live typed capture: sentinel
+  'LIVE TYPED RESULT' absent from the streamed transcript"), GREEN on an
+  isolated re-run of that cell. H9a `tests/live/acceptance/` **11/11 on the
+  first attempt**, all nine areas including area (g), which drives
+  `acc-imports-invoke.theta` and its `acc-lib.thetalib` — the very library this
+  fix brings under the offline gate. `tests/fixtures/h7a/permitted-codes.json`
+  byte-unchanged (`a4a8da04…` before and after the real H9a run): this fix mints
+  no code and touches no `src/**` file.
+- **Review.** Two rounds. Round 1 (deep): one finding, category `prose` — three
+  self-descriptions in the changed file still claimed the pre-fix domain (both
+  `describe` titles and `loadParseDiagnostics`'s doc comment), the same
+  claim-vs-domain mismatch class this report files; no correctness, fidelity or
+  spec finding, and §Fix fidelity for (a), (b1), (c), (d) and (e) confirmed
+  cell-by-cell. Round 2 (fast, the confirmation round the title restatement
+  required because a `describe` argument is an executable line): CLEAN, with
+  every `path:line` citation in the file re-verified against the post-change
+  tree and a selector-dependency sweep confirming nothing in `tools/`, `config/`
+  or `package.json` selects these tests by name.
+- **Verification.** SOLID. Both defects witnessed by neutralisation and restored
+  byte-exact (gate-file hash `4d2e488e…` before and after every one): defect 1
+  (drop `"*.thetalib"` from the pathspec) reds `{theta: 31, thetalib: 0}` vs
+  `{31, 2}` and drops the file to 34 cells; defect 2 (append the untracked
+  `.pi/theta/smoke.theta` to the corpus) reds the count, and — with the count
+  bumped so execution reaches it — reds the `.pi/` assertion with its message
+  naming `.gitignore:26`. The `.thetalib` red-proof reds when its source is
+  flipped well-formed (`expected 0 to be greater than 0`). **The (d) obligation
+  over a REAL committed library:** a top-level `let` appended to
+  `docs/examples/personas.thetalib` reds that file's SHIPPED cell with
+  `{"code": "theta/parse/thetalib-top-level-statement", "file":
+  "docs/examples/personas.thetalib", "message": "top-level statement not
+  permitted in .thetalib file; move into a fn body", "range": {"start": {"line":
+  11, "column": 1}, "end": {"line": 11, "column": 23}}, "severity": "error"}` —
+  impossible before this fix — then restored byte-exact
+  (`eacadbc841a8d91ff53b21702d3414ca4be64d26` = `HEAD:`). Fail-loudly proven in
+  both shapes: pointing the corpus at a non-repository cwd fails the file at
+  COLLECTION (`Failed Suites 1`, `no tests`) with the precondition named, and a
+  pathspec matching nothing reds the guard on `{theta: 0, thetalib: 0}` rather
+  than letting `it.each([])` pass vacuously. Blast radius re-derived over all 34
+  tracked sources at the post-fix tree: exactly one non-empty row, the
+  seeded-invalid `.theta`.
+- **Residuals.**
+  1. **The seeded committed `.thetalib` fixture §Fix (d) prefers is still
+     unlanded, and its blocker is named.** Landing it requires widening the
+     census exclusion at `tests/params-scalar-nontype-text-refusal.test.ts:1230`
+     from `p !== SEEDED_INVALID` to the `tests/fixtures/h7b-invalid/` directory
+     prefix — a no-op on that test's scored set at HEAD (the directory holds one
+     file, already excluded by name) but an executable change in a protected,
+     open-bug-cited witness. Evidence: the prototype's full-suite red quoted
+     above. Until then the `.thetalib` red-proof is the temp-directory cell,
+     which is durable and permanent but does not exercise a committed file.
+  2. **Two comments in files this fix may not touch now describe the gate
+     falsely.** `tests/params-scalar-nontype-text-refusal.test.ts:1192–1194`
+     ("the committed `.thetalib` files (its walk collects `.theta` only)") and
+     `:1254–1257` ("`tests/committed-fixture-parse-gate.test.ts` walks `.theta`
+     only, so the `.thetalib` half … has no gate. This is that half."). Both are
+     comment-only and neither affects an assertion — that file keeps its own
+     independent census and stayed green throughout. Its cell (h2) is now
+     redundant with this gate. `tests/fn-arg-type-mismatch-wired.test.ts:2861`
+     ("walks every `.theta` and demands zero diagnostics") is non-exhaustive but
+     not false, and needs nothing.
+  3. **The §Fix (e) AGENTS.md insertion shifts every `AGENTS.md:NN` citation
+     past `:65` by +4.** Two previously-correct citations in OPEN bug docs move:
+     `docs/bugs/0171-params-sibling-carrier-not-cleared.md:560` cites
+     `AGENTS.md:66` (§"In-process harnesses … child pins"), now `:70`; and
+     `docs/bugs/0048-double-session-start-live-vacuous-quiesce-witness.md:243`
+     cites `AGENTS.md:93–109`, now `:97–113`. Fifteen further citations (14 to
+     `AGENTS.md:111`, one to `:113`) were ALREADY stale before this fix — that
+     section sat at `:120–124` at HEAD — and are now off by 13. No test reads
+     `AGENTS.md`'s bytes or asserts a line number, so nothing reds. Not repaired
+     here: the only remedies were editing other open bugs' docs or moving the
+     sentence away from the placement the operator specified.
+  4. **This report's own citations into other files are stale at HEAD** and were
+     re-derived rather than trusted: `code-registry-parse.md:109` → `:113`;
+     `theta-document.ts:740–745` → `:752–755`, `:748`/`:758` → `:760`/`:770`,
+     `:892–894` → `:911–913`, `:905` → `:924`, `:1086` → `:1105`, `:1115–1132` →
+     `:1134…`; `AGENTS.md:111–115`/`:113` → `:120–124`/`:122` pre-fix and
+     `:124–128`/`:126` after it. Its citations INTO
+     `tests/committed-fixture-parse-gate.test.ts` (`:55`, `:91–101`, `:108–116`,
+     `:122`) were all correct at HEAD. Nothing substantive in the report was
+     found wrong beyond the §Fix (a) cell arithmetic and the §Fix (d) "costs
+     nothing elsewhere" premise, both recorded above.
+- **Discharge notes appended.**
+  [0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) and
+  [0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md) — a
+  short note on each recording that the `.thetalib` half of its corpus-wide "no
+  shipped source moves" claim is now gate-enforced rather than resting on a
+  deleted scratch probe. Append-only; neither status flipped.
+- **Pinned dispositions / non-goals.** The parse dispositions of both committed
+  `.thetalib` files are scored, not changed (`[]` at HEAD, `[]` after). H9a area
+  (g)'s invariants are untouched. `tests/fixtures/h7b-invalid/malformed.theta`
+  and its cell are byte-unchanged. `docs/plan_topics/conventions.md` is not
+  rewritten — the dead anchor is repointed at `AGENTS.md`, not resurrected. No
+  `Resolver` was given to this seam, so import specs are still not followed
+  here; both libraries are covered by naming them in the corpus, as §Fix says.
+  No `src/**` file changed, no registered code was minted, no spec page was
+  edited (`AGENTS.md` is not spec). The neighbouring gate gaps stay open and
+  disjoint: [0047](./0047-h9a-code-gate-blind-to-host-namespace.md),
+  [0107](./0107-tools-lockstep-witness-is-source-shape-gate.md).
