@@ -349,6 +349,33 @@ export function parseParams(
     if (field.defaultSource === undefined || typeRefused.has(field)) {
       continue;
     }
+    // §Fix (a): the violated production is the DECLARATION form, not a form
+    // the sublanguage's own production set derives — frontmatter-fields-a.md:60
+    // writes it `field: type = literal` and has no arm without a `literal`, so
+    // an empty or whitespace-only default RHS is refused at the declaration
+    // position rather than inside the is-literal check below, which judges a
+    // parsed NODE and never reaches one for empty text (the `node === undefined`
+    // return in literal-sublanguage.ts). This sits BEHIND the bug-0059 guard
+    // above, so a field whose type half was already refused still draws exactly
+    // one diagnostic (code-registry-load.md:19's third precedence rule), and it
+    // `continue`s so the raw-newline check, the is-literal check and the compat
+    // check below never judge a field that carries no literal at all — the same
+    // one-diagnostic-per-offending-field precedence those rules already keep
+    // among themselves. The predicate re-trims rather than testing
+    // `.length === 0` directly: the registered Trigger names an "empty or
+    // whitespace-only" right-hand side, so this tests that property itself
+    // rather than relying on `splitParamValue`'s own normalisation to keep
+    // producing it.
+    if (field.defaultSource.trim().length === 0) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/default-without-literal",
+        file: site.file,
+        range: field.range,
+        message: `params default for '${field.name}' is empty; '=' must be followed by a literal-sublanguage form`,
+      });
+      continue;
+    }
     const defaultDiagStart = diagnostics.length;
     if (hasRawNewlineInStringLiteral(field.defaultSource)) {
       diagnostics.push({

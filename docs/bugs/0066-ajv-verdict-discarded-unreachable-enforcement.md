@@ -862,3 +862,27 @@ only asserted: both `neg` arms narrow through one shared predicate
 `isNumericLiteralOperand`, and neutralising either arm alone reds group C of
 `tests/params-default-unary-minus-non-numeric-refusal.test.ts`. This fix's own
 post-default-merge AJV hook and its live cell are untouched.
+
+Coordination note (appended by the bug 0165 fix, 0.92.0). This fix's own
+*Pinned dispositions* bullet recorded bug 0165's `string = ` row as a
+load-time DEFERRAL (cell c7 of `tests/params-default-type-compat.test.ts`)
+with its null-bind left untouched, and *Residuals* item 3 recorded the same
+row as persisting "by design of its own class" and staying open. Bug 0165
+settled on §Fix (a): the declaration itself is now refused one seam ahead of
+this fix's compat relation, in `parseParams`'s per-field default loop
+(`theta/parse/default-without-literal`), so cell c7 moved from a deferral
+into its own refusal assertion and the null-bind this fix's Residuals item 3
+named no longer occurs — the theta does not register at all. Consequence for
+this doc's own runtime witness: `tests/binder-post-merge-ajv-enforcement.test.ts`
+cell (5) used `q: 'string = '` as its vehicle for reaching
+`#recoverDeclaredDefaults`'s recovery-yields-nothing arm; that shape no longer
+parses cleanly under bug 0165's fix, so the cell moved to a different vehicle
+for the SAME arm — `q`'s default is now well-formed (`string = "d"`) and
+`DEEP_UNRECOVERABLE_DEFAULT_PATH` is deliberately omitted from the harness's
+`FIXTURE_SOURCES`, so `#recoverDeclaredDefaults`'s `root.fileSystem.readBytes`
+rejection is what yields the empty recovered-defaults list instead. This
+fix's own subject — the post-default-merge hook refuses a depth-6 `args`
+document even when the recovered-defaults list is empty — is unchanged and
+stays witnessed (re-proven on the new vehicle: the AJV-on-`args` note still
+fires the depth-breach summary and `result.bound` is still `false`); only the
+reason the recovered-defaults list is empty moved.

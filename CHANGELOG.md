@@ -6,6 +6,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-08-13
+
+### Fixed
+
+- **bug 0165 — a `params:` field whose `=` was followed by nothing loaded
+  silently and then bound `null`.** `splitParamValue` cuts at the first
+  top-level `=` and trims both halves, so `p: 'string = '` recorded a DEFINED
+  but empty `defaultSource`; `hasDefault` is keyed on definedness alone, the
+  field was dropped from `required` on the same test, and the block lowered.
+  The one checker at that position returns no diagnostic when its parse yields
+  no node — which is exactly what empty or whitespace-only text produces — so
+  nothing refused the declaration. The shipped binder prompt then advertised
+  `  p (string) default=` with no literal after it, invocation-time recovery
+  could not parse an empty literal and filled nothing, and the body read the
+  declared param as `null` for a field whose own lowered fragment answers
+  `false` on `{"p":null}` — after a binder model call had already been spent.
+  A `params:` default that is empty or whitespace-only now draws the new
+  `theta/parse/default-without-literal` at load and the theta does not
+  register. All four `=` spellings (`T = `, `T =`, `T =   `, `T=`) and all six
+  YAML deliveries reach it, at every declared type. The refusal sits behind bug
+  0059's type-half guard, so a field whose type half was already refused still
+  draws exactly one diagnostic. Conformant defaults are untouched:
+  `string = ""` still records `""` and renders `default=""`,
+  `array<string> = []` still renders `default=[]`, `number = 3` still binds
+  `3`, and `string` is still `required`.
+
 ## [0.91.0] - 2026-08-13
 
 ### Fixed

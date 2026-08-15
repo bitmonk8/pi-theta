@@ -146,11 +146,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import {
-  parseExpressionSource,
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument, type ParseThetaDocumentDeps } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
@@ -278,15 +274,25 @@ const DEEP_NO_DEFAULT_THETA = [
 ].join("\n");
 
 /**
- * The depth chain whose declared default RECOVERY CANNOT PARSE (§Fix constraint
- * 5's second clause): bug 0165's shape `string = ` records `hasDefault: true`
- * with an EMPTY `defaultSource`, so `#recoverDeclaredDefaults` splits the `=`,
- * hands `""` to `parseExpressionSource`, gets `null` and skips the field —
- * yielding no recovered default at all. At HEAD `#mergeDeclaredDefaults` returns
- * on `defaults.length === 0` before compiling a validator, so a filesystem-level
- * recovery failure silently excuses the whole `params` boundary for what DID
- * arrive. `p: L1` is the field the depth-6 document arrives under, so the
- * boundary has something to judge.
+ * The depth chain whose declared default's RECOVERY CANNOT COMPLETE (§Fix
+ * constraint 5's second clause) because the source file cannot be re-read —
+ * NOT because the default fails to parse: `q`'s own default (`string = "d"`)
+ * is well-formed, but `rootDouble().fileSystem.readBytes` REJECTS this
+ * fixture's path on purpose (omitted from `FIXTURE_SOURCES` below), so
+ * `#recoverDeclaredDefaults`'s `bytes === undefined` branch fires and the
+ * field is skipped — yielding no recovered default at all, exactly as an
+ * actually-unreadable file would in production. At HEAD `#mergeDeclaredDefaults`
+ * returns on `defaults.length === 0` before compiling a validator, so a
+ * filesystem-level recovery failure silently excuses the whole `params`
+ * boundary for what DID arrive. `p: L1` is the field the depth-6 document
+ * arrives under, so the boundary has something to judge.
+ *
+ * Bug 0165 is why this fixture no longer spells an empty default: its fix
+ * refuses `string = ` at load (`theta/parse/default-without-literal`), so a
+ * theta carrying that shape no longer parses cleanly and cannot reach this
+ * cell's binder pass at all. Bug 0165's fix is the authority that moves this
+ * cell onto the unreadable-file arm (per the 0056/0059 discipline;
+ * coordination note appended to this doc's own bug, 0066).
  */
 const DEEP_UNRECOVERABLE_DEFAULT_THETA = [
   "---",
@@ -294,7 +300,7 @@ const DEEP_UNRECOVERABLE_DEFAULT_THETA = [
   "bind_model: binder-model",
   "params:",
   "  p: L1",
-  "  q: 'string = '",
+  "  q: 'string = \"d\"'",
   "---",
   DEEP_CHAIN_BODY,
   "@`q=${q}`",
@@ -338,14 +344,24 @@ const AT_LIMIT_PATH = "/theta/b66lim.theta";
  * double's in-memory `fileSystem.readBytes` so `#recoverDeclaredDefaults`
  * resolves the same bytes the parser saw. An unregistered path REJECTS loudly —
  * a silent empty read would make a defaults-recovery failure look like a clean
- * merge, which is one of the two skip paths this bug reports.
+ * merge, which is one of the two skip paths this bug reports — and cell (5)
+ * below now RELIES on that rejection deliberately, not only as a fail-loud
+ * property: `DEEP_UNRECOVERABLE_DEFAULT_PATH` is omitted from this map on
+ * purpose, so the fixture's own well-formed default is recovered through the
+ * same reject-arm an actually-unreadable file would take, rather than through
+ * an unspellable default source (bug 0165 now refuses that shape at load).
  */
 const FIXTURE_SOURCES: ReadonlyMap<string, string> = new Map([
   [ENUM_DEFAULT_PATH, ENUM_DEFAULT_THETA],
   [ENUM_DEFAULT_OK_PATH, ENUM_DEFAULT_OK_THETA],
   [DEEP_DEFAULTED_PATH, DEEP_DEFAULTED_THETA],
   [DEEP_NO_DEFAULT_PATH, DEEP_NO_DEFAULT_THETA],
-  [DEEP_UNRECOVERABLE_DEFAULT_PATH, DEEP_UNRECOVERABLE_DEFAULT_THETA],
+  // DEEP_UNRECOVERABLE_DEFAULT_PATH is DELIBERATELY absent: cell (5) needs
+  // `#recoverDeclaredDefaults`'s `readBytes` REJECTION arm, not a
+  // `defaultSource` that fails to parse (bug 0165 refuses that spelling at
+  // load now, so a fixture carrying it could not reach a binder pass at all).
+  // Omitting the path from this map is what makes
+  // `rootDouble().fileSystem.readBytes` reject for it.
   [AT_LIMIT_PATH, AT_LIMIT_THETA],
 ]);
 
@@ -765,14 +781,16 @@ describe("bug 0066 (4) — enforcement point #4 is about the `params` boundary, 
 // read succeeding.
 // ===========================================================================
 
-describe("bug 0066 (5) — a default recovery could not parse does not excuse the boundary", () => {
+describe("bug 0066 (5) — a default recovery that cannot read its source does not excuse the boundary", () => {
   it("RED (5): a theta whose only default is unrecoverable still has its depth-6 `args` refused", async () => {
     // The arm is only the subject if recovery genuinely yields nothing, so both
     // halves of that premise are asserted off the parsed fixture and the shipped
-    // recovery predicate rather than assumed: the theta DOES declare a default
-    // (otherwise this is cell 4 again), and the recorded default fails the exact
-    // predicate `#recoverDeclaredDefaults` applies (`parseExpressionSource(...)
-    // === null` ⇒ the field is skipped ⇒ no recovered default).
+    // recovery predicate rather than assumed: the theta DOES declare a
+    // WELL-FORMED default (otherwise this is cell 4 again, or bug 0165 refuses
+    // it at load and there is no fixture to drive at all), and the shipped
+    // recovery returns none for it because the re-read REJECTS — driven off
+    // the same `FileSystem.readBytes` seam `#recoverDeclaredDefaults` itself
+    // calls, not by restating the harness's own `FIXTURE_SOURCES` map.
     const parsed = parse(DEEP_UNRECOVERABLE_DEFAULT_THETA);
     const params = parsed.frontmatter?.params;
     expect(
@@ -782,12 +800,12 @@ describe("bug 0066 (5) — a default recovery could not parse does not excuse th
     const recorded = params?.fields.find((f) => f.wireName === "q")?.defaultSource;
     expect(
       recorded,
-      "bug 0165's shape records `hasDefault: true` with an EMPTY `defaultSource`",
-    ).toBe("");
-    expect(
-      parseExpressionSource(recorded ?? "unparsed"),
-      "`#recoverDeclaredDefaults` skips a field whose `defaultSource` does not parse as a single expression, so a `null` here is what makes the recovered-defaults list empty and reaches the arm under test",
-    ).toBeNull();
+      "the theta declares a WELL-FORMED default — this cell's subject is an unreadable source file, not an unspellable literal (bug 0165's fix refuses that shape at load, off this cell's arm entirely)",
+    ).toBe('"d"');
+    await expect(
+      rootDouble().fileSystem.readBytes(DEEP_UNRECOVERABLE_DEFAULT_PATH),
+      "the shipped recovery returns none for `q` because this read REJECTS: a RESOLVING read would refill `q`'s default and take this cell off the arm under test, so the rejection itself is the premise this cell needs",
+    ).rejects.toThrow(/no source registered/);
 
     scriptToolCallEnvelope({ kind: "ok", args: DEPTH_6_ARGS });
     const { deps, notes } = producerWithCapture();

@@ -1,6 +1,6 @@
 # Bug 0165 — An EMPTY default-side literal in a `params:` field is admitted at load and mints a `default=` requirement token with no literal: `p: 'string = '` records `hasDefault: true`, `defaultSource: ""` and `required: []`, lowers `{"type":"string"}`, and the shipped binder system prompt renders `  p (string) default=` — and because invocation-time recovery cannot parse an empty literal, the merge returns before the named post-default-merge AJV hook and the body binds `null` for a non-nullable declared param, on a theta that loaded with zero diagnostics
 
-- **Status:** open. Residual 1 of the bug 0059 fix (0.86.0, commit `f31eac45`),
+- **Status:** fixed (0.92.0). Residual 1 of the bug 0059 fix (0.86.0, commit `f31eac45`),
   recorded there as `## Fix (0.86.0)` *Residuals* item 1
   (`0059-…md:977–983`). §Fix is constraint-pinned, not settled: it names three
   candidate check sites with their measured blast radii, the registry and GOV-15
@@ -977,3 +977,229 @@ witnessed — neutralising either arm alone reds group C of that file. This
 report's own line citations to `src/parser/literal-sublanguage.ts` (`:53`,
 `:58–63`, `:61–63`) sit ABOVE 0166's insertion point at `:493` and are
 unshifted by it; the file grew 741 → 767 lines.
+
+## Fix (0.92.0)
+
+- **What shipped:**
+  - `src/parser/params.ts` — §Fix (a): `parseParams`'s per-field default loop
+    gains a third rule, BEHIND the bug-0059 type-half guard and AHEAD of the
+    bug-0102 raw-newline rule, refusing a `defaultSource` that is empty or
+    whitespace-only after trim with the new code
+    `theta/parse/default-without-literal`, then `continue`ing so the
+    raw-newline, is-literal and compat rules never judge a field that carries
+    no literal at all. The error gate then withholds the lowered document.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2 row for
+    the new code, in the same commit as the emitter.
+  - `docs/reference/diagnostics.md` — the mirror row (that table has no
+    *Trigger* column, so a new code needs one).
+  - `docs/reference/frontmatter.md`,
+    `docs/spec_topics/frontmatter/frontmatter-fields-a.md` §Defaults — one
+    clause each naming the new code.
+  - `tests/params-default-empty-literal-refusal.test.ts` — the 39-cell load-time
+    witness (new).
+  - `tests/live/live-production-acceptance.test.ts` — additive H8a cell 34.
+  - Three pre-authorized existing-cell re-pins (below).
+- **The settled route, and the evidence that decided it.** §Fix (a) was taken
+  over (b) and (c). (1) The violated production is the DECLARATION form, not
+  the sublanguage's production set: `frontmatter-fields-a.md:60` writes it
+  `field: type = literal` and derives no arm without a `literal`, and that form
+  is checked where the params block is parsed. (2) Route (b) collides with
+  `grammar.md:9`, which is normative that a failure of the is-literal check is
+  `theta/parse/default-not-literal`; emitting a second code out of that check
+  would falsify the sentence and force a further spec edit, where (a) leaves it
+  exactly true. (3) Route (a) leaves `src/parser/literal-sublanguage.ts`
+  BYTE-IDENTICAL (`git hash-object` = `git rev-parse HEAD:` =
+  `5003d7d8ae9f75037a4a2425f33f0e548a14391e`), which is the strongest available
+  guarantee against re-widening the `neg` arm bug 0166 narrowed one release
+  earlier. (4) Route (c) is rejected by §Fix itself (a silent declaration
+  rewrite that cannot land without moving `splitParamDefaultSource` in step);
+  both splits are unchanged.
+- **DIAG-2 disposition — a NEW row, and why reuse was rejected.**
+  `theta/parse/default-not-literal`'s *Message* interpolates `<expr>`, and
+  `placeholder-rendering-a.md:49` binds `<expr>` normatively to "the offending
+  source span … copied byte-for-byte … between the offending sub-expression's
+  start and end token positions". Empty input has no token positions and no
+  sub-expression, so reuse would render `offending sub-expression: ` naming
+  nothing, and DIAG-4 (`diagnostic-shape.md:74`) forbids moving the *Message*
+  to repair it. DIAG-2 admits a code ADDITION as a GOV-15 carve-out within a
+  1.x minor. The new code is named off the `theta/parse/let-without-initialiser`
+  precedent — the registry's existing "declaration form present, required
+  operand absent" row. *Sev* `E`, *Phase* `parse`, *Spec rule*
+  `[Frontmatter — Defaults]`, *Hint* `—` (matching
+  `theta/parse/params-default-type-mismatch`; the family emits no hint, so
+  promising one would be a registry claim the code does not honour). *Trigger*
+  modelled on `code-registry-load.md:19`'s type-half wording, the §Fix (d)(1)
+  drafting precedent. The placeholder `<field>` needs no new token: it is a
+  category-5 source-derived placeholder (`placeholder-rendering-b.md:3–10`,
+  "identifier-shaped per Lexical — Identifiers; rendered unquoted"), already in
+  registry use by `theta/parse/non-trailing-default`. `default-not-literal`'s
+  own row is UNTOUCHED, so bug 0166's landed numeric carve-out wording is
+  preserved by construction, and `params-default-type-mismatch`'s precedence
+  sentence needed no edit (its *Trigger* already defers on "text that parses to
+  no literal"). `docs/reference/grammar.md:513` and `grammar.md:9` describe the
+  IS-LITERAL CHECK and are deliberately unedited — the second dividend of not
+  routing through `checkLiteralSublanguage`.
+- **The fail-open arm's input set, proven rather than probed** (§Fix (b)'s
+  obligation (i), discharged even though (b) was not taken). `ExprParser.parse`
+  has exactly one `return undefined`, guarded by `this.peek() === undefined`;
+  `peek()` returns `tokens[0]`; `tokeniseExpr` skips exactly `" "`, `"\t"`,
+  `"\n"`, `"\r"` and otherwise ALWAYS pushes a token (the terminal fall-through
+  pushes a single-character `punct` for any unmatched byte). Every other entry
+  point below `parse()` returns a node unconditionally. The token list is
+  therefore empty IFF every character is one of those four: the arm's input set
+  is exactly {empty, whitespace-only}. Route (a) leaves that arm OPEN by design,
+  so group G of the witness pins
+  `checkLiteralSublanguage("", "default", site) → []` and the whitespace-only
+  row as a DELIBERATE, documented boundary — the refusal lives at the
+  declaration-form position — converting a previously unwitnessed branch into a
+  witnessed one.
+- **GOV-15 — the newly-refused input set, enumerated** (`source-language-stability.md:25`,
+  the carve-out's ADDITION direction, admissible within a 1.x minor): the four
+  `=` spellings (`T = `, `T =`, `T =␠␠␠`, `T=`) × the six YAML deliveries
+  (single-quoted, double-quoted, unquoted, block literal `|`, block folded `>`,
+  tab-only) × every declared type (measured across `string`, `integer`,
+  `array<string>`, `"x" | "y"`, `boolean`, `string | null`, a named enum), plus
+  the cross-field row `p: 'string = '` + `q: 'integer = '`. Two of the 24
+  spelling×delivery cells are UNSPELLABLE and are documented rather than
+  asserted: YAML strips trailing white space from a plain scalar, so the
+  one-space and three-space spellings cannot arrive unquoted. **Corpus census
+  re-run at this HEAD:** 34 committed `.theta`/`.thetalib`, 17 declaring
+  `params:`, exactly one top-level `=` inside a committed `params:` block —
+  `count: number = 3` in `tests/live/acceptance/fixtures/acc-params-binder.theta`,
+  well-formed. No committed fixture is in the affected class. A repo-wide sweep
+  for the trigger shape found exactly one collision, cell (5) below.
+- **The over-refusal fence stays silent** (§Fix (d)(4), all five re-measured):
+  `string = ""` → `default=""`, `array<string> = []` → `default=[]`,
+  `string = "ok"` → `default="ok"`, `string` → `required`, `number = 3` →
+  `default=3`. The bug-0059 guard keeps suppressing (§Fix (d)(2)):
+  `p: 'lol wut = '` and `p: 'pick one = or two'` each still draw EXACTLY ONE
+  `theta/load/params-type-not-expression` and never the new code — the cells
+  that red if the rule is placed ahead of the guard rather than behind it. No
+  consumer moved (§Fix (d)(5)): `splitParamValue`, `splitParamDefaultSource`,
+  `renderBinderParamLine`, `binderPromptParamField`, `buildBinderEnvelopeSchema`,
+  `fillDefaultsAndRevalidate`, `#mergeDeclaredDefaults` and `intakeChildParams`
+  are all byte-identical to HEAD.
+- **Authorized cell re-pins — three, each with its authority, each subject preserved:**
+  1. `tests/params-default-type-compat.test.ts` **c7** — authority: this doc's
+     own mechanism-delta note ("a fix here re-pins that cell knowingly"). Lifted
+     out of the `DEFERRED` table into its own cell asserting the new refusal AND
+     that `theta/parse/params-default-type-mismatch` still declines — bug 0066's
+     subject at that row.
+  2. `tests/params-default-unary-minus-non-numeric-refusal.test.ts` **e3** —
+     authority: bug 0166's coordination note appended below ("a route here reds
+     that cell knowingly"). Restated: the file now asserts the new refusal AND
+     that `theta/parse/default-not-literal` does NOT co-fire, which is exactly
+     the separating observable the cell existed to hold. Its `recordedDefault`
+     premise moved from `""` to `undefined` because an error-severity `params:`
+     diagnostic withholds the WHOLE frontmatter object
+     (`src/parser/frontmatter.ts`, the `registered` gate), the same disposition
+     that file's own refusal helper already asserts — verified empirically
+     before the cell was touched.
+  3. `tests/binder-post-merge-ajv-enforcement.test.ts` **cell (5)** — authority:
+     an explicit OPERATOR GRANT, recorded verbatim below. This cell was not
+     pre-authorized by any document; the first run of this fix STOPPED at the
+     blast-radius pre-measurement and reported it rather than self-authorizing,
+     because re-vehicling it touches assertions in a protected witness of a
+     fixed bug.
+
+  > "GRANT — re-vehicle cell (5) onto the unreadable-file arm, subject preserved
+  > (recommended)" — "One cell, one file, nothing else moves. Keep
+  > DEEP_UNRECOVERABLE_DEFAULT_THETA's default well-formed (q: 'string = "d"')
+  > and reach the empty recovered-defaults list through the unreadable-file arm
+  > the cell's own comment already names — the harness supplies a fake
+  > filesystem. Premise assertions change from "defaultSource is empty /
+  > parseExpressionSource is null" to "the theta declares a default, and the
+  > shipped recovery returns none for it". The four outcome assertions (single
+  > AJV args note, result.bound === false, no success echo) are UNTOUCHED, so
+  > bug 0066's subject stays witnessed. Moved rows marked inline naming 0165 as
+  > the authority, per the 0056/0059 discipline; coordination note appended to
+  > 0066's doc."
+
+  Implemented within every bound: `q`'s default is now `string = "d"`,
+  `DEEP_UNRECOVERABLE_DEFAULT_PATH` is deliberately omitted from the harness's
+  `FIXTURE_SOURCES` so `root.fileSystem.readBytes` rejects and
+  `#recoverDeclaredDefaults` returns `[]` through its `bytes === undefined`
+  arm, and the premise now asserts that rejection off the same `readBytes` seam
+  the production code calls. `params.defaultedFields` is still `["q"]`, so the
+  recovery is genuinely invoked rather than short-circuited onto cell 4's
+  no-defaults arm. The four outcome assertions are outside every diff hunk —
+  literally unchanged — and the AJV-on-`args` depth-breach note still fires with
+  `result.bound === false`, re-proven on the new vehicle. Nothing else in that
+  file moved beyond the now-unused `parseExpressionSource` import.
+- **Gates:**
+  - Witness, red before: `npx vitest run tests/params-default-empty-literal-refusal.test.ts`
+    → `Tests 30 failed | 9 passed (39)`, every red the empty diagnostic list
+    where the fix emits (`expected [] to deeply equal [ Array(1) ]`).
+  - Witness, green after: `Test Files 1 passed (1)` / `Tests 39 passed (39)`.
+  - Red-proof, production neutralisation: removing only the new rule reds 30/39
+    and restoring returns `git hash-object src/parser/params.ts` to its
+    pre-neutralisation value byte-exact.
+  - Red-proof, registry neutralisation: removing only the registry row reds
+    29/39 on the DIAG-4 loud-failure path
+    (`expected undefined to be defined`), proving every expected message is read
+    from the registry rather than copied.
+  - Full default suite: `Test Files 295 passed (295)` / `Tests 4869 passed (4869)`
+    (baseline 294/4830; +1 file / +39 tests is exactly the new witness).
+  - `npx tsc -p tsconfig.json --noEmit` → clean. `npm run lint` → clean.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts`
+    → `Tests 34 passed (34)`, cell 34 green in 42.7 s, first attempt.
+  - Live H9a: `noninteractive-acceptance.test.ts` → 10 passed;
+    `ctor-unresolved-load-refusal.test.ts` → 1 passed. 11/11.
+    `tests/fixtures/h7a/permitted-codes.json` is UNCHANGED, decided by the real
+    run and not by assumption — no H9a fixture carries the trigger shape.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) returned one `prose`
+  finding (a stale `:399` citation in the new witness file's own header, which
+  the fix's `+27`-line insertion had moved to `:426`) plus one non-blocking
+  residual (an imprecise "ahead of this same loop" clause, and a pre-existing
+  wrong `production-composition.ts` citation left alone as bug 0134's class).
+  Both actionable items were routed to `bug-fix-fixer-light`; that round's diff
+  touched only comment text, verified by gate-diff, so the confirmation round
+  was skipped under the post-polish rule. A pre-review correction round preceded
+  round 1: the implementer had refreshed nine `params.ts` citations across six
+  files, but three of them were already wrong at HEAD (the `unspellable` sink is
+  at `:747`, not the cited `:701`; the cited generic-argument split `:591–612`
+  is JSDoc prose) — shifting those by `+27` would launder bug 0134's stale-citation
+  class as freshly re-derived, so `tests/params-scalar-nontype-text-refusal.test.ts`,
+  `tests/schema-body-nontype-text-refusal.test.ts` and
+  `tests/inline-object-nested-lowering.test.ts` were reverted BYTE-EXACT to HEAD
+  (hashes equal, line counts 1299 / 1217 / 2043). Only the citations this change
+  genuinely invalidated were kept.
+- **Verification:** SOLID, no findings. Obligation 1 — both neutralisations red
+  the witness and both restore byte-exact. Obligation 2 — 295/4869 green.
+  Obligation 3 — H8a 34/34 and H9a 11/11, run for real; the H8a addition is
+  purely additive (`git diff --numstat` → `239 0`, zero deletion lines; cell
+  31's `anthropic/claude-haiku-4-5` pin and cells 32/33 untouched).
+  Obligation 4 — typecheck and lint clean.
+- **Residuals:**
+  1. **This doc was wrong that bug 0163 is open.** `0163-…md` reads
+     `Status: fixed (0.88.0) — discharged by bug 0066's fix`, so §Fix (e)
+     *Ordering*'s "whichever lands second rebases" reasoning is moot on that
+     pair. The per-field default loop has also gained a fourth occupant this doc
+     does not describe — `checkParamsDefaultCompat`, landed by 0163/0066.
+  2. **This doc under-measured its own blast radius.** §Affected's census claim
+     "no committed test declares an empty default" is FALSE at this HEAD:
+     `tests/binder-post-merge-ajv-enforcement.test.ts` declared one, landed by
+     bug 0066 at 0.88.0 — after this doc was measured. None of §Fix's three
+     routes names that file, although this doc's own mechanism-delta note cites
+     cell (5) by name. That gap is what forced the operator grant above.
+  3. **The 0166 coordination note's "unshifted" claim is wrong.** This doc's
+     citations `src/parser/literal-sublanguage.ts:53`, `:58–63`, `:61–63` are
+     each off by one at this HEAD (`checkLiteralSublanguage` is at `:54`, the
+     `node === undefined` return at `:62–64`, `LiteralPosition` at `:40`). Bug
+     0134's class; disclosed, not chased.
+  4. **Positional drift elsewhere in this doc** — every `src/parser/params.ts`
+     citation, and the `tests/params-scalar-nontype-text-refusal.test.ts` f1/f2/f3
+     positions, are stale. Bug 0134's adjudicated do-not-chase class.
+- **Discharge notes appended:** bug 0066 (cell (5) re-vehicled, subject
+  preserved, grant named), bug 0166 (what moved in the shared loop and the
+  registry), bug 0059 (its guard kept suppressing, with the cells that prove
+  it).
+- **Pinned dispositions / non-goals:** the fail-open arm inside
+  `checkLiteralSublanguage` stays OPEN and is now a witnessed boundary rather
+  than an unwitnessed branch (group G) — closing it is route (b), rejected.
+  Unterminated literal defaults (`string = "unterminated`, `array<string> = [1,`)
+  remain admitted; they record a `defaultSource` that DOES parse and are this
+  doc's own §Non-goals. The trailing-token `ExprParser` tolerance
+  (`integer = -1x`) is bug 0175's, already filed. That an unbound declared param
+  reads `null` in body scope is unchanged as a general rule — this fix removes
+  the declaration that reached it, not the rule.

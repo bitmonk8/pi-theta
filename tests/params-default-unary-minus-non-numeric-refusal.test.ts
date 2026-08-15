@@ -189,6 +189,9 @@ const NEWLINE_CODE = "theta/parse/literal-newline-in-string";
 /** bug 0059's type-half refusal, which precedes every default-side check. */
 const TYPE_TEXT_CODE = "theta/load/params-type-not-expression";
 
+/** bug 0165's refusal: an empty or whitespace-only default RHS has no literal to type at all. */
+const EMPTY_DEFAULT_CODE = "theta/parse/default-without-literal";
+
 interface RegistryRow {
   readonly code: string;
   readonly namespace: string;
@@ -548,7 +551,7 @@ describe("bug 0166 (A) — the refusal is per offending field", () => {
  * replaces it is `code-registry-parse.md:49`'s SECOND precedence rule — "a
  * field whose default half already drew … `theta/parse/default-not-literal`
  * keeps that diagnostic alone — this row does not run for either" — implemented
- * by the one-diagnostic-per-field guard at src/parser/params.ts:375–377, which
+ * by the one-diagnostic-per-field guard at src/parser/params.ts:402–404, which
  * stops the compat check once the default half has drawn an error.
  */
 const FLIPPED: readonly RefusalRow[] = [
@@ -753,9 +756,9 @@ describe("bug 0166 (E) — the refusal sits behind the position's guards", () =>
 
   it(`GREEN (e2): a raw break inside a negated string span keeps ${NEWLINE_CODE} first`, () => {
     // bug 0102's rule owns the string SPAN and runs BEFORE the is-literal check
-    // in the same per-field loop (src/parser/params.ts:353 then :363), so its
+    // in the same per-field loop (src/parser/params.ts:380 then :390), so its
     // diagnostic keeps the position it holds today. The two rules are
-    // independent pushes — only the compat row at :378–386 sits behind the
+    // independent pushes — only the compat row at :405–413 sits behind the
     // one-diagnostic guard — so this cell pins the ORDER and the compat row's
     // absence, not a total count the settled route does not bound.
     const doc = parseDoc(src('  p: |\n    string = -"a\n    b"'), "bug0166.theta");
@@ -769,23 +772,37 @@ describe("bug 0166 (E) — the refusal sits behind the position's guards", () =>
     ).toEqual([]);
   });
 
-  it("GREEN (e3): an EMPTY default half still loads clean — bug 0165's disjoint arm", () => {
-    // The separating observable between the two open reports against this
-    // function: `ExprParser.parse()` yields NO node for an empty default, so
-    // `checkLiteralSublanguage` returns before `firstNonLiteral` runs and the
-    // arm this file narrows is never reached. Cell c7 of
-    // tests/params-default-type-compat.test.ts:444 pins the same row's load-time
-    // deferral. A narrowing that reddened this row would have taken bug 0165's
-    // subject with it.
+  it("GREEN (e3): an EMPTY default half draws bug 0165's refusal, not this file's own code — the disjoint arm, restated", () => {
+    // WHY THIS CELL CHANGED: bug 0166's own coordination note on bug 0165's
+    // doc names this cell as one "a route here reds … knowingly" — bug 0165's
+    // fix is that route (per the 0056/0059 discipline). The separating
+    // observable is unchanged: `ExprParser.parse()` yields NO node for an
+    // empty default, so `checkLiteralSublanguage` returns before
+    // `firstNonLiteral` runs and this file's `neg`-arm narrowing is never
+    // reached for it. What changed is that the declaration is now refused ONE
+    // SEAM EARLIER, at the declaration position, before the is-literal check
+    // this file's own code depends on ever runs — so `NOT_LITERAL_CODE` stays
+    // absent for empty text exactly as it did before bug 0165's fix, and the
+    // load is no longer silent. Cell c7 of
+    // tests/params-default-type-compat.test.ts pins the same row's new
+    // verdict.
     const doc = paramsDoc("string = ");
     expect(
+      diagCodes(doc),
+      `e3: bug 0165's fix refuses the declaration before the is-literal check runs. Rendered: ${JSON.stringify(diagLines(doc))}`,
+    ).toEqual([`error ${EMPTY_DEFAULT_CODE}`]);
+    expect(
       diagLines(doc),
-      "e3: bug 0165 owns the no-node arm; this file's rows all produce a `neg` node whose operand is a literal",
-    ).toEqual([]);
+      "e3: DIAG-4 — the rendered message is the registry row's template with `<field>` rendered as the field's own name",
+    ).toEqual([`error ${EMPTY_DEFAULT_CODE}: ${registryMessageOf(EMPTY_DEFAULT_CODE).replace("<field>", () => "p")}`]);
+    expect(
+      diagCodes(doc).some((c) => c.endsWith(NOT_LITERAL_CODE)),
+      "e3: this file's own code must not co-fire — the no-node arm never reaches `firstNonLiteral` whichever code now claims the input",
+    ).toBe(false);
     expect(
       recordedDefault(doc),
-      "e3: the row's recorded default is the EMPTY string, which is what makes it a different spelling rather than a different verdict",
-    ).toBe("");
+      "e3: an error-severity params diagnostic withholds the WHOLE frontmatter object (src/parser/frontmatter.ts:1271-1273), the same disposition this file's own `expectRefusedAsNonLiteral` already asserts for its own refusals — so the field record does not survive either; the row's recorded default is no longer readable, which is a stronger disposition than 'a different spelling' and is the correct contract now that the declaration itself is refused",
+    ).toBeUndefined();
   });
 });
 

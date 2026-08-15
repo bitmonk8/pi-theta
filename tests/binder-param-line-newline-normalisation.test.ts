@@ -138,12 +138,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //                                              unknown-identifier, literal-newline-in-string]
 //   X2   body `let s = [1,` / `2]`     []
 // Two citations in the bug doc's §Affected list drifted at HEAD and are carried
-// here at their current lines (re-derived again after bug 0059 §Fix threaded
-// its new sink and refusal check through this same loop): the per-field
-// default check is src/parser/params.ts:317–357 (the `checkLiteralSublanguage`
-// call now at :352, preceded by bug 0102's `hasRawNewlineInStringLiteral`
-// refusal at :342), and the registration gate `hasLoadParseError` is
-// src/extension/production-composition.ts:2045–2052.
+// here at their current lines (re-derived again at this HEAD, after bug 0165
+// §Fix (a) inserted its own refusal inside this same loop, ahead of the loop's
+// other rules): the per-field default check is src/parser/params.ts:338–421 (the
+// `checkLiteralSublanguage` call now at :390, preceded by bug 0102's
+// `hasRawNewlineInStringLiteral` refusal at :380), and the registration gate
+// `hasLoadParseError` is src/extension/production-composition.ts:2045–2052.
 //
 // FOUR ROWS ABOVE ARE SUBSTITUTED, NOT THE PROBE'S OWN BYTES (bug 0059 §Fix +
 // operator grant, HEAD 948b7814): R1, R1b, F1 and R3e originally recorded
@@ -848,7 +848,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // RHS of `params:` defaults").
       expect(
         checkLiteralSublanguage(literal, LITERAL_POSITION, LITERAL_SITE).map((d) => d.code),
-        `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts:352)`,
+        `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts:390)`,
       ).toEqual([]);
     });
   }

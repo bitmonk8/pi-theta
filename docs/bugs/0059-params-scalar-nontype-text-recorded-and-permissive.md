@@ -1032,3 +1032,30 @@ proved it by reddening this report's own group-(d) brace cells
 (`???` field), c5 (`???` alias) and c7 (`[a, b]` field) moved from silent to
 0061's refusal with their lowered-bytes halves byte-unchanged, and the witness
 stays at 93 cells with this report's subject fully witnessed by the remaining 90.
+
+Coordination note (appended by the bug 0165 fix, 0.92.0). This fix's
+*Residuals* item 1 — the empty default-side literal — is now closed by bug
+[0165](./0165-empty-params-default-literal-admitted-and-never-bound.md), fixed
+at 0.92.0. 0165 settled on refusing the declaration inside `parseParams`'s
+per-field default loop with a new registered code
+`theta/parse/default-without-literal`.
+
+**This fix's type-half suppression guard was left intact and keeps
+suppressing**, which was 0165's §Fix (d)(2) constraint. The new rule sits
+BEHIND the guard — it reads `field.defaultSource === undefined ||
+typeRefused.has(field)` and `continue`s before the new rule can run — so the
+registry's third precedence rule (`code-registry-load.md:19`, "a field refused
+by the text stage draws no default-RHS literal-sublanguage diagnostic … for the
+same field") continues to hold for the new code as it does for the two rules
+that were already there.
+
+The cells that prove it, all green and all unmodified by 0165:
+`tests/params-scalar-nontype-text-refusal.test.ts` f1 (`p: 'pick one = or
+two'`), f2 and f3 — the three arms of this guard, each still pinned at exactly
+one diagnostic. `p: 'lol wut = '` — a junk type half AND an empty default,
+the row where both rules could have fired — still draws exactly one
+`theta/load/params-type-not-expression` and never the new code; 0165's own
+witness re-pins that row independently in its group D, and states inline that
+those cells are what red if a default-side rule is ever placed ahead of this
+guard rather than behind it. This file was re-read, not moved: its
+`git hash-object` is unchanged from HEAD across the whole 0165 fix.

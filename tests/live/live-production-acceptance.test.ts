@@ -5254,3 +5254,242 @@ describe("H8a-T — bug 0166: a params: default's unary `-` over a non-numeric l
     }
   });
 });
+
+// ===========================================================================
+// Bug 0165 — `splitParamValue` (src/parser/frontmatter.ts:636) cuts a
+// `params:` field's scalar at its first top-level `=` and trims both halves,
+// so a trailing `=` with nothing (or only whitespace) after it yields a
+// DEFINED but EMPTY `defaultSource`. `hasDefault` is keyed on definedness
+// alone, the field is dropped from `required` on the same test, and the
+// block lowers with zero diagnostics: `p: 'string = '` registered, rendered
+// `  p (string) default=` in the binder system prompt, and — because
+// invocation-time recovery cannot parse an empty literal either — bound
+// `null` for a non-nullable declared param on a caller that loaded clean
+// (docs/bugs/0165-empty-params-default-literal-admitted-and-never-bound.md).
+//
+// THE SETTLED ROUTE IS §Fix (a): `parseParams`'s per-field default loop gains
+// a THIRD rule, behind the bug-0059 type-half suppression guard
+// (src/parser/params.ts:349) and ahead of the bug-0102 raw-newline rule
+// (:380) and the is-literal call (:390) — a `defaultSource` that is empty or
+// whitespace-only after trim draws the new registered code
+// `theta/parse/default-without-literal` and the error gate (:426) then
+// withholds the lowered document, so the theta never registers at all.
+//
+// No existing live fixture (H8a, H9a, or the hardening probes) declares an
+// empty or whitespace-only `params:` default — the corpus census the bug doc
+// re-runs at HEAD (34 committed `.theta`/`.thetalib` files, 17 with
+// `params:`, exactly one committed default — `acc-params-binder.theta`'s
+// `count: number = 3`, well-formed) — so neither the defect nor its fix had
+// any live reach before this cell.
+//
+// THIS CELL DRIVES BOTH DIRECTIONS THE BUG DOC PINS AS ONE FENCE: the caller
+// whose `params:` default is the empty spelling `string = ` must not
+// register — the SAME per-field default loop / `hasLoadParseError` site the
+// bug 0102/0110/0125/0166 cells above exercise for their own codes — while
+// its well-formed-default sibling (`string = "ok"`) must not only register
+// but actually BIND through a real live binder pass, echoing `p=ok (default)`
+// — the over-fire fence measured end to end rather than by registration
+// alone, mirroring the bug 0066 and bug 0166 cells' own real-binder drives
+// above.
+//
+// Token cost: the refused theta and its precondition control are load-time-
+// only (zero tokens, the same profile as the bug 0070/0071/0077/0079(a)/0110/
+// 0084/0089/0095/0102/0125/0166 cells above); the well-formed-default fence
+// spends ONE binder inference call against `anthropic/claude-haiku-4-5` (the
+// same binder model every `bind_model:` fixture in this file already uses)
+// plus the one body turn its own `@`-query dispatches once bound. ADDITIVE
+// ONLY: no existing cell in this file is weakened, reworded, reordered or
+// deleted.
+// ===========================================================================
+
+/** `theta/parse/default-without-literal`'s registered code (§Fix (a); code-registry-parse.md:49) and its registry page. */
+const DEFAULT_WITHOUT_LITERAL_CODE = "theta/parse/default-without-literal";
+const DEFAULT_WITHOUT_LITERAL_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/default-without-literal: params default for '<field>' is
+ * empty; '=' must be followed by a literal-sublanguage form` with `<field>`
+ * substituted — DIAG-4: the message half is read from the registry row, not
+ * copied, mirroring this file's existing `defaultNotLiteralFragment` /
+ * `invokePathEscapeFragment` helpers.
+ */
+function defaultWithoutLiteralFragment(field: string): string {
+  const template = registryMessage(
+    DEFAULT_WITHOUT_LITERAL_REGISTRY,
+    DEFAULT_WITHOUT_LITERAL_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${DEFAULT_WITHOUT_LITERAL_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<field>", field);
+  expect(
+    message,
+    `${DEFAULT_WITHOUT_LITERAL_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${DEFAULT_WITHOUT_LITERAL_CODE}: ${message}`;
+}
+
+/** The committed body sentinel for the well-formed-default fence — present in `userTexts` iff its body ran. */
+const B165_SENTINEL = "SENTINEL-B165";
+
+/**
+ * The load-bearing refused theta: the bug doc's own headline shape
+ * (§Reproduction (a) row 1) — a `string` field whose `=` is followed by one
+ * space and nothing else. A resolvable `bind_model:` keeps the isolated
+ * diagnostic unambiguous (mirrors the bug 0166 cell's own header note: a
+ * defaulted `params:` field is never `single-string-bypass`-eligible, so
+ * without a pin the theta would also depend on this ephemeral workspace's
+ * absent ambient settings for a resolvable model).
+ */
+function emptyDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  p: 'string = '",
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+/**
+ * The over-fire fence, driven for real: the field's well-formed sibling — the
+ * same spelling one keystroke over, `string = "ok"` — under a REQUIRED
+ * `topic` field (two typed `params:` fields, so `classifyBinderBypass` routes
+ * to a genuine `binder` pass rather than single-string bypass — the same
+ * shape the bug 0066 and bug 0166 cells above use). The body interpolates
+ * both bound values behind the committed sentinel so `userTexts` is the
+ * deterministic body-ran observable, independent of the model's reply.
+ */
+function wellFormedDefaultBinderTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  topic: string",
+    '  p: \'string = "ok"\'',
+    "---",
+    "@`" + B165_SENTINEL + " topic=${topic} p=${p}. Reply with exactly: done.`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0165: a params: default with no literal after `=` does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose params: default is empty, while its well-formed-default sibling still registers and binds through a real binder pass", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without it, the refused
+      // theta's absence below could be (wrongly) attributed to a broken
+      // workspace instead of the new declaration-form refusal under test.
+      { source: "project", stem: "b165livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The load-bearing caller: `string = `, refused post-fix.
+      { source: "project", stem: "b165liveempty", text: emptyDefaultTheta() },
+      // The over-fire fence: `string = "ok"`, the refusal's positive control.
+      { source: "project", stem: "b165livewf", text: wellFormedDefaultBinderTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b165livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the new declaration-form refusal under test, would explain the " +
+          "refused theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The over-fire fence must register too, BEFORE the refusal is asserted:
+      // isolating the refusal below to the EMPTY default specifically, not to
+      // "no defaulted params: theta ever registers in this harness".
+      expect(
+        handle.command("b165livewf"),
+        "the well-formed-default sibling did not register — precondition " +
+          "unmet (a default whose RHS IS a literal-sublanguage form must keep " +
+          "registering; over-refusal here would hide the refusal below inside " +
+          "a broken control rather than a targeted fix). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the unit witness uses),
+      // the caller whose params: default is `string = ` does not register —
+      // theta/parse/default-without-literal now fires from the SAME per-field
+      // default loop the bug 0102/0110/0125/0166 cells above exercise for
+      // their own codes.
+      expect(
+        handle.command("b165liveempty"),
+        "the caller whose params: default is `string = ` registered anyway " +
+          "through the live discovery/session_start path — " +
+          "theta/parse/default-without-literal did not fire for an empty " +
+          "default RHS. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b165liveempty");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager`: the
+      // diagnostic fires at LOAD time, before any drive, so the full entry
+      // list is the delta (mirrors the bug 0102/0110/0125/0166 cells above).
+      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = defaultWithoutLiteralFragment("p");
+      expect(
+        loadNotes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the default-without-literal " +
+          "rejection for the empty default. Notes: " + JSON.stringify(loadNotes),
+      ).toBe(true);
+
+      // THE OVER-FIRE FENCE, driven for real: the well-formed sibling must
+      // still BIND end to end through a real binder pass, not merely
+      // register. The slash argument names only the required `topic` field,
+      // so the binder omits `p` per its own system prompt's last line and the
+      // runtime's fill-if-absent supplies the declared default
+      // (defaulting-system-note-echo.md:9) — the recovered value is the
+      // string literal's own content (`"ok"`), the direction that must
+      // survive the new refusal untouched.
+      const turn = await driveSlashCaptureTurn(handle, "/b165livewf hello");
+      expect(
+        turn.systemNotes,
+        "the well-formed-default sibling must bind and echo `p=ok (default)` " +
+          "— the over-fire fence for the refusal under test. Notes: " +
+          JSON.stringify(turn.systemNotes) + "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain("Running /b165livewf: topic=hello, p=ok (default)");
+      expect(
+        turn.userTexts.some((t) => t.includes(B165_SENTINEL)),
+        "the well-formed-default sibling's body must have run — the fence " +
+          "would be vacuous if the theta bound but never dispatched its " +
+          "query. Outbound: " + JSON.stringify(turn.userTexts),
+      ).toBe(true);
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b165livewf (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the well-formed-default sibling's drive surfaced fail-closed system " +
+          "note(s) instead of binding cleanly: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

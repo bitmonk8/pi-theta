@@ -121,6 +121,9 @@ const NOT_LITERAL_CODE = "theta/parse/default-not-literal";
 /** The raw-break refusal bug 0102 landed in that same loop. */
 const NEWLINE_CODE = "theta/parse/literal-newline-in-string";
 
+/** bug 0165's refusal: an empty or whitespace-only default RHS has no literal to type at all. */
+const EMPTY_DEFAULT_CODE = "theta/parse/default-without-literal";
+
 /** bug 0059's type-half refusal, which precedes every default-side check. */
 const TYPE_TEXT_CODE = "theta/load/params-type-not-expression";
 
@@ -182,6 +185,15 @@ function mismatchMessage(param: string, expected: string, actual: string): strin
     .replace("<param>", param)
     .replace("<expected>", expected)
     .replace("<actual>", actual);
+}
+
+/**
+ * bug 0165's empty-default refusal message for one field. The replacement is a
+ * function so a `$`-bearing field name can never be read as a
+ * `String.replace` substitution pattern.
+ */
+function emptyDefaultMessage(field: string): string {
+  return registryMessageOf(EMPTY_DEFAULT_CODE).replace("<field>", () => field);
 }
 
 // ===========================================================================
@@ -438,10 +450,6 @@ const DEFERRED: ReadonlyArray<readonly [string, string]> = [
   ],
   ["c5 (inline object type, mistyped field default)", "{m: string} = { m: 1 }"],
   ["c6 (enum-access default)", "Sev = Sev.A"],
-  // bug 0165's shape: `hasDefault` is true and `defaultSource` is the EMPTY
-  // string, so a compat check has no literal to type and must decline rather
-  // than compare "" against `string`.
-  ["c7 (empty default literal)", "string = "],
   ["c8 (empty array literal under array<string>)", "array<string> = []"],
   // c9–c13 — the nested-array rows. The Trigger decides a FLAT homogeneous
   // array literal of primitive literals and nothing deeper, so an element that
@@ -469,6 +477,35 @@ describe("bug 0066 (c) — every declared type or default the compat relation ca
       ).toEqual([]);
     });
   }
+});
+
+// ===========================================================================
+// (c7) THE ROW BUG 0165 MOVED. bug 0165's own doc names this cell ("a fix
+// here re-pins that cell knowingly") — bug 0165's fix is the authority that
+// moves it, per the 0056/0059 discipline: an empty or whitespace-only default
+// RHS is now refused at the DECLARATION position
+// (`theta/parse/default-without-literal`), one seam ahead of this file's own
+// compat relation, so "a compat check has no literal to type and must decline
+// rather than compare \"\" against `string`" is no longer a silent load-time
+// deferral — it is the load-time refusal itself.
+// ===========================================================================
+
+describe("bug 0066 (c7) — an empty default has no literal to type, refused before the compat relation ever runs", () => {
+  it(`GREEN (c7): \`string = \` draws exactly bug 0165's refusal, and ${CODE} stays silent`, () => {
+    const doc = paramsDoc("string = ");
+    expect(
+      diagCodes(doc),
+      `c7: the compat relation has no literal to type and must decline rather than compare "" against \`string\` — bug 0165's fix now refuses the bare declaration before this row's own check ever runs. Rendered: ${JSON.stringify(diagLines(doc))}`,
+    ).toEqual([`error ${EMPTY_DEFAULT_CODE}`]);
+    expect(
+      diagLines(doc),
+      "c7: DIAG-4 — the rendered message is the registry row's template with `<field>` rendered as the field's own name",
+    ).toEqual([`error ${EMPTY_DEFAULT_CODE}: ${emptyDefaultMessage("p")}`]);
+    expect(
+      diagCodes(doc).filter((c) => c.endsWith(CODE)),
+      `c7: ${CODE} still declines on this row — bug 0066's subject is that the relation defers rather than compares, and this cell is what that cell was for`,
+    ).toEqual([]);
+  });
 });
 
 // ===========================================================================

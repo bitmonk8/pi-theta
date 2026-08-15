@@ -103,7 +103,9 @@ anchors, and prose ("binder model").
   on numerics), `null`, arrays, bare-key object literals (declared type supplies
   the schema), `Enum.Variant`, variant-schema construction (`Cat { ... }`).
   Operators, calls, non-`Enum.Variant` identifier references, `${...}`, `@`...``
-  are not admitted (`theta/parse/default-not-literal`). A raw line break
+  are not admitted (`theta/parse/default-not-literal`). An RHS that is empty or
+  whitespace-only after trim spells no arm at all and is
+  `theta/parse/default-without-literal`. A raw line break
   inside a string literal is refused too (`theta/parse/literal-newline-in-string`);
   use the `\n` escape, or move the value into body code. When a slash-command
   invocation omits the positional argument, the default fills in before AJV

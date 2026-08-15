@@ -1253,3 +1253,43 @@ against the tree at HEAD `94e81974`; the volatile positions in
 `src/parser/params.ts` (1226 lines) and
 `src/extension/production-theta-producer.ts` (6105 lines) are named by symbol
 beside their line numbers, per bug 0134's adjudication.
+
+Coordination note (appended by the bug 0165 fix, 0.92.0). 0165 landed SECOND
+and rebased onto this fix's hunks, as this fix's own coordination note on
+0165's doc anticipated. The two classes stayed disjoint on the measured
+observable: 0165 settled on its §Fix (a), refusing the empty default at the
+DECLARATION-FORM position inside `parseParams`'s per-field default loop, and
+therefore left `src/parser/literal-sublanguage.ts` BYTE-IDENTICAL — verified
+by `git hash-object` = `git rev-parse HEAD:` =
+`5003d7d8ae9f75037a4a2425f33f0e548a14391e`, and re-verified by the verifier.
+The `neg` arm this fix narrowed, the shared `isNumericLiteralOperand`
+predicate and its agreement with `primitiveLiteralType` are untouched and
+un-rewidened; the hazard this fix's note raised against a route (b) did not
+arise because route (b) was not taken.
+
+What moved in the shared loop: 0165 inserted its rule BEHIND the bug-0059
+type-half guard and AHEAD of the bug-0102 raw-newline rule, `continue`ing, so
+this fix's `checkLiteralSublanguage` call and the compat row after it keep
+their relative order and their one-diagnostic-per-field precedence. The
+insertion shifts every `src/parser/params.ts` position at or after the guard
+by +27; the two citations in `tests/params-default-unary-minus-non-numeric-refusal.test.ts`
+that were exact before it (`:353`/`:363` and `:375–377`/`:378–386`) were
+refreshed in step to `:380`/`:390` and `:402–404`/`:405–413`.
+
+What moved in the registry: 0165 ADDED one row,
+`theta/parse/default-without-literal`, as a DIAG-2 code addition. This fix's
+own row, `theta/parse/default-not-literal`, is UNCHANGED — its narrowed
+Trigger wording ("an operator other than the unary `-` carve-out for numeric
+literals, …") is preserved by construction, because 0165 refuses one seam
+ahead of the is-literal check and never reaches it.
+
+Cell e3 of `tests/params-default-unary-minus-non-numeric-refusal.test.ts` was
+re-pinned under the authority this fix's own coordination note granted ("a
+route here reds that cell knowingly"). Its subject is preserved and in fact
+strengthened: the cell now asserts that `p: 'string = '` draws 0165's refusal
+AND that `theta/parse/default-not-literal` does NOT co-fire — the separating
+observable stated as an assertion rather than as a silence. Its
+`recordedDefault` premise moved from `""` to `undefined` because an
+error-severity `params:` diagnostic withholds the whole frontmatter object,
+the disposition this file's own `expectRefusedAsNonLiteral` helper already
+asserts for its own refusals. Groups A–D and F of that file are untouched.
