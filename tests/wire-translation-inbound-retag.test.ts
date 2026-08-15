@@ -11,7 +11,13 @@ import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { buildInboundTranslationPlan, type SchemaSidecar } from "../src/parser/schema-lowering";
-import { translateInbound } from "../src/runtime/wire-translation";
+import { translateInbound, translateOutbound } from "../src/runtime/wire-translation";
+import { evaluateObjectMember } from "../src/runtime/stdlib-object";
+import {
+  AjvSchemaValidator,
+  type LoweredSchema,
+  type SchemaSlug,
+} from "../src/seams/schema-validator";
 import {
   brandSchemaValue,
   isResultValue,
@@ -279,5 +285,311 @@ describe("translateInbound — re-tag and re-brand end state (runtime-value-mode
       schemaNames: new Set(["Person"]),
     });
     expect(valuesEqual(ctorBuilt, rebuilt)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Bug 0173 — the two record builds of this seam
+// (`rebuildInbound`'s `src/runtime/wire-translation.ts:299`, `lowerOutbound`'s
+// `:366`) are filled by `result[key] = …` over key strings the payload supplies
+// or the author declares, so that key space is payload- and author-controlled
+// and `__proto__` is a live name in it. These cells pin the construction rule
+// that keeps such a name an ordinary own key. The hazard the rule answers: on a
+// plain `{}` the assignment resolves through `Object.prototype`'s inherited
+// `__proto__` setter, so an object-valued entry becomes the record's PROTOTYPE
+// and a primitive-valued one is discarded, and neither mints an own key nor
+// raises a diagnostic on any channel. `Object.create(null)` leaves no inherited
+// setter to reach, so the assignment mints an own key like any other.
+//
+// The end state below is §Fix (a): both records built with `Object.create(null)`,
+// the rule this corpus already applies at five sites
+// (`src/parser/type-layer-checks.ts:329`, `:792`, `src/parser/params.ts:337`,
+// `src/extension/invoke-static-checks.ts:886`, `:999`, the design note at
+// `type-layer-checks.ts:316`). A key spelled `__proto__` is then an ordinary
+// own enumerable key: `Object.keys` reports it, `JSON.stringify` emits it, and
+// the record's prototype stays `null`. Bug 0038's witness states the same
+// three-part observable for the `TypeEnv`
+// (`tests/typeenv-prototype-names.test.ts:1006`, group (g)), and states why the
+// construction half needs an observable of its own: a write the prototype
+// setter swallows loses the field outright, so no read-side guard can restore
+// it.
+//
+// Spec: runtime-value-model.md:34 — the inbound pass "rebuilds the value with
+// theta-side names using each schema's translation map", uniformly at every
+// inbound boundary; a rebuild missing a key the validated JSON carried is a
+// different value. runtime-value-model.md:12 — an object-schema value is a "JS
+// plain object keyed by theta-side names". schemas.md:30 — a wire name is an
+// arbitrary JSON property name, so the outbound record's key space is
+// author-controlled without restriction.
+//
+// Every payload here is built with `JSON.parse`. An object literal spelling
+// `"__proto__"` sets the prototype at parse time and mints no own key, which
+// would leave these cells asserting nothing; `JSON.parse` mints the own key,
+// and is also how the payload arrives at the one wired caller
+// (`#validateInvokeReturn`, `src/extension/production-theta-producer.ts:3436`,
+// whose input is `JSON.parse` of a subagent child's `JSON.stringify`). Each
+// such cell asserts that premise before it drives the seam.
+// ===========================================================================
+
+/**
+ * The permissive sidecar a derived plan produces for a boundary with no
+ * renames and no named-enum positions — the shape that still makes a position a
+ * record-building one, since `buildInboundTranslationPlan` registers the root
+ * fragment under `rootDef` whatever its shape.
+ */
+function permissiveSidecar(): SchemaSidecar {
+  return { wireNames: [], namedEnumPositions: [], refTargets: [] };
+}
+
+/**
+ * The OWN value at `key`, read through a descriptor so no inherited accessor
+ * can answer in place of an own property — the distinction these cells are
+ * about.
+ */
+function ownValue(record: object, key: string): unknown {
+  return Object.getOwnPropertyDescriptor(record, key)?.value;
+}
+
+/** The production content-addressing of `src/extension/production-composition.ts:318`. */
+function productionSlugOf(schema: LoweredSchema): SchemaSlug {
+  const canonicalBytes = JSON.stringify(schema);
+  return { slug: canonicalBytes, canonicalBytes };
+}
+
+describe("bug 0173 — a payload or wire key spelled __proto__ at the two record builds", () => {
+  it("an object-valued __proto__ payload key becomes an own field of the rebuilt record, not its prototype", () => {
+    const payload = JSON.parse('{"__proto__":{"polluted":"yes"},"ok2":"v"}') as {
+      readonly [k: string]: ThetaValue;
+    };
+    expect(Object.hasOwn(payload, "__proto__")).toBe(true);
+    expect(Object.keys(payload)).toEqual(["__proto__", "ok2"]);
+
+    const rebuilt = translateInbound({
+      validated: payload,
+      sidecars: new Map([["Pr", permissiveSidecar()]]),
+      rootDef: "Pr",
+    }) as { readonly [k: string]: ThetaValue };
+
+    // §Non-goals bounds the claim: the write lands on the rebuilt record alone,
+    // never on `Object.prototype`, so no later-constructed plain object answers
+    // for the payload's key. That bound holds on both sides of §Fix (a).
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+
+    expect(Object.keys(rebuilt)).toEqual(["__proto__", "ok2"]);
+    expect(Object.hasOwn(rebuilt, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(rebuilt)).toBeNull();
+    expect(JSON.stringify(rebuilt)).toBe('{"__proto__":{"polluted":"yes"},"ok2":"v"}');
+    // The field value at a position no sidecar keys passes through by reference
+    // (`rebuildInbound`'s `pointer !== ""` arm), so the own key carries exactly
+    // what AJV validated.
+    expect(ownValue(rebuilt, "__proto__")).toBe(payload["__proto__"]);
+  });
+
+  it("a primitive-valued __proto__ payload key is carried across: the rebuilt record's key count is the observable", () => {
+    const payload = JSON.parse('{"__proto__":"str","ok2":"v"}') as {
+      readonly [k: string]: ThetaValue;
+    };
+    expect(Object.hasOwn(payload, "__proto__")).toBe(true);
+
+    const rebuilt = translateInbound({
+      validated: payload,
+      sidecars: new Map([["Pr", permissiveSidecar()]]),
+      rootDef: "Pr",
+    }) as { readonly [k: string]: ThetaValue };
+
+    // A primitive assignment through the inherited setter returns without
+    // effect and without a throw, leaving the prototype untouched — so the key
+    // SET, not the prototype, is what separates the two ends of §Fix (a) on
+    // this row.
+    expect(Object.keys(rebuilt)).toEqual(["__proto__", "ok2"]);
+    expect(Object.getPrototypeOf(rebuilt)).toBeNull();
+    expect(ownValue(rebuilt, "__proto__")).toBe("str");
+    expect(JSON.stringify(rebuilt)).toBe('{"__proto__":"str","ok2":"v"}');
+  });
+
+  it("a rename whose theta-side name is __proto__ mints an own field, not a prototype", () => {
+    const payload = JSON.parse('{"Proto":{"polluted":"yes"},"ok2":"v"}') as {
+      readonly [k: string]: ThetaValue;
+    };
+    // The colliding name is the sidecar's THETA side — a declared field name —
+    // so the payload carries no `__proto__` key at all. This row is the
+    // author-controlled half of the key space (schemas.md:30), live for any
+    // boundary whose sidecars carry renames.
+    expect(Object.hasOwn(payload, "__proto__")).toBe(false);
+    const renaming: SchemaSidecar = {
+      wireNames: [{ theta: "__proto__", wire: "Proto" }],
+      namedEnumPositions: [],
+      refTargets: [],
+    };
+
+    const rebuilt = translateInbound({
+      validated: payload,
+      sidecars: new Map([["Pr", renaming]]),
+      rootDef: "Pr",
+    }) as { readonly [k: string]: ThetaValue };
+
+    expect(Object.keys(rebuilt)).toEqual(["__proto__", "ok2"]);
+    expect(Object.getPrototypeOf(rebuilt)).toBeNull();
+    expect(ownValue(rebuilt, "__proto__")).toBe(payload["Proto"]);
+    expect(JSON.stringify(rebuilt)).toBe('{"__proto__":{"polluted":"yes"},"ok2":"v"}');
+  });
+
+  it("the schema brand survives on a null-prototype rebuilt record, non-enumerable, beside the colliding own key", () => {
+    // §Fix (c)'s premise, pinned independently of the seam: `brandSchemaValue`
+    // installs a symbol key through `Object.defineProperty`
+    // (`src/runtime/value.ts:277`) and `schemaTagOf` reads that same symbol
+    // (`:300`), so neither consults the record's prototype.
+    const local = Object.create(null) as { [k: string]: ThetaValue };
+    local["ok2"] = "v";
+    brandSchemaValue(local, "Pr");
+    expect(schemaTagOf(local)).toBe("Pr");
+    expect(Object.getPrototypeOf(local)).toBeNull();
+
+    const payload = JSON.parse('{"__proto__":{"polluted":"yes"},"ok2":"v"}') as {
+      readonly [k: string]: ThetaValue;
+    };
+    expect(Object.hasOwn(payload, "__proto__")).toBe(true);
+
+    const rebuilt = translateInbound({
+      validated: payload,
+      sidecars: new Map([["Pr", permissiveSidecar()]]),
+      rootDef: "Pr",
+      schemaNames: new Set(["Pr"]),
+    }) as { readonly [k: string]: ThetaValue };
+
+    expect(schemaTagOf(rebuilt)).toBe("Pr");
+    // Non-enumerable, observably: a spread copies own ENUMERABLE properties,
+    // string- and symbol-keyed alike, so a surviving brand would be enumerable
+    // (bug 0020's posture).
+    expect(schemaTagOf({ ...rebuilt })).toBeUndefined();
+    expect(Object.getPrototypeOf(rebuilt)).toBeNull();
+    expect(Object.keys(rebuilt)).toEqual(["__proto__", "ok2"]);
+  });
+
+  it("outbound: a theta-side own __proto__ key lowers to an own wire key", () => {
+    const value = JSON.parse('{"__proto__":{"polluted":"yes"},"ok2":"v"}') as {
+      readonly [k: string]: ThetaValue;
+    };
+    expect(Object.hasOwn(value, "__proto__")).toBe(true);
+
+    const wire = translateOutbound({
+      value,
+      sidecars: new Map([["Pr", permissiveSidecar()]]),
+      rootDef: "Pr",
+    }) as { readonly [k: string]: unknown };
+
+    // `lowerOutbound` rebuilds a nested plain object unconditionally, so the
+    // wire record's field is a structural copy rather than the theta-side
+    // reference — the observable here is the key set and the prototype, never
+    // identity.
+    expect(Object.keys(wire)).toEqual(["__proto__", "ok2"]);
+    expect(Object.getPrototypeOf(wire)).toBeNull();
+    expect(JSON.stringify(wire)).toBe('{"__proto__":{"polluted":"yes"},"ok2":"v"}');
+  });
+
+  it('outbound: an as "__proto__" wire rename lowers to an own wire key', () => {
+    const value = JSON.parse('{"p":{"polluted":"yes"},"ok2":"v"}') as {
+      readonly [k: string]: ThetaValue;
+    };
+    expect(Object.hasOwn(value, "__proto__")).toBe(false);
+    const renaming: SchemaSidecar = {
+      wireNames: [{ theta: "p", wire: "__proto__" }],
+      namedEnumPositions: [],
+      refTargets: [],
+    };
+
+    const wire = translateOutbound({
+      value,
+      sidecars: new Map([["Pr", renaming]]),
+      rootDef: "Pr",
+    }) as { readonly [k: string]: unknown };
+
+    expect(Object.keys(wire)).toEqual(["__proto__", "ok2"]);
+    expect(Object.getPrototypeOf(wire)).toBeNull();
+    expect(JSON.stringify(wire)).toBe('{"__proto__":{"polluted":"yes"},"ok2":"v"}');
+  });
+
+  it("an ordinary payload is unperturbed: own keys, insertion order, JSON.stringify, brand, and valuesEqual in both argument orders", () => {
+    // §Fix constraint 1's lock, and it holds on BOTH sides of §Fix (a): a
+    // record whose keys do not collide with `Object.prototype` is
+    // indistinguishable either way, and the constraint asserts that rather than
+    // assuming it. This cell is not a red witness.
+    const payload = JSON.parse('{"b":"2","a":"1"}') as { readonly [k: string]: ThetaValue };
+    const rebuilt = translateInbound({
+      validated: payload,
+      sidecars: new Map([["Pr", permissiveSidecar()]]),
+      rootDef: "Pr",
+      schemaNames: new Set(["Pr"]),
+    }) as { readonly [k: string]: ThetaValue };
+
+    // Payload order, not sorted order — `b` precedes `a` on both sides, so a
+    // reordering would be visible here (bug 0120 owns whether DECLARATION order
+    // should govern instead; that question is disjoint from this one).
+    expect(Object.keys(rebuilt)).toEqual(["b", "a"]);
+    expect(JSON.stringify(rebuilt)).toBe('{"b":"2","a":"1"}');
+    expect(schemaTagOf(rebuilt)).toBe("Pr");
+
+    // `valuesEqual`'s object arm compares `Object.keys` plus
+    // `propertyIsEnumerable.call` (`src/runtime/value.ts:541-558`), both own-key, so
+    // the relation is symmetric across a locally constructed value of the same
+    // schema — asserted in both argument orders because only one of the two
+    // objects changes shape under §Fix (a).
+    const constructed = brandSchemaValue({ b: "2", a: "1" }, "Pr");
+    expect(valuesEqual(rebuilt, constructed)).toBe(true);
+    expect(valuesEqual(constructed, rebuilt)).toBe(true);
+  });
+
+  it('an ordinary payload is unperturbed through the object stdlib surface: keys(), values(), has(), and has("toString") false', () => {
+    // The second half of §Fix constraint 1's lock, through the real
+    // `evaluateObjectMember` (`src/runtime/stdlib-object.ts:105`). Green on both
+    // sides of §Fix (a); not a red witness.
+    const payload = JSON.parse('{"b":"2","a":"1"}') as { readonly [k: string]: ThetaValue };
+    const rebuilt = translateInbound({
+      validated: payload,
+      sidecars: new Map([["Pr", permissiveSidecar()]]),
+      rootDef: "Pr",
+    }) as { readonly [k: string]: ThetaValue };
+
+    expect(evaluateObjectMember(rebuilt, "keys", [])).toEqual(["b", "a"]);
+    expect(evaluateObjectMember(rebuilt, "values", [])).toEqual(["2", "1"]);
+    expect(evaluateObjectMember(rebuilt, "has", ["a"])).toBe(true);
+    expect(evaluateObjectMember(rebuilt, "has", ["nope"])).toBe(false);
+    // `has` tests own keys only (`stdlib-object.ts:123`), so an
+    // `Object.prototype` member name reports absent whatever the record's
+    // prototype is — the read half §Fix (b) states needs no new guard.
+    expect(evaluateObjectMember(rebuilt, "has", ["toString"])).toBe(false);
+  });
+
+  it("AJV control: a closed lowered fragment refuses the colliding key before the walk runs, and admits the payload without it", () => {
+    // §Reproduction (b) — the report's own unreachability claim, pinned rather
+    // than asserted. `#validateInvokeReturn` calls `translateInbound` only under
+    // `verdict.ok` (`src/extension/production-theta-producer.ts:3464`, the call
+    // at `:3472`), so on a closed lowered fragment the key never reaches either
+    // record build. §Fix (a) removes the walk's DEPENDENCE on that closedness,
+    // not the closedness: this cell is green on both sides and is not a red
+    // witness.
+    const doc = parse('schema Pr { ok2: string }\nPr { ok2: "b" }\n');
+    const lowered = lowerQueryResponseSchema("Pr", schemaDeclsOf(doc), enumDeclsOf(doc));
+    if (lowered === undefined) {
+      throw new Error("harness: 'Pr' did not lower");
+    }
+    expect(lowered).toEqual({
+      type: "object",
+      properties: { ok2: { type: "string" } },
+      required: ["ok2"],
+      additionalProperties: false,
+    });
+
+    const validator = new AjvSchemaValidator({ emit: (): void => {}, slugOf: productionSlugOf });
+    const compiled = validator.compile(lowered);
+
+    const refused = compiled.validate(JSON.parse('{"__proto__":{"polluted":"yes"},"ok2":"b"}'));
+    if (refused.ok) {
+      throw new Error("harness: the closed fragment admitted a payload spelling __proto__");
+    }
+    expect(refused.errors.map((error) => error.keyword)).toEqual(["additionalProperties"]);
+    expect(refused.errors[0]?.params["additionalProperty"]).toBe("__proto__");
+
+    expect(compiled.validate(JSON.parse('{"ok2":"b"}'))).toEqual({ ok: true });
   });
 });

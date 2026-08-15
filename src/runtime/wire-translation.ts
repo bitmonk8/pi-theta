@@ -278,7 +278,25 @@ function rebuildInbound(
     return value as ThetaValue;
   }
 
-  const result: { [k: string]: ThetaValue } = {};
+  // Null-prototype for the same class of hazard `collectTypeEnv`'s design
+  // note (`../parser/type-layer-checks.ts:316`) states for a `NamedType`
+  // reference: `thetaKey` below is a string this walk did not mint — a
+  // payload's own key, or an author's rename-map target — so it may spell
+  // an `Object.prototype` own property (`__proto__` among them) verbatim,
+  // and a plain `{}` resolves that through the inherited `__proto__`
+  // setter instead of minting an own key.
+  //
+  // No read in this module needs a matching own-key guard. The three
+  // per-position lookups are `Map`s (`indexOf`, `:156`; `wireToTheta`
+  // `:161`, `enumByPointer` `:165`, `refByPointer` `:169`), and a `Map`
+  // key never collides with `Object.prototype`; the payload walk below is
+  // `Object.entries`, own-enumerable only. Nothing in this file answers
+  // through a prototype chain, so the construction half is the one no
+  // read-side guard can supply: a write the inherited setter swallows
+  // loses the field outright, leaving nothing for a later read to guard.
+  // A lookup this walk adds later by an author- or payload-controlled key
+  // uses `Object.hasOwn`, per `type-compat.ts:92-103` (`resolveNamed`).
+  const result: { [k: string]: ThetaValue } = Object.create(null) as { [k: string]: ThetaValue };
   for (const [wireKey, fieldValue] of Object.entries(value)) {
     // The wire-name map describes the fragment's OWN fields, so it applies at
     // the fragment root and nowhere deeper: a value one or more `/items`
@@ -341,7 +359,11 @@ function lowerOutbound(
     }
   }
 
-  const result: { [k: string]: unknown } = {};
+  // Same rule as `rebuildInbound`'s record: `wireKey` below is a wire name
+  // the schema author chose, and `schemas.md:30` admits an arbitrary JSON
+  // property name there, so this key space is author-controlled without
+  // restriction and may spell `__proto__` too.
+  const result: { [k: string]: unknown } = Object.create(null) as { [k: string]: unknown };
   for (const [thetaKey, fieldValue] of Object.entries(value)) {
     const wireKey = thetaToWire.get(thetaKey) ?? thetaKey;
     result[wireKey] = lowerOutbound(fieldValue as ThetaValue, sidecars.get(wireKey), sidecars);

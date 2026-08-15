@@ -6,6 +6,34 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-08-15
+
+### Fixed
+
+- **bug 0173 — `rebuildInbound` and `lowerOutbound` built their records as plain
+  object literals and filled them by `result[key] = …` over key strings the
+  payload supplies or the schema author declares, so a key spelled `__proto__`
+  reached `Object.prototype`'s inherited setter instead of minting an own
+  field.** An object-valued entry became the rebuilt record's prototype and a
+  primitive-valued one was discarded outright; either way the field was absent
+  from the value the runtime handed to theta code, with nothing emitted on any
+  diagnostic channel. Both records are now built with `Object.create(null)`, the
+  construction rule this corpus already applies at five sites
+  (`src/parser/type-layer-checks.ts`, `src/parser/params.ts`,
+  `src/extension/invoke-static-checks.ts`), so such a key is an ordinary own
+  enumerable key: `Object.keys` reports it, `JSON.stringify` emits it, and the
+  record's prototype stays `null`. The reads needed no new guard and the code now
+  says why — this module's three per-position lookups are `Map`s and its payload
+  walk is `Object.entries`, so nothing in it answers through a prototype chain.
+  No observable change for any payload whose keys do not collide: same own keys,
+  same insertion order, same `JSON.stringify`, same `valuesEqual` verdicts and
+  same `keys()` / `values()` / `has()` answers, each asserted by a control cell
+  rather than assumed. Locked by nine additive cells in
+  `tests/wire-translation-inbound-retag.test.ts`, six of which red without the
+  change; bug 0067's three landed witnesses stay green byte-for-byte.
+  `docs/spec_topics/runtime-value-model.md` §12, §34;
+  `docs/bugs/0173-inbound-rebuild-record-not-null-prototyped.md`.
+
 ## [0.95.0] - 2026-08-15
 
 ### Fixed

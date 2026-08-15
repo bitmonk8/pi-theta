@@ -1,6 +1,9 @@
 # Bug 0173 — `rebuildInbound` builds the rebuilt value with plain object-literal assignment (`const result: { [k: string]: ThetaValue } = {}` then `result[thetaKey] = …`) over keys the payload supplies, so a payload key spelled `__proto__` reassigns the record's prototype to a model-supplied object instead of becoming an own field and is dropped with no diagnostic on any channel — against the corpus's own construction rule for records keyed by author-controlled strings (bugs 0031, 0038) — and `lowerOutbound` carries the same idiom one function down; unreachable at HEAD because the one wired boundary's payload is a theta child's `JSON.stringify` output, and defended only by `additionalProperties: false` the moment a model-produced payload boundary is wired
 
-- **Status:** open. Residual R3 of the bug 0067 fix (0.90.0, commit
+- **Status:** fixed (0.96.0). §Fix (0.96.0) below records what shipped, the
+  constraint-3 coercion enumeration as measured (it came out two consumers
+  wider than §Fix constraint 3 names), and the one residual that widening
+  leaves. Residual R3 of the bug 0067 fix (0.90.0, commit
   `e18b30e5`), recorded in that run's report
   (`.pi/tmp/fixes/0067-report.md` §*Residuals / notes* R3) and not filed there —
   the fix run creates no bug docs. §Fix is settled: the remedy is the
@@ -742,3 +745,224 @@ file.
 Volatile positions are named by symbol beside their line numbers per bug
 [0134](./0134-params-shift-induced-stale-citations.md);
 `src/extension/production-theta-producer.ts` is 6165 lines at this HEAD.
+
+## Fix (0.96.0)
+
+- **What shipped.**
+  - `src/runtime/wire-translation.ts` — **§Fix (a)**: `rebuildInbound`'s record
+    (`:299` at the fix commit, `:281` before the comment insertion) and
+    `lowerOutbound`'s record (`:366`, was `:344`) are built with
+    `Object.create(null)` casts, in the form the corpus's five existing sites
+    use (`src/parser/type-layer-checks.ts:329`, `:792`,
+    `src/parser/params.ts:337`, `src/extension/invoke-static-checks.ts:886`,
+    `:999`). The assignment expressions (`result[thetaKey] = …`,
+    `result[wireKey] = …`), the key derivations (`thetaKey`, `wireKey`,
+    `fieldPointer`, `fallbackTarget`), the guards and the recursion are
+    byte-identical to before; the file's only changed executable lines are those
+    two, verified by filtering the diff to non-comment changed lines.
+  - `src/runtime/wire-translation.ts` — **§Fix (b)**: the reason no read in this
+    module needs a new own-key guard is stated in the code rather than left to
+    be re-derived — the three per-position lookups are `Map`s (`indexOf`
+    `:156`; `wireToTheta` `:161`, `enumByPointer` `:165`, `refByPointer`
+    `:169`) and the payload walk is `Object.entries`, own-enumerable only, so
+    nothing in the file answers through a prototype chain; a lookup added here
+    later by an author- or payload-controlled key uses `Object.hasOwn` per
+    `type-compat.ts:92–103` (`resolveNamed`). The outbound record carries the
+    shorter form of the same statement, keyed to `schemas.md:30` (a wire name is
+    an arbitrary JSON property name, so that key space is author-controlled
+    without restriction).
+  - `tests/wire-translation-inbound-retag.test.ts` — **§Witness**, additive in
+    the seam's existing home as §Witness directs: one new `describe` of nine
+    cells, +310/−1 lines, the single deletion being the import line widened to
+    admit `translateOutbound`. Bug 0067's eight cells are byte-identical to
+    HEAD (`diff` of `HEAD:15–283` against working `21–289`: no output).
+  - **§Fix (c)** needed no code: `brandSchemaValue` (`src/runtime/value.ts:277`)
+    installs through `Object.defineProperty` on a symbol key and `schemaTagOf`
+    (`:300`) reads that symbol, so neither consults a prototype. Cell 4 pins the
+    survival rather than assuming it, on a record that is null-prototyped and
+    carries the colliding own key at the same time.
+
+- **Gates** (at the fix commit, on the shipped tree):
+  - Witness — `npx vitest run tests/wire-translation-inbound-retag.test.ts`:
+    `Test Files 1 passed (1) / Tests 17 passed (17)` (6 formerly-red cells, 3
+    controls, 8 protected bug-0067 cells).
+  - Full default suite — `npm test`: `Test Files 296 passed (296) / Tests 4904
+    passed (4904)`.
+  - Typecheck — `npx tsc -p tsconfig.json --noEmit`: no output, exit 0.
+  - Lint — `npm run lint`: no output, exit 0.
+  - Live H8a — `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts`: `Tests 36 passed (36)`.
+
+- **Review.** One deep round, one polish round, no confirmation round.
+  - Round 1 (`bug-fix-reviewer`) — FINDINGS. F1 (`correctness`): a
+    null-prototype rebuilt record reaching `String(…)` throws instead of
+    yielding `[object Object]`, at two consumers outside §Fix constraint 3's
+    three named surfaces. F2 (`prose`): the shipped WHY-comment said the
+    construction half "was missing" — past tense about this file's own prior
+    state, which CLAUDE.md's no-historical-references rule forbids. Everything
+    else confirmed correct with quoted evidence: §Fix (a)/(b)/(c) fidelity, the
+    cast form against all five corpus sites, constraints 1/2/4/6, witness
+    completeness against every §Witness bullet, and every `path:line` in the
+    added text re-derived.
+  - Round 2 (`bug-fix-fixer-light`) — F2 fixed, comment text only, file line
+    count unchanged at 372 so no citation moved. F1 was not dispatched: it is
+    dispositioned, not fixed (residual 1).
+  - No confirmation round. The polish round changed no executable line —
+    verified by filtering the round's diff to non-comment changed lines, which
+    yields only §Fix (a)'s two `const result` lines — and the gates re-ran
+    green, so the round was verified by gate-diff instead.
+
+- **Verification** (`bug-fix-verifier`) — SOLID, four obligations:
+  - *The witness reds.* Both record builds were neutralised back to `= {}` by
+    targeted byte edit (never `git stash`, never `git checkout`), giving
+    `Tests 6 failed | 11 passed (17)`: five cells on `expected [ 'ok2' ] to
+    deeply equal [ '__proto__', 'ok2' ]` (the dropped own key) and one on
+    `expected { polluted: 'yes' } to be null` (the reassigned prototype) — the
+    two observables §Reproduction (a) predicts, no harness errors. Restored and
+    blob-hash-verified: `git hash-object` reads
+    `b8222bdae69fcddf096687a51201274dd8e5f03e` before neutralisation and after
+    restoration, `wc -l` 372 both times.
+  - *The default suite.* 296 files / 4904 tests green.
+  - *End-to-end live coverage.* Two parts. The colliding-key input has no live
+    route by construction — §Reproduction (b) and (d) establish that the one
+    wired boundary's payload is `JSON.parse` of a theta child's own
+    `JSON.stringify`, which carries no own `__proto__` key — so the end-to-end
+    exercise of the changed code path is
+    `tests/subagent-invoke-inbound-enum-tag.test.ts` (green in isolation,
+    provider-free, spawning a real child across the PIC-59 envelope through
+    `#validateInvokeReturn` → `translateInbound` → the changed record build),
+    and the live suite's role is the no-regression guard constraint 1 asks for:
+    H8a 36/36 green, including its own bug-0067 enum-tag cell, which round-trips
+    a real object through `rebuildInbound`. No new live cell was added and none
+    is owed: this fix adds no registry row, no diagnostic and no
+    registration-surface change (constraint 6), and
+    `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged.
+  - *Lint and typecheck.* Both clean.
+
+- **Constraint 1 — no observable change, asserted rather than assumed.**
+  Measured before the witness was written, by prototyping §Fix (a) alone against
+  the whole tree: full suite green with zero flips, plus clean typecheck and
+  lint. Then pinned by two control cells that hold on both sides of §Fix (a),
+  over a payload whose keys do not collide: own keys `["b","a"]`, insertion
+  order preserved rather than sorted (the fixture is deliberately
+  non-alphabetical, so a reordering would be visible), `JSON.stringify`
+  `{"b":"2","a":"1"}`, `valuesEqual` true in both argument orders against a
+  locally constructed branded value, and `keys()` / `values()` / `has()` through
+  the real `evaluateObjectMember` including `has("toString")` false. A fixture
+  sweep found `__proto__` in four committed test files and in no committed
+  `.theta` / `.thetalib` / `.json` at all; none of the four reaches this module,
+  so no committed cell exercised either record build with a colliding key, in
+  either direction.
+
+- **Constraint 3 — the string-coercion enumeration, as measured.** Bug 0119's
+  route (a) records the cost this fix inherits: on a null-prototype record
+  `String(record)` and `"x" + record` raise `TypeError: Cannot convert object to
+  primitive value` where a `{}`-prototyped record yields `[object Object]`;
+  `JSON.stringify` is unaffected. Enumerated over the inbound value's consumers.
+  The three §Fix constraint 3 names are all safe, each checked in the code:
+  - *The QRY-18 render path.* `stringifyInterpolatedValue`
+    (`src/render/query-render.ts`) routes its `object` and `array` arms through
+    `JSON.stringify(lowered)`; its one `String(value)` is the `enum` arm, which
+    receives a boxed string, never a record. An object interpolation parses with
+    zero diagnostics and renders through that arm.
+  - *The theta `+` route.* Parse-closed, measured on real sources: both
+    `object + string` and `object + object` draw
+    `theta/parse/mixed-plus-operands`, so `"x" + record` has no theta route.
+  - *The `schemaTagOf` consumers.* Symbol-keyed and prototype-independent;
+    pinned green on a null-prototype record by cell 4.
+
+  Two further consumers coerce and are **outside** the bound §Fix constraint 3
+  states. Both were found by review round 1 and confirmed here by measurement:
+  `String(innerKind)` in the invoke `Err`-wrapping message
+  (`src/runtime/effectful-statement-host.ts:401`) and the SNK-k catch-all's
+  `${leaf.kind}`, with the forged-kind rows' `${e.message}` / `${e.tool_name}` /
+  `${e.cause}` / `${e.callee_path}` (`src/runtime/err-note-render.ts:126`,
+  `:161–163`). Measured: theta admits an object in an `Err` payload's `kind`
+  position with zero diagnostics on all four sources tried, including
+  `Err(E { kind: i, message: "m" })` over a schema-typed `i` and the
+  typed-invoke-bound variant; `String(nullProtoRecord)` throws while
+  `String(plainRecord)` gives `[object Object]`; and
+  `renderLeafKindNote("t", { kind: nullProtoRecord, message: "m" })` throws
+  where the `{}`-prototyped shape renders
+  `theta /t returned Err: [object Object] — m`. The failure mode at those two
+  sites therefore changes for a record this walk rebuilds. It is recorded, not
+  fixed — see residual 1. The outbound record's only consumer is one
+  `JSON.stringify` (`query-render.ts`), so it carries no such exposure.
+
+- **Constraint 4 — scope.** This fix covers the two record builds in
+  `src/runtime/wire-translation.ts` and nothing else. Named out of scope and
+  left exactly as they are, with the reason: the constructor sites, the two
+  Pi-tool argument records, the two `params:` records and `lowerObjectFields`'s
+  `properties` record (`src/parser/body-type-lowering.ts:118`) are
+  [0119](./0119-proto-named-field-silently-dropped.md)'s — their reachability
+  and their blast radius are that report's adjudication, not this one's, and its
+  cell F (`tests/ctor-declaration-order.test.ts`) stays green untouched. The
+  rebuilt record's key ORDER is
+  [0120](./0120-inbound-rebuild-ignores-declaration-order-and-brand.md)'s;
+  `Object.create(null)` preserves insertion order exactly as `{}` does, so the
+  two changes are compatible and no cell of either witness moved. The three
+  unperformed inbound boundaries are
+  [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)'s
+  and none was wired here. `lowerObjectFields`'s AJV compile-throw and
+  `invoke<Unknown>` loading clean stay §Non-goals, recorded and unfiled.
+
+- **Residuals.**
+  1. **The two coercion consumers outside constraint 3's bound.**
+     `src/runtime/effectful-statement-host.ts:401` and
+     `src/runtime/err-note-render.ts:126`, `:161–163` interpolate an open-union
+     `kind` — ERR-15 discriminator openness types it `string`, but the type
+     layer admits an object there with zero diagnostics — so for a rebuilt
+     record in that position the rendered note changes from `[object Object]` to
+     a thrown `TypeError`. Evidence as measured under constraint 3 above. **Not
+     fixed here, for two reasons that do not depend on judgement.** Constraint 4
+     confines this fix to the two record builds and nothing else, and both files
+     are outside it; and the behaviour those sites had before this fix is itself
+     a defect — a user-facing note rendering `[object Object]` for a payload the
+     type layer permitted. The remedy belongs at the render sites,
+     coercion-safe in the posture `summariseNonResultOperand` already takes
+     (`src/runtime/runtime-panics.ts:441`), and is a separate report's subject.
+     Left for the parent to file; this run creates no bug docs. Scope of the
+     claim: the enumeration is bounded to consumers reachable from a record this
+     walk rebuilds, and pins parse-legality plus the coercion semantics at the
+     two named sites; it does not trace the full runtime chain end to end.
+  2. **Positional drift into two open reports' citations.** The witness addition
+     widened this file's import block, shifting every following line by six. The
+     cell
+     [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)
+     (`:221`, `:858`) and
+     [0174](./0174-typed-invoke-enum-return-validation-prompt-cell.md) (`:210`,
+     `:628`, `:647`) cite as
+     `tests/wire-translation-inbound-retag.test.ts:200` is at `:206`, and the
+     one 0172 cites at `:256` (`:901`, `:945`) is at `:262`. Both cells are
+     byte-identical and green; only their line numbers moved. Disclosed and not
+     chased, per
+     [0134](./0134-params-shift-induced-stale-citations.md), and not edited
+     because both are other open reports' files.
+  3. **Two citations in this report are off against the tree.** The sidecar maps
+     are at `:161` / `:165` / `:169`, not §Affected's `:160` / `:164` / `:168`;
+     and §Reproduction (e)'s "wire prototype" column names the theta-side value
+     as though by identity, where the measured prototype is a structurally equal
+     lowered copy — `lowerOutbound` rebuilds a nested plain object
+     unconditionally, unlike `rebuildInbound`, whose `pointer !== ""` arm
+     returns the value by reference (identity does hold on the inbound rows,
+     measured). Recorded as pre-fix baseline drift; the outbound cells pin own
+     keys and the prototype rather than identity, so no assertion rests on it.
+
+- **Discharge notes appended:** none. 0172's report already carries the
+  prerequisite clause and 0120's already carries the rebase clause; neither was
+  edited, both being other open reports' files.
+
+- **Pinned dispositions / non-goals.** No registry row and no spec edit
+  (constraint 6): the change makes the implementation conform to
+  `runtime-value-model.md:34` as written, and DIAG-2 is not engaged. No key
+  filter was added to the walk and no unexpected key is refused — §Non-goals'
+  last bullet stands. One self-authorization, recorded in full: the question was
+  whether to tighten a clause in the shipped WHY-comment that repeated "no
+  read-side guard" twice in one sentence. Taken as comment-only under the
+  citation/comment branch, on three grounds — the change touches no executable
+  line (verified by filtering the diff to non-comment changed lines, which
+  yields only §Fix (a)'s two `const result` lines), the file's line count is
+  unchanged at 372 so the `:299` / `:366` citations the witness carries do not
+  move, and all four gates re-ran green afterwards. Bound: one comment line in
+  `src/runtime/wire-translation.ts`. Stop valve, unused: revert to the reviewed
+  wording if the line count moved or any gate went red.
