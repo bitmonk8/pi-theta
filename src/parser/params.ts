@@ -646,11 +646,19 @@ const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
  * permissively (`{}`) while still resolving any `NamedType` it nests.
  *
  * A `params:` field's own right-hand side never reaches this function
- * brace-rooted: `lowerParamsFieldType` (below) intercepts that shape first and
- * hoists it, calling this function only for what is left over (bug 0035). A
- * brace-rooted type nested inside a generic argument or a union arm still
- * arrives here unintercepted, so this function's own handling of that shape —
- * the trailing catch-all — is unchanged.
+ * brace-rooted, nor as an arm of a union whose `|` segments are ALL
+ * brace-balanced with at least one of them itself a single enclosing brace
+ * group: `lowerParamsFieldType` (below) intercepts the first shape by
+ * hoisting the whole source, and the second through
+ * `lowerBraceGroupUnionArms` (below, bug 0097 §Fix), which hoists each
+ * brace-group arm of that union and lowers every OTHER arm of it through this
+ * function — calling this function on the WHOLE source only for what is left
+ * over (bug 0035). A brace-rooted type nested inside a generic argument still
+ * arrives here unintercepted, and so does every arm of a union carrying NO
+ * brace-group arm at all, or whose segment set a nested `|` has shredded (bug
+ * 0039 §Fix constraint 1: a shape the lowering cannot derive stays
+ * permissive) — so this function's own handling of those two shapes, the
+ * trailing catch-all, is unchanged.
  */
 export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string, unknown> {
   const s = source.trim();
@@ -941,6 +949,220 @@ export function hoistInlineObjectType(
 }
 
 /**
+ * Whether `s` is a SINGLE enclosing brace group: the `{` at index 0 is closed
+ * by the `}` at the final index, with no unmatched close before then (quote
+ * contents are skipped so a brace inside a string literal cannot perturb
+ * depth). `lowerTypeSource` (body-type-lowering.ts) and `lowerParamsFieldType`
+ * (below) both ask this of the whole source, then of each arm of a union
+ * through `lowerBraceGroupUnionArms` (below) — every caller needs it rather
+ * than a naive `startsWith("{") && endsWith("}")`, which also matches
+ * `{a: integer} | {b: integer}`: a UNION of two object arms whose first `{`
+ * closes at `{a: integer}`, well short of the string's end. Reading that
+ * interior as one field list yields the single field `a` of type
+ * `integer} | {b: integer` and mints a `properties.a` fragment for a shape the
+ * author never wrote at that level — the silently WRONG lowering bug 0039 §Fix
+ * constraint 1 forbids ("a shape the lowering cannot derive stays permissive
+ * `{}`… permissive is admissible, wrong is not"). Declining the whole source
+ * is what lets the union split instead, and on a segment set the split left
+ * INTACT (`isBraceBalanced` below is what decides that) every brace-group arm
+ * is a genuine `Type` and hoists on its own terms.
+ *
+ * `lowerQueryResponseSchema` (query-schema-lowering.ts) and
+ * `collectUnresolvedNamedTypes` (body-type-lowering.ts) ask the identical
+ * question of their own root for the identical reason (bug 0053 §Fix): a root
+ * position is one more place a naive prefix/suffix test reads a union of
+ * object arms as a single field list. Exporting the one predicate is what
+ * keeps a root position and an arm position from answering that question two
+ * different ways.
+ *
+ * The predicate serves callers beyond the type-lowering dispatches: the
+ * discriminator-field classifier in `theta-document.ts` asks it for the same
+ * reason at a non-lowering position (bug 0096 §Fix). `lowerParamsFieldType`
+ * (below) asks it too, in place of the positional `startsWith("{") &&
+ * endsWith("}")` test bug 0039 §Fix's byte-freeze had kept there: bug 0097
+ * §Fix is the authority that lifts the freeze for a top-level union of
+ * brace-balanced arms, and this predicate paired with
+ * `lowerBraceGroupUnionArms` (below) is what the lifted position now asks. No
+ * dispatch or classifier in this codebase still asks the naive two-ended
+ * question on its own account — only this predicate's own first statement
+ * does, because that statement IS the fast decline every caller relies on.
+ *
+ * Defined here rather than in `body-type-lowering.ts`, which imports from
+ * this module and not the reverse (bug 0039 §Fix's import-direction rule) —
+ * the same rule that keeps `hoistInlineObjectType` (above) and
+ * `lowerBraceGroupUnionArms` (below) here too. `body-type-lowering.ts`
+ * re-exports this name so its own importers (`theta-document.ts`,
+ * `query-schema-lowering.ts`) keep reaching it at the same import path.
+ */
+export function isSingleEnclosingBraceGroup(s: string): boolean {
+  if (!(s.startsWith("{") && s.endsWith("}"))) {
+    return false;
+  }
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i] ?? "";
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < s.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "{") {
+      depth += 1;
+    } else if (c === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return i === s.length - 1;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether `s`'s own brace depth starts at zero, never goes negative, and ends
+ * at zero (quote contents skipped, as above). Asked of EVERY segment of the
+ * `|` split before any arm may hoist: a set carrying one unbalanced segment is
+ * a set the split SHREDDED, and a shredded set has no arms to dispatch.
+ *
+ * WHY the question is worth asking. `splitTopLevel(s, "|")` here runs in its
+ * angle-only default, which tracks `<…>` and quotes but not `{…}`, so a `|`
+ * written INSIDE a brace group reads as an arm separator and cuts the group
+ * into pieces: `Cat | {a: integer | {c: Ghost} | boolean}` presents as the
+ * four segments `Cat`, `{a: integer`, `{c: Ghost}`, `boolean}`. Two of those
+ * are visibly not types — one opens a brace it never closes, the other closes
+ * a brace it never opened — and that is what this predicate sees.
+ *
+ * WHY A BALANCED-LOOKING SEGMENT INSIDE A SHREDDED SET IS STILL NOT A `Type`.
+ * `{c: Ghost}` above is balanced and is a single enclosing brace group, yet it
+ * is not an arm of this union at all: it is the type of a nested union arm
+ * two levels down, inside the field `a` of the group the split destroyed.
+ * Hoisting it would mint a `$defs` entry and emit a `$ref` for a shape the
+ * author never wrote at THIS level — the silently wrong lowering bug 0039 §Fix
+ * constraint 1 forbids — and would descend names the enclosing group's own
+ * lowering never reaches, refusing thetas on a trigger that is positionally
+ * invisible: `{ a: X | {c: Ghost} } | Cat` shreds into `{ a: X` and
+ * `{c: Ghost} }`, neither of them a standalone group, while appending
+ * ` | boolean` after the nested group leaves `{c: Ghost}` standing alone as a
+ * segment. Where the cuts fall is a function of where the author put the next
+ * `|`, not of the type.
+ *
+ * So a shredded set declines the arm dispatch entirely and the whole source
+ * goes to `lowerTypeExpr`, which lowers each segment permissively — the
+ * per-segment `anyOf` bug 0033 §Fix residual (ii) records, and the same
+ * silence, since `lowerTypeExpr` has no inline-object arm to descend with.
+ */
+function isBraceBalanced(s: string): boolean {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i] ?? "";
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < s.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "{") {
+      depth += 1;
+    } else if (c === "}") {
+      depth -= 1;
+      if (depth < 0) {
+        return false;
+      }
+    }
+  }
+  return depth === 0;
+}
+
+/**
+ * The per-arm union dispatch `lowerTypeSource` (body-type-lowering.ts) and
+ * `lowerParamsFieldType` (above) both reach once their caller has declined
+ * `isSingleEnclosingBraceGroup(source)` on the whole source: re-split
+ * `source` on `|` and, when every segment is brace-balanced (`isBraceBalanced`
+ * above) and at least one segment is itself a single enclosing brace group,
+ * hoist that arm through `hoistInlineObjectType` (`lowerFieldType` recursing
+ * for its own fields) and lower every other arm through `lowerTypeExpr`,
+ * combining the results by `lowerUnion` per SUBS-1 — so
+ * `{a: integer} | {b: integer}` hoists BOTH arms rather than being misread as
+ * one inline field list. `undefined` is returned when the guard declines, so
+ * the caller falls through to its own `lowerTypeExpr(source, lowerCtx)`
+ * exactly as if this function had never been asked (bug 0097 §Fix, which
+ * gives the `params:` position this dispatch for the first time and moves it
+ * here, beside `isSingleEnclosingBraceGroup` and `isBraceBalanced`, because
+ * `body-type-lowering.ts` imports from this module and not the reverse).
+ *
+ * THE GUARD DECLINES ON TWO GROUNDS, and only the SHREDDED one is
+ * behavioural. A union with NO brace-group arm — `arms.some
+ * (isSingleEnclosingBraceGroup)` false — is the same union `lowerTypeExpr`'s
+ * own per-arm split (above, ahead of its generic-application test since bug
+ * 0043 §Fix) already produces correctly, so declining it moves no bytes; the
+ * decline keeps this function's contract narrow — hoist an arm or defer,
+ * never re-implement the primitive union path. A union whose segment set is
+ * SHREDDED — the angle-only `|` split cut through a brace group, so at least
+ * one segment fails `isBraceBalanced` — is declined because a shredded
+ * segment is a piece of a `Type`, not a `Type` (`isBraceBalanced`'s own doc
+ * comment states why a balanced-looking piece inside a shredded set is still
+ * not an arm). Arm ORDER is source order, and the SUBS-1 combination is
+ * `lowerUnion`'s, so an arm that is not an inline object lowers through the
+ * same call `lowerTypeExpr`'s own union branch would have made on it.
+ *
+ * CALLING THIS UNCONDITIONALLY, WITHOUT A CALLER FIRST CHECKING
+ * `isSingleEnclosingBraceGroup(source)`, WOULD BE SAFE, though neither caller
+ * does so. The two guards are provably disjoint: the arm guard forces brace
+ * depth to 0 at every `|` cut (a segment, a separator and any whitespace
+ * between them carry no depth of their own, and a quoted region is skipped by
+ * the split and by both predicates alike), while a single enclosing brace
+ * group holds depth at 1 or more everywhere strictly inside it — so a source
+ * satisfying the second could satisfy the first only by carrying a single
+ * segment, which `arms.length > 1` above already excludes. `{a: string |
+ * null}` is that pair made concrete: it IS one brace group, and the
+ * angle-only split cuts its interior union into `{a: string` and `null}`,
+ * both unbalanced, which is what the arm guard refuses regardless of whether
+ * the whole-source check ran first. Both callers ask the whole-source
+ * question first anyway, because it leaves this function reasoning only
+ * about sources that are not one brace group — not because skipping it would
+ * change an answer.
+ */
+export function lowerBraceGroupUnionArms(
+  source: string,
+  lowerCtx: LowerCtx,
+  lowerFieldType: (fieldSource: string, fieldCtx: LowerCtx) => Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const arms = splitTopLevel(source, "|");
+  if (
+    !(
+      arms.length > 1 &&
+      arms.every((arm) => isBraceBalanced(arm)) &&
+      arms.some((arm) => isSingleEnclosingBraceGroup(arm))
+    )
+  ) {
+    return undefined;
+  }
+  const loweredArms = arms.map((arm) =>
+    classifyLoweredUnionArm(
+      isSingleEnclosingBraceGroup(arm)
+        ? hoistInlineObjectType(arm, lowerCtx, lowerFieldType)
+        : lowerTypeExpr(arm, lowerCtx),
+    ),
+  );
+  return { ...lowerUnion(loweredArms) };
+}
+
+/**
  * Parse a literal-type atom (a quoted string, integer/number, boolean, or
  * `null`) to its JSON value, or `undefined` when the atom is not a literal.
  * Wrapped so a legitimately-`null` literal is distinguishable from "not a
@@ -1049,23 +1271,58 @@ export function lowerLiteralSublanguage(source: string): Record<string, unknown>
 /**
  * Lower a single `params:` field's type expression. Checks the literal
  * sublanguage first (`lowerLiteralSublanguage` above, bug 0056 §Fix
- * constraint 1), returning its `const` / `enum` fragment on a match; a
- * decline falls through to intercepting a brace-rooted inline object type
- * (`{a: Triage, b: integer}`) before it can reach `lowerTypeExpr`'s
- * catch-all: `parseParams`'s per-field loop calls this instead of
- * `lowerTypeExpr` directly (bug 0035), so a name inside the object resolves
- * through the same `lowerCtx` — landing in `lowerCtx.unresolved` for the
- * caller's diagnostic loop, or in `lowerCtx.defs` as a hoisted `$ref`
- * target — exactly as every OTHER type position now does too (bug 0039
+ * constraint 1), returning its `const` / `enum` fragment on a match. A
+ * decline reaches the structural brace test bug 0097 §Fix installs — a
+ * structural question, not the positional `startsWith("{") && endsWith("}")`
+ * one: a source
+ * that IS a single enclosing brace group (`isSingleEnclosingBraceGroup`,
+ * above) hoists through `hoistInlineObjectType` before it can reach
+ * `lowerTypeExpr`'s catch-all — `parseParams`'s per-field loop calls this
+ * instead of `lowerTypeExpr` directly (bug 0035), so a name inside the object
+ * resolves through the same `lowerCtx`, landing in `lowerCtx.unresolved` for
+ * the caller's diagnostic loop or in `lowerCtx.defs` as a hoisted `$ref`
+ * target — exactly as every other type position now does too (bug 0039
  * §Fix).
+ *
+ * A source that is NOT one brace group but IS a top-level union whose `|`
+ * segments are all brace-balanced, with at least one segment itself a single
+ * enclosing brace group, takes `lowerBraceGroupUnionArms` (above): each
+ * brace-group arm hoists on its own terms and every other arm lowers through
+ * `lowerTypeExpr`, combined by `lowerUnion` per SUBS-1 — so
+ * `{a: integer} | {b: integer}` hoists BOTH arms rather than being misread as
+ * the single-field list a positional test would read from the first arm's
+ * opening brace and the last arm's closing one. Everything else — a
+ * brace-free union, a shredded segment set (`isBraceBalanced` declines), a
+ * malformed brace-suffixed source — falls through to `lowerTypeExpr`
+ * unchanged.
  *
  * The hoist itself is `hoistInlineObjectType`, shared with `lowerTypeSource`
  * (body-type-lowering.ts). Bug 0039 §Fix froze this function's bytes
- * byte-for-byte; bug 0056 §Fix is the authority that lifts that freeze for a
- * source that is wholly what `parseLiteralArm` recognises, at any depth.
- * Every other source keeps its frozen bytes: this function still recurses
- * into ITSELF for a nested brace-rooted field type, exactly as before, which
- * is what makes the lifted check apply at every depth for free.
+ * byte-for-byte; bug 0056 §Fix lifted that freeze for a source that is wholly
+ * what `parseLiteralArm` recognises, at any depth; bug 0097 §Fix lifts it
+ * again for a top-level union carrying a brace-balanced arm.
+ *
+ * WHAT THE ROUTE GUARANTEES, AND WHERE BYTE IDENTITY STOPS. THE ROUTE is
+ * invariant for every single enclosing brace group: `hoistInlineObjectType`
+ * over the whole source, this function as the per-field recursion. That is also
+ * what makes each lifted check apply at every depth without a second
+ * implementation, since a nested brace-rooted field type re-enters HERE,
+ * reached through the hoist or through a union arm's own hoist alike. BYTE and
+ * slug identity is the narrower claim, because a group's slug hashes its
+ * FIELDS' fragments: a group whose field types all sit outside bug 0097 §Fix's
+ * moved class holds its bytes and its name (`p: "{a: integer, b: string}"`
+ * mints `__inline_9b890568745f5ea5`;
+ * `p: "{a: integer, b: {x: integer, y: string}}"` mints
+ * `__inline_dd69af402813aa7d` over `__inline_c319be1cd4ab5f98`, the two names
+ * a `schema` body field mints for that text). A group carrying a moved-class
+ * FIELD type lands on the name that class produces everywhere:
+ * `p: "{m: {a: integer} | {b: integer}}"` mints `__inline_e6cf18116192f591`
+ * over the arm fragments `__inline_df817b794ef788ce` and
+ * `__inline_8cc8cb1e7074a3af` — the name a `schema X = {m: …}` alias
+ * right-hand side and a `schema S { f: {m: …} }` body field mint for the same
+ * text, and the name an `@<T>` root mints for it one nesting down. That
+ * convergence is §Fix constraint 3's one-source-text-one-name rule, which is
+ * what makes schema-subset.md `:73`'s dedup mechanical.
  */
 export function lowerParamsFieldType(
   source: string,
@@ -1076,10 +1333,14 @@ export function lowerParamsFieldType(
   if (literal !== undefined) {
     return literal;
   }
-  if (!(s.startsWith("{") && s.endsWith("}"))) {
-    return lowerTypeExpr(s, lowerCtx);
+  if (isSingleEnclosingBraceGroup(s)) {
+    return hoistInlineObjectType(s, lowerCtx, lowerParamsFieldType);
   }
-  return hoistInlineObjectType(s, lowerCtx, lowerParamsFieldType);
+  const armUnion = lowerBraceGroupUnionArms(s, lowerCtx, lowerParamsFieldType);
+  if (armUnion !== undefined) {
+    return armUnion;
+  }
+  return lowerTypeExpr(s, lowerCtx);
 }
 
 /**

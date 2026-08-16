@@ -68,7 +68,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      inside a hoisted inline object's field type at any depth — the hoist
 //      re-enters `lowerParamsFieldType` per field, so `{a: ???}` is refused
 //      for its field's fragment while the braces around it are the hoist's.
-//      Group (a)'s a21–a24 pin the three reaches past the top level.
+//      Group (a)'s a21–a25 pin the three reaches past the top level.
 //   2. A field whose value NODE is already refused keeps EXACTLY ONE
 //      diagnostic — the frontmatter-seam one — and stays retained, so no
 //      cascade fires at the `system:` interpolation seam (constraint 1,
@@ -121,10 +121,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `pick one = or two` cell, whose single diagnostic is today the default-side
 // `theta/parse/default-not-literal` rather than the type-half refusal.
 // EVERYTHING ELSE IS GREEN AT HEAD AND MUST STAY GREEN: groups (b), (c), (d),
-// (e), (g) and (h) are the over-refusal tripwires. Group (d)'s
-// `array<"x" | "y">` row is the sharpest of them — its union arms DO reach the
-// catch-all and land in the sink, so only the caller's literal decline keeps
-// them silent (bug 0164).
+// (e), (g) and (h) are the over-refusal tripwires, and every cell in them keeps
+// its SILENCE. Byte invariance is the narrower claim, and group (d) carries one
+// carve-out from it: d5 (`string | {a: string}`) is a bug-0097-MOVED row — its
+// brace arm hoists under `__inline_<slug>` rather than reaching
+// `lowerTypeExpr`'s catch-all — so it is asserted on its own, outside (d)'s
+// byte-invariance loop, under bug 0097 §Fix's authority. Group (d)'s
+// `array<"x" | "y">` row is the sharpest of the tripwires — its union arms DO
+// reach the catch-all and land in the sink, so
+// only the caller's literal decline keeps them silent (bug 0164).
 //
 // TIER: unit, offline, deterministic, provider-free. Every claim settles inside
 // one `parseThetaDocument` call over a string (`parseDoc`, tests/helpers/e2e-s1.ts
@@ -408,7 +413,8 @@ describe("bug 0059 (r) — the registered row this refusal reuses", () => {
  * Every row here is judged as the WHOLE right-hand side's own fragment, except
  * a11, whose junk sits in a union arm. The other three reaches the judgement
  * has — a generic type argument, and a hoisted inline object's field type at
- * any depth — are a21–a24 below.
+ * any depth, reached either directly or through a top-level union arm — are
+ * a21–a25 below.
  */
 const REFUSED_TEXTS: ReadonlyArray<readonly [string, string]> = [
   ["a1 (block-mapping bytes)", "a: Tirage"],
@@ -487,12 +493,20 @@ describe("bug 0059 (a) — text no `Type` production spells is refused at `param
    *     WHOLE.
    *   - a24 — a union arm inside a hoisted field type: both recursions compose,
    *     which is what "at any depth" means for the reaches above.
+   *   - a25 — the SAME hoisted-field reach as a22/a23, but the hoist is reached
+   *     through a top-level union arm rather than the whole right-hand side:
+   *     `lowerBraceGroupUnionArms` (src/parser/params.ts, bug 0097 §Fix) hoists
+   *     the arm through the identical `hoistInlineObjectType` call a22
+   *     reaches, so the arm's OWN braces belong to the hoist and its field's
+   *     fragment arrives brace-free at the judgement exactly as a22's does.
+   *     This row is not part of group (d)'s silent family: the arm hoists.
    */
   const FRAGMENT_REACHES: ReadonlyArray<readonly [string, string]> = [
     ["a21 (junk in a generic type argument)", "array<a: Tirage>"],
     ["a22 (junk in a hoisted inline object's field type)", "{a: ???}"],
     ["a23 (junk one hoist deeper)", "{a: {b: ???}}"],
     ["a24 (junk in a union arm inside a hoisted field type)", "{a: string | a: Tirage}"],
+    ["a25 (junk in a hoisted field type reached through a top-level union arm)", "string | {a: ???}"],
   ];
 
   for (const [label, typeSource] of FRAGMENT_REACHES) {
@@ -579,7 +593,7 @@ interface PositionRead {
  * carries the junk under test.
  *
  * The `@<T>` annotation enters `lowerTypeSource` through
- * `lowerQueryResponseSchema` (src/runtime/query-schema-lowering.ts:160) and
+ * `lowerQueryResponseSchema` (src/runtime/query-schema-lowering.ts:167) and
  * returns its lowered document directly; that seam has no diagnostic channel,
  * which is why its `diagCodes` are read off a document carrying no annotation
  * and are always empty.
@@ -701,9 +715,11 @@ describe("bug 0059 (c) — the three other type positions keep their bytes and t
     it(`GREEN (${id}, ${position}): \`${typeSource}\` is unchanged`, () => {
       // The refusal must not be raised inside `lowerTypeExpr`, which every
       // type position reaches — the `schema`-body field and the alias
-      // right-hand side through `lowerTypeSource`'s delegation
-      // (src/parser/body-type-lowering.ts:455 and :461), the `@<T>` annotation through
-      // that same function (src/runtime/query-schema-lowering.ts:160). The sink
+      // right-hand side through `lowerTypeSource`'s delegation (its own
+      // fallback, src/parser/body-type-lowering.ts:320, and the non-brace-arm
+      // dispatch inside `lowerBraceGroupUnionArms`, src/parser/params.ts:1159),
+      // the `@<T>` annotation through that same function
+      // (src/runtime/query-schema-lowering.ts:167). The sink
       // is optional on `LowerCtx` (src/parser/params.ts:421–:510 — the
       // `unspellable` member and its contract at `:483–:509`) for exactly this
       // reason: a position that threads none collects nothing.
@@ -806,6 +822,17 @@ const A_ARRAY_INLINE_CANONICAL =
   '"required":["a"],"type":"object"}';
 const A_ARRAY_INLINE_INLINE = inlineDefName(A_ARRAY_INLINE_CANONICAL);
 
+/** `{a: string}` — d5's union arm, which bug 0097 §Fix's arm dispatch hoists. */
+const A_STRING_FRAGMENT = {
+  type: "object",
+  properties: { a: { type: "string" } },
+  required: ["a"],
+  additionalProperties: false,
+};
+const A_STRING_CANONICAL =
+  '{"additionalProperties":false,"properties":{"a":{"type":"string"}},"required":["a"],"type":"object"}';
+const A_STRING_INLINE = inlineDefName(A_STRING_CANONICAL);
+
 /** `{a: Triage}` — constraint 5's hoisting control. */
 const A_TRIAGE_FRAGMENT = {
   type: "object",
@@ -822,6 +849,7 @@ const CANONICAL_PAIRS: ReadonlyArray<readonly [string, string, unknown]> = [
   ['{m: array<"x" | "y">}', M_ARRAY_XY_CANONICAL, M_ARRAY_XY_FRAGMENT],
   ["{a: array<{m: integer}>}", A_ARRAY_INLINE_CANONICAL, A_ARRAY_INLINE_FRAGMENT],
   ["{a: Triage}", A_TRIAGE_CANONICAL, A_TRIAGE_FRAGMENT],
+  ["{a: string}", A_STRING_CANONICAL, A_STRING_FRAGMENT],
 ];
 
 describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own honesty", () => {
@@ -873,15 +901,20 @@ describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own hones
  *     as the unbalanced `{x: integer` and `y: string}`, neither of them
  *     brace-rooted.
  *
- * THE UNDER-REFUSAL IS FRAGMENT-LEVEL, which is what d10–d13 and group (a)'s
- * a22–a24 pin between them: junk that reaches the judgement WHOLE with a brace
- * in it stays silent, whether it is the whole right-hand side (d10 `{junk}`,
- * d11 `{a: string`) or a fragment `lowerTypeExpr` hands over intact (d12
- * `string | {a: ???}`, d13 `array<{a: ???}>`). Junk inside a HOISTED field's
- * brace-free type is not covered by it — the hoist strips the braces on the way
- * in and the fragment arrives brace-free, so `{a: ???}` is refused (a22) while
- * `array<{a: ???}>` is not (d13). One `{a: ???}`, two dispositions, decided by
- * which route hands it to the judgement.
+ * THE UNDER-REFUSAL IS FRAGMENT-LEVEL, which is what d10, d11 and d13 and
+ * group (a)'s a22–a25 pin between them: junk that reaches the judgement WHOLE
+ * with a brace in it stays silent, whether it is the whole right-hand side
+ * (d10 `{junk}`, d11 `{a: string`) or a fragment `lowerTypeExpr` hands over
+ * intact through a GENERIC argument it never re-enters as a hoist (d13
+ * `array<{a: ???}>`). Junk inside a HOISTED field's brace-free type is not
+ * covered by it — the hoist strips the braces on the way in and the fragment
+ * arrives brace-free, so `{a: ???}` is refused whether the hoist is reached
+ * directly (a22) or through a top-level union arm `lowerBraceGroupUnionArms`
+ * (src/parser/params.ts, bug 0097 §Fix) now hoists (a25, from
+ * `string | {a: ???}`, which is not part of this family for exactly that
+ * reason) — while `array<{a: ???}>` stays silent (d13) because a generic
+ * argument is not a hoist. One `{a: ???}`, two dispositions, decided by which
+ * route hands it to the judgement.
  */
 const DECLINED_ROWS: ReadonlyArray<readonly [string, string, unknown, readonly string[]]> = [
   [
@@ -909,12 +942,6 @@ const DECLINED_ROWS: ReadonlyArray<readonly [string, string, unknown, readonly s
     [],
   ],
   [
-    "d5 (brace-rooted arm in a union arm)",
-    "string | {a: string}",
-    { anyOf: [{ type: "string" }, {}] },
-    [],
-  ],
-  [
     "d6 (brace-rooted arm under a hoist)",
     "{a: array<{m: integer}>}",
     { $ref: `#/$defs/${A_ARRAY_INLINE_INLINE}` },
@@ -935,12 +962,6 @@ const DECLINED_ROWS: ReadonlyArray<readonly [string, string, unknown, readonly s
   ["d9 (unbalanced generic arguments)", "array<{x: integer, y: string}>", {}, []],
   ["d10 (authorized under-refusal, brace-rooted junk)", "{junk}", {}, []],
   ["d11 (authorized under-refusal, unterminated brace)", "{a: string", {}, []],
-  [
-    "d12 (authorized under-refusal, brace-carrying union arm holding junk)",
-    "string | {a: ???}",
-    { anyOf: [{ type: "string" }, {}] },
-    [],
-  ],
   [
     "d13 (authorized under-refusal, brace-carrying generic argument holding junk)",
     "array<{a: ???}>",
@@ -966,6 +987,34 @@ describe("bug 0059 (d) — grammar-admitted catch-all traffic and the brace unde
       ).toEqual(defsKeys);
     });
   }
+
+  it("MOVED (d5, bug 0097 §Fix): `string | {a: string}` stays silent, and its brace arm hoists", () => {
+    // Held OUT of the invariance loop above because this row's BYTES are the
+    // ones bug 0097 §Fix moves, while its silence is unchanged: the text is
+    // still one this recogniser must decline, and it still draws no diagnostic.
+    // `lowerBraceGroupUnionArms` (src/parser/params.ts) hoists the brace arm on
+    // its own terms, so the arm lands under the name every other type position
+    // mints for `{a: string}` rather than on `lowerTypeExpr`'s catch-all.
+    // Group (a)'s a25 is the diagnostic half of the same route.
+    const doc = paramsDoc("string | {a: string}");
+    expect(
+      diagLines(doc),
+      "d5: a refusal reaching this row refuses input the grammar admits at all four " +
+        "positions — the failure mode bug 0041's §Fix disqualified its own lowering point for",
+    ).toEqual([]);
+    expect(fragmentAtP("d5", doc), "d5: the lowered bytes at the field").toEqual({
+      anyOf: [{ type: "string" }, { $ref: `#/$defs/${A_STRING_INLINE}` }],
+    });
+    expect(
+      Object.keys(defsOf("d5", doc)),
+      "d5: the minted `$defs` names, hashed from the lowered fragment " +
+        "(schema-subset.md:73/:98)",
+    ).toEqual([A_STRING_INLINE]);
+    expect(
+      defsOf("d5", doc)[A_STRING_INLINE],
+      "d5: the `$ref` and the mint must agree, or the enclosing `$defs` closure dangles",
+    ).toEqual(A_STRING_FRAGMENT);
+  });
 
   it(`GREEN (d3-body): \`{m: array<"x" | "y">}\` hoists the fragment its slug names`, () => {
     // The `$ref` and the mint must agree, or the enclosing `$defs` closure

@@ -5106,10 +5106,16 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
  * WHAT BOUNDS THE DESCENT IS THE ROUTE, NOT THE DEPTH. A name lands in
  * `lowerCtx.unresolved` from any nesting of inline-object FIELDS, because each
  * field's type re-enters the same arm — `{a: {x: {y: Tirage}}}` raises at all
- * four positions. It stops wherever the route leaves that arm for
- * `lowerTypeExpr`'s own recursion, which has no inline-object arm and drops a
- * brace-rooted source on its trailing catch-all. Three shapes leave it, and
- * each is a permissive silence rather than a wrong fragment:
+ * four positions — and from any brace-group ARM of a top-level union, because
+ * all four routes ask `lowerBraceGroupUnionArms` (params.ts) before falling
+ * through to `lowerTypeExpr` and it hoists each brace-group arm of an intact
+ * segment set on that arm's own terms (bug 0097 §Fix, which gave the `params:`
+ * position the same dispatch its three siblings run): `{a: {x: Tirage} | Cat}`
+ * raises for BOTH names at all four positions. The descent stops wherever the
+ * route leaves that arm for `lowerTypeExpr`'s own recursion, which has no
+ * inline-object arm and drops a brace-rooted source on its trailing catch-all.
+ * Two shapes leave it, and each is a permissive silence rather than a wrong
+ * fragment:
  *
  *   - a brace group inside a GENERIC ARGUMENT. `{a: array<{x: Tirage}>}`
  *     raises no unresolved-named-type at any position: `lowerTypeExpr`
@@ -5117,24 +5123,19 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
  *     through itself, and the argument split stays angle-only because
  *     widening it would disagree with `theta/parse/generic-arity-mismatch`
  *     (params.ts, `TypeSplitNesting`).
- *   - a brace group that is a UNION ARM under `params:`. `{a: {x: Tirage} | Cat}`
- *     raises at the other three positions, where `lowerTypeSource` splits a
- *     union carrying a brace arm and hoists that arm, and stays silent here,
- *     where `lowerParamsFieldType` hands the field's non-brace-rooted type
- *     straight to `lowerTypeExpr`. This is the one shape whose asymmetry now
- *     runs the other way, `params:` under-emitting against its siblings.
  *   - a brace group whose OWN interior `|` sits beside another arm.
  *     `{ a: Tirage | null } | Cat` raises none anywhere either: the angle-only
  *     `|` split SHREDS the group into `{ a: Tirage` and `null }`, and
- *     `lowerTypeSource` declines the arm dispatch for any segment set carrying
- *     a shard like those, handing the whole source to `lowerTypeExpr`, which
- *     has no inline-object arm to descend with. The decline holds even when
- *     one shard is itself a balanced brace group —
+ *     `lowerBraceGroupUnionArms` declines the arm dispatch for any segment set
+ *     carrying a shard like those — at every position alike, since it is the
+ *     one dispatch all four routes ask — handing the whole source to
+ *     `lowerTypeExpr`, which has no inline-object arm to descend with. The
+ *     decline holds even when one shard is itself a balanced brace group —
  *     `Cat | {a: integer | {c: Ghost} | boolean}` leaves `{c: Ghost}` standing
  *     as a segment, a NESTED arm inside the destroyed group rather than an arm
  *     of this union, so `Ghost` raises nowhere (bug 0033 §Fix residual (ii);
  *     `SchemaDecl.arms`' own caveat records the same split from the capture
- *     side, and `isBraceBalanced` (body-type-lowering.ts) states why a
+ *     side, and `isBraceBalanced` (params.ts, module-private) states why a
  *     balanced shard is no exception).
  *
  * `splitTopLevel`'s `"angle"` default keeps that permissive outcome HONEST for

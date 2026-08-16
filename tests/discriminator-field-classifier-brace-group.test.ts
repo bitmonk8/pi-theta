@@ -32,8 +32,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // variant … not a literal-union", the rule the split implements.
 //
 // THE FIX THIS FILE PINS. Substitute the exported structural predicate
-// `isSingleEnclosingBraceGroup` (`src/parser/body-type-lowering.ts:208`, whose
-// own first statement at `:209` IS the naive test) for the naive expression at
+// `isSingleEnclosingBraceGroup` (`src/parser/params.ts:997`, whose own first
+// statement at `:998` IS the naive test) for the naive expression at
 // the one site. The brace test keeps running FIRST, so a single enclosing group
 // whose interior carries a union (`{ type: "x" | "y" }`) still reports nested.
 //
@@ -410,7 +410,7 @@ describe("bug 0096 item 1 — the brace predicate pair and the classification it
 
   it("the substitution is a strict refinement: structural implies naive at every source", () => {
     // `isSingleEnclosingBraceGroup`'s own first statement
-    // (src/parser/body-type-lowering.ts:209) is the naive test, so the
+    // (src/parser/params.ts:998) is the naive test, so the
     // implication holds by construction. Asserting it is what makes "no source
     // that already reached the `|` split changes route" executable rather than
     // a claim about the predicate's body. The violating rows are collected so a

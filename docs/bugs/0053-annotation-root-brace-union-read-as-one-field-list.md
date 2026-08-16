@@ -882,3 +882,40 @@ freeze directly: `git diff -- src/parser/params.ts` was empty through the whole
 change, and the `params:` capture path is asserted byte-unchanged as a control
 (a `params:` field records the raw YAML scalar trimmed only at its ends, never
 `parseType`'s token-join form, so the two positions remain independent).
+
+### Note — bug 0097 (0.99.0)
+
+*Residuals* (ii) is **discharged**.
+[0097](./0097-params-brace-union-rhs-one-field-list.md) filed the residual's
+subject, carried it to a settled §Fix and landed it: `lowerParamsFieldType`
+(`src/parser/params.ts`) now asks `isSingleEnclosingBraceGroup` — the predicate
+this report extracted and exported — in place of its own naive two-ended test,
+and takes the per-arm union dispatch behind it, so `p: "{a: integer} |
+{b: integer}"` hoists BOTH arms under `__inline_df817b794ef788ce` and
+`__inline_8cc8cb1e7074a3af`: the names this report's own annotation root and
+alias RHS already mint for that text. The one-sided divergence the residual
+recorded is closed in the direction it named, and a `NamedType` written inside
+a brace-group arm now refuses the theta at the `params:` position too.
+
+The sharing this report established grew rather than being duplicated. Bug 0039
+§Fix's one-way import rule (`body-type-lowering.ts` imports from `params.ts`,
+never the reverse) forbids the `params:` position importing the predicate, so
+0097 MOVED `isSingleEnclosingBraceGroup`, `isBraceBalanced` and the per-arm
+union dispatch into `params.ts` and left a re-export behind at
+`body-type-lowering.ts:34`. Every importer's import line — this report's
+`lowerQueryResponseSchema` and `collectUnresolvedNamedTypes` included — is
+unchanged, and one predicate pair plus one arm dispatch now serve all four
+`Type` positions.
+
+Two rows of this report's own lock moved under 0097's authority, both
+subject-preserving: `CONTROL (a6)` became the PARITY row (the `params:`
+document's arm fragments asserted byte-equal to this file's own `P1_ROOT` /
+`P1_DEFS` annotation-root pins), and the `ORACLE CROSS-CHECK`'s `params:` probe
+now drives a single enclosing brace group, which still mints, so the oracle
+keeps a production cross-reference at that position. The `PARAMS_MISPARSE_*`
+trio and its oracle case row were re-derived onto `{m: {a: integer} |
+{b: integer}}`, a shape production now mints, which keeps the oracle's only
+array-nesting canonical form and sharpens it — that array's two elements are
+distinct `$ref`s, so schema-subset.md `:104`'s lowering-order rule is
+distinguishable from a sorted recipe where the old symmetric `{anyOf:[{},{}]}`
+could not distinguish it.

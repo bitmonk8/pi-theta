@@ -59,15 +59,22 @@
 //     through recursions that never re-enter `lowerTypeSource` and so never
 //     meet its inline-object arm. A GENERIC ARGUMENT: `array<{a: string}>`
 //     recurses its element type through `lowerTypeExpr` directly —
-//     `items: {}`. A UNION ARM reached through `lowerTypeExpr`'s OWN per-arm
-//     recursion: a `params:` field's `{a: integer} | integer` lands here,
-//     where the same text at a `lowerTypeSource` position does not — that
-//     function splits a union carrying a brace arm itself and hoists the arm
-//     (bug 0039 §Fix part B). And a brace group the angle-only `|` split has
-//     already cut in half: `{ a: string | null } | Cat` presents as the three
-//     arms `{ a: string`, `null }`, `Cat`, none of them a brace group. Every
-//     OTHER brace-rooted type position, at any depth of inline-object FIELDS
-//     or union arms, hoists through the arm `lowerTypeSource` shares with the
+//     `items: {}`. A UNION ARM whose SEGMENT SET IS SHREDDED — a nested `|`
+//     the angle-only split cut through a brace group, so `isBraceBalanced`
+//     (params.ts) declines at least one segment — still lands here at every
+//     position alike: `{ a: string | null } | Cat` presents as the three arms
+//     `{ a: string`, `null }`, `Cat`, none of them a brace group, and even a
+//     segment that would be a clean brace group standing alone (`{b:
+//     integer}` in `{ a: string | null } | {b: integer}`) is carried along
+//     with the shredded set and lowers `{}` rather than hoisting. A union
+//     whose segments are ALL brace-balanced, with at least one a single
+//     enclosing brace group, does not reach this arm at the `params:`
+//     position: `lowerBraceGroupUnionArms` (params.ts, bug 0097 §Fix) hoists
+//     that arm there, so a `params:` field's `{a: integer} | integer`
+//     hoists its object arm identically to what `lowerTypeSource` already
+//     produces for the same text. Every OTHER brace-rooted type position, at
+//     any depth of inline-object FIELDS or union arms, hoists through the arm
+//     `lowerTypeSource` shares with the
 //     `params:` position (`isSingleEnclosingBraceGroup`,
 //     body-type-lowering.ts). The annotation root takes that identical arm
 //     for a union of object arms too (bug 0053 §Fix). It lowers through

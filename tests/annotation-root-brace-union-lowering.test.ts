@@ -32,11 +32,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   object types answers yes, because the first arm opens the source and the
 //   last arm closes it. `s.slice(1, -1)` then hands
 //   `a: integer} | {b: integer` to `lowerInlineObject` as a field list.
-//   `src/parser/body-type-lowering.ts:200` already holds the structural
-//   predicate — `isSingleEnclosingBraceGroup`, a depth walk that returns true
-//   only when the index-0 `{` closes at the final index — and
-//   `lowerTypeSource` (`:339`) is its only caller, which is why every position
-//   routing through that function lowers the same text correctly.
+//   `src/parser/params.ts:997` already holds the structural predicate —
+//   `isSingleEnclosingBraceGroup`, a depth walk that returns true only when
+//   the index-0 `{` closes at the final index, re-exported by
+//   `src/parser/body-type-lowering.ts:34` — and `lowerTypeSource` (`:339`) is
+//   its only caller, which is why every position routing through that
+//   function lowers the same text correctly.
 //
 //   1. THE ANNOTATION ROOT MINTS A WRONG FRAGMENT AND ENFORCES IT. The root is
 //      the one position where an inline-object fragment is the document ROOT
@@ -47,8 +48,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      reply against it and the respond tool registers with it verbatim.
 //      Groups (b), (c), (d).
 //   2. THE NAME WALK UNDER-EMITS ON THE SAME PREDICATE.
-//      `collectUnresolvedNamedTypes` (`src/parser/body-type-lowering.ts:696`,
-//      dispatch at `:707`) collects names BY lowering, so a brace-rooted union
+//      `collectUnresolvedNamedTypes` (`src/parser/body-type-lowering.ts:601`,
+//      dispatch at `:614`) collects names BY lowering, so a brace-rooted union
 //      reproduces the mis-parse: the single field's type source is a shredded
 //      segment set, `lowerTypeExpr` lowers each shard on its catch-all, and no
 //      name is appended. Both production call sites inherit it —
@@ -110,14 +111,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   @<X> for `schema X = {a: integer} | {b: integer}`
 //         :: the SUBS-1 anyOf over two hoisted $refs — already correct today
 //   { a: string | null } | Cat                 {"anyOf":[{},{},{}]}
-//   params p: "{a: integer} | {b: integer}"    one hoisted __inline_ fragment
-//         whose sole property is `a`
+//   params p: "{a: integer} | {b: integer}"    bug 0097 §Fix: anyOf over BOTH
+//         hoisted arms, byte-identical to the root's mint above
 //
 // WHAT IS RED HERE: groups (b), (c), (d) and (e) minus their CONTROL rows.
-// Group (a) is the byte-invariance control set and group (0) is the oracle;
-// both are GREEN at HEAD and must stay green byte-for-byte — they are what
-// bounds the fix to the union case. Group (a) is asserted FIRST so a red below
-// names the defect rather than a broken control.
+// Group (a) MINUS a6 is the byte-invariance control set, and group (0) is the
+// oracle; both are GREEN at HEAD and must stay green byte-for-byte — they are
+// what bounds bug 0053's fix to the union case at the ANNOTATION ROOT. a6 is
+// the exception inside that group: it drives the `params:` position, whose
+// bytes for the same union bug 0097 §Fix moves, so it is that report's PARITY
+// row — the `params:` document's arm fragments byte-equal to the root's, under
+// identical names — rather than an invariance control. Group (a) is asserted
+// FIRST so a red below names the defect rather than a broken control.
 //
 // THE PARITY PIN IS THE DECISIVE CELL. `@<X>` for
 // `schema X = {a: integer} | {b: integer}` ALREADY produces the SUBS-1 document
@@ -310,6 +315,29 @@ const B_GHOST_CANONICAL =
   '{"additionalProperties":false,"properties":{"b":{}},"required":["b"],"type":"object"}';
 const B_GHOST_INLINE = inlineDefName(B_GHOST_CANONICAL);
 
+/**
+ * `{m: {a: integer} | {b: integer}}` — the oracle's ARRAY-NESTING fixture, and
+ * the only canonical form here that nests objects inside an array. Its `anyOf`
+ * carries two DISTINCT `$ref` elements, so §Canonical schema hash `:104`
+ * ("array elements left in lowering order") is distinguishable from a recipe
+ * that sorted them — `df817b794ef788ce` sorts AFTER `8cc8cb1e7074a3af`, and
+ * lowering order puts it first. Production mints it at the `params:` position
+ * for the P1 text one nesting down (bug 0097 §Fix), which is what the
+ * cross-check below reads.
+ */
+const M_UNION_FRAGMENT = {
+  type: "object",
+  properties: {
+    m: { anyOf: [{ $ref: `#/$defs/${A_INT_INLINE}` }, { $ref: `#/$defs/${B_INT_INLINE}` }] },
+  },
+  required: ["m"],
+  additionalProperties: false,
+};
+const M_UNION_CANONICAL =
+  `{"additionalProperties":false,"properties":{"m":{"anyOf":[{"$ref":"#/$defs/${A_INT_INLINE}"},` +
+  `{"$ref":"#/$defs/${B_INT_INLINE}"}]}},"required":["m"],"type":"object"}`;
+const M_UNION_INLINE = inlineDefName(M_UNION_CANONICAL);
+
 /** `{x: integer, y: string}` — P8b's nested fragment, hoisted at the root today. */
 const XY_FRAGMENT = {
   type: "object",
@@ -320,21 +348,6 @@ const XY_FRAGMENT = {
 const XY_CANONICAL =
   '{"additionalProperties":false,"properties":{"x":{"type":"integer"},"y":{"type":"string"}},"required":["x","y"],"type":"object"}';
 const XY_INLINE = inlineDefName(XY_CANONICAL);
-
-/**
- * The fragment the `params:` position's own naive brace test mints for the P1
- * text. Bug 0053 §Non-goals freezes that position, so this name and these bytes
- * are a CONTROL: the sole property is `a`, and its type asserts nothing.
- */
-const PARAMS_MISPARSE_FRAGMENT = {
-  type: "object",
-  properties: { a: { anyOf: [{}, {}] } },
-  required: ["a"],
-  additionalProperties: false,
-};
-const PARAMS_MISPARSE_CANONICAL =
-  '{"additionalProperties":false,"properties":{"a":{"anyOf":[{},{}]}},"required":["a"],"type":"object"}';
-const PARAMS_MISPARSE_INLINE = inlineDefName(PARAMS_MISPARSE_CANONICAL);
 
 /**
  * `{y: integer, x: string}` — the oracle's KEY-SORT cross-check fixture. Its
@@ -619,8 +632,8 @@ describe("bug 0053 (0) — the independent slug oracle", () => {
     ["P7 arm `{x: {p: integer, q: boolean}}`", X_PQ_CANONICAL, X_PQ_FRAGMENT],
     ["`{y: string}`", Y_STR_CANONICAL, Y_STR_FRAGMENT],
     ["`{b: Ghost}` (permissive `b`)", B_GHOST_CANONICAL, B_GHOST_FRAGMENT],
+    ["ARRAY-NESTING `{m: {a: integer} | {b: integer}}`", M_UNION_CANONICAL, M_UNION_FRAGMENT],
     ["`{x: integer, y: string}`", XY_CANONICAL, XY_FRAGMENT],
-    ["the `params:` mis-parse fragment", PARAMS_MISPARSE_CANONICAL, PARAMS_MISPARSE_FRAGMENT],
     ["SORT `{y: integer, x: string}`", SORT_CANONICAL, SORT_FRAGMENT],
   ];
 
@@ -657,28 +670,47 @@ describe("bug 0053 (0) — the independent slug oracle", () => {
     ).toBe(cases.length);
   });
 
-  it("ORACLE CROSS-CHECK: the recipe reproduces three slugs production mints TODAY", () => {
+  it("ORACLE CROSS-CHECK: the recipe reproduces four slugs production mints TODAY", () => {
     // Taken from production output rather than from `schemaSlug` directly. The
     // first comes from the ANNOTATION ROOT's own single-enclosing-group route,
-    // which this bug leaves untouched; the other two are from the `params:`
-    // position — the second is the frozen mis-parse mint, the third is a
-    // declaration whose fields are declared `y` then `x`, so a recipe that left
-    // `properties` in declaring order — or that sorted `required` — would mint
-    // a different name.
+    // which this bug leaves untouched; the other three are from the `params:`
+    // position — the second is that position's own single-enclosing-group
+    // mint (bug 0097 §Fix moved the UNION case off this position, not the
+    // single-group one, so this cross-check still drives a production
+    // reference here); the third is the ARRAY-NESTING form, the P1 union sunk
+    // one level as a single group's field type, which is the only case here
+    // whose canonical form carries an array of objects and so the only one
+    // that scores §Canonical schema hash `:104`'s element-order rule against
+    // production; the fourth is a declaration whose fields are declared `y`
+    // then `x`, so a recipe that left `properties` in declaring order — or
+    // that sorted `required` — would mint a different name.
     const nested = loweredAnnotation("CROSS-CHECK P8b", "{a: integer, b: {x: integer, y: string}}");
     expect(
       Object.keys((nested["$defs"] ?? {}) as Record<string, unknown>),
       `the annotation root hoists the nested object under the name the oracle derives; observed ${JSON.stringify(nested)}`,
     ).toEqual([XY_INLINE]);
 
-    const misparsed = loadCleanly(
+    const singleGroup = loadCleanly(
       "CROSS-CHECK params",
-      paramsSrc(`  p: "{a: integer} | {b: integer}"`, `${TRIAGE_BODY}let x = 1\n`),
+      paramsSrc(`  p: "{a: integer}"`, `${TRIAGE_BODY}let x = 1\n`),
     );
     expect(
-      Object.keys(misparsed.defs),
-      `the \`params:\` position's frozen mint for the P1 text; observed ${JSON.stringify(misparsed.defs)}`,
-    ).toEqual([PARAMS_MISPARSE_INLINE]);
+      Object.keys(singleGroup.defs),
+      `the \`params:\` position's own single-enclosing-group mint, unmoved by bug 0097 §Fix; observed ${JSON.stringify(singleGroup.defs)}`,
+    ).toEqual([A_INT_INLINE]);
+
+    const arrayNesting = loadCleanly(
+      "CROSS-CHECK ARRAY-NESTING",
+      paramsSrc(`  p: "{m: {a: integer} | {b: integer}}"`, `${TRIAGE_BODY}let x = 1\n`),
+    );
+    expect(
+      Object.keys(arrayNesting.defs),
+      `the enclosing group hoists over both arm fragments, and its slug hashes the \`anyOf\` ARRAY holding them; observed ${JSON.stringify(arrayNesting.defs)}`,
+    ).toEqual([A_INT_INLINE, B_INT_INLINE, M_UNION_INLINE]);
+    expect(
+      arrayNesting.defs[M_UNION_INLINE],
+      "the hoisted fragment keeps its `anyOf` elements in LOWERING order, which is the order the hand-written canonical form hashes",
+    ).toEqual(M_UNION_FRAGMENT);
 
     const sorted = loadCleanly(
       "CROSS-CHECK SORT",
@@ -696,13 +728,16 @@ describe("bug 0053 (0) — the independent slug oracle", () => {
 });
 
 // ===========================================================================
-// (a) THE INVARIANCE CONTROLS — every shape bug 0053 §Fix leaves byte-unchanged.
-// GREEN at HEAD and green after: these bound the change to a source whose
-// index-0 `{` does NOT close at the final index. Asserted first so a red below
-// names the defect rather than a broken control.
+// (a) THE INVARIANCE CONTROLS — every shape bug 0053 §Fix leaves byte-unchanged
+// at the ANNOTATION ROOT: a1–a5 and a7–a8. GREEN at HEAD and green after, they
+// bound that change to a source whose index-0 `{` does NOT close at the final
+// index. a6 is the one row here driving a DIFFERENT position: it carries the
+// `params:` position's bytes for the union, which bug 0097 §Fix moves onto this
+// file's P1 document, so it is labelled PARITY rather than CONTROL. Asserted
+// first so a red below names the defect rather than a broken control.
 // ===========================================================================
 
-describe("bug 0053 (a) — the shapes the root dispatch keeps byte-for-byte", () => {
+describe("bug 0053 (a) — the shapes the root dispatch keeps byte-for-byte, and the `params:` parity row", () => {
   it("CONTROL (a1, fixture P8): a single enclosing brace group stays OBJECT-rooted, not a $ref", () => {
     // §Fix "The single-group root is byte-unchanged": the annotation root is
     // the one position where the inline-object fragment IS the document root,
@@ -751,7 +786,7 @@ describe("bug 0053 (a) — the shapes the root dispatch keeps byte-for-byte", ()
   });
 
   it("CONTROL (a4): a NAMED annotation resolves before the brace test and is untouched", () => {
-    // The named arm (src/runtime/query-schema-lowering.ts:118–123) already
+    // The named arm (src/runtime/query-schema-lowering.ts:133–138) already
     // returns the SUBS-1 document for this union, which is what makes the
     // parity pin in group (c) a claim about ONE side moving.
     const decls = schemaDeclsOf(
@@ -768,7 +803,7 @@ describe("bug 0053 (a) — the shapes the root dispatch keeps byte-for-byte", ()
   it("CONTROL (a5): the SHREDDED segment set keeps its per-segment permissive `anyOf`", () => {
     // `{ a: string | null } | Cat` splits into `{ a: string`, `null }`, `Cat`,
     // none of them brace-balanced, so `isBraceBalanced`
-    // (src/parser/body-type-lowering.ts:265) refuses the arm path and every
+    // (src/parser/params.ts:1062) refuses the arm path and every
     // segment lowers permissively. Bug 0039 §Fix constraint 1 admits a
     // permissive lowering and forbids a wrong one, so converting this would be
     // a regression rather than an improvement.
@@ -779,24 +814,31 @@ describe("bug 0053 (a) — the shapes the root dispatch keeps byte-for-byte", ()
     ).toEqual({ anyOf: [{}, {}, {}] });
   });
 
-  it("CONTROL (a6): the `params:` position's own naive test keeps its bytes and its minted name", () => {
-    // Bug 0053 §Non-goals freezes `lowerParamsFieldType`'s test
-    // (src/parser/params.ts:766). The asymmetry this leaves against the
-    // corrected annotation root is recorded by the report, not closed by it,
-    // and `tests/params-inline-object-lowering.test.ts` locks the position.
+  it("PARITY (a6, bug 0097 §Fix): the `params:` position mints the SAME document the root does", () => {
+    // NOT an invariance control: this row's bytes are the ones bug 0097 §Fix
+    // moves, which is why it carries that report's label rather than group
+    // (a)'s. Bug 0097 §Fix lifts bug 0053 §Non-goals' freeze on `lowerParamsFieldType`
+    // for exactly this class — a top-level union of brace-balanced arms with
+    // at least one brace-group arm — by routing it through the identical
+    // `isSingleEnclosingBraceGroup` / `lowerBraceGroupUnionArms` pair
+    // (src/parser/params.ts) this file's own root dispatch already uses, so
+    // the `params:` document's arm fragments are byte-equal to the annotation
+    // root's (P1_DOCUMENT above), under identical minted names — the parity
+    // type-system.md:15 promises. `tests/params-inline-object-lowering.test.ts`
+    // still locks every source with no top-level `|`, which this class is not.
     const loaded = loadCleanly(
       "params P1",
       paramsSrc(`  p: "{a: integer} | {b: integer}"`, `${TRIAGE_BODY}let x = 1\n`),
     );
     expect(
       loaded.loweredSchema,
-      `the frozen \`params:\` bytes, minted slug included; observed ${JSON.stringify(loaded.loweredSchema)}`,
+      `the \`params:\` document's arm fragments, byte-equal to the annotation root's; observed ${JSON.stringify(loaded.loweredSchema)}`,
     ).toEqual({
       type: "object",
-      properties: { p: { $ref: `#/$defs/${PARAMS_MISPARSE_INLINE}` } },
+      properties: { p: P1_ROOT },
       required: ["p"],
       additionalProperties: false,
-      $defs: { [PARAMS_MISPARSE_INLINE]: PARAMS_MISPARSE_FRAGMENT },
+      $defs: P1_DEFS,
     });
   });
 
@@ -904,11 +946,12 @@ describe("bug 0053 (c) — the inline and named spellings of one union lower ide
   it("RED (c1, fixtures P1/P3b): `@<{a: integer} | {b: integer}>` deep-equals `@<X>` for `schema X = {a: integer} | {b: integer}`", () => {
     // The decisive contrast of the report: the named spelling routes through
     // `buildBodyTypeSchemas` and the alias RHS's per-arm union path
-    // (src/parser/body-type-lowering.ts:412–424), the inline spelling through
-    // the root brace dispatch, and the two disagree only because the dispatch
-    // runs first and never consults the structural predicate the shared
-    // lowering owns. type-system.md:15 is what an author relies on when moving
-    // a type expression between positions.
+    // (`lowerBraceGroupUnionArms`, src/parser/params.ts:1140, reached from
+    // `lowerTypeSource`'s call site at src/parser/body-type-lowering.ts:315),
+    // the inline spelling through the root brace dispatch, and the two
+    // disagree only because the dispatch runs first and never consults the
+    // structural predicate the shared lowering owns. type-system.md:15 is what
+    // an author relies on when moving a type expression between positions.
     const declBody = `${TRIAGE_BODY}schema X = {a: integer} | {b: integer}\nlet x = 1\n`;
     const decls = schemaDeclsOf(declBody);
     expect(

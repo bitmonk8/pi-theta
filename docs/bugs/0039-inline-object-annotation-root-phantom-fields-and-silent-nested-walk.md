@@ -790,3 +790,33 @@ and `p: "{a: integer} | {b: integer}"` keeps hoisting the one fragment it hoists
 today. That copy is now the only occurrence of the naive form in `src/` outside
 `isSingleEnclosingBraceGroup`'s own first statement, which is what the
 predicate's re-derived closing paragraph records.
+
+### Note — bug 0097 (0.99.0)
+
+**§Fix's constraint "The `params:` position's bytes do not move" is LIFTED**,
+for the enumerated class and no wider, on the authority of
+[0097](./0097-params-brace-union-rhs-one-field-list.md) §Fix (its constraint 1
+tabulates the class; its constraint 2 authorises the re-pinning). The freeze
+had done its work: it let this report's factoring of `hoistInlineObjectType`
+be proved a no-op at that position, and it held for four subsequent fixes.
+What lifts it is the same reasoning that motivated it — a shape the lowering
+cannot derive stays permissive, but a shape it CAN derive must be derived, and
+a top-level union of brace-balanced arms is one this report's own arm dispatch
+already derives correctly at the other three positions.
+
+`lowerParamsFieldType` now asks `isSingleEnclosingBraceGroup` instead of
+`startsWith("{") && endsWith("}")`, and reaches the per-arm union dispatch
+behind it. §Fix constraint 1 continues to bind everywhere else: a shredded
+segment set is still refused by `isBraceBalanced` and still lowers per-segment
+permissively, and the brace-suffixed shredded and malformed sources move from
+WRONG to PERMISSIVE — the direction that constraint admits, never the reverse.
+
+The import-direction rule (`:580–582`) was decisive rather than incidental:
+because `params.ts` must not import from `body-type-lowering.ts`, 0097 moved
+`isSingleEnclosingBraceGroup`, `isBraceBalanced` and the arm dispatch INTO
+`params.ts` beside `hoistInlineObjectType` — the same reason this report put
+the shared hoist there — and left a re-export at `body-type-lowering.ts:34` so
+no importer changed. This report's group-(h) pin in
+`tests/inline-object-nested-lowering.test.ts` stands unchanged; only its
+attribution of `isBraceBalanced` to a module was re-derived, the function
+having moved.

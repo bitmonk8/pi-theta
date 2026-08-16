@@ -1877,9 +1877,10 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
 });
 
 // ===========================================================================
-// (h) THE SHREDDED-SEGMENT GUARD — `arms.every(isBraceBalanced)`
-// (src/parser/body-type-lowering.ts), the condition that decides whether the
-// `|` segments of a source are ARMS at all.
+// (h) THE SHREDDED-SEGMENT GUARD — `arms.every(isBraceBalanced)`, the
+// module-private predicate (src/parser/params.ts) that guards
+// `lowerBraceGroupUnionArms`, the arm dispatch `lowerTypeSource` relies on to
+// decide whether the `|` segments of a source are ARMS at all.
 //
 // WHAT THE SPLIT DOES TO A BRACE GROUP CARRYING AN INTERIOR `|`.
 // `lowerTypeSource` splits with `splitTopLevel(s, "|")` in the angle-only

@@ -93,14 +93,16 @@ import { parseDoc } from "./helpers/e2e-s1";
 //        brace group, so the ALIAS and ANNOTATION positions already lower
 //        `{"anyOf":[{"$ref":"#/$defs/__inline_<slug>"},{"type":"array",
 //        "items":{"type":"integer"}}]}` — correct today, and unmoved by this
-//        fix. The `params:` position uses `lowerParamsFieldType`'s naive
-//        `startsWith("{") && endsWith("}")` check (params.ts:647), which this
-//        source fails (it ends `>`), so it alone still reaches the defective
-//        frame and still lowers `{}`. The SCHEMA-BODY FIELD position cannot
-//        carry the spelling at all — `schema S { a: {a: integer} | array<…> }`
-//        is refused by `theta/parse/empty-schema-body` before any lowering, a
-//        pre-existing parser limitation outside this fix — so the
-//        four-position parity claim is not assertable for it. Group (i).
+//        fix. The `params:` position reaches the SAME dispatch: bug 0097 §Fix
+//        gave `lowerParamsFieldType` the structural `isSingleEnclosingBraceGroup`
+//        test and the `lowerBraceGroupUnionArms` arm path (both params.ts), so
+//        this source — two brace-balanced segments, the first a single
+//        enclosing brace group — hoists its object arm here too. The
+//        SCHEMA-BODY FIELD position carries the spelling as well: bug 0095 §Fix
+//        made `parseType`'s arm-start `{` branch reachable at every `Type`
+//        position, so `schema S { a: {a: integer} | array<…> }` keeps its field
+//        list and lowers rather than drawing `theta/parse/empty-schema-body`.
+//        All four positions therefore agree byte for byte. Group (i).
 //   (ii) `string | Result<integer, string>` is listed as a CONTROL, but it
 //        carries a top-level `|` and therefore sits INSIDE the changed set the
 //        §Fix defines ("a no-op for every source without a top-level `|`").
@@ -1182,17 +1184,28 @@ describe("bug 0043 (h) — `array`-guarded recursion lowers a self-`$ref` `anyOf
 });
 
 // ===========================================================================
-// (i) THE BRACE-ARM SPELLING — re-derived at HEAD, where the bug doc's
-// §Reproduction (written at 0.45.0, before bug 0039 landed in 0.49.0) is stale.
-// `lowerTypeSource` now splits a union whose segments are brace-balanced and one
-// of which is a single enclosing brace group, so the ALIAS and ANNOTATION
-// positions ALREADY lower correctly. The `params:` position runs
-// `lowerParamsFieldType`'s naive `startsWith("{") && endsWith("}")` check
-// instead, which this source fails, so it alone still reaches the frame.
-// RED at HEAD: i2 only.
+// (i) THE BRACE-ARM SPELLING — re-derived against the dispatch every position
+// runs, which the bug doc's §Reproduction (written at 0.45.0, before bug 0039
+// landed in 0.49.0) predates. One structural predicate and one arm path serve
+// all four positions: `isSingleEnclosingBraceGroup` and
+// `lowerBraceGroupUnionArms` (both src/parser/params.ts), asked by
+// `lowerTypeSource` for the alias, annotation and schema-body positions and by
+// `lowerParamsFieldType` for `params:` (bug 0097 §Fix). A union whose segments
+// are brace-balanced and one of which is a single enclosing brace group
+// therefore hoists that arm at every position, and the four agree byte for
+// byte.
+//
+// WHAT THE LABELS MEAN IN THIS GROUP. CONTROL (i1) is the pair that already
+// lowered these bytes when bug 0043 was filed and has not moved since — the
+// reference the other two cells are compared against. RED (i2) and RED (i3)
+// are the cells that were red at that HEAD and are green now, each on a named
+// authority: i2 on bug 0097 §Fix, which replaced `lowerParamsFieldType`'s
+// positional brace test with the shared structural one; i3 on bug 0095 §Fix,
+// which made `parseType` consume the whole `Type ("|" Type)*` extent at every
+// position so a schema-body field keeps its field list.
 // ===========================================================================
 
-describe("bug 0043 (i) — the brace-arm union, whose four positions DIVERGE at HEAD", () => {
+describe("bug 0043 (i) — the brace-arm union, whose four positions agree byte for byte", () => {
   const SOURCE = "{a: integer} | array<integer>";
 
   /**
@@ -1221,19 +1234,26 @@ describe("bug 0043 (i) — the brace-arm union, whose four positions DIVERGE at 
     }
   });
 
-  it("RED (i2): the `params:` position lowers each arm instead of discarding the union", () => {
-    // `lowerParamsFieldType`'s brace check is naive by design (bug 0039 §Fix
-    // freezes the `params:` position's bytes), and this source ends `>`, so it
-    // falls through to `lowerTypeExpr` and today lowers `{}`. After the reorder
-    // the union splits and the brace arm lands on `lowerTypeExpr`'s trailing
-    // catch-all — permissive as ONE variant, which is the disposition bug 0039
-    // §Fix leaves in place, not the whole-union `{}`.
+  it("RED (i2): the `params:` position lowers the hoisted `anyOf` — the brace arm hoists and `array<integer>` survives", () => {
+    // `lowerParamsFieldType` asks `isSingleEnclosingBraceGroup` in place of its
+    // former positional `startsWith("{") && endsWith("}")` test (bug 0097
+    // §Fix), so this source — a union whose two segments are both
+    // brace-balanced and whose first is itself a single enclosing brace
+    // group — takes `lowerBraceGroupUnionArms` (src/parser/params.ts): the
+    // first arm hoists through `hoistInlineObjectType` and the second lowers
+    // through `lowerTypeExpr`, exactly as bug 0039 §Fix part B already
+    // dispatches the alias and annotation positions' arms (i1).
+    // `array<integer>` was never at risk of being discarded — bug 0043's own
+    // fix keeps the union split ahead of the generic-application test at every
+    // position — what this pins is the FIRST arm, which hoists rather than
+    // lowering permissively.
     const fragment = fragmentOf("i2", "params", SOURCE);
     expect(
       fragment,
-      `i2 [params]: SUBS-1 requires an \`anyOf\` whose second variant is the \`array<integer>\` ` +
-        `the author wrote; a whole-union \`{}\` discards it; observed ${JSON.stringify(fragment)}`,
-    ).toEqual({ anyOf: [{}, { type: "array", items: { type: "integer" } }] });
+      `i2 [params]: SUBS-1 requires an \`anyOf\` over both arms, the object arm hoisted and the ` +
+        `\`array<integer>\` arm intact — byte-identical to what i1 pins at the alias and ` +
+        `annotation positions; observed ${JSON.stringify(fragment)}`,
+    ).toEqual(HOISTED);
   });
 
   it("RED (i3): the schema-body FIELD position joins the parity — it loads, and it lowers the same hoisted `anyOf`", () => {

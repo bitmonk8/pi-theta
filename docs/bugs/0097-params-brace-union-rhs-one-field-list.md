@@ -1,16 +1,13 @@
 # Bug 0097 — The `params:` right-hand side keeps the naive `startsWith("{") && endsWith("}")` dispatch, so a top-level union of object arms is read as ONE inline field list: `p: "{a: integer} | {b: integer}"` hoists an enforcing fragment requiring a field `a` whose type asserts nothing, AJV refuses the author's second arm and binds `{"a":null}`, a `NamedType` inside either arm raises nothing — while the identical text at the `@<T>` annotation root and the alias right-hand side lowers to the SUBS-1 two-arm `anyOf`
 
-- **Status:** open. §Fix is constraint-pinned, not settled. The change moves
-  `params:` lowered bytes that bug
+- **Status:** fixed (0.99.0). This report is the doc authority that lifted bug
   [0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md)
-  §Fix froze by name (`:637–640`), so it needs doc authority to re-pin them —
-  this report is that authority when it is fixed — and it shares one frame with
-  two other open reports that also move `params:` lowering behaviour
-  ([0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md),
-  [0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md)).
-  Their input classes are disjoint from this one, so no landing order is forced
-  by content; whichever lands last re-derives the others' pins (§Fix
-  *Coordination*).
+  §Fix's freeze on the `params:` position's lowered bytes, for the class §Fix
+  constraint 1 tabulates and no wider. It landed LAST of the three movers on
+  this frame ([0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md)
+  at 0.85.0, [0059](./0059-params-scalar-nontype-text-recorded-and-permissive.md)
+  at 0.86.0), so it re-derived their pins as well as its own (§Fix
+  *Coordination*; §Fix (0.99.0) enumerates every re-derived cell).
 - **Kind:** defect, two elements on one dispatch.
   1. *A silently wrong lowering at the position whose fragment is the argument
      contract.* grammar.md `:94` admits `Type "|" Type` with `Type` recursive
@@ -752,6 +749,281 @@ Constraints on any implementation:
    messages from the registry (DIAG-4) rather than copying prose; the
    binder-envelope shape for a union-typed param; and no-op cells for every
    control in §Reproduction, minted slugs included.
+
+## Fix (0.99.0)
+
+- **What shipped.** One structural question, asked at the fourth position, with
+  the arm path behind it — §Fix implemented as settled, no substitution.
+  - `src/parser/params.ts` — `lowerParamsFieldType`'s dispatch is now literal
+    sublanguage → `isSingleEnclosingBraceGroup(s)` → `lowerBraceGroupUnionArms`
+    → `lowerTypeExpr`, in place of the positional
+    `startsWith("{") && endsWith("}")` test. It still passes ITSELF as
+    `hoistInlineObjectType`'s per-field recursion, which is what makes the arm
+    path apply at every depth. `isSingleEnclosingBraceGroup` (exported) and
+    `isBraceBalanced` (module-private) MOVED here verbatim, and the per-arm
+    union dispatch moved with them as the exported
+    `lowerBraceGroupUnionArms(source, lowerCtx, lowerFieldType)`, which returns
+    `undefined` when its guard declines so each caller falls through to its own
+    `lowerTypeExpr`. §Fix *Where the code lives*: the substitution is a code
+    move, not an import — bug 0039 §Fix's one-way rule
+    (`body-type-lowering.ts` imports from `params.ts`, never the reverse)
+    forbids the import.
+  - `src/parser/body-type-lowering.ts` — imports the three back and
+    RE-EXPORTS `isSingleEnclosingBraceGroup` (`:34`). The re-export is load
+    bearing, not cosmetic: `theta-document.ts`, `query-schema-lowering.ts` and
+    the bug-0096 witness `tests/discriminator-field-classifier-brace-group.ts`
+    reach the predicate at that path, and no importer's import line changed.
+    `lowerTypeSource` keeps its shape and now calls the shared dispatch; its
+    dead local `splitTopLevel(s, "|")` is gone. ONE predicate pair and ONE arm
+    dispatch now serve all four `Type` positions — the 0053 sharing extended,
+    not duplicated.
+  - `src/runtime/query-schema-lowering.ts`, `src/parser/theta-document.ts` —
+    comment-only: the permissive-`{}` origin inventory's union-arm bullet and
+    `unresolvedNamedTypeDiagnostic`'s doc comment both stated the `params:`
+    asymmetry as current behaviour and are re-derived (below).
+- **The class that moved, measured before → after** (offline probes at HEAD
+  `a1eec82c` and on the shipped tree; every HEAD value reproduced §Reproduction
+  byte-for-byte, so the nine-fix-old evidence held):
+
+  | `params:` type source | HEAD | 0.99.0 |
+  | --- | --- | --- |
+  | `{a: integer} \| {b: integer}` (and the leading-space / trailing-space / no-space spellings) | `$ref __inline_abb2fcd8521f6115` → `{"a":{"anyOf":[{},{}]}}` | `anyOf` over `$ref __inline_df817b794ef788ce` + `$ref __inline_8cc8cb1e7074a3af` |
+  | `{a: integer} \| {b: integer} \| {c: integer}` | `__inline_6c815aa05d43014d` | three hoisted arms, third `__inline_562094ebf0ccad82` |
+  | `{x: {p: integer, q: boolean}} \| {y: string}` | `__inline_89c169adb6920a28` | two hoisted arms, the nested group hoisted transitively |
+  | `integer \| {b: integer}` (not brace-suffixed) | `{"anyOf":[{"type":"integer"},{}]}` | `{"anyOf":[{"type":"integer"},{"$ref":"…__inline_8cc8cb1e7074a3af"}]}` |
+  | `{a: integer} \| Triage` | `{"anyOf":[{},{"$ref":"…Triage"}]}` | `{"anyOf":[{"$ref":"…df817b794ef788ce"},{"$ref":"…Triage"}]}` |
+  | `string \| {a: string}` (0059's d5) | `{"anyOf":[{"type":"string"},{}]}` | `{"anyOf":[{"type":"string"},{"$ref":"…__inline_968e40317188aebd"}]}` |
+  | `{a: integer} \| array<integer>` (0043's i2) | `{"anyOf":[{},{"type":"array",…}]}` | `{"anyOf":[{"$ref":"…df817b794ef788ce"},{"type":"array",…}]}` |
+  | `{ a: string \| null } \| {b: integer}` (shredded, brace-suffixed) | `__inline_62ad2038df56024e` | `{"anyOf":[{},{},{}]}` — WRONG → PERMISSIVE, the annotation root's own bytes |
+  | `{a: integer} \| integer}` (malformed) | `__inline_1b7dfa57724a007e` | `{"anyOf":[{},{}]}` — WRONG → PERMISSIVE |
+  | `{a: Ghost} \| {b: integer}`, `{a: Ghost} \| Triage`, `integer \| {b: Ghost}` | zero diagnostics, theta loads | ONE `theta/parse/unresolved-named-type` naming `Ghost`, frontmatter `null`, theta refused |
+
+  TWO MEMBERS OF THE MOVED CLASS §Fix's table did not enumerate, both measured
+  and both convergent (the position joining its three siblings, never diverging
+  further):
+  - **A single enclosing brace group whose FIELD type is in the moved class.**
+    `p: "{m: {a: integer} | {b: integer}}"` mints `__inline_ae08c181bf6be6f8`
+    at HEAD and `__inline_e6cf18116192f591` on the shipped tree — the name the
+    alias RHS and the `schema` body field already mint for that text. §Fix
+    constraint 1's "a source that is one enclosing brace group keeps its bytes"
+    is true of the ROUTE and of every group whose field types are outside the
+    moved class; constraint 3's one-source-text-one-name rule is what forces
+    this one to move, since the group's own fragment content-addresses its
+    fields' fragments. Witnessed by `RED (b12)`.
+  - **Non-`Type` text inside a brace arm.** `p: "string | {a: ???}"` is silent
+    at HEAD and is now refused `theta/load/params-type-not-expression` — this
+    position's OWN registered code, the one it already raises for `{a: ???}`
+    (unchanged). The alias RHS and the `schema` body field refuse the same text
+    today with `theta/parse/schema-type-not-expression`; the `params:` position
+    was the only silent one. The refusal fires because the hoist strips the
+    arm's braces and the field's fragment arrives brace-free at bug 0059's
+    judgement — the disposition that file's own rule already gives `{a: ???}`.
+    Registry MOVEMENT, not a registry edit: no code, row or trigger widens.
+
+  **Unmoved, measured not assumed:** `{a: integer, b: string}`
+  (`__inline_9b890568745f5ea5`); `{a: integer, b: {x: integer, y: string}}`
+  (`__inline_dd69af402813aa7d` over `__inline_c319be1cd4ab5f98`); `Triage`;
+  `array<integer>`; `string | integer` (`{"type":["string","integer"]}`);
+  `"x" | "y"`; the shredded non-brace-suffixed `{ a: string | null } | Triage`;
+  `{}` (still `theta/parse/empty-schema-body`); every row of
+  `tests/params-inline-object-lowering.test.ts` (re-verified: no fixture there
+  declares a `params:` type source carrying a top-level `|`).
+- **The 0059 interplay, measured** (the operator-named binding constraint):
+  - `{a: Ghost} | {b: ???}` → exactly ONE diagnostic, the `Ghost`. 0059's
+    `typeRefused` suppression still suppresses the default-side and junk-side
+    checks.
+  - `{a: Ghost} | {b: integer} = 7` → exactly ONE diagnostic, the `Ghost`; the
+    five-occupant `params:` default loop stays behind the type-half refusal.
+  - `{a: Ghost} | {b: Ghost}` → TWO diagnostics. NOT introduced here: the
+    single-group spelling `{a: Ghost, b: Ghost}`, which is in the UNMOVED
+    class, already renders two at this position at HEAD (the alias and body
+    positions render one — they dedup through `collectUnresolvedNamedTypes`).
+    One diagnostic per offending FIELD holds in both spellings. Pinned in both
+    directions by `CONTROL (a10)` and `RED (e3)`.
+- **GOV-15 enumeration (constraint 5).** Validation outcomes change, at all
+  three consumers of the lowered document, for exactly the sources tabulated
+  above; a `params:` union of object arms begins accepting the arms it declares
+  and refusing values no arm admits. Census re-run at this HEAD over
+  `git ls-files '*.theta' '*.thetalib'`: 17 files declare `params:`, 19 fields
+  in total, NONE whose right-hand side carries a top-level `|` with a brace
+  arm. `tests/committed-fixture-parse-gate.test.ts` (36 cells, both extensions)
+  is green. `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged, decided
+  by the real H9a run (11/11), not by inspection — constraint 6 holds.
+- **In-tree records re-derived in the same change** (constraint 1's last
+  sentence; §Fix named four, the change found and re-derived six):
+  1. `params.ts` — `lowerParamsFieldType`'s freeze paragraph: bug 0097 §Fix is
+     the authority lifting bug 0039 §Fix's freeze for this class, and the
+     surviving invariant is stated as route-invariance plus byte identity for
+     groups whose field types are outside the moved class.
+  2. `params.ts` — `lowerTypeExpr`'s header: a brace-rooted GENERIC argument
+     still arrives unintercepted; a brace-rooted UNION ARM of a balanced
+     segment set no longer does.
+  3. `body-type-lowering.ts` — `isSingleEnclosingBraceGroup`'s doc comment
+     (moved with the function): no dispatch or classifier still asks the naive
+     two-ended question on its own account; the predicate's own fast decline is
+     the only occurrence left.
+  4. `body-type-lowering.ts` — `lowerTypeSource`'s doc comment and
+     `isBraceBalanced`'s (moved): the shredded-set reasoning, the
+     guard-disjointness proof and the arm-order/SUBS-1 statement moved with the
+     code rather than being deleted.
+  5. `query-schema-lowering.ts` — the permissive-`{}` origin inventory's
+     union-arm bullet, which stated "a `params:` field's `{a: integer} |
+     integer` lands here, where the same text at a `lowerTypeSource` position
+     does not".
+  6. `theta-document.ts` — `unresolvedNamedTypeDiagnostic`'s doc comment, which
+     claimed `{a: {x: Tirage} | Cat}` "stays silent" at `params:` (measured
+     false now: all four positions raise for both names) and attributed
+     `isBraceBalanced` to the wrong module.
+- **Constraint-2 re-derivations, cell by cell** (`neither is relaxed`):
+  `tests/annotation-root-brace-union-lowering.test.ts` — `CONTROL (a6)` →
+  `PARITY (a6, bug 0097 §Fix)`, now asserting the `params:` document equals the
+  file's own pre-existing `P1_ROOT` / `P1_DEFS` annotation-root pins (a
+  STRENGTHENING: it pins cross-position parity where it pinned frozen bytes);
+  the `ORACLE CROSS-CHECK`'s `params:` probe drives `{a: integer}`, a source
+  that still mints, so the oracle keeps a production cross-reference at this
+  position, and gains a fourth read; the `PARAMS_MISPARSE_*` fragment/canonical/
+  derived-name trio and its group-(0) oracle case row are re-derived onto the
+  live array-nesting shape `{m: {a: integer} | {b: integer}}` (`M_UNION_*`),
+  which preserves the oracle's only canonical form nesting objects inside an
+  array — and strengthens it, since that array's two elements are DISTINCT
+  `$ref`s, so schema-subset.md `:104`'s lowering-order rule is now
+  distinguishable from a sorted recipe (a sorted-element recipe mints
+  `__inline_81da9ce2e0c8cf72`; production mints `__inline_e6cf18116192f591`);
+  the header inventory line and the group-(a) framing are re-derived with them.
+- **Re-derivations beyond constraint 2's enumeration — self-authorized, on the
+  record.** The question I would have asked: *§Fix constraint 2 names four cells
+  in one file, but the settled change also moves bytes pinned by three cells in
+  two files that did not exist when this report was filed (0043's witness landed
+  0.53.0, 0059's 0.86.0). May I re-derive them?* Self-authorized as COMPELLED by
+  the settled §Fix rather than as a scope extension, on five independent
+  sources: (1) constraint 1's table puts all three sources in the moving class —
+  `string | {a: string}` is literally row 2's shape; (2) §Fix *Coordination*
+  states the rule for exactly this situation ("whichever lands last re-derives
+  the others' anchors and slugs in the same change") and 0097 lands last of the
+  three frame-movers; (3) constraint 6 covers the newly-refused input as
+  registry movement; (4) the operator's own binding instruction to MEASURE the
+  0059 interplay presupposes new emissions from arm descent; (5) 0059's witness
+  file states the governing rule itself — "junk inside a HOISTED field's
+  brace-free type is refused" — so `string | {a: ???}` changes disposition
+  because its ROUTE changed, by that file's own principle. BOUND: exactly three
+  cells in two files — `union-generic-arm-lowering.test.ts` `RED (i2)`, and
+  `params-scalar-nontype-text-refusal.test.ts` `d5` (bytes; re-presented as
+  `MOVED (d5)` outside the byte-invariance loop, with a fourth assertion added
+  pinning the hoisted body) and `d12` (re-derived as `a25` in the refusal
+  family, pinning the convergence with the registry-read message). Every subject
+  is preserved; nothing is relaxed, deleted or skipped. STOP VALVE, honoured: any
+  further existing cell reddening would have stopped the run — none did (the
+  prototype's full-suite sweep reddened exactly these three plus constraint 2's
+  two, and nothing else).
+- **Second self-authorization — citation correction, comment-only.** The
+  question: *the move shifts line numbers cited by comments inside files this
+  change already edits, and one citation now points past EOF — may I re-anchor
+  them?* Self-authorized under the citation/comment-only branch on four sources:
+  the pre-review-correction-round rule; bug 0134's record of the 0102 precedent
+  against HALF sweeps (completing the sweep inside touched files is the
+  principled boundary); the implementer having already re-anchored two citations
+  in one of those files; and one citation pointing past end-of-file.
+  BOUND: six citations in two files, plus two module attributions in two further
+  files (`inline-object-nested-lowering.test.ts`, `discriminator-field-classifier-brace-group.test.ts`)
+  falsified not by line drift but by THIS change's function move — comment text
+  only, zero assertions, zero imports, zero executable lines. Everything else in
+  the repo-wide `path:line` drift is bug 0134's and was left untouched.
+- **Gates** (each re-run by the orchestrator, not taken on report):
+  - witness — `npx vitest run tests/params-brace-union-rhs-lowering.test.ts` →
+    `Test Files 1 passed (1)` / `Tests 48 passed (48)`. At HEAD, before the fix:
+    `21 failed | 25 passed (46)`; with the shipped dispatch neutralised in place
+    (byte-exact restore verified by `git hash-object`):
+    `22 failed | 26 passed (48)`, exactly the 22 RED-labelled cells.
+  - default suite — `npx vitest run` → `Test Files 303 passed (303)` /
+    `Tests 4987 passed (4987)`.
+  - typecheck — `npx tsc -p tsconfig.json --noEmit` → exit 0, no output.
+  - lint — `npm run lint` (`eslint --no-error-on-unmatched-pattern
+    "src/**/*.ts"`) → exit 0, no output.
+  - live — H8a `tests/live/live-production-acceptance.test.ts` 39/39 (38 at
+    HEAD + this fix's cell); H9a `tests/live/acceptance/` 11/11 across BOTH
+    files (`noninteractive-acceptance` 10 + `ctor-unresolved-load-refusal` 1).
+- **Tests that lock it.**
+  - `tests/params-brace-union-rhs-lowering.test.ts` (NEW, 48 cells) — the
+    independent SHA-256 slug oracle (12); the invariance controls including the
+    pre-existing two-diagnostic posture and a default beside a union-typed param
+    (11); the four-position parity table and the whole moved class (12, `b1`–
+    `b12`); the real-`AjvSchemaValidator` accept/reject table with the four
+    INVERTING cells and the inline-vs-named-spelling equality (2); the element-2
+    table at all four positions with every message read from the registry
+    (DIAG-4) (5); the 0059 interplay (4); the binder envelope and the unchanged
+    rendered `Parameters:` line (2). The `schema` body field position carries no
+    lowered-bytes row (§Non-goals — bug 0095's subject), only diagnostic rows.
+  - `tests/live/live-production-acceptance.test.ts` — one added cell drives
+    `p: "{a: integer} | {b: integer}"` through a real spawned RFC-0006 child's
+    marshalled-params AJV intake: the declared SECOND arm is accepted and a
+    value no arm admits is refused. Proven in both directions — with the
+    dispatch neutralised it reds with the pre-fix signature
+    (`GOOD=REJECTED validation BAD=ACCEPTED`).
+  - Re-derived: `annotation-root-brace-union-lowering.test.ts` (33),
+    `params-scalar-nontype-text-refusal.test.ts` (94),
+    `union-generic-arm-lowering.test.ts` (74).
+- **Review.** 3 rounds. Round 1 (deep) — FINDINGS: six, all prose/test, with the
+  implementation itself certified correct and faithful (a falsified
+  `theta-document.ts` record; a false single-group-byte-identity claim; two
+  present-tense statements of the retired dispatch; d5's label and the file-top
+  inventory; the annotation-root group-(a) framing; and the unwitnessed
+  nested-depth class plus the oracle's lost array-nesting case). Round 2 (fast)
+  — CLEAN, residuals: historical narration in seven added passages, and two
+  module attributions in bystander files falsified by the function move. Round 3
+  (fast, confirmation after the comment-only polish) — CLEAN, one cosmetic
+  run-on comment line, fixed in place. A pre-review citation-correction round
+  ran before round 1 and is not counted as a review round.
+- **Verification.** SOLID. (1) The witness reds by neutralisation and greens by
+  restore, byte-exact (`git hash-object` identical before and after), and the
+  element-2 group reds under the same neutralisation — so the diagnostic half
+  depends on this dispatch and not on something else. (2) Default suite green,
+  run twice. (3) Live: H8a 39/39 (one documented-class ~180s stall on an
+  unrelated bug-0172 cell cleared by a single isolated re-run, per protocol),
+  H9a 11/11 both files; the fixed path is exercised end to end by the added
+  cell, proven RED-then-GREEN through a real child. (4) `tsc` and `eslint`
+  clean. Also confirmed: the committed-fixture parse gate green over `.theta`
+  and `.thetalib`, and the changed-file set exactly as declared.
+- **Residuals.**
+  1. **This change adds shift-induced stale `path:line` citations outside the
+     files it edits.** Measured: `params.ts` grew +261 lines (a +7 header edit at
+     `:646` and a ~220-line insert at `:948`), `body-type-lowering.ts` shrank
+     763 → 622, `query-schema-lowering.ts` grew +7 at its header. Citations into
+     those regions from `tests/inline-object-duplicate-field-name.test.ts`,
+     `tests/literal-union-string-enum-emission.test.ts`,
+     `tests/invoke-return-enum-carrier-projection.test.ts`,
+     `tests/schema-body-nontype-text-refusal.test.ts` and
+     `tests/inline-object-nested-lowering.test.ts` shifted. They are bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s subject — that
+     report already records 17 of 19 `params.ts` citations wrong BEFORE this
+     change, and the 0102 precedent of a reverted partial sweep. Not swept here;
+     no new report filed.
+  2. **`src/parser/theta-document.ts:5127`'s shredded bullet is partly false,
+     pre-existing.** It says `{ a: Tirage | null } | Cat` "raises none anywhere";
+     measured, the outer `Cat` raises at all four positions and only the
+     shard-interior `Tirage` is silent. Measures identically at HEAD, so it is
+     not this change's; left for whoever owns that comment next.
+  3. **The shredded segment set stays permissive and silent** — constraint 4
+     and bug 0033 §Fix residual (ii), unchanged and pinned by group (h) of
+     `tests/inline-object-nested-lowering.test.ts` and by `CONTROL (a4)`.
+  4. **`src/parser/query-schema-resolve.ts:523`'s `startsWith("{")`** — a
+     single-ended, non-lowering test the report does not name. Confirmed out of
+     this class (it gates a resolve-time branch, not a type lowering) and left
+     alone.
+- **Discharge notes appended.**
+  [0053](./0053-annotation-root-brace-union-read-as-one-field-list.md) — its
+  §Fix *Residuals* (ii) names this subject and is discharged.
+  [0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md)
+  — its §Fix freeze on the `params:` position is LIFTED for the enumerated
+  class by this report's authority. No other sibling doc edited.
+- **Pinned dispositions / non-goals.** The `schema` body field position's parse
+  capture (bug 0095, fixed 0.74.0 — which is why that position now RAISES for a
+  name in an arm where this report measured `empty-schema-body` at 0.58.0; the
+  witness pins the current disposition and the position still carries no
+  lowered-bytes parity row); `classifyDiscriminatorFieldType`'s copy of the
+  naive test (bug 0096, fixed 0.73.0); the `params:` literal sublanguage (0056)
+  and non-`Type` scalar text (0059), both landed and both disjoint from this
+  class; the permissive-`{}` inventory question (bug 0028); the empty inline
+  object `p: "{}"` (bug 0045).
 
 ## Non-goals
 

@@ -13,15 +13,25 @@
 // named schema lowers identically wherever it is referenced.
 
 import {
-  classifyLoweredUnionArm,
   hoistInlineObjectType,
+  isSingleEnclosingBraceGroup,
+  lowerBraceGroupUnionArms,
   lowerLiteralSublanguage,
   lowerTypeExpr,
   splitTopLevel,
   topLevelColon,
   type LowerCtx,
 } from "./params";
-import { lowerUnion } from "./schema-lowering";
+// The one-way import bug 0039 §Fix set — this module imports from
+// `params.ts`, never the reverse — is what forces the shared brace predicate
+// and the per-arm union dispatch to live beside `hoistInlineObjectType` in
+// `params.ts` rather than here (bug 0097 §Fix, §Fix "Where the code lives").
+// Re-exported so this module's own importers — `theta-document.ts`'s
+// discriminator-field classifier and whole-file name walk,
+// `query-schema-lowering.ts`'s annotation root, and the
+// `tests/discriminator-field-classifier-brace-group.test.ts` witness — keep
+// reaching the predicate at this same import path.
+export { isSingleEnclosingBraceGroup };
 
 /**
  * The three `LowerCtx` sinks an `__inline_<slug>` mint reads and writes
@@ -178,134 +188,6 @@ export function lowerInlineObject(
 }
 
 /**
- * Whether `s` is a SINGLE enclosing brace group: the `{` at index 0 is closed
- * by the `}` at the final index, with no unmatched close before then (quote
- * contents are skipped so a brace inside a string literal cannot perturb
- * depth). `lowerTypeSource` asks this twice — of the whole source, then of
- * each arm of a union — and both seams need it rather than a naive
- * `startsWith("{") && endsWith("}")`, which also matches
- * `{a: integer} | {b: integer}`: a UNION of two object arms whose first `{`
- * closes at `{a: integer}`, well short of the string's end. Reading that
- * interior as one field list yields the single field `a` of type
- * `integer} | {b: integer` and mints a `properties.a` fragment for a shape the
- * author never wrote at that level — the silently WRONG lowering bug 0039 §Fix
- * constraint 1 forbids ("a shape the lowering cannot derive stays permissive
- * `{}`… permissive is admissible, wrong is not"). Declining the whole source
- * is what lets the union split instead, and on a segment set the split left
- * INTACT (`isBraceBalanced` below is what decides that) every brace-group arm
- * is a genuine `Type` and hoists on its own terms.
- *
- * `lowerQueryResponseSchema` (query-schema-lowering.ts) and
- * `collectUnresolvedNamedTypes` below ask the identical question of their own
- * root for the identical reason (bug 0053 §Fix): a root position is one more
- * place a naive prefix/suffix test reads a union of object arms as a single
- * field list. Exporting the one predicate is what keeps a root position and
- * an arm position from answering that question two different ways.
- *
- * The predicate serves callers beyond the type-lowering dispatches: the
- * discriminator-field classifier in `theta-document.ts` asks it for the same
- * reason at a non-lowering position (bug 0096 §Fix). `lowerParamsFieldType`'s
- * own brace check is the one remaining copy of the naive form. Bug 0039 §Fix
- * froze the `params:` position's lowered output and kept it there; bug 0056
- * §Fix lifts that freeze only for the literal sublanguage the function now
- * checks ahead of this brace test, leaving the brace test's own precision
- * outside the lifted class, so the naive copy remains.
- */
-export function isSingleEnclosingBraceGroup(s: string): boolean {
-  if (!(s.startsWith("{") && s.endsWith("}"))) {
-    return false;
-  }
-  let depth = 0;
-  let quote: string | undefined;
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < s.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "{") {
-      depth += 1;
-    } else if (c === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        return i === s.length - 1;
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * Whether `s`'s own brace depth starts at zero, never goes negative, and ends
- * at zero (quote contents skipped, as above). Asked of EVERY segment of the
- * `|` split before any arm may hoist: a set carrying one unbalanced segment is
- * a set the split SHREDDED, and a shredded set has no arms to dispatch.
- *
- * WHY the question is worth asking. `splitTopLevel(s, "|")` here runs in its
- * angle-only default, which tracks `<…>` and quotes but not `{…}`, so a `|`
- * written INSIDE a brace group reads as an arm separator and cuts the group
- * into pieces: `Cat | {a: integer | {c: Ghost} | boolean}` presents as the
- * four segments `Cat`, `{a: integer`, `{c: Ghost}`, `boolean}`. Two of those
- * are visibly not types — one opens a brace it never closes, the other closes
- * a brace it never opened — and that is what this predicate sees.
- *
- * WHY A BALANCED-LOOKING SEGMENT INSIDE A SHREDDED SET IS STILL NOT A `Type`.
- * `{c: Ghost}` above is balanced and is a single enclosing brace group, yet it
- * is not an arm of this union at all: it is the type of a nested union arm
- * two levels down, inside the field `a` of the group the split destroyed.
- * Hoisting it would mint a `$defs` entry and emit a `$ref` for a shape the
- * author never wrote at THIS level — the silently wrong lowering bug 0039 §Fix
- * constraint 1 forbids — and would descend names the enclosing group's own
- * lowering never reaches, refusing thetas on a trigger that is positionally
- * invisible: `{ a: X | {c: Ghost} } | Cat` shreds into `{ a: X` and
- * `{c: Ghost} }`, neither of them a standalone group, while appending
- * ` | boolean` after the nested group leaves `{c: Ghost}` standing alone as a
- * segment. Where the cuts fall is a function of where the author put the next
- * `|`, not of the type.
- *
- * So a shredded set declines the arm dispatch entirely and the whole source
- * goes to `lowerTypeExpr`, which lowers each segment permissively — the
- * per-segment `anyOf` bug 0033 §Fix residual (ii) records, and the same
- * silence, since `lowerTypeExpr` has no inline-object arm to descend with.
- */
-function isBraceBalanced(s: string): boolean {
-  let depth = 0;
-  let quote: string | undefined;
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < s.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "{") {
-      depth += 1;
-    } else if (c === "}") {
-      depth -= 1;
-      if (depth < 0) {
-        return false;
-      }
-    }
-  }
-  return depth === 0;
-}
-
-/**
  * Lower a single type-expression source to its JSON-Schema fragment. A
  * string-literal union (`"a" | "b"`) lowers to `{ "type": "string", "enum":
  * [...] }` (schema-subset.md:80); a union whose arms are literals of any
@@ -314,10 +196,10 @@ function isBraceBalanced(s: string): boolean {
  * string-literal-union case only; a single literal of any kind lowers to a
  * `const` (`:79`). A SINGLE ENCLOSING BRACE GROUP (an inline object type, at
  * any depth) hoists into `defs` under `__inline_<slug>` (bug 0039 §Fix part
- * B), a union CARRYING such a group as one of its arms lowers arm by arm so
- * that arm can hoist too, and every other form — primitive, `array<T>`,
- * named type, brace-free union — delegates to the `params:` `lowerTypeExpr`
- * machinery.
+ * B); a union CARRYING such a group as one of its arms lowers arm by arm
+ * through `lowerBraceGroupUnionArms` (params.ts, bug 0097 §Fix) so that arm
+ * can hoist too; and every other form — primitive, `array<T>`, named type,
+ * brace-free union — delegates to the `params:` `lowerTypeExpr` machinery.
  *
  * The inline-object arm recurses each field's type through `lowerTypeSource`
  * itself (an inner helper closing over `sinks`), not through `lowerTypeExpr`:
@@ -329,21 +211,20 @@ function isBraceBalanced(s: string): boolean {
  * string-literal union is `LiteralType` arms, not the `PrimitiveType` arms
  * SUBS-1, `:81`, governs).
  *
- * THE ARM DISPATCH IS GUARDED TWICE, but only the SHREDDED guard below is
- * behavioural. A union with no brace-group arm is handed WHOLE to
- * `lowerTypeExpr` exactly as before, which re-splits it identically — bug 0043
- * §Fix retired the exception: `lowerTypeExpr`'s own generic check no longer
- * pre-empts that split, so a union whose last arm ends in `>` reaches the same
- * split as any other union does. Splitting here unconditionally would
- * therefore move no bytes; the hand-off survives only because it is the
- * simpler of the two routes that now agree. A union whose segment set is
- * SHREDDED — the angle-only `|` split cut through a brace group, so at least
- * one segment is unbalanced — is handed whole to `lowerTypeExpr` too, because
- * a shredded set's segments are pieces of a type rather than types
- * (`isBraceBalanced` above states why a balanced piece is no exception). Arm
- * ORDER is source order, and the SUBS-1 combination is `lowerUnion`'s, so an
- * arm that is not an inline object lowers through the same call
- * `lowerTypeExpr`'s union branch would have made on it.
+ * THE SINGLE-GROUP CHECK AND `lowerBraceGroupUnionArms` ARE ASKED IN THAT
+ * ORDER FOR READABILITY, NOT NECESSITY — `lowerParamsFieldType` (params.ts,
+ * bug 0097 §Fix) now asks the identical predicate pair in the identical
+ * order, so the two type-lowering entry points agree by construction rather
+ * than by two independently-maintained copies. `lowerBraceGroupUnionArms`'s
+ * own doc comment (params.ts) proves the two guards disjoint and states why a
+ * union with no brace-group arm or a SHREDDED segment set — the angle-only
+ * `|` split cut through a brace group — declines and is handed whole to
+ * `lowerTypeExpr`, unchanged from what that function's own union split
+ * already produces (bug 0043 §Fix retired the one case that split disagreed
+ * on: a union whose last arm ends in `>`). Arm ORDER is source order, and the
+ * SUBS-1 combination is `lowerUnion`'s, so an arm that is not an inline
+ * object lowers through the same call `lowerTypeExpr`'s union branch would
+ * have made on it.
  *
  * `unresolved`, when supplied, is a SINK (bug 0028 §Fix): every `NamedType`
  * name `lowerTypeExpr` cannot resolve against `bodyTypeMap` is appended to it.
@@ -397,7 +278,6 @@ export function lowerTypeSource(
       : {}),
   };
 
-  const arms = splitTopLevel(s, "|");
   // Shared with `lowerParamsFieldType` (params.ts, bug 0056 §Fix): one
   // recogniser and one emission, so this function's three callers and the
   // `params:` position agree on a literal source's bytes by construction.
@@ -422,40 +302,19 @@ export function lowerTypeSource(
       fieldCtx.unspellable,
     );
 
-  // THE TWO DISPATCHES BELOW ARE DISJOINT — no source satisfies both guards —
-  // so their order cannot change what this function returns. The arm guard
-  // requires EVERY `|` segment to be brace-balanced; the segments and the
-  // separators between them restore the source, and neither a separator nor
-  // whitespace carries brace depth (a quoted region is skipped by the split and
-  // by both predicates alike), so a set of balanced segments forces brace depth
-  // 0 at every cut. A single enclosing brace group instead holds depth at 1 or
-  // more everywhere strictly inside it, and a set of more than one segment has
-  // at least one cut strictly inside the source — the two guards cannot both
-  // answer yes. `{a: string | null}` is that pair made concrete: it IS one
-  // brace group, and the angle-only split cuts its interior union into
-  // `{a: string` and `null}`, both unbalanced, which is what the arm guard
-  // refuses.
-  //
-  // The containing case is asked first because it is a question about the
-  // source itself, which leaves the arm block below reasoning only about
-  // sources that are not one brace group.
+  // The two checks below are asked in this order for readability, not
+  // necessity: `isSingleEnclosingBraceGroup(s)` and the arm guard
+  // `lowerBraceGroupUnionArms` (params.ts) applies are provably disjoint (see
+  // that function's own doc comment), so asking the containing case first
+  // only leaves the arm call reasoning about sources that are not one brace
+  // group — it does not change which branch a source ultimately takes.
   if (isSingleEnclosingBraceGroup(s)) {
     return hoistInlineObjectType(s, ctx, lowerField);
   }
 
-  if (
-    arms.length > 1 &&
-    arms.every((arm) => isBraceBalanced(arm)) &&
-    arms.some((arm) => isSingleEnclosingBraceGroup(arm))
-  ) {
-    const loweredArms = arms.map((arm) =>
-      classifyLoweredUnionArm(
-        isSingleEnclosingBraceGroup(arm)
-          ? hoistInlineObjectType(arm, ctx, lowerField)
-          : lowerTypeExpr(arm, ctx),
-      ),
-    );
-    return { ...lowerUnion(loweredArms) };
+  const armUnion = lowerBraceGroupUnionArms(s, ctx, lowerField);
+  if (armUnion !== undefined) {
+    return armUnion;
   }
 
   return lowerTypeExpr(s, ctx);

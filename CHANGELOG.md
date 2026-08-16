@@ -6,7 +6,34 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-## [0.98.0] - 2026-08-16
+## [0.99.0] - 2026-08-16
+
+### Fixed
+
+- **bug 0097 — a `params:` right-hand side read a top-level union of object
+  arms as ONE inline field list.** `lowerParamsFieldType` asked the positional
+  question — first character `{`, last character `}` — where the `@<T>`
+  annotation root, the `schema X = …` alias right-hand side and a `schema` body
+  field all ask the structural one, so `p: "{a: integer} | {b: integer}"` was
+  handed whole to the inline-object hoist and minted
+  `{"a":{"anyOf":[{},{}]}}` — a required property `a` constrained by nothing,
+  under `additionalProperties: false`. AJV then refused `{"p":{"b":1}}`, the
+  author's own second arm, at all three consumers of the lowered document
+  (binder envelope, post-default-merge validation, subagent child params
+  intake), and bound `{"p":{"a":null}}`, which matches neither arm. The same
+  dispatch swallowed the diagnostic: a `NamedType` inside a brace-group arm
+  reached no resolution, so `p: "{a: Ghost} | {b: integer}"` loaded with zero
+  diagnostics where the identical text at two other positions refused the
+  theta. `lowerParamsFieldType` now asks `isSingleEnclosingBraceGroup` and,
+  behind it, takes the per-arm union dispatch: each brace-group arm of a
+  brace-balanced segment set hoists on its own terms and the rest lower
+  through `lowerTypeExpr`, combined per SUBS-1. The four `Type` positions now
+  share one predicate pair and one arm dispatch, so one source text mints one
+  `__inline_<slug>` wherever it is written, and a name inside an arm refuses
+  the theta at `params:` as it already did elsewhere. A source that is one
+  enclosing brace group keeps its route and its bytes; a shredded segment set
+  and a malformed brace-suffixed source move from wrong to permissive, never
+  the reverse.
 
 ### Fixed
 
