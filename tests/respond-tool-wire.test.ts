@@ -105,6 +105,7 @@ import { executeBody } from "../src/runtime/statement-executor";
 import type { BodyExecution } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDoc } from "./helpers/e2e-s1";
+import { makeEnumValue, valuesEqual, type ThetaValue } from "../src/runtime/value";
 
 /** The real AJV seam (no coercion, no default-fill) — the QRY-22 validator. */
 function ajv(): AjvSchemaValidator {
@@ -575,12 +576,30 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
       "the two-phase drive issues exactly TWO complete() calls — a repair spin " +
         "would issue more (or, live, never terminate)",
     ).toBe(2);
-    expectBound(
-      result,
-      "low",
+    // Bug 0172 §Fix (e)(1): the typed-query boundary now performs the inbound
+    // translation pass, so the enveloped call's unwrapped payload binds a
+    // TAGGED `Shape.Low` variant, not a bare string. This is a STRENGTHENING of
+    // this cell's own subject (the envelope unwrap survives unweakened below),
+    // not a relaxation: `toEqual` between two boxed strings is tag-blind (it
+    // cannot see which enum a string was tagged with), so `valuesEqual` against
+    // a locally constructed variant is what actually pins the specified end
+    // state (runtime-value-model.md §"Wire-name translation", :13 — the tag is
+    // what `==` compares).
+    expect(
+      result.execution.outcome,
       "the enveloped call must UNWRAP to the bare wire value before validation " +
-        "(validating the envelope object against the enum root rejects everything)",
-    );
+        "(validating the envelope object against the enum root rejects everything) " +
+        `— the body must complete successfully; error=${JSON.stringify(result.execution.error)}, ` +
+        `notes=${JSON.stringify(result.notes)}`,
+    ).toBe("success");
+    expect(
+      valuesEqual(result.execution.result.value as ThetaValue, makeEnumValue("Shape", "low")),
+      "the bound value must compare equal to a locally constructed `Shape.Low`",
+    ).toBe(true);
+    expect(
+      result.notes.filter((note) => /returned Err|aborted|cancelled/.test(note)),
+      `no fail-closed note may be surfaced; notes=${JSON.stringify(result.notes)}`,
+    ).toEqual([]);
     const template = trailingTemplate(scripted.calls[scripted.calls.length - 1]!);
     expect(
       template,
@@ -1023,11 +1042,24 @@ describe("bug 0028 wire contract — the registered `execute` against an armed c
       scripted.calls.length,
       "a captured early respond skips the forced off-session dispatch — ZERO complete() calls",
     ).toBe(0);
-    expectBound(
-      result,
-      "low",
+    // Bug 0172 §Fix (e)(1): see the identical rationale on the PROD-ENVELOPE
+    // cell above — `toEqual` is tag-blind against a boxed-string enum value, so
+    // `valuesEqual` against a locally constructed `Severity.Low` is the
+    // strengthened assertion that actually pins the specified end state
+    // (runtime-value-model.md §"Wire-name translation", :13).
+    expect(
+      result.execution.outcome,
       "the captured payload is the BARE enum value the declared schema validates, " +
-        "not the `{value: …}` wire envelope",
-    );
+        "not the `{value: …}` wire envelope — the body must complete successfully; error=" +
+        `${JSON.stringify(result.execution.error)}, notes=${JSON.stringify(result.notes)}`,
+    ).toBe("success");
+    expect(
+      valuesEqual(result.execution.result.value as ThetaValue, makeEnumValue("Severity", "low")),
+      "the bound value must compare equal to a locally constructed `Severity.Low`",
+    ).toBe(true);
+    expect(
+      result.notes.filter((note) => /returned Err|aborted|cancelled/.test(note)),
+      `no fail-closed note may be surfaced; notes=${JSON.stringify(result.notes)}`,
+    ).toEqual([]);
   });
 });

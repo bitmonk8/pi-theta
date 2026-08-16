@@ -6,6 +6,46 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-08-15
+
+### Fixed
+
+- **bug 0172 (face 1) — `runtime-value-model.md` §"Wire-name translation" states
+  the inbound rule once and closes its boundary set at four, but the runtime
+  performed it at one: typed query results, typed `.theta`-callable tool-call
+  returns and binder `args` each bound the AJV-validated payload directly.** A
+  named-enum position therefore arrived as a bare string and a schema-typed
+  object unbranded, so `v == Sev.High` read `false` where the same value reaching
+  theta code through the one wired boundary read `true`, with nothing emitted on
+  any diagnostic channel. All three now perform the pass after their own AJV
+  verdict and before the value binds. The typed-query loop's terminal
+  forced-respond return and its respond-repair arm converge on one outcome, so a
+  single call covers both. The `.theta`-callable boundary had no runtime schema
+  at all — `tool-calls.md` §"Return type" types it by inference over the
+  statically resolved callee — so the invoke trampoline now carries a
+  three-arm return typing and resolves a `.theta`-callable call's type against
+  the CALLEE's declarations, while `invoke<Schema>` keeps resolving against the
+  caller's and a bare `invoke(...)` still derives nothing. Binder `args` are
+  translated at both projections: the parent-side bind and the child-side
+  marshalled-params intake. Face 2 of that report — a value inside a
+  `{"anyOf":[…]}` arm — is untouched and the report stays open for it: no
+  sentence supplies an arm-dispatch rule, so there is nothing to implement yet.
+- **bug 0120 (order half) — the inbound rebuild walked the validated payload's
+  own key order, so a named-schema value rebuilt from MODEL output reported
+  `keys()` in the model's order where `expressions.md` fixes it to declaration
+  order.** The lowering pass's per-schema sidecar now carries a field-order list
+  — that `$defs` entry's own object-body field names, theta-side, in declaration
+  order — and the rebuild emits every field the list names first, in that order,
+  then every remaining payload key in the relative order the payload carried:
+  the same discipline `buildObjectSchemaValue` already applies at construction,
+  so the two provenances of one schema's value agree. The order is established at
+  the rebuild and nowhere else; no read path sorts. A sidecar carrying no list —
+  a permissive root, a `$defs` entry with no object body — preserves payload
+  order unchanged. `docs/spec_topics/schema-subset.md`'s Lowering Algorithm step
+  5 and its `docs/reference/` mirror record the list and the rule. The brand
+  half is unchanged: `brandSchemaValue` remains the only installer and the tag
+  remains a non-enumerable symbol.
+
 ## [0.96.0] - 2026-08-15
 
 ### Fixed

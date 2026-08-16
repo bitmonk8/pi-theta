@@ -29,6 +29,11 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
+import {
+  AjvSchemaValidator,
+  type LoweredSchema,
+  type SchemaSlug,
+} from "../src/seams/schema-validator";
 
 // Bug 0017 — a user object carrying a boolean `ok` field is misclassified as a
 // `Result` runtime value; typed-query payloads and callee final values are
@@ -145,10 +150,33 @@ const NOOP_CHECKPOINT: Checkpoint = {
   },
 };
 
+/**
+ * The production AJV validator (real schema validation), wired with the same
+ * `JSON.stringify` content-addressing the shipped composition root uses — the
+ * `tests/binder-forced-tool-dispatch.test.ts` `realAjvValidator()` pattern.
+ */
+function realAjvValidator(): AjvSchemaValidator {
+  return new AjvSchemaValidator({
+    emit: (): void => {},
+    slugOf: (schema: LoweredSchema): SchemaSlug => {
+      const canonicalBytes = JSON.stringify(schema);
+      return { slug: canonicalBytes, canonicalBytes };
+    },
+  });
+}
+
 function rootDouble(): RuntimeRoot {
   return {
     checkpoint: NOOP_CHECKPOINT,
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+    // Bug 0172: the `.theta`-callable invoke leg now derives a return type by
+    // FN-3 inference over the callee's tail (a named-schema constructor here),
+    // so `#validateInvokeReturn` reaches `root.schemaValidator.compile(...)` on
+    // a path this double previously never exercised (`returnSchema` was always
+    // `null` for a `tools:`-routed call). A real validator is what production
+    // wires there; a stub double must not paper over that with a guard — the
+    // fix is the double, not a defensive `undefined` check in production code.
+    schemaValidator: realAjvValidator(),
   } as unknown as RuntimeRoot;
 }
 

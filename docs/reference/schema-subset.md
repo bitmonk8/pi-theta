@@ -185,12 +185,17 @@ Each theta file is lowered to a JSON Schema document at parse time:
    `invoke<…>` / `subagent fn` return) assemble through the same step.
 5. **Per-schema sidecar** captures a *wire-name translation* map, a
    *named-enum positions* map (keyed by JSON Pointer, valued by declaring-enum
-   theta-side name; anonymous string-literal-union positions absent), and a
+   theta-side name; anonymous string-literal-union positions absent), a
    *`$ref`-target* map on the same JSON-Pointer keying (valued by the `$defs`
    name a position's lowered form references — a field `manager: Person` names
-   `$defs` `Person`, not `$defs` `manager`). The inbound translation pass reads
-   the named-enum map to reattach enum tags and the `$ref`-target map to recurse
-   into the `$defs` entry a position actually references.
+   `$defs` `Person`, not `$defs` `manager`), and a *field-order* list (this
+   `$defs` entry's own object-body field names, theta-side, in declaration
+   order; absent for a `$defs` entry with no object body). The inbound
+   translation pass reads the named-enum map to reattach enum tags, the
+   `$ref`-target map to recurse into the `$defs` entry a position actually
+   references, and the field-order list to rebuild a described object's fields
+   in declaration order — every field the list names first, then every
+   remaining payload key in the relative order the payload carried.
 6. **Discriminator detection** runs on the lowered `anyOf` form (parse-time sanity
    check; no extra marker emitted).
 

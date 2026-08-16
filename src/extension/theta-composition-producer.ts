@@ -49,6 +49,7 @@ import {
 } from "../runtime/statement-executor";
 import type { EffectfulStatementHostDeps } from "../runtime/effectful-statement-host";
 import type { ThetaValue, ResultValue } from "../runtime/value";
+import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
@@ -86,18 +87,26 @@ const ZERO_BODY_RANGE: SourceRange = {
  * map, so the theta's own typed `params:` reach body scope at a top-level `/stem`
  * dispatch (the same install path invoke-supplied args use). Absent `args`
  * (a theta with no `params:`) yields `undefined` — no param slots installed.
+ *
+ * The projection runs the inbound translation pass first: binder `args` are one
+ * of the four boundaries runtime-value-model.md §"Wire-name translation" states
+ * the rule for, and the merged args are model-produced JSON that
+ * `fillDefaultsAndRevalidate` has already AJV-checked against the theta's own
+ * lowered `params:` document — so a field declared as a named `enum` reaches
+ * body scope as a tagged variant rather than as the wire string.
  */
 function paramBindingsFrom(
+  theta: ThetaCompositionInput,
   args: Readonly<Record<string, unknown>> | undefined,
 ): ReadonlyMap<string, ThetaValue> | undefined {
   if (args === undefined) {
     return undefined;
   }
-  const bindings = new Map<string, ThetaValue>();
-  for (const [name, value] of Object.entries(args)) {
-    bindings.set(name, value as ThetaValue);
-  }
-  return bindings;
+  return bindParamsInbound({
+    params: args,
+    lowered: theta.frontmatter.params?.loweredSchema as Record<string, unknown> | undefined,
+    body: theta.body,
+  });
 }
 
 /**
@@ -393,7 +402,7 @@ export function composeThetaFixture(
         // 2. Route on mode to the conversation the executor drives against. The
         //    binder's bound `params:` object is threaded into the executor
         //    environment as `paramBindings` so top-level `params:` reach body scope.
-        const paramBindings = paramBindingsFrom(binderResult.args);
+        const paramBindings = paramBindingsFrom(theta, binderResult.args);
         const bindInput: ConversationBindInput = { theta, args, ctx, thetaAbort, ...(paramBindings !== undefined ? { paramBindings } : {}) };
         const binding: ConversationBinding =
           theta.frontmatter.mode === "subagent"

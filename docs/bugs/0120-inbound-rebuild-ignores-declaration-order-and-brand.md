@@ -1031,3 +1031,79 @@ maps". 0067's fix amended that step in place — it now reads "three maps", the
 third being a per-position `$ref` target — and the file remains 118 lines, so
 the `:87` locant still resolves. The mirror `docs/reference/schema-subset.md`
 grew by four lines, so the `:184–187` locant now points four lines high.
+
+## Coordination note — bug 0172 (0.97.0): the order half has landed
+
+Appended by [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)'s
+fix. This report's status is unchanged and nothing above is retracted; what
+changes is that §Fix (a) is now decided by a landed implementation rather than
+open.
+
+§Fix (f) made the ordering bidirectional: "either this fix lands first, or 0067's
+fix lands both halves". 0067 took the second horn for the brand and left the
+order, and the note above records why the order was vacuous on the one boundary
+it wired. 0172 wired the other three, two of which take MODEL-produced payloads,
+so §Reproduction's model-ordered hazard became production-reachable and the order
+half landed with it.
+
+- **§Fix (a1) is the route taken — the sidecar carries the order.**
+  `SchemaSidecar` gained an optional field-order list: that `$defs` entry's own
+  object-body field names, theta-side, in declaration order.
+  `buildInboundTranslationPlan` derives it at plan time from the `properties`
+  walk it already performs, so no new module edge and no environment access is
+  introduced. The alternatives were weighed and declined: (a2) reading the
+  lowered fragment widens `translateInbound`'s input shape and forces the caller
+  to state which name space `required` is in; (a3) resolving the declaration at
+  rebuild time puts a lexical environment into a leaf module whose import
+  surface is two type-only edges. §Fix (c) — qualifying `expressions.md:118` by
+  provenance — is rejected: it re-splits a clause bug 0080 made single.
+- **The spec edit §Fix (a1) priced was made in the same commit.**
+  `docs/spec_topics/schema-subset.md` step 5 now reads "three maps and a
+  field-order list" and states what the inbound pass does with the list, with
+  the `docs/reference/schema-subset.md` mirror amended in the same change. That
+  is exactly the shape 0067's fix used for the `$ref`-target map.
+- **The order is established at the rebuild, and nowhere else.** §Fix's second
+  constraint holds: `evaluateObjectMember` was not touched, so cell (S) of
+  `tests/ctor-declaration-order.test.ts` stands — the read seam still returns the
+  record's own key order verbatim, and all 16 cells are green.
+- **Which boundaries run it.** The reorder lives in the shared walk
+  (`rebuildUnder` / `rebuildInbound`), so every boundary that calls
+  `translateInbound` gets it: the typed-query loop, the typed `.theta`-callable
+  return, binder `args` at both projections, and the subagent-`invoke` return
+  0067 wired. On that last one it is vacuous for the reason the note above gives
+  — the producer is a theta child whose object `buildObjectSchemaValue` already
+  ordered — but it is now guaranteed by the walk rather than incidental to the
+  producer.
+- **Nested and array positions order by the same carrier.** A nested
+  named-schema field and an `array<T>` element both re-enter the walk at their
+  target's own fragment root, under that fragment's own sidecar, so each orders
+  by its own declaration. Witnessed at all three depths in
+  `tests/inbound-rebuild-declaration-order.test.ts`.
+- **Where no carrier exists, payload order is preserved.** A sidecar with no
+  field-order list — a synthesised one, a permissive root, a `$defs` entry with
+  no object body — leaves the payload's order untouched. That is what keeps the
+  landed seam cells in `tests/wire-translation-inbound-retag.test.ts` green: they
+  hand-build their sidecars, and none carries a list. The reorder is otherwise
+  key-set preserving on the same terms `buildObjectSchemaValue` is: own-key
+  reads, every payload key retained, no declared name invented.
+- **AJV still runs before the rebuild**, unchanged, and the reorder changes only
+  insertion order.
+- **The brand install still does NOT go through `buildObjectSchemaValue`**, and
+  the reason has changed. It is no longer that routing through it would decide
+  §Fix (a) by implementation — this run decides §Fix (a). Two structural reasons
+  remain, both stated at the call site: that function builds a plain `{}`
+  record, so a payload key spelled `__proto__` would be swallowed by the
+  inherited setter and bug 0173's null-prototype record build undone, and the
+  inbound key space is payload-controlled where a constructor's is not; and it
+  orders by a RESOLVED declaration, where a `#root` or `__inline_<slug>` position
+  names no declaration to resolve.
+- **§Fix (b) — the brand half — is unchanged** from what the 0067 note records:
+  `brandSchemaValue` is the only installer, the tag stays a non-enumerable
+  symbol, and bug 0020's forged-name cells are green.
+- **The six seam cells and cell (b3) are green**, unedited, as §Fix's fourth
+  constraint requires, and — as that constraint predicted — none of them
+  witnesses this change. The new witness is
+  `tests/inbound-rebuild-declaration-order.test.ts`, which carries the four order
+  rows, the nested and array-element rows, the ctor-provenance control asserting
+  byte-identical `JSON.stringify` across provenances with `valuesEqual` in both
+  argument orders, and the no-carrier control.

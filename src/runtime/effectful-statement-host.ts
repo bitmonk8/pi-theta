@@ -96,6 +96,22 @@ export interface QueryHostDispatch {
    * expression's declared schema against the driven conversation.
    */
   readonly schemaValidation?: TypedQuerySchemaValidation;
+  /**
+   * The typed query's inbound translation step (runtime-value-model.md
+   * §"Wire-name translation", the typed-query-results boundary): translate the
+   * AJV-validated respond payload to its theta-side value before it binds.
+   * Applied to the loop's `value` outcome, which is where BOTH validated arms
+   * converge — the terminal forced-respond payload (`query-tool-loop.ts`'s
+   * terminal return) and the respond-repair arm's re-validated value — so ONE
+   * call satisfies the pass for both, after each arm's own AJV verdict and
+   * before the value binds. Present only for a typed query whose annotation
+   * lowered; absent binds the payload raw. The host does not fall back to
+   * deriving the step from `schemaValidation`: the declared `schema` / `enum`
+   * name sets that derivation needs are the caller's to hold, and re-deriving
+   * them here would restate per call site the rule `runtime-value-model.md`
+   * §"Wire-name translation" states once for all four inbound boundaries.
+   */
+  readonly decodeInbound?: (validated: unknown) => ThetaValue;
 }
 
 /**
@@ -229,8 +245,13 @@ async function runQueryEffect(
       dispatch.schemaValidation,
     );
     switch (outcome.kind) {
-      case "value":
-        return { ok: true, value: outcome.value };
+      case "value": {
+        const { decodeInbound } = dispatch;
+        return {
+          ok: true,
+          value: decodeInbound === undefined ? outcome.value : decodeInbound(outcome.value),
+        };
+      }
       case "validation":
       case "propagated":
         // A terminal schema-validation failure (QRY-22) or a proximate

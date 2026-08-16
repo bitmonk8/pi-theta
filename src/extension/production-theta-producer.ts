@@ -221,8 +221,8 @@ import type {
 import { parseExpressionSource } from "../parser/theta-document";
 import { renderSystemPrompt } from "../parser/system-interpolation";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
-import { buildInboundTranslationPlan } from "../parser/schema-lowering";
-import { translateInbound } from "../runtime/wire-translation";
+import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-boundary";
+import { inferCalleeReturnAnnotation } from "../parser/functions";
 import type { CompiledValidator, LoweredSchema } from "../seams/schema-validator";
 import { parseToolsEntry, type ResolvedCallable } from "../parser/callable-set";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
@@ -639,6 +639,33 @@ function binderPromptParamField(field: BypassParamsField): SystemPromptParamFiel
         ? { kind: "default", literal: field.defaultSource }
         : { kind: "required" },
   };
+}
+
+/**
+ * How a driven callee's return type is typed at its call site, carried from the
+ * expression resolver down to the return-validation boundary. The three arms
+ * are the three call surfaces the invoke trampoline serves, and they differ in
+ * WHOSE declarations the type resolves in — which is why the site cannot be
+ * reduced to a bare annotation string:
+ *
+ *   - `annotated` — `invoke<Schema>(...)`: the caller's annotation and decls.
+ *   - `callee-inferred` — a `.theta`-callable call through `tools:`: the
+ *     callee's inferred return type and decls (tool-calls.md §"Return type").
+ *   - `untyped` — a bare `invoke(...)`: no return type (invocation.md
+ *     §"Typed return").
+ */
+type InvokeReturnTyping =
+  | { readonly kind: "annotated"; readonly annotation: string }
+  | { readonly kind: "callee-inferred" }
+  | { readonly kind: "untyped" };
+
+/**
+ * A resolved return-type site: the annotation source to lower and the theta
+ * body whose `schema` / `enum` declarations resolve the names in it.
+ */
+interface InvokeReturnSite {
+  readonly annotation: string;
+  readonly declarations: ThetaBody;
 }
 
 /** The basename of a `.theta`-callable path, minus its `.theta` extension. */
@@ -2142,14 +2169,22 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       emitErr({ ...intake.error, callee_path: calleePath } as unknown as QueryError);
       return;
     }
-    const paramBindings = new Map<string, ThetaValue>();
     // `intake.params` is `undefined` when no params carrier was marshalled (a
     // callee with no `params:` / a no-arg invocation) — an empty binding set.
-    if (intake.params !== undefined && intake.params !== null) {
-      for (const [name, value] of Object.entries(intake.params)) {
-        paramBindings.set(name, value as ThetaValue);
-      }
-    }
+    // runtime-value-model.md §"Wire-name translation" names binder `args` as an
+    // inbound boundary, and the marshalled child-side intake is that boundary's
+    // other projection: it validated against the same lowered `params:`
+    // document, so it performs the same pass before binding.
+    const paramBindings =
+      intake.params !== undefined && intake.params !== null
+        ? bindParamsInbound({
+            params: intake.params as Readonly<Record<string, unknown>>,
+            lowered: theta.frontmatter.params?.loweredSchema as
+              | Record<string, unknown>
+              | undefined,
+            body: theta.body,
+          })
+        : new Map<string, ThetaValue>();
     const rootBindInput: ConversationBindInput = {
       ...bindInput,
       ...(paramBindings.size > 0 ? { paramBindings } : {}),
@@ -2557,12 +2592,33 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       occurredAt: root.clock.wallNow(),
     };
 
+    // runtime-value-model.md §"Wire-name translation", the typed-query-results
+    // boundary: the respond payload is MODEL-produced and reaches theta code as
+    // the query's value, so it is translated after this query's own AJV verdict
+    // and before it binds — `runQueryEffect`'s `"value"` arm is where the loop's
+    // terminal forced-respond return AND its respond-repair arm converge, so
+    // ONE call here covers both. Built only on the lowered arm — the degraded
+    // unlowerable-annotation arm has no document to plan against and its
+    // payload was never schema-checked either.
+    const decodeInbound =
+      lowered !== undefined
+        ? (validated: unknown): ThetaValue =>
+            decodeInboundValue({
+              lowered: lowered as unknown as Record<string, unknown>,
+              annotation: expr.schema as string,
+              schemaNames: new Set(schemaDeclsOf(deps.theta.body).map((decl) => decl.name)),
+              enumNames: new Set(enumDeclsOf(deps.theta.body).map((decl) => decl.name)),
+              validated,
+            })
+        : undefined;
+
     return {
       typed,
       renderedText,
       model,
       config,
       ...(validation !== undefined ? { schemaValidation: validation } : {}),
+      ...(decodeInbound !== undefined ? { decodeInbound } : {}),
     };
   }
 
@@ -3127,14 +3183,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const argValues = expr.args.slice(1).map((arg) => evaluatePureExpression(arg, env));
     // INV-6: the `invoke<Schema>` return annotation drives the runtime AJV
     // return-value validation on the child's `Ok` payload (invocation.md §Typed
-    // return; hard-ceilings ceiling #4).
+    // return; hard-ceilings ceiling #4). invocation.md §"Typed return": untyped
+    // `invoke(...)` carries no return type at all, so no schema is derived for
+    // it here.
     return this.#buildInvokeChild(
       theta,
       expr.path,
       argValues,
       ctx,
       chain,
-      expr.returnSchema,
+      expr.returnSchema !== null
+        ? { kind: "annotated", annotation: expr.returnSchema }
+        : { kind: "untyped" },
       parentSignal,
       callerMode,
     );
@@ -3159,9 +3219,19 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const calleePath = thetaCalleePath(theta, expr.callee) ?? `./${expr.callee}.theta`;
     const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env));
     // A `.theta`-callable call through `tools:` carries no `invoke<Schema>`
-    // annotation, so there is no parse-time return-type site; the runtime AJV
-    // net still applies at the query/typed boundary inside the callee.
-    return this.#buildInvokeChild(theta, calleePath, argValues, ctx, chain, null, parentSignal, callerMode);
+    // annotation, so there is no parse-time return-type site. tool-calls.md
+    // §"Return type" types the row by INFERENCE over the statically resolved
+    // callee instead, which `#driveCallee` derives once the callee is parsed.
+    return this.#buildInvokeChild(
+      theta,
+      calleePath,
+      argValues,
+      ctx,
+      chain,
+      { kind: "callee-inferred" },
+      parentSignal,
+      callerMode,
+    );
   }
 
   /** Build the `InvokeChild` whose `drive()` parses, spawns, and drives the callee. */
@@ -3171,7 +3241,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     argValues: readonly ThetaValue[],
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
-    returnSchema: string | null,
+    returnTyping: InvokeReturnTyping,
     parentSignal: AbortSignal,
     callerMode: ThetaMode,
   ): InvokeChild {
@@ -3213,7 +3283,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             argValues,
             ctx,
             childChain,
-            returnSchema,
+            returnTyping,
             parentSignal,
             callerMode,
           ),
@@ -3238,7 +3308,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     argValues: readonly ThetaValue[],
     ctx: ExtensionCommandContext,
     chain: InvokeChain,
-    returnSchema: string | null,
+    returnTyping: InvokeReturnTyping,
     parentSignal: AbortSignal,
     callerMode: ThetaMode,
   ): Promise<ResultValue> {
@@ -3277,6 +3347,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       };
       return makeErr(error as unknown as ThetaValue);
     }
+    // tool-calls.md §"Return type" (registered-theta row): the return type of a
+    // `.theta`-callable call is the callee's INFERRED return type, which is
+    // legible only now that the callee is parsed — and it resolves against the
+    // CALLEE's own `schema` / `enum` declarations, not the caller's, because it
+    // is the callee's type. An `invoke<Schema>` annotation is the caller's and
+    // keeps resolving there.
+    const returnSite = this.#resolveReturnSite(theta, returnTyping, callee);
     const paramNames = callee.frontmatter.params?.fields.map((field) => field.wireName) ?? [];
     const paramBindings = new Map<string, ThetaValue>();
     paramNames.forEach((name, index) => {
@@ -3329,7 +3406,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         });
         // INV-6 (invocation.md §Typed return): apply the `invoke<Schema>` return
         // validation to the child's `Ok` payload, exactly as the spawn path below.
-        return this.#validateInvokeReturn(theta, calleePath, returnSchema, outcome.result);
+        return this.#validateInvokeReturn(calleePath, returnSite, outcome.result);
       } finally {
         childBinding.finishInvocation?.();
       }
@@ -3367,7 +3444,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // the child's returned value against the `invoke<Schema>` annotation. A
       // mismatch (e.g. a `string` under `invoke<number>`) is
       // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
-      return this.#validateInvokeReturn(theta, calleePath, returnSchema, result);
+      return this.#validateInvokeReturn(calleePath, returnSite, result);
     } finally {
       // PIC-65: await the (idempotent, non-throwing) child-process teardown BEFORE
       // `finishInvocation`, so the child is killed / has exited (abort listener
@@ -3410,10 +3487,50 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * INV-6 runtime return-value validation: lower the `invoke<Schema>` annotation
-   * against the caller theta's `schema` decls, compile it, and AJV-validate the
-   * child's `Ok` payload. An untyped invoke (`returnSchema === null`) or an
-   * `Err` result passes through unchanged; a validation failure is surfaced as
+   * Resolve which return type a driven callee's `Ok` payload is checked
+   * against, and whose declarations that type resolves in.
+   *
+   *   - `annotated` — an `invoke<Schema>` site: the CALLER wrote the annotation
+   *     and the caller's `schema` / `enum` decls resolve it (invocation.md
+   *     §"Typed return").
+   *   - `callee-inferred` — a `.theta`-callable call through `tools:`: the site
+   *     has no annotation, so tool-calls.md §"Return type" types it by the
+   *     callee's inferred return type (FN-3), resolved against the CALLEE's own
+   *     decls. `null` where the inference cannot name a type from syntax alone,
+   *     which leaves that call exactly as it behaved before — no AJV check, no
+   *     translation pass — matching that row's "otherwise the runtime AJV check
+   *     enforces it" fallback for a boundary that has no type to enforce.
+   *   - `untyped` — a bare `invoke(...)`: invocation.md §"Typed return" gives it
+   *     no return type at all, so nothing is derived.
+   */
+  #resolveReturnSite(
+    theta: ConversationBindInput["theta"],
+    returnTyping: InvokeReturnTyping,
+    callee: ThetaCompositionInput,
+  ): InvokeReturnSite | null {
+    switch (returnTyping.kind) {
+      case "annotated":
+        return { annotation: returnTyping.annotation, declarations: theta.body };
+      case "untyped":
+        return null;
+      case "callee-inferred": {
+        const annotation = inferCalleeReturnAnnotation(
+          callee.body,
+          new Set(schemaDeclsOf(callee.body).map((decl) => decl.name)),
+          new Set(enumDeclsOf(callee.body).map((decl) => decl.name)),
+        );
+        return annotation === null ? null : { annotation, declarations: callee.body };
+      }
+    }
+  }
+
+  /**
+   * INV-6 runtime return-value validation: lower the resolved return-type
+   * site's annotation against the declarations it resolves in, compile it, and
+   * AJV-validate the child's `Ok` payload. A site-less call (`returnSite ===
+   * null` — an untyped `invoke(...)`, or a `.theta`-callable call whose callee
+   * return-type inference named none) or an `Err` result passes through
+   * unchanged; a validation failure is surfaced as
    * `Err(InvokeInfraError{cause:"return_validation"})`.
    *
    * On success the payload also runs through the inbound translation pass
@@ -3434,14 +3551,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * untagged, unbranded, and not descended into.
    */
   #validateInvokeReturn(
-    theta: ConversationBindInput["theta"],
     calleePath: string,
-    returnSchema: string | null,
+    returnSite: InvokeReturnSite | null,
     result: ResultValue,
   ): ResultValue {
-    if (returnSchema === null || !result.ok) {
+    if (returnSite === null || !result.ok) {
       return result;
     }
+    const { annotation: returnSchema, declarations } = returnSite;
     // Ceiling #4 (ceilings-3-and-4.md#ceiling-4-table, the `invoke<T>` return-value
     // row; CIO-3): the theta-owned depth walk is the FIRST sub-check at the
     // return-value AJV boundary. A depth-6+ `Ok` payload surfaces to the invoke
@@ -3453,8 +3570,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     }
     const lowered = lowerQueryResponseSchema(
       returnSchema,
-      schemaDeclsOf(theta.body),
-      enumDeclsOf(theta.body),
+      schemaDeclsOf(declarations),
+      enumDeclsOf(declarations),
     );
     if (lowered === undefined) {
       return result;
@@ -3462,18 +3579,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const validator = this.#input.root.schemaValidator.compile(lowered);
     const verdict = validator.validate(result.value as unknown);
     if (verdict.ok) {
-      const plan = buildInboundTranslationPlan({
-        lowered: lowered as Record<string, unknown>,
-        annotation: returnSchema,
-        schemaNames: new Set(schemaDeclsOf(theta.body).map((decl) => decl.name)),
-        enumNames: new Set(enumDeclsOf(theta.body).map((decl) => decl.name)),
-      });
       return makeOk(
-        translateInbound({
+        decodeInboundValue({
+          lowered: lowered as unknown as Record<string, unknown>,
+          annotation: returnSchema,
+          schemaNames: new Set(schemaDeclsOf(declarations).map((decl) => decl.name)),
+          enumNames: new Set(enumDeclsOf(declarations).map((decl) => decl.name)),
           validated: result.value as unknown,
-          sidecars: plan.sidecars,
-          rootDef: plan.rootDef,
-          schemaNames: plan.schemaNames,
         }),
       );
     }

@@ -5794,3 +5794,144 @@ describe("H8a-T — bug 0064: a non-bypass params: theta binds against the live 
     }
   });
 });
+
+// ===========================================================================
+// Bug 0172, boundary 2 (live) — a typed `.theta`-callable tool-call return
+// through `tools:` performs the inbound translation pass, live.
+// `docs/bugs/0172-inbound-translation-pass-unperformed-at-three-boundaries.md`
+// §Fix (a): `#resolveReturnSite`'s `callee-inferred` arm (FN-3 inference over
+// the statically resolved callee, `src/parser/functions.ts`'s
+// `inferCalleeReturnAnnotation`) now derives a runtime schema for a
+// `tools:`-routed `.theta`-callable call carrying no `invoke<Schema>`
+// annotation, so `#validateInvokeReturn` AJV-validates and translates its
+// return exactly as the annotated `invoke<Schema>` form (bug 0067, the cell
+// immediately above) already does.
+//
+// NO EXISTING LIVE CELL DRIVES A `.theta`-CALLABLE CALL TO COMPLETION. Every
+// `tools:` occurrence across `tests/live/**` (H8a, H9a, the hardening probes)
+// is either the bare Pi-tool identifier `read`, or — since the bug 0070/0071/
+// 0110 H8a additions above — a `.theta`-callable entry checked for
+// REGISTRATION ONLY (arity / containment rules judged at load time; the
+// comment beside the bug 0110 cell states this explicitly: "Registration-
+// only: no slash command is invoked, so no model turn runs"). This cell is
+// the first live drive of an ACTUAL `.theta`-callable dispatch through to its
+// return value, closing that live-coverage gap for bug 0172's boundary 2.
+//
+// SHAPE. Mirrors the bug 0067 cell immediately above exactly, substituting
+// the call surface: `b172liveb2kid` is the SAME shape as `b67SevEnumKidTheta`
+// (a `mode: subagent` callee, zero model turns, a bare named-enum tail) —
+// REQUIRED to be `mode: subagent` (a prompt-mode callee in `tools:` is
+// `theta/load/prompt-mode-callable`, frontmatter-fields-a.md's `tools` prose).
+// The parent calls it as a bare `.theta`-callable (`b172liveb2kid()`, no
+// `invoke<Schema>` annotation) instead of `invoke<Sev>(...)`, so the return
+// type taken is the CALLEE-INFERRED arm this bug wires, not the
+// already-fixed (bug 0067) annotated arm. Pre-fix the comparison is a
+// cross-type `false`: the envelope crosses the PIC-59 boundary as a bare wire
+// string AND `#resolveCallAsInvoke` passed `returnSchema: null`, so neither
+// AJV nor the translation pass ran at all (`tests/inbound-boundary-theta-
+// callable.test.ts` proves this offline, both directions, with a real spawned
+// child); post-fix it is `true`.
+//
+// Token cost: one dispatched query in the parent (the same profile as the
+// bug 0067 cell); the callee spends none.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered, or deleted. Added during bug-0172/bug-0120 fix verification to
+// close the live-coverage gap this comment measures.
+// ===========================================================================
+
+/**
+ * The `mode: subagent` callee: a pure named-enum tail, zero model turns — the
+ * same shape as `b67SevEnumKidTheta` above, a new stem so as not to collide
+ * with that cell's own workspace (each cell plants its own, so collision is
+ * not actually possible, but the distinct name keeps the two cells legible
+ * independently).
+ */
+function b172liveB2KidTheta(): string {
+  return ["---", "mode: subagent", "---", 'enum Sev { High = "high" }', "Sev.High"].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: a BARE `.theta`-callable call (`tools:`, no
+ * `invoke<Schema>` annotation) binds the envelope through the callee-inferred
+ * return-type arm, then the boolean comparison against the parent's own
+ * `Sev.High` is interpolated between markers so the rendered text — not the
+ * model's reply — is the observable.
+ */
+function b172liveB2ParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "tools:",
+    "  - ./b172liveb2kid.theta",
+    "---",
+    'enum Sev { High = "high" }',
+    "let v = b172liveb2kid()?",
+    "@`B2CROSS=${v == Sev.High}|END reply with exactly: OK`",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0172 boundary 2: a .theta-callable tool-call return performs the inbound translation pass, live", () => {
+  it("a named-enum value returned by a tools:-routed .theta-callable call (no invoke<Schema> annotation) compares equal to the caller's own variant", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b172liveb2parent", text: b172liveB2ParentTheta() },
+      { source: "project", stem: "b172liveb2kid", text: b172liveB2KidTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b172liveb2parent"),
+        "no bug-0172-boundary-2 parent command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b172liveb2parent");
+      const outbound = turn.userTexts.join("\n");
+      // Marker-anchored extraction of the rendered `${...}` segment — the
+      // exact text theta code computed from the boundary-2 comparison (fails
+      // loudly when the query never rendered, e.g. the `.theta`-callable call
+      // did not resolve Ok).
+      const anchored = /B2CROSS=([\s\S]*?)\|END/.exec(outbound);
+      expect(
+        anchored,
+        "the parent query's rendered text (B2CROSS=…|END) is absent — the " +
+          "tools:-routed .theta-callable call did not resolve Ok. Outbound user " +
+          "texts: " + JSON.stringify(turn.userTexts) + "; system notes: " +
+          JSON.stringify(turn.systemNotes),
+      ).not.toBeNull();
+      // THE FIXED OBSERVABLE. tool-calls.md's registered-theta return-type row
+      // (return type by CALLEE INFERENCE) + runtime-value-model.md's
+      // Wire-name-translation inbound bullet — the pass reattaches the
+      // declaring-enum tag "so the resulting value compares equal to a
+      // locally constructed variant of the same enum"; pre-fix
+      // `#resolveCallAsInvoke` passed `returnSchema: null` so neither AJV nor
+      // the pass ran, and the bound value is a bare wire string that renders
+      // this segment `false`.
+      expect(
+        anchored![1],
+        "runtime-value-model.md's inbound Wire-name-translation bullet + " +
+          "tool-calls.md's registered-theta return-type row — a named-enum " +
+          "value returned by a tools:-routed `.theta`-callable call must " +
+          "compare equal to the caller's own variant of the same enum; a bare " +
+          "untagged string takes valuesEqual's cross-type arm and renders " +
+          "`false`. Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("true");
+      // No fail-closed ending of the drive (invoke infra errors and Err tails
+      // land here — absence is the success observable).
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b172liveb2parent (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the boundary-2 cross drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -1037,3 +1037,220 @@ typed queries). The committed-cell inventory in §Affected was grepped over
 `tests/` at the same HEAD. Two facts are read from source rather than exercised
 and are marked as such in the text: `paramBindingsFrom`'s cast and
 `#resolveCallAsInvoke`'s `null` argument, both module-private.
+
+## Fix (0.97.0) — face 1 + the bug 0120 order half
+
+- **What shipped:**
+  - `src/parser/schema-lowering.ts` — `SchemaSidecar` gains an optional
+    *field-order* list (theta-side field names of that `$defs` entry's own object
+    body, in declaration order); `buildSidecar` takes it as an optional second
+    argument; `buildInboundTranslationPlan` derives it on the object-fragment
+    branch only, from the `properties` walk it already performs.
+  - `src/runtime/wire-translation.ts` — `rebuildInbound`'s record build iterates
+    a new `orderedEntries` helper: every field the list names first, in
+    declaration order, then every remaining payload key in the relative order the
+    payload carried. `rebuildUnder`'s doc comment now states the two structural
+    reasons the brand install stays `brandSchemaValue`-direct (§Fix (e)(3)).
+  - `src/runtime/inbound-boundary.ts` (new) — the plan derivation and the walk
+    composed once: `decodeInboundValue` for a boundary holding a lowered document
+    and an annotation, `bindParamsInbound` for the two `params:` projections. A
+    shared step, not an enforced entry point.
+  - `src/runtime/effectful-statement-host.ts` and
+    `src/extension/production-theta-producer.ts` — boundary 1: `QueryHostDispatch`
+    carries the typed query's decode step and `runQueryEffect` applies it to the
+    loop's `value` outcome, where the terminal forced-respond return and the
+    respond-repair arm converge (§Fix (e)(1)).
+  - `src/extension/production-theta-producer.ts` and `src/parser/functions.ts` —
+    boundary 2: the invoke trampoline threads a three-arm return typing
+    (`annotated` / `callee-inferred` / `untyped`) instead of a bare annotation
+    string, so a `.theta`-callable call resolves its return type by inference
+    over the parsed callee (`inferCalleeReturnAnnotation`, FN-3) against the
+    CALLEE's declarations, while `invoke<Schema>` keeps resolving against the
+    caller's and a bare `invoke(...)` derives nothing.
+  - `src/extension/theta-composition-producer.ts` and
+    `src/extension/production-theta-producer.ts` — boundary 3, both projections:
+    the parent-side `paramBindingsFrom` and the child-side marshalled-params
+    intake bind through `bindParamsInbound`.
+  - `docs/spec_topics/schema-subset.md` step 5 and its
+    `docs/reference/schema-subset.md` mirror — the sidecar's fourth item and the
+    order rule it carries.
+- **Gates** (at the committed tree): the four witness files —
+  `Tests  17 passed (17)`. Full default suite — `Test Files  300 passed (300)`,
+  `Tests  4921 passed (4921)`. `npm run typecheck` clean; `npm run lint` clean.
+  Live: H8a `tests/live/live-production-acceptance.test.ts`
+  `Tests  37 passed (37)`; H9a acceptance 11/11 across both files (10 + 1);
+  `tests/live/typed-query-wire-shapes.test.ts` `Tests  2 passed (2)`.
+  `permitted-codes.json` byte-unchanged by the real H9a run (`git hash-object`
+  equal before and after).
+- **Review:** two rounds plus one comment-only polish. Round 1 — three blockers:
+  a host-side fallback decoder that re-derived the `schema` / `enum` name sets
+  from a resolver predicate (a third derivation of the same step, and
+  production-dead), a step-5 sentence contradicting the shipped reorder, and the
+  mode-blindness of the `callee-inferred` derivation. The first two were fixed;
+  the third is dispositioned below. Round 2 — CLEAN, four non-blocking
+  residuals. The polish round touched comments only; verified by gate-diff, so no
+  confirmation review round was run.
+- **Verification:** SOLID. Each of the four witnesses was proved both directions
+  by a targeted neutralisation of its own production wiring, restored
+  blob-hash-identical — no cell stayed green under its own neutralisation. Full
+  suite green. Live coverage was exercised for real, and boundary 2 had none, so
+  the verifier added one H8a cell (additive, `+141/-0`) driving a `tools:`-named
+  subagent callee whose return is a bare enum variant, proved red then green
+  against a live model. Lint and typecheck clean.
+- **Packaging.** One commit for all three legs plus the order half, so the spec
+  sentence this report measures is satisfied at every boundary it names in a
+  single step rather than left part-performed across releases.
+- **Order carrier — the choice and what it displaces.** Bug 0120 §Fix (a1): a
+  per-schema field-order item on the step-5 sidecar, derived at plan time inside
+  `buildInboundTranslationPlan`, which already walks the lowered document whose
+  `properties` insertion order IS declaration order (`schema-subset.md` step 3,
+  *Array element order*). Rejected: (a2), reading the lowered fragment at the
+  seam — it widens `translateInbound`'s input shape and forces the caller to
+  state which name space `required` is in; (a3), resolving the declaration at
+  rebuild time — it drags a lexical environment into a leaf module whose import
+  surface is two type-only edges. 0120's route (c), qualifying `expressions.md`
+  by provenance, is rejected outright: it re-splits a clause bug 0080 made
+  single. The order is established at the rebuild ONLY —
+  `tests/ctor-declaration-order.test.ts` cell (S) forbids sorting at the read,
+  and nothing on the read path changed. The brand install stays
+  `brandSchemaValue`-direct rather than routing through `buildObjectSchemaValue`,
+  for two structural reasons stated at the call site: that function builds a
+  plain `{}` record, so a payload key spelled `__proto__` would be swallowed by
+  the inherited setter and bug 0173's null-prototype build undone; and it orders
+  by a RESOLVED declaration, where a `#root` or `__inline_<slug>` position names
+  no declaration to resolve.
+- **Fallback where no carrier exists.** A sidecar carrying no field-order list —
+  a synthesised one, a permissive root, a `$defs` entry with no object body —
+  preserves payload order unchanged. That is what keeps every landed seam cell in
+  `tests/wire-translation-inbound-retag.test.ts` green: its sidecars are
+  hand-built and carry no list.
+- **Per-boundary wire-name measurement (§Fix (e)(2)).** Re-measured at each of
+  the three boundaries rather than assumed from the `invoke` one: every sidecar
+  `buildInboundTranslationPlan` derives carries an EMPTY wire-name map, because
+  the lowering all three consume emits theta-side property names. Measured
+  `sidecar[Box] {"wireNames":[],"namedEnumPositions":[{"pointer":"/properties/sev","enumName":"Sev"}],"refTargets":[],"fieldOrder":["sev","who"]}`
+  for a typed-query / `invoke` annotation, and `sidecar[#root]` of the same shape
+  for a `params:` document. No rename is applied at any of them; applying one to
+  an already-theta-side key would corrupt it.
+- **The `.theta`-callable leg's lowerability boundary.** `tool-calls.md:23` types
+  the row by inference over the statically resolved callee. FN-3 reconciles the
+  tail expression with every early `return` operand by a least upper bound that
+  needs the type layer's environment, which a runtime call site does not hold, so
+  the derivation names a type only where that reconciliation is vacuous and the
+  tail's type is legible from syntax alone: a schema-constructor tail naming a
+  declared `schema`, or an enum-variant tail naming a declared `enum`, in a body
+  carrying no `return`. Every other callee keeps no schema — no AJV check, no
+  translation pass — which is the disposition that row's "otherwise the runtime
+  AJV check enforces it" leaves to a boundary with no type in hand. The floor is
+  deliberate in that direction: naming a WIDER type than the callee returns would
+  refuse a conforming return. Residual 1 records what stays unenforced.
+- **Order at the `invoke` boundary.** The order half lands in the shared walk, so
+  the boundary bug 0067 wired now runs it too. It is vacuous there — that
+  boundary's producer is a theta child whose object `buildObjectSchemaValue`
+  already ordered before `JSON.stringify` — but it is now guaranteed by the walk
+  rather than incidental to the producer.
+- **Bug 0174 interaction, and a correction to what was expected.** Wiring
+  boundary 2 adds an in-process AJV validation class, and bug 0174 (open) is that
+  an in-process named-enum value reaches AJV as a boxed `String` and is refused.
+  The expectation carried into this run was that a prompt-mode `.theta`-callable
+  with an enum-bearing return would draw that spurious `Err`. It cannot, from a
+  theta that loads: `tools:` `.theta` entries "must point at subagent-mode theta
+  files — a prompt-mode callee in `tools:` is `theta/load/prompt-mode-callable`"
+  (`docs/spec_topics/frontmatter/frontmatter-fields-a.md:79`), that diagnostic is
+  severity `error` and "prevent[s] the theta from being registered"
+  (`frontmatter-fields-b-and-templates.md:18`), and it is raised at
+  `src/parser/callable-set.ts:408`. So the `callee-inferred` arm's callee is
+  always subagent-mode, whose value crosses as JSON and reaches AJV as a plain
+  string. The prompt→prompt in-process arm of `#driveCallee` is reachable only
+  through `invoke(...)`, which takes the `annotated` / `untyped` arms and is
+  unchanged by this fix. The one place the in-process combination is constructed
+  at all is a test that hand-builds its callable set past the load gate
+  (`tests/result-value-privacy.test.ts`), and its cells are green because their
+  callees' returns carry no enum position. Every witness cell here uses a
+  subagent-mode callee; nothing pins the defective combination in either
+  direction.
+- **GOV-15 (§Fix (e)(7)).** No route here refuses an input that loads today, so
+  the loads-cleanly predicate is unchanged. What changes is the VALUE a boundary
+  binds, at these spellings: a typed query whose annotation is a named `enum`, or
+  a named `schema` (root brand, plus a tag at every named-enum field, plus
+  declaration-ordered `keys()`); a `params:` field declared as a named `enum` or
+  a named `schema`, at both the parent-side and child-side projections; and a
+  `.theta`-callable call whose callee's inferred return type is a named `enum` or
+  a named `schema`. A theta comparing such a value against an enum variant flips
+  from `false` to `true`, and `schemaTagOf` starts resolving where it did not.
+  GOV-15 promises identical return values across 1.x for a file that loads
+  cleanly, so this is a deliberate departure from the observed 1.x behaviour
+  toward the behaviour `runtime-value-model.md:34` specifies — a tension recorded
+  rather than one GOV-15 blesses. The corpus census found no committed fixture in
+  the set. One caveat the report's own text does not cover: the `.theta`-callable
+  leg's new AJV net CAN newly refuse a return that previously bound raw, because
+  that boundary acquired validation as well as translation. That is
+  `tool-calls.md:23`'s specified enforcement, and it reaches a conforming callee
+  never — the derivation names the callee's own tail type, which its own value
+  satisfies by construction.
+- **Face 2 is NOT implemented.** No code descends into an `{"anyOf":[…]}` arm;
+  the diff touches no `anyOf` line. Union positions keep the documented
+  pass-through, the three amended comments stay accurate, and the retag cell
+  pinning that a brand at a plan-undescribed position survives the walk is
+  untouched and green — the reorder cannot reach such a position, because
+  `rebuildInbound` returns before the record build whenever the sidecar is
+  absent or the pointer is not the fragment root.
+- **Residuals:**
+  1. **`tool-calls.md:23` stays partly unenforced.** A callee whose FN-3 return
+     type is legible only to the type layer — a `let`-bound tail, a conditional
+     tail, any body carrying a `return` — still crosses with no schema, so
+     neither AJV nor the pass runs on it. Pinned in both directions by the
+     derivation-floor control cells in
+     `tests/inbound-boundary-theta-callable.test.ts`, so a later widening cannot
+     happen silently.
+  2. **The child-side `params:` projection is wired but unwitnessed.** It routes
+     through the same `bindParamsInbound` the parent-side witness drives, so the
+     untested surface is call-site plumbing only. It could not be witnessed
+     because a `params:` field declared as a named `enum` or a named `schema` on
+     a `mode: subagent` callee makes the spawned child exit 0 with NO
+     `theta_result` envelope, measured differentially against a
+     `params: sev: string` control that succeeds through the identical harness.
+     That failure is a distinct defect, unfiled, and it blocks any witness of
+     this projection.
+  3. **`vo.keys()` in a schema-constructor field position kills a spawned child
+     drive** — the root exits 0 with no envelope. Observed while building the
+     boundary-2 witness and worked around by removing the field; unfiled, and
+     apparently unrelated to this report.
+  4. **The enforced-entry-point question stays open.** 0067 §Options asks whether
+     `translateInbound` should gain a single required entry point that every
+     inbound boundary must route through. This run deliberately did not answer
+     it: `src/runtime/inbound-boundary.ts` is a shared step with no enforcement,
+     and its header says so. A round-1 finding removed a host-side fallback that
+     would have answered it unilaterally for one boundary.
+  5. **Positional-citation drift in this report.** §Affected cites
+     `theta-composition-producer.ts:97` for the cast (`:98` at the fix HEAD) and
+     `src/parser/params.ts:404–414` for the `params:` lowering (`:431–441`).
+     Bug 0134's adjudicated class; disclosed, not chased.
+- **Discharge notes appended:** bug 0120
+  (`## Coordination note — bug 0172 (0.97.0)`), recording that the order half
+  landed at the rebuild, by which mechanism, and at which boundaries. No other
+  sibling document was edited.
+- **Pinned dispositions / non-goals:** face 2 stays this report's open subject;
+  the untyped-`invoke` discard question is untouched (`invocation.md:28`); the
+  `params:` defaults bypass and the `Result` pass-through are unchanged;
+  `tests/wire-name-translation.test.ts:24`'s stale comment is left as bug 0134's
+  class.
+- **Self-authorizations.** Two existing test files were changed, both on the
+  authority of §Fix (e)(7)'s statement that the value a boundary binds is what
+  moves. `tests/respond-tool-wire.test.ts` — its two enum-root cells asserted
+  `toEqual("low")` on a value that is now a tagged variant; re-pinned to
+  `valuesEqual` against a locally constructed variant, which is strictly stronger
+  (`toEqual` between two boxed strings is tag-blind) and leaves each cell's own
+  subject, the envelope unwrap, unweakened. `tests/result-value-privacy.test.ts`
+  — its `rootDouble()` supplied no `schemaValidator`, a collaborator the
+  `.theta`-callable leg now reaches; the DOUBLE was completed with the real
+  `AjvSchemaValidator` and no assertion was touched. Neither file is a protected
+  witness; both flips were measured before the witnesses were written and
+  bucketed against this report's own authorization.
+
+**This report stays OPEN, narrowed to face 2.** Face 1 is discharged at every
+boundary `runtime-value-model.md:34` enumerates. What remains is the arm-dispatch
+rule: a value inside a `{"anyOf":[…]}` arm still receives no tag, no brand and no
+descent, because the sidecar is keyed by JSON Pointer and `anyOf` has no
+data-space image. That is a spec question before it is a code change, and §Fix
+face 2 states the five candidate rules it must be answered from.

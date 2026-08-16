@@ -425,3 +425,128 @@ export function checkUnreachableCode(
     message: "unreachable code after return",
   };
 }
+
+// --- FN-3 — a `.theta` callee's inferred return type at a runtime call site --
+
+/**
+ * The `.theta` body shapes this derivation reads. Declared structurally — a
+ * type-only shape, not an import of the `Block` / `Stmt` AST union from
+ * `./theta-document` — so this module adds no runtime edge onto that parser
+ * module; `ThetaBody` is structurally assignable here (every `Stmt` variant
+ * carries a `kind` string). Exported so an exported function's parameter type
+ * names no private type under this project's `declaration: true` build.
+ */
+export interface CalleeBody {
+  readonly statements: readonly { readonly kind: string }[];
+  readonly tail: CalleeTail | null;
+}
+
+/**
+ * The tail-expression shape this derivation classifies; every `Expr` variant
+ * is structurally assignable here (an absent `typeName` / `target` satisfies
+ * the optional fields; a present one matches the type given).
+ */
+export interface CalleeTail {
+  readonly kind: string;
+  readonly typeName?: string | null;
+  readonly target?: { readonly kind: string; readonly name?: string };
+}
+
+/**
+ * The annotation source naming a `.theta` callee's inferred return type, or
+ * `null` when this derivation cannot name it.
+ *
+ * `tool-calls.md` §"Return type" types a registered-theta tool call
+ * `Result<T, QueryError>` where `T` is the callee's inferred return type,
+ * flowed into the call site when the callee is statically resolvable per
+ * `invocation.md` §"Static resolution" — which a parsed callee is. The call
+ * site carries no `invoke<Schema>` annotation of its own, so this is the only
+ * source of a schema for that boundary.
+ *
+ * FN-3 (`functions.md` §"Theta return type") reconciles the tail expression
+ * with every early `return` operand — syntactically present, regardless of
+ * static reachability — by their least upper bound under `⊑`. Computing that
+ * LUB needs the type layer's environment, which a runtime call site does not
+ * hold, so this derivation is restricted to the case where the reconciliation
+ * is vacuous and the tail's type is legible from its syntax alone:
+ *
+ *   - any `return` statement anywhere in the body (excluding a nested `fn`'s
+ *     own — its returns belong to that function's own FN-3 reconciliation) →
+ *     `null` (two or more contributions to reconcile);
+ *   - an empty tail → `null` (FN-4 infers the `null` literal type, which
+ *     carries no declaration to translate against);
+ *   - a schema-constructor tail `S { … }` naming a declared `schema` → `S`;
+ *   - an enum-variant tail `E.Variant` naming a declared `enum` → `E`;
+ *   - anything else → `null`.
+ *
+ * `null` means the site keeps the pre-existing disposition — no runtime
+ * schema, so neither AJV nor the inbound translation pass runs on that return
+ * — which is what `tool-calls.md`'s "otherwise the runtime AJV check enforces
+ * it" leaves to a boundary that has no type. It is a conservative floor by
+ * design: naming a WIDER type than the callee actually returns would refuse a
+ * conforming return, so this derivation names a type only where the body
+ * cannot contribute another.
+ *
+ * `?` in the body does not disqualify: FN-3 wraps the inferred type in
+ * `Result<T, QueryError>` and `T` — the success payload — is what a return
+ * boundary validates.
+ */
+export function inferCalleeReturnAnnotation(
+  body: CalleeBody,
+  schemaNames: ReadonlySet<string>,
+  enumNames: ReadonlySet<string>,
+): string | null {
+  if (body.tail === null || bodyHasReturn(body.statements)) {
+    return null;
+  }
+  const tail = body.tail;
+  if (
+    tail.kind === "object" &&
+    typeof tail.typeName === "string" &&
+    schemaNames.has(tail.typeName)
+  ) {
+    return tail.typeName;
+  }
+  if (
+    tail.kind === "member" &&
+    tail.target?.kind === "ident" &&
+    typeof tail.target.name === "string" &&
+    enumNames.has(tail.target.name)
+  ) {
+    return tail.target.name;
+  }
+  return null;
+}
+
+/**
+ * Whether any `return` statement appears anywhere beneath `statements`,
+ * regardless of static reachability — FN-3 counts every `return` syntactically
+ * present. The walk is structural over the node graph rather than over the
+ * statement union, so a nested block form this module does not name still
+ * reports its `return`s: a missed one would silently narrow the inferred type
+ * from `null` to a named schema/enum the FN-3 reconciliation would actually
+ * have refused.
+ */
+function bodyHasReturn(statements: readonly { readonly kind: string }[]): boolean {
+  const seen = new Set<unknown>();
+  const visit = (node: unknown): boolean => {
+    if (node === null || typeof node !== "object" || seen.has(node)) {
+      return false;
+    }
+    seen.add(node);
+    if (Array.isArray(node)) {
+      return node.some(visit);
+    }
+    const record = node as { readonly [k: string]: unknown };
+    if (record["kind"] === "return") {
+      return true;
+    }
+    // A nested `fn` declaration's own `return`s belong to that function, not
+    // to the enclosing theta body, so its subtree is not descended into.
+    if (record["kind"] === "fn") {
+      return false;
+    }
+    return Object.values(record).some(visit);
+  };
+  return statements.some(visit);
+}

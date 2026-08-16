@@ -8,19 +8,27 @@
 //   - *Inbound* (model output → theta value): after AJV validation against the
 //     lowered schema, the runtime walks the validated JSON and (a) rebuilds the
 //     value with theta-side names using each schema's translation map (the
-//     `V5f`-produced wire-name sidecar), and (b) at every position the lowering
+//     `V5f`-produced wire-name sidecar), (b) at every position the lowering
 //     pass's *Named-enum positions* sidecar maps to a declaring-enum name,
 //     reattaches that enum's tag (via the `V2c` `makeEnumValue` representation)
 //     so the resulting value compares equal to a locally constructed variant of
-//     the same enum. Anonymous string-literal-union positions are absent from
-//     the sidecar and receive no tag — equality on those falls back to plain
-//     string equality (`Severity.Low == "low"` remains `false`). The walk
-//     recurses through arrays, nested object fields and `$ref` targets, and
-//     passes a `Result` value through unchanged: `Result` is not a lowerable
-//     type form (schema-subset.md §"Lowering Algorithm" step 3), so no
-//     `Result` can arrive from validated JSON; the only one reaching this seam
-//     is an in-process `invoke` callee's own value, already theta-side and
-//     already tagged. Theta code never sees wire names.
+//     the same enum, and (c) orders each rebuilt object's own fields by the
+//     lowering pass's *Field order* list (schema-subset.md §"Lowering
+//     Algorithm" step 5), so a MODEL-ordered payload's `keys()` is the
+//     declaration order expressions.md §"Built-in methods and properties"
+//     fixes for a named schema — the same order `buildObjectSchemaValue`
+//     establishes for a constructor-built value. Every field the list names
+//     comes first in declaration order, and every remaining payload key follows
+//     in the relative order the payload carried. Anonymous string-literal-union
+//     positions are absent from the sidecar and receive no tag — equality on
+//     those falls back to plain string equality (`Severity.Low == "low"`
+//     remains `false`). The walk recurses through arrays, nested object fields
+//     and `$ref` targets, and passes a `Result` value through unchanged:
+//     `Result` is not a lowerable type form (schema-subset.md §"Lowering
+//     Algorithm" step 3), so no `Result` can arrive from validated JSON; the
+//     only one reaching this seam is an in-process `invoke` callee's own
+//     value, already theta-side and already tagged. Theta code never sees
+//     wire names.
 //   - *Outbound* (theta value → JSON): the runtime walks the theta-side value and
 //     produces wire-named JSON before AJV validation.
 //
@@ -117,10 +125,12 @@ export interface OutboundTranslationInput {
  * Inbound wire-name translation (model output → theta value). Walks the
  * AJV-validated JSON, rebuilds theta-side names using the sidecar's wire-name
  * translation map, reattaches each named-enum position's declaring-enum tag,
- * and — where `schemaNames` names the position's `$defs` entry — brands a
- * rebuilt object with its declaring schema. The walk recurses through arrays
- * and nested object fields and through a `$ref` position's own `$defs` entry;
- * theta code never sees a wire name at any depth.
+ * orders each described object's own fields by the sidecar's field-order list
+ * (schema-subset.md §"Lowering Algorithm" step 5), and — where `schemaNames`
+ * names the position's `$defs` entry — brands a rebuilt object with its
+ * declaring schema. The walk recurses through arrays and nested object fields
+ * and through a `$ref` position's own `$defs` entry; theta code never sees a
+ * wire name at any depth.
  *
  * Its reach is the set of positions the sidecar's JSON Pointers address — the
  * annotated root, named-enum positions, `$ref` targets, and array elements. A
@@ -143,13 +153,15 @@ interface InboundWalk {
   readonly indexes: Map<SchemaSidecar, SidecarIndex>;
 }
 
-/** One sidecar's three maps re-keyed for O(1) per-position lookup during a walk. */
+/** One sidecar's three maps re-keyed for O(1) per-position lookup during a walk, plus its field order. */
 interface SidecarIndex {
   readonly wireToTheta: ReadonlyMap<string, string>;
   readonly enumByPointer: ReadonlyMap<string, string>;
   readonly refByPointer: ReadonlyMap<string, string>;
   /** Whether the sidecar omits the `$ref`-target map (the fallback the header comment describes). */
   readonly omitsRefTargets: boolean;
+  /** The fragment's declaration-ordered theta-side field names, when step 5 recorded one. */
+  readonly fieldOrder: readonly string[] | undefined;
 }
 
 /** Index `sidecar` for per-position lookup, memoised for the duration of one walk. */
@@ -175,6 +187,7 @@ function indexOf(sidecar: SchemaSidecar, walk: InboundWalk): SidecarIndex {
     enumByPointer,
     refByPointer,
     omitsRefTargets: sidecar.refTargets === undefined,
+    fieldOrder: sidecar.fieldOrder,
   };
   walk.indexes.set(sidecar, index);
   return index;
@@ -186,14 +199,18 @@ function indexOf(sidecar: SchemaSidecar, walk: InboundWalk): SidecarIndex {
  * names it as a declared `schema`.
  *
  * Branding goes through {@link brandSchemaValue} directly, never through
- * `buildObjectSchemaValue` (`value.ts`): that function's contract reorders a
- * constructed record into DECLARATION order before branding, and reordering an
- * already-validated inbound value is a separate, unsettled question this seam
- * does not decide. `rebuildInbound` is entered here at the empty pointer, where
- * a plain object rebuilds into a fresh record whenever `defName` resolves a
- * sidecar — and a name `walk.schemaNames` admits always does, both sets coming
- * from one derived plan — so the install lands on a record no earlier brand can
- * occupy.
+ * `buildObjectSchemaValue` (`value.ts`), even though this walk now establishes
+ * the same declaration order that function does. Two structural reasons. Its
+ * record build is a plain `{}`, so a payload key spelled `__proto__` would be
+ * swallowed by the inherited setter — undoing this module's null-prototype
+ * record build; the inbound key space is payload-controlled, a constructor's is
+ * not. And it orders by a RESOLVED DECLARATION (`SchemaFieldOrder`), while this
+ * walk orders by the per-`$defs` field-order list, the only order available at
+ * a `#root` or `__inline_<slug>` position, which names no declaration to
+ * resolve. `rebuildInbound` is entered here at the empty pointer, where a plain
+ * object rebuilds into a fresh record whenever `defName` resolves a sidecar —
+ * and a name `walk.schemaNames` admits always does, both sets coming from one
+ * derived plan — so the install lands on a record no earlier brand can occupy.
  */
 function rebuildUnder(value: unknown, defName: string, walk: InboundWalk): ThetaValue {
   const rebuilt = rebuildInbound(value, walk.sidecars.get(defName), "", walk);
@@ -287,8 +304,8 @@ function rebuildInbound(
   // setter instead of minting an own key.
   //
   // No read in this module needs a matching own-key guard. The three
-  // per-position lookups are `Map`s (`indexOf`, `:156`; `wireToTheta`
-  // `:161`, `enumByPointer` `:165`, `refByPointer` `:169`), and a `Map`
+  // per-position lookups are `Map`s (`indexOf`, `:167`; `wireToTheta`
+  // `:174`, `enumByPointer` `:178`, `refByPointer` `:182`), and a `Map`
   // key never collides with `Object.prototype`; the payload walk below is
   // `Object.entries`, own-enumerable only. Nothing in this file answers
   // through a prototype chain, so the construction half is the one no
@@ -297,7 +314,11 @@ function rebuildInbound(
   // A lookup this walk adds later by an author- or payload-controlled key
   // uses `Object.hasOwn`, per `type-compat.ts:92-103` (`resolveNamed`).
   const result: { [k: string]: ThetaValue } = Object.create(null) as { [k: string]: ThetaValue };
-  for (const [wireKey, fieldValue] of Object.entries(value)) {
+  // `orderedEntries` reorders; it never changes WHICH entries are visited or
+  // how many — the walk below still guards `Object.hasOwn`-equivalent access
+  // through plain `Object.entries` iteration, so bug 0173's own-key discipline
+  // is unaffected by the reorder.
+  for (const [wireKey, fieldValue] of orderedEntries(value, index)) {
     // The wire-name map describes the fragment's OWN fields, so it applies at
     // the fragment root and nowhere deeper: a value one or more `/items`
     // segments down, or behind an unresolved nested position, is not a field of
@@ -317,6 +338,77 @@ function rebuildInbound(
         : rebuildInbound(fieldValue, sidecar, fieldPointer, walk);
   }
   return result;
+}
+
+/**
+ * The fragment root's payload entries in the order the rebuilt record must
+ * carry them: every field the sidecar's step-5 field-order list names, in
+ * DECLARATION order, then every remaining payload entry in its existing
+ * relative order.
+ *
+ * Reached only at the fragment root: the guard above this function's one call
+ * site already returns for every `pointer !== ""` position (`rebuildInbound`'s
+ * `sidecar === undefined || pointer !== ""` arm), so the fragment-root scoping
+ * is structural and this function takes no `pointer` and adds no redundant
+ * check of its own.
+ *
+ * `expressions.md` §"Built-in methods and properties" fixes `keys()` to
+ * "schema declaration order for named schemas" and qualifies that clause only
+ * by whether the schema is named — not by how the value was produced — so a
+ * record rebuilt from a MODEL-ordered payload is inside it, exactly as a
+ * constructor-built one is (bug 0080 established the same order at
+ * construction). The order is established HERE, at the rebuild, and nowhere on
+ * the read path: `evaluateObjectMember` returns the record's own key order
+ * verbatim.
+ *
+ * The reorder is key-set preserving on the terms `buildObjectSchemaValue`
+ * already is: `Object.entries` is own-enumerable only, every entry is emitted
+ * exactly once, and a declared name the payload does not carry is never
+ * invented. Where the sidecar names no order — a synthesised sidecar, a
+ * permissive root, a `$defs` entry with no object body — payload order is
+ * preserved unchanged.
+ *
+ * The declaration lookup keys on the THETA-side name, because that is the key
+ * the rebuilt record carries: the rename is applied to this same entry list
+ * one layer up, and step 5's field-order list is theta-side by construction.
+ */
+function orderedEntries(
+  value: { readonly [k: string]: unknown },
+  index: SidecarIndex | undefined,
+): readonly (readonly [string, unknown])[] {
+  const entries = Object.entries(value);
+  const fieldOrder = index?.fieldOrder;
+  if (fieldOrder === undefined || entries.length < 2) {
+    return entries;
+  }
+  // Payload positions bucketed by their theta-side key, so a declared name
+  // consumes one entry per occurrence and a payload whose keys are unique (the
+  // JSON case) resolves in one step.
+  const positions = new Map<string, number[]>();
+  entries.forEach(([wireKey], position) => {
+    const thetaKey = index?.wireToTheta.get(wireKey) ?? wireKey;
+    const bucket = positions.get(thetaKey);
+    if (bucket === undefined) {
+      positions.set(thetaKey, [position]);
+    } else {
+      bucket.push(position);
+    }
+  });
+  const ordered: (readonly [string, unknown])[] = [];
+  const taken = new Set<number>();
+  for (const declared of fieldOrder) {
+    const position = positions.get(declared)?.shift();
+    if (position !== undefined) {
+      taken.add(position);
+      ordered.push(entries[position] as readonly [string, unknown]);
+    }
+  }
+  entries.forEach((entry, position) => {
+    if (!taken.has(position)) {
+      ordered.push(entry);
+    }
+  });
+  return ordered;
 }
 
 /**

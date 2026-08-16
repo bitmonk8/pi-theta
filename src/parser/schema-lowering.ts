@@ -267,7 +267,7 @@ export interface SidecarRefTarget {
   readonly defName: string;
 }
 
-/** The three-map per-schema sidecar (Lowering Algorithm step 5). */
+/** The three-map per-schema sidecar plus its field-order list (Lowering Algorithm step 5). */
 export interface SchemaSidecar {
   readonly wireNames: readonly WireNameEntry[];
   readonly namedEnumPositions: readonly NamedEnumPosition[];
@@ -278,19 +278,44 @@ export interface SchemaSidecar {
    * only where the two happen to agree.
    */
   readonly refTargets?: readonly SidecarRefTarget[];
+  /**
+   * This `$defs` entry's own object-body field names, theta-side, in
+   * theta-source DECLARATION order — the order the emitted `properties` /
+   * `required` already carry (step 3, *Array element order*). The inbound
+   * translation pass reads it to rebuild a validated object's fields in
+   * declaration order, so a MODEL-ordered payload and a locally constructed
+   * value of the same schema agree on `keys()` (expressions.md §"Built-in
+   * methods and properties"). Absent for a `$defs` entry with no object body;
+   * where a list is present the fields it names come first in declaration
+   * order and every remaining payload key follows in the relative order the
+   * payload carried — a sidecar carrying no field-order list preserves
+   * payload order unchanged.
+   */
+  readonly fieldOrder?: readonly string[];
 }
 
 /**
  * Build the per-schema sidecar: a wire-name translation map (one entry per
  * renamed field), a named-enum-position map keyed by JSON Pointer (one entry
  * per named-`enum` position; anonymous string-literal-union positions absent),
- * and a `$ref`-target map on the same pointer keying (one entry per position
- * whose lowered form is a `$ref`). An `array<T>` field's element position is
- * addressed by appending `/items` to the field's own pointer, once per level
- * of `array<array<T>>` nesting, so an element can carry its own named-enum tag
- * or `$ref` target exactly as a field can.
+ * a `$ref`-target map on the same pointer keying (one entry per position
+ * whose lowered form is a `$ref`), and an optional field-order list. An
+ * `array<T>` field's element position is addressed by appending `/items` to
+ * the field's own pointer, once per level of `array<array<T>>` nesting, so an
+ * element can carry its own named-enum tag or `$ref` target exactly as a field
+ * can.
+ *
+ * `fieldOrder` is the fragment's own declaration-ordered theta-side field
+ * names, supplied only by a caller that knows `fields` describes an object
+ * body's own fields (an array element or a non-object root is a position, not
+ * a field, and orders nothing). Omitted, the sidecar carries no order and the
+ * inbound walk keeps payload order. `exactOptionalPropertyTypes` is on, so the
+ * key is spread in only when a caller supplies one.
  */
-export function buildSidecar(fields: readonly SidecarFieldInput[]): SchemaSidecar {
+export function buildSidecar(
+  fields: readonly SidecarFieldInput[],
+  fieldOrder?: readonly string[],
+): SchemaSidecar {
   const wireNames: WireNameEntry[] = [];
   const namedEnumPositions: NamedEnumPosition[] = [];
   const refTargets: SidecarRefTarget[] = [];
@@ -323,7 +348,12 @@ export function buildSidecar(fields: readonly SidecarFieldInput[]): SchemaSideca
       element = element.element;
     }
   }
-  return { wireNames, namedEnumPositions, refTargets };
+  return {
+    wireNames,
+    namedEnumPositions,
+    refTargets,
+    ...(fieldOrder !== undefined ? { fieldOrder } : {}),
+  };
 }
 
 // --- Inbound translation plan (runtime-value-model.md §Wire-name translation) -
@@ -504,12 +534,22 @@ export function buildInboundTranslationPlan(
       continue;
     }
     const inputs: SidecarFieldInput[] = [];
+    let fieldOrder: readonly string[] | undefined;
     const properties = fragment["properties"];
     if (isObjectFragment(fragment) && isFragment(properties)) {
       for (const [field, position] of Object.entries(properties)) {
         const pointer = `/properties/${encodePointerSegment(field)}`;
         inputs.push({ thetaName: field, pointer, ...classify(name, pointer, position) });
       }
+      // Step 5's field-order list: `properties` is emitted in theta-source
+      // declaration order (step 3, *Array element order* — `required` lists
+      // wire names "in declaring-field order (matching the `properties` order
+      // of the same Object form)"), and `Object.entries` answers a fragment's
+      // own identifier-shaped keys in insertion order, so the walk above IS the
+      // declaration order — no second source is consulted. The other two
+      // branches below push a POSITION, not a field (a named-enum root, a
+      // non-object root), and supply no order.
+      fieldOrder = inputs.map((input) => input.thetaName);
     } else if (isEnumFragment(fragment) && enumNames.has(name)) {
       // The annotation names an `enum` outright (`invoke<Sev>`): the ROOT
       // position is itself the named-enum position — tags attach "at the same
@@ -523,7 +563,7 @@ export function buildInboundTranslationPlan(
       // elements still resolve.
       inputs.push({ thetaName: name, pointer: "", ...classify(name, "", fragment) });
     }
-    sidecars.set(name, buildSidecar(inputs));
+    sidecars.set(name, buildSidecar(inputs, fieldOrder));
   }
 
   const schemaNames = new Set<string>();
