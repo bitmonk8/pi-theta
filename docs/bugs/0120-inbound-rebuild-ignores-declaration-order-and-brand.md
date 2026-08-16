@@ -1,6 +1,9 @@
 # Bug 0120 — The inbound (model → theta) rebuild disagrees with the outbound direction bug 0080 settled: `rebuildInbound` builds its record by walking `Object.entries` of the AJV-validated payload, so a named-schema value's `keys()` is **model**-ordered where `docs/spec_topics/expressions.md:118` fixes it to declaration order unqualified as to how the value was produced, and it installs no `brandSchemaValue` brand, so the QRY-18 outbound rename map resolves no declaring schema for that value — the directed check bug 0080's §Non-goals owed, whose answer was NO, and not a local fix because `SchemaSidecar` carries only *renamed* fields and therefore carries no field order at all
 
-- **Status:** open. §Fix is not settled: this report exists to pin the route and
+- **Status:** fixed (0.97.0) — discharged by the bug 0067 fix (0.90.0, brand
+  half) and the bug 0172 fix (0.97.0, order half); closed by parent-gate
+  adjudication, recorded in `## Closure (0.97.0)` at the end of this file.
+  [Superseded original:] §Fix is not settled: this report exists to pin the route and
   the sidecar's shape before any code lands. Ordering dependency — coupled in
   **both** directions to [0067](./0067-subagent-envelope-drops-enum-tag.md)
   (open), which owns the fact this report's reachability turns on: at HEAD
@@ -1107,3 +1110,45 @@ half landed with it.
   rows, the nested and array-element rows, the ctor-provenance control asserting
   byte-identical `JSON.stringify` across provenances with `valuesEqual` in both
   argument orders, and the no-carrier control.
+
+## Closure (0.97.0) — parent-gate adjudication: both halves are landed
+
+Closed at the bug 0172 gate by parent adjudication (the bug 0163 closure
+precedent: a sibling fix discharged the filed subject; the gate records the
+mapping rather than leaving the report open against landed behaviour).
+
+- **The brand half** landed with bug 0067 (0.90.0): `rebuildUnder` installs the
+  brand via `brandSchemaValue` — the only admissible installer — as the
+  `## Coordination note — bug 0067 (0.90.0)` above records. The tag stays a
+  non-enumerable symbol; bug 0020's forged-name cells pin that a payload naming
+  `__thetaSchema` selects no schema.
+- **The order half** landed with bug 0172 (0.97.0): §Fix (a) was decided as
+  route (a1) — `SchemaSidecar` carries a declaration-ordered field list, derived
+  in `buildInboundTranslationPlan`, consumed by `rebuildInbound`'s record build —
+  with the step-5 spec edit and `docs/reference/schema-subset.md` mirror in the
+  same commit, exactly as (a1) priced. The
+  `## Coordination note — bug 0172 (0.97.0)` above records the mechanism, the
+  rejected alternatives ((a2), (a3), and §Fix (c) — rejected as re-splitting the
+  clause bug 0080 made single), the boundary reach (every caller of
+  `translateInbound`, now all four inbound boundaries), the no-carrier fallback
+  (payload order preserved), and the constraint audit (cell (S) untouched — order
+  established at the rebuild only; AJV before the rebuild; key-set preserving;
+  `buildObjectSchemaValue` declined on two stated structural grounds).
+- **§Fix (d)'s nested-`$ref` divergence** is closed by the combination: 0067's
+  per-position `$ref`-target map gives the walk the edge, and each fragment
+  orders by its own sidecar's list — witnessed at root, nested and array depths
+  in `tests/inbound-rebuild-declaration-order.test.ts`, alongside the
+  ctor-provenance byte-parity control and `valuesEqual` in both argument orders.
+- **Witness disposition.** This report's §Witness obligations are discharged
+  across `tests/inbound-rebuild-declaration-order.test.ts` (order rows, nested,
+  array, provenance parity, no-carrier control),
+  `tests/wire-translation-inbound-retag.test.ts` (brand survival, including on a
+  null-prototype record since 0173), `tests/ctor-declaration-order.test.ts`
+  cells (S)/(G)/(N), and `tests/enum-schema-tag-privacy.test.ts` (a3)/(a4)/(b3).
+  The `QuestionOperandDefectError` message pair named in §Witness is subsumed by
+  the brand landing (its consumer reads `schemaTagOf`, whose install is pinned);
+  no separate cell was minted for it — recorded here as the one deliberate
+  narrowing of this report's witness list.
+- **What this closure does NOT cover:** values inside `{"anyOf":[…]}` arms
+  receive no tag, no brand, no descent and therefore no reorder — that is bug
+  0172's face 2, spec-blocked and OPEN there, not a residue of this report.
