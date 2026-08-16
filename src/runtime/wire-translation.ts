@@ -462,3 +462,71 @@ function lowerOutbound(
   }
   return result;
 }
+
+/**
+ * Project a value to the shape the `invoke<T>` return-value AJV gate reads
+ * structurally, for that `validate` call only. The caller of this function
+ * hands the ORIGINAL value downstream unchanged on every path; this
+ * projection is disposable and never itself crosses the invoke boundary.
+ *
+ * AJV's `type: "string"` check is a `typeof` test, and the enum carrier
+ * {@link makeEnumValue} builds is a boxed `String` (`typeof === "object"`).
+ * This walk collapses exactly that gap — one boxed value, one level of
+ * array, one level of plain-object field, recursively — and nothing else.
+ *
+ * Not {@link translateOutbound}: it renames nothing. The value at the
+ * `invoke<T>` return boundary is the callee's own theta-side value, and the
+ * lowered document that boundary validates against already emits
+ * theta-side property names (`inbound-boundary.ts:59`'s doc-comment states
+ * the same fact for the inbound direction), so a rename here would corrupt
+ * an already-correct key. It also does not call {@link lowerOutbound}: that
+ * walk always rebuilds its record and renames by sidecar — a materially
+ * different job from this one's copy-on-change, rename-free walk, and
+ * threading a "skip the rename" flag through a shared walk would leave both
+ * jobs harder to read than two short functions.
+ *
+ * Copy-on-change — returning the SAME array/object reference whenever no
+ * descendant needed collapsing — is load-bearing, not an optimisation: it
+ * keeps "a payload with no named-enum value anywhere reaches the AJV seam
+ * unchanged" structurally true rather than incidentally true (GOV-15,
+ * docs/spec_topics/governance/source-language-stability.md:5).
+ */
+export function projectForValidation(value: ThetaValue): unknown {
+  if (value instanceof String) {
+    // The boxed enum carrier's wire form is its bare string — the same
+    // collapse `lowerOutbound` performs for the outbound direction (`:435`).
+    return value.valueOf();
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const projected = value.map((element) => {
+      const next = projectForValidation(element);
+      if (next !== element) {
+        changed = true;
+      }
+      return next;
+    });
+    return changed ? projected : value;
+  }
+  if (isResultValue(value)) {
+    // `Result` is not a lowerable type form (schema-subset.md §"Lowering
+    // Algorithm" step 3), so no position a `returnSchema` describes can hold
+    // one; descending would differ from the gate above only at positions AJV
+    // places no constraint on, and this projection exists solely for AJV's
+    // eyes. Mirrors `rebuildInbound`'s own `isResultValue` arm (`:266`).
+    return value;
+  }
+  if (!isPlainObject(value)) {
+    return value;
+  }
+  let changed = false;
+  const projected: { [k: string]: unknown } = Object.create(null) as { [k: string]: unknown };
+  for (const [key, fieldValue] of Object.entries(value)) {
+    const next = projectForValidation(fieldValue as ThetaValue);
+    if (next !== fieldValue) {
+      changed = true;
+    }
+    projected[key] = next;
+  }
+  return changed ? projected : value;
+}

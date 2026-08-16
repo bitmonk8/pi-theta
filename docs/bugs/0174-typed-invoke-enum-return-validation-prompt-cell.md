@@ -1,18 +1,23 @@
 # Bug 0174 — A typed `invoke<T>` of a `mode: prompt` callee fails return-validation for every named-enum position: `makeEnumValue` builds a boxed `String`, and on the in-process prompt→prompt cell that value reaches AJV still boxed (`typeof` `"object"`), so `{"type":"string","enum":[…]}` refuses it and the caller gets `Err(InvokeInfraError { cause: "return_validation" })` — where the byte-identical callee body as `mode: subagent` crosses a `JSON.stringify` envelope, arrives as a JSON primitive, and returns `Ok`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: it names three
-  candidate normalisation points with their measured blast radii and the
-  ordering constraint every route carries against the bug 0067 fix. Ordering:
-  nothing blocks this report from starting. The fix site is
+- **Status:** fixed (0.98.0). §Fix (0.98.0) below records what shipped. §Fix
+  was constraint-pinned rather than settled — three candidate normalisation
+  points with their measured blast radii, and the ordering constraint every
+  route carries against the bug 0067 fix — and the fix run selected **§Fix
+  (b)** on measurement: routes (a) and (c) were each driven and rejected, and
+  the record below states the measurement that decided each. The fix site is
   `#validateInvokeReturn` — the method
-  [0067](./0067-subagent-envelope-drops-enum-tag.md) landed in at 0.90.0 — so a
-  route here rebases onto that fix's hunks and must leave its post-AJV ordering
-  intact (§Fix (d)(1)).
-  [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md) is
-  open against the same method and is disjoint on the measured observable: 0172
-  owns the inbound boundaries that never call `translateInbound`; this report
-  owns the one boundary that does call it, on the cell where AJV refuses before
-  the call is reached. Whichever lands second rebases onto the other's hunks.
+  [0067](./0067-subagent-envelope-drops-enum-tag.md) landed in at 0.90.0 — so
+  the route rebased onto that fix's hunks and left its post-AJV ordering intact
+  (§Fix (d)(1)).
+  [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)
+  landed first, at 0.97.0, and is disjoint on the measured observable: 0172
+  owned the inbound boundaries that never call `translateInbound`; this report
+  owned the one boundary that does call it, on the cell where AJV refuses before
+  the call is reached. This fix rebased onto 0172's hunks in that method (the
+  re-signatured `#validateInvokeReturn`, the `InvokeReturnTyping` three-arm
+  discriminator and `#resolveReturnSite`); 0172 face 2 remains open and
+  untouched.
 - **Sev/Diff estimate:** S2/D3 — S2 because the input is refused **loudly**, not
   silently mis-valued: a legal program the spec sanctions in one sentence
   (`invocation.md:36` — "A `prompt`-mode child attaches to the caller's current
@@ -887,3 +892,271 @@ Every `src/`, `tests/`, spec, reference and bug-doc citation above was read at
 HEAD `e18b30e5`; volatile positions in
 `src/extension/production-theta-producer.ts` (6165 lines) are named by symbol
 beside their line numbers, per bug 0134's adjudication.
+
+## Fix (0.98.0)
+
+- **Route chosen: §Fix (b)** — validate against a wire-form projection, hand the
+  ORIGINAL value downstream. The projection is computed for the AJV call alone;
+  the callee's own value, boxed enum carriers and schema brands intact, reaches
+  the post-AJV inbound translation pass and the caller unchanged.
+
+  **Why not §Fix (a)** (project before AJV, translate the projection). Measured,
+  not argued: `decodeInboundValue` fed the wire primitive `"high"` under a
+  `Sev | null` annotation returns a **bare string** that does not `valuesEqual`
+  a locally constructed `Sev.High`. `Sev | null` lowers to
+  `{"anyOf":[{"$ref":"#/$defs/Sev"},{"type":"null"}],"$defs":{"Sev":{"type":"string","enum":["high","low"]}}}`,
+  and an `anyOf` arm carries no JSON-Pointer position a sidecar can key
+  ([0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)
+  face 2, spec-blocked and unwired), so the pass cannot re-tag there. Route (a)
+  would therefore have traded this report's loud `Err` for a silent untagged
+  bind on every union-typed enum return — the class 0172 face 2 owns. Under
+  route (b) the same call with the ORIGINAL boxed value returns the **same
+  reference**, still tagged (`valuesEqual` `true`), so `invoke<Sev | null>` of a
+  prompt callee flips from `Err` to `Ok` with the tag intact. The `(ANYOF)` cell
+  pins that end state; it pins pass-through of an already-tagged value and never
+  `anyOf` arm dispatch.
+
+  **Why not §Fix (c)** (normalise inside `AjvSchemaValidator`): breadth without
+  need. The seam has seven `compile` call sites and the layering argument §Fix
+  (c) demands; nothing but this boundary is handed a boxed value in production.
+
+- **What shipped.**
+  - `src/runtime/wire-translation.ts` — one exported
+    `projectForValidation(value: ThetaValue): unknown` (`:494`), appended after
+    `lowerOutbound`: **+68/−0**, a pure append, so every pre-existing citation
+    into this file is unmoved. A boxed `String` collapses to `value.valueOf()`
+    (the rule `lowerOutbound` states at `:435`); arrays and plain objects are
+    walked; a `Result` passes through, mirroring `rebuildInbound`'s own
+    `isResultValue` arm (`:266`) — `Result` is not a lowerable type form
+    (`schema-subset.md` §"Lowering Algorithm" step 3), so no described position
+    can hold one. It renames nothing: the value here is the callee's own
+    theta-side value and the lowered document this boundary validates against
+    already emits theta-side property names, so a rename would corrupt an
+    already-correct key. The walk is **copy-on-change** — the SAME array/object
+    reference is returned wherever no descendant needed collapsing — which is
+    load-bearing rather than an optimisation (see GOV-15 below).
+  - `src/extension/production-theta-producer.ts` — the import (`:225`) and one
+    changed argument: `#validateInvokeReturn`'s AJV call (`:3591`) is now
+    `validator.validate(projectForValidation(result.value))`. **§Fix (d)(1)
+    holds:** the `verdict.ok` arm did not move and still passes
+    `validated: result.value` — the original — to `decodeInboundValue`
+    (`:3594`). **§Fix (d)(2) holds:** the ceiling-#4 depth walk
+    (`enforceInvokeReturnDepth`) still runs first, before the lowering, the
+    `compile` and the projection, so a hostile payload is refused before
+    anything copies it.
+  - `src/extension/production-theta-producer.ts` — **§Fix (d)(3)**, the
+    doc-comment correction, in the same commit. Before:
+
+    > On success the payload also runs through the inbound translation pass
+    > runtime-value-model.md §"Wire-name translation" names for `invoke`
+    > returns, ordered — as that section fixes — after AJV validation. Both call
+    > sites in `#driveCallee` (the prompt→prompt attach cell and the subagent
+    > spawn cell) route through this one method, so a callee's `mode:`
+    > frontmatter cannot change the caller's equality semantics.
+
+    After:
+
+    > AJV is a structural surface — its `type: "string"` check is a `typeof`
+    > test — and the enum carrier `makeEnumValue` builds is a boxed `String`
+    > (`typeof === "object"`), so the AJV `validate` call runs only through
+    > `projectForValidation`'s wire-form projection of the payload —
+    > copy-on-change, so where no descendant needs collapsing the projection is
+    > the payload, unchanged. Both call sites in `#driveCallee` (the
+    > prompt→prompt attach cell and the subagent spawn cell) route through this
+    > one method, and the method projects the value to its wire form for the AJV
+    > call, so the boxed-`String` representation difference between the two
+    > cells is normalised at the gate: a callee's `mode:` frontmatter cannot
+    > change whether a named-enum return validates, or what the caller binds for
+    > one.
+    >
+    > On success the ORIGINAL payload — never the projection — also runs through
+    > the inbound translation pass […]
+
+    The conclusion is **scoped to named-enum returns** deliberately. Review
+    round 1 measured that the unscoped form would have reproduced the very
+    overclaim §Actual behaviour 5 indicts: under `invoke<number>` a callee
+    returning `n / 0` yields `Infinity`, which the prompt cell's projection
+    preserves and AJV admits, while the subagent leg's `serializeOkEnvelope`
+    emits `{"theta_result":{"v":1,"ok":null}}` (`JSON.stringify(Infinity)` is
+    `null`) and AJV refuses it. Mode still moves that verdict. Normalising it
+    here would newly refuse an input that succeeds today — GOV-15 forbids it,
+    and it is outside this report's subject; it is recorded as a residual
+    instead. The clause "never the projection" in the paragraph below is left
+    intact and is true on its own terms: the `verdict.ok` arm binds
+    `result.value`.
+  - `tests/invoke-return-enum-carrier-projection.test.ts` — **§Fix (d)(6) unit
+    half**, new, 868 lines / 16 cells. It drives the real in-process
+    prompt→prompt attach cell end to end (`parseThetaDocument` →
+    `createProductionProducerDeps({ parseCallee })` → `bindPromptConversation` →
+    `executeBody`, explicit `invoke<T>("./kidp.theta")` form, a real
+    `AjvSchemaValidator` on the runtime root): `(a)` root-position `Sev`, `(c)`
+    `array<Sev>`, `(f)` branded `Box` with one enum field, `(ANYOF)`
+    `Sev | null`; the `(d)/(e)/(g)` over-reach controls; `SEAM-1a/b/c`
+    re-driving §Reproduction (c) over the shipped lowering and validator seams;
+    `SEAM-2a/b/c` observing the verdict the shipped gate actually takes through
+    a pass-through recording `SchemaValidator` decorator; the boxed-pass-through
+    control §Fix (b) demands be **witnessed** rather than read; and the
+    subagent-leg envelope control that pins §Fix (d)(4).
+  - `tests/invoke-prompt-cell-enum-return.test.ts` — **§Fix (d)(6) integration
+    half**, new, 556 lines, one `it()` over 27 soft cells. It re-drives
+    §Reproduction (a)'s `a`/`b`/`c`/`f` pairs through REAL spawned `pi` children
+    on bug 0067's witness pattern (`createProductionSpawnFn` +
+    `launchSubagentChild` + `driveSubagentChild`, all three AGENTS.md
+    `#subagent-child-pins` plus parent-pid carriage, `requirePath` fail-loudly
+    preconditions, every theta body a pure tail expression so zero model turns
+    are spent). The root is the spawned child and the prompt→prompt cell runs
+    inside it. §Reproduction (b)'s `d`/`e`/`g` controls are kept as the
+    over-reach fence and assert UNCHANGED values.
+  - `tests/live/live-production-acceptance.test.ts` — one additive H8a cell
+    (**+138/−0**, a pure append; no existing cell weakened, reworded, reordered
+    or deleted). No pre-existing live cell drove this shape: every typed
+    `invoke<T>` cell in the file targets a `mode: subagent` callee (the leg the
+    PIC-59 envelope normalises incidentally), 0172's boundary-2 callee is
+    `mode: subagent` by the `theta/load/prompt-mode-callable` load gate, and
+    `tests/live/hardening/session-invoke-attach.test.ts` drives the attach
+    topology with `invoke<number>`, which is never boxed. The new cell is the
+    bug 0067 cell with the callee's `mode:` changed to `prompt`.
+
+- **Structural identity of the projection** (the route-(b) caveat §Fix (b)
+  raises — "a route must state that the two are structurally identical or the
+  diagnostic positions drift"). Measured: the projection preserves key order
+  (`["sev","who"]` both sides), array shape
+  (`[boxed, [boxed], {k: boxed}]` → `["high",["high"],{"k":"high"}]`) and every
+  own key including one spelled `__proto__` (which lands as an own key on the
+  null-prototype record, bug 0173's discipline). A payload failing for a
+  NON-enum reason reports the identical `instancePath`: a `Box` with
+  `who: 42` yields `/who #/properties/who/type` under the projection, exactly
+  the position it reports without one. AJV `instancePath` addresses therefore
+  remain truthful.
+
+- **GOV-15** (`docs/spec_topics/governance/source-language-stability.md:5`,
+  §Fix (d)(7)). Refusals become successes; nothing that succeeds is refused, and
+  **no passing payload's bound identity changes** — under route (b) the caller
+  receives `result.value`, the callee's own object, on every path, so
+  `tests/wire-translation-inbound-retag.test.ts`'s brand-survival cell is
+  untouched by construction. Copy-on-change makes the other half structural
+  rather than incidental: a payload carrying no boxed value anywhere reaches the
+  AJV seam as the SAME reference it always did. The spellings that flip from
+  refusal to success are exactly the typed `invoke<T>` returns of a
+  **prompt-mode** callee whose `Ok` payload carries a named-enum value at a
+  position the walk reaches:
+  1. the annotated root — `invoke<Sev>` returning `Sev.High`;
+  2. a named-enum FIELD of a schema-typed object — `invoke<Box>` returning
+     `Box { sev: Sev.High, who: "w" }` (previously `instancePath` `/sev`);
+  3. an ARRAY ELEMENT — `invoke<array<Sev>>` returning `[Sev.High]` (`/0`);
+  4. a union arm — `invoke<Sev | null>` returning `Sev.High`;
+  5. every nesting of 1–4 the walk recurses through.
+
+  Nothing else moves. The subagent leg's payloads are already JSON primitives,
+  so the projection is a no-op copy there and its verdicts are unchanged
+  (§Fix (d)(4)): bug 0067's witness
+  `tests/subagent-invoke-inbound-enum-tag.test.ts` is byte-identical to HEAD and
+  green, including its `anon` control pinning `Severity.Low == "low"` at
+  `false`. §Fix (d)(5) holds untouched: anonymous string-literal-union positions
+  carry plain strings, were never in the refused set, and the walk gives them no
+  tag.
+
+- **New-caller coverage** (the callers bug 0172 landed on this seam at 0.97.0).
+  (i) The `.theta`-callable **callee-inferred** arm resolves through the same
+  `#resolveReturnSite` and validates through the same `#validateInvokeReturn`
+  gate, so the normalisation covers it automatically with no second call site.
+  Its callees are `mode: subagent` **by load gate**
+  (`theta/load/prompt-mode-callable`, `src/parser/callable-set.ts`;
+  `frontmatter-fields-a.md:79`), so in production they are envelope-serialised
+  and never boxed; the hand-built past-the-gate combination exists only in
+  `tests/result-value-privacy.test.ts`, whose callee returns are enum-free and
+  which is green either way.
+  (ii) The **typed-query** and **binder-`args`** boundaries validate parsed JSON
+  and are never handed a boxed value; their validators are not this gate and
+  needed no change. Their AJV sites (`typed-query-validation.ts`, and the binder
+  envelope / post-default-merge / subagent-root-params / respond-tool /
+  Pi-tool-`parameters` sites in the producer) are untouched.
+  On the 0172 interaction generally: this fix's site is DOWNSTREAM of 0172's
+  wiring — the boundaries 0172 wired feed AJV primitives — so the two are
+  disjoint on inputs. Both edited `#validateInvokeReturn`; this fix rebased onto
+  0172's hunks (the re-signatured method, the `InvokeReturnTyping` three-arm
+  discriminator, `#resolveReturnSite`).
+
+- **Gates** (at the fix commit, on the shipped tree):
+  - Witness — `npx vitest run tests/invoke-return-enum-carrier-projection.test.ts tests/invoke-prompt-cell-enum-return.test.ts`:
+    `Test Files 2 passed (2) / Tests 17 passed (17)`.
+  - Full default suite — `npx vitest run`:
+    `Test Files 302 passed (302) / Tests 4938 passed (4938)`.
+  - Typecheck — `npx tsc -p tsconfig.json --noEmit`: clean, exit 0.
+  - Lint — `npm run lint`
+    (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`): clean, exit 0.
+  - Live (H8a) —
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts`:
+    `Test Files 1 passed (1) / Tests 38 passed (38)`, 135.32 s — the 37
+    pre-existing cells plus the new bug-0174 attach cell, all green on the first
+    pass, no known live signature encountered.
+    `tests/fixtures/h7a/permitted-codes.json` byte-unchanged; H9a not required
+    (no load or registration surface changed).
+
+- **Review:** 2 rounds. Round 1 (deep) — FINDINGS, three items, all comment or
+  assertion-message text; it judged the code change itself correct, faithful to
+  §Fix (b) and inside every (d)-constraint, and raised no `correctness`,
+  `fidelity` or `spec` finding. Round 2 (confirmation, required because one
+  remedy touched a string literal inside an `expect(...)` call) — CLEAN. One
+  pre-review CORRECTION round ran before round 1 (citation text only; round
+  numbering unaffected).
+
+- **Verification:** SOLID, all four obligations discharged with quoted evidence.
+  (1) The witnesses genuinely red: neutralising the fix to
+  `validator.validate(result.value as unknown)` reds both files with the bug's
+  own signature (`Err(InvokeInfraError{cause:"return_validation"})`, and
+  `{"ok":false}` at `instancePath` `""`, `/sev`, `/0`); restoring returns the
+  file to blob `ee6c7d60…`, byte-exact, and both files green. (2) Full default
+  suite green. (3) One end-to-end live test exercises the fixed path, run for
+  real, proved both directions — pre-fix its red is
+  `theta /b174liveppparent returned Err: invoke of ./b174liveppkid.theta failed (return_validation)`.
+  (4) Lint and typecheck clean.
+
+- **Residuals:**
+  1. **The mode-invariance of the return surface is still not total, for a
+     different reason.** Under `invoke<number>` a callee returning `n / 0`
+     yields `Infinity`: the prompt cell binds it, the subagent leg's PIC-59
+     envelope serialises it as `null` (`JSON.stringify(Infinity)`) and AJV
+     refuses. Measured in review round 1. Out of this report's subject (a
+     non-finite `number`, not a named-enum carrier) and out of reach of a fix
+     here — normalising it would newly refuse a today-passing prompt-cell input,
+     which GOV-15 forbids. Unfiled; a report of its own.
+  2. **The same representation class at the binder defaults-merge AJV boundary,
+     unfiled and unwitnessed.** `#recoverDeclaredDefaults` →
+     `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts`) evaluates a
+     `params:` default authored as an enum access through the shared environment
+     (`lexical-environment.ts` → `makeEnumValue` → boxed `String`) and hands it
+     un-projected into the merged args. Measured at the seam: a default
+     `Sev.High` under a `{sev: Sev}` params schema yields
+     `{"kind":"ajv_args","ajvSummary":"/sev must be equal to one of the allowed values; /sev must be string"}`.
+     `runtime-value-model.md:37` blesses `Severity.High` as a default and the
+     type-compat deferral table (`tests/params-default-type-compat.test.ts:452`,
+     row c6) defers exactly this shape "to the invocation-time AJV check", which
+     then refuses it for its representation rather than its value.
+     `tests/binder-post-merge-ajv-enforcement.test.ts` carries no
+     enum-access-default row, so the cell is unwitnessed. §Non-goals declines it
+     here ("a default authored as `Severity.High` never reaches an AJV
+     **return** boundary" — true; it reaches the binder-args boundary instead),
+     so it is a separate report. It also falsifies §Fix (c)'s reading that "no
+     other site can be handed a boxed `String` … merged binder args".
+  3. **A bare `catch { … }` in the new integration witness**
+     (`tests/invoke-prompt-cell-enum-return.test.ts`, the `rmSync` scratch
+     cleanup) is byte-identical — comment included — to the committed
+     convention at `tests/subagent-invoke-inbound-enum-tag.test.ts:350`, the
+     harness §Fix (d)(6) directed it to mirror. The repository's
+     `no-broad-catch` closing gate scans `src/**` only. Left as the convention;
+     if the house rule is ever tightened for tests, both sites move together.
+  4. **§Non-goals' failure-message clause is still true under this fix.**
+     `invoke<Sev> return value failed validation` still names the annotation and
+     carries no AJV error detail. This fix changed which inputs reach that arm,
+     not the arm.
+
+- **Discharge notes appended:** none. 0068's §Resolution already links here and
+  is not edited; 0172, 0120 and 0177 are not edited.
+
+- **Pinned dispositions / non-goals:** the enum carrier stays a boxed `String` —
+  `src/runtime/value.ts` and `src/seams/schema-validator.ts` are untouched, so
+  `makeEnumValue`, `valuesEqual`, `privateBrandOf`, `ENUM_TAG` and
+  `brandSchemaValue` keep the blast radius §Non-goals enumerates. 0172 face 2
+  (`anyOf` arm dispatch) remains spec-blocked, open and unwired: this report's
+  `(ANYOF)` cells pin pass-through end states only.

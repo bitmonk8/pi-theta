@@ -5935,3 +5935,141 @@ describe("H8a-T — bug 0172 boundary 2: a .theta-callable tool-call return perf
     }
   });
 });
+
+// ===========================================================================
+// Bug 0174 — a typed `invoke<T>` of a `mode: prompt` callee fails
+// return-validation for every named-enum position: on the prompt→prompt
+// ATTACH cell (guard `callerMode === "prompt" && callee.frontmatter.mode ===
+// "prompt"` inside `#driveCallee`), no process boundary intervenes, so the
+// boxed `String` enum carrier `makeEnumValue` builds
+// (`src/runtime/value.ts:135`, `typeof === "object"`) reaches AJV
+// unnormalised and `{"type":"string","enum":[…]}` refuses it — where the
+// byte-identical callee body as `mode: subagent` crosses the PIC-59
+// `JSON.stringify` envelope, arrives a JSON primitive, and returns `Ok` (the
+// bug 0067 cell above).
+// `docs/bugs/0174-typed-invoke-enum-return-validation-prompt-cell.md` §Fix
+// (b): `#validateInvokeReturn` now AJV-validates a wire-form projection of
+// the payload (`projectForValidation`, `src/runtime/wire-translation.ts`)
+// and hands the callee's OWN value — boxed carrier intact — to the post-AJV
+// inbound translation pass and on to the caller.
+//
+// NO EXISTING LIVE CELL DRIVES THIS SHAPE (checked across all of
+// `tests/live/**` before adding this cell). Every typed `invoke<T>` cell in
+// this file targets a `mode: subagent` callee — the bug 0067 cell above
+// (`invoke<Sev>` into `b67livesevkid`, `mode: subagent`) and the bug 0020
+// forged-ingress pair (`invoke<Forged>` into `forgedchild`, `mode:
+// subagent`) — the leg the PIC-59 envelope already normalises incidentally.
+// The bug 0172 boundary-2 cell's callee is REQUIRED to be `mode: subagent`
+// (a prompt-mode callee inside `tools:` is `theta/load/prompt-mode-callable`
+// — that cell's own comment states this), so it cannot reach the attach cell
+// either. `tests/live/hardening/session-invoke-attach.test.ts` DOES drive
+// the prompt→prompt ATTACH topology live (`invoke<number>("./ppnum.theta")`),
+// but a plain `number` is never boxed, so that cell cannot reach this defect —
+// the asymmetry is specific to the named-enum carrier, not to the attach
+// mechanism itself. This cell closes that live-coverage gap: it mirrors the
+// bug 0067 cell exactly, substituting the callee's `mode:` frontmatter from
+// `subagent` to `prompt`, which routes the SAME typed `invoke<Sev>` through
+// `#driveCallee`'s in-process ATTACH cell instead of its spawn cell.
+//
+// Pre-fix the invoke itself Errs — `Err(InvokeInfraError{cause:
+// "return_validation"})` — so the parent's `?` propagates it as the theta's
+// own top-level Err before the rendered query ever runs: the PPCROSS marker
+// is therefore ABSENT pre-fix (not merely `false`, unlike the bug 0067 cell
+// where the pre-fix invoke resolves Ok but untagged), and the SLSH-3
+// top-level note names the cause verbatim (`err-note-render.ts`'s
+// `invoke_infra` row: "invoke of <path> failed (return_validation)"), which
+// is why the first assertion below embeds `turn.systemNotes` in its failure
+// message. Post-fix the invoke resolves `Ok`, the query renders, and the
+// boolean comparison is `true`.
+//
+// Token cost: one dispatched query in the parent (the same profile as the
+// bug 0067 cell); the callee spends none — a pure enum tail, zero model
+// turns.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted.
+// ===========================================================================
+
+/** The `mode: prompt` callee: a pure named-enum tail, zero model turns. */
+function b174livePpKidTheta(): string {
+  return ["---", "mode: prompt", "---", 'enum Sev { High = "high" }', "Sev.High"].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: a typed `invoke<Sev>` of a PROMPT-mode callee
+ * binds the envelope through the in-process ATTACH cell, then the boolean
+ * comparison against the parent's own `Sev.High` is interpolated between
+ * markers so the rendered text — not the model's reply — is the observable.
+ */
+function b174livePpParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Sev { High = "high" }',
+    'let v = invoke<Sev>("./b174liveppkid.theta")?',
+    "@`PPCROSS=${v == Sev.High}|END reply with exactly: OK`",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0174: a typed invoke<Sev> of a PROMPT-mode callee validates a named-enum return on the attach cell, live", () => {
+  it("a named-enum value returned by a prompt-mode callee across the prompt→prompt attach cell compares equal to the caller's own Sev.High", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b174liveppparent", text: b174livePpParentTheta() },
+      { source: "project", stem: "b174liveppkid", text: b174livePpKidTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b174liveppparent"),
+        "no bug-0174 prompt-attach parent command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b174liveppparent");
+      const outbound = turn.userTexts.join("\n");
+      // Marker-anchored extraction of the rendered `${...}` segment — the
+      // exact text theta code computed from the attach-cell-bound comparison
+      // (fails loudly when the query never rendered — e.g. the invoke Err'd
+      // before the `?` let its tail through, embedding the fail-closed note
+      // so a red names the cause).
+      const anchored = /PPCROSS=([\s\S]*?)\|END/.exec(outbound);
+      expect(
+        anchored,
+        "the parent query's rendered text (PPCROSS=…|END) is absent — the " +
+          "invoke did not resolve Ok. Outbound user texts: " +
+          JSON.stringify(turn.userTexts) + "; system notes: " +
+          JSON.stringify(turn.systemNotes),
+      ).not.toBeNull();
+      // THE FIXED OBSERVABLE. invocation.md:36 — "the final value still
+      // propagates through the same return surface", mode-invariantly; :55 —
+      // the callee's mode selects conversation isolation, not validation.
+      // Pre-fix the boxed String carrier reaches AJV unnormalised on this
+      // cell and the invoke Errs, so this segment never renders at all (the
+      // assertion above catches that red first).
+      expect(
+        anchored![1],
+        "docs/bugs/0174 — a named-enum value returned by a PROMPT-mode " +
+          "callee across a typed invoke<Sev> on the prompt→prompt ATTACH " +
+          "cell must compare equal to the caller's own variant of the same " +
+          "enum. Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("true");
+      // No fail-closed ending of the drive (invoke infra errors and Err tails
+      // land here — absence is the success observable).
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b174liveppparent (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the prompt-attach enum-cross drive surfaced fail-closed system " +
+          "note(s): " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

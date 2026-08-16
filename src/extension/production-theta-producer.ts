@@ -222,6 +222,7 @@ import { parseExpressionSource } from "../parser/theta-document";
 import { renderSystemPrompt } from "../parser/system-interpolation";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
 import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-boundary";
+import { projectForValidation } from "../runtime/wire-translation";
 import { inferCalleeReturnAnnotation } from "../parser/functions";
 import type { CompiledValidator, LoweredSchema } from "../seams/schema-validator";
 import { parseToolsEntry, type ResolvedCallable } from "../parser/callable-set";
@@ -3533,16 +3534,26 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * unchanged; a validation failure is surfaced as
    * `Err(InvokeInfraError{cause:"return_validation"})`.
    *
-   * On success the payload also runs through the inbound translation pass
-   * runtime-value-model.md §"Wire-name translation" names for `invoke` returns,
-   * ordered — as that section fixes — after AJV validation. Both call sites in
-   * `#driveCallee` (the prompt→prompt attach cell and the subagent spawn cell)
-   * route through this one method, so a callee's `mode:` frontmatter cannot
-   * change the caller's equality semantics. The subagent envelope is
-   * `JSON.stringify` of the callee's own theta-side value, not a lowered-schema
-   * encoding, so the derived sidecars carry an empty wire-name map and this
-   * pass only re-tags named-enum positions and re-brands schema-typed objects —
-   * renaming here would corrupt an already-correct key.
+   * AJV is a structural surface — its `type: "string"` check is a `typeof` test
+   * — and the enum carrier `makeEnumValue` builds is a boxed `String`
+   * (`typeof === "object"`), so the AJV `validate` call runs only through
+   * `projectForValidation`'s wire-form projection of the payload —
+   * copy-on-change, so where no descendant needs collapsing the projection is
+   * the payload, unchanged. Both call sites in `#driveCallee` (the prompt→prompt
+   * attach cell and the subagent spawn cell) route through this one method, and
+   * the method projects the value to its wire form for the AJV call, so the
+   * boxed-`String` representation difference between the two cells is normalised
+   * at the gate: a callee's `mode:` frontmatter cannot change whether a
+   * named-enum return validates, or what the caller binds for one.
+   *
+   * On success the ORIGINAL payload — never the projection — also runs
+   * through the inbound translation pass runtime-value-model.md §"Wire-name
+   * translation" names for `invoke` returns, ordered — as that section fixes
+   * — after AJV validation. The subagent envelope is `JSON.stringify` of the
+   * callee's own theta-side value, not a lowered-schema encoding, so the
+   * derived sidecars carry an empty wire-name map and this pass only re-tags
+   * named-enum positions and re-brands schema-typed objects — renaming here
+   * would corrupt an already-correct key.
    *
    * The pass reaches the positions the derived sidecars key by JSON Pointer:
    * named-enum positions, `$ref` targets, array elements, and the annotated
@@ -3577,7 +3588,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       return result;
     }
     const validator = this.#input.root.schemaValidator.compile(lowered);
-    const verdict = validator.validate(result.value as unknown);
+    const verdict = validator.validate(projectForValidation(result.value));
     if (verdict.ok) {
       return makeOk(
         decodeInboundValue({

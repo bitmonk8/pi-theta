@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-08-16
+
+### Fixed
+
+- **bug 0174 — a typed `invoke<T>` of a `mode: prompt` callee failed
+  return-validation for every named-enum position.** `makeEnumValue` builds an
+  enum value as a boxed `String` so that `JSON.stringify` yields the bare wire
+  string, which makes its `typeof` `"object"`. On the in-process prompt→prompt
+  attach cell no process boundary intervenes, so that value reached the
+  `invoke<T>` return-value AJV gate still boxed and
+  `{"type":"string","enum":[…]}` refused it — the caller got
+  `Err(InvokeInfraError { cause: "return_validation" })` with no diagnostic,
+  where the byte-identical callee body as `mode: subagent` crossed the PIC-59
+  `JSON.stringify` envelope, arrived as a JSON primitive and returned `Ok`. The
+  gate now AJV-validates a wire-form projection of the payload and hands the
+  callee's OWN value — boxed carriers and schema brands intact — to the
+  post-AJV inbound translation pass and on to the caller, so the two cells
+  present AJV the same shape while the caller still receives the callee's own
+  object. The projection collapses the boxed enum carrier and nothing else, it
+  renames nothing, and it is copy-on-change: a payload carrying no enum value
+  anywhere reaches the seam as the same reference it always did. Root,
+  object-field, array-element and `anyOf`-arm positions all validate now, and an
+  already-tagged value passes through a union arm with its tag intact rather
+  than being re-derived — the arm-dispatch question bug 0172 face 2 owns is not
+  touched. The subagent leg's verdicts are unchanged. `invocation.md`'s
+  mode-invariant return surface and `runtime-value-model.md`'s enum row are
+  unchanged: this was a runtime defect, not a specification one, and the fix
+  also corrects the gate's own doc-comment, which asserted an invariant the
+  measurement falsified.
+
 ## [0.97.0] - 2026-08-15
 
 ### Fixed
