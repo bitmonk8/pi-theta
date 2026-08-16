@@ -502,8 +502,13 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
 
   it("(v) untyped: an openai-completions overflow-signature errorMessage under stopReason \"error\" is Err(context_overflow) — the signature match takes precedence over transport", async () => {
     // openai's documented overflow gate admits HTTP-200 stopReason-error
-    // envelopes (provider-error-mapping.md §Overflow signatures); anthropic's
-    // gate is 400-only and unobservable at this seam, hence openai here.
+    // envelopes (provider-error-mapping.md §Overflow signatures); the
+    // anthropic gate admits HTTP 400 or no captured status
+    // (provider-error-mapping.md §Classifier input surface), but it stays
+    // unobservable at this seam: `classifyOffSessionReply`
+    // (src/extension/production-theta-producer.ts:5378-5401) presents a
+    // fixed `httpStatus: 200`, which a captured non-400 status vetoes —
+    // hence openai here.
     // Today: fabricated success — final value "".
     scripted.queue = [
       reply({

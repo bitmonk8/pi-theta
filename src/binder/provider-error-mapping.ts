@@ -198,9 +198,41 @@ const TOKEN_EXTRACTING_APIS: ReadonlySet<string> = new Set([
 const NUMERIC_RUN = /[0-9]+(?:[,_][0-9]+)*/g;
 
 /**
+ * The last `"message": "…"` member of a pi-ai-formatted error envelope (see
+ * `providerMessageWindow` below). Reuse across calls is safe because
+ * `matchAll` never writes the shared instance's `lastIndex` — it iterates a
+ * clone — but the clone STARTS from the shared `lastIndex`, so this regex
+ * must only ever be read through `matchAll`: one `exec`/`test` call would
+ * leave a non-zero offset behind and silently blind every later scan.
+ */
+const PROVIDER_MESSAGE_MEMBER = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+
+/**
+ * The provider-message window (provider-error-mapping.md §"Overflow
+ * token-count extraction", the provider-message-window step): the capture of
+ * the LAST `PROVIDER_MESSAGE_MEMBER` match in source order, or the whole
+ * message when none matches. WHY: the classifier's `errorMessage` input is the
+ * pi-ai-FORMATTED string (provider-error-mapping.md §"Classifier input
+ * surface") — an HTTP-status prefix plus the whole JSON error body including
+ * `request_id` — so scanning it unnarrowed makes the numeric-run count below a
+ * function of envelope metadata and lets the HTTP status itself be read as a
+ * token count. This is a SUBSTRING SELECTION, not a parse: it constructs no
+ * JSON value and does not unescape the JSON string escapes inside the
+ * captured window.
+ */
+function providerMessageWindow(message: string): string {
+  let window: string | undefined;
+  for (const match of message.matchAll(PROVIDER_MESSAGE_MEMBER)) {
+    window = match[1];
+  }
+  return window ?? message;
+}
+
+/**
  * Deterministic overflow token-count extraction
- * (provider-error-mapping.md §"Overflow token-count extraction"): scan the
- * message for numeric runs, strip separators, parse base-10. Exactly two runs →
+ * (provider-error-mapping.md §"Overflow token-count extraction"): narrow the
+ * message to its provider-message window (`providerMessageWindow`), scan the
+ * window for numeric runs, strip separators, parse base-10. Exactly two runs →
  * larger populates `tokens_used`, smaller `tokens_limit`; any other count → both
  * `null`. Providers outside the token-extracting set always yield `null`/`null`.
  */
@@ -211,7 +243,8 @@ function extractOverflowTokens(
   if (!TOKEN_EXTRACTING_APIS.has(api)) {
     return { tokens_used: null, tokens_limit: null };
   }
-  const runs = [...message.matchAll(NUMERIC_RUN)].map((match) =>
+  const window = providerMessageWindow(message);
+  const runs = [...window.matchAll(NUMERIC_RUN)].map((match) =>
     Number.parseInt(match[0].replace(/[,_]/g, ""), 10),
   );
   if (runs.length !== 2) {
@@ -224,9 +257,15 @@ function extractOverflowTokens(
 /**
  * Whether the response's HTTP status satisfies the provider's overflow-signature
  * status gate (provider-error-mapping.md §"Overflow signatures"). Anthropic and
- * mistral gate on HTTP 400; openai additionally admits an HTTP-200 `stopReason:
- * "error"` body-envelope overflow; bedrock is SDK-only, so signature match takes
- * precedence at any captured status (including the network-level `null` class).
+ * mistral gate on HTTP 400 or the no-HTTP-response class (`httpStatus === null`):
+ * the `anthropic-messages` pi-ai adapter measurably never invokes `onResponse` on
+ * an HTTP 400, so an unavailable status must not veto a matching overflow
+ * signature — the posture the bedrock arm below already has, narrowed here to
+ * the no-HTTP-response class rather than every status. A CAPTURED non-400
+ * status still vetoes the match. Openai additionally admits an HTTP-200
+ * `stopReason: "error"` body-envelope overflow; bedrock is SDK-only, so
+ * signature match takes precedence at any captured status (including the
+ * network-level `null` class).
  */
 function overflowStatusGateSatisfied(input: ProviderClassifierInput): boolean {
   switch (input.api) {
@@ -234,7 +273,7 @@ function overflowStatusGateSatisfied(input: ProviderClassifierInput): boolean {
     case "mistral":
     // Alias spelling of the same adapter/formatter (see OVERFLOW_SIGNATURES).
     case "mistral-conversations":
-      return input.httpStatus === 400;
+      return input.httpStatus === 400 || input.httpStatus === null;
     case "openai-completions":
       return (
         input.httpStatus === 400 ||

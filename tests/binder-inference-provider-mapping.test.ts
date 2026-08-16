@@ -879,3 +879,409 @@ describe("V9j-T — typed-query unsupported provider (theta/load/typed-query-uns
     });
   });
 });
+
+// ============================================================================
+// Bug 0065 — the anthropic overflow status gate is unsatisfiable, and the
+// token extraction scans the pi-ai-FORMATTED envelope
+// (docs/bugs/0065-anthropic-overflow-status-gate-unsatisfiable.md)
+// ============================================================================
+//
+// Two elements, both witnessed here against the classifier's own input surface.
+//
+//   Element 1 — an unavailable HTTP status must not veto a matching anthropic
+//   overflow signature. The `anthropic-messages` pi-ai adapter never fires
+//   `onResponse` on an HTTP 400 — the SDK call throws out of
+//   `client.messages.create(...).asResponse()` before the
+//   `options?.onResponse?.(...)` line
+//   (node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js:371) —
+//   so a REAL overflow reaches the classifier with `httpStatus: null`.
+//   `overflowStatusGateSatisfied` (src/binder/provider-error-mapping.ts:270)
+//   therefore admits `httpStatus === 400 || httpStatus === null` on the
+//   anthropic/mistral arm (:276); a CAPTURED non-400 status still vetoes, so
+//   the openai-only HTTP-200 body-envelope arm (:277-281) cannot leak. Spec:
+//   docs/spec_topics/pi-integration-contract/provider-error-mapping.md:7
+//   (the condition-scoped no-captured-status carve-out) and :17 (the
+//   anthropic row's "HTTP 400, or no captured HTTP status" gate).
+//
+//   Element 2 — the numeric-run scan runs over the provider-message window,
+//   not the whole FORMATTED envelope. The classifier's `errorMessage` is the
+//   pi-ai-formatted string — HTTP-status prefix + JSON body + `request_id` —
+//   so `extractOverflowTokens` (:239) first narrows to the capture of the
+//   LAST match of `/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/g` (the whole string
+//   when nothing matches) and applies the unchanged exactly-two-runs rule
+//   (:250) to that window. Spec: :24 (*Overflow token-count extraction*),
+//   whose worked example (`"requested 1,234,567 tokens, limit 200,000"`) is
+//   a BARE provider message the narrowing must not move.
+//
+// LIVE-MEASURED INPUT. `LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE` below is the
+// verbatim `AssistantMessage.errorMessage` recorded from one `complete()`
+// against `claude-haiku-4-5` with `"word ".repeat(220_000)` at pi-ai 0.80.10.
+// The same probe recorded `ONRESPONSE FIRINGS: []` and `STOPREASON: error`; a
+// success control on the same model recorded `ONRESPONSE FIRINGS: [200]`, so
+// the empty firings are the adapter's error path, not an unregistered
+// callback. The live half of this witness — the `ONRESPONSE FIRINGS: []`
+// re-validation gate and the end-to-end classification — is
+// tests/live/provider-error-revalidation-gate.test.ts.
+//
+// The constant below is a PINNED BYTE STRING, not an invariant provider fact:
+// the tokenizer's count for the same prompt drifts run to run (220 044 for
+// this capture; 220 039 on a later run of the same probe), which is why the
+// live cell asserts a bound on `tokens_used` while these offline cells assert
+// the exact values of the bytes they were given.
+
+describe("bug 0065 — anthropic overflow: the null-status gate and the formatted-envelope scan", () => {
+  /**
+   * The verbatim live `errorMessage` byte string. Whole-string numeric runs
+   * are SEVEN (`400`, `220044`, `200000`, `011`, `67`, `3`, `6` — the last
+   * four from the `request_id`), so the exactly-two rule cannot fire against
+   * it. The provider-message window is
+   * `prompt is too long: 220044 tokens > 200000 maximum`, whose runs are
+   * exactly `220044` and `200000`.
+   */
+  const LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE =
+    `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}`;
+
+  // --- the headline witness (both elements at once) -----------------------
+
+  it("bug 0065: a REAL anthropic overflow (httpStatus null + the live errorMessage) → ContextOverflowError carrying 220044/200000", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "anthropic-messages",
+        httpStatus: null,
+        stopReason: "error",
+        errorMessage: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE,
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.kind,
+      "a genuine `prompt is too long` refusal must reach the author as " +
+        "ContextOverflowError. `transport` means the status gate " +
+        "(provider-error-mapping.ts:276) refused a status the anthropic " +
+        "adapter never delivers, so the author's ContextOverflow match arm is " +
+        "dead against the default provider and `retryable: true` invites a " +
+        "retry of a request that cannot succeed. observed: " +
+        JSON.stringify(result),
+    ).toBe("context_overflow");
+    expect(
+      result.tokens_used,
+      "the provider stated the used count in its own message; `null` means " +
+        "the scan ran over the FORMATTED envelope (7 runs) instead of the " +
+        "provider-message window (2 runs). observed: " + JSON.stringify(result),
+    ).toBe(220044);
+    expect(
+      result.tokens_limit,
+      "the provider stated the 200000 window in its own message; `null` means " +
+        "the same formatted-envelope scan. observed: " + JSON.stringify(result),
+    ).toBe(200000);
+  });
+
+  // --- element 1 in isolation (no numeric content to extract) -------------
+
+  it("bug 0065 element 1: overflow wording with NO numeric content at httpStatus null → ContextOverflowError, both counts null", () => {
+    // The gate is the ONLY thing under test here: the message carries no
+    // numeric run at all, so the extraction answers null/null on every route
+    // and cannot mask the gate's verdict.
+    const result = classifyProviderResponse(
+      classify({
+        api: "anthropic-messages",
+        httpStatus: null,
+        stopReason: "error",
+        errorMessage: "prompt is too long for this model",
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.kind,
+      "an unavailable HTTP status must not VETO a matching anthropic overflow " +
+        "signature — that is the same posture the bedrock arm already has " +
+        "(provider-error-mapping.ts:282-285) and the condition " +
+        "provider-error-mapping.md:7 describes. observed: " +
+        JSON.stringify(result),
+    ).toBe("context_overflow");
+    expect(result.tokens_used, "no numeric run exists to extract").toBeNull();
+    expect(result.tokens_limit, "no numeric run exists to extract").toBeNull();
+  });
+
+  // --- element 2 in isolation (already past the gate) ---------------------
+
+  it("bug 0065 element 2: the live errorMessage at httpStatus 400 — past the gate — must still yield 220044/200000", () => {
+    // The bug report's counterfactual, made mechanical: supply the one field
+    // the gate wants and the classification succeeds while both counts stay
+    // null, because the scanned string is the formatted envelope.
+    const result = classifyProviderResponse(
+      classify({
+        api: "anthropic-messages",
+        httpStatus: 400,
+        stopReason: "error",
+        errorMessage: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE,
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.kind,
+      "the counterfactual anchor: with the status supplied the signature match " +
+        "reaches ContextOverflowError, so any count failure below is element 2 " +
+        "alone. observed: " + JSON.stringify(result),
+    ).toBe("context_overflow");
+    expect(
+      result.tokens_used,
+      "element 2: the formatted envelope yields 7 numeric runs " +
+        "(400, 220044, 200000, 011, 67, 3, 6), so the exactly-two rule " +
+        "(provider-error-mapping.ts:250) falls back to null. The window " +
+        "`prompt is too long: 220044 tokens > 200000 maximum` yields exactly " +
+        "two. observed: " + JSON.stringify(result),
+    ).toBe(220044);
+    expect(
+      result.tokens_limit,
+      "element 2, the smaller run of the provider-message window. observed: " +
+        JSON.stringify(result),
+    ).toBe(200000);
+  });
+
+  // --- the constraint the widened gate must not break ---------------------
+
+  it("bug 0065 constraint: a CAPTURED non-400 status still vetoes the anthropic overflow match (HTTP 200 + overflow wording stays transport)", () => {
+    // The widening is "an unavailable status does not veto", NOT "any status
+    // matches". An HTTP-200 response carrying overflow wording is the
+    // openai-completions body-envelope arm (provider-error-mapping.ts:277-281,
+    // spec :18) and must not leak to anthropic, which has no such arm.
+    const result = classifyProviderResponse(
+      classify({
+        api: "anthropic-messages",
+        httpStatus: 200,
+        stopReason: "error",
+        errorMessage: "prompt is too long: 220044 tokens > 200000 maximum",
+      }),
+    ) as TransportError;
+    expect(
+      result.kind,
+      "a captured 200 must veto the anthropic overflow signature; " +
+        "`context_overflow` means the gate widened past the no-HTTP-response " +
+        "class into \"any status\". observed: " + JSON.stringify(result),
+    ).toBe("transport");
+    expect(
+      result.http_status,
+      "the captured status is carried through verbatim. observed: " +
+        JSON.stringify(result),
+    ).toBe(200);
+    expect(
+      result.retryable,
+      "an application-level refusal returned under a success status is a " +
+        "definite refusal, not a transient condition " +
+        "(provider-error-mapping.md:13). observed: " + JSON.stringify(result),
+    ).toBe(false);
+  });
+
+  // --- mistral parity: shared gate, UNMEASURED live behaviour -------------
+  //
+  // WHY these two cells are marked UNMEASURED. No mistral credential exists in
+  // this environment: the configured pi install exposes `anthropic-messages`,
+  // `openai-completions` and `openai-responses` over the anthropic +
+  // openrouter + unity gateways only — there is no `mistral` api provider to
+  // drive — so nothing about mistral here was observed live. The mistral arms
+  // widen by SHARED-GATE PARITY with anthropic: they are the same switch
+  // fallthrough (provider-error-mapping.ts:272-275 into the single `return` at
+  // :276), so whatever the gate concedes to anthropic it concedes to mistral
+  // by construction. Whether the mistral pi-ai adapter actually withholds
+  // `onResponse` on a 400 is UNMEASURED and is NOT claimed by these cells.
+
+  it("bug 0065 mistral parity (UNMEASURED): `mistral` at httpStatus null with a context-length body → ContextOverflowError, both counts null", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "mistral",
+        httpStatus: null,
+        stopReason: "error",
+        errorMessage: "the context length was exceeded",
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.kind,
+      "the mistral arm shares the anthropic gate expression verbatim, so it " +
+        "must share the widening. observed: " + JSON.stringify(result),
+    ).toBe("context_overflow");
+    expect(
+      result.tokens_used,
+      "mistral is outside TOKEN_EXTRACTING_APIS " +
+        "(provider-error-mapping.ts:192-195), so counts stay null on every route",
+    ).toBeNull();
+    expect(
+      result.tokens_limit,
+      "mistral is outside TOKEN_EXTRACTING_APIS " +
+        "(provider-error-mapping.ts:192-195), so counts stay null on every route",
+    ).toBeNull();
+  });
+
+  it("bug 0065 mistral parity (UNMEASURED): the `mistral-conversations` alias behaves identically at httpStatus null", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "mistral-conversations",
+        httpStatus: null,
+        stopReason: "error",
+        errorMessage: "the context length was exceeded",
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.kind,
+      "the pinned KnownApi alias shares the same switch fallthrough as " +
+        "`mistral`, so the two spellings must classify identically. observed: " +
+        JSON.stringify(result),
+    ).toBe("context_overflow");
+    expect(result.tokens_used, "outside TOKEN_EXTRACTING_APIS").toBeNull();
+    expect(result.tokens_limit, "outside TOKEN_EXTRACTING_APIS").toBeNull();
+  });
+
+  // --- element-2 no-op guards: the narrowing must not move a BARE message --
+  //
+  // The provider-message window is the value of the LAST `"message": "…"`
+  // match, or the WHOLE string when there is none. A bare provider message
+  // carries no such member, so every worked example of
+  // provider-error-mapping.md:24 must come out byte-identical. These are new
+  // cells; the pre-existing extraction cells above stay untouched.
+
+  it("bug 0065 element-2 no-op: a BARE two-run message is unchanged by the window narrowing (1234567/200000)", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "anthropic-messages",
+        httpStatus: 400,
+        errorMessage:
+          "maximum context length exceeded: requested 1,234,567 tokens, limit 200,000",
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.tokens_used,
+      "the spec's own worked example; a change here means the narrowing is " +
+        "not a no-op on bare messages. observed: " + JSON.stringify(result),
+    ).toBe(1234567);
+    expect(result.tokens_limit, "the spec's own worked example").toBe(200000);
+  });
+
+  it("bug 0065 element-2 no-op: a BARE one-run message still falls back to null/null", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "anthropic-messages",
+        httpStatus: 400,
+        errorMessage: "maximum context length exceeded: 5000 tokens",
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.tokens_used,
+      "one run is not two; the fallback is unchanged by the narrowing. " +
+        "observed: " + JSON.stringify(result),
+    ).toBeNull();
+    expect(result.tokens_limit, "one run is not two").toBeNull();
+  });
+
+  it("bug 0065 element-2 no-op: a BARE three-run message still falls back to null/null", () => {
+    const result = classifyProviderResponse(
+      classify({
+        api: "anthropic-messages",
+        httpStatus: 400,
+        errorMessage: "maximum context length exceeded: a 1 b 2 c 3",
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.tokens_used,
+      "three runs are not two; the fallback is unchanged by the narrowing. " +
+        "observed: " + JSON.stringify(result),
+    ).toBeNull();
+    expect(result.tokens_limit, "three runs are not two").toBeNull();
+  });
+
+  // --- the status-prefix fabrication guard --------------------------------
+  //
+  // WHY DERIVED, NOT MEASURED. Both byte strings below are DERIVED from the
+  // measured `openai-completions` formatted-error family — one live sample of
+  // that formatter reads
+  // `401: {"message":"LiteLLM Virtual Key expected. Received=UNIT****KEY1, expected to start with 'sk-'.","type":"auth_error","param":"None","code":"401"}`,
+  // i.e. `<status>: <JSON body carrying an innermost "message" member>`. No
+  // live openai-completions OVERFLOW was captured, so the overflow wording is
+  // constructed, not observed.
+
+  it("bug 0065 fabrication guard: an openai formatted error whose only in-window run is the limit yields null/null, never the HTTP status as a count", () => {
+    // The two-run shape: whole-string runs are exactly `400` (the status
+    // prefix) and `8192`, so the unnarrowed scan reads the HTTP STATUS as a
+    // token count. The window `maximum context length is 8192 tokens` has ONE
+    // run, which is the null/null fallback.
+    const result = classifyProviderResponse(
+      classify({
+        api: "openai-completions",
+        httpStatus: 400,
+        errorMessage: `400: {"message":"maximum context length is 8192 tokens","code":"context_length_exceeded"}`,
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.kind,
+      "anchor: the openai signature matches and the 400 gate concedes, so the " +
+        "counts below are the only thing under test. observed: " +
+        JSON.stringify(result),
+    ).toBe("context_overflow");
+    expect(
+      result.tokens_used,
+      "the HTTP status prefix must never be read as a token count. Without " +
+        "the provider-message window the whole-string scan sees exactly two " +
+        "runs (400, 8192) and fabricates tokens_used: 8192, tokens_limit: 400 " +
+        "— a 400-token context window that no provider reported. observed: " +
+        JSON.stringify(result),
+    ).toBeNull();
+    expect(
+      result.tokens_limit,
+      "the fabricated pair is (used 8192, limit 400); both must be null. " +
+        "observed: " + JSON.stringify(result),
+    ).toBeNull();
+  });
+
+  it("bug 0065 fabrication guard, numeric-`code` variant: the same shape with a numeric `code` member also yields null/null", () => {
+    // A three-run whole string (`400`, `8192`, `400`), so the unnarrowed scan
+    // ALREADY answers null/null here — this cell is the invariance half: the
+    // window (`maximum context length is 8192 tokens`, one run) must reach the
+    // same verdict rather than gaining a spurious pair.
+    const result = classifyProviderResponse(
+      classify({
+        api: "openai-completions",
+        httpStatus: 400,
+        errorMessage: `400: {"message":"maximum context length is 8192 tokens","code":400}`,
+      }),
+    ) as ContextOverflowError;
+    expect(result.kind, "anchor: the signature matches and the gate concedes").toBe(
+      "context_overflow",
+    );
+    expect(
+      result.tokens_used,
+      "one in-window run is not two. observed: " + JSON.stringify(result),
+    ).toBeNull();
+    expect(
+      result.tokens_limit,
+      "one in-window run is not two. observed: " + JSON.stringify(result),
+    ).toBeNull();
+  });
+
+  it("bug 0065 openai narrowing: a formatted overflow envelope yields the two IN-MESSAGE runs (10000/8192), not the three whole-string runs", () => {
+    // DERIVED, NOT MEASURED — see the fabrication-guard WHY above: the
+    // envelope shape is the measured openai-completions formatted family, the
+    // overflow wording is constructed. Whole-string runs are `400`, `8192`,
+    // `10000` (three → null/null); the window
+    // `This model's maximum context length is 8192 tokens. However, your
+    // messages resulted in 10000 tokens.` carries exactly two.
+    const result = classifyProviderResponse(
+      classify({
+        api: "openai-completions",
+        httpStatus: 400,
+        errorMessage: `400 {"error":{"message":"This model's maximum context length is 8192 tokens. However, your messages resulted in 10000 tokens.","type":"invalid_request_error","code":"context_length_exceeded"}}`,
+      }),
+    ) as ContextOverflowError;
+    expect(
+      result.kind,
+      "anchor: the openai signature matches at a captured 400. observed: " +
+        JSON.stringify(result),
+    ).toBe("context_overflow");
+    expect(
+      result.tokens_used,
+      "element 2 for openai: the status prefix makes three whole-string runs, " +
+        "so the unnarrowed scan falls back to null. observed: " +
+        JSON.stringify(result),
+    ).toBe(10000);
+    expect(
+      result.tokens_limit,
+      "the smaller in-window run is the model's context window. observed: " +
+        JSON.stringify(result),
+    ).toBe(8192);
+  });
+});

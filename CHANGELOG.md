@@ -6,6 +6,54 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-08-16
+
+### Fixed
+
+- **bug 0065 — `ContextOverflowError` was unreachable for
+  `anthropic-messages`.** The `anthropic-messages` pi-ai adapter does not fire
+  `StreamOptions.onResponse` on an HTTP-400 error response — the SDK call
+  throws before the callback runs — so every anthropic 400, a real
+  `prompt is too long` included, reached the classifier with `httpStatus:
+  null`. The overflow signature matched and `overflowStatusGateSatisfied`'s
+  `httpStatus === 400` arm then refused it, so a definite refusal surfaced to
+  theta code as `TransportError { retryable: true, http_status: null }` — an
+  author's `Err(ContextOverflow(e))` arm never fired against the default
+  provider, and the one machine-readable retry hint invited a retry of a
+  request that cannot succeed. Two elements, both shipped:
+  - The status gate now admits the no-HTTP-response class: the shared
+    `anthropic-messages` / `mistral` / `mistral-conversations` arm reads
+    `httpStatus === 400 || httpStatus === null`, the posture the `amazon-bedrock`
+    arm already had, restricted to that class rather than to any status. A
+    CAPTURED non-400 status still vetoes, so an HTTP-200 response carrying
+    overflow wording stays the `openai-completions` body-envelope case and does
+    not leak.
+  - Token extraction scans the provider's own message, not the formatted
+    envelope. `extractOverflowTokens` first narrows `errorMessage` to its
+    *provider-message window* — the last `"message": "…"` member, or the whole
+    string when there is none — and applies the unchanged exactly-two-runs rule
+    to that window. The pi-ai-formatted string prefixes the HTTP status and
+    appends the whole JSON body including `request_id`, so the previous
+    whole-string scan produced seven numeric runs on a live overflow and fell
+    back to `null` for both counts; worse, on a two-run envelope it could read
+    the HTTP status itself as `tokens_limit`. A real overflow now yields
+    `tokens_used` / `tokens_limit` populated from the provider's own numbers.
+
+  The anthropic adapter's non-firing is now MEASURED rather than assumed, and
+  `docs/spec_topics/pi-integration-contract/provider-error-mapping.md` records
+  it: the *Classifier input surface* carve-out names the CONDITION (no captured
+  HTTP status) instead of a single provider, the `anthropic-messages` overflow
+  row reads "HTTP 400, or no captured HTTP status", and *Overflow token-count
+  extraction* states the provider-message-window step bytes-in/values-out. A
+  new live cell (`tests/live/provider-error-revalidation-gate.test.ts`) is the
+  mechanical form of that page's *Re-validation gate*: it measures zero
+  `onResponse` firings on a cheap deliberate 400, one `status: 200` firing on a
+  success, and a real over-length prompt classifying `context_overflow` with
+  both counts populated. `mistral` shares the widened gate by construction; no
+  mistral credential exists in this environment, so its live behaviour remains
+  unmeasured and nothing claims otherwise.
+
+
 ## [0.99.0] - 2026-08-16
 
 ### Fixed

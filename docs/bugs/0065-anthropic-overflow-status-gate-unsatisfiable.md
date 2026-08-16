@@ -1,6 +1,6 @@
 # Bug 0065 — `ContextOverflowError` is unreachable for `anthropic-messages`: the adapter never fires `onResponse` on an HTTP 400, so the `httpStatus === 400` gate on the anthropic overflow signature can never be satisfied and a real `prompt is too long` classifies as `TransportError { retryable: true, http_status: null }` — and on the counterfactual-correct path the pi-ai-formatted `errorMessage` yields five numeric runs, so `tokens_used` / `tokens_limit` are `null` anyway
 
-- **Status:** open. Live-confirmed against a genuine provider overflow.
+- **Status:** fixed (0.100.0). Live-confirmed against a genuine provider overflow.
 - **Kind:** defect, two elements. Spec and implementation together fail to
   deliver documented behaviour, and the implementation faithfully implements
   a spec rule whose stated precondition does not hold for the provider it
@@ -338,3 +338,238 @@ a cheap deliberate 400 is the mechanical form of that gate.
   window; `onResponse` firings, `stopReason`, `errorMessage` and both
   classifier verdicts recorded verbatim in §Reproduction. Probe deleted
   after recording, per hunt protocol.
+
+## Fix (0.100.0)
+
+- **What shipped:**
+  - `src/binder/provider-error-mapping.ts` — §Fix element 1:
+    `overflowStatusGateSatisfied`'s shared `anthropic-messages` / `mistral` /
+    `mistral-conversations` arm is `input.httpStatus === 400 ||
+    input.httpStatus === null` (`:276`), the bedrock posture restricted to the
+    no-HTTP-response class; the openai arm (`:277-281`) and the bedrock arm
+    (`:282-285`) are byte-untouched, so a captured non-400 status still vetoes.
+    §Fix element 2, route (a): `PROVIDER_MESSAGE_MEMBER` (`:208`) and
+    `providerMessageWindow` (`:223`) narrow the scanned string to the
+    *provider-message window* inside `extractOverflowTokens` (`:239`) before
+    the unchanged exactly-two-runs rule (`:250`). `NUMERIC_RUN` (`:198`) and
+    the `runs.length !== 2` fallback are unchanged.
+  - `docs/spec_topics/pi-integration-contract/provider-error-mapping.md` — the
+    three amendments §Fix names, and only those. `:7` (*Classifier input
+    surface*) — the `unless` carve-out now names the CONDITION (a response
+    reaching the classifier with no captured HTTP status) rather than the
+    provider, scoped to the `anthropic-messages` / `mistral` / `amazon-bedrock`
+    rows with an explicit `openai-completions` exclusion; the captured-status
+    veto is stated; `amazon-bedrock` is the exemplar, not the scope; and the
+    anthropic non-firing is recorded as MEASURED, not assumed, with the
+    measurement and the item-(af) routing retained. `:17` — the anthropic row
+    reads "HTTP 400, or no captured HTTP status", regex byte-identical. `:24`
+    (*Overflow token-count extraction*) — the provider-message-window step,
+    stated bytes-in/values-out, with the layering argument and both worked
+    examples. `:18`/`:19`/`:20` untouched: the mistral row inherits the
+    admission through `:7`'s condition-scoped carve-out precisely because
+    mistral is UNMEASURED and must acquire no measurement claim. The file is
+    86 lines before and after and every `<a id=...>` anchor sits at its
+    original line (3, 7, 9, 11, 22, 31, 38, 54, 65), so no citing document
+    drifted.
+  - `tests/binder-inference-provider-mapping.test.ts` — +406 lines, STRICTLY
+    additive (`git diff --numstat` = `406 0`): 12 new cells beside the existing
+    classifier table.
+  - `tests/live/provider-error-revalidation-gate.test.ts` (new) — the
+    mechanical form of the *Re-validation gate* the §Fix *Test witness* names.
+  - `tests/off-session-transport-classification.test.ts` — comment text only
+    (`git diff --numstat` = `7 2`, every changed line a `//` comment); see
+    *Self-authorizations* below.
+
+- **Element-2 route decision — (a), settled by measurement.** The report left
+  (a) vs (b) open and pinned the criteria. Measured fresh at HEAD `c09384c4`
+  (v0.99.0, pi-ai `0.80.10`), because the report's evidence dates to 0.52.0:
+
+  | probe | formatted `errorMessage` | whole-string runs | provider-message window | window runs |
+  |---|---|---|---|---|
+  | real anthropic overflow, `claude-haiku-4-5` | `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}` | 7 | `prompt is too long: 220044 tokens > 200000 maximum` | 2 → 220044 / 200000 |
+  | deliberate 400 (`temperature` at `claude-sonnet-5`) | `400 {…"message":"``temperature`` is deprecated for this model."…}` | 5 | the bare message | 0 |
+  | live `openai-completions` (unity gateway) | `401: {"message":"LiteLLM Virtual Key expected. Received=UNIT****KEY1, expected to start with 'sk-'.","type":"auth_error","param":"None","code":"401"}` | 3 | the bare message | 1 |
+  | live `openai-completions` (openrouter) | `401: {"message":"Missing Authentication header","code":401}` | **2** | the bare message | 0 |
+
+  The formatted SHAPE is unchanged since 0.52.0 (`<status> <JSON body>`); only
+  the `request_id`'s digit runs differ, so the count is 7 here where the report
+  recorded 5 — `!== 2` either way. Route (b) was rejected on three independent
+  grounds: "two largest runs" contradicts `:24`'s own one-run and three-run
+  `null`-fallback rules and would have moved two pre-existing cells; a
+  `(\d+) tokens > (\d+)` capture does not match the section's own worked
+  example (`"requested 1,234,567 tokens, limit 200,000"` has no `>`); and the
+  last row above shows the unnarrowed rule already yields EXACTLY TWO runs both
+  of which are the HTTP status, i.e. the shared rule can fabricate a pair from
+  envelope metadata. Route (a) removes that class — the offline *fabrication
+  guard* cell pins it (unnarrowed, `400: {"message":"maximum context length is
+  8192 tokens","code":"context_length_exceeded"}` fabricates
+  `tokens_used: 8192, tokens_limit: 400`). The `:7` layering tension the report
+  flagged is answered in the amended `:24`: the window is a bounded regex
+  SUBSTRING SELECTION over the string theta already receives — the same string
+  the overflow signatures already regex-match — materialising no JSON value and
+  unescaping nothing, so it reconstructs no parsed error body. The openai side
+  of the shared rule was checked against the measured `openai-completions`
+  formatted family above (same `<status> <JSON body with an innermost
+  "message" member>` shape); the two openai cells are marked DERIVED, NOT
+  MEASURED because no live openai-completions OVERFLOW was capturable here.
+
+- **Live re-measurement transcript** (at HEAD `c09384c4`, before any edit):
+
+  ```
+  ONRESPONSE FIRINGS: []
+  STOPREASON: error
+  ERRORMESSAGE: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}
+  CLASSIFIER VERDICT (live inputs): {"kind":"transport","http_status":null,"provider":"anthropic-messages","retryable":true}
+  ```
+
+  Success control on the same model: `ONRESPONSE FIRINGS: [200]`,
+  `STOPREASON: stop` — so `onResponse` IS registered and DOES fire; the empty
+  firings belong to the adapter's error path, not to the harness. The
+  deliberate `temperature` 400 at `claude-sonnet-5` likewise recorded
+  `ONRESPONSE FIRINGS: []`. This is the measurement the amended `:7` records,
+  and it resolves the *Provider-owned-wording presupposition* review item (af)
+  for `anthropic-messages` against evidence rather than assumption. It is a
+  DIRECT pi-ai call carrying `temperature` deliberately, not the binder path —
+  bug 0064's binder-temperature-400 signature is retired (0.94.0) and is not
+  re-introduced.
+
+- **Gates** (each run at the tip, not taken on report):
+  - witness: `npx vitest run tests/binder-inference-provider-mapping.test.ts`
+    → `Test Files 1 passed (1)` / `Tests 58 passed (58)`.
+  - full suite: `npm test` → `Test Files 303 passed (303)` /
+    `Tests 4999 passed (4999)`.
+  - typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → clean.
+  - lint: `npm run lint` → clean.
+  - live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/provider-error-revalidation-gate.test.ts` → 3/3, cell (c)
+    `CLASSIFIER VERDICT: {"kind":"context_overflow", …,
+    "tokens_used":220039,"tokens_limit":200000,"raw_response":null}` on a real
+    refused-before-inference overflow.
+  - live regression: `tests/live/live-production-acceptance.test.ts` → 39/39,
+    including the bug-0064 cell.
+
+- **Review:** 2 rounds. Round 1 (deep) — 5 findings: the amended `:7` claimed
+  the carve-out "governs every row" while the shipped openai arm refuses `null`
+  (spec); the new test header narrated the pre-fix state in the present tense
+  (house-rule); stale `provider-error-mapping.ts:NNN` citations shifted by the
+  element-2 insertion (test); `:24` attributed to `:7` a pin it does not make
+  and stated a `request_id` universal the openai family refutes (spec); the
+  `PROVIDER_MESSAGE_MEMBER` `matchAll`/`lastIndex` safety comment was half-true
+  (house-rule). All five fixed; the fixer correctly wrote the true post-fix
+  line numbers rather than the pre-fix ones dictated to it, its own comment
+  replacement having shifted everything at/after line 200 by +2. Round 2
+  (fast) — CLEAN, with one non-blocking `test` residual (below).
+
+- **Verification:** SOLID, all four obligations SATISFIED.
+  - Witness reds both ways, per element, separately: neutralising element 1
+    (`return input.httpStatus === 400;`) reds 4 cells plus live cell (c)
+    against a real provider call; neutralising element 2 (scan `message`
+    instead of the window) reds 4 cells, including the fabrication guard
+    observing `tokens_used: 8192, tokens_limit: 400`. Both restorations
+    byte-exact — `git hash-object` returned
+    `2ec686989462f02caed754090f9591ef28f33b25` before and after each, with
+    `diff` against an out-of-tree copy empty.
+  - Full default suite green (303 / 4999).
+  - Live end-to-end: cell (c) green on a real overflow; H8a 39/39 with no
+    documented correct-reason signature observed.
+  - Lint and typecheck clean.
+  - `extensions/permitted-codes.json` byte-unchanged; the spec file is 86 lines
+    with every anchor at its original line; scratch sweep clean.
+
+- **`determinism-cancellation-failure.md` fold — verified unchanged at HEAD.**
+  §Failure-class taxonomy still reads "*Context-overflow handling.* A
+  classifier output of `ContextOverflowError` is treated as transport-class for
+  retry purposes", and the file is untouched by this change (`git diff --stat`
+  empty). §Non-goals' "the binder's surface is unchanged by this bug" therefore
+  still holds: the binder's retry budget sees the same class before and after,
+  and only the theta-code `@`-query surface changes.
+
+- **0065 live-signature retirement condition.** A real anthropic overflow now
+  classifies `context_overflow` with populated counts. The mechanical witness
+  is `tests/live/provider-error-revalidation-gate.test.ts` cell (c): a genuine
+  `prompt is too long` at `claude-haiku-4-5` yields
+  `{"kind":"context_overflow","tokens_used":<measured>,"tokens_limit":200000}`.
+  Cell (b) keeps the version-coupled premise measured
+  (`ONRESPONSE FIRINGS: []` on a cheap deliberate 400) and cell (a) keeps that
+  measurement falsifiable (`[200]` on success).
+
+- **Self-authorizations** (recorded verbatim; the interactive question channel
+  was unavailable in this run):
+  1. *Question that would have been asked:* "The WHY comment in
+     `tests/off-session-transport-classification.test.ts` cell (v) asserts in
+     prose that 'anthropic's gate is 400-only and unobservable at this seam'.
+     Element 1 makes the first clause false. May the comment be corrected in
+     the same commit?" *Evidence settling it (three independent sources):*
+     (i) `src/binder/provider-error-mapping.ts:276` — the arm is no longer
+     400-only, so the sentence is factually false post-commit;
+     (ii) `src/extension/production-theta-producer.ts:5378-5401` —
+     `classifyOffSessionReply` presents a fixed `httpStatus: 200`, so the
+     SECOND clause stays true but for a reason the comment does not state;
+     (iii) `CLAUDE.md` — comments say WHY, and a WHY that is false is worse
+     than none. *Bound:* comment text only, in one cell of one file; zero
+     assertion, input, matcher or control-flow changes; the file's test count
+     and every `expect` byte-identical. *STOP valve:* had the correction
+     required touching an executable line, or had the file redded, the run
+     would have stopped and reported. *Outcome:* `git diff --numstat` = `7 2`,
+     every changed line a `//` comment; the file runs `10 passed (10)`.
+  2. *Not self-authorized — stopped and recorded instead:* the off-session
+     fold's fabricated `httpStatus: 200` (residual 1). It touches behaviour and
+     would red a protected cell, so it is reported, not fixed.
+
+- **Residuals:**
+  1. **The off-session `@`-query fold is NOT reached by this fix, and this
+     report is wrong about why.** §Actual behaviour states the classifier's
+     status comes from "`captured?.status ?? null` … and the fixed `null` fold
+     in the off-session path". At HEAD the off-session fold is not `null`:
+     `classifyOffSessionReply` hard-codes `httpStatus: 200`
+     (`src/extension/production-theta-producer.ts:5398`, rationale at
+     `:5371-5377`), and has since bug 0007's fix
+     (`git log -S 'httpStatus: 200,'` → `87c044ff … v0.18.0`) — the report was
+     already wrong on this point when filed at 0.52.0. Consequence: an
+     anthropic overflow arriving through the off-session `@`-query fold still
+     classifies `transport`, because a captured non-400 status vetoes — exactly
+     what §Fix constraint (ii) requires. This is correctly out of scope:
+     `classifyOffSessionReply` is not one of the two functions §Fix names, and
+     flipping its 200 to `null` would red
+     `tests/off-session-transport-classification.test.ts` cell (v), which needs
+     the 200 to reach openai's HTTP-200 body-envelope arm. §Why it matters 1's
+     "Every `@`-query in a theta body against an Anthropic model is on this
+     path" is therefore only partly discharged: the binder path
+     (`#classifyBinderAttempt`, real captured status at
+     `production-theta-producer.ts:1073`) is fixed; the off-session query fold
+     needs its own report. Independently confirmed by review round 1 and by the
+     verifier.
+  2. **`openai-completions` is now the only token-extracting row that vetoes on
+     no-captured-status.** Its arm stays `400 || (200 && stopReason "error")`
+     per §Non-goals. Whether the openai adapter withholds `onResponse` on a 400
+     is UNMEASURED here: no `openai-completions` credential resolves for an
+     out-of-band `complete()` in this environment (unity gateway →
+     `401: {"message":"LiteLLM Virtual Key expected…"}`; openrouter →
+     `401: {"message":"Missing Authentication header","code":401}`).
+  3. **Mistral is UNMEASURED.** No `mistral` api provider exists in the
+     configured install (anthropic + openrouter + unity gateways only, all
+     `anthropic-messages` / `openai-completions` / `openai-responses`), so
+     §Non-goals' "the fix should measure them" could not be discharged. The
+     mistral arms widen by shared-gate parity only; the two parity cells and
+     the amended spec say so explicitly and claim no measurement.
+  4. **Mistral's captured-non-400 veto has no dedicated cell** (review round 2,
+     non-blocking). Only anthropic is exercised at `httpStatus: 200` with
+     overflow wording. The property is guaranteed by construction — all three
+     arms fall through to the single `return` at
+     `src/binder/provider-error-mapping.ts:276` — so this is coverage symmetry,
+     not a behavioural gap.
+  5. **Latent tension, pre-existing and unchanged by this diff** (review round
+     1): `:7` states the runtime "registers `onResponse` on every `complete()`
+     call", while the off-session fold registers none and fabricates a 200.
+     Belongs with residual 1.
+
+- **Discharge notes appended:** none. No sibling bug document is affected. The
+  RESUME live-signature retirement is the parent's edit; bug 0064's document
+  was not touched (its census facts were inputs here, not a surface).
+
+- **Pinned dispositions / non-goals** (unchanged, not re-litigated): whether
+  pi-ai should fire `onResponse` on error responses is upstream; the
+  `openai-completions` HTTP-200 body-envelope arm is untouched; the binder's
+  fold of `ContextOverflowError` into the transport class is unchanged and
+  verified above; `raw_response: null` on a probe that supplies no
+  `rawResponse` is by construction.
