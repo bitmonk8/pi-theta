@@ -1254,3 +1254,30 @@ rule: a value inside a `{"anyOf":[…]}` arm still receives no tag, no brand and
 descent, because the sidecar is keyed by JSON Pointer and `anyOf` has no
 data-space image. That is a spec question before it is a code change, and §Fix
 face 2 states the five candidate rules it must be answered from.
+
+## Coordination note — bug 0178 landed (0.101.0)
+
+The block this report's `## Fix (0.97.0)` recorded on its own child-side witness
+is **lifted**. Bug 0178 fixed the load-time binder-model gate's blindness to the
+subagent-root regime, so a `mode: subagent` callee whose `params:` block is not
+binder-bypass-eligible now registers inside its own spawned child instead of
+degrading to a prompt and exiting 0 with no envelope.
+
+**The witness landed there, not here, and nothing stays owed to this report.**
+`tests/subagent-root-binder-model-exempt.test.ts`'s `penum` row drives a callee
+declaring `params: sev: Sev` whose body is `sev == Sev.High` across a real
+spawned child boundary and asserts `true` — an untagged bare `"high"` would take
+`valuesEqual`'s cross-type arm and read `false`, so the assertion observes
+`#intakeSubagentRootParams` routing the marshalled JSON through
+`bindParamsInbound` and reattaching the declaring-enum tag. That is the
+child-side leg of the boundary-3 projection this report's face-1 fix wired and
+could not pin.
+
+`tests/inbound-boundary-binder-args.test.ts`'s §*THE CHILD SIDE IS NOT WITNESSED
+HERE* paragraph was corrected in the same commit, on the authority of bug 0178
+§Fix (c)(6); that file keeps the parent-side projection and its assertions are
+unchanged.
+
+**This report's status is unaffected.** It stays open, narrowed to face 2 (the
+`anyOf` arm dispatch), which bug 0178 did not touch: `src/parser/**` is
+byte-untouched and no union position moved.

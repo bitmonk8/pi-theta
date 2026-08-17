@@ -141,7 +141,8 @@ Keys read (five): `thetaPaths` (top-level `string[]`), and four scalars under
 
 - `theta.binderModel` — non-empty string; binder fallback when `bind_model:` is
   omitted. Required when any non-bypass theta is in scope (else
-  `theta/load/binder-model-unresolved`).
+  `theta/load/binder-model-unresolved`). The requirement excludes the marked
+  root theta of a spawned subagent child (the subagent-root exemption).
 - `theta.scanPackages` — boolean, default `true`.
 - `theta.scanPackagesMaxFiles` — integer ≥ 1, default `2000`.
 - `theta.scanPackagesTimeoutMs` — integer ≥ 1, default `2000`.

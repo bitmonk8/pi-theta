@@ -62,7 +62,12 @@ import {
   readParentEnv,
   readParentPid,
 } from "./production-subagent-host";
-import { detectSubagentRootRegime } from "../runtime/subagent-root-regime";
+import {
+  detectSubagentRootRegime,
+  markedRootRegistrationRefusal,
+  type LoadRefusalDiagnostic,
+} from "../runtime/subagent-root-regime";
+import { serializeErrEnvelope } from "../runtime/subagent-envelope";
 import { checkExtensionToolReachability } from "./extension-tool-reachability";
 import type { DispatchLadderProbe } from "../runtime/host-loop-dispatch";
 import {
@@ -135,6 +140,7 @@ import type { ThetaMode } from "../parser/frontmatter";
 import {
   matchAvailableModel,
   resolveBinderModel,
+  type BinderModelResolution,
   type StrictCapableProbe,
 } from "../binder/binder-model";
 import { classifyBinderBypass } from "../binder/binder-envelope";
@@ -176,6 +182,15 @@ export interface ComposeSeamOverrides {
    * fail to witness the load-time registration refusal for subagent-mode thetas.
    */
   readonly subagentExecutableHost?: ExecutableHost;
+  /**
+   * Bug 0178 element (b): test injection of the load pass's marked-root
+   * registration-refusal envelope writer (the same writer `producerDeps`
+   * threads to `driveSubagentRootRegime`'s own PIC-59 envelope). Production
+   * reads `createProductionEnvelopeWriter()` (the real fd-1 write); a test
+   * injects a capturing writer so the refusal envelope is observable without a
+   * spawned child process.
+   */
+  readonly emitResultEnvelope?: (line: string) => void;
 }
 
 /**
@@ -367,6 +382,19 @@ export async function discoverAndComposeFixtures(
     // path), so it composes against a throwaway forwarding sink no teardown
     // observes.
     [],
+    undefined,
+    undefined,
+    // A no-op envelope writer, because this helper owes no envelope. PIC-59's
+    // `theta_result` line is the obligation of a process that IS a real
+    // spawned subagent child honouring its launch contract, emitted by that
+    // child's own load pass; this reload-less helper is not that process, so a
+    // pass that is not the child's real load pass must not claim the child's
+    // one envelope on its single reserved-key stdout channel. Defaulting here
+    // would hand the writer to `createProductionEnvelopeWriter()` — a genuine
+    // fd-1 write — from a path the shipped `session_start` composition never
+    // takes (it goes through `composeExtensionInstance`, which threads the
+    // caller's writer instead).
+    (): void => {},
   );
   return pass.thetas;
 }
@@ -406,7 +434,11 @@ async function runComposePass(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   root: RuntimeRoot,
-  sink: LoadDiagnosticSink,
+  // Bug 0178 element (b): renamed from `sink` — this is now the CALLER's sink;
+  // the pass wraps it in a recording tee (`sink`, below) so every call site
+  // inside this function keeps delivering to it unchanged while the tee also
+  // captures error-severity diagnostics for `markedRootRegistrationRefusal`.
+  outerSink: LoadDiagnosticSink,
   // Decision 6 / Increment B1: the extension-instance-scoped shared registry of
   // in-flight invocations, threaded into every composed theta's producer so the
   // bind choke points register into the SAME instance the factory's
@@ -424,6 +456,13 @@ async function runComposePass(
   // and the producer's launch seam read. Production reads the running process;
   // a test injects a both-rungs-failing host to witness the load refusal.
   passExecutableHost?: ExecutableHost,
+  // Bug 0178 element (b): the marked-root registration-refusal envelope
+  // writer, hoisted below (beside `subagentRootRegime`) into the SAME
+  // `emitResultEnvelope` const `producerDeps` threads to
+  // `driveSubagentRootRegime` — one child process, one envelope writer.
+  // Production supplies none (the hoist falls back to
+  // `createProductionEnvelopeWriter()`); a test injects a capturing writer.
+  passEnvelopeWriter?: (line: string) => void,
   // Bug 0023 element 2: this extension instance's renderer gate, threaded onto
   // the parse-time note channel below so a renderer-degraded instance routes
   // its parse diagnostics to `ctx.ui.notify` too. The degrade rule is per
@@ -435,6 +474,51 @@ async function runComposePass(
   const fileSystem = root.fileSystem;
   const clock = root.clock;
   const subagentExecutableHost = passExecutableHost ?? createProductionExecutableHost();
+
+  // Bug 0178 element (b): a marked-root registration refusal must name the
+  // diagnostic that caused it, and the registration loop below is the only
+  // place that ever holds both the regime's slug and every diagnostic this
+  // pass raises — so error-severity diagnostics are captured HERE, once, into
+  // a pass-local array `markedRootRegistrationRefusal` reads after the loop
+  // finishes. A recording TEE, not a replacement: every `sink.` call site in
+  // the rest of this function keeps delivering to the caller's own
+  // `outerSink` exactly as before. `emitGroup` records each member but
+  // forwards the group array WHOLE — never fanned out per element, which
+  // would break the sink contract's own per-group warning-batching guarantee
+  // (`LoadDiagnosticSink`'s doc comment, above).
+  const recordedErrorDiagnostics: LoadRefusalDiagnostic[] = [];
+  // Recording is a LOAD-pass concern, closed by the refusal lookup below — but
+  // the tee itself outlives the pass: `sink.emit` is threaded into
+  // `producerDeps` as `emitDiagnostic`, and every composed theta's `run`
+  // closure captures that for extension-instance lifetime. The producer's
+  // RUNTIME-phase error diagnostics (spawn failures, wire failures,
+  // envelope-parse failures, callable-hash refusals) therefore keep arriving
+  // at this same sink long after the only reader ran. Unwiring the sink is not
+  // the fix — delivery must continue — so the LATCH is what bounds the array:
+  // once the refusal is decided, recording stops and the tee is delivery-only.
+  let recordingComplete = false;
+  const recordErrorSeverity = (diagnostic: Diagnostic): void => {
+    if (recordingComplete || diagnostic.severity !== "error") {
+      return;
+    }
+    recordedErrorDiagnostics.push({
+      code: diagnostic.code,
+      message: diagnostic.message,
+      ...(diagnostic.file !== undefined ? { file: diagnostic.file } : {}),
+    });
+  };
+  const sink: LoadDiagnosticSink = {
+    emit: (diagnostic: Diagnostic): void => {
+      recordErrorSeverity(diagnostic);
+      outerSink.emit(diagnostic);
+    },
+    emitGroup: (diagnostics: readonly Diagnostic[]): void => {
+      for (const diagnostic of diagnostics) {
+        recordErrorSeverity(diagnostic);
+      }
+      outerSink.emitGroup(diagnostics);
+    },
+  };
 
   // Merged, validated settings (V10c) drive the settings discovery source and
   // the package-walk bounds.
@@ -513,6 +597,13 @@ async function runComposePass(
   // in-process root drive. PIC-64 host-loop-dispatch rung availability is NOT
   // regime-gated — the probe below reads only the Pi surfaces.
   const subagentRootRegime = detectSubagentRootRegime(readParentEnv());
+  // Bug 0178 element (b): hoisted here (not inline in `producerDeps` below) so
+  // ONE writer instance serves both `driveSubagentRootRegime`'s own PIC-59
+  // envelope and this pass's marked-root registration-refusal envelope
+  // (emitted after the registration loop) — a child process has exactly one
+  // reserved-key stdout channel (PIC-59) and must never open two independent
+  // writers onto it.
+  const emitResultEnvelope = passEnvelopeWriter ?? createProductionEnvelopeWriter();
 
   // PIC-64: the code-side extension-tool dispatch-ladder probe — MODE- and
   // regime-independent (the retired PIC-61 child-only availability invariant is
@@ -588,8 +679,11 @@ async function runComposePass(
     // Active only inside a spawned subagent child; drives the child-side
     // in-process root drive + envelope emission.
     subagentRootRegime,
-    // RFC-0006 (PIC-59): the child-side stdout return-envelope writer.
-    emitResultEnvelope: createProductionEnvelopeWriter(),
+    // RFC-0006 (PIC-59): the child-side stdout return-envelope writer — the
+    // SAME instance hoisted above (bug 0178 element (b)), so the drive's own
+    // envelope and the load pass's marked-root registration-refusal envelope
+    // share one writer.
+    emitResultEnvelope,
     // PIC-64: the code-side extension-tool dispatch ladder probe. Rung 1 is
     // derived above as the upstream surface probe AND a wired rung-1 dispatcher
     // (none exists at the pin, so it reads false and registration cannot outrun
@@ -828,16 +922,41 @@ async function runComposePass(
     // runtime dispatches the binder OFF-session against it.
     const bypassEligible =
       classifyBinderBypass(input.frontmatter.params?.fields).kind !== "binder";
-    const binderModelResolution = resolveBinderModel({
-      file: input.sourcePath ?? input.slashName,
-      ...(input.frontmatter.bindModel !== undefined
-        ? { bindModel: input.frontmatter.bindModel }
-        : {}),
-      ...(settingsBinderModel !== undefined ? { settingsBinderModel } : {}),
-      bypassEligible,
-      matcher: modelMatcher,
-      probeStrictCapable,
-    });
+    // Bug 0178 element (a): the marked root of a spawned subagent child
+    // dispatches through `driveSubagentRootRegime` STRICTLY BEFORE
+    // `runBinder` whenever `isSubagentRootFor` holds
+    // (theta-composition-producer.ts's slash-dispatch `run`:
+    // `deps.isSubagentRootFor?.(theta)` gates the regime drive ahead of
+    // `deps.runBinder`) — this predicate is that same test, so the exempt set
+    // here and the binder-skipping set there are ONE set, held together by
+    // that single co-located invariant. A wider exemption (every theta in the
+    // child) would rest on the argv contract instead
+    // (subagent.md#subagent-launch-contract, one invocation per process) and
+    // would register a NESTED `mode: subagent` callee whose OWN dispatch still
+    // reaches `runBinder` (`selectSubagentDriver`'s no-recursion guarantee
+    // spawns that callee its own child) with no resolved binder model —
+    // hitting the `model === undefined` defensive arm `runBinder` itself calls
+    // unreachable for a registered non-bypass theta. Skipping resolution here
+    // also skips the strict-capability probe (it runs INSIDE
+    // `resolveBinderModel`), which is the regime carve-out's own requirement,
+    // not an accident: otherwise `theta/load/binder-model-not-strict-capable`
+    // becomes the next refusal on the very same path.
+    const isMarkedRootTheta =
+      subagentRootRegime.active &&
+      subagentRootRegime.slug === input.slashName &&
+      input.frontmatter.mode === "subagent";
+    const binderModelResolution: BinderModelResolution = isMarkedRootTheta
+      ? { resolved: true, diagnostics: [] }
+      : resolveBinderModel({
+          file: input.sourcePath ?? input.slashName,
+          ...(input.frontmatter.bindModel !== undefined
+            ? { bindModel: input.frontmatter.bindModel }
+            : {}),
+          ...(settingsBinderModel !== undefined ? { settingsBinderModel } : {}),
+          bypassEligible,
+          matcher: modelMatcher,
+          probeStrictCapable,
+        });
     sink.emitGroup(binderModelResolution.diagnostics);
     if (!binderModelResolution.resolved) {
       // A non-bypass theta with no resolvable binder model fails to load.
@@ -918,6 +1037,29 @@ async function runComposePass(
     parseDeps,
     sink.emit,
   );
+  // Bug 0178 element (b): AFTER `refuseDivergedChildCallables`, not before —
+  // the callable-hash verification above can drop the marked root too, so
+  // `registeredSlugs` must reflect this pass's FINAL registration outcome.
+  // `calleePath` is the marked root's OWN discovered path (not any callee's):
+  // `resolveThetaToolsAtLoad` stamps `file: parsed.sourcePath` on every
+  // `tools:`-surface diagnostic it raises for a theta, the same value
+  // `discovered[].path` holds for that theta, so the lookup below finds the
+  // refusal diagnostic the marked root's OWN file drew, if any.
+  const registrationRefusal = markedRootRegistrationRefusal({
+    regime: subagentRootRegime,
+    registeredSlugs: survivors.map((theta) => theta.slashName),
+    calleePath: subagentRootRegime.active
+      ? discovered.find((theta) => theta.name === subagentRootRegime.slug)?.path
+      : undefined,
+    refusals: recordedErrorDiagnostics,
+  });
+  recordingComplete = true;
+  if (registrationRefusal !== undefined) {
+    // The one PIC-59 envelope line this pass ever owes: the child fell
+    // through to the host's ordinary prompt handling with no theta runtime
+    // ever entered, so the load pass is the only remaining writer for it.
+    emitResultEnvelope(serializeErrEnvelope(registrationRefusal));
+  }
   return { thetas: survivors, activeRoots };
 }
 
@@ -1191,6 +1333,7 @@ export async function composeExtensionInstance(
     forwardingSignals,
     ownRegisteredNames,
     overrides?.subagentExecutableHost,
+    overrides?.emitResultEnvelope,
     rendererGate,
   );
 
@@ -1241,6 +1384,7 @@ export async function composeExtensionInstance(
               // reload of this same call.
               ownRegisteredNames ?? new Set(registry.snapshot().keys()),
               overrides?.subagentExecutableHost,
+              overrides?.emitResultEnvelope,
               rendererGate,
             )
           ).thetas,

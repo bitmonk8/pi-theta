@@ -73,16 +73,19 @@ import {
 // `args` the production `runBinder` returns verbatim
 // (`src/extension/production-theta-producer.ts:886`).
 //
-// THE CHILD SIDE IS NOT WITNESSED HERE. The marshalled-params intake binds the
-// same way (`#intakeSubagentRootParams`,
-// `src/extension/production-theta-producer.ts:2019`; the projection at `:2145`),
-// but both are private to `ProductionThetaProducer#driveSubagentRootRegime`,
-// which no offline surface enters, and a real spawned child cannot reach it in
-// the direction this bug needs: a `params:` field declared as a named `enum` or
-// a named `schema` on a `mode: subagent` callee makes the grandchild exit 0
-// with no `theta_result` envelope, so the intake's binding is never observable.
-// That failure is a different defect and pinning it here would red for the
-// wrong reason.
+// THE CHILD SIDE IS NOW WITNESSED, ELSEWHERE (bug 0178).
+// `tests/subagent-root-binder-model-exempt.test.ts`'s `penum` row drives a
+// callee with `params: sev: Sev` whose body is `sev == Sev.High` across a real
+// spawned child boundary and asserts `true` — which is
+// `#intakeSubagentRootParams` (`src/extension/production-theta-producer.ts`)
+// routing the marshalled JSON through `bindParamsInbound`
+// (`src/runtime/inbound-boundary.ts`), reattaching the declaring-enum tag the
+// same way the parent-side projection above does. THIS FILE still does not
+// witness that leg: it is the offline unit tier over the PARENT-side
+// projection (`composeThetaFixture`'s `run` binder step); the child-side leg
+// is private to `ProductionThetaProducer#driveSubagentRootRegime` and needs a
+// spawned process to observe, which only the other file's integration tier
+// supplies.
 //
 // WHAT IS RED HERE AND WHY. Cells (a), (b) and (c) red on the cast: an untagged
 // binding that compares `false` against the caller's own variant, an unbranded

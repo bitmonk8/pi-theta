@@ -26,6 +26,7 @@
 // tool-registration-lifetime.md (active-set snapshot/restore, degenerate here).
 
 import type { ThetaMode } from "../parser/frontmatter";
+import type { InvokeInfraError } from "./query-error";
 
 // ---------------------------------------------------------------------------
 // Regime marker + detection.
@@ -104,4 +105,80 @@ export function selectSubagentDriver(input: DriverSelectionInput): SubagentDrive
     return { kind: "in-process-root" };
   }
   return { kind: "spawn-child" };
+}
+
+// ---------------------------------------------------------------------------
+// Marked-root registration refusal → parent envelope (bug 0178 element (b)).
+// ---------------------------------------------------------------------------
+
+/**
+ * One error-severity load diagnostic, narrowed to what a registration-refusal
+ * message needs to name it: its registry code, its message, and the file it is
+ * attributed to (absent for a location-less diagnostic).
+ */
+export interface LoadRefusalDiagnostic {
+  readonly code: string;
+  readonly message: string;
+  readonly file?: string;
+}
+
+/** Inputs to `markedRootRegistrationRefusal`. */
+export interface MarkedRootRegistrationRefusalInput {
+  /** The regime detected for this process (`detectSubagentRootRegime`). */
+  readonly regime: RootRegime;
+  /** Every slash name this pass's registration loop registered, after every drop this pass applies (incl. the callable-hash check). */
+  readonly registeredSlugs: readonly string[];
+  /**
+   * The marked root theta's own discovered file path, when the active regime
+   * names a theta the discovery walk actually found. `undefined` outside the
+   * regime, or when the walk found no theta at that slug at all (nothing to
+   * attribute a diagnostic to).
+   */
+  readonly calleePath: string | undefined;
+  /** Every error-severity diagnostic this pass raised, in emission order. */
+  readonly refusals: readonly LoadRefusalDiagnostic[];
+}
+
+/**
+ * Whether THIS process's load pass refused to register the theta the parent
+ * launched it to run — the marked root slug (PIC-58) — and, if so, the
+ * `InvokeInfraError` the load pass owes the parent for it.
+ *
+ * A spawned child's argv IS its one instruction (`-p "/<slug>"`,
+ * subagent.md#subagent-launch-contract): once the slug fails to register, that
+ * argument is no longer a command, the host sends it to the model as ordinary
+ * prompt text instead, and the theta runtime never runs — so nothing else in
+ * the process ever gets to say what happened. The load pass is the only place
+ * that still holds both facts at once (the regime's own slug, and every
+ * diagnostic that un-registered a theta this pass), which is why it is the one
+ * that must name the refusal before the process falls through to that silent
+ * prompt path.
+ *
+ * Returns `undefined` outside the regime (there is no marked root to refuse)
+ * and when the marked root DID register (nothing to report) — every other
+ * exit from a registered root is `driveSubagentRootRegime`'s own PIC-59
+ * envelope to write, not this pass's.
+ */
+export function markedRootRegistrationRefusal(
+  input: MarkedRootRegistrationRefusalInput,
+): InvokeInfraError | undefined {
+  const { regime } = input;
+  if (!regime.active || input.registeredSlugs.includes(regime.slug)) {
+    return undefined;
+  }
+  // `calleePath` undefined means no diagnostic can be attributed to it — NOT a
+  // match against a location-less diagnostic's own undefined `file` (the two
+  // undefineds mean different things and must not be conflated).
+  const refusal =
+    input.calleePath === undefined
+      ? undefined
+      : input.refusals.find((candidate) => candidate.file === input.calleePath);
+  const detail =
+    refusal === undefined ? "no load diagnostic names it" : `${refusal.code}: ${refusal.message}`;
+  return {
+    kind: "invoke_infra",
+    message: `subagent child refused to register its root theta '/${regime.slug}': ${detail}`,
+    callee_path: input.calleePath ?? regime.slug,
+    cause: "load_failure",
+  };
 }

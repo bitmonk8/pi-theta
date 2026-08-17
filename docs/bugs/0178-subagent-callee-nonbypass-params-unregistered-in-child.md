@@ -1,15 +1,14 @@
 # Bug 0178 — A `mode: subagent` callee whose `params:` block is not binder-bypass-eligible (a named `enum` or `schema` type, any non-`string` type, more than one field, any default) fails to register inside its own spawned child with `theta/load/binder-model-unresolved`, because the load-time binder-model gate is blind to the subagent-root regime that PIC-60 exempts from the binder entirely; the child's `-p "/<slug>"` then degrades to an ordinary user prompt, spends one unbudgeted model turn against the callee's own `--tools` allowlist, and exits 0 with no `theta_result` envelope — so the parent reports `subagent child exited without a return envelope: exited code 0`, an exit detail rather than the cause
 
-- **Status:** open. §Fix is constraint-pinned, not settled: two candidate routes
-  are named with their measured reach, and the choice between them decides
-  whether a spec sentence moves and whether a registry row is added. Ordering:
-  nothing blocks this report from starting. It **blocks the child-side half of
-  [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)** —
-  that report's `## Fix (0.97.0)` wired the marshalled-params intake through
-  `bindParamsInbound` and recorded that no witness could be written for it
-  because this defect kills the child (`.pi/tmp/fixes/0172-report.md`
-  §*Residuals/notes* → *For the parent to file* item 1). The child-side
-  projection stays unwitnessed until this lands.
+- **Status:** fixed (0.101.0). See [`## Fix (0.101.0)`](#fix-01010) at the end of
+  this document for what shipped, the routes chosen inside §Fix's constraint set,
+  and the residuals. The block on
+  [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)'s
+  child-side witness is **lifted**, and that witness landed here rather than
+  being handed back — the `penum` row of
+  `tests/subagent-root-binder-model-exempt.test.ts` drives a callee with
+  `params: sev: Sev` whose body is `sev == Sev.High` across a real spawned child
+  boundary and asserts `true`.
 - **Sev/Diff estimate:** S2/D3 — S2 because the primary observable is a **loud,
   fail-closed refusal of legal input**: the parent receives
   `Err(InvokeInfraError { kind: "invoke_infra", cause: "internal_error" })` with
@@ -844,3 +843,254 @@ Volatile positions are named by symbol beside their line numbers per bug
 [0134](./0134-params-shift-induced-stale-citations.md);
 `src/extension/production-theta-producer.ts` is 6277 lines and
 `src/extension/production-composition.ts` 2567 lines at this HEAD.
+
+<a id="fix-01010"></a>
+
+## Fix (0.101.0)
+
+- **Routes chosen inside §Fix's constraint set** (§Fix was constraint-pinned,
+  not settled; both choices and their reasoning are recorded here).
+  - **Element (a) — route (1), root-slug only.** The load-time binder-model gate
+    (`runComposePass`, `src/extension/production-composition.ts`) skips
+    resolution for exactly `regime.active && regime.slug === input.slashName &&
+    frontmatter.mode === "subagent"` — character-for-character
+    `isSubagentRootFor`'s own predicate. **Why not route (2) (whole child):** the
+    exemption must be sound, and the only predicate that is provably sound is
+    the *dispatch* predicate. The slash-dispatch `run` handler
+    (`src/extension/theta-composition-producer.ts`) short-circuits into
+    `driveSubagentRootRegime` when `isSubagentRootFor` holds, and returns,
+    strictly before it reaches `runBinder`. Route (1) therefore makes the exempt
+    set and the binder-skipping set **one set held together by one co-located
+    code invariant**, checkable in a single repository. Route (2) rests instead
+    on the argv contract (`subagent.md` #subagent-launch-contract, one
+    invocation per process) — true today, but a property of the launcher and the
+    host rather than of the code that would make the binder call — and it would
+    register thetas whose own dispatch *does* reach `runBinder` with no resolved
+    model, reaching the `model === undefined` arm `runBinder` itself documented
+    as unreachable. Skipping resolution skips the strict-capability probe with
+    it (the probe runs inside `resolveBinderModel`), which is §Fix (c)(3)'s
+    requirement rather than an accident.
+  - **Element (b) — the three open questions, answered rather than assumed.**
+    (i) *Carrier:* the **existing** `InvokeInfraError { cause: "load_failure" }`
+    arm. No enum change and no `queryerror-variants.md` edit: `invocation.md`
+    §Resolution already states that the parent's `Err` on this cause "cannot
+    distinguish escape from deletion, both of which are legitimate causes of
+    `load_failure`", so the arm is already the general *the callee could not be
+    loaded* carrier. `cause: "validation"` was rejected — it is the params/args
+    input-validation arm and already carries the PIC-60 intake refusal, so
+    reusing it would make a load refusal and a params refusal indistinguishable.
+    (ii) *New registered diagnostic code:* **no.** The refusal reaches the parent
+    as a **value on the PIC-59 envelope**, and `driveSubagentChild`'s `err` arm
+    settles without minting a diagnostic; the child-side cause already has a
+    registered code, which the envelope's message quotes verbatim. So: no DIAG-2
+    registry row, no `tests/fixtures/h7a/permitted-codes.json` change (confirmed
+    against a real 11/11 H9a run, not by assumption), no placeholder-table
+    closure.
+    (iii) *The stray model turn is **not** prevented,* and the spec says so. The
+    envelope is written during extension load, strictly before the host
+    processes the argv prompt; nothing on the extension surface can stop the
+    host's handling of an unrecognised `-p "/slug"` (§Non-goals pins that as the
+    host's). What the route guarantees is that the parent settles on the
+    envelope the moment it is written, so its result is the named cause and
+    `driveSubagentChild` never reaches the exit arm. The measured saving is on
+    element (a)'s path, where the observable is `stdoutLines === 2` — the
+    session line plus the envelope, no turn at all.
+- **What shipped**
+  - `src/extension/production-composition.ts` — element (a)'s
+    `isMarkedRootTheta` exemption at the binder-model gate; element (b)'s
+    recording tee over the caller's `LoadDiagnosticSink` (per-diagnostic `emit`,
+    whole-group `emitGroup` so warning batching is not split), latched off once
+    the refusal is decided; one hoisted `emitResultEnvelope` shared with
+    `producerDeps` so a child has exactly one writer on its reserved-key stdout
+    channel; the refusal emission placed **after**
+    `refuseDivergedChildCallables`, because the callable-hash check can drop the
+    marked root too; the `ComposeSeamOverrides.emitResultEnvelope` /
+    `passEnvelopeWriter` test seam; and an explicit no-op writer for
+    `discoverAndComposeFixtures`, which is never on the shipped path and so owes
+    no envelope.
+  - `src/runtime/subagent-root-regime.ts` — the pure
+    `markedRootRegistrationRefusal` (regime + final registered slugs + the
+    pass's error diagnostics → `InvokeInfraError | undefined`), living with the
+    regime it reads.
+  - `src/extension/reload-wiring.ts`,
+    `src/extension/production-theta-producer.ts` — comment-only: the two
+    invariant comments this fix falsified now state the third case and
+    attribute `runBinder`'s defensive guard to the dispatch short-circuit rather
+    than to the load gate.
+  - **Spec, same commit** (behaviour is conditioned on the regime, so the
+    sentences that fix the behaviour say so):
+    `binder-model-and-context.md` §*Binder model* — the refusal condition gains
+    the carve-out under the new anchor `#binder-model-subagent-root-exemption`;
+    `subagent.md` PIC-60 — the load-time precondition MUST NOT be enforced
+    against the marked root, and PIC-59 — a new **Marked-root registration
+    refusal** requirement bullet (the fail-closed bullet above it is unweakened,
+    §Fix (c)(4)); `frontmatter-fields-a.md`, `code-registry-load.md` (Trigger
+    only — the Message is unchanged, so `docs/reference/diagnostics.md` needs no
+    edit), `package-and-settings.md`, `capability-inventory-items.md` item 7,
+    `host-prerequisites.md` prerequisite 2, `implementation-notes.md`; mirrors in
+    `docs/reference/frontmatter.md` and `docs/reference/discovery-cli.md`.
+  - `tests/inbound-boundary-binder-args.test.ts` — the one existing-test edit
+    §Fix (c)(6) authorizes: its §*THE CHILD SIDE IS NOT WITNESSED HERE*
+    paragraph, falsified by this fix, now records where the child side IS
+    witnessed and why that file still is not the place. Comment-only, zero
+    assertion changes.
+  - **Two new witnesses.** `tests/subagent-root-binder-model-exempt.test.ts`
+    (integration, real spawned children, offline and provider-free after the
+    fix): the §Reproduction (b) rows re-driven — `pstr` control, `penum` /
+    `psch` / `parr` subjects, the three `bind_model:` over-reach-fence rows, and
+    the §Reproduction (a) `toppenum` grandchild row — each asserting the
+    envelope AND `stdoutLines === 2`. Hermeticity per §Fix (c)(5): the witness
+    plants `<cwd>/.pi/settings.json` with an unmatchable `theta.binderModel` and
+    spawns with `cwd` at that directory, and a project scalar replaces the
+    global one wholesale (`mergeSettings`), so the refusal is guaranteed on any
+    operator machine instead of depending on the operator's own settings file
+    being empty. `tests/subagent-root-registration-refusal-envelope.test.ts`
+    (composition seam, offline, zero processes): the refusal envelope, two
+    absence controls, the §Fix (c)(1) slash-surface lock at composition level,
+    and the element-(a)/(b) interaction cell.
+- **Gates** (verbatim, on the committed tree)
+  - Witness, RED before: `penum` / `psch` / `parr` / the `toppenum` grandchild
+    all `ok=false` with
+    `{"kind":"invoke_infra","message":"subagent child exited without a return envelope: exited code 0","cause":"internal_error"}`,
+    `exit={"code":0,"signal":null}`, `stderrLines=0`, `stdoutLines` 38 / 32 / 36
+    (the wasted model turn); seam cell (1) red on `Captured: []: expected +0 to
+    be 1`. GREEN after: `Test Files 2 passed (2) / Tests 6 passed (6)`.
+  - Full suite: `Test Files 305 passed (305) / Tests 5005 passed (5005)`
+    (baseline 303 / 4999; the delta is exactly the two new witness files).
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → exit 0, no output.
+  - Lint: `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    → exit 0, no output.
+  - Live: H9a **11/11 across both files** (`noninteractive-acceptance` 10/10,
+    `ctor-unresolved-load-refusal` 1/1) — the empty-capture stderr gate held at
+    every spawn, and `tests/fixtures/h7a/permitted-codes.json` is byte-identical
+    to HEAD. H8a 38/39, the single red being `H8a-T`'s stochastic sentinel
+    absence, green on an isolated re-run.
+  - Blast-radius pre-measurement, taken before any test was written: a full
+    prototype of both elements left the suite at 4999/4999 green with zero
+    unauthorized flips.
+- **Review:** 2 rounds, plus one pre-review correction round (not a review
+  round).
+  - *Pre-review correction (orchestrator).* The implementer additionally swept
+    `production-composition.ts:NNN` line citations in 8 unrelated test files
+    (one an H9a cell). All 8 were restored **byte-exact** to HEAD
+    (`git hash-object` verified) — existing tests change only with doc
+    pre-authorization, and bug 0134 is the adjudicated do-not-chase class for
+    positional drift, which this report's own §Provenance models by recording a
+    stale sibling citation rather than correcting it.
+  - *Round 1 (deep) — 5 findings, all fixed.* F1 `correctness`: the recording
+    tee never stopped recording, because its `emit` is threaded into
+    `producerDeps` and captured for the extension-instance lifetime — fixed with
+    a pass-local latch. F2 `spec`: the new PIC-59 bullet promised the refusing
+    diagnostic's code and message unconditionally, where the implementation has
+    a reachable `no load diagnostic names it` arm — bullet qualified, and the two
+    `file`-less refusals that reach that arm named. F3 `fidelity`:
+    `capability-inventory-items.md` item 7 and `host-prerequisites.md`
+    prerequisite 2 state the refusal rule normatively rather than
+    forward-linking — one clause added to each. F4 `test`: claimed the
+    `bind_model:` fence rows tie the default gate to anthropic credentials —
+    **disproved by measurement** (see residual 2); the false header sentence was
+    corrected. F5 `house-rule`: two invariant comments the fix falsified — both
+    corrected.
+  - *Round 2 (fast) — 1 finding, fixed.* `implementation-notes.md` also states
+    the gate unconditionally; one clause added. Its three residuals are recorded
+    below. The remedy was prose-only, so per the polish rule the confirmation
+    review was skipped: polish verified by gate-diff (every hunk a `docs/` prose
+    line, gates re-run green).
+- **Verification:** VERIFIED at round 2.
+  - *Witnesses witness the bug.* Element (a) neutralised (`isMarkedRootTheta`
+    forced false) reds the integration witness; with element (b) ALSO neutralised
+    the literal historical signature returns (`cause: "internal_error"`,
+    `exited code 0`, `stdoutLines` 36–39, ~4 real assistant turns). Element (b)
+    neutralised (`markedRootRegistrationRefusal` forced `undefined`) reds seam
+    cell (1) on zero captured lines. Both restored by targeted byte edits,
+    `git hash-object` equal to the pre-edit value.
+  - *Full suite green* — 305/305, 5005/5005, twice.
+  - *End-to-end live, run for real* — H9a 11/11 across both files; H8a carried
+    forward from round 1 (38/39, the red confirmed stochastic).
+  - *Lint and typecheck* — both exit 0.
+  - Round 1 returned NOT VERIFIED on one finding: a real `theta_result` envelope
+    reached fd 1 during the offline default suite from the pre-existing
+    `tests/subagent-child-hash-refusal-e2e.test.ts`, because
+    `discoverAndComposeFixtures` could not receive the new writer seam. Fixed by
+    giving that helper an explicit no-op writer; a `grep` over the full suite log
+    now finds one envelope line, the pre-existing deliberate fd-1 probe.
+- **GOV-15 — the two behaviour moves, enumerated** (§Fix (c)(7)).
+  1. *Refusal → success.* A `mode: subagent` theta with a non-bypass `params:`
+     block and no resolvable binder model now REGISTERS inside its own spawned
+     child, and only there. Nothing that succeeds today starts failing.
+  2. *Exit detail → named error.* A child whose marked root theta does not
+     register now returns
+     `Err(InvokeInfraError { cause: "load_failure", message: "subagent child refused to register its root theta '/<slug>': <code>: <message>" })`
+     where it previously returned
+     `Err(InvokeInfraError { cause: "internal_error", message: "subagent child exited without a return envelope: exited code 0" })`
+     and the parent minted `theta/runtime/subagent-exit-without-envelope`. **This
+     is a `cause` AND a message change operators or tests may match on**, and the
+     parent-side diagnostic is no longer minted on this path because the envelope
+     arrived. No committed test matched the old text (measured: the full-suite
+     prototype run was 4999/4999 green before any witness existed).
+- **Residuals**
+  1. **The route-(1) nested residue does not materialise, measured.** §Fix (a)(1)
+     predicted that a nested `mode: subagent` callee registered in the same child
+     would keep hitting the refusal one level down. The `toppenum` row of
+     `tests/subagent-root-binder-model-exempt.test.ts` — a no-params root with
+     `tools: - ./penum.theta`, driven as a real child that spawns its own
+     grandchild — is GREEN. The reason is structural: `selectSubagentDriver`'s
+     no-recursion guarantee gives the nested callee its own grandchild process,
+     where it is that process's marked root and is exempt by the same predicate.
+     Nothing is owed here; recorded so the prediction is not carried forward.
+  2. **The `bind_model:` fence rows carry no credential dependency, measured.**
+     Round 1 read them as tying the offline default gate to `anthropic` auth and
+     to one catalogue id. Substituting a provably unresolvable
+     `no-such-provider/no-such-model-0178` for `anthropic/claude-haiku-4-5` and
+     re-running the file leaves all three rows GREEN with `stdoutLines === 2`,
+     because the exemption skips resolution for the marked root and `bind_model:`
+     is a dead line for it. The rows keep the bug document's own control vehicle;
+     the header now records the measurement.
+  3. **Induced citation drift, deliberately not chased (bug 0134's class).**
+     `src/extension/production-composition.ts` grows 2567 → 2711 lines, so
+     `production-composition.ts:NNN` citations in
+     `tests/e2e-s6-load-emit-toast-path.test.ts`,
+     `tests/inbound-boundary-typed-query.test.ts`,
+     `tests/inbound-rebuild-declaration-order.test.ts`,
+     `tests/live/acceptance/ctor-unresolved-load-refusal.test.ts`,
+     `tests/params-default-empty-literal-refusal.test.ts`,
+     `tests/tools-derived-name-shape.test.ts`,
+     `tests/tools-entry-closed-grammar.test.ts` and
+     `tests/wire-translation-inbound-retag.test.ts` are now stale by +16 (above
+     the registration loop) or +127 (below it). Left as found, per bug 0134 and
+     per this report's own §Provenance practice.
+  4. **`queryerror-variants.md`'s `cause: "load_failure"` gloss reads
+     `// callee file unreadable`** and does not mention the marked-root
+     registration refusal now prescribed by PIC-59. Left as found: the gloss is
+     one terse line per cause and already under-describes `internal_error`
+     (crash/kill/timeout exit, envelope-parse failure, schema skew); the
+     normative trigger is stated in `subagent.md`, and the enum is untouched by
+     the settled route.
+  5. **The how-to and tutorial tiers still restate the refusal unconditionally**
+     (`docs/how-to/bind-slash-command-arguments.md`, `docs/tutorial.md`). Left as
+     found: both scope themselves to the slash-command path in their own opening
+     prose, and `docs/STYLE.md`'s Diátaxis rule treats those tiers differently
+     from spec and reference.
+  6. **§Fix (c)(1) cites `tests/binder-model-resolution.test.ts` as 11 tests; it
+     holds 10** at this HEAD (measured: `Tests 10 passed (10)`). The file is
+     byte-untouched by this fix; the drift is from an intervening commit.
+  7. **A stale comment in `tests/conformance/production-conformance.test.ts`**
+     calls `discoverAndComposeFixtures` "the shipped `session_start` composition
+     root … re-exported by `extensions/index.ts`". It is neither
+     (`extensions/index.ts` re-exports `factory`'s default; the shipped path is
+     `composeExtensionInstance`). Observed during verification; the file is
+     outside this fix's authorization and was not edited.
+- **Discharge notes appended:** `0172` — a coordination note recording that this
+  report's block on its child-side witness is lifted and that the witness landed
+  here.
+- **Pinned dispositions / non-goals:** every §Non-goal holds. The bypass set is
+  not widened and `classifyBinderBypass` is untouched (§Fix (c)(2));
+  `theta.binderModel` gains no default; the ordinary-slash-surface load refusal
+  is unchanged, including the `docs/examples/import-thetalib.theta` census
+  instance; `src/parser/**` is byte-untouched, so 0179's `decide` array arm is
+  unaffected; 0172's face-2 `anyOf` dispatch and its enforced-entry-point
+  question are untouched; the host's own argv handling for an unrecognised
+  `/slug` is unchanged; the `subagent-child-crashed` hint slot was not used.
+  `src/runtime/subagent-json-driver.ts` and `src/binder/**` are byte-untouched,
+  and `tests/binder-model-resolution.test.ts` /
+  `tests/binder-bypass-envelope.test.ts` were not edited.

@@ -87,9 +87,16 @@ export interface ParsedTheta {
    * non-bypass theta whose binder model resolved (a non-bypass theta with no
    * resolvable binder model fails to load and never reaches here); absent for a
    * bypass-eligible theta (no-params / single-string), which never calls the
-   * binder. The runtime binder dispatch resolves this reference to a concrete
-   * `Model<Api>` via the model registry and drives the binder OFF-session
-   * against it.
+   * binder. THIRD CASE — absent for the marked root theta of a spawned subagent
+   * child, which IS a registered non-bypass theta that reaches here with no
+   * binder model: `runComposePass` (`production-composition.ts`) skips
+   * resolution for it under the subagent-root regime
+   * (binder-model-and-context.md §"Binder model", the subagent-root exemption),
+   * because its dispatch never reaches the binder at all — the slash `run` in
+   * `theta-composition-producer.ts` gates `driveSubagentRootRegime` on
+   * `isSubagentRootFor` ahead of `runBinder`. The runtime binder dispatch
+   * resolves this reference to a concrete `Model<Api>` via the model registry
+   * and drives the binder OFF-session against it.
    */
   readonly binderModel?: string;
   /**

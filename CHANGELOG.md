@@ -6,6 +6,67 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.101.0] - 2026-08-16
+
+### Fixed
+
+- **bug 0178 — a `mode: subagent` callee with a non-bypass `params:` block could
+  not run inside its own spawned child.** The load-time binder-model gate
+  refused any theta whose `params:` block is not binder-bypass-eligible (a named
+  `enum` or `schema` type, any non-`string` type, more than one field, any
+  default) when neither `bind_model:` nor the `theta.binderModel` setting
+  resolved. Inside a spawned subagent child that refused the one theta the child
+  was launched to run: PIC-60 marshals such a callee's params structurally and
+  skips the binder entirely, so the gate enforced a precondition for a call the
+  process cannot make. The child's `-p "/<slug>"` then stopped being a command,
+  the host sent it to the model as prompt text, one unbudgeted assistant turn
+  ran, and the process exited 0 with no `theta_result` envelope — leaving the
+  parent to report `subagent child exited without a return envelope: exited code
+  0`, an exit detail rather than the cause. Whether a callee worked therefore
+  depended on an unrelated setting read from the operator's own files.
+
+  The load pass now skips binder-model resolution for exactly the marked root
+  theta of a spawned subagent child — the same predicate
+  (`isSubagentRootFor`) by which the slash dispatch already short-circuits into
+  `driveSubagentRootRegime` ahead of the binder, so the exempt set and the
+  binder-skipping set are one set. The strict-capability probe is skipped with
+  it. The ordinary slash surface is unchanged: a non-bypass theta with no
+  resolvable binder model still fails to load with
+  `theta/load/binder-model-unresolved`, with the same message, in an ordinary
+  session.
+
+  Independently, a child that fails to register its marked root slug — for any
+  load- or parse-time reason — now writes the PIC-59 envelope itself, carrying
+  `Err(InvokeInfraError { cause: "load_failure" })` whose message names the
+  refused slug and the refusing diagnostic's code and message. **Operators and
+  tooling matching on the old text should note the change:** that path
+  previously surfaced `cause: "internal_error"` with `subagent child exited
+  without a return envelope: exited code 0` and minted
+  `theta/runtime/subagent-exit-without-envelope`; it now surfaces the named load
+  failure and mints no parent-side diagnostic, because the envelope arrived.
+  Emitting the envelope does not stop the host from processing the argv prompt —
+  that handling is the host's — but the parent settles on the envelope as soon
+  as it is written.
+
+  Spec amended in the same commit, since the behaviour is conditioned on the
+  regime: `binder-model-and-context.md` §*Binder model* (new anchor
+  `#binder-model-subagent-root-exemption`), `subagent.md` PIC-60 and a new
+  PIC-59 *Marked-root registration refusal* requirement, plus the pages that
+  restate the refusal rule (`frontmatter-fields-a.md`, `code-registry-load.md`
+  Trigger, `package-and-settings.md`, `capability-inventory-items.md`,
+  `host-prerequisites.md`, `implementation-notes.md`) and the
+  `docs/reference/` mirrors. No diagnostic code was added and the `QueryError`
+  enum is unchanged.
+
+  Locked by `tests/subagent-root-binder-model-exempt.test.ts` (real spawned
+  children, offline and provider-free: every non-bypass `params:` shape returns
+  its marshalled value with two stdout lines and no model turn, including
+  through a `tools:`-named grandchild) and
+  `tests/subagent-root-registration-refusal-envelope.test.ts` (the refusal
+  envelope at the composition seam, with the slash-surface lock beside it). The
+  first also discharges bug 0172's child-side `bindParamsInbound` witness, which
+  this defect had blocked.
+
 ## [0.100.0] - 2026-08-16
 
 ### Fixed

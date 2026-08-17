@@ -749,18 +749,26 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // (`bind_model:` → `theta.binderModel`, resolved at load time and carried on
     // the theta), NOT the ambient session model (DISCO-1 runtime facet). The
     // reference is resolved to a concrete `Model<Api>` via the model registry
-    // by the same exact-match rule the load-time resolution used; a registered
-    // non-bypass theta always carries a resolvable binder model (an unresolvable
-    // one failed to load), so `model === undefined` is a defensive guard only.
+    // by the same exact-match rule the load-time resolution used, so
+    // `model === undefined` is a defensive guard only. WHAT MAKES IT
+    // UNREACHABLE IS THE DISPATCH, NOT THE LOAD GATE: the load gate exempts one
+    // registered non-bypass theta from binder-model resolution — the marked root
+    // of a spawned subagent child (binder-model-and-context.md §"Binder model",
+    // the subagent-root exemption) — so a registered non-bypass theta CAN reach
+    // the runtime carrying no binder model. It cannot reach HERE, because the
+    // slash `run` in `theta-composition-producer.ts` gates
+    // `driveSubagentRootRegime` on `isSubagentRootFor` ahead of `runBinder` and
+    // returns; the exempt set and the short-circuited set are one set, held
+    // together by that single predicate.
     const binderModelRef = binderInput.theta.binderModel;
     const model =
       binderModelRef !== undefined
         ? matchAvailableModel(binderModelRef, this.#input.modelRegistry.getAvailable())
         : undefined;
     if (model === undefined) {
-      // Defensive (unreachable for a registered non-bypass theta): surface the
-      // malformed failure note rather than crash the dispatch, and do not run
-      // the body.
+      // Defensive (unreachable on this dispatch path, per the reasoning above):
+      // surface the malformed failure note rather than crash the dispatch, and
+      // do not run the body.
       this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "malformed" });
       return { bound: false };
     }
