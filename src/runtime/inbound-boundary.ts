@@ -20,6 +20,7 @@
 
 import type { ThetaBody } from "../parser/theta-document";
 import { buildInboundTranslationPlan } from "../parser/schema-lowering";
+import type { SchemaValidator } from "../seams/schema-validator";
 import { translateInbound } from "./wire-translation";
 import type { ThetaValue } from "./value";
 
@@ -40,6 +41,14 @@ export interface InboundBoundaryInput {
   readonly enumNames: ReadonlySet<string>;
   /** The AJV-validated payload. */
   readonly validated: unknown;
+  /**
+   * The validator whose verdict admitted `validated`. The union-arm dispatch
+   * re-tests a value against each arm of a `{"anyOf":[…]}` position through it,
+   * so the re-test uses the same compile route and the same content-addressed
+   * cache the verdict came from. Absent on a harness composing no validator, in
+   * which case a value inside a union arm keeps the documented pass-through.
+   */
+  readonly schemaValidator?: Pick<SchemaValidator, "compile">;
 }
 
 /**
@@ -49,7 +58,9 @@ export interface InboundBoundaryInput {
  * Ordered after the caller's own AJV verdict and before the value binds, as
  * runtime-value-model.md §"Wire-name translation" fixes ("after AJV validation
  * against the lowered schema, the runtime walks the validated JSON"). The walk
- * re-tags named-enum positions, re-brands schema-typed objects and orders each
+ * re-tags named-enum positions, re-brands schema-typed objects, dispatches a
+ * `{"anyOf":[…]}` position to the first arm that admits the value (given
+ * `input.schemaValidator` to re-test the arms through) and orders each
  * described object's own fields by declaration; it applies no rename, because
  * every sidecar `buildInboundTranslationPlan` derives carries an empty
  * wire-name map by construction — the lowering the boundaries here consume
@@ -68,6 +79,7 @@ export function decodeInboundValue(input: InboundBoundaryInput): ThetaValue {
     sidecars: plan.sidecars,
     rootDef: plan.rootDef,
     schemaNames: plan.schemaNames,
+    ...(input.schemaValidator !== undefined ? { schemaValidator: input.schemaValidator } : {}),
   });
 }
 
@@ -91,6 +103,8 @@ export interface ParamsBindingInput {
   readonly lowered: Record<string, unknown> | undefined;
   /** The theta body whose `schema` / `enum` declarations the params types resolve against. */
   readonly body: ThetaBody;
+  /** The validator the union-arm dispatch re-tests an `anyOf`-typed param against. */
+  readonly schemaValidator?: Pick<SchemaValidator, "compile">;
 }
 
 /**
@@ -112,7 +126,7 @@ export interface ParamsBindingInput {
  * projection as already-theta-side values.
  */
 export function bindParamsInbound(input: ParamsBindingInput): Map<string, ThetaValue> {
-  const { params, lowered, body } = input;
+  const { params, lowered, body, schemaValidator } = input;
   const decoded =
     lowered === undefined
       ? params
@@ -122,6 +136,7 @@ export function bindParamsInbound(input: ParamsBindingInput): Map<string, ThetaV
           schemaNames: declaredNames(body, "schema"),
           enumNames: declaredNames(body, "enum"),
           validated: params,
+          ...(schemaValidator !== undefined ? { schemaValidator } : {}),
         });
   const bindings = new Map<string, ThetaValue>();
   if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {

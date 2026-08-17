@@ -1,6 +1,16 @@
 # Bug 0172 — `runtime-value-model.md:34` closes the inbound wire-name-translation boundary set at four and states the rule once for all of them ("not restated per call site"), but after the bug 0067 fix `translateInbound` still has exactly one production caller: typed query results, typed `.theta`-callable tool-call returns and binder `args` each bind the raw AJV-validated payload, so a named-enum position arrives untagged and a schema-typed object unbranded — and on the one boundary 0067 did wire, a value inside a `{"anyOf":[…]}` arm is untranslated too, because the sidecar is keyed by JSON Pointer and `anyOf` has no data-space image, which makes arm dispatch a spec question no sentence answers
 
-- **Status:** open. Residual of the bug 0067 fix (0.90.0, commit `e18b30e5`),
+- **Status:** fixed (0.102.0). Both faces are discharged: face 1 at 0.97.0
+  (`## Fix (0.97.0)`) and face 2 at 0.102.0 (`## Fix (0.102.0)`, at the end of
+  this document). The arm-dispatch rule face 2 was blocked on is now written
+  into `runtime-value-model.md` §"Wire-name translation" and
+  `schema-subset.md` step 5 — **first-admitting-arm dispatch**, adjudicated by
+  the operator from §Fix's own candidate list — and the code implements it in
+  the same commit as the sentence. The enforced-entry-point question 0067's
+  §Options left open is still open, recorded as a disposition rather than
+  answered: `src/runtime/inbound-boundary.ts` remains a shared step.
+  Historical framing preserved below as filed. Residual of the bug 0067 fix
+  (0.90.0, commit `e18b30e5`),
   recorded there as `## Fix (0.90.0)` *Residuals* items 1 and 2 and in that fix's
   report (`.pi/tmp/fixes/0067-report.md` R1 and R2). §Fix is constraint-pinned,
   not settled: face 1 has four candidate scopes with their measured costs, face 2
@@ -1281,3 +1291,248 @@ unchanged.
 **This report's status is unaffected.** It stays open, narrowed to face 2 (the
 `anyOf` arm dispatch), which bug 0178 did not touch: `src/parser/**` is
 byte-untouched and no union position moved.
+
+## Fix (0.102.0) — face 2, the `anyOf` arm-dispatch rule
+
+**The settled rule, and where its authority comes from.** §Fix face 2 listed
+five candidate rules and could implement none of them, because choosing one is a
+specification question. The operator adjudicated it for this run, selecting
+**candidate 1 — first-ADMITTING-arm dispatch** — and settling the case that
+candidate's own text flagged as pathological:
+
+> Given a value AJV admitted against `{"anyOf":[A,B,…]}`, re-test the value
+> against each arm IN SOURCE ORDER (SUBS-1, `schema-subset.md` §Lowering
+> Algorithm step 3, already fixes arm order at source order) and translate under
+> the FIRST arm that admits it. The two-arms-both-admit case (`Sev | "high"`) is
+> adjudicated FIRST-MATCH-WINS, and that adjudication is written into the spec
+> sentence, not only into the code. Re-testing an arm uses the already-lowered
+> arm fragments through the content-addressed compiled-validator cache
+> (`src/seams/schema-validator.ts`) — never a hand-rolled second validation path
+> and never a second compile route.
+
+Candidates 2–5 are therefore closed for this report: 2 (unique-admitting-arm
+only) makes the tag's presence depend on sibling arm shapes, which face 2 names
+as the defect; 3 (discriminator-driven) closes only the discriminated-object
+part of the class and is silent for `T | null`; 4 (arm-indexed pointers) moves
+the decision rather than making it; 5 (decline and specify the limit) was
+declined by the adjudication.
+
+- **What shipped:**
+  - `docs/spec_topics/runtime-value-model.md` §"Wire-name translation", inbound
+    bullet — the rule, normatively, with the FIRST-MATCH-WINS adjudication
+    stated in the sentence, the no-arm-admits case, and the brand invariant: a
+    branded value never comes out unbranded; a declared-`schema` arm installs
+    that schema's brand exactly as a non-union position referencing the same
+    schema does; an arm naming no declared `schema` re-installs the brand the
+    value arrived with.
+  - `docs/spec_topics/schema-subset.md` Lowering Algorithm step 5 — the sidecar
+    is now "four maps and a field-order list": item (5) *Union arms*, on the
+    same JSON-Pointer keying as (2) and (3), each arm carrying the
+    self-contained lowered document it is re-tested against plus the declaring
+    `enum` name or the `$defs` entry the pass descends into. A fragment with no
+    `anyOf` position carries no such map.
+  - `docs/reference/type-system.md` and `docs/reference/schema-subset.md` — the
+    two mirrors, in their compressed register. A sweep
+    (`rg -n "Applies uniformly|named-enum positions|inbound translation pass"
+    docs/reference docs/spec_topics`) found no third mirror.
+  - `src/parser/schema-lowering.ts` — `SidecarUnionArm` / `SidecarUnionPosition`
+    and `SchemaSidecar.unionArms`; `buildSidecar` records arms per position;
+    `buildInboundTranslationPlan` gains an `anyOf` branch in `classify` and a
+    `describeArm` helper that mints a `$defs` entry for a structural arm so the
+    walk re-enters it at that entry's own root.
+  - `src/runtime/wire-translation.ts` — `rebuildInbound` dispatches at a union
+    position through `rebuildUnderFirstAdmittingArm` / `firstAdmittingArm`;
+    `InboundTranslationInput` gains an optional `schemaValidator`.
+  - `src/runtime/inbound-boundary.ts`, `src/extension/production-theta-producer.ts`
+    and `src/extension/theta-composition-producer.ts` — the validator is threaded
+    to all four inbound boundaries: the typed-query decode closure,
+    `#validateInvokeReturn` (covering `invoke<T>` and the typed
+    `.theta`-callable return), the child-side marshalled-params intake, and the
+    parent-side binder-`args` projection (through a `schemaValidator` accessor on
+    the production producer, read off `ThetaProducerDeps`).
+  - The three amended reach-limit comments moved in the same commit, as §Fix
+    face 2 requires: the `wire-translation.ts` module header's *positions this
+    pass reaches* paragraph, `translateInbound`'s doc comment, and
+    `#validateInvokeReturn`'s doc comment. Each now states the dispatch, cites
+    the rule's home, and states the no-arm-admits case.
+- **Gates** (at the committed tree): witness
+  `npx vitest run tests/inbound-union-arm-dispatch.test.ts` — `Tests  19 passed
+  (19)`. Full default suite — `Test Files  306 passed (306)`, `Tests  5024
+  passed (5024)` (baseline 305 / 5005). `npm run typecheck` clean; `npm run
+  lint` clean. Live: H8a `tests/live/live-production-acceptance.test.ts`
+  `Tests  40 passed (40)` for real (39 shipped plus the additive cell 40 below);
+  H9a `tests/live/acceptance/` `Test Files  2 passed (2)`, `Tests  11 passed
+  (11)` across BOTH files; `tests/fixtures/h7a/permitted-codes.json`
+  byte-unchanged by the real H9a run (`git hash-object` `a4a8da04…` before and
+  after). `tests/committed-fixture-parse-gate.test.ts` — `Tests  36 passed
+  (36)`, which is what discharges the corpus-wide "no shipped source moves"
+  claim.
+- **Review:** two rounds. Round 1 (deep) — three `test` blockers and five
+  non-blocking items. The blockers: the array-arm minting branch was
+  production-reachable but unwitnessed; the brand re-install that discharges the
+  no-subtraction constraint could not red; and none of the four
+  `schemaValidator` thread lines could red, so deleting any one of them would
+  have silently reverted that boundary while the suite stayed green — the exact
+  per-boundary-omission mode this bug family exists to close. The non-blocking
+  five: the spec sentence overclaimed on brands in the cross-brand corner, four
+  doc comments still said "three maps", one comment narrated history, the
+  witness header miscounted its own cells, and `firstAdmittingArm`'s doc
+  misstated what the invoke boundary's verdict had read. All eight were fixed in
+  one fixer round; the witness grew 11 → 19 cells, four of them driving the real
+  production boundaries. Round 2 (fast) — CLEAN, no findings, no residuals.
+- **Verification:** SOLID. Seven targeted production neutralisations, each
+  restored blob-hash-identical and each producing exactly its predicted red set
+  and no other: the union-dispatch branch (15 RED cells fall, the 4 CONTROLs
+  stay green), the array-arm mint (2 cells), the brand re-install (1 cell), and
+  the four thread lines (1 cell each). Full suite green. Live coverage was
+  exercised for real, and no shipped H8a cell drove a union-typed inbound
+  position — cells 32 / 37 / 38 all annotate a bare `Sev`, and cell 39's `anyOf`
+  arms are anonymous inline objects whose assertions read the AJV verdict alone
+  — so the verifier added cell 40 (additive, append-only; no existing cell's
+  assertions touched): a subagent callee tailing an enum variant under an
+  `invoke<Sev | null>` parent, rendering `v == Sev.High`. Proved both directions
+  live: green with the fix, `Rendered segment: "false"` with the dispatch branch
+  neutralised, green again after restore. Lint and typecheck clean.
+- **The (f) table, re-measured.** §Reproduction (f)'s six rows were re-derived at
+  HEAD `acea6749` before any code moved and reproduced EXACTLY as filed — no
+  drift across the five fixes that landed since they were measured. All six now
+  reach the specified end state:
+
+  | annotation | payload | end state at 0.102.0 |
+  | --- | --- | --- |
+  | `Sev` | `"high"` | enum, `== Sev.High` **`true`** (unchanged) |
+  | `Sev \| null` | `"high"` | enum, `== Sev.High` **`true`** |
+  | `Box` | `{"sev":"high"}` | brand `Box`; `.sev` **`true`** (unchanged) |
+  | `Box \| null` | `{"sev":"high"}` | brand `Box`; `.sev` **`true`** |
+  | `array<Sev>` | `["high"]` | element **`true`** (unchanged) |
+  | `array<Sev \| null>` | `["high"]` | element **`true`** |
+
+  Two rows measured beyond the filed table: `Sev | Box` dispatches by re-test,
+  not by position — `"high"` takes arm 0 and tags, `{"sev":"high"}` takes arm 1
+  and brands; and `Sev | "high"` lowers to
+  `{"anyOf":[{"$ref":"#/$defs/Sev"},{}]}`, whose second arm is the EMPTY schema
+  and admits every value, so it is a genuine both-arms-admit case and the
+  FIRST-MATCH-WINS adjudication resolves it to a tagged `Sev`.
+- **No-subtraction, discharged rather than renegotiated (§Fix face-2 constraint).**
+  `tests/wire-translation-inbound-retag.test.ts`'s plan-undescribed cell is
+  **byte-untouched and green**. Its premise assertions still hold literally: the
+  arms live in their own fifth map, so `U2`'s sidecar still carries
+  `refTargets []` and `namedEnumPositions []` at `/properties/q`, and the cell
+  supplies no validator, so it exercises the documented pass-through. That the
+  property survives the descent is witnessed twice in the new file, on the two
+  distinct code paths: `CONTROL (no-subtraction)` re-drives that cell's own
+  fixture WITH a validator — the arm names declared `Person2`, the walk re-enters
+  that entry and the same brand is installed by the normal declared-name path —
+  and `RED (non-declared-arm-brand)` drives an inline-object arm hoisted to a
+  `__inline_<slug>` entry that is NOT in `schemaNames`, where the incoming brand
+  is re-installed explicitly. An under-arm rebuild only ADDS.
+- **§Fix (e) constraints.** (e)(1) the dispatch runs inside `translateInbound`,
+  after each boundary's own verdict, at all four sites. (e)(2) re-measured, not
+  assumed: every sidecar the plan derives — including the `__inline_<slug>` and
+  minted arm entries reached ONLY through an `anyOf` arm — carries an empty
+  wire-name map, because the lowering all four boundaries consume emits
+  theta-side property names; no rename is applied anywhere. (e)(4) 0173's
+  null-prototype record build is untouched and is the only record build on the
+  path: `rebuildUnderFirstAdmittingArm` constructs no record of its own, it
+  re-enters `rebuildInbound`. (e)(5) the `params:`-defaults bypass and the
+  `Result` identity pass-through are unchanged, the latter re-probed at its worst
+  case — a `Result` at a union position whose inline arm admits its JSON shape
+  returns the same reference. (e)(6) every new assertion was proved both
+  directions once. (e)(7) below.
+- **GOV-15 (§Fix (e)(7)) — the silent untagged→tagged flips, enumerated.** No
+  input that loads today is refused, so the loads-cleanly predicate is unchanged;
+  what moves is the VALUE a boundary binds, at exactly these spellings, each of
+  which §Reproduction (f) or its `params:` analogue measured `false` and which
+  now read `true`:
+  1. `invoke<T | null>` — and any `invoke<…>` whose annotation is a union with a
+     named `enum` or `schema` arm. The root tags or brands, and a schema arm's
+     nested named-enum fields tag at their own depth.
+  2. A typed query `@<T | null>`, and any union-annotated typed query.
+  3. A typed `.theta`-callable return whose inferred type is union-shaped, which
+     routes through the same `#validateInvokeReturn` thread line.
+  4. `params:` fields declared with a union type carrying a named `enum` or
+     `schema` arm, at BOTH projections: the parent-side binder-`args` bind and
+     the child-side marshalled-params intake.
+  5. Union-typed positions nested anywhere the walk reaches — an object field
+     (`schema U { q: Person | null }`), an array element (`array<Sev | null>`),
+     an array-typed arm (`array<Sev> | null`), and an array-typed arm whose own
+     element is a union (`array<Sev | null> | null`).
+  6. `schemaTagOf` begins resolving on a schema-typed value that arrived through
+     a union arm, so both of its consumers — the QRY-18 outbound render's rename
+     map and the `QuestionOperandDefectError` operand summariser — stop degrading
+     there.
+
+  GOV-15 promises identical return values across 1.x for a file that loads
+  cleanly, so this is a deliberate departure from the observed 1.x behaviour
+  toward the behaviour `runtime-value-model.md` specifies — a tension recorded
+  rather than one GOV-15 blesses. The corpus census stands: no committed
+  `.theta` / `.thetalib` declares a named `enum` at all, so no shipped fixture is
+  in the set, and `tests/committed-fixture-parse-gate.test.ts` is green.
+- **Bug 0174 interaction, pre-measured and confirmed.** The `(ANYOF)` cell of
+  `tests/invoke-return-enum-carrier-projection.test.ts` was measured BEFORE the
+  descent was written, and its assertion outcomes are unchanged: the in-process
+  value there is the boxed `String` carrier `makeEnumValue` builds
+  (`typeof "object"`), which arm 0 refuses on its `type: "string"` check and arm
+  1 on its `type: "null"` check, so no arm admits and the value reaches the
+  caller by identity. The cell's COMMENT wording was falsified by the reach
+  change and was re-derived in the same commit under the operator's rider —
+  comment-only, zero assertion and zero executable-line changes, verified
+  mechanically. `tests/invoke-prompt-cell-enum-return.test.ts` carries no such
+  wording and is byte-unchanged.
+- **Why the validator is optional, and what that costs.** `schemaValidator` is an
+  optional member on `InboundTranslationInput`, `InboundBoundaryInput`,
+  `ParamsBindingInput` and `ThetaProducerDeps` — the house pattern for
+  `ThetaProducerDeps` (`isSubagentRootFor?`, `driveSubagentRootRegime?`). Absent,
+  no arm dispatch runs and a union position keeps the pass-through the reach-limit
+  comments described. That is what makes this change's blast radius across the
+  default suite ZERO: every hand-built-sidecar seam test and every in-memory
+  harness supplies none and is unaffected, so no existing witness needed editing.
+  Its cost is that a future boundary could omit the thread line, which is why all
+  four production thread lines are now individually red-provable.
+- **Residuals:**
+  1. **A string-literal union arm lowers to the EMPTY schema.** `Sev | "high"`
+     lowers to `{"anyOf":[{"$ref":"#/$defs/Sev"},{}]}` — not `{"const":"high"}`
+     as `schema-subset.md` step 3's *Literal* row specifies. Measured at HEAD
+     `acea6749` before any code moved, so it is not caused by this fix, and the
+     adjudicated rule is deterministic over it either way. The consequence worth
+     recording: a value at `"high" | Sev` — literal arm FIRST — takes the empty
+     arm and receives no tag, where `Sev | "high"` tags. Pinned loudly by
+     `RED (first-match-wins)`, which asserts the arm shapes as its premise, so a
+     later lowering change reds there rather than silently altering the dispatch.
+  2. **The enforced-entry-point question stays open**, as at 0.97.0.
+     `src/runtime/inbound-boundary.ts` is a shared step, not an enforced entry
+     point, and its header says so. This run deliberately did not answer it; the
+     four red-provable thread lines are the test-time substitute for the
+     compile-time obligation an enforced entry point would give.
+  3. **A nested union INSIDE an arm** (`Sev | (Box | null)`) is not exercised.
+     Theta's grammar flattens that spelling, so the shape is believed unreachable
+     from source; the machinery handles it structurally — a minted arm fragment
+     carries its own union-arms map, which `RED (union-array-arm-nested)`
+     witnesses one level down. Recorded rather than tested.
+  4. **Positional-citation drift.** `src/extension/production-theta-producer.ts`
+     grew by 27 lines, so line citations into it from other documents and from
+     `tests/invoke-return-enum-carrier-projection.test.ts`'s header shifted. Bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s adjudicated
+     do-not-chase class; disclosed, not chased. The self-citations INSIDE the five
+     edited `src/` files were re-derived.
+- **Discharge notes appended:** bug 0120
+  (`## Coordination note — bug 0172 face 2 (0.102.0)`), retiring its closure
+  note's "no reorder — that is bug 0172's face 2, spec-blocked and OPEN"
+  sentence; and bug 0067 (`## Coordination note — bug 0172 face 2 (0.102.0)`),
+  forward-pointing from its `## Fix (0.90.0)` *Residuals* item 1. Both appends are
+  append-only; nothing in either document was deleted or rewritten.
+- **Pinned dispositions / non-goals:** the anonymous-union rule is untouched —
+  `Severity.Low == "low"` stays `false`, and an arm naming no declared `enum` or
+  `schema` supplies nothing to attach, pinned by 0067's `anon` control and by this
+  fix's `CONTROL (anonymous-arm)`. The outbound direction is untouched. The
+  untyped-`invoke` discard is untouched (`invocation.md` §Typed return). The
+  `params:`-defaults bypass and the `Result` identity pass-through are untouched.
+  `tests/wire-name-translation.test.ts:24`'s stale "inert identity stubs" comment
+  is left as bug 0134's class. No diagnostic code was added, and
+  `permitted-codes.json` is byte-unchanged.
+- **Self-authorizations.** None beyond the operator's own riders. Every existing
+  file this commit touches was pre-authorized by name: the three reach-limit
+  comments (§Fix face-2 constraint), bug 0174's `(ANYOF)` banner wording (the
+  operator's rider, comment-only), and the two sibling coordination-note appends
+  (the operator's set instruction). `tests/live/live-production-acceptance.test.ts`
+  gained cell 40 append-only, which the live-coverage obligation requires.

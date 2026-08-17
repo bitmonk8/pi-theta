@@ -500,13 +500,17 @@ describe("bug 0174 (f) — invoke<Box> of a prompt-mode callee returning Box { s
 // ===========================================================================
 // (ANYOF) `invoke<Sev | null>` — a named enum under a `{"anyOf":[…]}` root.
 //
-// THIS CELL PINS PASS-THROUGH OF AN ALREADY-TAGGED VALUE, NEVER `anyOf` ARM
-// DISPATCH. `#validateInvokeReturn`'s doc-comment
-// (`src/extension/production-theta-producer.ts:3558-3562`) records the reach
-// limit: "A `{"anyOf":[…]}` arm carries no position a sidecar can key, so a
-// value inside one is handed to the caller exactly as AJV validated it —
-// untagged, unbranded, and not descended into." That limit is bug 0172's face 2
-// and stays open and untouched here.
+// THIS CELL PINS PASS-THROUGH OF AN ALREADY-TAGGED VALUE, NOT THE ABSENCE OF
+// `anyOf` ARM DISPATCH. Bug 0172 face 2 gives a `{"anyOf":[…]}` position
+// first-admitting-arm dispatch (runtime-value-model.md §"Wire-name
+// translation", the inbound bullet's union clause): the walk re-tests the
+// value against each arm in source order and translates under the first that
+// admits it. The callee's own value here is the boxed `String`
+// `makeEnumValue` builds (`typeof === "object"`), which neither arm of
+// `Sev | null` admits — arm 0 refuses it on its `type: "string"` check, arm 1
+// on its `type: "null"` check — so the walk hands it to the caller untouched:
+// identity pass-through because the value matches no arm, not because a union
+// position stops the walk from dispatching.
 //
 // It is load-bearing FOR THIS BUG because it separates the settled §Fix (b) from
 // the rejected §Fix (a). Measured over the shipped seams: `decodeInboundValue`

@@ -41,12 +41,16 @@
 // **The positions this pass reaches.** The sidecar is keyed by JSON Pointer
 // into the lowered schema fragment, so the pass applies exactly where a pointer
 // addresses a value: the annotated root, a named-enum position, a `$ref`
-// target's own fragment, and an array element one `/items` segment deeper. A
-// `{"anyOf":[…]}` arm carries no such position — `anyOf` has no image in the
-// data space the way `properties` and `items` do, so nothing in the lowered
-// fragment names which arm governs a materialised value. A value sitting inside
-// a union arm is therefore left exactly as AJV validated it: no rename, no
-// enum tag, no brand, and no descent beneath it.
+// target's own fragment, an array element one `/items` segment deeper, and a
+// `{"anyOf":[…]}` position. `anyOf` has no fixed image in the data space the
+// way `properties` and `items` do, so at a union position the walk re-tests
+// the value against each arm in source order and translates under the FIRST
+// arm that admits it (runtime-value-model.md §"Wire-name translation", the
+// inbound bullet's union clause), compiling each arm through the caller's own
+// `SchemaValidator`. Two arms both admitting is settled by that same order —
+// the earlier arm governs. No arm admitting, or no validator supplied, leaves
+// the value exactly as AJV validated it: no rename, no enum tag, no brand, and
+// no descent beneath it.
 //
 // V2e (implementation) fills the behaviour-bearing functions, consuming the
 // `V5f` per-schema sidecar.
@@ -61,11 +65,17 @@
 // always emits the map, so that fallback serves a sidecar that omits the map,
 // never a production caller.
 
-import { type SchemaSidecar } from "../parser/schema-lowering";
+import { type SchemaSidecar, type SidecarUnionArm } from "../parser/schema-lowering";
+import type {
+  CompiledValidator,
+  LoweredSchema,
+  SchemaValidator,
+} from "../seams/schema-validator";
 import {
   brandSchemaValue,
   isResultValue,
   makeEnumValue,
+  schemaTagOf,
   type ThetaValue,
 } from "./value";
 
@@ -106,6 +116,19 @@ export interface InboundTranslationInput {
    * key nor a minted `__inline_<slug>` entry names a declaration.
    */
   readonly schemaNames?: ReadonlySet<string>;
+  /**
+   * The compiled-validator seam the union-arm dispatch re-tests a value
+   * against. Only `compile` is used, and it is the caller's OWN validator — the
+   * one whose verdict admitted this value — so an arm re-test goes through the
+   * same content-addressed compiled-validator cache (`../seams/schema-validator`)
+   * rather than a second compile route.
+   *
+   * Absent: no arm dispatch runs and a value inside a union arm passes through
+   * exactly as it did before the rule existed. Every sidecar derived from a
+   * union-free fragment carries no `unionArms` map at all, so a caller with no
+   * union position in its document is unaffected either way.
+   */
+  readonly schemaValidator?: Pick<SchemaValidator, "compile">;
 }
 
 /**
@@ -128,13 +151,17 @@ export interface OutboundTranslationInput {
  * orders each described object's own fields by the sidecar's field-order list
  * (schema-subset.md §"Lowering Algorithm" step 5), and — where `schemaNames`
  * names the position's `$defs` entry — brands a rebuilt object with its
- * declaring schema. The walk recurses through arrays and nested object fields
- * and through a `$ref` position's own `$defs` entry; theta code never sees a
- * wire name at any depth.
+ * declaring schema. The walk recurses through arrays, nested object fields and
+ * a `$ref` position's own `$defs` entry; at a `{"anyOf":[…]}` position it
+ * re-tests the value against each arm in source order and descends under the
+ * FIRST arm that admits it (runtime-value-model.md §"Wire-name translation",
+ * the inbound bullet's union clause), given `input.schemaValidator` to compile
+ * the arms through. Theta code never sees a wire name at any depth.
  *
  * Its reach is the set of positions the sidecar's JSON Pointers address — the
- * annotated root, named-enum positions, `$ref` targets, and array elements. A
- * `{"anyOf":[…]}` arm is not such a position, so a value inside one is returned
+ * annotated root, named-enum positions, `$ref` targets, array elements, and a
+ * union position whose admitting arm resolves one of those same kinds. No arm
+ * admitting a value, or no `schemaValidator` supplied, returns the value
  * exactly as AJV validated it.
  */
 export function translateInbound(input: InboundTranslationInput): ThetaValue {
@@ -142,6 +169,8 @@ export function translateInbound(input: InboundTranslationInput): ThetaValue {
     sidecars: input.sidecars,
     schemaNames: input.schemaNames,
     indexes: new Map(),
+    schemaValidator: input.schemaValidator,
+    armValidators: new Map(),
   };
   return rebuildUnder(input.validated, input.rootDef, walk);
 }
@@ -151,9 +180,18 @@ interface InboundWalk {
   readonly sidecars: ReadonlyMap<string, SchemaSidecar>;
   readonly schemaNames: ReadonlySet<string> | undefined;
   readonly indexes: Map<SchemaSidecar, SidecarIndex>;
+  /** The seam an arm re-test compiles through; absent disables arm dispatch. */
+  readonly schemaValidator: Pick<SchemaValidator, "compile"> | undefined;
+  /**
+   * Per-arm compiled validators, memoised for the duration of one walk. The
+   * seam's own cache is content-addressed and already deduplicates the
+   * compile; this memo skips re-addressing the same arm once per element of an
+   * `array<T | null>`.
+   */
+  readonly armValidators: Map<SidecarUnionArm, CompiledValidator>;
 }
 
-/** One sidecar's three maps re-keyed for O(1) per-position lookup during a walk, plus its field order. */
+/** One sidecar's four maps re-keyed for O(1) per-position lookup during a walk, plus its field order. */
 interface SidecarIndex {
   readonly wireToTheta: ReadonlyMap<string, string>;
   readonly enumByPointer: ReadonlyMap<string, string>;
@@ -162,6 +200,8 @@ interface SidecarIndex {
   readonly omitsRefTargets: boolean;
   /** The fragment's declaration-ordered theta-side field names, when step 5 recorded one. */
   readonly fieldOrder: readonly string[] | undefined;
+  /** Per-position union arms, in SUBS-1 source order. */
+  readonly armsByPointer: ReadonlyMap<string, readonly SidecarUnionArm[]>;
 }
 
 /** Index `sidecar` for per-position lookup, memoised for the duration of one walk. */
@@ -182,12 +222,17 @@ function indexOf(sidecar: SchemaSidecar, walk: InboundWalk): SidecarIndex {
   for (const target of sidecar.refTargets ?? []) {
     refByPointer.set(target.pointer, target.defName);
   }
+  const armsByPointer = new Map<string, readonly SidecarUnionArm[]>();
+  for (const position of sidecar.unionArms ?? []) {
+    armsByPointer.set(position.pointer, position.arms);
+  }
   const index: SidecarIndex = {
     wireToTheta,
     enumByPointer,
     refByPointer,
     omitsRefTargets: sidecar.refTargets === undefined,
     fieldOrder: sidecar.fieldOrder,
+    armsByPointer,
   };
   walk.indexes.set(sidecar, index);
   return index;
@@ -233,7 +278,8 @@ function rebuildUnder(value: unknown, defName: string, walk: InboundWalk): Theta
  * its array elements, and, at the empty pointer, the fragment's own root.
  * Renames an object's OWN fields wire→theta (nowhere deeper — a nested position
  * belongs to whichever fragment its own sidecar names), reattaches the
- * declaring-enum tag at each named-enum position, and recurses through arrays
+ * declaring-enum tag at each named-enum position, dispatches a `{"anyOf":[…]}`
+ * position to the first arm that admits the value, and recurses through arrays
  * and `$ref` targets. A `Result` value, and a plain object at a position no
  * sidecar describes, pass through unchanged.
  */
@@ -251,6 +297,10 @@ function rebuildInbound(
     // string-literal-union positions are absent from the sidecar and so stay
     // plain strings.
     return makeEnumValue(enumName, value);
+  }
+  const arms = index?.armsByPointer.get(pointer);
+  if (arms !== undefined) {
+    return rebuildUnderFirstAdmittingArm(value, arms, walk);
   }
   const refTarget = index?.refByPointer.get(pointer);
   if (refTarget !== undefined) {
@@ -304,8 +354,8 @@ function rebuildInbound(
   // setter instead of minting an own key.
   //
   // No read in this module needs a matching own-key guard. The three
-  // per-position lookups are `Map`s (`indexOf`, `:167`; `wireToTheta`
-  // `:174`, `enumByPointer` `:178`, `refByPointer` `:182`), and a `Map`
+  // per-position lookups are `Map`s (`indexOf`, `:208`; `wireToTheta`
+  // `:213`, `enumByPointer` `:217`, `refByPointer` `:221`), and a `Map`
   // key never collides with `Object.prototype`; the payload walk below is
   // `Object.entries`, own-enumerable only. Nothing in this file answers
   // through a prototype chain, so the construction half is the one no
@@ -338,6 +388,95 @@ function rebuildInbound(
         : rebuildInbound(fieldValue, sidecar, fieldPointer, walk);
   }
   return result;
+}
+
+/**
+ * Translate a value at a `{"anyOf":[…]}` position under the FIRST arm that
+ * admits it (runtime-value-model.md §"Wire-name translation", the inbound
+ * bullet's union clause).
+ *
+ * The arms are re-tested in SUBS-1 source order through the caller's own
+ * validator seam, so two arms that both admit a value are settled by arm order
+ * and the earlier arm governs. No arm admitting leaves the value exactly as it
+ * arrived — the case an in-process callee's already-tagged value takes, since
+ * the enum carrier is a boxed `String` that AJV's `type: "string"` test
+ * refuses.
+ *
+ * The descent can only ADD. Where the chosen arm names a `$defs` entry the walk
+ * re-enters it at that entry's own root, which rebuilds the record and installs
+ * whatever tag or brand that entry describes; where the arm names an entry that
+ * is NOT a declared `schema` — a minted inline-object or array key — the
+ * rebuild would leave a value that arrived branded with none, so the incoming
+ * brand is re-installed. That keeps the property
+ * `tests/wire-translation-inbound-retag.test.ts` pins for a plan-undescribed
+ * position: a rebuild at a position the plan has nothing to say about could
+ * only subtract, and this one does not.
+ */
+function rebuildUnderFirstAdmittingArm(
+  value: unknown,
+  arms: readonly SidecarUnionArm[],
+  walk: InboundWalk,
+): ThetaValue {
+  const arm = firstAdmittingArm(value, arms, walk);
+  if (arm === undefined) {
+    return value as ThetaValue;
+  }
+  if (arm.enumName !== undefined) {
+    return typeof value === "string" ? makeEnumValue(arm.enumName, value) : (value as ThetaValue);
+  }
+  if (arm.defName === undefined) {
+    return value as ThetaValue;
+  }
+  const priorTag = schemaTagOf(value as ThetaValue);
+  const rebuilt = rebuildUnder(value, arm.defName, walk);
+  if (
+    priorTag !== undefined &&
+    isPlainObject(rebuilt) &&
+    schemaTagOf(rebuilt as ThetaValue) === undefined
+  ) {
+    brandSchemaValue(rebuilt as { [key: string]: ThetaValue }, priorTag);
+  }
+  return rebuilt;
+}
+
+/**
+ * The first arm admitting `value`, in SUBS-1 source order, or `undefined` when
+ * none does (or when no validator was supplied, which disables the dispatch).
+ *
+ * The arm document is compiled through the caller's own `SchemaValidator` —
+ * the content-addressed compiled-validator cache of `../seams/schema-validator`
+ * — so an arm shared across positions, elements or calls compiles once.
+ *
+ * The value is re-tested AS IT ARRIVED, which at the `invoke` return boundary
+ * is NOT what that boundary's own AJV verdict read: there the verdict reads
+ * {@link projectForValidation}'s wire projection while the re-test reads the
+ * theta-side value. Aligning the re-test onto the projection would change
+ * behaviour, and the asymmetry is what carries it: an in-process callee's enum
+ * value is a boxed `String`, which every `type: "string"` arm refuses, so it
+ * matches no arm and crosses by identity with the tag it already carries.
+ * Re-testing the projection instead would strip that carrier to a bare string,
+ * admit an arm, and rebuild a value the boundary never needed rebuilt.
+ */
+function firstAdmittingArm(
+  value: unknown,
+  arms: readonly SidecarUnionArm[],
+  walk: InboundWalk,
+): SidecarUnionArm | undefined {
+  const validator = walk.schemaValidator;
+  if (validator === undefined) {
+    return undefined;
+  }
+  for (const arm of arms) {
+    let compiled = walk.armValidators.get(arm);
+    if (compiled === undefined) {
+      compiled = validator.compile(arm.document as LoweredSchema);
+      walk.armValidators.set(arm, compiled);
+    }
+    if (compiled.validate(value).ok) {
+      return arm;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -477,7 +616,7 @@ function lowerOutbound(
  * Not {@link translateOutbound}: it renames nothing. The value at the
  * `invoke<T>` return boundary is the callee's own theta-side value, and the
  * lowered document that boundary validates against already emits
- * theta-side property names (`inbound-boundary.ts:59`'s doc-comment states
+ * theta-side property names (`inbound-boundary.ts:68`'s doc-comment states
  * the same fact for the inbound direction), so a rename here would corrupt
  * an already-correct key. It also does not call {@link lowerOutbound}: that
  * walk always rebuilds its record and renames by sidecar — a materially
@@ -494,7 +633,7 @@ function lowerOutbound(
 export function projectForValidation(value: ThetaValue): unknown {
   if (value instanceof String) {
     // The boxed enum carrier's wire form is its bare string — the same
-    // collapse `lowerOutbound` performs for the outbound direction (`:435`).
+    // collapse `lowerOutbound` performs for the outbound direction (`:568`).
     return value.valueOf();
   }
   if (Array.isArray(value)) {
@@ -513,7 +652,7 @@ export function projectForValidation(value: ThetaValue): unknown {
     // Algorithm" step 3), so no position a `returnSchema` describes can hold
     // one; descending would differ from the gate above only at positions AJV
     // places no constraint on, and this projection exists solely for AJV's
-    // eyes. Mirrors `rebuildInbound`'s own `isResultValue` arm (`:266`).
+    // eyes. Mirrors `rebuildInbound`'s own `isResultValue` arm (`:315`).
     return value;
   }
   if (!isPlainObject(value)) {

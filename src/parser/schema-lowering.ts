@@ -12,13 +12,14 @@
 //     over the keys-sorted, whitespace-free, binder-number-rendered canonical
 //     form of the lowered fragment; the schema slug is the first 16 hex
 //     characters of the digest (lowercased).
-//   - Lowering Algorithm step 5 (per-schema sidecar): a three-map sidecar — a
+//   - Lowering Algorithm step 5 (per-schema sidecar): a four-map sidecar — a
 //     wire-name translation map, a named-enum-position map keyed by JSON
-//     Pointer into the lowered fragment, and a per-position `$ref`-target map
+//     Pointer into the lowered fragment, a per-position `$ref`-target map
 //     on the same JSON-Pointer keying, naming the `$defs` entry a `$ref`
 //     position resolves to (a field `manager: Person` names `$defs` `Person`,
 //     not `$defs` `manager`, so a consumer cannot recover the target from the
-//     field's own name).
+//     field's own name), and a per-position union-arms map on that same keying,
+//     valued by an `anyOf` position's arms in source order.
 //   - The `__inline_<slug>` `$defs` dedup of Lowering Algorithm step 2 under the
 //     §Schema-slug collision posture byte-equality check: byte-identical
 //     fragments sharing a slug dedup silently; a slug match whose fragments are
@@ -224,6 +225,8 @@ export interface SidecarElementInput {
   readonly refTarget?: string;
   /** The element of a nested `array<array<T>>` position. */
   readonly element?: SidecarElementInput;
+  /** This element's union arms, when its lowered position is an `anyOf`. */
+  readonly unionArms?: readonly SidecarUnionArm[];
 }
 
 /** One field of a `$defs` entry, with its JSON Pointer into the lowered fragment. */
@@ -244,6 +247,8 @@ export interface SidecarFieldInput {
   readonly refTarget?: string;
   /** This field's element position, when the field's type is `array<T>`. */
   readonly element?: SidecarElementInput;
+  /** This field's union arms, when its lowered position is an `anyOf`. */
+  readonly unionArms?: readonly SidecarUnionArm[];
 }
 
 /** A wire-name translation entry: the theta-side name and its wire name. */
@@ -267,7 +272,37 @@ export interface SidecarRefTarget {
   readonly defName: string;
 }
 
-/** The three-map per-schema sidecar plus its field-order list (Lowering Algorithm step 5). */
+/**
+ * One arm of a lowered `{ "anyOf": [...] }` position, carrying what the inbound
+ * pass needs to (a) re-test a value against the arm and (b) translate under it
+ * once the arm is chosen.
+ *
+ * `document` is the arm's own fragment plus the enclosing document's `$defs`,
+ * so it is a self-contained lowered document the `SchemaValidator` seam can
+ * compile — the SAME compile route and the SAME content-addressed cache the
+ * boundary's own verdict came from, never a second validation path.
+ */
+export interface SidecarUnionArm {
+  /** Self-contained lowered document for this arm: the arm fragment plus `$defs`. */
+  readonly document: Record<string, unknown>;
+  /** The declaring `enum` name, when this arm is a named-`enum` `$ref` (terminal — an enum position has nothing beneath it). */
+  readonly enumName?: string;
+  /** The `$defs` name the walk re-enters under, when this arm has structure of its own. */
+  readonly defName?: string;
+}
+
+/**
+ * A union position: a JSON Pointer (the same keying as the other three maps)
+ * paired with the position's arms in SUBS-1 source order — the order the
+ * lowered `anyOf` array already carries (schema-subset.md §"Lowering
+ * Algorithm" step 3, *Array element order*).
+ */
+export interface SidecarUnionPosition {
+  readonly pointer: string;
+  readonly arms: readonly SidecarUnionArm[];
+}
+
+/** The four-map per-schema sidecar plus its field-order list (Lowering Algorithm step 5). */
 export interface SchemaSidecar {
   readonly wireNames: readonly WireNameEntry[];
   readonly namedEnumPositions: readonly NamedEnumPosition[];
@@ -292,6 +327,16 @@ export interface SchemaSidecar {
    * payload order unchanged.
    */
   readonly fieldOrder?: readonly string[];
+  /**
+   * Per-position union arms, on the same JSON-Pointer keying as the other
+   * maps: one entry per `{ "anyOf": [...] }` position in this fragment, valued
+   * by the position's arms in source order. The inbound translation pass
+   * re-tests an admitted value against each arm in that order and translates
+   * under the FIRST arm that admits it. Absent — not an empty list — for a
+   * fragment carrying no union position, so a sidecar whose lowered fragment
+   * has no `anyOf` is byte-identical to one carrying no such map.
+   */
+  readonly unionArms?: readonly SidecarUnionPosition[];
 }
 
 /**
@@ -299,11 +344,12 @@ export interface SchemaSidecar {
  * renamed field), a named-enum-position map keyed by JSON Pointer (one entry
  * per named-`enum` position; anonymous string-literal-union positions absent),
  * a `$ref`-target map on the same pointer keying (one entry per position
- * whose lowered form is a `$ref`), and an optional field-order list. An
- * `array<T>` field's element position is addressed by appending `/items` to
- * the field's own pointer, once per level of `array<array<T>>` nesting, so an
- * element can carry its own named-enum tag or `$ref` target exactly as a field
- * can.
+ * whose lowered form is a `$ref`), a union-arms map on the same keying (one
+ * entry per `anyOf` position, valued by the position's arms), and an optional
+ * field-order list. An `array<T>` field's element position is addressed by
+ * appending `/items` to the field's own pointer, once per level of
+ * `array<array<T>>` nesting, so an element can carry its own named-enum tag,
+ * `$ref` target or union arms exactly as a field can.
  *
  * `fieldOrder` is the fragment's own declaration-ordered theta-side field
  * names, supplied only by a caller that knows `fields` describes an object
@@ -319,10 +365,12 @@ export function buildSidecar(
   const wireNames: WireNameEntry[] = [];
   const namedEnumPositions: NamedEnumPosition[] = [];
   const refTargets: SidecarRefTarget[] = [];
+  const unionArms: SidecarUnionPosition[] = [];
   const record = (
     pointer: string,
     type: SidecarFieldType,
     refTarget: string | undefined,
+    arms: readonly SidecarUnionArm[] | undefined,
   ): void => {
     // Named-enum positions: included iff the source type was a named `enum`;
     // anonymous string-literal-union positions are deliberately absent.
@@ -332,6 +380,9 @@ export function buildSidecar(
     if (refTarget !== undefined) {
       refTargets.push({ pointer, defName: refTarget });
     }
+    if (arms !== undefined) {
+      unionArms.push({ pointer, arms });
+    }
   };
   for (const field of fields) {
     // Wire-name translation: one entry per *renamed* field; un-renamed fields
@@ -339,12 +390,12 @@ export function buildSidecar(
     if (field.wireName !== undefined && field.wireName !== field.thetaName) {
       wireNames.push({ theta: field.thetaName, wire: field.wireName });
     }
-    record(field.pointer, field.type, field.refTarget);
+    record(field.pointer, field.type, field.refTarget, field.unionArms);
     let element = field.element;
     let elementPointer = field.pointer;
     while (element !== undefined) {
       elementPointer = `${elementPointer}/items`;
-      record(elementPointer, element.type, element.refTarget);
+      record(elementPointer, element.type, element.refTarget, element.unionArms);
       element = element.element;
     }
   }
@@ -353,6 +404,9 @@ export function buildSidecar(
     namedEnumPositions,
     refTargets,
     ...(fieldOrder !== undefined ? { fieldOrder } : {}),
+    // Spread in only where the fragment HAS a union position, so every sidecar
+    // of a union-free fragment is byte-identical to the four-item shape.
+    ...(unionArms.length > 0 ? { unionArms } : {}),
   };
 }
 
@@ -408,6 +462,7 @@ interface PositionClass {
   readonly type: SidecarFieldType;
   readonly refTarget?: string;
   readonly element?: SidecarElementInput;
+  readonly unionArms?: readonly SidecarUnionArm[];
 }
 
 /** The lowered document and declaration names an inbound plan is derived against. */
@@ -441,9 +496,10 @@ export interface InboundTranslationPlanInput {
  * theta-side name. Every sidecar this function returns therefore carries an
  * EMPTY wire-name map, which is what a boundary whose payload already arrives
  * theta-side-keyed requires: renaming an already-theta-side key would corrupt
- * it. What the plan does carry is the re-tag and recursion information —
- * named-enum positions and per-position `$ref` targets — which a
- * theta-side-keyed payload still needs exactly as a wire-keyed one would.
+ * it. What the plan does carry is the re-tag, recursion and arm-dispatch
+ * information — named-enum positions, per-position `$ref` targets and
+ * per-position union arms — which a theta-side-keyed payload still needs
+ * exactly as a wire-keyed one would.
  *
  * `input.schemaNames` bounds which `$defs` names may be branded: only a name
  * in that set is a `schema` the caller declared, so a `#root` position or a
@@ -476,6 +532,46 @@ export function buildInboundTranslationPlan(
 
   const sidecars = new Map<string, SchemaSidecar>();
   const pending: string[] = [...fragments.keys()];
+  /**
+   * Describe one arm of an `anyOf` position: the self-contained lowered
+   * document the arm is re-tested against, plus how the walk translates under
+   * it once chosen. An arm with structure of its own — an object `$ref`, an
+   * inline object, an `array<T>` — names a `$defs` entry the walk re-enters at
+   * that entry's own root, which is what gives an admitted arm the same reach
+   * a non-union position of the same shape already has.
+   */
+  const describeArm = (owner: string, armPointer: string, arm: unknown): SidecarUnionArm => {
+    const fragment = isFragment(arm) ? arm : {};
+    // The arm fragment alone is not compilable: its `$ref`s address the
+    // enclosing document's `$defs`, so the arm document carries that same
+    // `$defs` object.
+    const document: Record<string, unknown> = isFragment(defsSource)
+      ? { ...fragment, $defs: defsSource }
+      : { ...fragment };
+    const classified = classify(owner, armPointer, arm);
+    if (classified.type.kind === "named-enum") {
+      return { document, enumName: classified.type.enumName };
+    }
+    if (classified.refTarget !== undefined) {
+      return { document, defName: classified.refTarget };
+    }
+    if (classified.element !== undefined) {
+      // An `array<T>` arm. `classify` mints a `$defs` entry for an inline
+      // OBJECT position but not for an array one, because an array position is
+      // addressable from its enclosing fragment by `/items`; an arm is not, so
+      // mint here and let the pending loop classify the arm fragment in place
+      // at its own root.
+      const minted = `#${owner}${armPointer}`;
+      if (!fragments.has(minted)) {
+        fragments.set(minted, fragment);
+        pending.push(minted);
+      }
+      return { document, defName: minted };
+    }
+    // A primitive, `const` or otherwise position-less arm: it admits or it does
+    // not, and translating under it adds nothing.
+    return { document };
+  };
   const classify = (owner: string, pointer: string, position: unknown): PositionClass => {
     if (!isFragment(position)) {
       return { type: { kind: "other" } };
@@ -496,6 +592,20 @@ export function buildInboundTranslationPlan(
           : { type: { kind: "anonymous-string-literal-union" } };
       }
       return { type: { kind: "other" }, refTarget: target };
+    }
+    const anyOf = position["anyOf"];
+    if (Array.isArray(anyOf)) {
+      // SUBS-1: a union with any non-primitive arm lowers to `anyOf`, arms in
+      // source order. The arms are recorded as their own map rather than as
+      // named-enum / `$ref`-target entries at this pointer, because which arm
+      // governs is not knowable until a value is in hand — the other three maps
+      // stay statements about the position itself.
+      return {
+        type: { kind: "other" },
+        unionArms: anyOf.map((arm, armIndex) =>
+          describeArm(owner, `${pointer}/anyOf/${armIndex}`, arm),
+        ),
+      };
     }
     if (position["type"] === "array") {
       return {

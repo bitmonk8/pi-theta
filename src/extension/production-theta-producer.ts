@@ -224,7 +224,7 @@ import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
 import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-boundary";
 import { projectForValidation } from "../runtime/wire-translation";
 import { inferCalleeReturnAnnotation } from "../parser/functions";
-import type { CompiledValidator, LoweredSchema } from "../seams/schema-validator";
+import type { CompiledValidator, LoweredSchema, SchemaValidator } from "../seams/schema-validator";
 import { parseToolsEntry, type ResolvedCallable } from "../parser/callable-set";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
@@ -708,6 +708,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   constructor(input: ProductionProducerInput) {
     this.#input = input;
+  }
+
+  /**
+   * The runtime's own `SchemaValidator`, exposed so the composition entry's
+   * binder-`args` projection re-tests a union-typed `params:` position through
+   * the SAME compiled-validator cache the binder's post-merge verdict used.
+   */
+  get schemaValidator(): SchemaValidator {
+    return this.#input.root.schemaValidator;
   }
 
   async runBinder(binderInput: BinderRunInput): Promise<BinderRunResult> {
@@ -2192,6 +2201,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               | Record<string, unknown>
               | undefined,
             body: theta.body,
+            schemaValidator: this.#input.root.schemaValidator,
           })
         : new Map<string, ThetaValue>();
     const rootBindInput: ConversationBindInput = {
@@ -2618,6 +2628,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               schemaNames: new Set(schemaDeclsOf(deps.theta.body).map((decl) => decl.name)),
               enumNames: new Set(enumDeclsOf(deps.theta.body).map((decl) => decl.name)),
               validated,
+              schemaValidator: root.schemaValidator,
             })
         : undefined;
 
@@ -3563,11 +3574,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * named-enum positions and re-brands schema-typed objects — renaming here
    * would corrupt an already-correct key.
    *
-   * The pass reaches the positions the derived sidecars key by JSON Pointer:
-   * named-enum positions, `$ref` targets, array elements, and the annotated
-   * root. A `{"anyOf":[…]}` arm carries no position a sidecar can key, so a
-   * value inside one is handed to the caller exactly as AJV validated it —
-   * untagged, unbranded, and not descended into.
+   * The pass reaches the positions the derived sidecars key by JSON Pointer —
+   * named-enum positions, `$ref` targets, array elements, the annotated root —
+   * and a `{"anyOf":[…]}` position: there the walk re-tests the value against
+   * each arm in source order and translates under the FIRST arm that admits it
+   * (runtime-value-model.md §"Wire-name translation", the inbound bullet's
+   * union clause), through the same `SchemaValidator` the verdict above came
+   * from. No arm admitting the value hands it to the caller exactly as AJV
+   * validated it: untagged, unbranded, and not descended into.
    */
   #validateInvokeReturn(
     calleePath: string,
@@ -3605,6 +3619,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           schemaNames: new Set(schemaDeclsOf(declarations).map((decl) => decl.name)),
           enumNames: new Set(enumDeclsOf(declarations).map((decl) => decl.name)),
           validated: result.value as unknown,
+          schemaValidator: this.#input.root.schemaValidator,
         }),
       );
     }

@@ -1152,3 +1152,26 @@ mapping rather than leaving the report open against landed behaviour).
 - **What this closure does NOT cover:** values inside `{"anyOf":[…]}` arms
   receive no tag, no brand, no descent and therefore no reorder — that is bug
   0172's face 2, spec-blocked and OPEN there, not a residue of this report.
+
+## Coordination note — bug 0172 face 2 (0.102.0)
+
+The closure note's final bullet — "**What this closure does NOT cover:** values
+inside `{"anyOf":[…]}` arms receive no tag, no brand, no descent and therefore no
+reorder — that is bug 0172's face 2, spec-blocked and OPEN there" — **retires at
+0.102.0**. Bug 0172's face-2 fix landed first-admitting-arm dispatch: a value at a
+union position is re-tested against each arm in SUBS-1 source order through the
+boundary's own validator and translated under the first arm that admits it, so an
+arm resolving a `$defs` entry re-enters the walk at that entry's own root.
+
+**What that means for this report's subject.** An under-arm object now reaches the
+record build this report owns, under the arm's own sidecar — so it carries that
+entry's step-5 field-order list and its `keys()` is declaration-ordered exactly as
+at a non-union position. The order half this report's own fix established at the
+rebuild therefore now reaches inside union arms too; no separate mechanism was
+added and nothing in `rebuildInbound`'s reorder changed. Where an arm names no
+declared entry, the value keeps the pass-through and no reorder occurs — the
+rebuild there could only subtract, which the face-2 fix pins in both directions.
+
+**This report's status is unaffected**: it stays fixed, and the retirement is a
+narrowing of one negative sentence in its closure note, not a reopening. Nothing
+above deletes or rewrites any earlier text.

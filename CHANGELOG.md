@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.102.0] - 2026-08-16
+
+### Fixed
+
+- **bug 0172 face 2 — a value inside a lowered `{"anyOf":[…]}` arm received no
+  enum tag, no schema brand and no descent**, so adding `| null` to an
+  annotation silently disabled the inbound wire-name-translation rule for that
+  whole subtree: `invoke<Sev>` handed the parent a tagged variant while
+  `invoke<Sev | null>` handed it a bare string, and `Box | null` arrived
+  unbranded with its nested named-enum field untagged. The sidecar the walk
+  reads is keyed by JSON Pointer and `anyOf` has no image in the data space the
+  way `properties` and `items` do, so nothing in the lowered fragment named
+  which arm governed a materialised value — which made the dispatch a
+  specification question rather than a coding one. The rule is now written into
+  `runtime-value-model.md` §"Wire-name translation" and `schema-subset.md`
+  §"Lowering Algorithm" step 5: at a union position the walk re-tests the
+  validated value against each arm in the SUBS-1 source order the lowered
+  `anyOf` already carries, through the same content-addressed compiled-validator
+  cache the boundary's own verdict came from, and translates under the first arm
+  that admits it — two arms both admitting is settled by arm order, and no arm
+  admitting leaves the value exactly as it arrived. The step-5 sidecar gains a
+  fifth *Union arms* map carrying each arm's self-contained lowered document
+  alongside the declaring `enum` name or `$defs` entry the pass translates
+  under, and the runtime threads its validator to all four inbound boundaries
+  the rule names. The dispatch never subtracts: a value that arrives branded
+  never comes out unbranded. Anonymous string-literal-union arms still receive
+  no tag (`Severity.Low == "low"` stays `false`), the outbound direction is
+  unchanged, and the `params:`-defaults bypass and `Result` identity
+  pass-through are untouched. Face 1 shipped in 0.97.0; this closes the report.
+
 ## [0.101.0] - 2026-08-16
 
 ### Fixed

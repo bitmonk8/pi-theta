@@ -6320,3 +6320,136 @@ describe("H8a-T — bug 0097: an invoke(...) argument matching a params: object-
     }
   });
 });
+
+// ===========================================================================
+// Bug 0172 face 2 — a value inside a `{"anyOf":[…]}` arm received no enum tag,
+// no schema brand and no descent: the inbound sidecar is keyed by JSON
+// Pointer into the lowered fragment and `anyOf` has no image in the data
+// space the way `properties` and `items` do, so nothing addressed a union
+// position and the walk passed the AJV-admitted value through exactly as it
+// arrived. The fix gives a `{"anyOf":[…]}` position first-ADMITTING-arm
+// dispatch: the value is re-tested against each arm in SUBS-1 source order
+// through the caller's OWN `SchemaValidator`, and translated under the FIRST
+// arm that admits it (runtime-value-model.md §"Wire-name translation", the
+// inbound bullet's union clause).
+//
+// NO EXISTING LIVE CELL EXERCISES THIS. The bug-0067 cell and the bug
+// 0172-boundary-2 / bug-0174 cells above all drive a BARE named-enum
+// annotation (`Sev`, never `Sev | null`) at the root — a non-union position,
+// so their fixed value never reaches `rebuildUnderFirstAdmittingArm` at all.
+// The bug-0097 cell above drives a union `params:` field, but both its arms
+// are ANONYMOUS inline objects (no declared `enum`/`schema` name for either
+// arm to tag or brand with), its `invoke(...)` is UNTYPED so the bound `p` is
+// never read by the callee body, and its own assertions are on the AJV
+// admit/refuse verdict at the PARAMS boundary — never on a translated RETURN
+// value crossing a union position. This cell closes that gap with the
+// shallowest union position the bug doc's §Reproduction (f) names: a bare
+// named-enum variant under `Sev | null` at the `invoke` return boundary.
+//
+// `b0172f2livekid` mirrors `b67SevEnumKidTheta` exactly (a `mode: subagent`
+// callee whose tail is a bare enum variant, zero model turns, zero tokens).
+// `b0172f2liveparent` mirrors `b67SevEnumParentTheta`, changing only the
+// annotation to the union `Sev | null`: `invoke<Sev | null>` lowers to
+// `{"anyOf":[{"$ref":"#/$defs/Sev"},{"type":"null"}]}` (SUBS-1), and the
+// dispatch re-tests the envelope's bare wire string against arm 0 (the `Sev`
+// `$ref`), which admits it and reattaches the tag — first-match-wins over arm
+// 1 (`{"type":"null"}`), which refuses a non-null string outright. Pre-fix
+// the union position addressed no map at all and the value crossed exactly as
+// AJV admitted it — a bare untagged string, so `v == Sev.High` renders the
+// cross-type `false` (`valuesEqual`, `src/runtime/value.ts`); post-fix it
+// renders `true`. The rendered boolean is interpolated between markers
+// exactly as the bug-0067 cell reads it, so the observable is deterministic
+// theta-computed text, never the model's own reply content.
+//
+// Token cost: one dispatched query in the parent (the same profile as the
+// bug-0067 cell above); the callee spends none.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered, or deleted.
+// ===========================================================================
+
+/** The `mode: subagent` callee: a pure named-enum tail, zero model turns. Mirrors `b67SevEnumKidTheta` exactly. */
+function b0172Face2UnionEnumKidTheta(): string {
+  return ["---", "mode: subagent", "---", 'enum Sev { High = "high" }', "Sev.High"].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: a typed `invoke<Sev | null>` — a UNION
+ * annotation — binds the envelope, then the boolean comparison against the
+ * parent's own `Sev.High` is interpolated between markers exactly as
+ * `b67SevEnumParentTheta` does for the non-union `invoke<Sev>` boundary.
+ */
+function b0172Face2UnionEnumParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Sev { High = "high" }',
+    'let v = invoke<Sev | null>("./b0172f2livekid.theta")?',
+    "@`SEVCROSS=${v == Sev.High}|END reply with exactly: OK`",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0172 face 2: invoke<Sev | null> dispatches the first-admitting anyOf arm, live", () => {
+  it("a typed invoke<Sev | null> binds a spawned subagent child's bare enum variant under the union's first arm, and it compares equal to the parent's own Sev.High", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b0172f2liveparent", text: b0172Face2UnionEnumParentTheta() },
+      { source: "project", stem: "b0172f2livekid", text: b0172Face2UnionEnumKidTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b0172f2liveparent"),
+        "no bug-0172-face-2 union-enum-cross parent command to invoke — the " +
+          ".theta failed discovery/parse. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b0172f2liveparent");
+      const outbound = turn.userTexts.join("\n");
+      // Marker-anchored extraction of the rendered `${...}` segment — the
+      // exact text theta code computed from the envelope-bound comparison
+      // (fails loudly when the query never rendered, e.g. the invoke Err'd).
+      const anchored = /SEVCROSS=([\s\S]*?)\|END/.exec(outbound);
+      expect(
+        anchored,
+        "the parent query's rendered text (SEVCROSS=…|END) is absent — the " +
+          "invoke did not resolve Ok. Outbound user texts: " +
+          JSON.stringify(turn.userTexts) + "; system notes: " +
+          JSON.stringify(turn.systemNotes),
+      ).not.toBeNull();
+      // THE FIXED OBSERVABLE. runtime-value-model.md:34's union clause — at a
+      // `{"anyOf":[…]}` position the walk re-tests the value against each arm
+      // in source order and translates under the first that admits it; arm 0
+      // here is the `Sev` `$ref`, which admits the envelope's bare wire string
+      // and reattaches the tag. Pre-fix the union position addressed no map
+      // at all and the value crossed untouched — a bare untagged string takes
+      // `valuesEqual`'s cross-type arm and renders `false`.
+      expect(
+        anchored![1],
+        "runtime-value-model.md:34 (union clause) — a named-enum value " +
+          "returned by a subagent-mode callee across a typed " +
+          "invoke<Sev | null> must dispatch to the first admitting arm and " +
+          "compare equal to the caller's own variant of the same enum; a bare " +
+          "untagged string takes valuesEqual's cross-type arm and renders " +
+          "`false`. Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("true");
+      // No fail-closed ending of the drive (invoke infra errors and Err tails
+      // land here — absence is the success observable).
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b0172f2liveparent (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the union-enum-cross drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

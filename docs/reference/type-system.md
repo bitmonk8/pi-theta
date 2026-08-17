@@ -150,8 +150,12 @@ Happens in exactly two places:
   rebuilds the value with theta-side names via each schema's translation map, and
   reattaches each declaring-enum tag at named-enum positions recorded in the
   lowering-pass sidecar. Anonymous string-literal-union positions get no tag
-  (`Severity.Low == "low"` stays `false`). Applies uniformly to typed query
-  results, typed tool-call returns, `invoke` returns, and binder `args`.
+  (`Severity.Low == "low"` stays `false`). At an `anyOf` position, the walk
+  re-tests the value against each arm in source order and translates under the
+  first arm that admits it, settling a value two arms both admit by that same
+  order; no arm admitting leaves the value untouched. Applies uniformly to
+  typed query results, typed tool-call returns, `invoke` returns, and binder
+  `args`.
 - *Outbound* (theta value → JSON): the runtime walks the theta-side value and
   produces wire-named JSON before AJV validation.
 

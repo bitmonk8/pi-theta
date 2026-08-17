@@ -438,3 +438,25 @@ nothing rather than self-authorize a reduced scope.
 - Live baseline before probing:
   `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/hardening/session-subagent-toolloop.test.ts`
   — 2 passed (STL-1, STL-2), 50.4 s.
+
+## Coordination note — bug 0172 face 2 (0.102.0)
+
+`## Fix (0.90.0)` *Residuals* item 1 — "a union (`anyOf`) position is not
+translated … Choosing that rule is a spec question" — is **discharged at
+0.102.0**. The rule was chosen: bug 0172 face 2 landed **first-admitting-arm
+dispatch** in `runtime-value-model.md` §"Wire-name translation" and
+`schema-subset.md` step 5 (whose sidecar now carries a fifth *Union arms* map),
+with the code in the same commit. `invoke<Sev | null>` now hands the parent a
+tagged variant, and the three reach-limit comments this fix added — the seam
+header, `translateInbound`'s doc comment and `#validateInvokeReturn`'s doc
+comment — moved with the reach.
+
+Residual item 2 of the same record is discharged in two parts: the three
+unperformed inbound boundaries were wired by bug 0172's face-1 fix (0.97.0), and
+the enforced-entry-point question this report's §Options posed stays OPEN, now
+recorded as a disposition in bug 0172 rather than as an unanswered question here
+— `src/runtime/inbound-boundary.ts` is a shared step, not an enforced entry
+point.
+
+This report's status is unaffected: it stays fixed (0.90.0). Nothing above
+deletes or rewrites any earlier text.

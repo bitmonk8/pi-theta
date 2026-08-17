@@ -49,6 +49,7 @@ import {
 } from "../runtime/statement-executor";
 import type { EffectfulStatementHostDeps } from "../runtime/effectful-statement-host";
 import type { ThetaValue, ResultValue } from "../runtime/value";
+import type { SchemaValidator } from "../seams/schema-validator";
 import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
@@ -98,6 +99,7 @@ const ZERO_BODY_RANGE: SourceRange = {
 function paramBindingsFrom(
   theta: ThetaCompositionInput,
   args: Readonly<Record<string, unknown>> | undefined,
+  schemaValidator: Pick<SchemaValidator, "compile"> | undefined,
 ): ReadonlyMap<string, ThetaValue> | undefined {
   if (args === undefined) {
     return undefined;
@@ -106,6 +108,7 @@ function paramBindingsFrom(
     params: args,
     lowered: theta.frontmatter.params?.loweredSchema as Record<string, unknown> | undefined,
     body: theta.body,
+    ...(schemaValidator !== undefined ? { schemaValidator } : {}),
   });
 }
 
@@ -322,6 +325,15 @@ export interface ThetaProducerDeps {
    * it (fail-fast, NOCEIL-3) before calling this.
    */
   emitPanicNote(framing: string, diagnostic: Diagnostic): void;
+  /**
+   * The runtime's `SchemaValidator`, used by the binder-`args` projection to
+   * re-test a union-typed `params:` value against each `anyOf` arm
+   * (runtime-value-model.md §"Wire-name translation", the inbound bullet's
+   * union clause). Absent on in-memory harnesses that compose no runtime root,
+   * in which case a value inside a union arm keeps the documented
+   * pass-through; the shipped composition root always supplies it.
+   */
+  readonly schemaValidator?: Pick<SchemaValidator, "compile">;
 }
 
 /**
@@ -402,7 +414,7 @@ export function composeThetaFixture(
         // 2. Route on mode to the conversation the executor drives against. The
         //    binder's bound `params:` object is threaded into the executor
         //    environment as `paramBindings` so top-level `params:` reach body scope.
-        const paramBindings = paramBindingsFrom(theta, binderResult.args);
+        const paramBindings = paramBindingsFrom(theta, binderResult.args, deps.schemaValidator);
         const bindInput: ConversationBindInput = { theta, args, ctx, thetaAbort, ...(paramBindings !== undefined ? { paramBindings } : {}) };
         const binding: ConversationBinding =
           theta.frontmatter.mode === "subagent"
