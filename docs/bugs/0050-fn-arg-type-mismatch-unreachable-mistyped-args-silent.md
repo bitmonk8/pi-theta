@@ -670,3 +670,37 @@ must apply the transparency itself.
   false `E`s on unrecorded-binder reads now defer at every sink) is the
   carve-out's PERMISSIVE direction — nothing that loaded is now refused —
   pinned by cells u13m–u13mg with flip conditions named.
+
+## Coordination note — bug 0136 landed (0.106.0): the substrate mint is fixed, the sink still withholds
+
+This report's coordination clause anticipated exactly this split. Two of its
+eight orchestrated-round review findings were the substrate defect surfacing at
+the new fn-argument sink — the `member` / `method-call` arms trusting a `named`
+type minted from a FIELD/METHOD name — and both were closed at the sink by
+WITHHOLDING (`provableArgType` refuses spelling-mints; cells u6–u8p), never by
+touching the substrate. The clause ended: "The substrate's mints remain this
+report's to fix."
+
+**Half of that is now done.** Bug 0136 fixed the member arm's mint: a member read
+of a declared field on a resolved object schema now types as the field's declared
+`CompatType`. The `method-call` and `call` arms still mint from the method and
+callee names — bug 0136's §Non-goals keeps both, and its witness rows f1 and f2
+pin them as sibling-arm tripwires.
+
+**The sink did not move, and that is measured, not assumed.**
+`provableArgType`'s `case "member"` (`src/parser/type-layer-checks.ts`) returns
+`undefined` unconditionally, so a now-provable member read is still not a proof
+`checkFnArgCompat` may judge. Bug 0136's witness row **x11** pins it:
+`fn g(n: integer)` called as `g(p.s)` with `p.s` declared `string` reports `[]`
+both before and after bug 0136's fix. That is why
+`tests/fn-arg-type-mismatch-wired.test.ts` — all 84 cells including u6–u8p —
+stayed fully green across that fix, and why the file is byte-exact to its
+pre-0136 state.
+
+So the asymmetry is now explicit: the substrate proves the type, the sink
+declines to use the proof, and u6's premise comment ("a read that mints a `named`
+type out of an author-chosen FIELD or METHOD name is not a proof") is true of the
+method half and no longer of the field half. Opening the sink is outside bug
+0136's §Fix — it touches neither that arm nor any route that document enumerates
+— and would flip an 84-cell protected witness, so it was left to its own report
+and recorded as residual 1 of bug 0136's `## Fix (0.106.0)`.

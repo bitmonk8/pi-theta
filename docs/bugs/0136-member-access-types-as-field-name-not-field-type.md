@@ -1,10 +1,10 @@
 # Bug 0136 — `#typeExpr`'s `case "member"` (`static-type-inference.ts:242–244`) types every member access as `{ kind: "named", name: node.field }` — the field's *name*, not its declared type — so eight registered `E`-severity checks stop firing on `p.field` for a schema-typed `p` while a ninth, `theta/parse/non-array-iterand`, refuses the spec-legal `for y in p.xs` outright; the same arm types `Enum.Variant` as the *variant* name against `schemas.md:97`'s "statically typed as `Enum`", and any schema whose name matches the fabricated spelling is silently adopted as the expression's type, so the erasure is also a wrong-type
 
-- **Status:** open. §Fix is not settled: three routes are enumerated with their
-  consequences and the constraints are pinned, but the disposition — and the
-  spec adjudication it rests on — is left to the run. No ordering dependency
-  blocks it; the coordination constraints on adjacent open reports are in
-  §Fix (f).
+- **Status:** fixed (0.106.0). §Fix's route was settled by parent adjudication
+  as (a) route 1 plus the structural enum sub-route of (b), with the corpus
+  disposition taken as sub-option (i); the two protected-witness re-pins the
+  route entails were authorized by a recorded parent grant. See
+  §Fix (0.106.0).
 - **Sev/Diff estimate:** S1/D3 — eight registered `E`-severity codes are
   unreachable on one of the most common expressions in the language while the
   theta registers and reaches the runtime (measured: `theta/runtime/internal-error`,
@@ -330,6 +330,361 @@
   gitignored directory, run on the outputs quoted below, then deleted. `src/`,
   `tests/`, `docs/bugs/README.md` and every other bug document are unmodified by
   this filing.
+
+## Fix (0.106.0)
+
+The settled §Fix, implemented as written. Implementation references name
+symbols: the arm moved from three lines to 38, so every
+`static-type-inference.ts:NNN` citation after `:242` in this document and in
+sibling documents shifted by +35 and is stale (0134-class drift, disclosed and
+not chased — residual 6).
+
+- **What shipped:**
+  - `src/parser/static-type-inference.ts` — §Fix (a) **route 1**, at
+    `#typeExpr`'s `case "member"` (`:242–279`): the arm computes the receiver's
+    type, unfolds it through the exported `unfoldAlias`, and — when the result
+    is a `named` whose declaration is an `object-schema` carrying an own key for
+    `node.field` — returns that field's declared `CompatType`, itself unfolded
+    so an alias-typed field supplies the type it names (TYPE-11,
+    `type-system.md:54`; rows a1 and c5 witness it). `resolveNamed` was added to
+    the existing `./type-compat` import; the record's reader is bug 0031's
+    `Object.hasOwn` guard and bug 0038's `resolveNamed`, reused rather than
+    re-derived, so no third reader of the `fields` record exists.
+  - The same file — §Fix (b)'s enum sub-route, obtained **structurally, with no
+    enum-name source and no new read**. When the unfolded receiver is a `named`
+    that resolves to no declaration, the arm returns *the receiver's own*
+    `named` instead of `node.field`. For `Color.Red` the receiver is
+    `named "Color"`, `collectTypeEnv` records no `enum`, so the receiver stays
+    unresolved and the arm hands back `Color` — `schemas.md:97`'s "statically
+    typed as `Enum`" for free, deferring exactly as `type-system.md:48`
+    prescribes. §Fix (b)'s open question ("the receiver test also needs a source
+    for 'is this identifier an enum name'") is answered by not needing one: the
+    same branch is the provably-inert answer for *every* unresolvable receiver,
+    because it returns a name the arm has just proven resolves to nothing where
+    `node.field` may accidentally resolve. That accident was the wrong-type
+    half; §Reproduction (d) witnesses its removal in both directions.
+  - The same file — §Fix (c) holds **by construction**: an absent field,
+    an `object-schema` whose `fields` is `undefined` (head-only, alias and
+    `by … = …` forms), and a field whose `typeSource` `annotationToCompatType`
+    declined all fall through to the closing nominal fallback, because
+    `expressions.md:9` assigns an absent theta-side name a *runtime*
+    `theta/runtime/missing-object-key` panic and answering here would pre-empt
+    it. Witnessed e8, x1, x3, h5.
+  - The same file — §Fix (d)'s bound holds: a field whose declared type is an
+    object schema returns that schema's own `named` (TYPE-10,
+    `type-system.md:52`), and no union of declared field types is constructible
+    in the arm. `expressions.md:10`'s unimplemented object-index result type
+    stays unimplemented — row e7 is `[]` in both directions.
+  - `docs/spec_topics/expressions.md` — §Fix (a)'s corpus sub-option **(i)**:
+    the *Member access* bullet gains the static result-type sentence, linking
+    TYPE-11 rather than re-deriving it. It discharges the *Indexed access*
+    bullet's closing clause ("an author wanting the per-field declared type uses
+    member access (`obj.fieldName`)") instead of contradicting it.
+  - `docs/reference/grammar.md` — the user-facing mirror, **same commit**, in
+    the file's own compressed parenthetical style. Both edits are one line for
+    one line: neither file's line count moved, so no other document's citation
+    of either file was staled.
+  - `tests/member-access-declared-field-type.test.ts` — new, 81 rows across 72
+    `it`s: (a) 4, (b) 18, (c) 9, (d) 20, (e) 8, (f) 3, (x) 14 sub-case bounds,
+    (h) 5 runtime rows. Parse rows through `parseDoc`; runtime rows through the
+    production executor. Every expected message is read from the registry
+    through `parseRegistry` + `registryMessage` per DIAG-4
+    (`diagnostic-shape.md:74`), with a loud failure naming the page when a row
+    or a placeholder is absent.
+  - `tests/ctor-field-type-check.test.ts`, `tests/question-operand-defect.test.ts`
+    — the two parent-granted protected-witness re-pins (grant verbatim below).
+  - `tests/live/live-production-acceptance.test.ts` — an additive 44th H8a
+    cell, 208 insertions and zero deletions: the registration-restored
+    direction (`for y in p.xs` over a field declared `array<string>` now
+    registers, mirroring the file's own bug-0089 cell) with the refusal
+    direction as a control in the same cell (`p.s.frobnicate()` now draws
+    `theta/parse/unknown-method` and does not register).
+
+- **DIAG-2 not engaged.** No registry row was added, removed or re-triggered
+  and no code or severity moved, so `diagnostic-shape.md:72` does not apply.
+  `docs/reference/diagnostics.md` carries no *Trigger* column, so no mirror
+  edit follows from the codes.
+
+### Parent grant (verbatim)
+
+The settled route entails two assertion flips at witnesses §Fix (f) does not
+name. They were adjudicated above this run and are recorded verbatim, per the
+0059/0165 precedent:
+
+> PARENT ADJUDICATION (2026-08-14, at HEAD 93be04b0, prior report
+> .pi/tmp/fixes/0136-report.md): the two protected-witness assertion flips the
+> pre-measurement isolated are AUTHORIZED as subject-preserving re-pins under
+> the 0097/0179-g3 precedent class — both are correct-by-registry (Trigger reads
+> quoted in the report), inside GOV-15's :25 carve-out, entailed by 0136 §Fix's
+> own 'One arm, both consumers — no per-consumer split' constraint, and
+> anticipated by each witness's own text (ctor-field-type-check group-(d)
+> banner: 'a later widening … is a deliberate change and not a silent one';
+> question-operand-defect m6's premise comment states 0136's defect verbatim).
+> Grant terms, binding: (1) tests/ctor-field-type-check.test.ts rows r3a/r3b
+> re-pin from toEqual([]) to their single measured codes (r3a:
+> object-field-type-mismatch; r3b: let-rhs-type-mismatch) with messages read
+> from the registry per DIAG-4; the row title, premise comment, and group-(d)
+> banner are re-derived to name bug 0136's fix as the deliberate widening the
+> banner anticipated; r1a/r1b, r2a/r2b, r4a/r4b, r5a/r5b MUST stay silent and
+> green; 0031's subject (the constructor-field value check, groups (a)–(c))
+> stays untouched and witnessed. (2) tests/question-operand-defect.test.ts row
+> m6 re-pins from a runtime-defect row to a static-refusal row (parse draws
+> theta/parse/question-on-non-result, message from the registry; the body never
+> executes); m1–m5 and the CONTROL row stay byte-untouched and green (m5
+> re-measured green under the prototype — keep it that way); 0019's
+> runtime-guard subject stays witnessed by m1–m5 + CONTROL; m6's comment is
+> re-derived to state the static gate now catches this input and to name 0136.
+> (3) Coordination notes are APPENDED (never delete) to docs/bugs/0031-*.md and
+> docs/bugs/0019-*.md describing the observable delta and naming 0136's fix as
+> authority. (4) Subject preservation is verified cell-by-cell by the parent at
+> the gate. No other protected witness may flip.
+
+Both flips landed inside those terms, verified hunk-by-hunk: r3a → one
+`theta/parse/object-field-type-mismatch`
+(`field 'n' on schema 'S' type mismatch: expected number, got string`), r3b →
+one `theta/parse/let-rhs-type-mismatch`, both asserted as whole ordered
+`severity code: message` lists (stronger than the `toEqual([])` they replace,
+not weaker), messages built from that file's own registry-reconciled helpers;
+m6 → the whole ordered code list `["theta/parse/question-on-non-result"]`, the
+registry *Message* with its `<type>` placeholder interpolated, the severity
+list `["error"]`, and the file's own loud parse gate asserted to reject the
+fixture, which is the registration-denied observable. `r1a/r1b`, `r2a/r2b`,
+`r4a/r4b`, `r5a/r5b`, groups (a)–(c)/(e)/(f) of the 0031 witness, and `m1`–`m5`,
+both CONTROL rows and the `s1`/`s2` block of the 0019 witness are
+byte-untouched and green. One grant-text correction, measured not absorbed: the
+`question-on-non-result` *Message* template carries `<type>`, not `<actual>`
+(`code-registry-parse.md:79`); the witness interpolates `<type>` and fails
+loudly if that placeholder ever disappears.
+
+### Where this document was wrong
+
+Five corrections, recorded per the 0056 precedent. None changes the route; all
+five change what the run had to expect.
+
+1. **§Fix (d) and §Expected behaviour mis-predict e1 and e3.** Both say an
+   object-schema-typed field "keeps its present disposition" because
+   `classifyReceiver` answers `"object"` and "the A2 gates keep deferring".
+   That is true of `checkMemberAccess`, which early-returns on
+   `kind === "unknown" || kind === "object"`, and **false of
+   `checkMethodCall`**, which early-returns on `"unknown"` only and then gates
+   `"object"` against `builtinMembers("object")`. e1 (`p.q.frobnicate()`) and e3
+   (`p.q.s.frobnicate()`) are method calls, so both flip to their own controls'
+   `theta/parse/unknown-method` — an instance of §Expected behaviour's own rule
+   ("b1–b18 report the code their control reports"), not a widening. The bound
+   §Fix (d) actually protects holds: e7 is `[]` in both directions. Consequence
+   for §Fix's "Both directions" paragraph, re-derived: under neutralisation
+   **e1 and e3 red too**; only e7, the (f) rows and h5 stay green (measured —
+   and x11 and x20 join them).
+2. **"Test coverage of this defect: none" is false, and so is "the move reds
+   nothing outside the new witness."** `tests/ctor-field-type-check.test.ts`
+   rows r3a/r3b and `tests/question-operand-defect.test.ts` rows m5/m6 each
+   drive a member read in a checked position; two of those rows moved and are
+   the subject of the parent grant. §Reproduction's `rg` probe searched for the
+   *rendered message*, which is why it missed witnesses that pin the *silence*.
+3. **The reachability inventory is 13 registry rows, not nine.** The four the
+   document omits are `theta/parse/object-field-type-mismatch`,
+   `theta/parse/question-on-non-result`, `theta/parse/non-string-object-index`
+   and `theta/parse/non-orderable-operands`. All four are existing rows whose
+   *Trigger* already covers the operand, so the carve-out still applies and no
+   row is added. Full enumeration below.
+4. **§Fix (e)'s claim that `tests/committed-fixture-parse-gate.test.ts` "cannot
+   discharge" the corpus sweep is stale.** Bug 0132 was fixed at 0.95.0: the
+   gate enumerates the corpus through `git ls-files '*.theta' '*.thetalib'`
+   with hard expected counts and asserts `docs/examples/personas.thetalib`
+   membership, so both committed `.thetalib` — including the corpus's only
+   member read on a receiver this fix resolves — are gate-covered. No scratch
+   corpus walk was needed; the gate is green.
+5. **The file is 378 lines, not 372**, and the defect site holds exactly at
+   `:242–244`. Every other implementation citation in this document had already
+   drifted before this fix and has drifted a further +35 because of it.
+
+### GOV-15 — the 13 rows whose reachability changes, with each *Trigger* read
+
+`source-language-stability.md:9`'s loads-cleanly predicate selects inputs
+emitting no `E` today. Rows 1–12 are the **addition** direction, admitted by
+the diagnostic-registry carve-out (`:25`): each is an existing row whose
+*Trigger* already covers the operand, so nothing is added, removed or
+re-triggered. Row 13 is the **removal** direction, a strict widening that needs
+no carve-out.
+
+1. `theta/parse/unknown-method` (`:65`) — Trigger: "Method or property accessed
+   on a built-in type that the theta 1.0 stdlib does not expose." A member read
+   whose declared type is `string`/`integer`/an object schema is such a type;
+   the read was outside the *emitter*, never outside the Trigger. Rows a1, a2,
+   a4, b1, b11, d1, d2, e1, e3, e4, e5, e6.
+2. `theta/parse/mixed-plus-operands` (`:36`) — "`+` applied to a
+   `number`/`integer` and a `string` (or any other mixed-type pair)." b3.
+3. `theta/parse/non-indexable-receiver` (`:38`) — "Indexed access `a[...]`
+   whose receiver `a` is neither `array<T>` nor an object value." b5.
+4. `theta/parse/integer-narrowing` (`:24`) — "`number` value used where
+   `integer` is expected." b7.
+5. `theta/parse/non-string-array-join` (`:43`) — "`arr.join(...)` invoked on an
+   array whose element type is not `string`." b9.
+6. `theta/parse/let-rhs-type-mismatch` (`:56`) — "… where the RHS type is
+   **statically resolvable**." The Trigger's own qualifier is what moves: the
+   RHS was not resolvable and now is. b13, b17, and the granted r3b.
+7. `theta/parse/non-boolean-condition` (`:34`) — "Non-`boolean` value used in
+   `if` / `while` / ternary condition or as `&&` / `||` operand." b15, x18.
+8. `theta/parse/array-element-type-mismatch` (`:40`) — "Array literal element
+   does not type-check against the surrounding sink's element type." b17.
+9. `theta/parse/object-field-type-mismatch` (`:46`) — "… where the field
+   value's type is **statically resolvable**." Same qualifier move as row 6.
+   x9, and the granted r3a. **Not in this document's inventory.**
+10. `theta/parse/question-on-non-result` (`:79`) — "`?` applied to an operand
+    whose Theta static type is not `Result<T, QueryError>` for some `T`."
+    `p.n` is now `number`. x10, and the granted m6. **Not in this document's
+    inventory.**
+11. `theta/parse/non-string-object-index` (`:39`) — "Indexed access `obj[k]` on
+    an object-value receiver whose index expression `k` is not of type
+    `string`." x8. Reds nothing. **Not in this document's inventory.**
+12. `theta/parse/non-orderable-operands` (`:37`) — "`<`, `<=`, `>`, or `>=`
+    applied to a non-orderable operand pair." x13. Reds nothing. **Not in this
+    document's inventory.**
+13. `theta/parse/non-array-iterand` (`:66`) — "`for x in expr` where `expr` is
+    not `array<T>`." **Removal direction**: the member-read input class leaves
+    the emitter entirely across five receiver spellings (c1, c3, c5, c6, c7),
+    because in each the iterand *is* a declared `array<string>` and the
+    emission was outside this Trigger. The row keeps firing where it is owed,
+    and two messages move to the Trigger's own `got <type>` template: c8
+    `got s` → `got string` (matching control c9) and, derived, d19 `got Red` →
+    `got Color`. The second is strictly more admissible —
+    `placeholder-rendering-a.md:19` renders an enum identifier and no clause
+    admits a variant name. The collision-driven *disappearance* at d18 also
+    goes: d18 now reports what its control d19 reports.
+
+**Committed-corpus sweep, both directions, both extensions: zero flips.**
+Discharged by the real gate (`tests/committed-fixture-parse-gate.test.ts`, 36
+tests, green), which covers 31 `.theta` and 2 `.thetalib` including
+`docs/examples/personas.thetalib` — the corpus's only member read on a receiver
+route 1 resolves.
+
+**The H9a permitted-codes decision was taken by the real run, not by
+assumption.** `npx vitest run --config config/vitest/vitest.live.config.ts
+tests/live/acceptance/` → 11/11 across both files; every gated area passed
+`assertCodesSubsetOfPermitted`'s hard `.toEqual([])`, no area emits any
+`theta/{load,parse,runtime}/*` code post-fix, and the empty-capture stderr gate
+measured a true 0 raw bytes per spawn. **No append**:
+`tests/fixtures/h7a/permitted-codes.json` is byte-unchanged at
+`a4a8da04209f90e13d815edd92c1fc682e2a2236`.
+
+- **Gates** (verbatim):
+  - Witness, red before: `npx vitest run tests/member-access-declared-field-type.test.ts`
+    → `Test Files 1 failed (1)`, `Tests 43 failed | 29 passed (72)`.
+  - Witness, green after: `Test Files 1 passed (1)`, `Tests 72 passed (72)`.
+  - Full default suite: `npm test` → `Test Files 311 passed (311)`,
+    `Tests 5155 passed (5155)` (baseline at HEAD `93be04b0`: 310 / 5083).
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → exit 0, no output.
+  - Lint: `npm run lint`
+    (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) → exit 0, no
+    output.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Tests 44 passed (44)`,
+    207.33 s; the new cell alone re-run independently → `1 passed | 43 skipped`.
+  - Live H9a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/` → `Test Files 2 passed (2)`, `Tests 11 passed (11)`.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — **clean**, no findings,
+  with evidence: all 81 witness rows cross-checked against the measured
+  post-fix oracle, the arm's termination argued over a self-referential schema
+  field and an alias cycle, §Fix (c)'s three sub-cases traced through
+  `collectSchemaFields` (a declined `typeSource` leaves the key *absent*, so
+  the own-key guard admits only a real `CompatType` and the `as CompatType`
+  cast — required by `noUncheckedIndexedAccess` — launders nothing), the grant
+  verified cell-by-cell, and the gates re-run. It raised three non-blocking
+  residuals (residuals 1–3 below).
+
+- **Verification:** `bug-fix-verifier` — **SOLID**, no findings.
+  - *Both directions*: the fix neutralised by an unconditional early return in
+    the arm (hash `e7e0a760…`), restored and hash-verified equal to the fixed
+    `b4a098cf…`. Neutralised: 44 rows red — 3 (a), 9 (b), 6 (c), 11 (d), 5 (e),
+    5 (x), 3 (h), plus r3a/r3b and m6 — matching the prediction exactly. Green
+    under neutralisation, i.e. each stated bound is a distinguishable failure:
+    e7 (object-index fence), f1/f2/f3 (the `call` / `method-call` / `ident`
+    sibling-arm tripwires), h5 (the absent-field panic), x11 (the fn-arg sink
+    still withholds), x20 (the `params:`-receiver deferral), every control row,
+    and 0031's r1/r2/r4/r5 and 0019's m1–m5.
+  - *Full suite*: 311 files / 5155 tests green, run twice.
+  - *Live, end-to-end, for real*: the additive H8a cell red-proven **live** —
+    under neutralisation the field-reading theta fails to register with the
+    pre-fix `theta/parse/non-array-iterand` signature and only its two siblings
+    register; restored, it registers and its body runs. Full H8a file 44/44,
+    H9a 11/11.
+  - *Lint and typecheck*: exit 0 both, using the `package.json` definitions.
+
+- **Residuals:**
+  1. **`provableArgType`'s `case "member"` withholds on now-provable member
+     reads.** The fn-argument sink (`src/parser/type-layer-checks.ts`) returns
+     `undefined` unconditionally for a `member` node, with a comment whose
+     premise this fix removes. Measured: witness row **x11**
+     (`fn g(n: integer)` called as `g(p.s)` with `p.s: string`) is `[]` in both
+     directions. That is why `tests/fn-arg-type-mismatch-wired.test.ts` (84
+     cells, incl. u6–u8p) stays fully green. Opening the sink is outside this
+     §Fix — it touches neither the arm nor any route the document enumerates —
+     and would flip that 84-cell witness, so it is left to its own report. Bug
+     0050's coordination note in this document anticipated exactly this split
+     ("The substrate's mints remain this report's to fix").
+  2. **An enum name shadowed by a schema of the same spelling still fabricates.**
+     With `enum Color { Red }` beside `schema Color { … }` — one PascalCase
+     namespace (`lexical.md:15`) and no registry row objecting to the pair —
+     the receiver `named "Color"` resolves to the *schema*, `Red` is no own
+     field, and the arm falls through to `named "Red"`. Behaviour there is
+     byte-identical to pre-fix (no regression), it becomes observable only with
+     a second collision (`schema Red`), and closing it needs the enum-name
+     source §Fix (b) declines. Not filed here.
+  3. **Six pre-measurement probe rows are not carried into the witness** — x12
+     (invoke-arg sink), x14, x15, x16, x17, x19, all non-moving bounds. Every
+     row §Fix's *Witness* paragraph mandates is present; these are cheap future
+     pins.
+  4. **A pre-existing stale harness comment in `tests/ctor-field-type-check.test.ts`.**
+     Its `CODE` / `EXPECTED_TEMPLATE` doc-comments still say the
+     `object-field-type-mismatch` row is "NOT in the registry at this HEAD" and
+     "expected to be RED until then"; the row has existed since 0031 shipped
+     (`code-registry-parse.md:46`). It predates this diff and sits outside the
+     grant's editable set, so it was left untouched. Group (f)'s hard
+     reconciliation keeps r3a's message registry-enforced regardless.
+  5. **A frontmatter `params:`-declared receiver still defers**, at a position
+     disjoint from this arm. `checkTypeLayer` starts the top-level walk with an
+     empty bindings map and threads `paramsFieldNames` only into
+     `collectLocalBinderNames` (a name `Set`, bug 0050's §Fix), where `walkFn`
+     seeds each parameter's declared type into its own scope; so a `params:`
+     identifier types through the `ident` arm's nominal fallback and this arm
+     correctly returns the receiver. Witness row **x20** pins it as `[]` in
+     both directions. Same shape as bug 0126's plain-`for` loop variable, at a
+     third position. Not filed here.
+  6. **Citation drift, disclosed and not chased** (0134 class). The arm grew
+     from 3 lines to 38, shifting every `static-type-inference.ts` line after
+     `:242` by +35. Stale `static-type-inference.ts:NNN` citations therefore
+     remain in this document and in seven committed test files
+     (`array-sink-unresolvable-deferral`, `fn-arg-type-mismatch-wired`,
+     `index-element-alias-unfolded`, `index-element-alias-runtime-disposition`,
+     `ctor-unresolved-schema-name`, `typeenv-prototype-names`,
+     `live/live-production-acceptance`). An intermediate implementer chased
+     them and rewrote three of those files' witness *premise* comments; all
+     seven were restored byte-exact to HEAD, hash-verified, because the house
+     posture is symbols-hold-lines-drift and those files belong to other
+     reports. Only the new witness's own two self-citations were re-derived
+     (to `:242–279`).
+
+- **Discharge notes appended:** `docs/bugs/0031-ctor-field-value-typing-unchecked.md`
+  and `docs/bugs/0019-question-operand-bypasses-result-normalisation.md` (the
+  two granted coordination notes, grant term 3);
+  `docs/bugs/0125-index-element-narrowing-not-alias-unfolded.md` (its fix
+  record's residual 3 — the member-access finding — is discharged by this fix);
+  `docs/bugs/0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md`
+  (its coordination clause gains the x11 measurement: the substrate mint is
+  fixed, the sink still withholds). Bug 0126's document was deliberately not
+  edited.
+
+- **Pinned dispositions / non-goals:** every §Non-goal holds unmoved and is
+  witnessed — the object-index result type (e7), the `named "index"` sentinel,
+  the `call` / `method-call` arms (f1, f2), the `ident` arm's fallback for a
+  genuinely free name (f3), `enum` declarations absent from the `TypeEnv`
+  (d8/d10/d12/d15/d17 still defer), the absent-field disposition (e8, h5),
+  bug 0126's loop variable, `walkFn`'s raw parameter record, and
+  `theta/runtime/internal-error`'s own framing. Bug 0127 gains a new input
+  class exactly as §Fix (f) predicts: `checkArrayJoin` is now reachable from a
+  member read that narrows to `array<T>` (b9), inside its registered trigger
+  and outside 0127's subject.
 
 ## Summary
 

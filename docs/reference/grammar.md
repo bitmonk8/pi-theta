@@ -337,7 +337,7 @@ description.
 
 ## Expression sublanguage
 
-Supported forms: literals; identifiers; member access `a.b`; indexed access
+Supported forms: literals; identifiers; member access `a.b` (result type is the receiver's declared field type); indexed access
 `a[k]` (receiver must be `array<T>` or object — otherwise
 `theta/parse/non-indexable-receiver`; array result type is `T`; object index must be `string` —
 `theta/parse/non-string-object-index`; the `[` must open on the same line as

@@ -672,3 +672,46 @@ wiring engages the carve-out as an ADDITION for inputs newly brought into
 `theta/parse/fn-arg-type-mismatch`'s emission set, discharged by measuring the
 three shipped example call sites rather than predicting them (all three defer;
 the corpus observes no change).
+
+## Coordination note — bug 0136 landed (0.106.0)
+
+This report's group-(d) residue probes `r3a`/`r3b` moved, on parent authority,
+and the direction is the one the group's own banner anticipated without naming.
+
+Bug 0136 fixed `#typeExpr`'s `case "member"` arm: a member read's static type is
+now the receiver's declared type for that field, not the field's *name*. So
+`p.x` on `schema P { x: string }` is `string`, and this report's own
+constructor-field check reaches it. The observable delta, measured through the
+same `parseDoc` harness this file uses:
+
+- `r3a` (`schema S { n: number }` / `schema P { x: string }` /
+  `let p = P { x: "s" }` / `let s = S { n: p.x }`): was `[]`, now one
+  `theta/parse/object-field-type-mismatch` —
+  `field 'n' on schema 'S' type mismatch: expected number, got string`.
+- `r3b` (`let n: number = p.x`): was `[]`, now one
+  `theta/parse/let-rhs-type-mismatch` —
+  `let binding 'n' initialiser type mismatch: expected number, got string`.
+
+Both emissions sit **inside** their rows' registered *Triggers*, whose own
+qualifier is what moved: `code-registry-parse.md:46` and `:56` each read "where
+the … type is statically resolvable", and `p.x` was not statically resolvable
+before and is now. That is the `source-language-stability.md:25`
+diagnostic-registry carve-out in its textbook shape — no row added, removed or
+re-triggered, DIAG-2 not engaged.
+
+The banner said "a later widening of `collectTypeEnv` is a deliberate change and
+not a silent one". The widening arrived from a neighbouring direction:
+`collectTypeEnv` still records `schema` declarations only, and it is the member
+ARM that stopped fabricating. The banner's purpose held either way — the rows
+red rather than passing silently.
+
+**This report's subject is preserved and strengthened.** Its finding is the
+constructor-field value check, and groups (a)–(c) are byte-untouched and green.
+At `r3a` that check is now scored by an emission instead of by a silence, with
+`r3b` deciding the identical value/declaration pair at the matched `let` sink one
+position over. `r1a`/`r1b` (a `result-ctor`), `r2a`/`r2b` (a call result),
+`r4a`/`r4b` (an `enum`-declared field type) and `r5a`/`r5b` (a literal-type
+annotation) remain residues, byte-untouched, and total silence remains their pin
+— so this report's recorded non-goals, including `enum` names absent from the
+`TypeEnv`, are still locked. Bug 0136's authority for the move is recorded
+verbatim in its own `## Fix (0.106.0)` section.

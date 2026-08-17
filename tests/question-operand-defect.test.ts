@@ -1,9 +1,13 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
+// @ts-expect-error — JS code-registry module, no type declarations.
+import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -99,13 +103,69 @@ function parseDeps(): ParseThetaDocumentDeps {
   return { systemNote, modelMatcher };
 }
 
+// ===========================================================================
+// The DIAG-4 oracle for the one row decided at PARSE (m6). Mirrors the
+// `REGISTRY` / `registered` shape tests/ctor-field-type-check.test.ts
+// established: diagnostic-shape.md:74 makes the registry's *Message* column
+// normative, so an asserting test sources the string from that column instead
+// of copying the sentence.
+// ===========================================================================
+
+interface RegistryRow {
+  readonly code: string;
+  readonly message: string;
+}
+
+/** The parse-phase registry table, read from the spec corpus (DIAG-4). */
+const REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as RegistryRow[];
+
+const QUESTION_CODE = "theta/parse/question-on-non-result";
+
+/**
+ * A registered code's normative *Message* template. Fails LOUDLY naming the
+ * registry page when the row is absent, so a registry drift can never degrade
+ * an assertion into a comparison against `undefined` — never a skip.
+ */
+function registered(code: string): string {
+  const template = registryMessage(REGISTRY, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for ${code} — the DIAG-4 column (diagnostic-shape.md:74) is this row's only oracle, so a missing row is a harness failure, never a skip`,
+    );
+  }
+  return template;
+}
+
+/**
+ * A registered *Message* with one placeholder interpolated. Fails LOUDLY when
+ * the template does not carry it, so a registry reword cannot leave the
+ * assertion comparing against an un-filled template.
+ */
+function registeredMessage(code: string, placeholder: string, value: string): string {
+  const template = registered(code);
+  if (!template.includes(placeholder)) {
+    throw new Error(
+      `harness: the ${code} Message template does not carry ${placeholder}; template=${JSON.stringify(template)}`,
+    );
+  }
+  return template.replace(placeholder, value);
+}
+
 /**
  * Parse a fixture source and fail LOUDLY on any error-severity diagnostic — a
  * fixture that stops parsing must never let a bug test pass or fail for the
- * wrong reason (no silent skip). For the m1–m6 matrix this loud gate is itself
+ * wrong reason (no silent skip). For the m1–m5 matrix this loud gate is itself
  * part of the witness: "it parsed" proves ERR-18 did not fire at load, which
  * is exactly the static-gate gap (the operands infer as `named` placeholders
- * and stay unclassified even after the stage-2 `union`/`object` widening).
+ * and stay unclassified even after the stage-2 `union`/`object` widening). m6
+ * uses the gate inverted — its throw IS that row's refusal observable.
  */
 function parseTheta(path: string, src: string): ThetaDocument {
   const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
@@ -272,15 +332,44 @@ describe("bug 0019 — `?` over a non-Result member/index/identifier operand abo
     );
   });
 
-  it("RED (m6): member `p.n?` reaching a PRIMITIVE field rejects (currently: outcome fail, error === undefined)", async () => {
-    // m6 pins that even a primitive escapes the static gate when reached
-    // through a member access — the member's inferred type is a nominal
-    // reference to the FIELD NAME (`named "n"`), not the field's declared
-    // `number`, so only the runtime guard can catch it.
-    await expectQuestionDefect(
-      runSource(FM + "schema P { n: number }\nlet p = P { n: 5 }\nlet v = p.n?\nv"),
-      "m6",
+  it("STATIC (m6): member `p.n?` reaching a PRIMITIVE field is refused at PARSE — the body never executes", () => {
+    // Bug 0136 is the authority for this row's disposition: `#typeExpr`'s
+    // `case "member"` arm answers the receiver's DECLARED field type, so `p.n`
+    // types as `number` and ERR-18's parse gate decides the site. An
+    // `E`-severity `theta/parse/*` denies registration, which is exactly what
+    // ERR-18 states for a non-Result operand ("there is no runtime
+    // disposition"), so there is no runtime path left here to guard. 0019's
+    // runtime-guard subject is untouched and stays witnessed by m1–m5 and both
+    // CONTROL rows, whose operands remain statically unclassifiable.
+    const src = FM + "schema P { n: number }\nlet p = P { n: 5 }\nlet v = p.n?\nv";
+    const source: ThetaSource = {
+      path: "bug0019.theta",
+      bytes: new TextEncoder().encode(src),
+    };
+    const doc = parseThetaDocument(source, parseDeps());
+    const rendered = JSON.stringify(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
     );
+    expect(
+      doc.diagnostics.map((d) => d.code),
+      `m6: the whole ordered code list is the ERR-18 gate alone; actual diagnostics=${rendered}`,
+    ).toEqual([QUESTION_CODE]);
+    expect(
+      doc.diagnostics.map((d) => d.message),
+      `m6: DIAG-4 (diagnostic-shape.md:74) — the message is the registry's *Message* column with its \`<type>\` placeholder interpolated; actual diagnostics=${rendered}`,
+    ).toEqual([registeredMessage(QUESTION_CODE, "<type>", "number")]);
+    expect(
+      doc.diagnostics.map((d) => d.severity),
+      `m6: only an error-severity diagnostic denies registration; actual diagnostics=${rendered}`,
+    ).toEqual(["error"]);
+    // The refusal is asserted, not merely implied by omitting the run: this
+    // file's own loud parse gate throws on any error-severity diagnostic, so a
+    // fixture it rejects is a fixture the load path drops and the body of which
+    // never executes.
+    expect(
+      () => thetaOf(src),
+      "m6: the loud parse gate must reject this fixture — that rejection IS the 'registration denied, body never executes' observable",
+    ).toThrow(QUESTION_CODE);
   });
 
   it("CONTROL: `?` over a GENUINE stored Result — identifier bound to `Ok(5)` — still unwraps (green now, green after)", async () => {

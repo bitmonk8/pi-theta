@@ -450,3 +450,39 @@ without inheriting a guard.
   `src/extension/production-theta-producer.ts:1548–1562`, :3296–3312,
   `src/extension/theta-composition-producer.ts:412–432`,
   `src/runtime/err-note-render.ts:105–197`.
+
+## Coordination note — bug 0136 landed (0.106.0)
+
+Row `m6` of this report's reproduction matrix moved, on parent authority, from a
+runtime-guard row to a static-refusal row. Its premise comment stated bug 0136's
+defect verbatim — "the member's inferred type is a nominal reference to the FIELD
+NAME (`named "n"`), not the field's declared `number`, so only the runtime guard
+can catch it" — and bug 0136 dissolved that premise.
+
+Bug 0136 fixed `#typeExpr`'s `case "member"` arm to answer the receiver's
+declared field type. So in `schema P { n: number }` / `let p = P { n: 5 }` /
+`let v = p.n?`, the operand of `?` now statically types `number`, ERR-18's parse
+gate decides the site, and the observable delta is:
+
+- `m6`: was a drive that RESOLVED with a corrupted outcome (outcome fail,
+  `error === undefined`), now one `theta/parse/question-on-non-result` at parse —
+  `'?' requires a Result operand; got number` — at `error` severity, so
+  `hasLoadParseError` denies registration and the body never executes.
+
+That is exactly what ERR-18 states for a non-`Result` operand ("there is no
+runtime disposition"), and the emission sits inside the row's registered
+*Trigger* as written (`code-registry-parse.md:79`: "`?` applied to an operand
+whose Theta static type is not `Result<T, QueryError>` for some `T`") — the
+`source-language-stability.md:25` carve-out, with no row added, removed or
+re-triggered.
+
+**This report's subject is preserved.** The runtime brand guard is the finding,
+and it stays witnessed by `m1`–`m5` and both CONTROL rows, all byte-untouched and
+green: their operands remain statically unclassifiable, because an object-schema
+`named` is still not statically a `Result` (`m1`, `m4`, `m5`), an index read of a
+plain object element is not (`m2`), and an unannotated binding records its
+initialiser's inferred type (`m3`, the `Ok(5)` CONTROL). `m5` in particular was
+re-measured green. The `s1`/`s2` fail-surface block is byte-untouched: `s1` still
+drives `m1`'s fixture, so the SLSH-3 fabricated-cancellation pin is unaffected.
+Bug 0136's authority for the move is recorded verbatim in its own
+`## Fix (0.106.0)` section.

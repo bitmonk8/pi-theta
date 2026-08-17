@@ -694,11 +694,22 @@ describe("bug 0031 (c) — controls: the matched `let` sinks and the existing co
 // (d) r1–r5 — the residue probes, pinned as NEGATIVE tests. §Fix: "Coverage is
 // partial by construction, and identical to the typed-`let` position's" —
 // `checkCompatible` returns "unknown" whenever either operand is a `named` type
-// absent from the `TypeEnv` (call results, member reads, `enum`-declared field
-// types, literal-type field annotations), and type-system.md:48 licenses the
+// absent from the `TypeEnv` (call results, `enum`-declared field types,
+// literal-type field annotations), and type-system.md:48 licenses the
 // deferral. Each row is measured on BOTH sides — the constructor field and the
 // matched `let` — so a later widening of `collectTypeEnv` is a deliberate change
-// and not a silent one. GREEN at this HEAD and after; total silence is the pin.
+// and not a silent one.
+//
+// r3a/r3b are that deliberate change, and it arrives from a direction the
+// banner did not name: bug 0136 widens `#typeExpr`'s `case "member"` ARM — the
+// arm now answers the receiver's DECLARED field type — rather than widening
+// `collectTypeEnv`, which still records `schema` declarations only. A member
+// read is consequently inside the parser's static view and stops being a
+// residue, so the pair is measured POSITIVELY on both sides. 0031's subject is
+// preserved and strengthened by that: its constructor-field check is now scored
+// by an emission at r3a instead of by a silence, with r3b deciding the identical
+// value/declaration pair at the matched `let` sink one position over. r1, r2, r4
+// and r5 remain residues, and total silence stays their pin.
 // ===========================================================================
 
 describe("bug 0031 (d) — residues: unresolvable operands stay silent at the constructor field AND at the matched `let`", () => {
@@ -725,9 +736,37 @@ describe("bug 0031 (d) — residues: unresolvable operands stay silent at the co
     expectSilent(R2B, "r2b — `let n: number = f()`");
   });
 
-  it("r3a/r3b: a member read stays silent (a member read types as named `x`, unresolvable)", () => {
-    expectSilent(R3A, "r3a — `S { n: p.x }`");
-    expectSilent(R3B, "r3b — `let n: number = p.x`");
+  /**
+   * The whole ordered diagnostic list, one `severity code: message` entry per
+   * emission — `expectSilent`'s strength pointed the other way, so an absent
+   * emission, an extra emission and a reordering all red.
+   */
+  function expectExactly(body: string, expected: readonly string[], why: string): void {
+    const doc = parse(body);
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
+      `${why}; actual diagnostics=${render(doc)}`,
+    ).toEqual([...expected]);
+  }
+
+  it("r3a/r3b: a member read is JUDGED on both sides — the receiver's declared field type reaches each sink", () => {
+    // `p.x` reads a field declared `string` off a receiver that resolves to
+    // `schema P`, so the operand is inside the parser's static view and
+    // type-system.md:48 licenses no deferral at either sink: the constructor
+    // field compares `string` against the declared `number` (r3a), and the `let`
+    // annotation decides the identical pair one position over (r3b). Both sinks
+    // read the one inference seam, so there is no per-consumer split to make and
+    // the two move together.
+    expectExactly(
+      R3A,
+      [`error ${CODE}: ${fieldMismatch("n", "S", "number", "string")}`],
+      "r3a — `S { n: p.x }`: 0031's own constructor-field check, scored by an emission rather than by a silence",
+    );
+    expectExactly(
+      R3B,
+      [`error ${LET_RHS_CODE}: ${letRhsMessage("n", "number", "string")}`],
+      "r3b — `let n: number = p.x`: the matched `let` sink on the same value and the same declared type",
+    );
   });
 
   it("r4a/r4b: an `enum`-declared field type stays silent — `collectTypeEnv` records no `enum` names", () => {

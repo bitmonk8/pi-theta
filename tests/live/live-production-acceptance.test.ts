@@ -6995,3 +6995,211 @@ describe("H8a-T — bug 0180: a typed invoke<number | null> of a subagent-mode c
     }
   });
 });
+
+// ===========================================================================
+// Bug 0136 — `#typeExpr`'s `case "member"` arm
+// (src/parser/static-type-inference.ts:242–279) typed EVERY member access as
+// `{ kind: "named", name: node.field }` — the FIELD's name, not its declared
+// type — so eight registered `E`-severity checks were unreachable on
+// `p.field` for a schema-typed `p`, while a ninth,
+// `theta/parse/non-array-iterand`, refused the spec-legal `for y in p.xs`
+// outright
+// (docs/bugs/0136-member-access-types-as-field-name-not-field-type.md). The
+// fix resolves the receiver's type, unfolds it (`unfoldAlias`,
+// `type-compat.ts`), and — when it is a `named` whose declaration is an
+// object schema carrying an own key for the field — returns that field's
+// declared `CompatType`; when the receiver resolves to no declaration, it
+// returns the RECEIVER'S OWN `named` rather than `node.field` (schemas.md:97's
+// "`Enum.Variant` … statically typed as `Enum`", obtained structurally). The
+// offline 72-cell unit witness
+// (tests/member-access-declared-field-type.test.ts) proves the mechanism at
+// the `parseThetaDocument` boundary; this cell proves the SAME registration
+// consequence end to end through the real production composition root
+// (session_start → resources_discover → composeExtensionInstance →
+// checkTypeLayer) — the fixed path had zero live coverage before this
+// addition.
+//
+// THE STRONGEST OBSERVABLE, MIRRORED FROM THE BUG 0089 CELL ABOVE (an
+// alias-typed fn parameter iterated in a `for` registers, live): the SAME
+// registration-restored shape, at a disjoint arm eight `case` labels above
+// bug 0089's index arm in the same switch.
+//   - `b136livefield` — the bug doc's own §Reproduction row c1, verbatim
+//     (`tests/member-access-declared-field-type.test.ts` cell c1's
+//     production-parser shape): an object-schema field declared
+//     `array<string>`, iterated by a same-file `fn`'s `for` loop. Pre-fix
+//     `#typeExpr` typed `p.xs` as the nominal `named "xs"` (the field NAME),
+//     so `checkForIterand` (src/parser/control-flow.ts) refused a spec-legal
+//     iterand at `E` severity (`theta/parse/non-array-iterand: … got xs`,
+//     control-flow.md:13 admits this loop) and `hasLoadParseError`
+//     (production-composition.ts) denied registration. Post-fix `p.xs`
+//     resolves to the declared `array<string>`, the iterand check admits it,
+//     and the caller registers — the fixed observable this cell asserts, by
+//     the SAME absence-of-regression-fragment channel bug 0089's cell uses.
+//
+// THE REFUSAL-ADDED DIRECTION, ADDED AS A THIRD PLANTED THETA SHARING THIS
+// CELL'S ONE PRECONDITION CONTROL — the harness admits this cheaply
+// (registration-only, no drive, zero tokens), mirroring the multi-fixture,
+// mixed-direction shape the bug 0081 and bug 0149 cells above already
+// establish in this same file (an admission and a denial sharing one
+// precondition; two faces of one cell sharing one precondition):
+//   - `b136liverefuse` — the bug doc's own §Reproduction row b1 / row h1,
+//     verbatim: an object-schema field declared `string`, a method call the
+//     theta 1.0 stdlib does not expose on that declared type
+//     (`p.s.frobnicate()`). Pre-fix the same arm typed `p.s` as the nominal
+//     `named "s"`, unresolvable, so `checkMethodCall`'s A2 gate
+//     (type-layer-checks.ts) deferred and this caller REGISTERED, reaching
+//     `theta/runtime/internal-error` at runtime if driven (§Reproduction row
+//     h1) — never driven here; registration alone is this control's whole
+//     observable, so the cell spends no extra tokens proving it. Post-fix
+//     `p.s` resolves to the declared `string`, `theta/parse/unknown-method`
+//     fires at PARSE (`E` severity), and `hasLoadParseError` denies
+//     registration BEFORE any drive could reach the runtime outcome — the
+//     opposite direction from `b136livefield` above, sharing this cell's one
+//     precondition control. Reuses this file's existing
+//     `unknownMethodFragment` reader (bug 0125's addition) rather than a
+//     second one — the same registered code, the same message shape.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0070/0071/0077/
+// 0079(a)/0110/0084/0089/… cells above claim). ADDITIVE ONLY: no existing
+// cell in this file (1–43) is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * The bug doc's own §Reproduction row c1, verbatim
+ * (docs/bugs/0136-member-access-types-as-field-name-not-field-type.md
+ * §Reproduction (c) row c1 / `tests/member-access-declared-field-type.test.ts`
+ * cell c1's production-parser shape, replayed here through the real
+ * discovery→registration path instead of the offline harness). The trailing
+ * `1` supplies the theta's final value — no `@`-query is needed for a
+ * prompt-mode theta to register, matching the bug 0089 cell's own
+ * `aliasIterandTheta` above.
+ */
+function fieldIterandTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { xs: array<string> }",
+    "fn f(p: P) {",
+    "  for y in p.xs {",
+    "    y",
+    "  }",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The bug doc's own §Reproduction row b1 / row h1, verbatim
+ * (docs/bugs/0136-member-access-types-as-field-name-not-field-type.md
+ * §Reproduction (b) row b1 / `tests/member-access-declared-field-type.test.ts`
+ * cell b1's production-parser shape). The trailing `1` supplies the theta's
+ * final value, matching `fieldIterandTheta` above; never driven, so
+ * registration alone is this control's whole observable.
+ */
+function fieldMethodMisuseTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { s: string }",
+    "fn f(p: P) {",
+    "  p.s.frobnicate()",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0136: a member read's static type is the receiver's declared field type, live (Convention: live-host acceptance)", () => {
+  it("registers a caller whose `for` loop iterates an object-schema field declared array<string>, and does not register a sibling whose method call misuses that field's declared string type, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace,
+      // proving the workspace and discovery walk both work — without this,
+      // either fixture's outcome could be (wrongly) attributed to a broken
+      // workspace instead of the gates under test.
+      { source: "project", stem: "b136livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The fixed observable: registration-RESTORED direction.
+      { source: "project", stem: "b136livefield", text: fieldIterandTheta() },
+      // The refusal-ADDED direction, sharing the precondition control above.
+      { source: "project", stem: "b136liverefuse", text: fieldMethodMisuseTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b136livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gates under test, would explain either fixture's outcome too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // for-iterated object-schema field declared array<string> registers —
+      // the receiver resolves to the declared `P`, the field's declared type
+      // unfolds to `array<string>`, and `checkForIterand` no longer refuses
+      // it, so `hasLoadParseError` has nothing to act on.
+      expect(
+        handle.command("b136livefield"),
+        "the caller whose `for` loop iterates a field declared array<string> " +
+          "failed to register — theta/parse/non-array-iterand fired on a " +
+          "program control-flow.md:13 admits. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toContain("b136livefield");
+
+      // The refusal-added direction: the sibling whose method call misuses
+      // the field's declared `string` type must NOT register — the opposite
+      // direction, proven in the same cell at no extra token cost.
+      expect(
+        handle.command("b136liverefuse"),
+        "the caller whose method call misuses a field declared string " +
+          "registered anyway through the live discovery/session_start path " +
+          "— theta/parse/unknown-method did not fire on the resolved field " +
+          "type. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b136liverefuse");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: both diagnostics fire at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/…/0149/0081 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+
+      // Registration-restored direction: absence of the pre-fix regression
+      // fragment is the success signal (mirrors the bug 0089 cell's own
+      // convention exactly).
+      const regressionFragment = nonArrayIterandFragment("xs");
+      expect(
+        notes.some((note) => note.includes(regressionFragment)),
+        "a theta-system-note entry named the non-array-iterand rejection for " +
+          "the field-iterand caller — the fix regressed. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(false);
+
+      // Refusal-added direction: presence of the new rejection fragment is
+      // the success signal (mirrors the bug 0139/0142/…/0149 cells' own
+      // convention exactly, reusing bug 0125's `unknownMethodFragment`).
+      const expectedFragment = unknownMethodFragment("frobnicate", "string");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the unknown-method rejection for " +
+          "the field-method-misuse caller. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -27,7 +27,7 @@
 // functions.md. Closes no new spec REQ-ID.
 
 import type { Block, Expr, IfStmt, ThetaBody, Stmt } from "./theta-document";
-import { commonType, displayType, unfoldAlias, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
+import { commonType, displayType, resolveNamed, unfoldAlias, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
 
 /**
  * The `V2b` type-compatibility engine (`⊑`) as an injectable seam: the directed
@@ -239,9 +239,44 @@ export class StaticTypeInferencePass {
           node.arms.map((arm) => this.#typeExpr(arm.body, env, bindings)),
           env,
         );
-      case "member":
-        // A field / enum-variant access: nominal reference to the field name.
+      case "member": {
+        // The declared field type is one own-key-guarded lookup away, and
+        // type-system.md:48's deferral licence is for an operand past the
+        // parser's static view — a declared field on a resolved object schema
+        // is not one. The lookup reuses bug 0031's `Object.hasOwn` guard and
+        // bug 0038's `resolveNamed`, both already established at this exact
+        // record, rather than re-deriving a third reader of it.
+        //
+        // When the receiver resolves to no declaration, the arm returns the
+        // receiver's OWN `named` rather than `node.field`. For `Enum.Variant`
+        // this is schemas.md:97's "statically typed as `Enum`" for free — the
+        // receiver is `named <Enum>`, no `enum` entry ever enters the
+        // `TypeEnv`, so it stays unresolved and the expression defers exactly
+        // as type-system.md:48 prescribes. The same branch is also the
+        // provably-inert answer for every other unresolvable receiver:
+        // `node.field` might resolve by accident against an unrelated
+        // declaration that happens to share its spelling, where the receiver
+        // has just been proven to resolve to nothing.
+        //
+        // An absent field, a `fields` record the schema declaration carries
+        // none of, and a field whose `typeSource` failed to convert all fall
+        // through to the closing nominal fallback rather than reporting:
+        // expressions.md:9 assigns an absent theta-side name a RUNTIME
+        // `theta/runtime/missing-object-key` panic, not a parse diagnostic,
+        // so answering here would pre-empt it.
+        const receiver = unfoldAlias(this.#typeExpr(node.target, env, bindings), env);
+        if (receiver.kind === "named") {
+          const decl = resolveNamed(env, receiver.name);
+          if (decl === undefined) {
+            return receiver;
+          }
+          const fields = decl.kind === "object-schema" ? decl.fields : undefined;
+          if (fields !== undefined && Object.hasOwn(fields, node.field)) {
+            return unfoldAlias(fields[node.field] as CompatType, env);
+          }
+        }
         return { kind: "named", name: node.field };
+      }
       case "index": {
         // TYPE-11: unfolding first makes an alias of `array<T>` narrow to `T`;
         // TYPE-10 object-schema and unresolvable names unfold to themselves.

@@ -1489,3 +1489,30 @@ the false-rejection half is gone, the wrong-code half remains. Whoever files
 them should re-derive §Reproduction (f) rather than reuse the values recorded
 here, and should expect a smaller, purely diagnostic-quality defect than this
 report measured.
+
+## Discharge note — this fix record's residual 3 is closed (bug 0136, 0.106.0)
+
+Residual 3 of `## Fix (0.76.0)` recorded that a member-access read loses its type
+in both spellings, that the concrete control was equally silent, and that the
+cause was disjoint — `#typeExpr`'s `case "member"` typing a member access as
+`{ kind: "named", name: node.field }`, the field *name* rather than the field
+*type*. It was filed as bug 0136 and fixed at 0.106.0 by resolving the receiver
+and returning the declared field's `CompatType`, unfolded.
+
+The residual's own control is the discharge: `schema L = array<string>` +
+`schema P { xs: L }` + `fn f(p: P) { let y = p.xs[0]  y.frobnicate() }` and its
+concrete twin `schema P { xs: array<string> }` with the same body both now report
+one `theta/parse/unknown-method` — `unknown method 'frobnicate' on type string` —
+where both reported `[]` at 0.76.0. They are rows a1 and a2 of bug 0136's
+witness, and a2 is that witness's mis-attribution fence: it carries no alias, so
+it is what reds if a fix at this report's arm is mistaken for the member fix.
+
+**This report's fence was correct and its subject is untouched.** §Non-goals
+declined the member route in terms and the fix record's residual proved the
+separation by measurement; both hold. This report's own witnesses did not move:
+`tests/index-element-alias-unfolded.test.ts` (51 rows, including the rows that
+pin the object-index silence and the group-(f) sink-routing tripwires) and
+`tests/index-element-alias-runtime-disposition.test.ts` (5 rows) are byte-exact
+to their pre-0136 state and green. `expressions.md:10`'s object-index result type
+remains unimplemented — bug 0136's row e7 pins it `[]` in both directions, so the
+separate report §Non-goals names is still owed.

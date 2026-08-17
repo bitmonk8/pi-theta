@@ -6,6 +6,55 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.106.0] - 2026-08-17
+
+### Fixed
+
+- **bug 0136 — a member read was typed by the field's *name*, not the field's
+  declared type, so eight registered `E`-severity checks stopped firing on
+  `p.field` while a ninth refused a spec-legal `for y in p.xs` outright.**
+  `#typeExpr`'s `case "member"` returned `{ kind: "named", name: node.field }` —
+  a nominal type spelled with the field identifier. That name resolves to no
+  declaration, so every consumer classifying it through the `TypeEnv` answered
+  `"unknown"` and deferred: `p.s.frobnicate()` loaded and aborted with
+  `theta/runtime/internal-error`, `p.xs.join(",")` on an `array<integer>` field
+  returned `"1,2"` by JS coercion, and a `number` field flowed out of an
+  `integer`-annotated binding. `checkForIterand` does not defer, so it refused
+  `for y in p.xs` over a field declared `array<string>` at `E` severity — five
+  receiver spellings, registration denied, with the field identifier rendered in
+  a `<type>` placeholder (`got xs`). Because a fabricated name is lookupable, an
+  unrelated declaration sharing the spelling was adopted as the expression's
+  type: `enum Color { Red }` beside `schema Red = array<integer>` is two
+  well-formed declarations, and `Color.Red.join(",")` drew
+  `theta/parse/non-string-array-join` where the same file without the schema drew
+  nothing — against `schemas.md:97`'s written "`Enum.Variant` … is statically
+  typed as `Enum`".
+
+  The arm now resolves the receiver, unfolds it (TYPE-11), and returns the
+  declared field's type when the receiver resolves to an object schema carrying
+  that field — reusing the existing own-key guard and named-declaration reader,
+  not a third one. When the receiver resolves to no declaration the arm returns
+  the receiver's own nominal type, which yields `schemas.md:97`'s answer for
+  `Enum.Variant` structurally, with no enum-name source and no new read, and is
+  the inert answer for every other unresolvable receiver. An absent field, a
+  schema carrying no field record, and a field whose annotation did not convert
+  all keep deferring, so `expressions.md:9`'s `theta/runtime/missing-object-key`
+  panic for an absent theta-side name is untouched. The object-index result type
+  (`expressions.md:10`) stays unimplemented and the sibling `call` /
+  `method-call` / `ident` arms are byte-unchanged.
+
+### Changed
+
+- `docs/spec_topics/expressions.md` — the *Member access* bullet now states the
+  static result type of `obj.field` (the receiver's declared type for that
+  field, with TYPE-11 applying to it as elsewhere), closing a spec silence and
+  discharging the *Indexed access* bullet's closing clause. Mirrored in
+  `docs/reference/grammar.md` in the same commit. Thirteen existing registry
+  rows change reachability under the
+  `source-language-stability.md:25` diagnostic-registry carve-out; no row is
+  added, removed or re-triggered, and the committed-corpus sweep over both
+  `.theta` and `.thetalib` shows zero flips.
+
 ## [0.105.0] - 2026-08-17
 
 ### Fixed
