@@ -13,10 +13,13 @@
 //     (`scanStreamForEnvelope`);
 //   - versioning + skew detection (a version the parent does not recognise is
 //     detected, not tolerated);
-//   - the fail-closed mappings to `Err(InvokeInfraError { cause:
-//     "internal_error" })` for the three failure classes — envelope parse
-//     failure, envelope schema skew, and child exit WITHOUT an envelope — with
-//     their pinned diagnostics.
+//   - the fail-closed mappings for four failure classes, each with its pinned
+//     diagnostic: envelope parse failure, envelope schema skew and child exit
+//     WITHOUT an envelope map to `Err(InvokeInfraError { cause:
+//     "internal_error" })`; a terminal `Ok` payload carrying a non-finite
+//     `number` maps to `Err(InvokeInfraError { cause: "return_validation" })`
+//     instead — a DIFFERENT cause, because that payload is refused as
+//     unrepresentable on the wire rather than as an internal defect.
 //
 // WHY this succeeds the RFC-0005 RPC-drive wire module: under RFC 0006 the
 // child owns its whole interpreter and the parent resolves nothing per-query —
@@ -29,10 +32,13 @@
 // `QueryError` union), diagnostics/code-registry-runtime.md
 // (`theta/runtime/subagent-envelope-parse-failed`,
 // `theta/runtime/subagent-envelope-schema-skew`,
-// `theta/runtime/subagent-exit-without-envelope`).
+// `theta/runtime/subagent-exit-without-envelope`,
+// `theta/runtime/subagent-return-value-not-representable`).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import { MAX_JSON_DEPTH } from "./depth-walk";
 import type { InvokeInfraError, QueryError } from "./query-error";
+import { isResultValue, type ThetaValue } from "./value";
 
 // ---------------------------------------------------------------------------
 // Reserved key + pinned, versioned schema.
@@ -49,7 +55,7 @@ export const THETA_RESULT_KEY = "theta_result";
  */
 export const THETA_ENVELOPE_VERSION = 1;
 
-/** The `ok` arm of the envelope payload: the child's final value, JSON-representable by construction. */
+/** The `ok` arm of the envelope payload: the child's final value, whose representability the caller establishes before this envelope is written (`mapNonRepresentableReturnValue`) rather than assuming it by construction. */
 export interface EnvelopeOk {
   readonly v: number;
   readonly ok: unknown;
@@ -82,14 +88,21 @@ export const SUBAGENT_ENVELOPE_SCHEMA_SKEW_CODE = "theta/runtime/subagent-envelo
 /** `theta/runtime/subagent-exit-without-envelope` — child exited without emitting an envelope. */
 export const SUBAGENT_EXIT_WITHOUT_ENVELOPE_CODE = "theta/runtime/subagent-exit-without-envelope";
 
+/** `theta/runtime/subagent-return-value-not-representable` — a terminal `Ok` payload carries a non-finite `number`. */
+export const SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE = "theta/runtime/subagent-return-value-not-representable";
+
 // ---------------------------------------------------------------------------
 // Child-side serialisation.
 // ---------------------------------------------------------------------------
 
 /**
  * Serialise the child's `Ok` final value as one JSONL envelope line
- * (`{"theta_result":{"v":<version>,"ok":…}}\n`). `value` is JSON-representable
- * per the runtime value model.
+ * (`{"theta_result":{"v":<version>,"ok":…}}\n`). The caller establishes
+ * `value`'s representability before calling this: a payload carrying a
+ * non-finite `number` anywhere within it is refused
+ * (`mapNonRepresentableReturnValue`) rather than reaching `JSON.stringify`,
+ * which has no non-finite form and would substitute `null` for a value the
+ * callee never produced.
  */
 export function serializeOkEnvelope(value: unknown): string {
   const payload: EnvelopeOk = { v: THETA_ENVELOPE_VERSION, ok: value };
@@ -290,6 +303,136 @@ export function mapExitWithoutEnvelope(exitDetail: string, calleePath: string): 
     diagnostic: {
       severity: "error",
       code: SUBAGENT_EXIT_WITHOUT_ENVELOPE_CODE,
+      message,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Non-representable `Ok` payload detection (the `Ok`-values requirement above:
+// representability is established here, not assumed by construction).
+// ---------------------------------------------------------------------------
+
+/** One non-finite `number` {@link firstNonFiniteNumber} found: its value and RFC-6901 JSON Pointer position (`""` at the payload root). */
+interface NonFiniteHit {
+  readonly pointer: string;
+  readonly value: number;
+}
+
+/** RFC 6901 JSON Pointer reference-token escaping: `~` → `~0`, `/` → `~1` (mirrors `depth-walk.ts`'s own escaping). */
+function escapePointerToken(token: string): string {
+  return token.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+/**
+ * Depth-bounded, document-order search for the FIRST non-finite `number`
+ * (`Infinity`, `-Infinity`, `NaN`) `value` carries, accumulating `pointer` as
+ * an RFC-6901 JSON Pointer on the way down. Mirrors `depth-walk.ts`'s
+ * `firstTooDeep` discipline: a level counter with the root at level 1, and one
+ * reference token of pointer accumulated per descent.
+ *
+ * Bounded by `MAX_JSON_DEPTH`, because unbounded recursion inside the envelope
+ * writer is forbidden (CIO-3). The bound costs nothing at a TYPED `invoke<T>`
+ * return boundary: there a payload nested deeper than the cap is already
+ * refused whatever it carries, by the ceiling-#4 depth walk
+ * (`enforceInvokeReturnDepth`, `src/runtime/invoke-ceiling-depth.ts:99`), so
+ * descending further here could only re-decide a value that gate refuses.
+ *
+ * That backstop reaches only a boundary that HAS a return type.
+ * `#validateInvokeReturn` (`src/extension/production-theta-producer.ts`, named
+ * by symbol per bug 0134's positional-drift adjudication) returns before the
+ * depth walk when the site names none, and `inferCalleeReturnAnnotation`
+ * (`src/parser/functions.ts`) names one only for a schema-constructor or
+ * enum-variant tail — so a `.theta`-callable call through `tools:` whose callee
+ * tail is anything else (a `let`-bound identifier, an array literal,
+ * arithmetic) runs no depth walk at all. A non-finite `number` nested deeper
+ * than the cap crosses THAT boundary unrefused, here and parent-side both.
+ *
+ * A boxed `String` (the `makeEnumValue` enum carrier) holds its wire string,
+ * never a `number`, and is not descended. A `Result` is not descended either,
+ * mirroring `projectForValidation`'s own `isResultValue` arm
+ * (`src/runtime/wire-translation.ts:654`): a `Result` is not a lowerable type
+ * form and never crosses the wire by specification. Records with
+ * `Object.entries` only — own enumerable string keys — so an
+ * interpreter-private brand symbol is never visited.
+ */
+function firstNonFiniteNumber(
+  value: unknown,
+  level: number,
+  pointer: string,
+): NonFiniteHit | undefined {
+  if (level > MAX_JSON_DEPTH) {
+    return undefined;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? undefined : { pointer, value };
+  }
+  if (value instanceof String) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) {
+      const hit = firstNonFiniteNumber(value[index], level + 1, `${pointer}/${index}`);
+      if (hit !== undefined) {
+        return hit;
+      }
+    }
+    return undefined;
+  }
+  if (isResultValue(value as ThetaValue)) {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  for (const [key, member] of Object.entries(value as Record<string, unknown>)) {
+    const hit = firstNonFiniteNumber(member, level + 1, `${pointer}/${escapePointerToken(key)}`);
+    if (hit !== undefined) {
+      return hit;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Map a terminal `Ok` payload carrying a non-finite `number` — a value
+ * `JSON.stringify` has no form for and would substitute `null` into
+ * (`serializeOkEnvelope`) — to `Err(InvokeInfraError { cause:
+ * "return_validation" })` + the
+ * `theta/runtime/subagent-return-value-not-representable` diagnostic, naming
+ * the offending value and its RFC-6901 position. `undefined` when every
+ * `number` the payload carries is finite, in which case `serializeOkEnvelope`
+ * runs unchanged.
+ *
+ * The message mirrors `refuseParams`'s shape
+ * (`src/runtime/subagent-params.ts:304`): the same string on both
+ * `error.message` and `diagnostic.message`, with a ` at <pointer>` segment
+ * only when the value sits below the payload's root. The rendering is
+ * `String(value)` — `Infinity` / `-Infinity` / `NaN` — the interpolation
+ * surface's own decision for this class
+ * (`docs/spec_topics/query/query-escapes-stringification.md`, the `number`
+ * row).
+ */
+export function mapNonRepresentableReturnValue(
+  value: unknown,
+  calleePath: string,
+): EnvelopeFailureMapping | undefined {
+  const hit = firstNonFiniteNumber(value, 1, "");
+  if (hit === undefined) {
+    return undefined;
+  }
+  const location = hit.pointer.length > 0 ? ` at ${hit.pointer}` : "";
+  const message = `subagent return value is not JSON-representable${location}: ${String(hit.value)}`;
+  return {
+    error: {
+      kind: "invoke_infra",
+      message,
+      callee_path: calleePath,
+      cause: "return_validation",
+    },
+    diagnostic: {
+      severity: "error",
+      code: SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE,
       message,
     },
   };

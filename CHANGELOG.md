@@ -6,6 +6,53 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.105.0] - 2026-08-17
+
+### Fixed
+
+- **bug 0180 — a typed `invoke<T>` whose `Ok` payload carried a non-finite
+  `number` got opposite verdicts by the callee's `mode:`, and at a null-admitting
+  position the two legs bound different values in silence.** `1 / 0` is a
+  specified theta value (`expressions.md:232`, `runtime-value-model.md:8`), JSON
+  has no form for one, and `JSON.stringify` answers `null` — so the subagent
+  leg's return envelope carried `{"theta_result":{"v":1,"ok":null}}` and the
+  caller either bound a `null` the callee never produced (`invoke<number | null>`,
+  a nullable schema field) or was refused with a message blaming the annotation
+  it had satisfied (`invoke<number>`). Per bug 0180 §Fix route **(b)** the child
+  now establishes representability before it serialises: `mapNonRepresentableReturnValue`
+  (`src/runtime/subagent-envelope.ts`) searches the terminal `Ok` payload in
+  document order for the first non-finite `number`, depth-bounded by the
+  ceiling-#4 JSON-document cap per CIO-3, and `driveSubagentRootRegime`
+  (`src/extension/production-theta-producer.ts`) emits an **err** envelope
+  carrying `Err(InvokeInfraError { cause: "return_validation" })` — naming the
+  value and its RFC-6901 position — plus the new registered diagnostic, instead
+  of an `ok` arm holding a substituted `null`. The prompt→prompt attach leg is
+  byte-untouched and still admits the callee's own value; PIC-59 now states that
+  residual mode-variance normatively.
+
+### Added
+
+- **`theta/runtime/subagent-return-value-not-representable`** — the registered
+  diagnostic for the child-side refusal above
+  (`docs/spec_topics/diagnostics/code-registry-runtime.md`, mirrored in
+  `docs/reference/diagnostics.md`). Message:
+  `subagent return value is not JSON-representable: <value>`, the sole
+  placeholder being the existing category-2 runtime-value `<value>` rendered per
+  the canonical interpolation-stringification table. PIC-59's fail-closed
+  inventory gains the matching requirement bullet.
+
+### Changed
+
+- **PIC-59's `Ok`-values premise, corrected in spec and in code.**
+  "(JSON-representable by construction)"
+  (`docs/spec_topics/pi-integration-contract/subagent.md`) was false for a
+  non-finite `number`; representability is now stated as established rather than
+  assumed, and the same claim is corrected at `serializeOkEnvelope` and
+  `EnvelopeOk`. `queryerror-variants.md`'s `"return_validation"` gloss is
+  broadened to cover the child-side refusal (no enum member added or moved), and
+  `#validateInvokeReturn`'s copy-on-change doc-comment is narrowed so it is true
+  of a container holding a `NaN`.
+
 ## [0.104.0] - 2026-08-17
 
 ### Fixed

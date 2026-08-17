@@ -64,6 +64,7 @@ import {
   SUBAGENT_MODEL_UNRESOLVED_MESSAGE,
 } from "../runtime/subagent-model-guard";
 import {
+  mapNonRepresentableReturnValue,
   serializeErrEnvelope,
   serializeOkEnvelope,
 } from "../runtime/subagent-envelope";
@@ -2245,7 +2246,20 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       const terminal = surfaceCalleeFinalValue(execution);
       // PIC-59: emit the single machine-readable envelope for the terminal Result.
       if (terminal.ok) {
-        emitEnvelope(serializeOkEnvelope(terminal.value as unknown));
+        // PIC-59: refuse before writing the envelope, so no invoke parent ever
+        // binds a value the callee did not produce — JSON has no form for a
+        // non-finite `number`, and `JSON.stringify` would otherwise substitute
+        // `null` for it unnoticed.
+        const nonRepresentable = mapNonRepresentableReturnValue(
+          terminal.value as unknown,
+          calleePath,
+        );
+        if (nonRepresentable !== undefined) {
+          (this.#input.emitDiagnostic ?? ((): void => {}))(nonRepresentable.diagnostic);
+          emitErr(nonRepresentable.error);
+        } else {
+          emitEnvelope(serializeOkEnvelope(terminal.value as unknown));
+        }
       } else {
         emitErr(terminal.error as unknown as QueryError);
       }
@@ -3576,9 +3590,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * — and the enum carrier `makeEnumValue` builds is a boxed `String`
    * (`typeof === "object"`), so the AJV `validate` call runs only through
    * `projectForValidation`'s wire-form projection of the payload —
-   * copy-on-change, so where no descendant needs collapsing the projection is
-   * the payload, unchanged. Both call sites in `#driveCallee` (the prompt→prompt
-   * attach cell and the subagent spawn cell) route through this one method, and
+   * copy-on-change wherever no descendant needs collapsing AND no container
+   * holds a value that is not identical to itself (a `NaN`, whose
+   * walk-internal `!==` identity test reports "changed" though nothing
+   * collapsed): only under both conditions is the projection the payload,
+   * unchanged. Both call sites in `#driveCallee` (the prompt→prompt attach
+   * cell and the subagent spawn cell) route through this one method, and
    * the method projects the value to its wire form for the AJV call, so the
    * boxed-`String` representation difference between the two cells is normalised
    * at the gate: a callee's `mode:` frontmatter cannot change whether a

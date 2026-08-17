@@ -6856,3 +6856,142 @@ describe("H8a-T — bug 0179: an `array<T>`-declared sink fed by a nominal-place
     }
   });
 });
+
+// ===========================================================================
+// Bug 0180 — a typed `invoke<T>` whose `Ok` payload carries a non-finite
+// `number` gets opposite verdicts by the callee's `mode:`
+// (docs/bugs/0180-invoke-return-nonfinite-number-mode-variance.md). §Fix (b):
+// the child refuses to emit an `Ok` envelope for a payload carrying a
+// non-finite `number` — `theta/runtime/subagent-return-value-not-representable`
+// + `Err(InvokeInfraError{cause:"return_validation"})` naming the value and its
+// RFC-6901 position — instead of `JSON.stringify`ing it to a substituted `null`
+// the parent then silently admits (the S1 arm, nullable annotation) or refuses
+// for the wrong reason (the loud arm, non-nullable annotation).
+//
+// THIS CELL DRIVES THE NULLABLE (S1) ARM, because it is the ONE shape whose
+// TOP-LEVEL `theta-system-note` observable actually FLIPS between the pre-fix
+// and post-fix behaviour. `invoke<number>` (non-nullable) already refuses at
+// HEAD, for an unrelated reason (AJV's `must be number` over the substituted
+// `null`) — and the top-level SNK-i note template (`theta /<name> returned
+// Err: invoke of <callee_path> failed (<cause>)`, `src/runtime/err-note-
+// render.ts`) carries no `.message`, so both the pre-fix and post-fix causes
+// render as the SAME `return_validation` text either side of the fix; that arm
+// cannot witness this live through the note channel alone. `invoke<number |
+// null>` is bug 0180's S1 arm: at HEAD it binds `Ok(null)` (the callee's
+// `Infinity`, silently replaced) and the theta terminates `Ok` — the
+// runtime-event-channel.md "Success-side null-policy" fixes that an `Ok(v)`
+// termination emits NO `theta-system-note` at all — so the pre-fix observable
+// is an EMPTY per-drive `systemNotes`. Post-fix the envelope refuses BEFORE
+// serialising, the caller's `?` propagates the `Err` as the WHOLE top-level
+// theta's own termination (no `invoke_callee` wrapping: `invoke_infra` is one
+// of the two kinds `runInvokeEffect` passes through UNCHANGED,
+// `src/runtime/effectful-statement-host.ts`), and SLSH-3 fires exactly one
+// note at the slash-dispatch boundary. Absence flips to presence — the
+// strongest discriminator this note channel can give without a query.
+//
+// ZERO MODEL TURNS. The kid `b180livekid.theta` (`mode: subagent`) is a pure
+// tail expression (`1 / 0`) — the bug doc's own headline spelling
+// (§Reproduction (a), `expressions.md:232`) — and the parent
+// `b180liveparent.theta` (`mode: prompt`) is the SOLE statement
+// `invoke<number | null>("./b180livekid.theta")?`, with no `@` query anywhere
+// in either file. `AgentSession.prompt(text)`
+// (`node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js`,
+// the "Handle extension commands first" branch) returns as soon as
+// `_tryExecuteExtensionCommand` reports `handled`, WITHOUT sending anything to
+// the model unless the theta itself calls `pi.sendUserMessage`/`sendMessage` —
+// which this fixture pair never does. Confirmed offline (parse + in-process
+// drive sanity check) before this cell was added, then deleted per scratch
+// policy.
+//
+// A REAL RFC-0006 CHILD PROCESS IS SPAWNED for the `mode: subagent` kid — this
+// file's imported `./harness` sets all three `#subagent-child-pins` at module
+// scope (`process.argv[1]`, `SUBAGENT_EXTENSION_PIN_ENV`,
+// `SUBAGENT_PARENT_PID_ENV = String(process.ppid)`), exactly as every other
+// subagent-spawning cell in this file (bug 0067, bug 0172, bug 0174 above)
+// relies on; nothing new is pinned here.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted.
+// ===========================================================================
+
+/** The `mode: subagent` callee: a pure non-finite tail, zero model turns — bug 0180's own headline spelling (§Reproduction (a), `expressions.md:232`). */
+function b180NonFiniteKidTheta(): string {
+  return ["---", "mode: subagent", "---", "1 / 0", ""].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: the SOLE statement is the nullable typed
+ * `invoke<number | null>` with `?`, so the whole top-level theta terminates
+ * with the invoke's own `Result` — `Ok(null)` at HEAD (silent), `Err(...)`
+ * post-fix (SLSH-3 fires) — with no `@` query anywhere.
+ */
+function b180NonFiniteNullableParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'invoke<number | null>("./b180livekid.theta")?',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0180: a typed invoke<number | null> of a subagent-mode callee whose value is non-finite refuses instead of silently binding null, live", () => {
+  it("the invoke's Err propagates through `?` and the slash-dispatch boundary emits the SLSH-3 note naming return_validation, through a REAL spawned subagent child, spending zero model turns", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b180livekid", text: b180NonFiniteKidTheta() },
+      { source: "project", stem: "b180liveparent", text: b180NonFiniteNullableParentTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b180liveparent"),
+        "no bug-0180 non-finite-nullable parent command to invoke — the .theta " +
+          "failed discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b180liveparent");
+
+      // Zero model turns: no `@` anywhere in either fixture, so nothing is
+      // sent to the model and no user-visible turn is produced.
+      expect(
+        turn.userTexts,
+        "no `@` query appears anywhere in either fixture; userTexts must stay " +
+          "empty — observed: " + JSON.stringify(turn.userTexts),
+      ).toEqual([]);
+
+      // THE FIXED OBSERVABLE (AGENTS.md §"Assert on real observables" — the
+      // `theta-system-note` channel read off the settled `SessionManager` via
+      // the harness's per-turn `systemNotes`). Pre-fix this slice is EMPTY
+      // (`Ok(null)` termination — success-side null-policy, no note) and the
+      // caller silently binds `null` where the callee produced `Infinity`
+      // (bug 0180's S1 arm). Post-fix the child refuses BEFORE the envelope,
+      // `?` propagates the `Err`, and SLSH-3 fires exactly one note naming the
+      // `return_validation` cause.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        n.startsWith("theta /b180liveparent returned Err:"),
+      );
+      expect(
+        failureNotes,
+        "bug 0180 §Fix (b): invoke<number | null> of a subagent-mode callee " +
+          "whose value is 1 / 0 must refuse rather than silently bind null — no " +
+          "SLSH-3 note fired. systemNotes: " + JSON.stringify(turn.systemNotes),
+      ).toHaveLength(1);
+      const note = failureNotes[0] ?? "";
+      expect(
+        note,
+        "the SNK-i template (`err-note-render.ts`) names the cause: " + note,
+      ).toContain("failed (return_validation)");
+      expect(
+        note,
+        "and names the refused callee, the non-finite kid: " + note,
+      ).toContain("b180livekid.theta");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

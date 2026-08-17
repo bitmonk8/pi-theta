@@ -1,7 +1,8 @@
 # Bug 0180 — A typed `invoke<T>` whose payload carries a non-finite `number` gets opposite verdicts by callee `mode:` — the reverse of bug 0174: `1 / 0` evaluates to `Infinity`, a value `expressions.md:232` and `runtime-value-model.md:8` both specify, and the prompt→prompt attach cell hands it to AJV through `projectForValidation` unchanged where the seam's `strict: false` construction drops AJV's `isFinite` check and it validates `Ok(Infinity)`, while the subagent leg's `serializeOkEnvelope` emits `{"theta_result":{"v":1,"ok":null}}` (`JSON.stringify(Infinity)` is `null`) and the parent's AJV refuses that `null` under `{"type":"number"}` — and at a *nullable* position neither leg refuses and the two bind different values, `Infinity` against `null`, with no diagnostic
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the two legs and the
-  three producing spellings are fixed and measured, but *which* leg moves is
+- **Status:** fixed (0.105.0). §Fix (0.105.0) below records what shipped. §Fix
+  was constraint-pinned rather than settled: the two legs and the three
+  producing spellings were fixed and measured, but *which* leg moves was
   undecided and every candidate collides with GOV-15
   (`docs/spec_topics/governance/source-language-stability.md:5`) from a
   different side — normalising the prompt cell newly refuses an input that
@@ -994,3 +995,338 @@ above was read at HEAD `a1eec82c`; volatile positions in
 `src/extension/production-theta-producer.ts` (6165 lines) are named by symbol
 beside their line numbers, per
 [0134](./0134-params-shift-induced-stale-citations.md)'s adjudication.
+
+## Fix (0.105.0)
+
+**Route: §Fix (b) — refuse child-side.** §Fix was constraint-pinned across four
+candidates and the run did not select among them: the route was **adjudicated by
+the parent on the record before the run started**, and that adjudication is
+reproduced verbatim here as the route authority.
+
+> **ROUTE (b) — refuse child-side: the envelope fails closed on a non-finite
+> `Ok`.** The child detects a non-finite `number` anywhere in the `Ok` payload
+> BEFORE serializeOkEnvelope and emits an err envelope instead — a registered
+> diagnostic + an InvokeInfraError naming the value and its position — rather
+> than an envelope carrying a substituted null. The prompt→prompt leg is
+> UNTOUCHED (routes (a) and (d) are NOT taken — (a) requires a GOV-15 exception
+> the doc says cannot be taken by default; (d) has the same GOV-15 shape with a
+> seven-seam blast radius and does not fix the silent arm). The residual
+> mode-variance (prompt leg admits the callee's own non-finite value; subagent
+> leg refuses loudly) is the STATED END STATE, documented in the same commit
+> through the (f) corrections. The parent's determination grounds: (e)(1)+the S1
+> rationale — only (b) removes the silent fabricated-null bind; PIC-59's own
+> never-fabricate principle — the substituted null IS a fabricated value, so (b)
+> moves toward specified behaviour (the 0172-face-1 GOV-15 precedent: a
+> deliberate departure from observed 1.x behaviour toward what the spec
+> specifies, recorded not blessed).
+
+**Premise verification (the adjudication's stop valve, discharged before Phase 1).**
+Route (b) was prototyped at HEAD `34db8505` and the FULL default suite run
+against the prototype: **308 files / 5055 tests green, zero reds** — (b) flips
+nothing in the committed suite. The child-side detection was implementable inside
+`driveSubagentRootRegime`'s `terminal.ok` arm with `#validateInvokeReturn` and the
+ceiling-#4 gate byte-untouched, so it required neither a prompt-leg change nor a
+gate reorder. The err-envelope arm carries the refusal through the existing
+`emitErr` closure, and `cause: "return_validation"` already exists in
+`InvokeInfraCause` (`src/runtime/query-error.ts`) and in
+`queryerror-variants.md`, so no spec-versioned enum edit was needed. All four
+premises hold; the prototype was reverted blob-hash-verified before the witnesses
+were written. A sweep for fixtures relying on the lossy envelope found the
+non-finite spellings only in evaluation and static-type cells that never reach a
+return boundary (`tests/expression-evaluator.test.ts:213`,
+`tests/division-result-type-number.test.ts`,
+`tests/e2e-s1-runtime-values.test.ts:71`), confirming §Affected's 0-of-34 corpus
+census.
+
+- **What shipped:**
+  - `src/runtime/subagent-envelope.ts` — the refusal seam, beside the three
+    existing fail-closed mappings: `SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE`;
+    a module-private document-order search for the first non-finite `number`
+    accumulating its RFC-6901 JSON Pointer (`~0`/`~1` escaped, mirroring
+    `depth-walk.ts`'s own escaping), **depth-bounded by `MAX_JSON_DEPTH`** per
+    CIO-3 rather than hand-rolled unbounded recursion, skipping a boxed `String`
+    (the enum carrier holds a wire string, never a `number`) and a `Result` (not
+    a lowerable form, never crosses the wire), walking records by own enumerable
+    keys only; and `mapNonRepresentableReturnValue`, returning
+    `{ error, diagnostic }` on a hit and `undefined` when every `number` is
+    finite. The message mirrors `refuseParams`
+    (`src/runtime/subagent-params.ts:304`) structurally — the same string on both
+    `error.message` and `diagnostic.message`, with an ` at <pointer>` segment only
+    below the root — and renders the value per the canonical
+    interpolation-stringification table's `number` row
+    (`query/query-escapes-stringification.md`, the corpus's existing ruling for
+    this class): `subagent return value is not JSON-representable: Infinity`,
+    `… at /n: Infinity`, `… at /1: NaN`.
+  - `src/extension/production-theta-producer.ts` — the call site:
+    `driveSubagentRootRegime`'s `terminal.ok` arm consults the mapping before
+    `serializeOkEnvelope`, and on a refusal emits the diagnostic through the
+    method's established `emitDiagnostic` pattern and the **err** envelope
+    through the existing `emitErr`, writing no `ok` arm. `#validateInvokeReturn`'s
+    body, the ceiling-#4 depth walk's position, and the `verdict.ok` arm are
+    untouched.
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` — the DIAG-2
+    same-commit registry row for
+    `theta/runtime/subagent-return-value-not-representable` (E / runtime, *Spec
+    rule* → PIC-59), and the header enumeration corrected Ten→**Eleven** /
+    four→**five** marshalling codes with the new code named.
+  - `docs/reference/diagnostics.md` — the mirror row.
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — the (f)(1)
+    correction and PIC-59's fail-closed inventory's new member (below).
+  - `docs/spec_topics/errors-and-results/queryerror-variants.md` — the
+    `"return_validation"` gloss broadened to cover the child-side
+    non-representability refusal. **No enum member added or moved.**
+  - `tests/subagent-envelope-nonfinite-ok-refusal.test.ts`,
+    `tests/subagent-invoke-nonfinite-return-refusal.test.ts`, and cell 43 of
+    `tests/live/live-production-acceptance.test.ts` — the witnesses.
+
+- **Placeholder closure (DIAG-2 / §Closure), by REUSE.** The Message template
+  carries exactly one placeholder, `<value>`, admitted by §Closure clause (a) as
+  a **category-2 runtime-value placeholder** (`placeholder-rendering-a.md` §2),
+  rendered per the canonical interpolation-stringification table — whose `number`
+  row already fixes `NaN` → `NaN`, `Infinity` → `Infinity`, `-Infinity` →
+  `-Infinity`. **No new placeholder token was introduced**, so no GOV-7/GOV-8
+  spec-versioned placeholder change arises. The shipped ` at <pointer>` position
+  segment is carried in the emitted `message` and not in the template, exactly as
+  `theta/runtime/subagent-params-validation-failed`'s shipped message carries the
+  failing param path its own template likewise omits; the row's *Trigger* names
+  it the way that row names its own. DIAG-4: both unit witnesses source the
+  expected string from the registry via `registryMessage` and assert by anchored
+  prefix/suffix composition, never by a copy-pasted literal.
+
+- **(f) same-commit corrections, both discharged.**
+  1. **PIC-59's `Ok`-values bullet** (`subagent.md`) — "(JSON-representable by
+     construction)" was measured false and is the premise the whole `Ok` arm
+     rests on. It now states that the value model admits a value JSON has no form
+     for, so representability is **established, not assumed**, and states the
+     residual variance **normatively**: the prompt→prompt attach leg does not
+     serialise, so a `prompt`-mode callee's non-finite `number` propagates
+     unchanged and the two legs differ for that value class — the subagent leg
+     reports it, the prompt leg admits it. That normative sentence is also §Fix
+     (c)'s floor, discharged here rather than written twice.
+  2. **`serializeOkEnvelope`'s doc-comment** and the `EnvelopeOk` interface
+     comment (`src/runtime/subagent-envelope.ts`) — the same claim at the
+     function and at the type, corrected the same way. The module header's
+     "This module owns" inventory and `Spec:` code list were extended from three
+     fail-closed classes to four, keeping the differing cause explicit
+     (`return_validation`, not `internal_error`).
+  - PIC-59's fail-closed inventory gained a further requirement bullet,
+    **Fail-closed non-representable `Ok` payload**, in the voice of its siblings.
+
+- **(e) constraints, each discharged.** (1) The nullable arm is the S1 half and it
+  is the arm this route removes; the loud arm's carrier and message change with
+  it. (2) Evaluation semantics do not move —
+  `tests/expression-evaluator.test.ts:207`/`:213` untouched and green, no panic at
+  the operator, no static type changed. (3) The ceiling-#4 depth walk is still the
+  first sub-check at the parent gate (`tests/invoke-ceiling-depth.test.ts` green);
+  the child-side check runs in a different process and reorders nothing. (4) The
+  inbound translation pass still runs after AJV; the `verdict.ok` arm did not
+  move. (5) Bug 0174's route is not revisited — `src/runtime/wire-translation.ts`
+  is **byte-identical to HEAD** (`git hash-object`
+  `8196c2d90c1f406371615eca0ba7a94fc89495b7`) and both its witnesses are green
+  (`tests/invoke-return-enum-carrier-projection.test.ts` 16/16,
+  `tests/invoke-prompt-cell-enum-return.test.ts` 1/1). (6) The copy-on-change
+  claim — see the disposition below. (7) GOV-15 — see the enumeration below.
+  (8) The unit witness is offline and provider-free, drives the refusal through
+  the REAL envelope writer, and its finite controls assert UNCHANGED values.
+
+- **(e)(6) copy-on-change disposition: the sentence was NARROWED, not the tests
+  changed.** §Reproduction (c) measures that a container holding a `NaN` is copied
+  although nothing was collapsed, because `projectForValidation`'s identity tests
+  are `!==` and `NaN !== NaN`. The doc-comment at `#validateInvokeReturn` now
+  reads copy-on-change "wherever no descendant needs collapsing AND no container
+  holds a value that is not identical to itself", which is true as written.
+  Switching the identity tests to `Object.is` was **declined**: it is an
+  executable change inside bug 0174's shipped mechanism, carrying its own
+  re-measure burden, for a property that is observationally inert (the copy is
+  structurally identical, is discarded after the `validate` call, and the
+  `verdict.ok` arm binds the original). `wire-translation.ts` is byte-untouched.
+
+- **(e)(7) GOV-15 — the flips, enumerated exactly. The parent's pre-run
+  enumeration was INCOMPLETE and this run's review measured four further classes;
+  the complete set is below.** Every flip is on the **subagent leg only**, and
+  every one is entailed by the adjudicated route as written — the child writes the
+  envelope one process away from the caller and cannot see the caller's call form,
+  so no implementation of route (b) avoids them. The class itself ("a
+  today-succeeding subagent-leg return becomes a refusal") is the one §Fix (b)'s
+  own bullet already accepted; what that bullet got wrong is its claim that a
+  *nullable annotation* is "the only annotation shape affected" — the affected set
+  is not indexed by annotation shape at all.
+  - **(i)** subagent-mode typed `invoke<T>` where the annotation admits `null`
+    (`number | null`, a nullable schema field): `Ok(null)` → `Err`. **THE
+    deliberate S1-arm removal** — the caller no longer binds a value the callee
+    never produced. Observable (a).
+  - **(ii)** subagent-mode `invoke<number>` (non-nullable): the outcome does not
+    change (`Err` either side) but the **carrier's message** changes from
+    `invoke<number> return value failed validation` — which blames the annotation
+    the callee satisfied — to the refusal naming the true cause and position. A
+    message-class change operators and tests may match on.
+  - **(iii)** the prompt→prompt attach leg: **ZERO flips**, verified by the finite
+    controls AND by the non-finite prompt rows re-driven on the real attach cell
+    (`1 / 0`, `-1 / 0`, `0 / 0`, `1 % 0`, `1e308 * 10`, `number | null`,
+    `Box`/`NBox` at `/n`, `array<number>`, the `integer` split, and the `1.5` /
+    `Box { n: 2 }` / `-0` controls) — every one binds exactly what it bound at
+    HEAD.
+  - **(iv)** **untyped `invoke("./sub.theta")`** of a subagent-mode callee whose
+    final value carries a non-finite `number`: `Ok(null)` → `Err`. At HEAD the
+    untyped form's `Ok(null)` is the *specified discard* (`invocation.md:28`), so
+    that input was not corrupt and it newly refuses. `invoke_infra` is one of the
+    two kinds the invoke effect passes through unwrapped, so the caller observes
+    the refusal directly. Observable (a). Not in the parent's enumeration and not
+    in §Fix (b)'s bullet.
+  - **(v)** **top-level `/name` dispatch of a `mode: subagent` theta** whose final
+    value carries a non-finite `number`: silent success → exactly one SLSH-3
+    `theta-system-note`. Observable **(c)** — a new note where there was none.
+    Covered by GOV-15's own **diagnostic-registry carve-out**, under which a code
+    addition is admissible within a theta 1.x minor release for the inputs it
+    touches (DIAG-2). This is the flip the live witness measures.
+  - **(vi)** a `tools:`-declared subagent-mode `.theta` callable: where the
+    callee's return type is inferred, the message changes as in (ii); where
+    inference names none, a corrupted `Ok` bind becomes an `Err` as in (i)/(iv).
+  - **(vii)** overlap: a payload that is BOTH ≥6 deep AND carries a within-cap
+    non-finite `number` changes its `Err` **message** from ceiling-#4's
+    `JSON document depth exceeds 5` to the new refusal, because the child
+    pre-empts the parent's depth walk. Already `Err` either side.
+  - **No FINITE value's behaviour changes anywhere**, and `-0` still crosses (see
+    residual 1). The pre-measurement's full-suite prototype run is the
+    corpus-level evidence: 5055/5055 green with the refusal live.
+
+- **Gates** (each re-run by the orchestrator, not taken on a worker's word):
+  - Witness, red-before: `tests/subagent-envelope-nonfinite-ok-refusal.test.ts`
+    `Tests 14 failed | 13 passed (27)`, the primary reds being
+    `RED (CHILD-ROOT|CHILD-ROOT-NEG-NAN|CHILD-S1|CHILD-ARRAY): … expected 'ok' to be 'err'`;
+    `tests/subagent-invoke-nonfinite-return-refusal.test.ts` `Tests 1 failed (1)`
+    over REAL spawned children, reporting
+    `{"numOk":false,"numMsg":"invoke<number> return value failed validation","nulOk":true,"nulMsg":"OK","boxOk":true,"boxWho":"w","ctlOk":true,"ctlVal":1.5,"negOk":true,"negVal":0}`
+    — the S1 silent arm measured end to end, a hop §Provenance marks "read from
+    source rather than driven".
+  - Witness, green-after: `Test Files 2 passed (2)` / `Tests 28 passed (28)`.
+  - Full default suite: `Test Files 310 passed (310)` /
+    `Tests 5083 passed (5083)` (baseline at dispatch 308 / 5055).
+  - `npm run typecheck` clean; `npm run lint` clean.
+  - Live, run for real:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t "bug 0180"`
+    → `Tests 1 passed | 42 skipped (43)`, 1.3 s wall, zero model turns.
+  - H9a, run for real:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/`
+    → `Test Files 2 passed (2)` / `Tests 11 passed (11)`.
+
+- **Review:** 2 rounds, plus one pre-review correction round.
+  - *Pre-review correction round* (not a review round; round numbering
+    unaffected) — the implementation shifted `src/runtime/subagent-envelope.ts`,
+    staling three citation clusters inside this run's own new witness file within
+    the same commit. Corrected, comment-only, four hunks, every hunk classified;
+    gates re-run green. Bug 0134's do-not-chase class (the same file's stale
+    citations in `docs/bugs/0086`, `0112`, `0174`, `0178`, `0179`, `0180` and in
+    two committed tests) was deliberately NOT chased.
+  - *Round 1* (`bug-fix-reviewer`) — **DEFECTS FOUND (0 blockers, 5 should-fix,
+    1 nit)**: the depth-bound safety claim over-scoped (correctness — remedied by
+    scoping the claim in the walk doc-comment and in the registry row, since
+    widening the walk past the cap is forbidden by CIO-3; the uncovered consumer
+    is now named in both places and recorded as residual 2); the registry Trigger
+    named only the invoke-parent surface and not the top-level slash surface
+    (spec); the module header still inventoried three fail-closed classes
+    (prose); three comment sites quoted the PIC-59 sentence this commit rewrote
+    as current text (prose); two assertion messages counted four marshalling
+    codes where the registry now enumerates five (nit). Round 1 also produced the
+    (e)(7) enumeration correction recorded above. Every remedy was **prose only**
+    — zero executable lines, zero assertions.
+  - *Round 2* (`bug-fix-reviewer-fast`) — **CLEAN**, no findings, no
+    `recommend-deep-review`. It re-derived all twelve absolute line citations
+    against the file, counted the header arithmetic, and drove the residual-2 gap
+    end to end with a real spawned child to confirm the scoped prose is neither an
+    over- nor an under-claim.
+
+- **Verification** (`bug-fix-verifier`): **SOLID**, all four obligations
+  discharged with quoted evidence.
+  1. *The witnesses genuinely witness the bug* — three targeted neutralisations,
+     each restored and proved byte-exact by `git hash-object`
+     (`151950f11029d2a6194ac779ff5a07ba4ab9dd26`,
+     `f2147c3a15190af3b071176cf8cb180edbc00d78`), with no `git stash` at any
+     point: **N1** bypass the call site → 5 failed / 23 passed; **N2**
+     `mapNonRepresentableReturnValue` always `undefined` → 13 failed / 15 passed;
+     **N3** treat `Infinity` as finite → 11 failed / 17 passed **with the two
+     pure-`NaN` cells staying GREEN**, which proves the cells discriminate rather
+     than pass together.
+  2. *Full default suite green* — 310 / 5083, twice.
+  3. *A live test exercises the fixed path, run for real* — no pre-existing live
+     cell did (the one live `invoke<number>` attach cell drives a `mode: prompt`
+     callee returning a finite literal), so cell 43 was added **additively** to
+     `tests/live/live-production-acceptance.test.ts` (139 insertions, 0
+     deletions): a `mode: subagent` callee whose body is the pure tail expression
+     `1 / 0`, invoked as `invoke<number | null>(…)?` by a `mode: prompt` parent
+     with no `@` anywhere, driven through a REAL spawned RFC-0006 child on the
+     harness's three `#subagent-child-pins`. It asserts on the
+     `theta-system-note` channel read off the settled `SessionManager` — the
+     nullable arm is the one shape whose note *presence* flips — plus empty
+     `userTexts` for the zero-turn claim. Both directions proved: under N1 the
+     cell reds `systemNotes: []: expected [] to have a length of 1`, which is the
+     S1 defect itself; restored → green.
+  4. *Lint and typecheck* clean.
+
+- **permitted-codes decision, taken on the REAL run and not on assumption:**
+  `tests/fixtures/h7a/permitted-codes.json` is **NOT** appended. Evidence, three
+  independent strands: the real H9a run passed 11/11 with the empty-capture
+  stderr gate live, so the new code was never emitted; a census of all 11
+  committed `tests/live/acceptance/fixtures/*.theta{,lib}` finds no division or
+  modulo operator (the sole `/` occurrence is inside the model reference
+  `anthropic/claude-sonnet-5`); and §Affected's corpus census (0 of 34 committed
+  thetas divide) holds at this HEAD. The code is unreachable from H9a, so
+  appending it would widen the gate for an input the suite cannot produce.
+
+- **Residuals:**
+  1. **`-0` crosses the subagent envelope as `+0`** — a second, smaller JSON hole
+     in the same class, measured here and deliberately **not** closed. `0 * -1`
+     parses with `[]` diagnostics; the prompt leg binds `Ok(-0)`; the envelope is
+     `{"theta_result":{"v":1,"ok":0}}` and the re-read value is `+0`
+     (`Object.is(JSON.parse("0"), -0)` is `false`); both legs validate
+     `{"ok":true}`, so the sign is lost in silence and mode-variantly. `-0` is
+     **finite**, so route (b)'s detection does not and must not see it:
+     §Non-goals fixes that a route finding a second hole "records it rather than
+     widening", and a dedicated fence cell (`CONTROL (FENCE-NEGATIVE-ZERO)`, plus
+     the integration witness's `negOk`/`negVal` rows) pins that a `-0` return
+     still writes an `ok` envelope, so a later change cannot widen the detection
+     into it unnoticed. **Not filed** (a fix run creates no bug docs).
+  2. **A return boundary that runs no depth check has no backstop past the depth
+     cap.** The child-side walk stops at `MAX_JSON_DEPTH` per CIO-3. At the typed
+     `invoke<T>` boundary that is sound — ceiling-#4's own depth walk refuses a
+     deeper payload whatever it carries. But `#validateInvokeReturn` returns
+     before that walk when the return site names no type, and
+     `inferCalleeReturnAnnotation` names one only for a schema-constructor or
+     enum-variant tail — so a `tools:`-declared subagent-mode `.theta` callable
+     with any other tail runs no depth check, and a non-finite `number` nested
+     past the cap crosses unrefused. Measured end to end with a real spawned
+     child during review round 2: a `tools:` callee whose tail is
+     `[[[[[[1 / 0]]]]]]` settles `{"ok":true,"value":[[[[[[null]]]]]]}` with
+     `diagnostics: []`. The gap is stated in the shipped registry row's *Trigger*
+     and in the walk's doc-comment rather than hidden. Widening the walk past the
+     cap was refused (unbounded recursion in the envelope writer). **No committed
+     regression witness covers this path** — the depth fence proves the walk's
+     bound and the ceiling gate in isolation, not the combined parent+child gap.
+     **Not filed.**
+  3. **`cause: "return_validation"` now carries two semantically distinct
+     failures** — an actual AJV type mismatch at the parent, and a pre-emptive
+     child-side non-representability refusal. Reusing the existing cause was
+     required (a new `InvokeInfraCause` is a spec-versioned enum change), and the
+     two are distinguishable by the registered diagnostic code and by `.message`,
+     never by `.cause` alone. Stated in the broadened gloss at
+     `queryerror-variants.md` and in the registry row.
+
+- **Discharge notes appended:**
+  `0174-typed-invoke-enum-return-validation-prompt-cell.md` (its
+  `## Fix (0.98.0)` residual 1 / report R1 is this report; noted as filed as 0180
+  and fixed at 0.105.0 by route (b)).
+
+- **Pinned dispositions / non-goals:** routes (a), (c) and (d) are **not** taken
+  and are not reopened by this record — (a) and (d) both newly refuse a
+  today-passing *prompt-cell* input and neither closes the silent arm; (d)
+  additionally re-decides seven AJV `compile` sites.
+  `src/seams/schema-validator.ts`'s `strict: false` construction is
+  byte-untouched, so `strictNumbers` still suppresses AJV's `isFinite` conjunct
+  and the prompt leg still admits a non-finite `number` — that is the stated end
+  state, not an omission. 0174's `#validateInvokeReturn` doc-comment clause
+  remains **scoped** to named-enum returns: the general mode-invariance claim is
+  still false, because the prompt leg still admits what the subagent leg now
+  refuses, so un-scoping it would reproduce the overclaim §Actual behaviour 5
+  indicts. The wording of the pre-existing
+  `invoke<T> return value failed validation` message is untouched (§Non-goals).
+  No static type, no evaluation semantics, and no parser file moved.

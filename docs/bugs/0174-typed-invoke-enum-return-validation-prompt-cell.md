@@ -1195,3 +1195,35 @@ gate is given, not this report's gate.
 `tests/invoke-return-enum-carrier-projection.test.ts` and
 `tests/invoke-prompt-cell-enum-return.test.ts` are byte-untouched by 0181 and
 green at 0.103.0.
+
+## Discharge note — residual 1 (R1) is bug 0180, fixed (0.105.0)
+
+`## Fix (0.98.0)` §*Residuals* item 1 — the return surface's mode-invariance is
+not total for a non-finite `number`, because the prompt cell preserves the value
+and AJV admits it while `serializeOkEnvelope` substitutes `null` for it — was
+filed as
+[0180](./0180-invoke-return-nonfinite-number-mode-variance.md) and is **fixed
+(0.105.0)** by that report's §Fix route **(b)**: the child refuses to emit an
+`Ok` envelope for a payload carrying a non-finite `number`, emitting
+`theta/runtime/subagent-return-value-not-representable` plus
+`Err(InvokeInfraError { cause: "return_validation", ... })` naming the value and
+its RFC-6901 position, rather than an envelope carrying a value the callee never
+produced. R1's own reasoning that "normalising it would newly refuse a
+today-passing prompt-cell input, which GOV-15 forbids" is why the prompt leg was
+left alone: 0180 moves the subagent leg instead.
+
+**This report's shipped mechanism is untouched by that fix.**
+`src/runtime/wire-translation.ts` is byte-identical across it (verified by blob
+hash), `projectForValidation`'s collapse arm and the validated-projection /
+bound-original split are unchanged, and both witnesses
+(`tests/invoke-return-enum-carrier-projection.test.ts`, 16 cells;
+`tests/invoke-prompt-cell-enum-return.test.ts`) are green at 0.105.0.
+
+**The `#validateInvokeReturn` doc-comment clause stays SCOPED to named-enum
+returns.** Review round 1 of this report measured the counterexample that forced
+the scoping, and 0180 does not retire it: the prompt leg still admits a
+non-finite `number` the subagent leg now refuses, so the unscoped claim — that a
+callee's `mode:` frontmatter cannot change whether a return validates — remains
+false, and un-scoping it would reproduce the overclaim §Actual behaviour 5
+indicts. 0180 §Fix (0.105.0) records that disposition and the residual
+mode-variance it leaves, which PIC-59 now states normatively.

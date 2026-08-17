@@ -182,7 +182,7 @@ schema InvokeInfraError {
   cause: "load_failure"               // callee file unreadable
        | "parse_failure"              // callee file failed to parse
        | "validation"                 // args/params failed input-schema validation (input side, like CodeToolError.cause "validation")
-       | "return_validation"          // typed invoke: child's return value failed AJV validation
+       | "return_validation"          // typed invoke: child's return value failed AJV validation, or — subagent leg only — was refused before validation as JSON-non-representable
        | "panic"                      // callee aborted via runtime panic (see Runtime panics above)
        | "internal_error"             // callee threw an unexpected interpreter exception outside the closed theta 1.0.0 panic-source list
        | "subagent_model_unresolved"  // subagent callee's model resolved to undefined before spawn (see Diagnostics: theta/runtime/subagent-model-unresolved)

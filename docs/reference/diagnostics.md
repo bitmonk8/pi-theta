@@ -257,6 +257,7 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/subagent-envelope-schema-skew` | E | runtime | `subagent return envelope schema skew: child emitted version <observed>, parent supports <required>`. |
 | `theta/runtime/subagent-exit-without-envelope` | E | runtime | `subagent child exited without a return envelope: <exit detail>`. |
 | `theta/runtime/subagent-params-validation-failed` | E | runtime | `subagent marshalled params failed schema validation: <detail>`. |
+| `theta/runtime/subagent-return-value-not-representable` | E | runtime | `subagent return value is not JSON-representable: <value>`. |
 | `theta/runtime/subagent-teardown-timeout` | E | runtime | `subagent child did not exit within <ms>ms; killed`. |
 | `theta/runtime/subagent-callable-hash-mismatch` | E | runtime | `subagent callable '<name>' content hash mismatch; refusing invocation`. |
 | `theta/runtime/subagent-model-preflight-mismatch` | E | runtime | `subagent model pre-flight mismatch: expected '<expected>', child resolved '<resolved>'`. |
