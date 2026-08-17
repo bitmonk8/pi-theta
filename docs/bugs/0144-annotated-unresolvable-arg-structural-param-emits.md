@@ -959,3 +959,30 @@ is structurally unreachable through `invoke(...)` — not merely unreached.
 "the row is unreachable": the row now fires on this surface, and b12 is silent
 because `v` is an `ident` whose value-type set the arm withholds. §Fix (e)'s
 ordering item may drop `invoke` from the positions a route here must reconcile.
+
+## Coordination note — bug 0179 landed (0.104.0)
+
+**This report's measured observable inverted at 0.104.0; its subject stays
+open.** [0179](./0179-array-sink-refuses-unresolvable-value-type.md) fixed the
+same arm this report measures — `decide`'s TYPE-7 array arm now answers
+`"unknown"` for a `named` sub `resolveNamed` cannot resolve, before the
+non-`array` short-circuit — as a conformance change against
+`type-system.md:48`, whose skip it reads as unconditional on the sink's kind.
+Measured at that fix's HEAD, both sides:
+`fn g(xs: array<integer>): integer { return xs.length }` + `let v: Zz = [1]` +
+`g(v)` drew `theta/parse/fn-arg-type-mismatch: fn 'g' argument 0 ('xs') type
+mismatch: expected array<integer>, got Zz` before and draws **no diagnostic**
+after; the same `v` at an `array<integer>` constructor field and at an
+`array<integer>` typed `let` flipped identically. Bug 0050's 84-cell witness
+stayed green throughout — its `:1120` describe covers the *parameter* side, not
+the argument side this report names.
+
+What is **not** decided by that fix, and remains this report's subject: the
+corpus-level adjudication between `type-system.md:31`'s closed-list preamble
+and `:48`, the `fn-arg-type-mismatch` row's own "no runtime AJV safety net
+applies" gloss (`code-registry-parse.md:116`), and §Fix (e)'s binding clause
+that any route here must agree with
+[0127](./0127-join-element-gate-does-not-defer-on-unresolvable-element.md).
+0179's fix record states its `:48` reading and explicitly does not claim to
+close this report. Status unchanged (**open**); re-derive §Reproduction at pick,
+since the rows measuring the `fn`-argument sink now read clean.

@@ -1536,3 +1536,19 @@ declined by the adjudication.
   operator's rider, comment-only), and the two sibling coordination-note appends
   (the operator's set instruction). `tests/live/live-production-acceptance.test.ts`
   gained cell 40 append-only, which the live-coverage obligation requires.
+
+## Coordination note — bug 0179 landed (0.104.0)
+
+`## Fix (0.97.0)` *Residuals* item 3 — "**`vo.keys()` in a schema-constructor
+field position kills a spawned child drive** … unfiled, and apparently
+unrelated to this report" — was filed as
+[0179](./0179-array-sink-refuses-unresolvable-value-type.md) and is **fixed at
+0.104.0**. Its cause is neither the constructor-field position nor `keys()`: an
+`array<T>`-declared sink refused every value whose static type the inference
+pass leaves nominal, because `decide`'s TYPE-7 arm short-circuited ahead of the
+unresolvable-`named` escape. The boundary-2 witness
+(`tests/inbound-boundary-theta-callable.test.ts`) still carries the workaround
+that run applied — the removed `keys()` field, with `expressions.md:118` left in
+its spec header — and 0179's fix record carries the restoration as a residual
+rather than editing this report's witness. Nothing above is deleted or
+rewritten and this report's status is unaffected.

@@ -493,3 +493,23 @@ control reds on that row.
   the sixth (the `fn`-return sinks' non-query controls), 2 in the seventh (the
   call-argument and constructor-field sinks' `QueryExpr.schema`).
 - Existing reports read for duplicate separation: 0014, 0028, 0044, 0045.
+
+## Coordination note — bug 0179 landed (0.104.0)
+
+The honest record this report names — `tests/inline-empty-object-type.test.ts`
+cell `RECORDED g3` — changed shape at 0.104.0, and this report's subject did
+not. [0179](./0179-array-sink-refuses-unresolvable-value-type.md) made
+`decide`'s TYPE-7 array arm defer on a `named` sub the `TypeEnv` cannot
+resolve, which is exactly the self-identical `theta/parse/let-rhs-type-mismatch`
+this report's §Related attributes to bug 0028's residual (iii) and describes as
+"Different mechanism (static-type inference over the propagated text), same
+fixture; unchanged here". That middle line is gone: the proxy row
+``let r: array<string, integer> = @`hi` `` now records
+`[generic-arity-mismatch, generic-arity-mismatch]` while the non-query control
+`let r: array<string, integer> = 1` still records
+`[generic-arity-mismatch, let-rhs-type-mismatch]`.
+
+The doubling this report owns is therefore unchanged and its 2-against-1
+contrast is now carried by the arity rule alone — a cleaner proxy, since both
+recorded lines belong to the untouched rule. §Reproduction's tables still list
+the removed line; read them as measured at 0.57.0. Status unchanged (**open**).

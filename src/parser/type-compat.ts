@@ -208,8 +208,17 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
   }
 
   // TYPE-7 — element-wise covariance on arrays: `array<T₁> ⊑ array<T₂>` iff
-  // `T₁ ⊑ T₂`.
+  // `T₁ ⊑ T₂`. This sup-side test runs ahead of the sub-side
+  // unresolvable-`named` escape below, so a `named` sub past the parser's
+  // static view must defer here too — otherwise its verdict comes from the
+  // sink's KIND alone, never from any fact about the value. The skip is
+  // unconditional on the sink's kind and hands the question to the runtime
+  // AJV net (type-system.md §"Unresolvable operands"), the same posture
+  // `unfoldAlias`'s own design note states for this module.
   if (sup.kind === "array") {
+    if (sub.kind === "named" && resolveNamed(env, sub.name) === undefined) {
+      return "unknown";
+    }
     if (sub.kind !== "array") {
       return "incompatible";
     }

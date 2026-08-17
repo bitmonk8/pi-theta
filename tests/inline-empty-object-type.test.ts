@@ -899,8 +899,10 @@ describe("bug 0045 (g) — one diagnostic per occurrence", () => {
         ["<actual>", "2"],
       ]),
     );
-    // The initialiser's own static type differs between the two proxy rows, so
-    // the mismatch line is built per row rather than shared.
+    // The query initialiser's static type is a nominal placeholder the array
+    // sink defers on (type-system.md §"Unresolvable operands"); the `1`
+    // initialiser is a statically resolvable literal the sink decides instead
+    // of deferring, which is why only that row still builds a mismatch line.
     const letRhsLine = (initialiserType: string): string =>
       line(
         LET_RHS,
@@ -913,8 +915,19 @@ describe("bug 0045 (g) — one diagnostic per occurrence", () => {
     const cells: ReadonlyArray<readonly [string, string[]]> = [
       ["let r: {} = @`hi`", [inlineLine(), inlineLine()]],
       [
+        // The initialiser types as a `named` reference to the annotation text
+        // itself: `parseLet` propagates the annotation onto the query, and
+        // `StaticTypeInferencePass`'s `query` arm reads it back verbatim as the
+        // schema name, so the sub is a `named` the TypeEnv has no declaration
+        // for. The same text is also the sink: `annotationToCompatType` parses
+        // it into an `array`. The array arm defers on an unresolvable `named`
+        // sub (type-system.md §"Unresolvable operands") rather than comparing
+        // it, because comparing it would read `expected array<string,integer>,
+        // got array<string,integer>` — a type declared incompatible with
+        // itself. The two arity lines are a separate, untouched proxy; their
+        // doubling is unrelated to the array sink and survives here unchanged.
         "let r: array<string, integer> = @`hi`",
-        [arityLine, letRhsLine("array<string,integer>"), arityLine],
+        [arityLine, arityLine],
       ],
       ["let r: array<string, integer> = 1", [arityLine, letRhsLine("integer")]],
       ["let r: {} = 1", [inlineLine()]],

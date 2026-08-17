@@ -6,6 +6,34 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-08-17
+
+### Fixed
+
+- **bug 0179 — an `array<T>`-declared sink refused every value whose static
+  type the parser leaves nominal.** `decide`'s TYPE-7 array arm
+  (`src/parser/type-compat.ts`) answered `incompatible` for any sub whose kind
+  was not `array`, and it runs 53 lines ahead of the arm that answers
+  `unknown` for a `named` sub the type environment cannot resolve. Every
+  expression the inference pass records no type for — a method call, a member
+  read, a `fn` call, an `invoke`, an index into a non-array-typed target — is
+  such a sub, so `R { ks: p.keys() }`, `let ks: array<string> = p.keys()`,
+  `R { ks: q.xs }` where `q.xs` is declared `array<string>`, and `R { ks: f() }`
+  where `fn f(): array<string>` were all refused at load with
+  `theta/parse/object-field-type-mismatch: … expected array<string>, got keys`
+  — a message naming a method where a type belongs. The same expression at a
+  `string`, `boolean` or `fn`-parameter sink was admitted, and when the refused
+  theta was a spawned subagent child's root the refusal cost the child its
+  registration.
+
+  The array arm now answers `unknown` for exactly that sub, as
+  `type-system.md` §"Unresolvable operands" requires — the parse-time check is
+  skipped and the runtime AJV check is the safety net — and the element-wise
+  recursion inherits the deferral, so an unresolvable element type defers too.
+  A resolvable named schema, a primitive, a literal and a mismatched `array`
+  keep refusing with byte-identical messages. No diagnostic code, registry row
+  or spec sentence changed.
+
 ## [0.103.0] - 2026-08-16
 
 ### Fixed

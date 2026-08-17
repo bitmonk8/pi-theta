@@ -6674,3 +6674,185 @@ describe("H8a-T — bug 0181: a params: default authored as Enum.Variant access 
     }
   });
 });
+
+// ===========================================================================
+// Bug 0179 — `decide`'s TYPE-7 array arm (src/parser/type-compat.ts:218–226)
+// answered `"incompatible"` for a `named` sub the TypeEnv cannot resolve,
+// before control could reach the unresolvable-`named`-sub escape 53 lines
+// below it (:275–278) — so an `array<T>`-declared sink refused any expression
+// `StaticTypeInferencePass.#typeExpr` leaves nominal (a method call, a member
+// read, a `fn` call, an index), naming the placeholder as though it were a
+// type (`expected array<string>, got keys`)
+// (docs/bugs/0179-array-sink-refuses-unresolvable-value-type.md). The offline
+// witness (`tests/array-sink-unresolvable-deferral.test.ts`) pins the parse
+// verdict and the executed value through the OFFLINE `parseThetaDocument` +
+// production-executor harness; this cell exercises the SAME defect through
+// the REAL discovery→registration path this file's other cells use — the
+// shipped composition root's `hasLoadParseError` gate un-registers a caller
+// carrying an error-severity diagnostic, so pre-fix / neutralised the theta
+// below fails to register, exactly as the bug's §Reproduction (b) fails to
+// register inside a spawned child.
+//
+// Registration-only, mirroring the bug 0089 / bug 0095 cells above: the fix
+// is a LOAD-time verdict, so no `@`-query is needed for the theta to
+// register and no slash is driven — zero tokens spent beyond the live
+// provider/session bootstrap this file's every cell already pays.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted.
+// ===========================================================================
+
+/** `theta/parse/object-field-type-mismatch`'s registered code and registry page. */
+const OBJECT_FIELD_MISMATCH_CODE = "theta/parse/object-field-type-mismatch";
+const OBJECT_FIELD_MISMATCH_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/object-field-type-mismatch: field '<field>' on schema
+ * '<schema>' type mismatch: expected <expected>, got <actual>` with every
+ * placeholder substituted — DIAG-4: the message half is read from the
+ * registry row, not copied. Unlike this file's `nonArrayIterandFragment` /
+ * `emptySchemaBodyFragment` (whose substituted values never contain literal
+ * angle brackets), this code's `<expected>`/`<actual>` slots legitimately fill
+ * with `array<string>`/`keys` — a post-substitution `/<[a-z]+>/` staleness
+ * regex would false-positive on `array<string>`'s own brackets, so the
+ * staleness check runs BEFORE substitution instead (each slot's presence in
+ * the raw template), mirroring the offline witness
+ * (`tests/array-sink-unresolvable-deferral.test.ts`'s `interpolate` helper).
+ * Used only for the ABSENCE assertion below: post-fix, no note carrying this
+ * fragment for the fixed caller's own `ks`/`R`/`array<string>`/`keys`
+ * instance may appear.
+ */
+function objectFieldMismatchFragment(
+  field: string,
+  schemaName: string,
+  expectedType: string,
+  actualType: string,
+): string {
+  const template = registryMessage(
+    OBJECT_FIELD_MISMATCH_REGISTRY,
+    OBJECT_FIELD_MISMATCH_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${OBJECT_FIELD_MISMATCH_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  let message = template as string;
+  const slots: ReadonlyArray<readonly [string, string]> = [
+    ["<field>", field],
+    ["<schema>", schemaName],
+    ["<expected>", expectedType],
+    ["<actual>", actualType],
+  ];
+  for (const [slot, value] of slots) {
+    expect(
+      message.includes(slot),
+      `${OBJECT_FIELD_MISMATCH_CODE}: the registered Message does not spell ` +
+        `${slot} — the registry row's Message template changed shape and ` +
+        "this cell's substitution is stale. Template: " + message,
+    ).toBe(true);
+    message = message.replaceAll(slot, value);
+  }
+  return `${OBJECT_FIELD_MISMATCH_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own §Reproduction (a) row 1 — the smallest failing input: a
+ * two-field schema, one constructor, one `array<string>`-declared sink, one
+ * `keys()` call
+ * (docs/bugs/0179-array-sink-refuses-unresolvable-value-type.md
+ * §Reproduction (a) row 1 — the same body as
+ * `tests/array-sink-unresolvable-deferral.test.ts`'s `ROW1`, replayed here
+ * through the real discovery→registration path instead of the offline
+ * harness). `p.keys()`'s static type is the inference pass's placeholder
+ * (`named "keys"`, src/parser/static-type-inference.ts:261–262), unresolvable
+ * in the TypeEnv — exactly the sub-side condition the fix's escape narrows on.
+ */
+function arraySinkNominalPlaceholderTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { a: string, b: string }",
+    'let p = P { a: "x", b: "y" }',
+    "schema R { ks: array<string> }",
+    "R { ks: p.keys() }",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0179: an `array<T>`-declared sink fed by a nominal-placeholder value registers, live (Convention: live-host acceptance)", () => {
+  it("registers a caller whose constructor field is `array<string>` and whose value is `p.keys()`, and the theta-system-note channel carries no object-field-type-mismatch rejection naming the `keys` placeholder, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, a
+      // regressed fix (the caller failing to register) could be (wrongly)
+      // attributed to a broken workspace instead of the gate under test.
+      { source: "project", stem: "b179livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b179livearr", text: arraySinkNominalPlaceholderTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b179livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the array-sink gate under test, would explain the caller's absence " +
+          "too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses),
+      // an `array<string>`-declared constructor field fed by a `keys()` call
+      // registers — `decide`'s TYPE-7 arm (type-compat.ts) now answers
+      // "unknown" for the unresolvable `named` sub `p.keys()` types as, so
+      // `hasLoadParseError` no longer un-registers this caller the way it did
+      // pre-fix / under neutralisation.
+      expect(
+        handle.command("b179livearr"),
+        "the caller whose `array<string>` constructor field is fed by " +
+          "`p.keys()` failed to register — theta/parse/object-field-type-" +
+          "mismatch fired on a program type-system.md:48 requires the parser " +
+          "to defer on. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toContain("b179livearr");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"): the diagnostic, when it fires, fires at LOAD time,
+      // before any drive, so the full entry list is the delta (mirrors the
+      // bug 0089 / bug 0095 cells above). Post-fix there is nothing to reject
+      // for this caller's own `ks`/`p.keys()` instance, so this fragment's
+      // ABSENCE is the success signal.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const regressionFragment = objectFieldMismatchFragment(
+        "ks",
+        "R",
+        "array<string>",
+        "keys",
+      );
+      expect(
+        notes.some((note) => note.includes(regressionFragment)),
+        "a theta-system-note entry named the object-field-type-mismatch " +
+          "rejection for the array-sink caller — the bug 0179 escape " +
+          "regressed. Notes: " + JSON.stringify(notes),
+      ).toBe(false);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -1,6 +1,6 @@
 # Bug 0179 — `decide`'s TYPE-7 arm answers `incompatible` for every non-`array` sub-type, including a `named` the type env cannot resolve, so an `array<T>`-declared sink refuses at load any expression the inference pass leaves nominal — `p.keys()`, a read of an `array<string>`-declared field, a call of an `array`-returning `fn`, an index into a nested array — with `theta/parse/object-field-type-mismatch: … expected array<string>, got keys`, whose `<actual>` slot names a method rather than a type; the same expression at a `string`, `boolean` or `fn`-parameter sink is admitted, and when the refused theta is a spawned subagent child's root the refusal is unreportable: the child exits 0 with no `theta_result` envelope and the driver discards its captured stderr on a zero exit
 
-- **Status:** open.
+- **Status:** fixed (0.104.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because conformant input is noisily refused
   at load and the refusal's text names a type that does not exist: twelve
   measured spellings (§Reproduction (a)) are rejected, including
@@ -592,3 +592,220 @@ sibling session's own untracked probe): §Reproduction (a)'s nineteen in-process
 and the two `bare-object-literal` rows, and §Reproduction (b)'s eight real
 spawned children with all three `#subagent-child-pins` set. Every string in
 §Reproduction is that run's output verbatim.
+
+## Fix (0.104.0)
+
+- **What shipped.**
+  - `src/parser/type-compat.ts` — `decide`'s TYPE-7 array arm (`:218–226`)
+    answers `"unknown"` for a `named` sub `resolveNamed(env, name)` cannot
+    resolve (`:219–221`), ahead of the non-`array` short-circuit (`:222–224`),
+    so an operand past the parser's static view no longer takes its verdict
+    from the sink's kind. The element-wise recursion (`:225`) is untouched,
+    which is what carries constraint 2: an unresolvable element type now defers
+    through the same recursive call. 816 → 825 lines (+3 code, +6 comment). No
+    sink changed — `checkObjectFieldCompat` (`:520–522`), `checkLetRhsCompat`
+    (`:421`) and `checkFnArgCompat` (`:472`) already return no diagnostic on
+    `"unknown"`.
+  - `tests/array-sink-unresolvable-deferral.test.ts` (new, 705 lines, 21 cells)
+    — the §Witness inventory: the primary (row 1) parse-clean **and** executed
+    to `{"ks":["a","b"]}` through the production executor; one cell per
+    placeholder shape (`method-call`, `member`, `call`, `index`, `match`,
+    ternary); the typed-`let` and array-literal-element sinks (row 13 sheds
+    BOTH of its diagnostics); five constraint-1 refusal controls with
+    registry-sourced messages (DIAG-4); the seven already-green controls that
+    locate the arm (rows 3, 5, 6, 8, 17–19); and one additional cell for the
+    self-identical refusal ``let r: array<string> = @`x` `` recorded verbatim
+    as
+    residual (iii) of
+    [0028](./0028-unresolved-annotation-silent-permissive-lowering.md)`:338–349`.
+  - `tests/live/live-production-acceptance.test.ts` — additive H8a cell 42,
+    registration-only: §Reproduction (a) row 1 as a whole theta driven through
+    the real discovery→registration path, so the fixed input's *load* is
+    witnessed live and not only at the offline parse boundary. Proved in both
+    directions live (guard neutralised ⇒ the caller fails to register;
+    restored ⇒ it registers).
+  - `tests/inline-empty-object-type.test.ts` — the single authorized suite
+    flip, below.
+- **Suite delta (constraint 5 — the full-suite re-measure is part of the
+  change).** Baseline at the fix's HEAD (`d470996e`, v0.103.0): 307 files /
+  5034 tests green. Prototype of the arm change, full suite: **exactly one
+  flip in 5034 tests** — `tests/inline-empty-object-type.test.ts` ›
+  `bug 0045 (g)` › `RECORDED g3`, whose recorded row
+  ``let r: array<string, integer> = @`hi` `` loses its middle element,
+  `let-rhs-type-mismatch: … expected array<string,integer>, got
+  array<string,integer>`, landing on `[arityLine, arityLine]`. Bucketed as
+  **authorized by constraint 1**: `parseLet` propagates the malformed
+  annotation text onto the query, `static-type-inference.ts:255` types the
+  query as `{kind:"named", name: node.schema}` — that text verbatim — while
+  `annotationToCompatType` (`type-layer-checks.ts:810`) parses the same text
+  into `{kind:"array"}`, so the sub is a `named` the `TypeEnv` cannot resolve
+  at an `array` sup and `displayType` renders both operands from one source
+  string. The row's input carries an `E`-severity
+  `theta/parse/generic-arity-mismatch` before and after, so it does not load
+  either way (GOV-15: never-conformant). The cell's own claim — per-check-site
+  doubling of an untouched proxy rule, row 2 against row 3 — survives and
+  sharpens; its `expect` message, every other row and every other cell are
+  byte-unchanged. Nothing else in the suite moved: the constraint-1 committed
+  cells (`tests/ctor-field-type-check.test.ts:441`, `:633`, `:964–965`;
+  `tests/division-result-type-number.test.ts:1454`) and every protected lock
+  (`fn-arg-type-mismatch-wired` 84, `invoke-arg-type-mismatch-wired`,
+  `index-element-alias-unfolded` 51, `array-ternary-common-type-union` 21,
+  `inline-object-duplicate-field-name` 49, `params-literal-sublanguage-lowering`,
+  `params-default-type-compat`, `params-brace-union-rhs-lowering`,
+  `annotation-root-brace-union-lowering`, `inbound-union-arm-dispatch`,
+  `params-default-enum-access-merge`, the two `subagent-root-*` files) are green
+  and byte-unchanged. §Affected's claim that "no committed cell pins a `named`
+  sub at an array sink in either direction" is therefore **one cell wrong**:
+  `RECORDED g3`'s row 2 pinned exactly that, incidentally.
+- **TYPE-8 disposition (constraint 3): the inline-object arm does NOT move,
+  and the measurement is stated.** The arm (`:231–256`) is unreachable in the
+  shipped tree, on four independent legs. (i) `annotationToCompatType`
+  (`type-layer-checks.ts:810`) is the only annotation→`CompatType` lowering
+  feeding the three TYPE-9 sinks and never emits `kind:"object"` — its own doc
+  comment says an inline object type "resolves to a nominal `named`
+  reference". (ii) `paramsDeclaredCompatType` (`type-compat.ts:742`) likewise.
+  (iii) No site in `src/` constructs an `object`-kind `CompatType`.
+  (iv) Twelve probed inputs across the typed-`let`, ctor-field and
+  `fn`-parameter sinks — literal, array, resolvable-named,
+  unresolvable-named and `fn`-call subs against an inline-object sink — are all
+  admitted both at HEAD and under the prototype, including
+  `let v: { x: string } = 1`, which a reached arm would refuse. So no input
+  class fires it spuriously and there is nothing to widen; the only
+  inline-object type that reaches `decide` is nested inside an `array<…>` sup,
+  where the arm under test is TYPE-7.
+- **`<actual>` rendering disposition: out of scope, `displayType` untouched.**
+  The fixed inputs now draw no diagnostic at all, and the inputs that still
+  refuse have statically resolvable subs whose rendering is a real type name
+  (`array<number>`, `integer`, `Zn`). No spelling in which `<actual>` names a
+  method survives the fix, so no rendering change is owed.
+- **Proof-gate scope statement (constraint 6).** The `fn`-argument sink
+  consults `provableArgType` (`type-layer-checks.ts:1654`) where the ctor-field
+  (`:1542`) and typed-`let` (`:970`) sinks pass `typeOf` straight through.
+  Constraint 1 makes the three sinks agree for every measured input **without**
+  touching that asymmetry, and `type-layer-checks.ts` is byte-unchanged (2531
+  lines). Whether the two sinks should also consult a proof gate is not settled
+  by this report's evidence and is out of scope.
+- **Bug 0144's measured observable flips, and 0144 stays open.** Measured both
+  sides at this HEAD: `fn g(xs: array<integer>)` + `let v: Zz = [1]` + `g(v)`
+  draws `theta/parse/fn-arg-type-mismatch: … expected array<integer>, got Zz`
+  before and **nothing** after (`provableArgType` certifies the annotated-`let`
+  read, the check runs, and the arm defers); the same `v` at an
+  `array<integer>` ctor field and at an `array<integer>` typed `let` flips
+  identically. This record states its `:48` reading — the skip is unconditional
+  on the sink's kind — and does **not** claim to close 0144: the corpus-level
+  `type-system.md:31`-vs-`:48` disposition adjudication and the
+  must-agree-with-0127 clause stay open there. An append-only coordination note
+  records the flip on 0144's doc; its Status is untouched.
+- **§Reproduction (b) is stale at this HEAD (baseline drift, not re-derived).**
+  Bug 0178's fix (0.101.0, element (b)) made a child-side load refusal of the
+  marked root reach the parent as
+  `Err(InvokeInfraError { cause: "load_failure" })` naming the refusing
+  diagnostic, so the recorded signature (exit 0, no envelope,
+  `theta/runtime/subagent-exit-without-envelope`, empty reason) no longer holds.
+  Taken as a measured fact from that fix's record rather than re-derived with
+  spawned children. The witness spec carries no child-process cell, so this
+  affects framing only; `src/runtime/subagent-json-driver.ts` is untouched
+  (constraint 8).
+- **GOV-15 — the refusal→silence classes this fix creates.** Every one is an
+  input the `array<T>` sink refused with a placeholder for a type name; the
+  language admits no program in which the removed diagnostic was correct.
+  1. `method-call` subs (`p.keys()`, `p.values()`, `s.split("")`) at an
+     `array<T>` ctor field, typed `let` and array-literal element.
+  2. `member` subs (a read of an `array<T>`-declared field).
+  3. `call` subs (a `fn` whose return annotation is `array<T>`).
+  4. `index` subs (an index into a non-array-typed target).
+  5. The `match`/ternary reductions of 1–4 through `#commonType`.
+  6. `named` annotations the `TypeEnv` cannot resolve at all three sinks (bug
+     0144's `Zz` class), including a `.thetalib`-imported type name.
+  7. `result-ctor` subs (`Ok(…)`/`Err(…)`) at the typed-`let` sink only — the
+     ctor-field sink still refuses them through `forceIncompatible`, which
+     bypasses `checkCompatible`.
+  8. The self-identical `array<T>`-annotated bare-query refusal (0028 residual
+     (iii)), including the malformed-generic spelling in `RECORDED g3`.
+- **Gates** (verbatim, at the committed tree).
+  - Witness: `npx vitest run tests/array-sink-unresolvable-deferral.test.ts` →
+    `Test Files 1 passed (1)`, `Tests 21 passed (21)`. Red before the fix: 9
+    failed / 12 passed, each red the object-field / let-rhs / array-element
+    mismatch naming the placeholder.
+  - Full default suite: `npm test` → `Test Files 308 passed (308)`,
+    `Tests 5055 passed (5055)`, exit 0 (307 / 5034 before the witness).
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → exit 0,
+    no output.
+  - Lint: `npm run lint` (`eslint --no-error-on-unmatched-pattern
+    "src/**/*.ts"`) → exit 0, no output.
+  - Live: H8a `tests/live/live-production-acceptance.test.ts` → 42/42 passed;
+    H9a `tests/live/acceptance/` → 11/11 passed across both files;
+    `tests/fixtures/h7a/permitted-codes.json` byte-unchanged by the real run.
+- **Review.** Round 1 (`bug-fix-reviewer`) — **clean**, zero findings, one
+  non-blocking prose residual (the witness header's TYPE-9 gloss claimed an
+  `fn-arg-type-mismatch` oracle the file does not assert, and placed
+  `object-field-type-mismatch` under TYPE-9 where `type-system.md:27` is its
+  home). The reviewer proved constraint 1 with data of its own, comparing
+  `HEAD:src/parser/type-compat.ts` against the fixed relation over prim,
+  literal, object, resolvable-named, mismatched-array and union subs. Two
+  comment-only polish rounds followed (`bug-fix-fixer-light`): the prose
+  residual, then the `type-compat.ts` line citations inside the two files this
+  commit ships, which the +9 shift had moved. Both inspected hunk-by-hunk as
+  comment-only with the gates re-run green, so no confirmation review round was
+  dispatched.
+- **Verification** (`bug-fix-verifier`). All four obligations discharged with
+  quoted evidence; its one finding was this record's own owed 0144 note, now
+  written.
+  - Neutralisation both directions: the three-line guard deleted →
+    `type-compat.ts` `23a75a14…` → `89a5db37…`, witness 9 red / 12 green (the
+    nine named, each with its mismatch text) and `RECORDED g3` red; restored →
+    `23a75a14…`, witness 21/21 and `inline-empty-object-type` 46/46. No
+    `git stash` at any point. No cell is vacuous: exactly the nine deferral
+    cells red under neutralisation, and the twelve controls stay green by
+    design.
+  - Full default suite green at the restored tree (308 / 5055).
+  - Live: no existing cell exercised a parse-deferral path (0089/0125 are
+    TYPE-11 alias transparency, 0081 is the common-type union, H9a's
+    ctor-refusal cell is an actually-unresolvable schema name), so cell 42 was
+    added and proved live in both directions; both live halves then ran clean
+    on the first attempt with none of the known flaky signatures.
+  - Lint and typecheck read from `package.json` and run, both exit 0.
+- **Residuals.**
+  1. **The 0172 boundary-2 witness's removed `keys()` field can now be
+     restored.** `tests/inbound-boundary-theta-callable.test.ts` lists
+     `expressions.md:118` in its spec header and carries no cell that calls
+     `keys()`; that field was deleted as a workaround for this defect (0172
+     §Provenance). The workaround is now unnecessary, but the file is a closed
+     bug's protected witness and this fix pre-authorized no edit to it, so the
+     restoration is recorded rather than performed.
+  2. **The `Result`-ctor sink asymmetry the deferral exposes.**
+     `let ks: array<string> = Ok(1)` now loads where `R { ks: Ok(1) }` still
+     refuses, because only `checkObjectFieldCompat` carries
+     `forceIncompatible`. Measured both sides. It is a member of §Non-goals'
+     "unsound admissions the deferral leaves" class — `type-system.md:29`/`:48`
+     prescribe AJV as the net — and no committed cell pins either spelling.
+  3. **Positional drift this commit causes and does not chase.** The +9 shift
+     stales every `src/parser/type-compat.ts` citation of a line ≥ 210 in files
+     this commit does not ship: `tests/ctor-unresolved-schema-name.test.ts`,
+     `tests/index-element-alias-unfolded.test.ts`,
+     `tests/fn-param-alias-unfolded-at-gates.test.ts`,
+     `tests/fn-arg-type-mismatch-wired.test.ts` (`:2400` spans the edited
+     region), `tests/schema-alias-union-decl.test.ts`,
+     `tests/typeenv-prototype-names.test.ts` and
+     `tests/live/live-production-acceptance.test.ts:2399`. All comment-only, no
+     executable assertion affected;
+     [0134](./0134-params-shift-induced-stale-citations.md)'s adjudicated
+     do-not-chase class, which this report's §Non-goals adopts by name. The two
+     files this commit does ship were corrected.
+- **Discharge notes appended.**
+  [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)
+  (its `## Fix (0.97.0)` *Residuals* item 3 — the unfiled `vo.keys()` child
+  kill — is this report, fixed here),
+  [0144](./0144-annotated-unresolvable-arg-structural-param-emits.md) (its
+  measured observable flipped; subject still open) and
+  [0093](./0093-let-annotation-query-position-double-emission.md) (the cell it
+  names as its honest record changed shape; its doubling subject is
+  untouched). No Status but this report's was changed.
+- **Pinned dispositions / non-goals.** No registry row, no spec edit (constraint
+  4 — DIAG-2 is not engaged; the change makes the implementation conform to
+  `type-system.md:48` and to the "statically resolvable" clauses at
+  `code-registry-parse.md:46`/`:56` as written). `StaticTypeInferencePass` is not
+  widened (constraint 7; `static-type-inference.ts` byte-unchanged at 378
+  lines). The child-side reporting gap is not touched (constraint 8; bug 0178
+  owns and fixed it). The `fn`-argument proof-gate asymmetry stays out of scope
+  (constraint 6). `theta/parse/bare-object-literal` is untouched.
