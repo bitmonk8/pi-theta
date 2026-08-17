@@ -1,10 +1,17 @@
 # Bug 0181 — A `params:` default authored as `Enum.Variant` — the spelling `frontmatter-fields-a.md:67` supplies as its own worked example — is refused by the post-default-merge AJV check: `#recoverDeclaredDefaults` evaluates it through the body's environment to `makeEnumValue`'s boxed `String` (`typeof` `"object"`) and `fillDefaultsAndRevalidate` hands it un-projected to the compiled validator, so `{"type":"string","enum":[…]}` refuses the runtime's own default, the slash invocation ends `bound: false` behind `theta /<name>: argument binding produced invalid args — /p must be equal to one of the allowed values; /p must be string`, and the binder model call that preceded it is spent — where the same field defaulted to the bare wire string binds and reaches body scope tagged
 
-- **Status:** open. Residual **R2** of the bug
+- **Status:** fixed (0.103.0). The route §Fix left constraint-pinned is settled
+  and shipped — **(a) sub-variant a1**, the projection applied at recovery — and
+  the record is `## Fix (0.103.0)` at the end of this document. What decided the
+  choice is a re-measurement: §Reproduction (f)'s route-divergence, the single
+  position where the two candidates produced different end states, no longer
+  exists at the fixed HEAD, because bug 0172 face 2 (0.102.0) threads the
+  compiled-validator seam into the binder-`args` inbound boundary and a
+  union-arm default now re-tags. Residual **R2** of the bug
   [0174](./0174-typed-invoke-enum-return-validation-prompt-cell.md) fix (0.98.0,
   commit `f912a8c3`), recorded there as `## Fix (0.98.0)` *Residuals* item 2 and
   in that fix's report (`.pi/tmp/fixes/0174-report.md` §"Residuals / notes",
-  R2). §Fix is constraint-pinned, not settled: two candidate projection points
+  R2). §Fix was constraint-pinned, not settled: two candidate projection points
   on one path are pinned with their measured end states, and the choice decides
   whether a second surface (the BND-1 success echo) needs an arm of its own.
   Ordering: nothing blocks this report from starting. 0174's fix shipped the
@@ -1007,3 +1014,211 @@ Every `src/`, `tests/`, spec, reference and bug-doc citation above was read at
 HEAD `a1eec82c`; volatile positions in
 `src/extension/production-theta-producer.ts` (6288 lines) are named by symbol
 beside their line numbers, per bug 0134's adjudication.
+
+## Fix (0.103.0) — route (a) sub-variant a1: the recovered default is projected at recovery
+
+**The route, and the measurement that settled it.** §Fix pinned two candidate
+projection points and left the choice to the run. Their end states differed at
+exactly one measured position — §Reproduction (f)'s union arm — and that
+difference no longer exists. §Reproduction (f) was measured at `a1eec82c`
+(v0.98.0); bug [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)
+face 2 landed at 0.102.0 (`ac4687db`) and threads the compiled-validator seam
+into the binder-`args` inbound boundary. Re-measured at `9209f996` over the same
+`sev: 'Sev | null = Sev.High'` fixture, through the real lowered document and the
+real `AjvSchemaValidator`:
+
+```
+AJV, boxed carrier         : {"ok":false, /sev ×4}      AJV, projected : {"ok":true}
+projected  WITH validator  : isEnumValue true   valuesEqual true
+projected  NO   validator  : isEnumValue false  valuesEqual false
+ORIGINAL   WITH validator  : isEnumValue true   valuesEqual true
+```
+
+The *no validator* row is §Reproduction (f)'s recorded divergence, reproduced
+exactly — and it is no longer the production path. `paramBindingsFrom`
+(`theta-composition-producer.ts:99`) is called with `deps.schemaValidator`
+(`:417`); the production producer exposes that accessor
+(`production-theta-producer.ts:718`) off `root.schemaValidator`; the shipped
+composition root builds those deps (`production-composition.ts:652`) and hands
+the same object to `composeThetaFixture` (`:1015`). Probed on the production
+producer object: `deps.schemaValidator !== undefined`, on every reproduction row.
+So a projected union-arm default binds **tagged** on the production path, and
+route (a)'s only measured downside is gone.
+
+Three further findings decided the rest:
+
+1. **Route (b) reds a governed observable and route (a) does not.** Under (a)
+   the BND-1 echo renders from a wire string with no render change at all —
+   measured `Running /<name>: topic=hello, sev=high (default)`, the same text the
+   bare-wire-string spelling produces today. Route (b) leaves a boxed carrier in
+   the merged `args` and would need a new `echoTypeFromValue` enum arm plus the
+   `renderEchoValue` reach (`argument-echo.ts:175`) — a second governed surface
+   (GOV-15 observable (c)) for no end-state gain.
+2. **Route (a) makes `DefaultedField.defaultValue`'s own contract true** rather
+   than introducing a second representation at a seam whose contract is "the
+   merged args are what AJV saw" — the caveat 0174 recorded against its own
+   route (b).
+3. **Sub-variant a1 (at recovery) over a2 (in the fill loop) discharges
+   constraint (c)(1) structurally.** `src/binder/defaulting.ts` takes no
+   executable change at all, so the ceiling-#4 depth walk cannot move and no
+   projection ever copies a binder-influenced merged document. The value
+   projected is the theta's own source-derived default.
+
+- **What shipped:**
+  - `src/extension/production-theta-producer.ts` — `#recoverDeclaredDefaults`
+    pushes `projectForValidation(evaluatePureExpression(parsed, env))`. One
+    executable line; `projectForValidation` was already imported for 0174's
+    return gate. Its doc-comment states the projection and names the downstream
+    boundary that re-establishes the tag. `echoTypeFromValue`'s doc-comment
+    premise ("An enum value is a string at runtime") is replaced by the true one:
+    the function reads the AJV-validated merged `args`, which are wire form
+    throughout, so the `string` arm is right because the value IS a string —
+    the boxed carrier does not reach it. No `EchoType` arm was minted and
+    `src/render/argument-echo.ts` is byte-untouched.
+  - `src/binder/defaulting.ts` — comment only. `DefaultedField.defaultValue`'s
+    doc-comment now states the WIRE-form contract its sole producer honours,
+    replacing "a literal-sublanguage form, already lowered" (§Affects records
+    that as false at HEAD; it is true under this route).
+  - `src/runtime/inbound-boundary.ts` and `src/runtime/wire-translation.ts` —
+    comment only. The two falsified claims §Affects names
+    ("Frontmatter `params:` DEFAULTS never arrive here" / "neither passes
+    through `translateInbound`") are brought into line: a filled default DOES
+    arrive, and for a wire-form default this pass is what re-tags it. Each
+    paragraph names `runtime-value-model.md:37`'s surviving bypass sentence, and
+    scopes reconciling it to a separate report per §Non-goals.
+  - `tests/params-default-enum-access-merge.test.ts` — NEW, the offline witness
+    (10 cells, §Fix (c)(7)).
+  - `tests/live/live-production-acceptance.test.ts` — NEW cell 41, append-only.
+
+- **GOV-15 flips, enumerated.** Refusal → success on exactly the merged documents
+  whose filled default carries a named-enum value, each measured before and
+  after: the annotated field (`/sev`), a named-enum field of a schema-typed
+  default under both admitted object spellings (`/box/sev`, `Box { … }` and the
+  bare-object literal), an array element (`/sevs/0`), and a union arm
+  (`Sev | null`). Deferral row c6's own fixture (`p: 'Sev = Sev.A'` against
+  `enum Sev { A, B }`) flips with them. **Nothing flips the other way.** Measured
+  byte-identical before and after: the bare-wire-string default
+  (`sev: 'Sev = "high"'` → `Running /<name>: topic=hello, sev=high (default)`),
+  the fill-if-absent control (an arg-supplied `sev` → `sev=low`, no `(default)`
+  tag, the default never constructed), the schema-brand control
+  (`Plain = Plain { who: "w" }` → `plain={w, …} (default)`, `schemaTagOf`
+  `"Plain"`), and the **value**-mismatch control (`sev: 'Sev = "nope"'` still
+  refuses with the single clause `/sev must be equal to one of the allowed
+  values`). The gate becomes representation-blind, not value-blind.
+
+- **The echo, per constraint (c)(4).** Measured, not assumed, through the
+  production note channel on every cell. Under this route it needs no change:
+  the enum-access spelling now renders the text the bare-wire-string spelling has
+  always rendered, and a schema-typed default renders `box={high, …}` where the
+  boxed carrier would have rendered `box={{h, …}, …}` — a position that is a
+  refusal today, so no shipped echo text moves.
+
+- **Spec-sentence readings, stated rather than left implicit.** No spec sentence
+  moved.
+  - `frontmatter-fields-a.md:71` ("`Enum.Variant` defaults preserve the runtime
+    enum brand … **without a separate restoration pass**") — the author-facing
+    guarantee holds and is measured: the default reaches body scope
+    indistinguishable from a body-code `Sev.High` (`isEnumValue` true,
+    `valuesEqual` true at all four positions; `schemaTagOf` `"Box"` with keys
+    `["sev","who"]`). No *separate* pass exists. The tag is re-established by the
+    binder-`args` inbound boundary `runtime-value-model.md:34` already mandates
+    over binder `args` — the same pass that already re-tagged the bare-wire-string
+    spelling before this fix. The sentence describes what an author must know; it
+    does not name an implementation route.
+  - `runtime-value-model.md:37` (defaults "bypass the inbound translation pass")
+    is at odds with HEAD independently of this fix — a bare-wire-string default
+    was already carried into `bindParamsInbound` by the merged `args` and re-tagged
+    there. §Non-goals assigns that sentence to a separate report; this fix does
+    not move it, and the two code comments that restated it now say what the code
+    does and name the divergence.
+
+- **Gates** (verbatim):
+  - witness — `npx vitest run tests/params-default-enum-access-merge.test.ts`
+    → `Test Files 1 passed (1)` / `Tests 10 passed (10)`; at HEAD before the fix
+    the same file ran `Tests 6 failed | 4 passed (10)`, each red carrying the
+    AJV-on-`args` refusal (`theta /s1: argument binding produced invalid args —
+    /sev must be equal to one of the allowed values; /sev must be string`).
+  - full suite — `npm test` → `Test Files 307 passed (307)` /
+    `Tests 5034 passed (5034)` (baseline 306 / 5024; +1 file, +10 cells).
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - live — `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Tests 41 passed (41)`;
+    `… tests/live/acceptance/` → `Test Files 2 passed (2)` /
+    `Tests 11 passed (11)`. `tests/fixtures/h7a/permitted-codes.json`
+    byte-unchanged across the real H9a run (`a4a8da04…` before and after) — no
+    new diagnostic code.
+
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — one non-blocking
+  `prose` finding (two intra-file self-citations in `wire-translation.ts` off by
+  one) plus one `prose` residual (floating "this fix" / "at HEAD" referents); no
+  `correctness`, `fidelity` or `spec` finding; it re-derived route fidelity
+  mechanically, checked all seven (c) constraints, and ran two redness probes of
+  its own. One pre-review citation-only correction round preceded it, and two
+  `bug-fix-fixer-light` rounds followed it (the first re-anchored the referents
+  but grew `wire-translation.ts` by a line and re-staled all six self-citations;
+  the second reflowed the paragraph back to the original line count, at which
+  every citation resolves as written). Round 2 (`bug-fix-reviewer-fast`) —
+  **CLEAN**, no findings, no escalation.
+
+- **Verification:** `bug-fix-verifier` returned **SOLID**, zero findings.
+  1. *The witness reds.* Unwrapping `projectForValidation` reds exactly cells
+     1–5 and 10, each with the AJV-on-`args` signature, and leaves the four
+     controls green; restored, `git hash-object` identical. Dropping
+     `deps.schemaValidator` at `theta-composition-producer.ts:417` reds exactly
+     cell 5 (the union arm) at its `isEnumValue` premise; restored,
+     hash-identical to `HEAD`.
+  2. *The full default suite is green* — 307 / 5034, run twice.
+  3. *Live, run for real.* No shipped cell exercised an enum-access default
+     (H9a's `acc-params-binder.theta` defaults a plain `number`), so cell 41 was
+     added; H8a 41/41 and H9a 11/11 both green, and the new cell was proved
+     red-able (fix neutralised → `theta /b181livedef: argument binding produced
+     invalid args — /sev must be equal to one of the allowed values; /sev must…`,
+     restored → green).
+  4. *Lint and typecheck* clean before and after the additive cell. Every
+     protected witness hash-verified byte-identical to `HEAD`.
+
+- **Residuals:**
+  1. **An unresolvable `Enum.Variant` default throws out of the recovery.**
+     `sev: 'Sev = Sev.Missing'` never reaches the merge at all:
+     `resolveEnumVariant` answers `undefined`, `evaluatePureExpression`'s `member`
+     arm falls through to `evaluateMemberAccess(null, "Missing")` and raises
+     `NullMemberAccessPanic: null member access: .Missing`, against
+     `#recoverDeclaredDefaults`'s own doc-comment ("Recovery is best-effort …
+     never throws"). Measured identically before and after this fix, so it is
+     neither caused nor changed here, and it is out of §Fix's subject (a value the
+     variant set does not contain, not a representation). Unfiled; a report of its
+     own.
+  2. **`runtime-value-model.md:37`'s bypass sentence.** §Non-goals already scopes
+     it out; this run sharpens it. The divergence is now load-bearing rather than
+     incidental: an enum-access default's tag is re-established BY the pass the
+     sentence says defaults bypass. Both code comments that restated the sentence
+     now name the divergence explicitly. Unfiled; a report of its own.
+  3. **`renderEchoValue`'s `enum` case (`argument-echo.ts:175`) is still never
+     minted.** `echoTypeFromValue` produces no `{ kind: "enum" }`, and under this
+     route it correctly never needs to — the merged `args` carry no enum carrier.
+     The case is unreachable from the binder echo. Recorded, not changed; the
+     corrected doc-comment now says why.
+  4. **Positional-citation drift.** `production-theta-producer.ts` grew 22 lines
+     and `defaulting.ts` 7, so citations into them from other documents shifted.
+     Bug [0134](./0134-params-shift-induced-stale-citations.md)'s adjudicated
+     do-not-chase class; disclosed, not chased. Self-citations INSIDE the four
+     edited `src/` files and inside this fix's own witness WERE re-derived and
+     each verified against its anchor line.
+
+- **Discharge notes appended:** two, both append-only.
+  [0174](./0174-typed-invoke-enum-return-validation-prompt-cell.md) — its
+  `## Fix (0.98.0)` residual 2 (this report's origin) and its §Fix (c) "inert
+  today" premise: the merge no longer hands AJV a boxed `String`, so the
+  counterexample is discharged going forward.
+  [0163](./0163-params-default-type-compat-unchecked-at-load.md) — deferral row
+  c6 now terminates in an admission: `type-system.md:48`'s "the runtime AJV check
+  is the safety net" is performed rather than merely reached.
+
+- **Pinned dispositions / non-goals:** the enum carrier stays a boxed `String`
+  (`src/runtime/value.ts` and `src/seams/schema-validator.ts` untouched); 0174's
+  return boundary is untouched and its two witnesses are byte-identical; the
+  load-time deferral is untouched and row c6 still loads silently; the
+  AJV-on-`args` row's wording, the 120-code-point note cap, the subagent-root leg
+  (`#intakeSubagentRootParams` fills no declared default;
+  `fillDefaultsAndRevalidate` still has exactly one production caller) and the
+  `invoke(...)` / `.theta`-callable argument paths are all unchanged.

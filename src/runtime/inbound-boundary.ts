@@ -120,10 +120,16 @@ export interface ParamsBindingInput {
  * nested named-enum field tagged at its own depth.
  *
  * A theta with no `params:` has no lowered document to plan against, so its
- * record is projected unchanged. Frontmatter `params:` DEFAULTS never arrive
- * here: they bypass the inbound pass by specification (`runtime-value-model.md`
- * §"Wire-name translation", the defaults clause) and are merged before this
- * projection as already-theta-side values.
+ * record is projected unchanged. A filled default DOES arrive here: the
+ * merged `args` `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts`)
+ * produces are exactly what `paramBindingsFrom`
+ * (`src/extension/theta-composition-producer.ts:99`) hands this function,
+ * defaulted fields included, and for a value in WIRE form this pass is what
+ * re-tags a named-enum position / re-brands a schema-typed one.
+ * `runtime-value-model.md:37` still states that `params:` defaults "bypass the
+ * inbound translation pass" — a divergence that pre-dates bug 0181's fix (a
+ * bare-wire-string default is already re-tagged here, per bug 0181 §Reproduction
+ * (e)) and whose reconciliation is a separate report (bug 0181 §Non-goals).
  */
 export function bindParamsInbound(input: ParamsBindingInput): Map<string, ThetaValue> {
   const { params, lowered, body, schemaValidator } = input;

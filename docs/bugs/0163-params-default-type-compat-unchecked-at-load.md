@@ -862,3 +862,41 @@ params:-default site. That documentation is the :31 "unless … documented as
 the safety net" reading this closure relies on; bug 0144's pending
 :31-vs-:48 adjudication must agree with it or reopen this question by a new
 report.
+
+## Coordination note — bug 0181 (0.103.0)
+
+Append-only; nothing above is edited. The deferral this report settled is
+unchanged — the note records that one of its rows now terminates where
+`type-system.md:48` says it should.
+
+**Deferral row c6 (`"Sev = Sev.A"` against `enum Sev { A, B }`,
+`tests/params-default-type-compat.test.ts:452`) now terminates in an
+admission.** This report's closure rests on `type-system.md:48` — "the
+parse-time check is skipped and the runtime AJV check is the safety net" — and
+c6 defers an enum-access default to that net.
+[0181](./0181-enum-access-params-default-boxed-string-refused-at-merge.md)
+measured that the net was refusing the shape on its *representation* rather than
+its value: `#recoverDeclaredDefaults` evaluated `Sev.A` to the boxed-`String`
+enum carrier and the post-default-merge AJV check rejected it against
+`{"type":"string","enum":["A","B"]}`. Fixed at 0.103.0 by projecting the
+recovered default to wire form at recovery. Row c6's own fixture is now driven
+end to end in `tests/params-default-enum-access-merge.test.ts` cell 10, which
+asserts BOTH halves in one place: the shape still loads with `diagnostics []`
+(this report's contract, unchanged and untouched), and the invocation now binds
+`{"topic":"hello","p":"A"}` behind the BND-1 echo `Running /<name>:
+topic=hello, p=A (default)`.
+
+**The load-time relation is untouched.** 0181 §Non-goals declines "whether the
+load-time compatibility relation should resolve enum names" — c6 still defers
+because the relation resolves against an empty environment, and making it
+resolve them would not have fixed 0181 (a resolvable `Sev.A` is *compatible*
+with `Sev`, so the load check would pass and the invocation check would still
+have refused). `tests/params-default-type-compat.test.ts` is byte-untouched at
+0.103.0.
+
+**What the safety net now adjudicates.** It refuses **values** the variant set
+does not contain and admits values it does — measured in the same witness: a
+default spelled `Sev = "nope"` still refuses with the single clause `/sev must
+be equal to one of the allowed values`. The gate became representation-blind,
+not value-blind, which is the reading `type-system.md:48` needs to carry the
+deferral.

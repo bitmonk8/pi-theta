@@ -32,11 +32,15 @@
 //   - *Outbound* (theta value → JSON): the runtime walks the theta-side value and
 //     produces wire-named JSON before AJV validation.
 //
-//   Frontmatter `params:` defaults **bypass** the inbound translation pass:
-//   defaults are parsed as ordinary Theta values at frontmatter-parse time and
-//   arrive at the theta body already branded and theta-side-named, so a default
-//   authored as `Severity.High` is indistinguishable from a body-code
-//   `Severity.High` — neither passes through `translateInbound`.
+//   Frontmatter `params:` defaults DO reach this pass: the merged `args`
+//   `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts`) produces, defaulted
+//   fields included, are exactly what the binder-`args` inbound boundary
+//   (`bindParamsInbound`, `inbound-boundary.ts`) translates, so a default in WIRE
+//   form is re-tagged / re-branded here exactly as any other validated value is.
+//   `runtime-value-model.md:37` still states that defaults "bypass the inbound
+//   translation pass" — a divergence that pre-dates bug 0181's fix (a
+//   bare-wire-string default is already re-tagged here, per bug 0181 §Reproduction
+//   (e)) and whose reconciliation is a separate report (bug 0181 §Non-goals).
 //
 // **The positions this pass reaches.** The sidecar is keyed by JSON Pointer
 // into the lowered schema fragment, so the pass applies exactly where a pointer
@@ -354,8 +358,8 @@ function rebuildInbound(
   // setter instead of minting an own key.
   //
   // No read in this module needs a matching own-key guard. The three
-  // per-position lookups are `Map`s (`indexOf`, `:208`; `wireToTheta`
-  // `:213`, `enumByPointer` `:217`, `refByPointer` `:221`), and a `Map`
+  // per-position lookups are `Map`s (`indexOf`, `:212`; `wireToTheta`
+  // `:217`, `enumByPointer` `:221`, `refByPointer` `:225`), and a `Map`
   // key never collides with `Object.prototype`; the payload walk below is
   // `Object.entries`, own-enumerable only. Nothing in this file answers
   // through a prototype chain, so the construction half is the one no
@@ -633,7 +637,7 @@ function lowerOutbound(
 export function projectForValidation(value: ThetaValue): unknown {
   if (value instanceof String) {
     // The boxed enum carrier's wire form is its bare string — the same
-    // collapse `lowerOutbound` performs for the outbound direction (`:568`).
+    // collapse `lowerOutbound` performs for the outbound direction (`:578`).
     return value.valueOf();
   }
   if (Array.isArray(value)) {
@@ -652,7 +656,7 @@ export function projectForValidation(value: ThetaValue): unknown {
     // Algorithm" step 3), so no position a `returnSchema` describes can hold
     // one; descending would differ from the gate above only at positions AJV
     // places no constraint on, and this projection exists solely for AJV's
-    // eyes. Mirrors `rebuildInbound`'s own `isResultValue` arm (`:315`).
+    // eyes. Mirrors `rebuildInbound`'s own `isResultValue` arm (`:320`).
     return value;
   }
   if (!isPlainObject(value)) {

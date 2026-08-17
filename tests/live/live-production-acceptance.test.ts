@@ -6453,3 +6453,224 @@ describe("H8a-T — bug 0172 face 2: invoke<Sev | null> dispatches the first-adm
     }
   });
 });
+
+// ===========================================================================
+// Bug 0181 (live) — a `params:` default authored as `Enum.Variant` access
+// binds through a real binder pass, live.
+// `docs/bugs/0181-enum-access-params-default-boxed-string-refused-at-merge.md`:
+// `#recoverDeclaredDefaults` (`src/extension/production-theta-producer.ts:1292`)
+// evaluated a declared default's `= Sev.High` literal against the theta's own
+// body environment, so `Sev.High` resolved through
+// `LexicalEnvironment.resolveEnumVariant` to `makeEnumValue`'s boxed `String`
+// (`typeof === "object"`) and the merge (`fillDefaultsAndRevalidate`,
+// `src/binder/defaulting.ts`) wrote it into the merged `args` unprojected. A
+// named `enum` lowers to `{"type":"string","enum":[…]}`, whose `type` check is
+// a `typeof` test, so AJV refused the runtime's own filled default, the theta
+// never started, and the binder model call that produced the correct `ok`
+// envelope was already spent. The fix (`## Fix`, route (a) sub-variant a1)
+// wraps the evaluated default in `projectForValidation` inside
+// `#recoverDeclaredDefaults`, so the merged document is homogeneous wire form;
+// the declaring-enum tag is re-established downstream by the binder-`args`
+// inbound boundary (`bindParamsInbound`) that `runtime-value-model.md:34`
+// already mandates.
+//
+// WHAT THIS CELL ADDS OVER THE OFFLINE WITNESS.
+// `tests/params-default-enum-access-merge.test.ts` drives the same production
+// `runBinder` with the off-session `complete()` scripted, proving the routing
+// end to end but never against a real model. `tests/live/acceptance/` drives a
+// real binder pass over a `params:` default LIVE (`acc-params-binder.theta`,
+// `count: number = 3`), but that default is a plain `number` literal, not an
+// `Enum.Variant` access — the shape this bug is about — so no shipped live
+// cell (H8a or H9a) exercises an enum-access default before this one. This
+// cell closes that gap: a REAL binder pass against a real model produces the
+// `ok` envelope with the defaulted field omitted (the input class the bug is
+// about), and the production note channel carries the BND-1 success echo end
+// to end through the shipped composition root (session_start →
+// resources_discover → composeExtensionInstance), with the bound value proved
+// TAGGED at the body via the same `==` cross-type technique the bug-0067 and
+// bug-0172-face-2 cells above use.
+//
+// Token cost: ONE binder inference call against `anthropic/claude-haiku-4-5`
+// (the same binder model every `bind_model:` fixture in this file already
+// uses) plus, on the fixed path, the one body turn the fix newly lets run
+// (pre-fix the theta never starts, so the pre-fix cost is the binder call
+// alone — the same asymmetry the bug 0066 cell states for its own subject, in
+// the opposite direction: there the fix SAVES the body turn a discarded
+// verdict spent; here the fix SPENDS a body turn a wrongful refusal
+// previously prevented). No child process is spawned (prompt mode, no
+// `invoke(...)`, no `subagent fn`).
+//
+// STOCHASTIC DEPENDENCE, STATED. The envelope the binder returns is a model
+// output. The binder system prompt's last line instructs omission of
+// defaulted parameters the user did not specify
+// (src/binder/binder-system-prompt.ts:345), and the slash argument below
+// names only `topic` — so the expected envelope is `{"topic":"hello"}`,
+// omitting `sev` and letting the runtime's own fill-if-absent step construct
+// the `Sev.High` default this bug is about. A binder that instead invented an
+// explicit value for `sev` would still bind (either wire string admits it),
+// but the bound value would be BINDER-SUPPLIED rather than DEFAULTED, so the
+// echo's `(default)` tag would be absent and the primary assertion below reds
+// naming exactly what the note channel carried instead — never a silent pass.
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted.
+// ===========================================================================
+
+/** The committed body sentinel — present in `userTexts` iff the body ran. */
+const B181_SENTINEL = "SENTINEL-B181";
+
+/** The AJV-on-`args` row's fixed phrase (determinism-cancellation-failure.md:52). */
+const B181_AJV_ARGS_PHRASE = "argument binding produced invalid args";
+
+/**
+ * The expected BND-1 success echo (`renderArgumentEcho`,
+ * `src/render/argument-echo.ts`): declaration-order fields `topic=hello,
+ * sev=high (default)` — `high` unquoted (it matches the echo's
+ * `[A-Za-z0-9_.-]+` unquoted-string predicate) and `(default)`-tagged because
+ * `sev` took its declared default rather than a binder-supplied value.
+ */
+const B181_EXPECTED_NOTE = "Running /b181livedef: topic=hello, sev=high (default)";
+
+/**
+ * The declared-default fixture: a required `string` plus a `params:` default
+ * authored as `Enum.Variant` access — the spec's own worked-example spelling
+ * (`frontmatter-fields-a.md:67`, `severity: Severity = Severity.Medium`) — over
+ * a body-declared `enum Sev`. Two fields, so this is never
+ * `classifyBinderBypass`'s single-string-bypass shape
+ * (src/binder/binder-envelope.ts): a genuine binder pass runs, which is why it
+ * needs a resolvable `bind_model:` to register.
+ *
+ * The body interpolates the bound `sev` value's rendered wire string AND its
+ * cross-type equality against a body-code `Sev.High` — the same technique the
+ * bug-0067 / bug-0172-face-2 cells above use to make the tag's SURVIVAL a
+ * deterministic, theta-computed observable (`valuesEqual`'s enum arm,
+ * `src/runtime/value.ts`) rather than something only the model's reply could
+ * show.
+ */
+function enumAccessDefaultBinderTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  topic: string",
+    "  sev: 'Sev = Sev.High'",
+    "---",
+    'enum Sev { High = "high", Low = "low" }',
+    "@`" +
+      B181_SENTINEL +
+      " topic=${topic} sev=${sev} tagged=${sev == Sev.High}. Reply with exactly: done.`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0181: a params: default authored as Enum.Variant access binds through a real binder pass, live (Convention: live-host acceptance)", () => {
+  it("admits the recovered `Sev.High` default at the post-default-merge AJV check, echoes it, and reaches the body TAGGED", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without it, a missing
+      // success echo below could be (wrongly) attributed to a broken workspace
+      // instead of the post-default-merge verdict under test.
+      { source: "project", stem: "b181livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b181livedef", text: enumAccessDefaultBinderTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b181livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the enum-access default under test, would explain the missing " +
+          "success echo below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      // The theta MUST register: an `Enum.Variant` default's load-time
+      // compatibility check defers (the relation resolves names against an
+      // empty environment, `type-system.md:48`), so the value class survives
+      // to the runtime hook this cell drives. A theta refused at load would
+      // leave the fix unwitnessed rather than exercised.
+      expect(
+        handle.command("b181livedef"),
+        "the enum-access-default theta did not register — either its " +
+          "bind_model: chain failed to resolve (a registry problem) or the " +
+          "load-time gate over-refused a declared type it must defer on, " +
+          "which would leave the runtime hook unreachable rather than " +
+          "enforced. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The slash argument names ONLY the required field, so the binder has
+      // nothing to say about `sev` and omits it per its system prompt's last
+      // line — leaving the runtime's own fill-if-absent to supply `Sev.High`.
+      const turn = await driveSlashCaptureTurn(handle, "/b181livedef hello");
+
+      // THE FIXED OBSERVABLE, asserted FIRST and POSITIVELY so a red names
+      // what the channel actually carried. Read off the settled in-memory
+      // `SessionManager` (AGENTS.md §"Assert on real observables"), never off
+      // `prompt()` merely resolving — a fail-closed binder still resolves.
+      // Pre-fix this channel carries the AJV-on-`args` refusal instead
+      // (`docs/bugs/0181-…md` §Reproduction (a)) and this row is absent.
+      expect(
+        turn.systemNotes,
+        "the theta-system-note channel carries no BND-1 success echo for the " +
+          "recovered `Sev.High` default — pre-fix the boxed carrier reaches " +
+          "`validator.validate(merged)` un-projected and AJV refuses it on " +
+          "`typeof`, rendering the AJV-on-`args` row instead. Notes: " +
+          JSON.stringify(turn.systemNotes) +
+          "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain(B181_EXPECTED_NOTE);
+
+      // The bug's own failure signature, asserted as an ABSENCE.
+      expect(
+        turn.systemNotes.filter((n) => n.includes(B181_AJV_ARGS_PHRASE)),
+        "the AJV-on-`args` refusal fired for a default the theta's own " +
+          "declared type admits. Notes: " + JSON.stringify(turn.systemNotes),
+      ).toEqual([]);
+
+      // THE TAG'S SURVIVAL, proved by the theta's OWN `==` operator rather
+      // than by inspecting the runtime value from outside: a bound value that
+      // reached the body as a bare untagged string takes `valuesEqual`'s
+      // cross-type arm against a body-code `Sev.High` and renders `false`; the
+      // declaring-enum tag surviving the merge → AJV → inbound-retag chain
+      // renders `true`. This is the SAME technique the bug-0067 /
+      // bug-0172-face-2 cells above use for the identical reason.
+      const outbound = turn.userTexts.join("\n");
+      const anchored = /tagged=(true|false)/.exec(outbound);
+      expect(
+        anchored,
+        "the rendered tagged=… segment is absent — the body never ran on the " +
+          "recovered default. Outbound: " + JSON.stringify(turn.userTexts) +
+          "; notes: " + JSON.stringify(turn.systemNotes),
+      ).not.toBeNull();
+      expect(
+        anchored![1],
+        "runtime-value-model.md:34 / frontmatter-fields-a.md:71 — the " +
+          "recovered `Sev.High` default must reach body scope indistinguishable " +
+          "from a body-code `Sev.High`; a projected-but-never-retagged value " +
+          "would take valuesEqual's cross-type arm and render `false`. " +
+          "Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("true");
+
+      // The committed sentinel proves the body genuinely ran (never merely
+      // that SOME turn happened to mention "true").
+      expect(
+        turn.userTexts.some((t) => t.includes(B181_SENTINEL)),
+        "the committed body sentinel is absent from the outbound text — the " +
+          "body did not run. Outbound: " + JSON.stringify(turn.userTexts),
+      ).toBe(true);
+
+      // No OTHER fail-closed ending: a note from this set would mean the
+      // fixture broke rather than that the enum-access default bound cleanly.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b181livedef (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the drive ended through a fail-closed path instead of binding " +
+          "cleanly: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

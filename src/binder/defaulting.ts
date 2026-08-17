@@ -34,7 +34,14 @@ import { classifyBinderArgs, type BinderArgsClassification } from "./retry-taxon
 export interface DefaultedField {
   /** The field's wire name (the key looked up in the binder-returned `args`). */
   readonly wireName: string;
-  /** The field's declared default value (a literal-sublanguage form, already lowered). */
+  /**
+   * The field's declared default value, in WIRE form: what AJV validates
+   * against the lowered `params` schema, and what a `JSON.parse`d binder
+   * `args` value already is — not a theta-side runtime value.
+   * `#recoverDeclaredDefaults` (`production-theta-producer.ts`) is this
+   * field's one producer and projects the body evaluator's runtime value to
+   * this form before returning it.
+   */
   readonly defaultValue: unknown;
 }
 

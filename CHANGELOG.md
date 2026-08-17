@@ -6,6 +6,44 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-08-16
+
+### Fixed
+
+- **bug 0181 — a `params:` default authored as `Enum.Variant` was refused by the
+  post-default-merge AJV check**, so the spelling
+  `frontmatter-fields-a.md:67` supplies as its own worked example
+  (`severity: Severity = Severity.Medium`) could not be invoked.
+  `#recoverDeclaredDefaults` evaluated the default's literal through the theta's
+  own body environment, so `Sev.High` resolved to `makeEnumValue`'s boxed
+  `String` (`typeof` `"object"`), and `fillDefaultsAndRevalidate` handed that
+  carrier to the compiled validator unchanged. AJV's `type: "string"` check is a
+  `typeof` test, so `{"type":"string","enum":[…]}` refused the runtime's own
+  filled default: the slash invocation ended `bound: false` behind
+  `theta /<name>: argument binding produced invalid args — /sev must be equal to
+  one of the allowed values; /sev must be string`, the theta never started, and
+  the binder model call that produced a correct `ok` envelope was already spent.
+  The refusal was representational, not semantic — the same field defaulted to
+  the bare wire string bound and reached body scope tagged.
+
+  The recovered default is now projected to wire form at recovery, so the merged
+  `args` are homogeneous wire form throughout — what the AJV step assumes and
+  what `DefaultedField.defaultValue` already contracted for. The declaring-enum
+  tag and the schema brand are re-established downstream by the binder-`args`
+  inbound boundary `runtime-value-model.md:34` already mandates, which bug 0172
+  face 2 (0.102.0) taught to dispatch a lowered `anyOf` position under its
+  first-admitting arm — so a union-typed enum default binds tagged too.
+
+  Fixed at every named-enum position the merged document reaches: the annotated
+  field, a named-enum field of a schema-typed default under both admitted object
+  spellings, an array element, and a union arm. Nothing that bound before binds
+  differently: the bare-wire-string default's echo text, the fill-if-absent
+  control and the schema-brand control are byte-identical, and a default whose
+  VALUE is outside the variant set still refuses — the gate became
+  representation-blind, not value-blind. The load-time deferral
+  (`type-system.md:48`, `tests/params-default-type-compat.test.ts` row c6) is
+  untouched and still loads silently; its own fixture now binds at invocation.
+
 ## [0.102.0] - 2026-08-16
 
 ### Fixed

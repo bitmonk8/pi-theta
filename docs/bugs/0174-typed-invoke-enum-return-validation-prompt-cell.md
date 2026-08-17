@@ -1160,3 +1160,38 @@ beside their line numbers, per bug 0134's adjudication.
   `brandSchemaValue` keep the blast radius §Non-goals enumerates. 0172 face 2
   (`anyOf` arm dispatch) remains spec-blocked, open and unwired: this report's
   `(ANYOF)` cells pin pass-through end states only.
+
+## Coordination note — bug 0181 (0.103.0)
+
+Append-only; nothing above is edited.
+
+**Residual 2 of `## Fix (0.98.0)` is discharged.** It recorded "the same
+representation class at the binder defaults-merge AJV boundary, unfiled and
+unwitnessed". It was filed as
+[0181](./0181-enum-access-params-default-boxed-string-refused-at-merge.md) and
+fixed at 0.103.0 by **route (a) sub-variant a1**: `#recoverDeclaredDefaults`
+(`src/extension/production-theta-producer.ts`) now returns each recovered
+default through `projectForValidation` — the very helper this fix shipped — so
+the merged `args` reaching `fillDefaultsAndRevalidate` are homogeneous wire
+form. The declaring-enum tag and the schema brand are re-established downstream
+by the binder-`args` inbound boundary. The cell is witnessed offline by
+`tests/params-default-enum-access-merge.test.ts` (10 cells) and live by cell 41
+of `tests/live/live-production-acceptance.test.ts`.
+
+**§Fix (c)'s "inert today" premise is now moot rather than merely falsified.**
+That section reasoned partly from "today no other site can be handed a boxed
+`String`, because their inputs are model-produced JSON or merged binder args",
+flagging it as a claim to measure. 0181 measured it false — merged binder args
+could carry one — and 0181's fix removes the counterexample at its source: the
+merge no longer hands AJV a boxed value at all. The rejection of route (c)
+(normalising inside the shared `AjvSchemaValidator` seam) stands on its other
+ground and is not reopened; `src/seams/schema-validator.ts` remains untouched by
+both fixes.
+
+**§Non-goals is unchanged and stays true.** "A default authored as
+`Severity.High` never reaches an AJV **return** boundary" was true because the
+boundary it reached was the binder defaults-merge one; 0181 changed what that
+gate is given, not this report's gate.
+`tests/invoke-return-enum-carrier-projection.test.ts` and
+`tests/invoke-prompt-cell-enum-return.test.ts` are byte-untouched by 0181 and
+green at 0.103.0.

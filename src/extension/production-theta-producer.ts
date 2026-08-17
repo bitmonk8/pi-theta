@@ -1280,7 +1280,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * `.theta`, extracts the frontmatter YAML, reads each `params:` field's
    * scalar, splits its `= <literal>`
    * default RHS, and parses + evaluates the literal with the body's pure evaluator
-   * (so an enum / schema-literal default resolves against the body's declarations).
+   * (so an enum / schema-literal default resolves against the body's declarations),
+   * then projects the evaluated value to wire form for the post-default-merge AJV
+   * boundary it feeds (`fillDefaultsAndRevalidate`, `binder/defaulting.ts`). The
+   * declaring-enum tag / schema brand a wire-form default loses here is
+   * re-established downstream by the binder-`args` inbound boundary
+   * (`bindParamsInbound`, `runtime/inbound-boundary.ts`, reached from
+   * `paramBindingsFrom`, `theta-composition-producer.ts:99`, called at `:417`)
+   * that `runtime-value-model.md:34` already mandates over binder `args`.
    */
   async #recoverDeclaredDefaults(
     theta: ConversationBindInput["theta"],
@@ -1322,7 +1329,19 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       if (parsed === null) {
         continue;
       }
-      defaults.push({ wireName, defaultValue: evaluatePureExpression(parsed, env) });
+      // The evaluated default is a runtime `ThetaValue` from the body's own
+      // evaluator: `Enum.Variant` resolves through
+      // `LexicalEnvironment.resolveEnumVariant` to `makeEnumValue`'s boxed
+      // `String` (`typeof === "object"`), while the merge's consumer is an AJV
+      // `type: "string"` check — a `typeof` test — over a record whose other
+      // half is `JSON.parse`d binder output. Project here so the merged
+      // document is homogeneous wire form, which is what
+      // `DefaultedField.defaultValue` (`binder/defaulting.ts`) already
+      // contracts for.
+      defaults.push({
+        wireName,
+        defaultValue: projectForValidation(evaluatePureExpression(parsed, env)),
+      });
     }
     return defaults;
   }
@@ -5712,10 +5731,13 @@ async function driveStreamedUserTurn(deps: {
  * Derive the argument-echo `EchoType` for a bound value, VALUE-driven so it can
  * never mismatch the value's runtime shape and crash the renderer. The lowered
  * params property (when available) disambiguates `integer` from `number`; every
- * other arm is decided from the runtime value. An enum value is a string at
- * runtime and renders identically to a string through the quote predicate, so
- * the `string` arm is used for it. Object fields are taken from the value's own
- * keys in insertion order (declaration order for a binder-returned object).
+ * other arm is decided from the runtime value. This function reads the
+ * AJV-validated MERGED `args` (`#emitBinderEchoNote`'s `mergedArgs`), which are
+ * wire form throughout, so a named-enum value arrives here as the bare JSON
+ * string AJV admitted — never as the runtime's boxed `String` carrier
+ * (`makeEnumValue`, `runtime/value.ts`) — and the `string` arm is the one it
+ * takes. Object fields are taken from the value's own keys in insertion order
+ * (declaration order for a binder-returned object).
  */
 function echoTypeFromValue(value: ThetaValue, property: unknown): EchoType {
   if (typeof value === "string") {
