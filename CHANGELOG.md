@@ -6,6 +6,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-08-17
+
+### Fixed
+
+- **bug 0126 — a plain `for` body never bound its loop variable, so nine
+  registered `E`-severity type-layer checks could not fire on it.**
+  `TypeLayerWalk.walkStmt`'s `case "for"` walked the body with a copy of the
+  enclosing scope and recorded the iteration variable only as bug 0050's
+  withheld twin, so every judgement sink deferred on a read of it — while the
+  `par for` arm, one keyword away, derived the element type from the same AST
+  node and reported all nine on the identical body. The arm now records the
+  TYPE-11-unfolded iterand's element type whenever the iterand unfolds to an
+  `array`, marking the record unprovable when the iterand is not itself a
+  proof, and keeps the withheld twin for a non-`array` iterand so the binder
+  classes this change does not own keep deferring.
+  `theta/parse/unknown-method`, `mixed-plus-operands`,
+  `non-indexable-receiver`, `integer-narrowing`, `non-string-array-join`,
+  `non-boolean-condition`, `non-orderable-operands`, `let-rhs-type-mismatch`
+  and `object-field-type-mismatch` now reach a plain-`for` loop variable, as
+  does `fn-arg-type-mismatch` by composition with bug 0050's wiring. The
+  companion spec silence is closed in the same commit: `control-flow.md`'s
+  `for` paragraph states that the loop variable's static type is the iterand's
+  element type `T` under TYPE-11, with a non-`array` iterand leaving it
+  unresolvable so body checks defer, and the `par for` reuse enumeration and
+  both `grammar.md` loop-variable bullets mirror it. GOV-15 is engaged in the
+  addition direction under the diagnostic-registry carve-out, following the
+  0031 → 0084 precedent chain; the registry and both its mirrors are
+  byte-unchanged. Locked by a new 53-cell offline witness
+  (`tests/plain-for-loop-variable-element-type.test.ts`), an additive H8a
+  live cell, and the deliberate inversion of bug 0089's `n1` tripwire.
+
 ## [0.106.0] - 2026-08-17
 
 ### Fixed

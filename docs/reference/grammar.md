@@ -455,17 +455,20 @@ Anything not on this list is `theta/parse/unknown-method`.
 - **`for x in expr`** — iterates an `array<T>`; a non-array iterand is
   `theta/parse/non-array-iterand`. The iterand is evaluated **exactly once** at
   loop entry (CTRL-1), before the first iteration, including when the array is
-  empty. The iteration variable is a fresh immutable local per iteration.
+  empty. The iteration variable is a fresh immutable local per iteration, typed
+  as the iterand's element type `T`; a non-`array` iterand leaves it untyped and
+  body checks on it defer.
 - **`par for x in expr [max n] { ... }`** — the parallel, value-producing form of
   `for` (theta 1.1). Same iterand rules as `for` (`array<T>` iterand, evaluated
-  once at loop entry, fresh immutable loop variable — CTRL-1); a non-array iterand
-  is `theta/parse/non-array-iterand`. Produces `array<Result<T, QueryError>>` in
-  input-index order. The optional `max n` clause admits any `integer`-typed
-  expression, evaluated once at loop entry; the operand is an `integer` sink, so a
-  `number`-typed operand triggers `theta/parse/integer-narrowing` as in any
-  integer position. Body restrictions (parse-time): a query against the enclosing
-  conversation is `theta/parse/par-query-in-body`; assignment to a binding declared
-  outside the body is `theta/parse/par-shared-mutation`; `break` / `continue` are
+  once at loop entry, fresh immutable loop variable, typed as the iterand's element
+  type — CTRL-1); a non-array iterand is `theta/parse/non-array-iterand`.
+  Produces `array<Result<T, QueryError>>` in input-index order. The optional
+  `max n` clause admits any `integer`-typed expression, evaluated once at loop
+  entry; the operand is an `integer` sink, so a `number`-typed operand triggers
+  `theta/parse/integer-narrowing` as in any integer position. Body restrictions
+  (parse-time): a query against the enclosing conversation is
+  `theta/parse/par-query-in-body`; assignment to a binding declared outside the
+  body is `theta/parse/par-shared-mutation`; `break` / `continue` are
   `theta/parse/par-break-continue`. Scheduling, ordering, isolation, and failure
   semantics: [Control flow](../spec_topics/control-flow.md#par-for).
 - **`while expr`** — condition must be `boolean` (no coercion).

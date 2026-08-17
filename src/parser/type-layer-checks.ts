@@ -493,12 +493,12 @@ function collectImportedSymbols(statements: readonly Stmt[]): ReadonlySet<string
  * callable`, so a call of a locally bound name is not a user-`fn` call; but
  * `TypeLayerWalk`'s own `bindings` map is not a complete local view — it never
  * sees a frontmatter `params:` field, and it holds the binder classes this
- * layer cannot type (a loop variable, a match-arm binding, an unannotated `fn`
- * parameter) as WITHHELD entries rather than as judged types
- * (`recordWithheldBinders`) — so resolution is withheld for any name bound as
- * a local ANYWHERE in the file. Withholding can only suppress an emission,
- * never produce one, which is the asymmetry this module's header already
- * states.
+ * layer cannot type (a match-arm binding, an unannotated `fn` parameter, a loop
+ * variable whose iterand is not an `array<T>` — the `array` case carries the
+ * iterand's element type, bug 0126 §Fix) as WITHHELD entries rather than as
+ * judged types (`recordWithheldBinders`) — so resolution is withheld for any name
+ * bound as a local ANYWHERE in the file. Withholding can only suppress an
+ * emission, never produce one, the asymmetry this module's header already states.
  */
 function collectLocalBinderNames(
   body: ThetaBody,
@@ -1087,19 +1087,36 @@ class TypeLayerWalk {
         }
         this.walkExpr(stmt.iterand, bindings, flow);
         const inner = new Map(bindings);
-        // control-flow.md §`for` … `in` binds the iteration variable "as a fresh
-        // immutable local per iteration", and `executeFor` binds it whatever the
-        // element holds (`env.bindIterationVariable`,
-        // ../runtime/statement-executor.ts), so the name is recorded in the BODY
-        // scope here: leaving it unrecorded lets a body read resolve to a
+        // control-flow.md §`for` … `in` binds the iteration variable "as a
+        // fresh immutable local per iteration", and `executeFor` binds it
+        // whatever the element holds (`env.bindIterationVariable`,
+        // ../runtime/statement-executor.ts), so the name is recorded in the
+        // BODY scope here: leaving it unrecorded lets a body read resolve to a
         // same-named enclosing binding the runtime does not read at that
-        // position. Recorded WITHHELD, not with the iterand's element type the
-        // `par for` arm records: binding a type to the plain `for` variable is a
-        // pinned non-goal of bug 0089 (group (n) of
-        // ../../tests/fn-param-alias-unfolded-at-gates.test.ts reds on it), and
-        // a withheld entry can only remove an emission — both channels of
-        // `recordWithheldBinders` are refusals to answer, never a new verdict.
-        this.recordWithheldBinders(inner, [stmt.variable]);
+        // position. The same paragraph gives the iterand the type `array<T>`
+        // and the loop variable that same `T` (bug 0126 §Fix), so the record
+        // below is the (TYPE-11-unfolded) iterand's element — an alias of
+        // `array<T>` supplies the same `T` the concrete array type does,
+        // exactly as the admissibility gate above already requires. A
+        // non-`array` iterand withholds instead of adopting a nominal: the
+        // gate above has already refused it at its own span (or deferred, when
+        // the iterand is itself withheld), and a minted unresolvable name
+        // would be judged structurally at the sinks that refuse unresolvables
+        // — measured, it draws a false `theta/parse/non-array-iterand … got
+        // unknown` on `fn h(p) { for x in p { for y in x { } } }`, which loads
+        // cleanly. The `unprovableBindings` marking mirrors the `par for`
+        // arm's own soundness discipline: an unprovable iterand's element is
+        // no proof at a judgement sink.
+        const unfolded = unfoldAlias(iterandType, this.env);
+        if (unfolded.kind === "array") {
+          const elementType = unfolded.element;
+          inner.set(stmt.variable, elementType);
+          if (this.provableArgType(stmt.iterand, bindings) === undefined) {
+            this.unprovableBindings.add(elementType);
+          }
+        } else {
+          this.recordWithheldBinders(inner, [stmt.variable]);
+        }
         this.walkBlock(stmt.body, inner, flow);
         return;
       }

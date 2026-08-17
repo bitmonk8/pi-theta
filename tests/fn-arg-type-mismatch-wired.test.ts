@@ -15,7 +15,7 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //
 // THE ROUTE UNDER TEST — the bug's §Fix disposition 1, "wire the caller", and
 // not one step wider. One emission site is added at `TypeLayerWalk.walkExpr`'s
-// `call` arm (src/parser/type-layer-checks.ts:1986–1991), which at this HEAD
+// `call` arm (src/parser/type-layer-checks.ts:2003–2008), which at this HEAD
 // walks the argument expressions and relates none of them to the callee's
 // declared parameter types. `invoke` shares that arm's label and is deliberately NOT
 // swept in: it carries its own registry row and its own separately-unwired
@@ -46,9 +46,14 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //   u8p         call's value type; u8p is the positive differentiator — the
 //               same `named F` reached through the constructor form emits.
 //   u9, u9b,    a `named` type minted from an IDENTIFIER's OWN SPELLING is not
-//   u9c, u9d,   a proof either, over the four binder classes the walk's
-//   u9p         `bindings` map omits; u9p is the positive differentiator — a
-//               `par for` variable IS recorded, so it keeps emitting.
+//   u9c, u9d,   a proof either, over the three routes the walk's `bindings` map
+//   u9p         omits — a `match`-arm binder, an unannotated `fn` parameter, a
+//               bare schema reference; u9 and u9p are the positive
+//               differentiators — a plain `for` variable carries the iterand's
+//               proven element (bug 0126,
+//               docs/bugs/0126-plain-for-binds-no-loop-variable.md) and a
+//               `par for` variable is recorded the same way, so both emit off
+//               the record rather than off the spelling.
 //   u10, u10b,  an ARITHMETIC result read as a NON-NUMERIC type is not a proof
 //   u10c, u10d  of the value the operator produces, across unary `-` and binary
 //               `-`, `*`, `/`, `%`.
@@ -67,26 +72,34 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //               and through the argument-position reduction), an unannotated
 //               `fn` parameter — is resolved in the scope the runtime evaluates
 //               it in, so the outer record it hides is never read as the
-//               argument's type; u12e records the deferral that leaves the
-//               plain `for` element unrecorded.
+//               argument's type; u12e is the plain-`for` cell whose record is a
+//               PROVEN element (bug 0126), so its mismatch fires.
 //   u12p,       the differentiators for that group: an outer PROVEN binding
 //   u12pb,      that is NOT shadowed stays visible inside a `for` body and
 //   u12pc,      inside a `match` arm, an ANNOTATED parameter's record still
 //   u12pd,      wins over a same-named outer binding (alone, and beside an
 //   u12pe       unannotated sibling parameter), and a `par for` variable's
 //               element record still wins over one.
-//   u13, u13b,  the SIBLING rows read the same withheld entry, so it is spelled
-//   u13c, u13d  with a name no declaration can share and the sinks whose
-//               verdict a withheld read can flip withhold it: a typed-`let`
-//               RHS, an object-field value and a `for` / `par for` iterand all
-//               draw nothing on one.
-//   u13m,       the MISS class — the same sinks with nothing shadowed, whose
-//   u13mb,      emissions this HEAD produced off the identifier's own spelling
-//   u13mc,      and which now defer as well (u13me's was TRUE, so it records a
-//   u13md,      withheld true positive of u12e's species); u13mf and u13mg are
-//   u13me,      the two stdlib preconditions that refuse an unresolvable type
-//   u13mf,      rather than deferring on it (`array.join`'s element, the
-//   u13mg       object-index key).
+//   u13, u13b,  the four SHADOWING routes. u13c and u13d read a `match`-arm
+//   u13c, u13d  binder, a WITHHELD entry spelled with a name no declaration
+//               can share, and the sinks whose verdict a withheld read can
+//               flip withhold it: an object-field value and a `par for`
+//               iterand both draw nothing on one. u13 and u13b read a plain
+//               `for` variable, which carries the iterand's PROVEN element
+//               (bug 0126), so their typed-`let` sink judges that element and
+//               accepts it — what those two discriminate is the sink's
+//               channel, the RECORDED element type and never the binder's
+//               spelling.
+//   u13m,       the MISS class — the same sinks with nothing shadowed. u13mb
+//   u13mb,      and u13mc read a `match`-arm binder, a WITHHELD entry, so those
+//   u13mc,      sinks withhold with it; u13m, u13md, u13me, u13mf and u13mg
+//   u13md,      read a plain `for` variable, which carries the iterand's PROVEN
+//   u13me,      element (bug 0126), so each sink judges that element — it
+//   u13mf,      satisfies the sink at u13m / u13md / u13mf / u13mg and
+//   u13mg       disagrees with it at u13me, which fires u12e's species for
+//               real. u13mf and u13mg are the two stdlib preconditions that
+//               refuse an unresolvable type rather than deferring on it
+//               (`array.join`'s element, the object-index key).
 //   u13p,       the differentiators for that group, one per withheld sink: a
 //   u13pb,      typed `let`, both iterand call sites, an object-field value, an
 //   u13pc,      array element, a `subagent fn` return annotation, a `join`
@@ -851,9 +864,15 @@ const U13_ARM_ITERAND_SHADOW =
   'schema P { a: number }\nfn h(P: array<integer>): number { let m = match "hi" { P => par for i in P { 1 } }\n1 }\nlet r = h([1])\nr\n';
 
 /**
- * The MISS class — the same sinks with no outer record to shadow, which is what
- * this HEAD judged off the binder's own spelling. Their disposition is the
- * decided half of the withhold: every one of them defers.
+ * The MISS class — the same sinks with no outer record to shadow. u13mb and
+ * u13mc read a `match`-arm binder, a WITHHELD entry, so those two sinks
+ * withhold with it. u13m, u13md, u13me, u13mf and u13mg read a plain `for`
+ * variable, which carries the iterand's PROVEN element (bug 0126,
+ * docs/bugs/0126-plain-for-binds-no-loop-variable.md), so each of their sinks
+ * judges that element: it satisfies the annotation at u13m, the iterand
+ * contract at u13md, the `join` precondition at u13mf and the index-key
+ * precondition at u13mg, and it disagrees with the structural annotation at
+ * u13me.
  */
 const U13M_FOR_MISS = FM + 'schema P { a: number }\nfor P in [5] { let s: integer = P }\n"t"\n';
 const U13MB_ARM_FIELD_MISS =
@@ -885,10 +904,10 @@ const U13PF_SUBAGENT_RETURN_ANNOTATED =
  * deferring on it, each with its own differentiator: `array.join`'s element
  * type and the object-index key.
  */
-const U13MF_JOIN_WITHHELD_ELEMENT = FM + 'for x in ["a"] { let s = [x].join(",") }\n"t"\n';
+const U13MF_JOIN_FOR_ELEMENT = FM + 'for x in ["a"] { let s = [x].join(",") }\n"t"\n';
 const U13PG_JOIN_PROVEN_ELEMENT =
   FM + 'let x = 1\nfor q in ["a"] { let s = [x].join(",") }\n"t"\n';
-const U13MG_OBJECT_INDEX_WITHHELD_KEY =
+const U13MG_OBJECT_INDEX_FOR_KEY =
   FM +
   'schema Q { b: string }\nlet q: Q = Q { b: "s" }\nfor x in ["b"] { let v = q[x] }\n"t"\n';
 const U13PH_OBJECT_INDEX_PROVEN_KEY =
@@ -899,7 +918,7 @@ const U13PH_OBJECT_INDEX_PROVEN_KEY =
 const U13E_ARM_IDENTITY_MARKING =
   FM +
   'fn g(s: string): number { 1 }\nlet x = 1\nlet m = match "hi" { x => x }\nlet r = g(x)\nr\n';
-const U13R_NESTED_RENDER = FM + "for x in [3] { if [x] { let r = 1 } }\n\"t\"\n";
+const U13R_NESTED_RENDER = FM + "fn h(x) { if [x] { let r = 1 } }\n\"t\"\n";
 
 const A1_TOO_FEW = FM + "fn g(n: number): number { 1 }\nlet r = g()\nr\n";
 const A1_TOO_MANY = FM + "fn g(n: number): number { 1 }\nlet r = g(3, 4)\nr\n";
@@ -1156,7 +1175,7 @@ describe("bug 0050 — an unresolvable parameter type defers", () => {
 describe("bug 0050 — the excluded callee kinds stay outside the check", () => {
   it("x1: `invoke(\"./child.theta\", 3)` draws no fn-arg-type-mismatch", () => {
     // `invoke` shares the switch label with `call` at
-    // src/parser/type-layer-checks.ts:1986, :1992 and must not be swept in: it
+    // src/parser/type-layer-checks.ts:2003, :2009 and must not be swept in: it
     // carries its own registry row (`theta/parse/invoke-arg-type-mismatch`)
     // and its own separately-unwired emitter, which is a distinct defect this
     // route does not fix.
@@ -1404,8 +1423,8 @@ describe("bug 0050 — a FABRICATED field-name argument read is not a proof and 
 // recording arms mark in `unprovableBindings` — the array type is — so an
 // erased target laundered its erasure through the narrowing, past the identity
 // channel `provableArgType`'s `ident` arm reads
-// (src/parser/type-layer-checks.ts:1802). The guard puts the proof obligation
-// on the target (:1855–1865), mirroring the `try` arm's recursion, and keeps
+// (src/parser/type-layer-checks.ts:1819). The guard puts the proof obligation
+// on the target (:1872–1882), mirroring the `try` arm's recursion, and keeps
 // the element narrowing from `typeOf`.
 //
 // u7 pins the two ends of that route: the direct read, and the one binding
@@ -1587,19 +1606,22 @@ describe("bug 0050 — a FABRICATED callee-name argument read is not a proof and
 // that collides with a declared schema is judged nominally under TYPE-10
 // against a declaration the read has nothing to do with.
 //
-// `bindings` holds no JUDGED type for any of the four routes below.
+// `bindings` holds no JUDGED type for three of the four routes below. u9 is the
+// exception: its plain `for` variable carries the iterand's PROVEN element under
+// bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md), which is why
+// that cell emits off the record rather than off the spelling.
 // `collectLocalBinderNames`'s doc comment
-// (src/parser/type-layer-checks.ts:494–498) names the two ways that happens: a
-// frontmatter `params:` field never reaches the map at all, and the binder
-// classes this layer cannot type — a loop variable, a match-arm binding, an
-// unannotated `fn` parameter — are recorded as WITHHELD entries
-// (`recordWithheldBinders`, group u12), which the `ident` arm's identity
-// channel refuses exactly as it refuses a miss. u9d's bare schema reference is
-// the remaining miss, and it is the only route in this group whose read still
-// carries the identifier's own spelling: no `TypeEnv` key can equal a
-// WITHHELD entry's name, so the nominal judgement described above is
-// unreachable through it and the sibling rows defer on it as well (group
-// u13). The asymmetry that makes the group real is the `par for` arm, which
+// (src/parser/type-layer-checks.ts:494–499) names the two ways the other three
+// arrive: a frontmatter `params:` field never reaches the map at all, and the
+// binder classes this layer cannot type — a match-arm binding, an unannotated
+// `fn` parameter, a loop variable whose iterand is not an `array<T>` — are
+// recorded as WITHHELD entries (`recordWithheldBinders`, group u12), which the
+// `ident` arm's identity channel refuses exactly as it refuses a miss. u9d's
+// bare schema reference is the remaining miss, and it is the only route in this
+// group whose read still carries the identifier's own spelling: no `TypeEnv`
+// key can equal a WITHHELD entry's name, so the nominal judgement described
+// above is unreachable through it and the sibling rows defer on it as well
+// (group u13). The asymmetry that makes the group real is the `par for` arm, which
 // records a JUDGED element type (`inner.set(e.variable, elementType)`,
 // :2052): u9p rides that record and MUST keep emitting.
 //
@@ -1610,27 +1632,35 @@ describe("bug 0050 — a FABRICATED callee-name argument read is not a proof and
 // ===========================================================================
 
 describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof and is not judged", () => {
-  it("u9: a `for` variable spelled like a declared schema draws no fn-arg-type-mismatch", () => {
-    // The route that is a LEGAL program rather than a broken one, so the
-    // fabricated emission refuses source text the language admits.
-    // lexical.md:16 scopes the lowercase-first rule to `let` / `let mut`
-    // bindings, function parameters, function names and schema field names, and
-    // :15 scopes uppercase-first to type-like bindings — a `for` variable is in
-    // neither list, so `for P in …` violates no case rule. expressions.md:53
-    // classifies it as a local binder alongside `let` and a `params:` field,
-    // and the runtime binds it unconditionally
+  it("u9: a `for` variable spelled like a declared schema fires on the iterand's element type, under bug 0126", () => {
+    // `for P in …` violates no case rule: lexical.md:16 scopes the
+    // lowercase-first rule to `let` / `let mut` bindings, function
+    // parameters, function names and schema field names, and :15 scopes
+    // uppercase-first to type-like bindings — a `for` variable is in neither
+    // list. expressions.md:53 classifies it as a local binder alongside
+    // `let` and a `params:` field, and the runtime binds it unconditionally
     // (src/runtime/statement-executor.ts:1664,
-    // `env.bindIterationVariable(stmt.variable, element)`). Each iteration
-    // therefore hands `g` the integer `1` then `2`, never a `P`.
+    // `env.bindIterationVariable(stmt.variable, element)`), so each iteration
+    // hands `g` the integer `1` then `2`, never a `P`.
+    //
+    // Bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) makes the
+    // type layer agree with that runtime fact: the read is no longer the
+    // author's chosen spelling but the iterand's element type, `[1, 2]`'s
+    // proven `integer`, so `g`'s declared `Q` genuinely disagrees with it —
+    // the same TRUE positive `u9p` reports below, off the identical
+    // recorded-element channel. Cells u12e and u13me name this
+    // re-adjudication in their own comments, under the same authority.
     const doc = parse(U9_FOR_VARIABLE);
     const argument = argRange(doc, "g", 0);
     expect(
       argument,
-      "PRECONDITION: the argument `P` sits inside the loop body on body line 7; a drifted layout must fail here rather than let the absence assertion below measure nothing",
+      "PRECONDITION: the argument `P` sits inside the loop body on body line 7; a drifted layout must fail here rather than let the mismatch assertion below measure nothing",
     ).toEqual(range(7, 29, 7, 30));
-    expectNoFnArgMismatch(
+    expectOneFnArgMismatch(
       doc,
-      "u9 — `walkStmt`'s `for` arm records no judged type for the loop variable, so the read is a name the author chose; judging it rejects a program whose every iteration passes an integer",
+      fnArgMessage("g", 0, "x", "Q", "integer"),
+      argument,
+      "u9 — bug 0126 binds the plain `for` variable to the iterand's element type, so the read is `[1, 2]`'s proven `integer` rather than the identifier's own spelling, and `g`'s declared `Q` genuinely disagrees with it",
     );
   });
 
@@ -1660,7 +1690,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
 
   it("u9c: an UNANNOTATED `fn` parameter spelled like a declared schema draws no fn-arg-type-mismatch", () => {
     // `walkFn` seeds its body scope with a JUDGED type for the ANNOTATED
-    // parameters only (src/parser/type-layer-checks.ts:1218–1229, gated on
+    // parameters only (src/parser/type-layer-checks.ts:1235–1246, gated on
     // `p.type.length > 0`); an unannotated one is recorded WITHHELD (group u12),
     // so no proof of its type exists inside the body. The runtime
     // binds it positionally regardless
@@ -1708,7 +1738,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
   it("u9p: a `par for` variable spelled like a declared schema still fires, on the PROVEN element type", () => {
     // The positive differentiator, and the asymmetry that makes the four cells
     // above real rather than a blanket withholding. `walkExpr`'s `par for` arm
-    // DOES record the loop variable (src/parser/type-layer-checks.ts:2052),
+    // DOES record the loop variable (src/parser/type-layer-checks.ts:2069),
     // and `[1, 2]` is a proven `array<integer>`, so `P` carries a recorded
     // `integer` and `x: Q` is a genuine TYPE-10 mismatch — note the message
     // says `got integer`, not `got P`: the recorded type wins over the
@@ -2085,7 +2115,8 @@ describe("bug 0050/0081 — a SELF-SHADOWING initialiser over a now-proven bindi
 // ===========================================================================
 // u12 / u12b / u12c / u12d — a binder that SHADOWS a same-named outer record,
 // one cell per binder class the walk's `bindings` map did not record; u12e the
-// deferral the `for` variable keeps; u12p … u12pe the five differentiators.
+// cell bug 0126 flips from a deferral to a fired mismatch; u12p … u12pe the
+// five differentiators.
 //
 // The species is the u11 group's, one scope out: a provability verdict has to
 // be taken in the scope the runtime EVALUATES the expression in. The `ident`
@@ -2125,16 +2156,14 @@ describe("bug 0050/0081 — a SELF-SHADOWING initialiser over a now-proven bindi
 // and the walk cannot disagree about which binding an arm body reads — that
 // disagreement IS this species.
 //
-// The plain `for` variable takes the withhold channel rather than the `par for`
-// arm's ELEMENT record, and cell u12e pins the resulting deferral: two shipped
-// cells forbid the element record here. Cell u9 above holds
-// `for P in [1, 2] { g(P) }` silent, and bug 0089's own tripwire
-// (tests/fn-param-alias-unfolded-at-gates.test.ts:865–879) states it outright —
-// "it reds if a fix widens beyond the unfolding sites and starts binding the
-// plain `for` variable, which would be an unrequested behaviour change".
-// Measured at this tree: the element record reds exactly those two cells.
-// Withholding a true positive is the admissible direction; a false `E` denies
-// registration and is not.
+// Bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) binds the
+// plain `for` variable to its iterand's element type the same way the
+// `par for` arm's ELEMENT record already does, so cell u12e fires: its
+// iterand `[3]` is a proven `array<integer>`, which disagrees with `g`'s
+// declared `string`. Cell u9 above fires the same way, off the same channel.
+// Bug 0089's tripwire (tests/fn-param-alias-unfolded-at-gates.test.ts:868–890),
+// which forbade exactly this widening, is the row bug 0126 deliberately
+// inverts — see that file's own row n1.
 //
 // Each of the four absence fixtures loads with the false emission as its SOLE
 // diagnostic, so those cells assert the WHOLE diagnostic list is empty rather
@@ -2164,7 +2193,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
   it('u12b: `let x = 1` then `let m = match "hi" { x => g(x) }` draws nothing', () => {
     // The `match` pattern-binding class, reached through the WALK: the arm body
     // is walked, and `walkExpr`'s `match` arm
-    // (src/parser/type-layer-checks.ts:1958–1974) walked it with the outer map.
+    // (src/parser/type-layer-checks.ts:1975–1991) walked it with the outer map.
     // The arm's `x` is the scrutinee `"hi"` at runtime, so `g` receives that
     // string.
     const doc = parse(U12_MATCH_ARM_SHADOW);
@@ -2181,7 +2210,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
   it('u12c: `let x = 1` then `let r = g(match "hi" { x => x })` draws nothing', () => {
     // The same binder class reached through the REDUCTION instead: the `match`
     // sits at the argument position, so `provableArgType`'s own `match` arm
-    // (src/parser/type-layer-checks.ts:1671–1690) proves the composite over its
+    // (src/parser/type-layer-checks.ts:1688–1707) proves the composite over its
     // arm bodies. Proving those bodies in the outer scope while the walk
     // resolves them in the arm scope is the scope disagreement this group
     // closes. The match's runtime value is the scrutinee `"hi"`, which
@@ -2199,7 +2228,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 
   it('u12d: `let x = 1` then `fn h(x): number { g(x) }` called `h("a")` draws nothing', () => {
     // The unannotated-parameter class. `walkFn`
-    // (src/parser/type-layer-checks.ts:1216–1229) recorded ANNOTATED parameters
+    // (src/parser/type-layer-checks.ts:1233–1246) recorded ANNOTATED parameters
     // only, so an unannotated one left the same-named outer `let` visible
     // inside the body — a binding the runtime does not even provide there,
     // since a `fn` activation is a scope boundary and theta 1.0 has no
@@ -2218,31 +2247,28 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
     ).toEqual([]);
   });
 
-  it("u12e: `for x in [3] { g(x) }` over a PROVEN iterand defers, and the deferral is deliberate", () => {
-    // The choice this group makes visible. The `par for` arm records the
-    // iterand's ELEMENT type (src/parser/type-layer-checks.ts:2052, the record
-    // cell u9p rides), and mirroring it here would make this fixture emit a
-    // TRUE `expected string, got integer` — the runtime hands `g` the integer
-    // `3`. It is withheld anyway, because the element record reds two shipped
-    // cells: u9 above, and bug 0089's pinned non-goal
-    // (tests/fn-param-alias-unfolded-at-gates.test.ts:865–879, which reds "if a
-    // fix widens beyond the unfolding sites and starts binding the plain `for`
-    // variable"). So the plain `for` variable is recorded through the withhold
-    // channel: bound in the body scope, marked unprovable, never a proof.
-    //
-    // This cell reds the day the plain `for` arm starts carrying the element
-    // type, which is the day bug 0089's non-goal is lifted and u9's contract is
-    // re-adjudicated — the flip condition is named here so the withheld true
-    // positive is a recorded decision rather than an unexamined gap.
+  it("u12e: `for x in [3] { g(x) }` over a PROVEN iterand fires, under bug 0126", () => {
+    // The `par for` arm records the iterand's ELEMENT type
+    // (src/parser/type-layer-checks.ts:2069, the record cell u9p rides), and
+    // bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) settles
+    // that the plain `for` arm records the same element for a PROVEN iterand.
+    // `[3]` is a proven `array<integer>`, so `x` carries a genuine `integer`
+    // proof and every iteration hands `g` an integer where it declares
+    // `s: string`. Cell u9 above and bug 0089's tripwire
+    // (tests/fn-param-alias-unfolded-at-gates.test.ts:868–890) are the two
+    // cells bug 0126 names and re-adjudicates under the same authority.
     const doc = parse(U12E_FOR_PROVEN_ITERAND);
+    const argument = argRange(doc, "g", 0);
     expect(
-      argRange(doc, "g", 0),
+      argument,
       "PRECONDITION: the argument `x` sits inside the loop body on body line 5",
     ).toEqual(range(5, 26, 5, 27));
-    expect(
-      doc.diagnostics,
-      `u12e — the plain \`for\` arm binds no element type, so the loop variable is never a proof of the element's type. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "s", "string", "integer"),
+      argument,
+      "u12e — bug 0126 binds the plain `for` variable to the iterand's element type, so this PROVEN iterand's element is a genuine proof and the mismatch fires",
+    );
   });
 
   it('u12p: an outer PROVEN binding that nothing shadows stays visible inside a `for` body', () => {
@@ -2331,7 +2357,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 
   it("u12pe: a `par for` variable's ELEMENT record still wins over a same-named outer binding", () => {
     // The second recorded-binder differentiator, over the arm this fix does not
-    // touch (src/parser/type-layer-checks.ts:2052). The outer `let x = "a"` is a
+    // touch (src/parser/type-layer-checks.ts:2069). The outer `let x = "a"` is a
     // proven `string`; the iterand `[3]` is a proven `array<integer>`, so the
     // recorded element type is `integer` and the runtime hands `g` the integer
     // `3`. Resolve the body's `x` to the outer record and the argument reads
@@ -2415,21 +2441,39 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // EVERY MOVEMENT IS IN THE DEFERRAL DIRECTION. A withheld entry can only remove
 // a sibling row's emission, never add one: nominal resolution is gone and the
 // six gated sinks report nothing on it. Cells u13–u13d pin the four shadowing
-// routes; u13m–u13me pin the MISS class, whose emissions this HEAD produced off
-// the same spelling-mint and which now defer as well — a permissive-direction
-// change (GOV-15 admits it: a program that loaded keeps loading) that is
-// decided here rather than left implicit. u13me's own emission was TRUE at this
-// HEAD (the loop variable holds the integer `3`, which is no `array<integer>`),
-// so it is a withheld true positive of u12e's species, and it reds the day the
-// plain `for` variable carries the iterand's element type.
+// routes; u13mb and u13mc pin the MISS class at the two sinks a `match`-arm
+// binder reaches, where the entry is withheld and the sink withholds with it —
+// a permissive-direction disposition (GOV-15 admits it: a program that loaded
+// keeps loading) that is decided here rather than left implicit. u13m, u13md,
+// u13me, u13mf and u13mg read a plain `for` variable, which carries the
+// iterand's PROVEN element under bug 0126
+// (docs/bugs/0126-plain-for-binds-no-loop-variable.md), so their sinks judge
+// that element for real: it satisfies the annotation at u13m, the iterand
+// contract at u13md, the `join` precondition at u13mf and the index-key
+// precondition at u13mg, and it disagrees with the structural annotation at
+// u13me — the loop variable holds the integer `3`, which is no `array<integer>`
+// — so u13me fires; see that cell's own comment.
+//
+// WHICH CELLS CARRY THE WITHHELD SUBJECT, and which rest on a proven element:
+// u13c and u13mb (object-field value), u13d and u13mc (`par for` iterand), u13e
+// (the fn-arg identity channel) and u13r (the composite render) read a
+// `match`-arm binder or an unannotated `fn` parameter, the classes bug 0126
+// leaves withheld, so those four sinks are where the group's own subject is
+// measured; u13, u13b, u13m, u13md, u13mf and u13mg read a plain `for` variable
+// and rest on its proven element, where what they discriminate is the sink's
+// channel — the RECORDED element type, never the binder's spelling — which is
+// the same soundness property one mechanism further in.
 //
 // WHAT STILL RENDERS THE SENTINEL (cell u13r): a composite BUILT from a
 // withheld read, at a row whose verdict its outer kind decides — `if [x]` is
 // not boolean whatever `x` is, so `non-boolean-condition` fires and renders
-// `array<<withheld>>`. This HEAD renders `array<x>` there, the same code at the
-// same range, so the row's verdict is unchanged and the rendering is what
-// moves. Withholding it as well would drop a true emission, which is why the
-// gate stops at the sinks whose verdict the withheld part can flip.
+// `array<<withheld>>`. Bug 0126 binds a `for`-fed `x` to its iterand's element
+// type instead of the sentinel, so u13r's own binder is an UNANNOTATED `fn`
+// parameter — a class bug 0126 does not touch — rather than a `for` variable;
+// the code and the range are unmoved, and the rendering is what a `for`-fed
+// composite gives up. Withholding it as well would drop a true emission,
+// which is why the gate stops at the sinks whose verdict the withheld part can
+// flip.
 // ===========================================================================
 
 describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling rows either", () => {
@@ -2439,9 +2483,13 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // par-for arm's own ELEMENT record (a proven `integer`). Every execution
     // binds the inner `P` to the integer `5`
     // (`env.bindIterationVariable`, src/runtime/statement-executor.ts:1664;
-    // control-flow.md:13 — "a fresh immutable local per iteration"), so
-    // `s: integer = 5` holds always and an `expected integer, got P` names a
-    // schema the position never carries.
+    // control-flow.md:13 — "a fresh immutable local per iteration"), and bug
+    // 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) records that
+    // element in the body scope, so the sink judges `[5]`'s proven `integer`
+    // against `s: integer` and accepts it. What the cell discriminates is the
+    // channel the sink reads: a RECORD keyed on the innermost binder, so no
+    // `TypeEnv` lookup of the spelling `P` happens and the declared `schema P`
+    // cannot supply an `expected integer, got P` the position never carries.
     const doc = parse(U13_PAR_FOR_NESTED_SHADOW);
     expect(
       letRange(doc, "s"),
@@ -2449,17 +2497,21 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(5, 44, 5, 62));
     expect(
       doc.diagnostics,
-      `u13 — a withheld binder entry must not be judged against a declaration that shares the binder's spelling. Diagnostics: ${render(doc)}`,
+      `u13 — the sink judges the innermost binder's recorded element type, never a declaration that shares the binder's spelling. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 
-  it("u13b: a `for` binder shadowing an ANNOTATED parameter draws no type verdict, and the parameter's own case does", () => {
+  it("u13b: a `for` binder shadowing an ANNOTATED parameter is judged on its own element record, and the parameter's own case still draws", () => {
     // The parameter class. `walkFn` records the annotated `P: string`, and the
     // loop variable hides it; the runtime binds the element `"ok"` in the body,
-    // so `s: string` accepts it in every iteration. `h`'s own parameter `P` is
-    // an uppercase binding name, so bug 0139's `binding-case-mismatch` fires on
-    // it — a lexical check on the token, independent of the type-layer read
-    // this cell pins.
+    // and bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) records
+    // that element, so `s: string` is judged against `["ok"]`'s proven `string`
+    // and accepts it in every iteration. The cell discriminates which record
+    // reaches the sink — the innermost binder's — so neither the parameter it
+    // hides nor the declared `schema P` its spelling names is consulted there.
+    // `h`'s own parameter `P` is an uppercase binding name, so bug 0139's
+    // `binding-case-mismatch` fires on it — a lexical check on the token,
+    // independent of the type-layer read this cell pins.
     const doc = parse(U13_FOR_IN_PARAM_SHADOW);
     expect(
       letRange(doc, "s"),
@@ -2467,7 +2519,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(5, 45, 5, 62));
     expect(
       doc.diagnostics,
-      `u13b — the loop variable's withheld entry supports no type verdict; the parameter's own spelling draws the lexical case code alone. Diagnostics: ${render(doc)}`,
+      `u13b — the loop variable's own element record is what the sink judges; the parameter's own spelling draws the lexical case code alone. Diagnostics: ${render(doc)}`,
     ).toEqual([
       {
         severity: "error",
@@ -2534,12 +2586,17 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ]);
   });
 
-  it("u13m: the MISS class at the typed-`let` sink defers", () => {
-    // The same sink with nothing shadowed: at this HEAD the read missed the map
-    // and `#typeExpr` minted `named P` from the loop variable's own spelling,
-    // which resolved and was judged (`expected integer, got P`) although every
-    // iteration binds the integer `5`. The withheld entry defers instead. This
-    // is the permissive half of the change and it is decided, not incidental.
+  it("u13m: the MISS class at the typed-`let` sink is judged on the recorded element", () => {
+    // The same sink with nothing shadowed, so only the record stands between it
+    // and `#typeExpr`'s `ident` fallback, which mints `named P` from the loop
+    // variable's own spelling and lets the declared `schema P` be judged
+    // against `integer`. Bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md)
+    // records `[5]`'s proven `integer` for the variable, so the annotation is
+    // judged against the element every iteration binds and accepts it. The cell
+    // discriminates the record from the spelling at the one sink where the
+    // collision is reachable in legal source: lexical.md:16 scopes the
+    // lowercase-first rule away from a `for` variable, so a schema-cased one
+    // draws no case code to warn on it.
     const doc = parse(U13M_FOR_MISS);
     expect(
       letRange(doc, "s"),
@@ -2547,7 +2604,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(5, 16, 5, 34));
     expect(
       doc.diagnostics,
-      `u13m — a name minted from a binder's spelling is not a type; the entry that replaces it is unresolvable by construction. Diagnostics: ${render(doc)}`,
+      `u13m — a name minted from a binder's spelling is not a type; the recorded element that replaces it is what the annotation is judged against. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 
@@ -2584,11 +2641,16 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual([]);
   });
 
-  it("u13md: a `for` iterand read out of an enclosing `for` variable defers", () => {
+  it("u13md: a `for` iterand read out of an enclosing `for` variable is admitted", () => {
     // The plain-`for` call site of the same row, over a lowercase binder: the
     // outer loop variable holds the element `[1]`, so the inner `for i in x`
-    // iterates an array and the fixture is well typed, while this HEAD drew
-    // `'for' expects array<T> after 'in'; got x` off the minted spelling.
+    // iterates an array and the fixture is well typed. Bug 0126
+    // (docs/bugs/0126-plain-for-binds-no-loop-variable.md) records that element
+    // — a proven `array<integer>` — so the gate reads a real array and admits
+    // the nesting control-flow.md:13 licenses. This is the sink where the
+    // difference between a record and a minted spelling is a load failure
+    // rather than a silence: `checkForIterand` refuses `named x` like every
+    // other non-array.
     const doc = parse(U13MD_NESTED_FOR_ITERAND);
     expect(
       letRange(doc, "r"),
@@ -2596,64 +2658,87 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(4, 31, 4, 40));
     expect(
       doc.diagnostics,
-      `u13md — both iterand call sites take the same withhold discipline. Diagnostics: ${render(doc)}`,
+      `u13md — both iterand call sites judge the type the map records: a proven element is admitted, and only a withheld entry withholds the verdict. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 
-  it("u13me: a STRUCTURAL sink over a withheld read defers, and the deferral is deliberate", () => {
+  it("u13me: a STRUCTURAL sink over a PROVEN element fires, under bug 0126", () => {
     // The structural short-circuit: `decide` answers `named ⊑ array<integer>`
-    // incompatible without consulting `resolveNamed`, so the sentinel alone
-    // would not silence this sink. Unlike u13–u13md this HEAD's emission was
-    // TRUE — the loop variable holds the integer `3`, which is no
-    // `array<integer>` — so this cell records a WITHHELD TRUE POSITIVE, the
-    // u12e species: the plain `for` arm binds no element type (bug 0089's
-    // pinned non-goal), so the layer holds nothing to judge the read against.
+    // incompatible without consulting `resolveNamed`, so a withheld sentinel
+    // alone would not have silenced this sink either — the loop variable holds
+    // the integer `3`, which is no `array<integer>`. Bug 0126
+    // (docs/bugs/0126-plain-for-binds-no-loop-variable.md) settles that the
+    // plain `for` arm records a PROVEN iterand's element the same way `par
+    // for` does, so `x` carries a genuine `integer` proof here and the
+    // structural sink judges it for real — the u12e species, fired rather
+    // than withheld.
     //
-    // It reds the day the plain `for` variable carries the iterand's element
-    // type, which is the day bug 0089's non-goal is lifted and cells u9 / u12e
-    // are re-adjudicated.
+    // Cells u9 and u12e are the two cells this same report re-adjudicates
+    // alongside this one.
     const doc = parse(U13ME_STRUCTURAL_SUP);
+    const site = letRange(doc, "s");
     expect(
-      letRange(doc, "s"),
+      site,
       "PRECONDITION: the typed `let s` sink sits inside the `for` body on body line 4",
     ).toEqual(range(4, 16, 4, 41));
     expect(
-      doc.diagnostics,
-      `u13me — a withheld read supports no verdict at a structural sink either; over-withholding is the admissible direction, a false \`E\` is not. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      locatedHits(doc, LET_RHS_CODE),
+      `u13me — bug 0126 binds the plain \`for\` variable to the iterand's element type, so a structural sink over a genuinely proven element fires for real. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${letRhsMessage("s", "array<integer>", "integer")} @${at(site)}`]);
+    // The located pin above is scoped to one code, so it cannot see a SECOND
+    // emission arriving on this fixture from anywhere else. `render` is the
+    // whole ordered list in the same `severity code @range: message` shape, so
+    // this line is the ordered whole-list contract the located pin narrows.
+    expect(
+      render(doc),
+      "u13me — the fired mismatch is this fixture's WHOLE diagnostic list; a second emission from another gate is a widening this cell must red on",
+    ).toBe(
+      JSON.stringify([
+        `error ${LET_RHS_CODE} @${at(site)}: ${letRhsMessage("s", "array<integer>", "integer")}`,
+      ]),
+    );
   });
 
-  it("u13mf: the `array.join` element precondition over a withheld element defers", () => {
+  it("u13mf: the `array.join` element precondition over a PROVEN element is met", () => {
     // The third row of the refuse-an-unresolvable-type family (`checkArrayJoin`,
     // src/runtime/stdlib-array.ts:100–124, which admits a `string` element and
-    // nothing else): the receiver is an array BUILT from a withheld read, so the
-    // element carries the sentinel. The runtime element is the string `"a"`, so
-    // `join` is legal, and this HEAD refused it off the minted spelling
-    // (`got array<x>`).
-    const doc = parse(U13MF_JOIN_WITHHELD_ELEMENT);
+    // nothing else): the receiver is an array BUILT from the loop variable's
+    // read, so the precondition rests entirely on what that read carries. Bug
+    // 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) records
+    // `["a"]`'s proven `string`, so `[x]` is an `array<string>` and the
+    // precondition is met over the same string the runtime element holds. The
+    // sink refuses every unresolvable element instead of deferring on one, so
+    // it is where a minted `named x` is a false refusal (`got array<x>`) rather
+    // than a silence — u13pg is the twin where the proven element is an
+    // `integer` and the refusal is genuine.
+    const doc = parse(U13MF_JOIN_FOR_ELEMENT);
     expect(
       letRange(doc, "s"),
       "PRECONDITION: the `join` call sits in the `let s` initialiser inside the `for` body on body line 4",
     ).toEqual(range(4, 18, 4, 39));
     expect(
       doc.diagnostics,
-      `u13mf — a stdlib precondition over a withheld element is not decidable at this layer. Diagnostics: ${render(doc)}`,
+      `u13mf — the recorded element type is what the stdlib precondition reads, and a proven \`string\` element meets it. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 
-  it("u13mg: the object-index key check over a withheld key defers", () => {
+  it("u13mg: the object-index key check over a PROVEN key is satisfied", () => {
     // The fourth: `checkObjectIndex` (src/runtime/stdlib-object.ts) admits a
     // `string` key and refuses everything else, an unresolvable name included.
-    // The runtime key is the string `"b"`, so the access is legal, and this HEAD
-    // refused it off the minted spelling (`got x`).
-    const doc = parse(U13MG_OBJECT_INDEX_WITHHELD_KEY);
+    // Bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) records
+    // `["b"]`'s proven `string` for the key read, so the check has a real
+    // `string` to admit and the access stands over the same key the runtime
+    // supplies. As at u13mf, the discrimination is the record against a minted
+    // `named x` this sink would refuse (`got x`); u13ph is the twin where the
+    // proven key is an `integer` and the refusal is genuine.
+    const doc = parse(U13MG_OBJECT_INDEX_FOR_KEY);
     expect(
       letRange(doc, "v"),
       "PRECONDITION: the indexed access sits in the `let v` initialiser inside the `for` body on body line 6",
     ).toEqual(range(6, 18, 6, 30));
     expect(
       doc.diagnostics,
-      `u13mg — a key read out of a withheld binder supports no verdict about the key's type. Diagnostics: ${render(doc)}`,
+      `u13mg — the key's recorded type is what the check reads, and a proven \`string\` key is admitted. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 
@@ -2814,12 +2899,18 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
   });
 
   it("u13r: a COMPOSITE built from a withheld read keeps its verdict, and renders the sentinel", () => {
-    // The disclosed render residual. `if [x]` is not boolean whatever `x` holds,
-    // so the row's verdict rests on the array kind and not on the withheld part
-    // — `checkBooleanPosition` keeps reporting, and `displayType` renders the
-    // sentinel nested inside the composite. This HEAD renders `array<x>` at the
-    // same code and range, so the verdict is unchanged and the rendering is what
-    // moves; withholding here would drop a true emission.
+    // The disclosed render residual, pinned at an UNANNOTATED `fn` parameter.
+    // Bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) binds the
+    // plain `for` loop variable to its iterand's element type, so a `for`-fed
+    // composite built from a PROVEN iterand renders that real type instead of
+    // the sentinel — pinned over this exact composite shape by
+    // `tests/plain-for-loop-variable-element-type.test.ts` row b4. `walkFn`
+    // still records an unannotated parameter WITHHELD (bug 0126 does not touch
+    // it), so `x` here is the sentinel again: `if [x]` is not boolean whatever
+    // `x` holds, so the row's verdict rests on the array kind and not on the
+    // withheld part — `checkBooleanPosition` keeps reporting, and
+    // `displayType` renders the sentinel nested inside the composite; the
+    // verdict and its span are unmoved from that render.
     //
     // The complete set of shapes a WITHHELD BINDER READ can render, swept over
     // every row that interpolates a type into its Message: this one,
@@ -2829,11 +2920,11 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // (`Result<<withheld>, QueryError>`, src/parser/static-type-inference.ts:290
     // — the one route where the sentinel sits inside a synthesised NAME rather
     // than inside a composite). Every one of them emits at this HEAD too, with
-    // the binder's own spelling nested in the same position. Outside a
-    // withheld-binder read, an author-spelled twin in a direct annotation
-    // (`let v: <withheld> = …`) reaches a sixth rendering — `got <withheld>` at
-    // the fn-arg row, through the annotation-is-a-proof channel — the same
-    // deferral-only disposition, by a different route.
+    // the sentinel nested in the same position. Outside a withheld-binder read,
+    // an author-spelled twin in a direct annotation (`let v: <withheld> = …`)
+    // reaches a sixth rendering — `got <withheld>` at the fn-arg row, through
+    // the annotation-is-a-proof channel — the same deferral-only disposition,
+    // by a different route.
     //
     // This cell reds if the sentinel's spelling changes, which is the point:
     // the one place a user-visible message can carry it is pinned rather than
@@ -2842,11 +2933,11 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     expect(
       letRange(doc, "r"),
       "PRECONDITION: the `if` body's `let r` sits on body line 4",
-    ).toEqual(range(4, 25, 4, 34));
+    ).toEqual(range(4, 20, 4, 29));
     expect(
       locatedHits(doc, NON_BOOLEAN_CODE),
       `u13r — the rows whose verdict an outer kind decides are left alone, and the sentinel is what they render. Diagnostics: ${render(doc)}`,
-    ).toEqual([`error ${nonBooleanMessage("array<<withheld>>")} @${at(range(4, 19, 4, 22))}`]);
+    ).toEqual([`error ${nonBooleanMessage("array<<withheld>>")} @${at(range(4, 14, 4, 17))}`]);
   });
 });
 

@@ -116,9 +116,10 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 // what bounds it; c1–c4 are the classifiers that resolve the same parameter
 // record through the `TypeEnv` anyway, which is what makes a red in group
 // (a) or (b) attributable to the gate rather than to a parameter type that
-// never resolved; and n1 pins a §Non-goals gap that stays open.
+// never resolved; and n1 pins the widening bug 0126 adjudicated — a plain
+// `for` body reports what its `par for` sibling `d1` does.
 //
-// ANTI-VACUITY. Twenty-four of the thirty-six rows expect a non-empty code list,
+// ANTI-VACUITY. Twenty-five of the thirty-six rows expect a non-empty code list,
 // so a harness that stopped reaching the type layer (a frontmatter refusal, an
 // unfed static-type pass) fails loudly here rather than turning the
 // `toEqual([])` rows into silent passes. Every code assertion is an ordered
@@ -859,22 +860,36 @@ describe("0089 (s) — a legal alias iterand types the `par for` value's element
 });
 
 // ===========================================================================
-// (n) The pinned §Non-goals gap: the plain `for` statement's body scope.
+// (n) Bug 0126's widening: the plain `for` statement's body scope binds the
+//     loop variable to the iterand's element type, the same element `par for`
+//     (group (d)) already binds.
 // ===========================================================================
 
-describe("0089 (n) — the plain `for` statement binds no loop variable, independent of alias transparency", () => {
-  it("n1: a `for` body over a CONCRETE `array<string>` parameter reports nothing for `x.frobnicate()`", () => {
-    // `walkStmt`'s `case "for"` (src/parser/type-layer-checks.ts) walks the body
-    // with a copy of the enclosing bindings and never binds the iteration
-    // variable, so no body check on `x` resolves — with or without an alias in
-    // the signature. §Non-goals excludes that gap from this fix, which is why
-    // group (d) uses `par for`, the arm that does bind the variable. This row
-    // documents the gap and holds it still; it is not a fix for it. It reds if a
-    // fix widens beyond the unfolding sites and starts binding the plain `for`
-    // variable, which would be an unrequested behaviour change.
+describe("0089 (n) / bug 0126 — the plain `for` statement binds the loop variable to the iterand's element type", () => {
+  it("n1: a `for` body over a CONCRETE `array<string>` parameter reports unknown-method for `x.frobnicate()`", () => {
+    // `walkStmt`'s `case "for"` (src/parser/type-layer-checks.ts) binds
+    // `stmt.variable` to the (TYPE-11-unfolded) iterand's element type, so a
+    // body check on `x` resolves against `string` here — with or without an
+    // alias in the signature, since the concrete and alias routes already agree
+    // everywhere else in this file. Bug 0126
+    // (docs/bugs/0126-plain-for-binds-no-loop-variable.md) is the adjudication
+    // that requested this widening: the loop variable's static type is the
+    // iterand's element type, exactly as group (d)'s `par for` arm already
+    // records it, so this row pins the same `unknown-method` verdict `par for`
+    // sibling row `d1` pins.
+    const diags = diagsOf(ITER("array<string>", "for", "x.frobnicate()"));
     expect(
-      codesOf(ITER("array<string>", "for", "x.frobnicate()")),
-      "0089 §Non-goals — the plain `for` body scope binds no loop variable; that gap is independent of TYPE-11 and stays open",
-    ).toEqual([]);
+      diags.map((d: Diagnostic) => d.code),
+      "bug 0126 — the plain `for` body scope binds the loop variable to the iterand's element type, so this reaches the same `unknown-method` gate `d1` reaches",
+    ).toEqual(["theta/parse/unknown-method"]);
+    // Message from the `theta/parse/unknown-method` row of
+    // docs/spec_topics/diagnostics/code-registry-parse.md
+    // (`unknown method '<method>' on type <type>`). The row is cited by CODE
+    // rather than by line: that page's line numbers drift under every registry
+    // insertion, while a row's code is what DIAG-4 makes normative.
+    expect(
+      messageFor(diags, "theta/parse/unknown-method"),
+      "the `theta/parse/unknown-method` registry row's *Message* column — the rendered `<type>` is the unfolded element type, `string`, sourced the same way row d1 sources it",
+    ).toBe("unknown method 'frobnicate' on type string");
   });
 });

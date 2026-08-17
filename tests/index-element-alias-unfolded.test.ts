@@ -491,7 +491,7 @@ describe("0125 (c) — the six error-severity codes that must fire on an alias-t
 
   it("c3: `schema L = array<array<integer>>` joins its element and reports the non-string element type", () => {
     // Bug 0089 unfolded the `join` guard's input
-    // (src/parser/type-layer-checks.ts:1427–1428), which cannot help when the
+    // (src/parser/type-layer-checks.ts:1444–1445), which cannot help when the
     // input is a fabricated name rather than an alias: `unfoldAlias` returns the
     // sentinel unchanged, so `checkArrayJoin` is never reached. Under TYPE-11
     // the element is `array<integer>`, which expressions.md:108 rejects.
@@ -1031,7 +1031,7 @@ describe("0125 (d cont.) — a `schema index = …` declaration drives real chec
 // ===========================================================================
 // (f) The three sink-routing siblings — a SEPARATE open report (0125
 //     §Non-goals, §Fix (d)). f1/f3/f5 still take the sink-less path
-//     `type-layer-checks.ts:981`/`:1559` route them onto (a raw, un-unfolded
+//     `type-layer-checks.ts:981`/`:1576` route them onto (a raw, un-unfolded
 //     `CompatType` skipping the element-sink call), unmoved by bug 0081 — but
 //     bug 0081's union arm changed what that sink-less path itself answers for
 //     two primitive branches, so the CODES these rows draw moved too: a false
@@ -1126,8 +1126,8 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
     // raw `named(U)` declared type through the same alias unfolding
     // `checkCompatible` always applies, reaching the identical
     // `array<string | integer> ⊭ array<string>` mismatch f3 reaches through
-    // the `let`-RHS check. `type-layer-checks.ts:1559`'s routing defect
-    // (testing the field's raw `kind` before the sink call at `:1560`) is
+    // the `let`-RHS check. `type-layer-checks.ts:1576`'s routing defect
+    // (testing the field's raw `kind` before the sink call at `:1577`) is
     // unmoved.
     expect(
       codesOf([

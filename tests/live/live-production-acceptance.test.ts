@@ -2186,7 +2186,7 @@ describe("H8a-T — bug 0102: a params: default's string literal carrying a raw 
 // target's element type only when the target's RAW `CompatType` had
 // `kind === "array"`, so a type-alias schema `schema L = array<string>` —
 // whose `fn`-parameter record is the raw `named L` (`walkFn`,
-// type-layer-checks.ts:1220) — fell to the sentinel `{ kind: "named", name:
+// type-layer-checks.ts:1237) — fell to the sentinel `{ kind: "named", name:
 // "index" }`, an unresolvable name every downstream check defers on
 // (type-system.md:48). `theta/parse/unknown-method` (E-severity) is one of
 // six registered codes measured absent on the sentinel; `hasLoadParseError`
@@ -7196,6 +7196,141 @@ describe("H8a-T — bug 0136: a member read's static type is the receiver's decl
         notes.some((note) => note.includes(expectedFragment)),
         "no theta-system-note entry named the unknown-method rejection for " +
           "the field-method-misuse caller. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Bug 0126 — `TypeLayerWalk.walkStmt`'s `case "for"` (src/parser/type-layer-
+// checks.ts) walked a plain `for` body with a copy of the enclosing scope and
+// never bound the iteration variable, so nine registered `E`-severity
+// type-layer codes could not fire on the loop variable inside a plain `for`
+// body even over a concrete `array<T>` iterand, while `walkExpr`'s
+// `case "par-for"` bound the same variable to the same iterand's element and
+// reported all nine on the identical body
+// (docs/bugs/0126-plain-for-binds-no-loop-variable.md). The fix binds the
+// loop variable to the (TYPE-11-unfolded) iterand's element when it unfolds to
+// an `array`, mirroring the `par for` arm's own `unprovableBindings` guard;
+// a non-`array` iterand still falls back to bug 0050's WITHHELD twin.
+//
+// THE FIXED OBSERVABLE, MIRRORED FROM THE BUG 0089 CELL (an alias-typed fn
+// parameter iterated in a `for` registers, live) AND THE BUG 0136 CELL (a
+// `for`-iterated declared-field element registers, live) ABOVE — both
+// registration-only, zero-model-turn cells in this exact family. Unlike
+// those two, which are the REGISTRATION-RESTORED direction (0126 §Fix (b)'s
+// removals — a false rejection stops firing), this report's own live surface
+// is the REFUSAL-ADDED direction (0126 §Fix (b)'s additions — a program that
+// registered clean now draws a new `E`), mirrored instead from the bug 0136
+// cell's own second fixture (`b136liverefuse`, sharing that cell's one
+// precondition control): a concrete `array<string>` `fn` parameter, a plain
+// `for` loop over it, and a method call the theta 1.0 stdlib does not expose
+// on the unfolded element type `string` (expressions.md:71) — the offline
+// witness's own cell a1
+// (tests/plain-for-loop-variable-element-type.test.ts). Pre-fix `walkStmt`'s
+// `case "for"` withheld the loop variable's type, so `checkMethodCall`
+// deferred and this caller registered silently; post-fix the loop variable
+// carries the iterand's element type and `theta/parse/unknown-method` fires at
+// PARSE (`E` severity), so `hasLoadParseError` (production-composition.ts)
+// denies registration — the fixed observable this cell asserts, by the SAME
+// registration + theta-system-note channels the bug 0089/0136 cells use.
+//
+// No existing live fixture (H8a, H9a, or the hardening probes) plants a plain
+// `for` body that READS its loop variable through a method call on a concrete
+// `array<T>` parameter — confirmed statically (`rg -n "for \w+ in" tests/live/
+// docs/examples/` shows only bodies that never read the variable, or that
+// read it through a `match` / template-interpolation the checker this cell
+// pins does not classify) — so no existing live fixture had reach over this
+// arm, mirroring the bug 0089/0136 cells' own "no existing live fixture
+// reaches this arm" findings.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the bug 0070/0071/0077/
+// 0079(a)/0110/0084/0089/…/0136 cells above. ADDITIVE ONLY: no existing cell
+// in this file (1–44) is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * Bug 0126's own §Reproduction (a) row 1 / the offline witness's cell a1
+ * (tests/plain-for-loop-variable-element-type.test.ts), replayed here through
+ * the real discovery→registration path instead of the offline harness: a
+ * concrete `array<string>` `fn` parameter, a plain `for` loop over it, and a
+ * method call the theta 1.0 stdlib does not expose on the unfolded element
+ * type `string`. The trailing `1` supplies the theta's final value — no
+ * `@`-query is needed for a prompt-mode theta to register, matching the bug
+ * 0089 cell's own `aliasIterandTheta` above.
+ */
+function forBodyMethodMisuseTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "fn f(xs: array<string>) {",
+    "  for x in xs {",
+    "    x.frobnicate()",
+    "  }",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0126: a plain `for` body's method misuse of its loop variable is refused, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose plain `for` body calls an unsupported method on its loop variable, while a precondition control in the same workspace registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, a
+      // regressed fix (the misuse caller registering because the loop
+      // variable's type never resolved) could be (wrongly) attributed to a
+      // broken workspace instead of the gate under test.
+      { source: "project", stem: "b126livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b126liveforread", text: forBodyMethodMisuseTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b126livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gate under test, would explain the misuse caller's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // plain `for` body that calls an unsupported method on its loop
+      // variable no longer registers — `walkStmt`'s `case "for"`
+      // (type-layer-checks.ts) now binds the variable to the (TYPE-11-
+      // unfolded) iterand's element, so `checkMethodCall` fires
+      // `theta/parse/unknown-method` at PARSE and `hasLoadParseError` denies
+      // registration.
+      expect(
+        handle.command("b126liveforread"),
+        "the caller whose plain `for` body calls an unsupported method on its " +
+          "loop variable registered anyway through the live discovery/" +
+          "session_start path — theta/parse/unknown-method did not fire on the " +
+          "bound element type. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b126liveforread");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"): the diagnostic fires at LOAD time, before any drive,
+      // so the full entry list is the delta (mirrors the bug 0110/0084/0089/
+      // …/0136 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = unknownMethodFragment("frobnicate", "string");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the unknown-method rejection for " +
+          "the for-body misuse caller. Notes: " + JSON.stringify(notes),
       ).toBe(true);
     } finally {
       await handle.dispose();

@@ -344,3 +344,29 @@ body — and no page in the corpus supplies one.
 - Observations: throwaway vitest parse probe over `parseDoc` at `2eafbf10`,
   fourteen sources, deleted after the run. The 0.54.0 disposition of row (a) 1
   is taken from 0083's test ledger, not re-measured here.
+
+## Coordination note — bug 0126 (0.107.0): the `CompatType` map gains a fourth writer
+
+Appended by the bug 0126 fix; nothing above is altered, and this report's §Fix
+is untouched. **Note only — this report stays open.**
+
+§Actual behaviour enumerates the three sites that write `TypeLayerWalk`'s
+`CompatType` map — the `let` arm, `fn` parameters, and the comprehension
+(`par for`) loop variable — and notes that the plain `for` statement is absent
+from that list because it writes nothing.
+
+[0126](./0126-plain-for-binds-no-loop-variable.md) added it.
+`walkStmt`'s `case "for"` now writes the body scope with the TYPE-11-unfolded
+iterand's element type when the iterand unfolds to an `array`, and with bug
+0050's withheld twin otherwise. The map therefore has **four** judged-type
+writers, and the enumeration should be read with the `for` arm alongside the
+`par for` arm whenever this report is next revised.
+
+Nothing else moves for this report's subject. The reassignment arm still
+delegates over the real binding rather than over this map, so what type a
+reassigned `let mut` carries — this report's question — is unchanged in both
+directions. 0126 measured `for x in xs { x = "b" }` as silent before and after
+and pinned it as an attribution row (witness cell `e2`,
+`tests/plain-for-loop-variable-element-type.test.ts`) citing this report and
+[0115](./0115-reassignment-type-compat-unchecked-no-registry-row.md), so the
+silence stays attributed here and not to the `for` arm.

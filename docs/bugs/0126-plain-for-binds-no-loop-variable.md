@@ -1,9 +1,8 @@
 # Bug 0126 — `walkStmt`'s `case "for"` (`type-layer-checks.ts:679–692`) walks the body with a copy of the enclosing scope and never binds the iteration variable, so nine registered `E`-severity type-layer codes cannot fire on the loop variable inside a plain `for` body even over a concrete `array<T>` iterand — the `par for` arm binds it at `:1188–1193` and reports all nine on the identical body — while the unbound variable types as a nominal reference naming its own identifier, which fires `theta/parse/non-array-iterand` falsely on a spec-legal nested `for` and silently adopts an unrelated schema's type when a schema shares its spelling
 
-- **Status:** open. §Fix is not settled: this report exists to pin the spec
-  disposition and the GOV-15 posture before any code lands. No ordering
-  dependency blocks it; the coordination constraints on adjacent open reports
-  are in §Fix (f).
+- **Status:** fixed (0.107.0). §Fix is settled and shipped; the record is
+  §Fix (0.107.0) at the end of this report. The coordination constraints on
+  adjacent open reports are in §Fix (f).
 - **Sev/Diff estimate:** S1/D3 — nine registered error-severity type-layer
   rejections are unreachable inside every plain `for` body while the theta
   registers, and the same missing binding rejects a spec-legal nested `for`
@@ -1145,3 +1144,253 @@ the variable's spelling is no longer silently adopted (cells u13md / u13,
 codes still cannot fire on the loop variable — REMAINS: a withheld read
 defers at every judgement sink. Cells u12e / u13me pin that deferral with
 this report named as the flip condition.
+
+## Fix (0.107.0)
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — `TypeLayerWalk.walkStmt`'s `case "for"`
+    records the loop variable in the body scope with the **TYPE-11-unfolded
+    iterand's element type** when that iterand unfolds to an `array`
+    (`unfoldAlias(iterandType, this.env)`, the derivation the `par for` arm
+    already performs), and marks the record unprovable when the iterand is not
+    itself a proof — the `par for` arm's own soundness discipline. A
+    non-`array` iterand keeps bug 0050's `recordWithheldBinders` twin. The
+    arm's comment is rewritten to the shipped rule, and
+    `collectLocalBinderNames`'s doc comment no longer lists the loop variable
+    among the classes this layer cannot type. One executable hunk, `+11/−1`.
+  - `docs/spec_topics/control-flow.md` — the spec silence closed. The `for` …
+    `in` paragraph states the loop variable's static type: the iterand's
+    element type `T`, under TYPE-11 transparency, with a non-`array` iterand
+    leaving it unresolvable so *Unresolvable operands* applies and body checks
+    defer. The `par for` reuse enumeration gains the same item, scoped to the
+    `array<T>` iterand, so the reference mirror is spec-backed. 78 lines before
+    and after.
+  - `docs/reference/grammar.md` — both loop-variable bullets mirror the rule,
+    same commit.
+  - `tests/plain-for-loop-variable-element-type.test.ts` — new, 53 cells at the
+    `parseThetaDocument` boundary through `tests/helpers/e2e-s1.ts`'s
+    `parseDoc`: the nine-code inventory with its `par for` and `let` controls,
+    the render rows, the nested-`for` group, the collision rows with their
+    no-schema twins, the attribution rows, the TYPE-11 and member-iterand rows,
+    the withheld-fallback pins and the committed-corpus pair. Ordered
+    whole-list `toEqual` on codes and messages; every message read from the
+    registry by CODE through an oracle that throws on a shape change (DIAG-4);
+    a loud binder-site precondition on every cell.
+  - `tests/fn-param-alias-unfolded-at-gates.test.ts` — bug 0089's tripwire `n1`
+    **inverted, not deleted** (§Fix (d)): same input, new expectation
+    `["theta/parse/unknown-method"]` with the message its `par for` sibling
+    `d1` carries, comment rewritten to cite this report as the adjudication.
+    The other 35 rows' assertions are byte-unchanged and green.
+  - `tests/fn-arg-type-mismatch-wired.test.ts` — bug 0050's 84-cell witness:
+    `u9`, `u12e` and `u13me` flip from deferral to the fired true positive each
+    named as its own flip condition; `u13r` is **re-pointed subject-preserving**
+    onto an unannotated-`fn`-parameter binder so its `array<<withheld>>`
+    assertion stays byte-identical and bug 0143 keeps its only in-tree pin. The
+    narrative passages this fix falsified are rewritten to the shipped
+    mechanism. No other cell's assertion moves.
+  - `tests/live/live-production-acceptance.test.ts` — one **additive** H8a cell
+    (the 45th): a plain-`for` body whose method call misuses the loop variable
+    is refused registration through the real discovery→registration path,
+    beside a precondition control that registers. Registration-only, zero model
+    turns.
+  - `tests/array-sink-unresolvable-deferral.test.ts`,
+    `tests/index-element-alias-unfolded.test.ts` — comment-only citation
+    corrections for the `+17` line shift.
+  - Byte-unchanged, hash-verified: `src/parser/static-type-inference.ts`
+    (§Fix (e) **posture 1** — the `ident`-arm fallback stays),
+    `src/parser/control-flow.ts`, `src/parser/type-compat.ts`, the diagnostic
+    registry and `docs/reference/diagnostics.md` (no code added, removed or
+    renamed; no *Message* reworded), and
+    `tests/fixtures/h7a/permitted-codes.json`
+    (`a4a8da04209f90e13d815edd92c1fc682e2a2236`, re-verified after the real H9a
+    run).
+- Route settlement (§Fix (a)): **route 1**, bind in place. Route 2's shared
+  helper is rejected on measurement, not preference — post-0050 the two arms'
+  non-`array` fallbacks legitimately differ. §Non-goals pins the `par for`
+  arm's `{ kind: "named", name: "unknown" }` as unchanged by any route, while
+  the plain-`for` arm must keep the withheld twin, so a shared helper would
+  need a discriminating parameter and would not remove the drift risk it exists
+  to remove. The fallback choice is decisive and was measured both ways: the
+  literal `par for` mirror reintroduces **this report's own defect** at the
+  binder classes it does not own — `fn h(p) { for x in p { for y in x { } } }`
+  draws a false `theta/parse/non-array-iterand :: … got unknown`, an `E`
+  denying registration on a program that loads cleanly, with an internal
+  sentinel rendered into a `<type>` slot. Witness pins g1 and g5 discriminate
+  the two fallbacks; g6 pins the object-index-key sink.
+- Re-derived baseline. §Reproduction was written at 0.72.0 and two later fixes
+  moved it. **Bug 0050 (0.77.0)** already closed two of the three measured
+  consequences: the false nested-`for` rejection and the schema-name adoption
+  are `[]` at this baseline, because the loop variable is recorded as a
+  withheld twin. The remaining subject, the nine codes, is unmoved and is what
+  this fix closes. **Bug 0136 (0.106.0)** made a member iterand type as its
+  declared field type, so `for y in p.xs` composes with this fix (witness row
+  f2). §Reproduction (b)'s `got x` / `got q` renders no longer exist; the live
+  pre-fix render observable is the composite `array<<withheld>>`, which becomes
+  `array<integer>` at an unchanged code and range.
+- §Fix (e) posture: **posture 1** (out of scope), discharged by measurement
+  rather than asserted. All five §Reproduction (d) collision rows are decided
+  by the iterand's element type: the false accept closes, the false rejection
+  stays closed, and the nested-`for` flip is dead in both directions. No
+  declaration elsewhere in the file can change a `for` variable's type. The
+  mechanism remains live at the binders this report does not own, which is
+  RFC 0008's and bug 0141's territory.
+- GOV-15 (§Fix (b)), enumerated in every direction it moves:
+  - **Observable (b), additions.** Nine codes become reachable on a plain-`for`
+    loop-variable read whose iterand unfolds to `array<T>`: `unknown-method`
+    (method and member forms), `mixed-plus-operands`,
+    `non-indexable-receiver`, `integer-narrowing`, `non-string-array-join`,
+    `non-boolean-condition`, `non-orderable-operands`,
+    `let-rhs-type-mismatch`, `object-field-type-mismatch`. Two further input
+    classes arrive by composition: `non-array-iterand` on a nested `for` whose
+    outer element is not an array — a true positive its `par for` sibling
+    already reports — and `theta/parse/fn-arg-type-mismatch`, whose emitter bug
+    0050 wired in 0.77.0 and which this binding first makes reachable inside a
+    `for` body. All are `E`, so affected programs stop registering
+    (`hasLoadParseError`). This is the *Diagnostic-registry carve-out*
+    (`source-language-stability.md:25`) in its addition arm, following the
+    precedent chain **0031 → 0084**: 0031 recorded the disposition for a code
+    addition, and 0084 reused it for a trigger change with a byte-unchanged
+    registry on the ground that it is "strictly narrower". This fix is that
+    same strictly-narrower shape and cites the chain rather than invoking the
+    carve-out silently.
+  - **Observable (b), removals: none at this baseline.** The removal direction
+    the report anticipated — the false nested-`for` rejection — was discharged
+    by bug 0050 in 0.77.0, and those inputs never satisfied `:9`'s
+    loads-cleanly predicate anyway.
+  - **Observable (c).** A `<type>` slot fed by a plain-`for` loop-variable read
+    renders the element type where it rendered the withheld sentinel
+    (`condition must be boolean; got array<integer>` for
+    `got array<<withheld>>`), at an unchanged code and range. That is the
+    `placeholder-rendering-a.md:13–21` **discharge**, not a change owed: the
+    slot stops rendering an unspellable internal name and starts rendering a
+    type category 1 admits. No placeholder edit is owed and none is made.
+  - **Observable (a).** Unchanged — no runtime path is touched.
+  - **Corpus.** 34 committed `.theta`/`.thetalib`; exactly one contains a plain
+    `for` (`docs/examples/fan-out-reviews.theta`), measured clean before and
+    after. `tests/committed-fixture-parse-gate.test.ts` is the corpus-wide
+    discharge per `AGENTS.md`, and it is green.
+- DIAG-2 / DIAG-4: the registry is byte-unchanged, and all ten *Trigger* cells
+  were re-read against the shipped behaviour. Each stays true;
+  `non-array-iterand`'s becomes strictly more accurate, since it stops firing
+  where the iterand is an `array<T>`. No *Message* is reworded.
+- Gates (verbatim):
+  - Witness — `npx vitest run tests/plain-for-loop-variable-element-type.test.ts`
+    → `Test Files  1 passed (1)` / `Tests  53 passed (53)`.
+  - Full default suite — `npx vitest run --exclude "tests/scratch-*"` →
+    `Test Files  312 passed (312)` / `Tests  5208 passed (5208)`. The
+    committed-tree baseline before this fix was 311 files / 5155 tests; the
+    delta is exactly the new witness.
+  - Typecheck — `npx tsc -p tsconfig.json --noEmit` → clean.
+  - Lint — `npm run lint` → clean.
+  - H8a live — `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Tests  45 passed (45)`.
+  - H9a live — `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/` → `Test Files  2 passed (2)` /
+    `Tests  11 passed (11)`.
+- Review: 3 rounds, converged clean.
+  - Round 1 (deep) — 5 findings: `n1`'s registry row cited by a drifted line;
+    seven `type-layer-checks.ts` citations falsified by the line shift; the
+    `par for` grammar mirror asserting a typing rule the spec's own reuse
+    enumeration omitted (`spec`); a ragged reflow; the witness grounding a
+    contract on a fix-run scratch path. All fixed.
+  - Round 2 (fast) — 1 `fidelity` finding: eleven narrative passages in bug
+    0050's witness describing the retired withhold mechanism. Fixed, together
+    with four more of the same species the fixer surfaced and two fixture
+    identifiers naming a read that is now proven. A follow-on light round
+    reframed the witness's colour ledger neutralisation-relatively and
+    corrected three cells' mechanism claims, each verified against the code it
+    cites.
+  - Round 3 (deep) — **CLEAN**: no `correctness`, `fidelity` or `spec` finding.
+    Three residuals, recorded below.
+- Verification: SOLID, all four obligations discharged with quoted evidence.
+  - Neutralisation — replacing the arm with its pre-fix single line reds the
+    witness at **exactly** the 21 rows its own ledger calls fix-produced, with
+    every regression pin staying green; `u9`, `u12e`, `u13me` and `n1` red as
+    authorized. Dropping only the `unfoldAlias` reds exactly `f1`; dropping
+    only the `unprovableBindings` marking reds exactly `e4`. Every restore
+    verified byte-exact by blob hash. `u13r` correctly does **not** red: its
+    re-pointed fixture holds no `for` loop, and the `for`-fed composite render
+    it used to carry is pinned by witness row `b4`, which does red.
+  - Full default suite green at 312/5208, committed-fixture parse gate green.
+  - Live — the additive H8a cell was proven **both directions live**: with the
+    fix neutralised the mis-typed caller registers
+    (`Registered: ["b126livectl","b126liveforread"]`); restored, it does not.
+    The real H9a run settled §Fix (g) by measurement — no `theta/parse/*` code
+    reaches an acceptance capture, so `permitted-codes.json` needs no append
+    and its blob is unchanged. Its one red was a documented stochastic
+    sentinel-refusal on an unrelated bug-0025 fixture carrying no `for` loop:
+    green in isolation and green on the clean re-run. The two planted
+    hardening workspaces that read a plain-`for` loop variable
+    (`recent-rfc-live-drives`, `session-convdrive`) were swept statically and
+    are unmoved in both directions.
+  - Lint and typecheck clean.
+- Residuals:
+  1. **Bug 0050's withheld gate has no pinning cell at two of its sinks.**
+     Neutering `containsWithheldBinderType` at the typed-`let` RHS sink and at
+     the `array.join` element sink leaves the whole suite green: this fix moved
+     those gates' only load-bearing inputs onto a proven element. The gates are
+     intact and correct; what is missing is a regression pin. Discriminating
+     fixtures exist and were measured — `fn h(x) { let s = [x].join(",") }` and
+     `fn h(x) { let s: integer = [x] }` are `[]` as shipped and emit
+     `… got array<<withheld>>` with the gate neutered. Filing candidate against
+     bug 0050's witness.
+  2. **Line-citation drift into `src/parser/type-layer-checks.ts`.** The file
+     grows by 17 lines, so citations at line ≥1106 shift. The six citations in
+     the three test files this change touches were re-derived and verified
+     against the code they land on, and the file was deliberately held to
+     exactly `+17` so those corrections stay exact; the remaining tree-wide
+     citations — chiefly in `docs/bugs/**`, which pin their own HEADs by
+     convention — are bug 0134's recorded class and are left as found. Two
+     specific ones a later pass should take:
+     `tests/fn-arg-type-mismatch-wired.test.ts`'s `u12` comment cites the arm
+     as `:1071–1105` while narrating its pre-0050 behaviour, so the span and
+     the prose must move together; and
+     `tests/index-element-alias-unfolded.test.ts`'s `c3` comment cites the
+     `join` guard's unfold at a signature line — wrong before this change and
+     still wrong after, since the shift preserved its offset.
+  3. **`docs/spec_topics/control-flow.md:13`'s empty-array claim measures
+     false.** The byte-unchanged remainder of the edited line states that
+     `for x in []` with no surrounding sink is
+     `theta/parse/array-no-common-type`, "the same diagnostic that
+     `let xs = []` raises in unannotated position"; both measure `[]` at this
+     baseline. Untouched by this fix — the emission path is the common-type
+     machinery — and adjacent to bugs 0081/0155. Filing candidate.
+  4. **`unprovableBindings` marks by object identity, and a `TypeEnv` alias's
+     element object is shared.** With `schema L = array<integer>` and
+     `schema P { xs: L }`, an unprovable `for a in p.xs` marks the shared alias
+     element, which then suppresses a true `fn-arg-type-mismatch` in a later
+     `for b in ys { g(b) }` over a provable `ys: L`. The `par for` arm has the
+     identical behaviour at this baseline, the settled §Fix ordered the marking
+     mirrored, and the failure direction is the admissible one — a withheld
+     true positive, never a false `E`. Filing candidate covering both arms.
+  5. **Orchestrator self-authorizations, recorded rather than left invisible.**
+     (i) Cells `u9` and `u13r` moved although the fix brief named only `n1`,
+     `u12e` and `u13me`. `u9`'s re-adjudication on this exact event is named in
+     `u12e`'s and `u13me`'s own comments and in bug 0050's §Fix residuals, and
+     `u13r`'s dissolution is named three times in bug 0143 — §Related,
+     §Non-goals, and its ordering section: "If the plain `for` variable gains
+     the iterand's element type, c1–c4 stop being withheld-binder rows". Both
+     were treated as pre-authorized on that evidence rather than as new
+     decisions, and `u13r` was re-pointed rather than flipped so its assertion
+     stays byte-identical. (ii) After the clean round-3 review the orchestrator
+     reflowed `collectLocalBinderNames`'s doc comment to net-zero growth —
+     comment-only, no executable line, gates re-run green — so the file's total
+     growth is exactly `+17` and every citation corrected during the review
+     rounds resolves. Both are bounded and touch no assertion and no behaviour.
+- Discharge notes appended: 0089 (its §Fix *Residuals* item (ii) recorded this
+  gap as confirmed, not closed — now closed), 0090 (the `CompatType` map's
+  writer list gains the `for` arm — note only, its §Fix untouched), 0143 (its
+  group (c)'s plain-`for`-fed rows dissolve, exactly as its own ordering
+  section predicted — note only).
+- Pinned dispositions / non-goals: route 2 rejected on measurement, above.
+  §Fix (e) posture 1 taken, and `src/parser/static-type-inference.ts` is
+  byte-unchanged — its binding-blind `infer` pass owes no binding (§Fix (a)'s
+  finding). The `par for` arm is untouched; its non-`array` fallback and its
+  CTRL-3 element rendering are §Non-goals. `theta/parse/immutable-rebinding` on
+  a `for` variable stays out (bug 0115 and the mutability non-goal; witness row
+  e2 pins the silence). The reassignment arm's compatibility check stays out
+  (bugs 0115/0090). `match` pattern-variable typing stays out (RFC 0008 and bug
+  0145, named explicitly as out of scope). `annotationToCompatType`'s leniency
+  stays out (bug 0124). The fn-argument sink's withholding on member reads
+  stays out (bug 0190). No new diagnostic code, no registry row, no new
+  placeholder.

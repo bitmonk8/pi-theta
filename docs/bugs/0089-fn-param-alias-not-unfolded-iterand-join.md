@@ -620,3 +620,35 @@ still open and is now filed as
 Residual (iii) is likewise untouched: this file stays byte-unchanged, so
 `tests/let-annotation-recorded-binding-type.test.ts`'s group (d) comment is
 still left as found.
+
+## Discharge note — bug 0126 (0.107.0): §Fix *Residuals* item (ii) is closed
+
+Appended by the bug 0126 fix; nothing above is altered. **Note only — this
+report stays fixed (0.72.0) and its own subject is untouched.**
+
+§Fix *Residuals* item (ii) recorded the plain-`for` body-scope gap as
+*confirmed, not closed*: "`walkStmt`'s `case \"for\"` binds no loop variable at
+all, so `fn f(xs: array<string>) { for x in xs { x.frobnicate() } }` reports
+`[]` even with a concrete array parameter. Row `n1` pins it as a tripwire."
+
+[0126](./0126-plain-for-binds-no-loop-variable.md) is the adjudication that
+closed it. `walkStmt`'s `case "for"` now records the loop variable with the
+TYPE-11-unfolded iterand's element type when the iterand unfolds to an
+`array`, so that program reports
+`error theta/parse/unknown-method :: unknown method 'frobnicate' on type string`
+— the message this report's own group (d) `par for` row `d1` already carried.
+
+Two consequences for this report's witness, both deliberate and recorded in
+0126's §Fix (0.107.0):
+
+- **Row `n1` is inverted, not deleted.** Its input is unchanged; its
+  expectation is now `["theta/parse/unknown-method"]` with `d1`'s message, and
+  its comment cites 0126 as the adjudication that made the widening requested.
+  The tripwire did its job — the gap could not drift unnoticed, and its flip
+  was a decision rather than an accident.
+- **The other 35 rows are byte-unchanged in their assertions and green**, which
+  is what proves 0126 did not disturb this fix's four unfolding sites. Groups
+  (a) and (e) use plain `for` with bodies that do not read the loop variable,
+  verified rather than assumed.
+
+Residuals (i), (iii) and (iv) of this report are untouched.

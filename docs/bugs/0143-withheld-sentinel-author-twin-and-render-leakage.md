@@ -877,3 +877,39 @@ every observable is determined inside one parse.
   `tests/helpers/e2e-s1.ts:39` (`parseDoc`). No test in the tree parses a
   source containing `<withheld>`, and none asserts that a rendered type name is
   category-1 conformant.
+
+## Coordination note — bug 0126 (0.107.0): group (c)'s plain-`for` rows dissolve
+
+Appended by the bug 0126 fix; nothing above is altered. **Note only — this
+report stays open.**
+
+§Fix (e) of this report states the dependency in terms: "**[0126] bounds group
+(c).** If the plain `for` variable gains the iterand's element type, c1–c4 stop
+being withheld-binder rows." That is what happened.
+[0126](./0126-plain-for-binds-no-loop-variable.md) records the plain-`for` loop
+variable with the TYPE-11-unfolded iterand's element type when the iterand
+unfolds to an `array`, so a `for`-fed read is no longer a withheld-binder read
+and renders a real type — `array<integer>` where `array<<withheld>>` rendered,
+at an unchanged code and range. A non-`array` iterand still takes the withheld
+twin, so the sentinel remains reachable through that arm.
+
+Two things this report depends on, and what each is now:
+
+- **Cell `u13r` still exists and still pins `array<<withheld>>` byte-exact.**
+  Its expectation string is unchanged. Its fixture was re-pointed onto an
+  **unannotated `fn` parameter** — a binder class 0126 does not own, still
+  recorded withheld by `walkFn` — precisely so this report keeps its only
+  in-tree pin of the sentinel's rendered spelling. Its title, subject and
+  purpose are unchanged; its `letRange` precondition and asserted range were
+  re-derived for the new fixture text. §Affected's "One cell touches this
+  report: u13r" therefore still holds, at re-derived line numbers.
+- **Group (c)'s enumeration needs re-deriving against the surviving binder
+  classes.** The five withheld-binder-fed render shapes this report sweeps are
+  now fed by a `match`-arm binding, an unannotated `fn` parameter, or a plain
+  `for` whose iterand is not an `array<T>` — not by an ordinary `for` over a
+  concrete array. The `for`-fed composite render is pinned instead by row `b4`
+  of `tests/plain-for-loop-variable-element-type.test.ts`, at the same code and
+  range this report's own text predicted would be unmoved.
+
+The sentinel itself, the key-level unspellability claim, the author-twin route
+and the `type-compat.ts` render arm are all untouched by 0126.
